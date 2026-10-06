@@ -172,10 +172,13 @@ func ParseTokenWorkspaceChildrenCredential(raw string) bool {
 // TokenCredentialKind classifies an access token from its stored fields
 // and its user's account type. An agent account (a bot or service user) is
 // an agent whatever token it holds: its token is an agent run's.
-func TokenCredentialKind(systemIssued bool, rawScopes, userType string) CredentialKind {
+func TokenCredentialKind(systemIssued bool, rawScopes, userType string, install ...bool) CredentialKind {
 	if !systemIssued {
 		if IsAgentAccount(userType) {
 			return CredentialAgentRun
+		}
+		if len(install) > 0 && install[0] {
+			return CredentialDelegated
 		}
 		return CredentialPerson
 	}

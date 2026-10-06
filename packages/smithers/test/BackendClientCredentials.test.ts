@@ -781,3 +781,13 @@ describe("terminal credential files (#3537)", () => {
     expect(spawn).not.toHaveBeenCalled()
   })
 })
+
+it("uses the selected saved credential via when no agent environment is present", async () => {
+  const f = await fixture()
+  const token = "synthetic-saved-via"
+  f.allow(token)
+  const client = new Client({ environment: f.environment })
+  await client.session.save(f.environment.SMITHERS_API_ORIGIN!, token, { kind: "delegated", via: "claude-code" })
+  f.route("/probe", (request, response) => { expect(request.headers["smithers-via"]).toBe("claude-code"); response.end("{}") })
+  await client.response("GET", "/probe")
+})

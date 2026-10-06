@@ -419,3 +419,6 @@ export const MergeSchema = z.object({
  * @category models
  */
 export type Merge = z.infer<typeof MergeSchema>
+
+/** A member's install role, shared by roster projections. @since 1.0.0 */
+export const MemberRoleSchema = z.enum(["owner", "maintainer", "member"])

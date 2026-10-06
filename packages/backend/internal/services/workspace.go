@@ -557,6 +557,7 @@ type WorkspaceQuerier interface {
 // lifecycle reconciliation around either a shared runtime or the legacy
 // sandbox transport during migration.
 type WorkspaceService struct {
+	credentialIssuer     *AuthService
 	commandJobs          *jobs.Store
 	commandCodec         flowhost.SecretCodec
 	provisionTasks       *workspaceProvisionTasks
@@ -645,6 +646,12 @@ type WorkspaceService struct {
 
 // WorkspaceServiceOption configures optional dependencies.
 type WorkspaceServiceOption func(*WorkspaceService)
+
+// WithWorkspaceCredentialIssuer shares the install's member-checked issuer
+// with terminal minting and every renewal.
+func WithWorkspaceCredentialIssuer(issuer *AuthService) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.credentialIssuer = issuer }
+}
 
 // WorkspaceRuntimeIdentityResolver maps an already-authorized product
 // workspace request onto the tenant and principal identifiers an isolated

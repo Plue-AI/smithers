@@ -1476,12 +1476,12 @@ export const getApiAuthGithubCallback = (transport: Transport): Promise<GetApiAu
   transport.request("GET", `/api/auth/github/callback`) as Promise<GetApiAuthGithubCallbackResponse>
 
 export interface GetApiAuthGithubCliInput {
-  readonly query: { readonly callback_port: number; readonly callback_state?: string; readonly scopes?: string; readonly admin?: "1"; readonly ttl?: string }
+  readonly query: { readonly agent?: string; readonly callback_port: number; readonly callback_state?: string; readonly scopes?: string; readonly admin?: "1"; readonly ttl?: string }
 }
 
 /** GET /api/auth/github/cli */
 export const getApiAuthGithubCli = (transport: Transport, input: GetApiAuthGithubCliInput): Promise<void> =>
-  transport.request("GET", `/api/auth/github/cli${search({ callback_port: input.query.callback_port, callback_state: input.query.callback_state, scopes: input.query.scopes, admin: input.query.admin, ttl: input.query.ttl })}`).then(() => undefined)
+  transport.request("GET", `/api/auth/github/cli${search({ agent: input.query.agent, callback_port: input.query.callback_port, callback_state: input.query.callback_state, scopes: input.query.scopes, admin: input.query.admin, ttl: input.query.ttl })}`).then(() => undefined)
 
 /** GET /api/auth/github/cli/consent: Deny pending administrator CLI login */
 export const getApiAuthGithubCliConsent = (transport: Transport): Promise<Response> =>

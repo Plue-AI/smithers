@@ -759,3 +759,21 @@ describe("application client owned browser cookie units", () => {
     expect(calls).toBe(0)
   })
 })
+
+
+test("install browser starts agent turns with cookies and never resolves a turn bearer", async () => {
+  let tokenReads = 0
+  const client = createApplicationClient(target("web-selfhost"), {
+    pageOrigin,
+    token: () => { tokenReads++; return "host-only-turn-bearer" },
+    fetchImpl: async (_input, init) => {
+      expect(init?.credentials).toBe("include")
+      expect(new Headers(init?.headers).get("Authorization")).toBeNull()
+      expect(new Headers(init?.headers).get("Smithers-Via")).toBeNull()
+      expect(JSON.stringify(init)).not.toContain("host-only-turn-bearer")
+      return Response.json({ id: "turn-1", state: "requested" })
+    }
+  })
+  await client.request("/api/agent/turn", { method: "POST", body: JSON.stringify({ prompt: "Read the retry code" }) })
+  expect(tokenReads).toBe(0)
+})

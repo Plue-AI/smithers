@@ -436,11 +436,13 @@ export class Client {
       if (/authorization|token|secret/i.test(key)) this.protect(value.replace(/^(?:Bearer|token)\s+/i, ""))
     }
     // Attribution only: the host retains the credential's stored actor and via.
-    // With no agent hint, omit the header so that stored via remains authoritative.
+    // With no ambient agent, use metadata only for the selected saved credential.
     const via = this.env.CLAUDECODE === "1"
       ? "claude-code"
       : Object.entries(this.env).some(([key, value]) => key.startsWith("CODEX_") && value !== undefined)
       ? "codex"
+      : credential && ["keyring", "smithers_auth_file"].includes(credential.resolved.source)
+      ? str(this.session.record(origin)?.via) || undefined
       : undefined
     const headers = {
       "user-agent": `smithers-cli/${packageVersion}`,

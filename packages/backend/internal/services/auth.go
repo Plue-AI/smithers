@@ -49,6 +49,8 @@ type TokenSummary struct {
 	Name           string     `json:"name"`
 	TokenLastEight string     `json:"token_last_eight"`
 	Scopes         []string   `json:"scopes"`
+	Kind           string     `json:"kind,omitempty"`
+	Via            string     `json:"via,omitempty"`
 	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
 }
 
@@ -56,6 +58,8 @@ type CreateTokenRequest struct {
 	Name      string     `json:"name"`
 	Scopes    []string   `json:"scopes"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// Via is host-owned and cannot be selected in a public token request.
+	Via string `json:"-"`
 }
 
 type CreateTokenResult struct {
@@ -423,6 +427,9 @@ func (s *AuthService) StartGitHubOAuth(ctx context.Context, stateVerifier string
 // records its requested personal-access-token scopes in the one-time state.
 // An omitted scopes query preserves the legacy CLI scope set.
 func (s *AuthService) StartGitHubOAuthWithScopes(ctx context.Context, stateVerifier, rawScopes string) (string, error) {
+	if config.IsSingleOwner(s.cfg) && (s.queries == nil || s.Members == nil || s.Members.Pool == nil || GitHubRedirectURI(ctx) == "") {
+		return "", &AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"}
+	}
 	scopes, err := normalizeAndValidateCLIOAuthScopes(rawScopes)
 	if err != nil {
 		return "", err
@@ -482,6 +489,10 @@ func (s *AuthService) StartAuth0OAuth(ctx context.Context, stateVerifier string)
 }
 
 func (s *AuthService) CompleteGitHubOAuth(ctx context.Context, code, state, stateVerifier string) (result OAuthCallbackResult, retErr error) {
+	if config.IsSingleOwner(s.cfg) && (s.queries == nil || s.Members == nil || s.Members.Pool == nil || GitHubRedirectURI(ctx) == "") {
+		return OAuthCallbackResult{}, &AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"}
+	}
+
 	defer func() { s.observeLogin("github", retErr) }()
 	if s.githubClient == nil {
 		return OAuthCallbackResult{}, pkgerrors.Internal("github oauth is not configured")
@@ -812,6 +823,10 @@ func (s *AuthService) resolveExchangeTokenExpiry(name string, ttlSeconds *int64)
 // cycle. The first server-side refresh backfills a real expiry regardless, so
 // accounts self-upgrade to proactive refresh without any caller change.
 func (s *AuthService) ExchangeGitHubToken(ctx context.Context, githubAccessToken, tokenName, githubRefreshToken string, githubTokenExpiresIn int64, ttlSeconds *int64) (result ExchangeGitHubTokenResult, retErr error) {
+	if config.IsSingleOwner(s.cfg) && (s.queries == nil || s.Members == nil || s.Members.Pool == nil) {
+		return ExchangeGitHubTokenResult{}, &AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"}
+	}
+
 	defer func() { s.observeLogin("github", retErr) }()
 	if s.githubClient == nil {
 		return ExchangeGitHubTokenResult{}, pkgerrors.Internal("github oauth is not configured")
@@ -844,7 +859,7 @@ func (s *AuthService) ExchangeGitHubToken(ctx context.Context, githubAccessToken
 	// sessions) valid instead of stranding the user with no credential at all.
 	exchangeScopes := []string{"repo", "user", "org"}
 	if config.IsSingleOwner(s.cfg) {
-		exchangeScopes = []string{"repo", "user", "workspace", "approval", "agent"}
+		exchangeScopes = []string{"repo", "user", "workspace", "agent"}
 	}
 	created, err := s.CreateToken(ctx, user.ID, CreateTokenRequest{
 		Name:      name,
@@ -1030,7 +1045,15 @@ func (s *AuthService) ListTokens(ctx context.Context, userID int64) ([]TokenSumm
 
 	result := make([]TokenSummary, 0, len(tokens))
 	for _, token := range tokens {
+		kind, via := string(middleware.TokenCredentialKind(token.SystemIssued, token.Scopes, "", config.IsSingleOwner(s.cfg))), ""
+		if delegation, ok := middleware.ParseTokenDelegation(token.SystemIssued, token.Scopes); ok {
+			via = delegation.Via
+		}
+		if config.IsSingleOwner(s.cfg) && !token.SystemIssued {
+			kind, via = "delegated", "cli"
+		}
 		result = append(result, TokenSummary{
+			Kind: kind, Via: via,
 			ID:             token.ID,
 			Name:           token.Name,
 			TokenLastEight: token.TokenLastEight,
@@ -1057,6 +1080,29 @@ func (s *AuthService) CreateToken(ctx context.Context, userID int64, req CreateT
 		return CreateTokenResult{}, expiresErr
 	}
 
+	systemIssued := false
+	via := ""
+	if config.IsSingleOwner(s.cfg) {
+		if err := s.requireDelegatedMember(ctx, userID); err != nil {
+			return CreateTokenResult{}, err
+		}
+		via = req.Via
+		if via == "" {
+			via = "cli"
+		}
+		if !ValidExternalAgent(via) {
+			return CreateTokenResult{}, pkgerrors.BadRequest("invalid agent")
+		}
+		systemIssued = true
+		filtered := normalizedScopes[:0]
+		for _, scope := range normalizedScopes {
+			if scope != "approval" && scope != "write:approval" && scope != "read:approval" {
+				filtered = append(filtered, scope)
+			}
+		}
+		normalizedScopes = append(filtered, middleware.DelegationScopes(middleware.Delegation{Via: via})...)
+		expiresAt = s.now().Add(30 * 24 * time.Hour)
+	}
 	if containsPrivilegedScope(normalizedScopes) {
 		user, err := s.queries.GetUserByID(ctx, userID)
 		if err != nil {
@@ -1077,6 +1123,7 @@ func (s *AuthService) CreateToken(ctx context.Context, userID int64, req CreateT
 		Name:           name,
 		TokenHash:      tokenHash,
 		TokenLastEight: tokenLastEight,
+		SystemIssued:   systemIssued,
 		Scopes:         strings.Join(normalizedScopes, ","),
 		ExpiresAt:      pgtype.Timestamptz{Time: expiresAt, Valid: true},
 	})
@@ -1086,6 +1133,13 @@ func (s *AuthService) CreateToken(ctx context.Context, userID int64, req CreateT
 
 	return CreateTokenResult{
 		TokenSummary: TokenSummary{
+			Kind: func() string {
+				if systemIssued {
+					return "delegated"
+				}
+				return "person"
+			}(),
+			Via:            via,
 			ID:             created.ID,
 			Name:           created.Name,
 			TokenLastEight: created.TokenLastEight,

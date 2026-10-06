@@ -36,6 +36,7 @@ func terminalCredentialName(sessionID string) string { return "terminal-session-
 // terminalCredential is one terminal session's delegated credential.
 type terminalCredential struct {
 	registry     *sync.Map
+	issuer       *AuthService
 	tokens       accessTokenStore
 	writer       workspaceapi.SessionCredentialWriter
 	workspaceID  string
@@ -61,7 +62,7 @@ func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.W
 	if !ok || s.q == nil || url == "" {
 		return nil, nil
 	}
-	credential := &terminalCredential{registry: s.terminalCredentials, tokens: s.q, writer: writer, workspaceID: row.ID,
+	credential := &terminalCredential{registry: s.terminalCredentials, issuer: s.credentialIssuer, tokens: s.q, writer: writer, workspaceID: row.ID,
 		sessionID: sessionID, userID: userID, repositoryID: row.RepositoryID, url: url}
 	if err := s.installTerminalCredential(ctx, credential); err != nil {
 		return nil, err
@@ -111,7 +112,17 @@ func (c *terminalCredential) scopes() string {
 // and only then revokes the one it replaces.
 func (c *terminalCredential) issueLocked(ctx context.Context) error {
 	q := c.tokens
-	token, err := issueTemporaryRepoTokenWithTTL(ctx, q, c.userID, terminalCredentialName(c.sessionID), c.scopes(), terminalCredentialTTL)
+	var token temporaryRepoCloneToken
+	var err error
+	if c.issuer != nil {
+		var minted CreateTokenResult
+		minted, err = c.issuer.MintForTerminal(ctx, c.userID, c.repositoryID, c.workspaceID, c.sessionID)
+		if err == nil {
+			token = temporaryRepoCloneToken{ID: minted.ID, Plaintext: minted.Token, ExpiresAt: *minted.ExpiresAt}
+		}
+	} else {
+		token, err = issueTemporaryRepoTokenWithTTL(ctx, q, c.userID, terminalCredentialName(c.sessionID), c.scopes(), terminalCredentialTTL)
+	}
 	if err != nil {
 		return err
 	}
