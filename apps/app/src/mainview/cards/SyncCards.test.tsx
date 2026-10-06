@@ -1,5 +1,5 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, describe, expect, jest, test } from "bun:test"
+import { afterAll, describe, expect, jest, spyOn, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import { pillStatus } from "./CardRenderers"
@@ -142,22 +142,31 @@ describe("ConnectorSetupCardBody — the GitHub card", () => {
   })
 
   test("the rate-limit line follows the ADR: a reset ahead reads as time ahead, never as an age", () => {
-    /* Review finding 2: the age label clamped a future reset to "resets just now". */
-    const ahead = renderSetup(
-      setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(12) } })
-    )
-    expect(ahead.host.textContent).toContain("GitHub rate limit reached · 0 of 5,000 · resets in 12 min · Retry after")
-    expect(ahead.host.textContent).not.toContain("just now")
+    const clock = spyOn(Date, "now").mockReturnValue(new Date(2026, 9, 6, 12, 0).getTime())
+    try {
+      /* Review finding 2: the age label clamped a future reset to "resets just now". */
+      const ahead = renderSetup(
+        setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(12) } })
+      )
+      expect(ahead.host.textContent).toContain("GitHub rate limit reached · 0 of 5,000 · resets in 12 min · Retry after")
+      expect(ahead.host.textContent).not.toContain("just now")
 
-    const later = renderSetup(
-      setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(90) } })
-    )
-    expect(later.host.textContent).toMatch(/resets at \d{1,2}:\d{2}/)
+      const later = renderSetup(
+        setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(90) } })
+      )
+      expect(later.host.textContent).toMatch(/resets at \d{1,2}:\d{2}/)
 
-    const behind = renderSetup(
-      setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(-4) } })
-    )
-    expect(behind.host.textContent).toContain("reset 4 min ago")
+      const behind = renderSetup(
+        setupCard({ connector: "github", steps: [], rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(-4) } })
+      )
+      expect(behind.host.textContent).toContain("reset 4 min ago")
+
+      clock.mockReturnValue(new Date(2026, 9, 6, 23, 0).getTime())
+      const tomorrow = renderSetup(setupCard({ connector: "github", steps: [],
+        rateLimit: { limit: 5000, remaining: 0, resetAt: minutesFromNow(90) } }))
+      const date = new Date(2026, 9, 7).toLocaleDateString([], { month: "short", day: "numeric" })
+      expect(tomorrow.host.textContent).toContain(`resets at ${date} `)
+    } finally { clock.mockRestore() }
   })
 
   test("a refused call holds Re-check and Reconcile until the reset, with the time on them", () => {
