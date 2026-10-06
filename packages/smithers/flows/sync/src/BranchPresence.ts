@@ -23,6 +23,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import {
   type Announcement,
@@ -31,6 +32,7 @@ import {
   type LeaveRequest,
   Participant,
   type ParticipantId,
+  PresenceWhere,
   type RosterRequest
 } from "./BranchProtocol.ts"
 import * as BranchShare from "./BranchShare.ts"
@@ -265,7 +267,7 @@ const makeResolved = (
   Effect.gen(function*() {
     const startedAtMs = yield* Clock.currentTimeMillis
     const share = yield* BranchShare.BranchShare
-    const roster = new Map<BranchId, Map<ParticipantId, Seat>>()
+    const roster = new Map<BranchId, Map<string, Seat>>()
     const changes = yield* PubSub.sliding<BranchId>(changesCapacity)
 
     const expire = (branchId: BranchId, nowMs: number) => {
@@ -296,9 +298,13 @@ const makeResolved = (
       }
     }
 
+    const seatKey = (request: { participantId: ParticipantId; sessionId?: string }) =>
+      JSON.stringify([request.participantId, request.sessionId ?? ""])
+    const copyWhere = (where: NonNullable<Participant["where"]>) => ({ ...where })
     const detach = (participant: Participant): Participant =>
       new Participant({
         ...participant,
+        ...(participant.where === undefined ? {} : { where: copyWhere(participant.where) }),
         cursor: participant.cursor === null ? null : new Cursor(participant.cursor)
       })
 
@@ -313,7 +319,7 @@ const makeResolved = (
       const branch = expire(branchId, nowMs)
       if (branch === undefined) return []
       return Array.from(branch.values(), (seat) => detach(seat.participant)).sort((left, right) =>
-        left.participantId < right.participantId ? -1 : 1
+        seatKey(left) < seatKey(right) ? -1 : seatKey(left) === seatKey(right) ? 0 : 1
       )
     }
 
@@ -332,7 +338,8 @@ const makeResolved = (
     })
     const detachLeave = (request: LeaveRequest): LeaveRequest => ({
       ...detachRoster(request),
-      participantId: request.participantId
+      participantId: request.participantId,
+      ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId })
     })
     const detachAnnouncement = (request: Announcement) => {
       const suppliedCursor: unknown = request.cursor
@@ -341,7 +348,15 @@ const makeResolved = (
         : typeof suppliedCursor === "object"
         ? { cardId: (suppliedCursor as Cursor).cardId, offset: (suppliedCursor as Cursor).offset }
         : { cardId: undefined, offset: undefined }
-      return { ...detachLeave(request), displayName: request.displayName, cursor }
+      return {
+        ...detachLeave(request),
+        displayName: request.displayName,
+        cursor,
+        ...(request.kind === undefined ? {} : { kind: request.kind }),
+        ...(request.where === undefined ? {} : { where: copyWhere(request.where) }),
+        ...(request.watching === undefined ? {} : { watching: request.watching }),
+        ...(request.for_member === undefined ? {} : { for_member: request.for_member })
+      }
     }
 
     const announce = Effect.fn("BranchPresence.announce")(function*(supplied: Announcement) {
@@ -363,6 +378,12 @@ const makeResolved = (
           new SyncError({ code: "invalid_request", message: "A participant's display name must not be empty" })
         )
       }
+      if (detached.where !== undefined && !Schema.is(PresenceWhere)(detached.where)) {
+        return yield* Effect.fail(new SyncError({ code: "invalid_request", message: "Invalid presence location" }))
+      }
+      if (detached.sessionId !== undefined && detached.sessionId.length === 0) {
+        return yield* Effect.fail(new SyncError({ code: "invalid_request", message: "Invalid presence session" }))
+      }
       let cursor: Cursor | null = null
       if (detached.cursor !== null) {
         const { cardId, offset } = detached.cursor
@@ -383,9 +404,14 @@ const makeResolved = (
       // Run-out leases are dropped before the cap is judged, so a branch that
       // has simply been busy over time is never refused for a stale roster.
       live(announcement.branchId, nowMs)
-      const branch = roster.get(announcement.branchId) ?? new Map<ParticipantId, Seat>()
-      const held = branch.get(announcement.participantId)
-      if (held !== undefined && held.capabilityId !== claims.capabilityId) {
+      const branch = roster.get(announcement.branchId) ?? new Map<string, Seat>()
+      const held = branch.get(seatKey(announcement))
+      // A session suffix must not bypass the existing participant ownership
+      // fence. The host may bind multiple sessions to one actor capability.
+      const foreignActor = Array.from(branch.values()).some((seat) =>
+        seat.participant.participantId === announcement.participantId && seat.capabilityId !== claims.capabilityId
+      )
+      if (foreignActor || (held !== undefined && held.capabilityId !== claims.capabilityId)) {
         return yield* Effect.fail(heldByAnother(announcement.participantId))
       }
       if (held === undefined && branch.size >= maxParticipants) {
@@ -401,9 +427,14 @@ const makeResolved = (
         participantId: announcement.participantId,
         displayName: announcement.displayName,
         cursor: announcement.cursor,
+        ...(announcement.sessionId === undefined ? {} : { sessionId: announcement.sessionId }),
+        ...(announcement.kind === undefined ? {} : { kind: announcement.kind }),
+        ...(announcement.where === undefined ? {} : { where: announcement.where }),
+        ...(announcement.watching === undefined ? {} : { watching: announcement.watching }),
+        ...(announcement.for_member === undefined ? {} : { for_member: announcement.for_member }),
         leaseExpiresAtMs: nowMs + leaseMs
       })
-      branch.set(announcement.participantId, { participant, capabilityId: claims.capabilityId })
+      branch.set(seatKey(announcement), { participant, capabilityId: claims.capabilityId })
       roster.set(announcement.branchId, branch)
       yield* PubSub.publish(changes, announcement.branchId)
       return detach(participant)
@@ -415,11 +446,11 @@ const makeResolved = (
       const claims = yield* share.verify(request.capability, { branchId: request.branchId, access: "write" })
       const branch = expire(request.branchId, yield* Clock.currentTimeMillis)
       if (branch !== undefined) {
-        const held = branch.get(request.participantId)
+        const held = branch.get(seatKey(request))
         if (held !== undefined && held.capabilityId !== claims.capabilityId) {
           return yield* Effect.fail(heldByAnother(request.participantId))
         }
-        branch.delete(request.participantId)
+        branch.delete(seatKey(request))
         if (branch.size === 0) roster.delete(request.branchId)
       }
       yield* PubSub.publish(changes, request.branchId)

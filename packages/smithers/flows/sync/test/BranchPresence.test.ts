@@ -32,6 +32,98 @@ const capabilityFor = (target: BranchProtocol.BranchId, access: BranchProtocol.A
   )
 
 describe("BranchPresence", () => {
+  it.effect("a foreign capability cannot bypass actor ownership with a new session", () =>
+    run(
+      Effect.gen(function*() {
+        const presence = yield* BranchPresence.BranchPresence
+        const share = yield* BranchShare.BranchShare
+        const capability = yield* capabilityFor(branchId, "write")
+        const foreign = yield* share.mint({ branchId, capabilityId: "foreign-cap", access: "write", ttlMs: 600_000 })
+        const announcement = {
+          capability,
+          branchId,
+          participantId: participant("alice"),
+          displayName: "Alice",
+          sessionId: "tab-one",
+          cursor: null
+        }
+        yield* presence.announce(announcement)
+        expect(
+          (yield* presence.announce({ ...announcement, capability: foreign, sessionId: "tab-two" })
+            .pipe(Effect.flip)).code
+        ).toBe("unauthorized")
+        expect(
+          (yield* presence.leave({
+            capability: foreign,
+            branchId,
+            participantId: participant("alice"),
+            sessionId: "tab-one"
+          }).pipe(Effect.flip)).code
+        ).toBe("unauthorized")
+        expect((yield* presence.list({ capability, branchId })).map((row) => row.sessionId)).toEqual(["tab-one"])
+      })
+    ))
+
+  it.effect("keeps two sessions and their detached locations independent", () =>
+    run(
+      Effect.gen(function*() {
+        const presence = yield* BranchPresence.BranchPresence
+        const capability = yield* capabilityFor(branchId, "write")
+        const first = {
+          capability,
+          branchId,
+          participantId: participant("alice"),
+          displayName: "Alice",
+          cursor: null,
+          sessionId: "tab-one",
+          kind: "person" as const,
+          where: { kind: "file" as const, path: "retry.ts", line: 12 }
+        }
+        const announced = yield* presence.announce(first)
+        first.where.line = 40
+        expect(announced.where).toEqual({ kind: "file", path: "retry.ts", line: 12 })
+        yield* presence.announce({
+          ...first,
+          sessionId: "tab-two",
+          where: { kind: "terminal", id: "terminal-one" },
+          watching: "terminal-one"
+        })
+        const entries = yield* presence.list({ capability, branchId })
+        expect(entries).toHaveLength(2)
+        expect(entries.map((row) => row.sessionId).sort()).toEqual(["tab-one", "tab-two"])
+        const file = entries.find((row) => row.sessionId === "tab-one")!
+        ;(file.where as { path: string }).path = "mutated.ts"
+        expect((yield* presence.list({ capability, branchId })).find((row) => row.sessionId === "tab-one")!.where)
+          .toEqual({ kind: "file", path: "retry.ts", line: 12 })
+        yield* presence.leave({ capability, branchId, participantId: participant("alice"), sessionId: "tab-one" })
+        expect((yield* presence.list({ capability, branchId })).map((row) => row.sessionId)).toEqual(["tab-two"])
+        yield* TestClock.adjust(29_900)
+        expect(yield* presence.list({ capability, branchId })).toHaveLength(1)
+        yield* TestClock.adjust(100)
+        expect(yield* presence.list({ capability, branchId })).toEqual([])
+      })
+    ))
+
+  it.effect("refuses invalid document line coordinates", () =>
+    run(
+      Effect.gen(function*() {
+        const presence = yield* BranchPresence.BranchPresence
+        const capability = yield* capabilityFor(branchId, "write")
+        for (const line of [0, -1, 1.5, NaN]) {
+          const outcome = yield* presence.announce({
+            capability,
+            branchId,
+            participantId: participant("alice"),
+            displayName: "Alice",
+            cursor: null,
+            where: { kind: "file", path: "retry.ts", line }
+          }).pipe(Effect.flip)
+          expect(outcome.code).toBe("invalid_request")
+        }
+        expect(yield* presence.list({ capability, branchId })).toEqual([])
+      })
+    ))
+
   it.effect("keeps a roster scoped to one branch, sorted, and out of the journal", () =>
     Effect.gen(function*() {
       const [here, there] = yield* run(

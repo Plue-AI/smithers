@@ -52,6 +52,11 @@ const rosterKey = (participants: ReadonlyArray<Participant>): string =>
     participants.map((participant) => [
       participant.participantId,
       participant.displayName,
+      participant.sessionId,
+      participant.kind,
+      participant.where,
+      participant.watching,
+      participant.for_member,
       participant.leaseExpiresAtMs,
       participant.cursor === null ? null : [participant.cursor.cardId, participant.cursor.offset]
     ])

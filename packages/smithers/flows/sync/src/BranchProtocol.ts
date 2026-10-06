@@ -213,11 +213,33 @@ export class Cursor extends Schema.Class<Cursor>("@smthrs/sync/BranchProtocol/Cu
  * @category schemas
  * @since 0.1.0
  */
+/** BranchCard-compatible display coordinates; paths are metadata only. */
+export const PresenceWhere = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("file"),
+    path: Schema.NonEmptyString,
+    line: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0)))
+  }),
+  Schema.Struct({ kind: Schema.Literal("terminal"), id: Schema.NonEmptyString }),
+  Schema.Struct({ kind: Schema.Literal("step"), label: Schema.NonEmptyString }),
+  Schema.Struct({ kind: Schema.Literal("branch") })
+])
+
+// Optional fields preserve decoding of recorded branch-protocol frames.
+const presenceFields = {
+  sessionId: Schema.optionalKey(Schema.NonEmptyString),
+  kind: Schema.optionalKey(Schema.Literals(["person", "agent"])),
+  where: Schema.optionalKey(PresenceWhere),
+  watching: Schema.optionalKey(Schema.NonEmptyString),
+  for_member: Schema.optionalKey(Schema.NonEmptyString)
+}
+
 export class Participant extends Schema.Class<Participant>("@smthrs/sync/BranchProtocol/Participant")({
   branchId: BranchId,
   participantId: ParticipantId,
   displayName: Schema.NonEmptyString,
   cursor: Schema.NullOr(Cursor),
+  ...presenceFields,
   leaseExpiresAtMs: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 }) {}
 
@@ -243,7 +265,11 @@ export type RosterRequest = typeof RosterRequest.Type
  * @category schemas
  * @since 0.1.0
  */
-export const LeaveRequest = Schema.Struct({ ...RosterRequest.fields, participantId: ParticipantId })
+export const LeaveRequest = Schema.Struct({
+  ...RosterRequest.fields,
+  participantId: ParticipantId,
+  sessionId: Schema.optionalKey(Schema.NonEmptyString)
+})
 
 /**
  * A capability-bearing request to drop one participant.
@@ -263,6 +289,7 @@ export type LeaveRequest = typeof LeaveRequest.Type
  * @since 0.1.0
  */
 export const Announcement = Schema.Struct({
+  ...presenceFields,
   capability: ShareCapability,
   branchId: BranchId,
   participantId: ParticipantId,
