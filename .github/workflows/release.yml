@@ -1076,6 +1076,7 @@ jobs:
           cp "$assets/Formula/smithers.rb" "$tap_path/Formula/smithers.rb"
           brew bottle --merge --write --no-commit ./*.bottle.json
           cp "$tap_path/Formula/smithers.rb" "$assets/Formula/smithers.rb"
+          node "$GITHUB_WORKSPACE/scripts/homebrew-release.mjs" normalize-bottle "$assets"
           shasum -a 256 ./*.bottle.tar.gz > HOMEBREW-BOTTLE-SHA256SUMS
           cosign sign-blob --yes --bundle HOMEBREW-BOTTLE-SHA256SUMS.sigstore.json HOMEBREW-BOTTLE-SHA256SUMS
       - name: Retain candidate, formula and bottle without publication authority
