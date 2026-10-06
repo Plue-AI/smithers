@@ -991,6 +991,13 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+			if smithersMetrics != nil && queries != nil {
+				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics}
+				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {
+					h.Capacity = extras.GitHubAppSetup.Setup.Capacity
+				}
+				r.With(middleware.RequireAuth, installModelOwner(queries)).Get("/install/metrics", h.Read)
+			}
 		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {

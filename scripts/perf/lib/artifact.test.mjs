@@ -23,7 +23,7 @@ test('TestPerfRunnerMissingProvider: six skips retain host/origin and emit no pa
   for (const budget of saved.budgets) {
     assert.equal(budget.status, 'skipped')
     assert.deepEqual(budget.samples, [])
-    assert.match(budget.reason, /not implemented/)
+    assert.match(budget.reason, /not implemented|standalone driver exists/)
     for (const ticket of budget.tickets) assert.ok(budget.reason.includes(ticket))
   }
   assert.ok(!JSON.stringify(saved).includes(options.token))

@@ -29,7 +29,9 @@ export async function run({ root = process.cwd(), origin, token, commit, install
     version: 1, timestamp, commit, installVersion: installVersion ?? null, origin: usedOrigin,
     browser: browser ?? null, host, status: 'incomplete',
     budgets: budgets.map((budget) => ({ ...budget, status: 'skipped', samples: [],
-      reason: refusal ?? `production measurement driver not implemented; requires ${budget.tickets.join(', ')} and owner-reviewed seams`,
+      reason: refusal ?? (budget.name === 'keystroke'
+        ? `standalone driver exists; automatic activation requires ${budget.tickets.join(', ')} and qualified T-INS-02, T-MCH-11, T-SEC-01, T-MCH-10 receipts`
+        : `production measurement driver not implemented; requires ${budget.tickets.join(', ')} and owner-reviewed seams`),
       activation: budget.check === 'C-PERF-01' || budget.check === 'C-PERF-02'
         ? ['T-INS-04'] : ['T-INS-02', 'T-MCH-11', 'T-SEC-01', 'T-MCH-10'] }))
   }
@@ -38,7 +40,7 @@ export async function run({ root = process.cwd(), origin, token, commit, install
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const result = await run({ origin: process.env.SMITHERS_PERF_ORIGIN, token: process.env.SMITHERS_PERF_TOKEN,
+    const result = await run({ origin: process.env.SMITHERS_PERF_ORIGIN, token: process.env.SMITHERS_PERF_OWNER_COOKIE ? { cookie: process.env.SMITHERS_PERF_OWNER_COOKIE } : process.env.SMITHERS_PERF_TOKEN,
       installVersion: process.env.SMITHERS_PERF_INSTALL_VERSION, browser: process.env.SMITHERS_PERF_BROWSER,
       commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
     console.log(JSON.stringify({ ...result.summary, directory: result.directory }))
