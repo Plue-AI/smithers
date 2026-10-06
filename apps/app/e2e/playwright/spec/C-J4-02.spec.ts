@@ -32,7 +32,7 @@ test("C-J4-02: served TODO cards answer, merge, move and retry while Chat stays 
       model.waits = []; model.state = "working"
     } else if (path.endsWith("/merge")) {
       expect(body).toEqual({ reviewed_head_sha: fixtures.in_review.model.pr!.head })
-      model.state = "merged"; model.merge = { state: "done", on_github: false }
+      // HTTP admission is not the terminal GitHub projection.
     } else if (body.op === "move") {
       expect(body).toEqual({ op: "move", direction: "up" })
       model.place = 3; models[2]!.place = 4
@@ -51,6 +51,9 @@ test("C-J4-02: served TODO cards answer, merge, move and retry while Chat stays 
   await expect(card(2).locator("header .state")).toContainText("Working")
   await say(page, "/todo T1")
   await card(1).getByRole("button", { name: "Merge", exact: true }).press("Enter")
+  await expect.poll(() => writes.some(write => write.n === 1)).toBe(true)
+  await expect(card(1).locator("header .state")).toHaveText("In review")
+  models[0]!.state = "merged"; models[0]!.merge = { state: "done", on_github: false }
   await expect(card(1).locator("header .state")).toHaveText("Merged")
   await say(page, "/todo T4")
   await page.getByRole("button", { name: "Order J4 TODO 4", exact: true }).press("Enter")
