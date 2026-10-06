@@ -54,6 +54,12 @@ try {
     const result = spawnSync("bash", ["-o", "pipefail", "-c", command], { cwd: root, stdio: "inherit" })
     if (result.error || result.status !== 0) throw new Error(`Test command failed: ${command} (${result.error?.message ?? result.status})`)
   }
+  if (push) {
+    // Mandatory even with --no-test; shared by both publication paths.
+    run("go", ["test", "-run", "TestMigrationGate|TestMigrationRegistry", "./packages/backend/db/product/"])
+    if (!existsSync(join(root, "scripts/check-sqlc-drift.sh"))) throw new Error("Required sqlc drift gate is unavailable")
+    run("bash", ["scripts/check-sqlc-drift.sh"])
+  }
   run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true)
   if (existsSync(join(root, ".jj"))) {
     const eligible = run("jj", ["log", "-r", "main & (@ | @-)", "--no-graph", "-T", "commit_id"], true)
