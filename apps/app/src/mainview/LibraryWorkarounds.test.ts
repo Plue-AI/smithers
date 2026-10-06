@@ -25,7 +25,7 @@ const mainview = new URL(".", import.meta.url).pathname
 const productionSources = async (): Promise<ReadonlyArray<{ readonly path: string; readonly source: string }>> => {
   const files: Array<{ readonly path: string; readonly source: string }> = []
   for await (const path of new Bun.Glob("**/*.{ts,tsx}").scan({ cwd: mainview, absolute: true })) {
-    if (path.includes(".test.")) continue
+    if (path.includes(".test.") || path.includes(".stories.")) continue
     files.push({ path: path.slice(mainview.length), source: await readFile(path, "utf8") })
   }
   return files
