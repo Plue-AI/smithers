@@ -65,7 +65,7 @@ export interface TodoListSnapshots {
 }
 export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "todo", () => ({
-    notableModels: new Map<number, TodoCard>(), opening: new Set<string>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
+    notableModels: new Map<number, TodoCard>(), notableLive: new Set<number>(), opening: new Set<string>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
     timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision,
     list: { snapshot: {} as TodoListSnapshot, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, reading: false, disposed: false }
   }))
@@ -119,7 +119,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       // Only a publication that validates replaces the REST refresh; malformed live data leaves recovery running.
       try { model = projection(n, value) } catch (error) { ctx.report?.("todo.projection", error); return }
       published = true
-      void applyModel(n, model, receipts, () => active && current(login, revision)).catch(error => ctx.report?.("todo.projection", error))
+      const live = () => active && current(login, revision)
+      if (entry(n)) void applyModel(n, model, receipts, live).catch(error => ctx.report?.("todo.projection", error))
+      else routeNotable(model, live)
     })
     // Until this host publishes the topic, refresh persisted source facts through its read route.
     const refresh = async () => {
@@ -133,7 +135,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (active && (!published || needsSource(n)) && current(login, revision)) timer = setTimeout(() => { void refresh() }, 1000)
     }
     timer = setTimeout(() => { void refresh() }, 1000)
-    shared.watches.set(n, () => { active = false; if (timer) clearTimeout(timer); unsubscribe?.() })
+    shared.watches.set(n, () => { active = false; shared.notableLive.delete(n); if (timer) clearTimeout(timer); unsubscribe?.() })
   }
   /** The todo:<n> model a payload carries; a payload for another TODO is a mismatch. */
   const projection = (n: number, value: unknown): TodoCard => {
@@ -386,7 +388,15 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         : parsed?.success ? { todos: parsed.data } : { ...shared.list.snapshot, error: "invalid" }
     } catch { next = { ...shared.list.snapshot, error: "unreachable" } }
     if (current(login, revision)) {
-      for (const model of next.todos ?? []) routeNotable(model, () => current(login, revision))
+      const followed = new Set<number>()
+      for (const model of next.todos ?? []) {
+        if (!shared.notableLive.has(model.n)) routeNotable(model, () => current(login, revision))
+        if (options.topics && (model.owner.login === login || model.present.some(actor => actor.kind === "person" && actor.login === login))) {
+          followed.add(model.n)
+          watch(model.n)
+        }
+      }
+      for (const [n, release] of shared.watches) if (!entry(n) && !followed.has(n)) { release(); shared.watches.delete(n) }
       publishList(next)
     }
   }
@@ -406,7 +416,10 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       pollList()
       return () => {
         shared.list.listeners.delete(listener)
-        if (shared.list.listeners.size === 0 && shared.list.timer !== undefined) { clearTimeout(shared.list.timer); shared.list.timer = undefined }
+        if (shared.list.listeners.size === 0) {
+          if (shared.list.timer !== undefined) { clearTimeout(shared.list.timer); shared.list.timer = undefined }
+          for (const [n, release] of shared.watches) if (!entry(n)) { release(); shared.watches.delete(n) }
+        }
       }
     }
   }
@@ -620,6 +633,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     for (const unsubscribe of shared.watches.values()) unsubscribe()
     shared.watches.clear()
     shared.notableModels.clear()
+    shared.notableLive.clear()
     for (const timer of shared.timers.values()) clearTimeout(timer)
     shared.timers.clear()
     if (shared.list.timer !== undefined) { clearTimeout(shared.list.timer); shared.list.timer = undefined }
