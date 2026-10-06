@@ -1,8 +1,12 @@
+import { digest } from "@smthrs/core/Digest"
+import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import {
   AgentTurnBatchSchema,
+  AgentConversationBatchSchema,
+  type AgentConversationBatch,
+  type AgentConversationReplay,
   type AgentTurnCursor,
   AgentTurnCursorSchema,
-  type AgentTurnJournalReply
 } from "@smthrs/rpc/AgentTurnJournal"
 import { z } from "zod"
 import { HttpTurnIntegrityError, verifyHttpBatch } from "./HttpTurn"
@@ -16,7 +20,7 @@ export const ConversationHistoryLegSchema = z.object({
   initial: AgentTurnCursorSchema,
   head: AgentTurnCursorSchema,
   terminal: z.boolean(),
-  batches: z.array(AgentTurnBatchSchema),
+  batches: z.array(AgentConversationBatchSchema),
   runLinks: z.array(
     z.object({
       repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
@@ -33,6 +37,18 @@ export const sameHistoryCursor = (a: AgentTurnCursor, b: AgentTurnCursor): boole
   a.version === b.version && a.runId === b.runId && a.legId === b.legId && a.batch === b.batch &&
   a.position === b.position && a.hash === b.hash
 
+/** Authenticate original bytes before the existing decoder removes old bodies/actions. */
+const verifySavedBatch: (turn: Parameters<typeof verifyHttpBatch>[0], leg: Parameters<typeof verifyHttpBatch>[1], incoming: AgentConversationBatch) => ReturnType<typeof verifyHttpBatch> = (turn, leg, incoming) => {
+  const { hash, ...wire } = incoming
+  if (digest(agentTurnJournalDigestInput("batch", wire)) !== hash) throw new HttpTurnIntegrityError("Saved conversation batch integrity failed")
+  const decoded = AgentTurnBatchSchema.parse(incoming)
+  const { hash: _hash, ...body } = decoded
+  // The shared verifier checks ordering and terminal boundaries on decoded frames.
+  // Its synthetic digest never replaces the stored cursor's authenticated digest.
+  const next = verifyHttpBatch(turn, leg, { ...decoded, hash: digest(agentTurnJournalDigestInput("batch", body)) })
+  return next && { ...next, hash }
+}
+
 /** Validate all bytes before projecting any visible fact. No execution authority is restored. */
 export const verifyConversationHistory = (conversations: readonly ConversationHistory[]): void => {
   const ids = new Set<string>(), legs = new Set<string>()
@@ -48,7 +64,7 @@ export const verifyConversationHistory = (conversations: readonly ConversationHi
       legs.add(key)
       let cursor = leg.initial
       for (const batch of leg.batches) {
-        const next = verifyHttpBatch({ id: key, turnId: leg.runId, legId: leg.legId, status: "active" }, {
+        const next = verifySavedBatch({ id: key, turnId: leg.runId, legId: leg.legId, status: "active" }, {
           id: leg.legId,
           attemptId: key,
           status: "streaming",
@@ -80,7 +96,7 @@ export const historyHasNewerUserIntent = (
 export const verifyConversationHistoryPage = (
   runId: string,
   legId: string,
-  page: Extract<AgentTurnJournalReply, { status: "ok" }>,
+  page: AgentConversationReplay["page"],
   expected?: AgentTurnCursor
 ): void => {
   if (
@@ -90,7 +106,7 @@ export const verifyConversationHistoryPage = (
   ) throw new HttpTurnIntegrityError("Saved replay page identity failed")
   let cursor = page.after
   for (const [index, batch] of page.batches.entries()) {
-    const next = verifyHttpBatch({ id: runId, turnId: runId, legId, status: "active" }, {
+    const next = verifySavedBatch({ id: runId, turnId: runId, legId, status: "active" }, {
       id: legId,
       attemptId: runId,
       status: "streaming",
