@@ -57,7 +57,7 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	switch {
-	case r.URL.Path == "/repos/owner/app/installation":
+	case r.URL.Path == "/repos/acme/app/installation" || r.URL.Path == "/repos/owner/app/installation":
 		if g.installationStatus != 0 {
 			w.WriteHeader(g.installationStatus)
 			return
@@ -66,7 +66,7 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/app/installations/91/access_tokens":
 		w.WriteHeader(201)
 		fmt.Fprint(w, `{"token":"installation-token","expires_at":"2099-01-01T00:00:00Z"}`)
-	case strings.HasPrefix(r.URL.Path, "/repos/owner/app/collaborators/"):
+	case strings.HasPrefix(r.URL.Path, "/repos/acme/app/collaborators/") || strings.HasPrefix(r.URL.Path, "/repos/owner/app/collaborators/"):
 		login := strings.Split(r.URL.Path, "/")[5]
 		role, ok := g.roles[login]
 		if !ok {
@@ -425,7 +425,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.Contains(t, body, `"code":"permission"`)
 	busCtx, stopBus := context.WithCancel(ctx)
 	defer stopBus()
-	bus := revocation.NewBus(pool, q)
+	bus := revocation.NewBus(nil, q) // No LISTEN: durable catch-up must recover every lost NOTIFY.
 	require.NoError(t, bus.Start(busCtx))
 	routes.SetRevocationSource(bus)
 	defer routes.SetRevocationSource(nil)
@@ -526,6 +526,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	status, _ = request("GET", "/api/members", "", "writer-cookie-2")
 	require.Equal(t, 401, status, "restoring never revives a revoked session")
 	login("writer", 302)
+	exerciseMemberRevocation(t, pool, origin, writer, bus, request, createSession)
 	// Real additions allocate reserved names and truncate before collision suffixes.
 	for _, fixture := range []struct{ github, unix string }{
 		{"root", "root2"},

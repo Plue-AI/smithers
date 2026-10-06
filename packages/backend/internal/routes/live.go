@@ -83,23 +83,14 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	revoked := make(chan struct{})
+	var events <-chan revocation.Event
 	if source := currentRevocationSource(); source != nil {
 		principal := requestPrincipal(r, revocation.Principal{RepositoryID: repository})
 		if checker, ok := source.(revocation.Checker); ok && (checker.IsUserDisabled(principal.UserID) || (principal.TokenHash != "" && checker.IsTokenRevoked(principal.TokenHash))) {
 			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again") // a revoked credential is dead (§5.2.1a)
 			return
 		}
-		events := source.Watch(ctx, principal)
-		go func() {
-			select {
-			case <-ctx.Done():
-			case _, ok := <-events:
-				if ok {
-					close(revoked)
-					cancel()
-				}
-			}
-		}()
+		events = source.Watch(ctx, principal)
 	}
 	// The Origin was checked against the effective origin above, which a
 	// loopback proxy's X-Forwarded-Host may name instead of Host.
@@ -108,6 +99,21 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
+	if events != nil {
+		go func() {
+			select {
+			case <-ctx.Done():
+			case _, ok := <-events:
+				if ok {
+					close(revoked)
+					// Send the reason before canceling the reader: canceling
+					// websocket.Read first forcibly closes the transport.
+					_ = conn.Close(websocket.StatusPolicyViolation, "access revoked")
+					cancel()
+				}
+			}
+		}()
+	}
 	h.Hub.Serve(ctx, conn, resolve)
 	select {
 	case <-revoked:

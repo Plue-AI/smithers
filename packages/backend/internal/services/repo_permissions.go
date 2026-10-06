@@ -331,8 +331,8 @@ var installCommands = map[string]installCommand{
 	// branch (§15.1.5: fork is run).
 	"branches.read": {role: InstallMember},
 	"branch.fork":   {role: InstallMember},
-	"members.list":  {role: InstallMember},
-	"members.write": {role: InstallMaintainer},
+	"members.list":  {role: InstallMember, personOnly: true},
+	"members.write": {role: InstallMaintainer, personOnly: true},
 	// secrets.write is POST /secrets and PATCH and DELETE /secrets/{name}
 	// on a repository: add, replace and delete (§5.2 "Members, roles,
 	// secrets write"). Secret values never pass through an agent.

@@ -701,7 +701,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Body: append(json.RawMessage(nil), body...), Status: status,
 			Permissions: s.grants[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]})
 	}
-	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/repos/") {
+	if r.Method == http.MethodGet && (strings.HasPrefix(r.URL.Path, "/repos/") || strings.HasPrefix(r.URL.Path, "/users/") && strings.HasSuffix(r.URL.Path, "/keys")) {
 		if status == http.StatusOK {
 			raw, err := json.Marshal(response)
 			if err != nil {
