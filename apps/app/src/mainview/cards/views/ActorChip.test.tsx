@@ -58,7 +58,7 @@ for (const via of ["ssh", "terminal", "cli"] as const) test(`${via} retains pers
   await withActor({ kind: "person", ...ben, via }, node => {
     expect(node.dataset.kind).toBe("person")
     expect(node.dataset.agent).toBeUndefined()
-    expect(node.querySelector(".mvp-avatar-badge")).not.toBeNull()
+    expect(node.querySelector(".avatar-badge")).not.toBeNull()
   })
 })
 test("failed avatar reveals initials and a replacement URL renders an image", async () => {
@@ -69,7 +69,7 @@ test("failed avatar reveals initials and a replacement URL renders an image", as
     await act(async () => root.render(<ActorChip actor={actor} size="m" />))
     await act(async () => host.querySelector("img")!.dispatchEvent(new Event("error")))
     expect(host.querySelector("img")).toBeNull()
-    expect(host.querySelector(".mvp-avatar")!.textContent).toBe("BP")
+    expect(host.querySelector(".avatar")!.textContent).toBe("BP")
     expect(host.firstElementChild!.getAttribute("aria-label")).toBe("Ben")
     await act(async () => root.render(<ActorChip actor={{ ...actor, avatar_url: "https://example.com/working.png" }} size="m" />))
     expect(host.querySelector("img")!.getAttribute("src")).toBe("https://example.com/working.png")

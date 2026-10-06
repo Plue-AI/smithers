@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { TodoContainer } from "../../cards/TodoCard"
+import { TodoView } from "../../cards/views/TodoView"
 import { CardSchema } from "@smthrs/rpc/Cards"
 import { createAppStore } from "../AppStore"
 import { memoryStorage, waitFor } from "../TestFixtures"
@@ -709,13 +713,28 @@ test("the install's queued TODO projection, as GET /api/todos/{n} serves it, ren
     prompt_revisions: [{ at: "2026-10-05T06:16:42.354898Z", by: { kind: "person", name: "Rehearsal owner", login: "rehearsal-owner", avatar_url: avatar, color_index: 0 },
       text: "Add a greeting to JOURNEY.md", acceptance: [] }],
     state: "queued", steers: [], steps: [], title: "First TODO", waits: [] }
-  const h = await harness(async () => json(body, 200), memoryStorage(), undefined, false)
+  const requests: string[] = []
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => {
+    const path = new URL(request.url).pathname
+    requests.push(path)
+    return path === "/api/todos/1" ? json(body, 200) : new Response(null, { status: 404 })
+  } })
+  const h = await harness((url, init) => fetch(new URL(new URL(url).pathname, server.url), init), memoryStorage(), undefined, false)
   try {
     expect(await h.seam.showTodo(1)).toBeDefined()
     const card = h.store.collections.cards.get("todo:1") as TodoEntry
     expect(card.payload.model).toMatchObject({ n: 1, state: "queued", title: "First TODO", place: 1, prompt_revisions: [{ text: "Add a greeting to JOURNEY.md" }] })
+    const markup = renderToStaticMarkup(createElement(TodoContainer, { card, role: "owner", View: TodoView,
+      dispatch: () => {}, view: { maximized: false }, onView: () => {} }))
+    expect(markup).toContain('class="state" data-state="queued"')
+    expect(markup).toContain('class="dot" data-state="queued"')
+    expect(markup).toContain('class="avatar"')
+    expect(markup).toContain('aria-label="Rehearsal"')
+    expect(markup).toContain("First TODO")
+    expect(markup).not.toMatch(/mvp-(avatar|state|dot|glyph)/)
     expect(await h.seam.reviewMerge(1)).toBe("Not in review yet")
-  } finally { h.close() }
+    expect(requests).toEqual(["/api/todos/1", "/api/todos/1"])
+  } finally { h.close(); await server.stop(true) }
 })
 
 describe("TodoSeam — the TODO list Home reads where no `home` topic is served (T-APP-01)", () => {
