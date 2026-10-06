@@ -89,7 +89,7 @@ const renderApp = (controller: AppControllerType): string => mount(controller).m
 const harness = async (): Promise<{ store: AppStore; controller: AppControllerType }> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await addWorldNote(store)
-  const controller = createAppController(store, unavailableAgent)
+  const controller = createAppController(store, unavailableAgent, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "credentials", sandbox: null } })
 
   return { store, controller }
 }

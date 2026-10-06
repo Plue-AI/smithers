@@ -14,14 +14,15 @@ import { memoryStorage, silentAgent } from "./TestFixtures"
 const createAppController = scopedControllers()
 /* The Wiki (D-09b) and the mythical history (D-09 superseded) are core: no flag and no build variable hides them. */
 const wiki = ["wiki", "wiki.create", "wiki.open", "wiki.graph", "wiki.new-note", "search.wiki"]
-const core = ["history.show", "history.bootstrap", "history.backfill", "search.history"]
+const core = ["history.show", "history.bootstrap", "search.history"]
 
 describe("the Wiki is core", () => {
   test("every Wiki door registers with no feature and no environment flag", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const controller = createAppController(store, silentAgent)
+    const controller = createAppController(store, silentAgent, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "cloud"], authFlow: "credentials", sandbox: null } })
     expect(Object.keys(controller.features)).not.toContain("wiki")
     for (const name of core) expect(controller.commands.find(name)).toBeDefined()
+    expect(controller.commands.find("history.backfill")).toBeUndefined()
     const callable = controller.commands.callable().map(entry => entry.binding.descriptor.name)
     for (const name of wiki) expect(controller.commands.find(name)).toBeDefined()
     for (const name of ["wiki", "wiki.open", "search.wiki"]) expect(callable).toContain(name)
@@ -94,7 +95,7 @@ const repositoryDeclaringWikiFlows = async () => {
 describe("a repository that declares a knowledge flow", () => {
   test("keeps every door", async () => {
     const store = await repositoryDeclaringWikiFlows()
-    const controller = createAppController(store, silentAgent)
+    const controller = createAppController(store, silentAgent, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "cloud"], authFlow: "credentials", sandbox: null } })
     for (const name of ["wiki", "checks.wiki", "review"]) expect(controller.commands.find(name)).toBeDefined()
     // The declared `wiki` surface flow still takes the name from the leaf: one entry, not two.
     expect(controller.commands.all().filter(item => item.name === "wiki")).toHaveLength(1)

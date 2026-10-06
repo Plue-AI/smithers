@@ -526,7 +526,7 @@ test("an unknown repository's explicit sign-in prompt replaces the web opening c
 
 test("the web wiki empty state offers Create Wiki through the registered flow", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const controller = createAppController(store, silentAgent, { bootstrap: WEB,
+  const controller = createAppController(store, silentAgent, { bootstrap: { ...WEB, capabilities: [...WEB.capabilities, "install"] },
     ...backend({ "/api/user": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) }) })
   // Select the repository before opening its Wiki: changing scope replaces the transcript.
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise

@@ -71,7 +71,7 @@ describe("wave 10 — the embed law's in-app half (§2c″)", () => {
         { type: "done" as const }
       ]
     ])
-    const controller = createAppController(store, agent)
+    const controller = createAppController(store, agent, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "credentials", sandbox: null } })
     controller.send("what is in world?")
     await settled()
     await settled()
