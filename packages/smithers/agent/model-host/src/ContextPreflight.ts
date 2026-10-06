@@ -103,6 +103,9 @@ export const runContextPreflight = (
           let settled = false
           yield* Stream.runForEach(model.stream(request), (event) => {
             // A selector has no tools, and settlement ends its one response.
+            // Usage may arrive after settlement (OpenAI include_usage). It
+            // carries accounting, never another selector response.
+            if (event.type === "usage") return Effect.void
             // Never turn a malformed stream into a durable context selection.
             if (settled || event.type.startsWith("tool-")) return Effect.fail(invalid())
             if (event.type === "text-delta") {
