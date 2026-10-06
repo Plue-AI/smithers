@@ -32,7 +32,7 @@ func memberRouteError(w http.ResponseWriter, err error) {
 }
 
 func (h *MembersHandler) List(w http.ResponseWriter, r *http.Request) {
-	if h == nil || h.Service == nil {
+	if h == nil || h.Service == nil || h.Service.Pool == nil || h.Service.Credentials == nil || h.Service.Minter == nil {
 		memberRouteError(w, nil)
 		return
 	}
@@ -47,7 +47,7 @@ func (h *MembersHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MembersHandler) Mutate(w http.ResponseWriter, r *http.Request) {
-	if h == nil || h.Service == nil {
+	if h == nil || h.Service == nil || h.Service.Pool == nil || h.Service.Credentials == nil || h.Service.Minter == nil {
 		memberRouteError(w, nil)
 		return
 	}

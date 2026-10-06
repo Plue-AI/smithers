@@ -16,7 +16,7 @@ export function MembersView({ model, actions, onAction }: MembersViewProps) {
       <ActorChip actor={actor} size="s" />
       <span className="member-name" title={actorName(actor)}>{member.name}</span>
       <span className="member-login">@{member.login}</span>
-      {member.suspended || member.needs_access ? <a className="member-access" href={model.access_url} target="_blank" rel="noreferrer">{member.suspended ? "lost access on GitHub" : "needs access on GitHub"}<ExternalLink size={12} aria-hidden="true" /></a> : <span />}
+      {member.suspended || member.needs_access ? <a className="member-access" href={model.access_url} target="_blank" rel="noreferrer">{member.suspended ? "suspended" : "needs access on GitHub"}<ExternalLink size={12} aria-hidden="true" /></a> : <span />}
       <span className="member-controls">
         {!member.actions.some(action => action.input?.some(field => field.name === "role")) ? <span className="member-role">{roleWords[member.role]}</span> : null}
         {controls}
@@ -46,7 +46,11 @@ function MemberAction({ action, onAction }: { action: Action; onAction: MembersV
   const initial = (field: NonNullable<Action["input"]>[number]) => field.value ?? (field.kind === "choice" ? field.choices?.[0] : undefined) ?? ""
   const input = { ...action.args, ...Object.fromEntries((action.input ?? []).map(field => [field.name, initial(field)])), ...values }
   const change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDraft({ signature, values: { ...values, [event.currentTarget.name]: event.currentTarget.value } })
-  const submit = (event: FormEvent) => { event.preventDefault(); onAction(action.tag, input) }
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (action.tag === "members.remove" && !window.confirm(`Remove @${action.args?.login}?`)) return
+    onAction(action.tag, input)
+  }
   return <span className="member-action">
     <form data-flow={action.tag} onSubmit={submit}>
       {action.input?.map(field => field.kind === "choice"

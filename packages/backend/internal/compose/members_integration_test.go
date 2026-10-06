@@ -14,9 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -140,7 +143,9 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	origin := "http://" + server.Listener.Addr().String()
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
-	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}})
+	topics := &liveTopics{queries: q, members: members}
+	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
+	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 	server.Start()
 	defer server.Close()
 	// Even the owner's token must pass command authorization before the
@@ -182,6 +187,30 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 		data, err := io.ReadAll(res.Body)
 		require.NoError(t, err)
 		return res.StatusCode, string(data)
+	}
+	// Missing composition providers refuse all doors without changing the roster.
+	for _, missing := range []string{"pool", "credentials", "minter"} {
+		original := *members
+		switch missing {
+		case "pool":
+			members.Pool = nil
+		case "credentials":
+			members.Credentials = nil
+		case "minter":
+			members.Minter = nil
+		}
+		for _, door := range []struct{ method, path, body string }{
+			{"GET", "/api/members", ""}, {"POST", "/api/members", `{"login":"writer"}`},
+			{"PATCH", "/api/members/owner", `{"role":"member"}`}, {"DELETE", "/api/members/owner", ""},
+		} {
+			status, body := request(door.method, door.path, door.body, "owner-cookie")
+			require.Equal(t, 503, status, missing+body)
+			require.JSONEq(t, `{"class":"infra","code":"unavailable","message":"Members unavailable"}`, body)
+		}
+		*members = original
+		var rows int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM collaborators WHERE repository_id=$1`, repo.ID).Scan(&rows))
+		require.Equal(t, 1, rows)
 	}
 	for _, fixture := range []struct {
 		method, path, body string
@@ -258,10 +287,54 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	status, body = request("PATCH", "/api/members/owner", `{"role":"member"}`, "writer-cookie")
 	require.Equal(t, 403, status, body)
 	require.Contains(t, body, `"code":"permission"`)
+	busCtx, stopBus := context.WithCancel(ctx)
+	defer stopBus()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(busCtx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
+	// A second viewer receives committed roster changes through the composed live route.
+	liveCtx, cancelLive := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelLive()
+	socket, _, err := websocket.Dial(liveCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{
+		Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"session=writer-cookie"}},
+	})
+	require.NoError(t, err)
+	defer socket.CloseNow()
+	require.NoError(t, socket.Write(liveCtx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"members"}`)))
+	readRole := func(want string) {
+		for {
+			_, raw, err := socket.Read(liveCtx)
+			require.NoError(t, err)
+			var frame struct {
+				T    string                     `json:"t"`
+				Data services.MembersProjection `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			require.Equal(t, "snap", frame.T, string(raw))
+			for _, member := range frame.Data.Members {
+				require.Empty(t, member.Actions, "shared topic must not expose viewer controls")
+				if member.Login == "writer" && member.Role == want {
+					return
+				}
+			}
+		}
+	}
+	readRole("member")
 	status, body = request("PATCH", "/api/members/writer", `{"role":"maintainer"}`, "owner-cookie")
 	require.Equal(t, 204, status, body)
+	readRole("maintainer")
 	status, body = request("DELETE", "/api/members/writer", "", "owner-cookie")
 	require.Equal(t, 204, status, body)
+	closedCtx, cancelClosed := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelClosed()
+	for {
+		_, _, closed := socket.Read(closedCtx)
+		if closed != nil {
+			require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(closed), "removal must close the live session within five seconds")
+			break
+		}
+	}
 	status, _ = request("GET", "/api/members", "", "writer-cookie")
 	require.Equal(t, 401, status)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM auth_sessions WHERE user_id=$1`, writer.ID).Scan(&count))

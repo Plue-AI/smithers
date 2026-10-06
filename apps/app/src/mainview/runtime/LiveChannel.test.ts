@@ -277,3 +277,18 @@ test("presence reconnects with the latest move and disposal cancels all heartbea
   lease.move({ branch: "b2" }); lease.release()
   expect(sockets[1]!.frames).toHaveLength(count)
 })
+
+test("members reconnect requests a fresh snapshot, retains the roster and notifies at an unchanged cursor", () => {
+  const { channel, sockets, timers } = harness()
+  let notices = 0
+  channel.subscribe("members", () => notices++)
+  sockets[0]!.open()
+  sockets[0]!.receive({ t: "snap", id: 1, cursor: 10, data: { members: ["will"] } })
+  sockets[0]!.drop()
+  expect(channel.getSnapshot("members")?.data).toEqual({ members: ["will"] })
+  timers[0]!.run(); sockets[1]!.open()
+  expect(sockets[1]!.frames).toEqual([{ t: "sub", id: 1, topic: "members" }])
+  sockets[1]!.receive({ t: "snap", id: 1, cursor: 10, data: { members: ["will"] } })
+  expect(notices).toBe(2)
+  channel.dispose()
+})

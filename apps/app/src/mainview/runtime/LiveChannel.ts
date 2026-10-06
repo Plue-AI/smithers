@@ -171,7 +171,7 @@ export class LiveChannel {
       socket.onclose = () => {
         if (this.socket !== socket) return
         this.socket = undefined
-        for (const [topic, entry] of this.topics) if (topic.startsWith("doc:")) entry.awaitingSnapshot = true
+        for (const [topic, entry] of this.topics) if (topic.startsWith("doc:") || topic === "members") entry.awaitingSnapshot = true
         this.retry()
       }
     } catch { this.retry() }

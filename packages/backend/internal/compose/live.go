@@ -28,13 +28,14 @@ type liveSync interface {
 }
 
 // liveTopics resolves the install's shared topics (spec §7.2) for one
-// person: home, todo:<n> and flows. Every topic serves shared facts only,
+// person: home, todo:<n>, flows and members. Every topic serves shared facts only,
 // so one stream serves every member byte for byte.
 type liveTopics struct {
 	queries *db.Queries
 	todos   liveTodos
 	sync    liveSync
 	install *services.InstallSetupService
+	members *services.Members
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -74,6 +75,14 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 		member = user.ID
 	}
 	return func(ctx context.Context, topic string) (live.Source, string) {
+		if topic == "members" {
+			if t.members == nil || t.members.Pool == nil || t.members.Credentials == nil || t.members.Minter == nil {
+				return live.Source{}, live.Unsupported
+			}
+			if _, err := services.Authorize(r.Context(), t.queries, "members.list"); err != nil {
+				return live.Source{}, live.Forbidden
+			}
+		}
 		return t.resolve(ctx, topic, repository, slug, member)
 	}, repository
 }
@@ -100,13 +109,24 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			}
 			return json.Marshal(status)
 		}}, ""
-	case "branch", "conversation", "doc", "members", "secrets", "proposals", "agents", "run":
+	case "branch", "conversation", "doc", "secrets", "proposals", "agents", "run":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
 		return live.Source{}, live.Unsupported
 	}
 	switch {
+	case topic == "members":
+		if t.members == nil {
+			return live.Source{}, live.Unsupported
+		}
+		return live.Source{Key: topic, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			roster, err := t.members.SharedRoster(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(roster)
+		}}, ""
 	case topic == "home":
 		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			return t.home(ctx, repository, slug)

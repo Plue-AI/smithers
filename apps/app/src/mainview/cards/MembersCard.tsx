@@ -17,7 +17,12 @@ export function MembersCard({ roster, role, dispatch, View = MembersView, view, 
   readonly onView: MembersViewProps["onView"]
 }) {
   const snapshot = useSyncExternalStore(roster.subscribe, roster.get, roster.get)
-  if (!snapshot.model) return null
+  const retry = cardActions(dispatch, [{ tag: "members", label: "Retry", command_input: undefined }])
+  const failure = snapshot.error && snapshot.refused === undefined ? <div role="alert" data-error-class={snapshot.error.class}>
+    <span>{snapshot.error.message}{snapshot.error.class === "infra" || snapshot.error.class === "github" ? ". Not your fault." : ""}</span>
+    <button {...retry.actionProps("members")}>Retry</button>
+  </div> : null
+  if (!snapshot.model) return failure
   const source = MembersCardSchema.parse(snapshot.model)
   const definitions: CardActionDefinition[] = []
   if (role !== "member") definitions.push({ tag: "members.add", label: "Add", command_input: { login: "", role: "member" },
@@ -43,8 +48,8 @@ export function MembersCard({ roster, role, dispatch, View = MembersView, view, 
     return dispatch(tag, input)
   }, definitions)
   for (const member of model.members) member.actions = bindings.actions.filter(action => action.args?.login === member.login)
-  return <View model={model} actions={bindings.actions.filter(action => !action.args?.login)} gestures={bindings.gestures}
-    onAction={bindings.onAction} view={view} onView={onView} />
+  return <>{failure}<View model={model} actions={bindings.actions.filter(action => !action.args?.login)} gestures={bindings.gestures}
+    onAction={bindings.onAction} view={view} onView={onView} /></>
 }
 
 /* The members card (card-kinds.md L5): subject only; maintainers and the owner manage people. On an install the roster is

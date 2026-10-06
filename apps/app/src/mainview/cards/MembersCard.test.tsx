@@ -191,3 +191,14 @@ test("the registry renders the controller's roster: nothing before it reads, its
   for (const login of ["will", "ben", "sam", "lee"]) expect(markup).toContain(login)
   expect(submitted).toEqual([])
 })
+
+test("a failed roster read keeps committed rows and offers the shared members Retry flow", () => {
+  const calls: unknown[] = []
+  const html = renderToStaticMarkup(<MembersCard roster={{ get: () => ({ model, error: { class: "infra", code: "unavailable", message: "Members unavailable" } }), subscribe: () => () => {} }}
+    role="owner" dispatch={(tag, input) => { calls.push([tag, input]) }} view={{ maximized: false }} onView={() => {}} />)
+  expect(html).toContain('data-error-class="infra"')
+  expect(html).toContain("Not your fault")
+  expect(html).toContain('data-flow="members">Retry</button>')
+  expect(html).toContain('@ben')
+  expect(calls).toEqual([])
+})

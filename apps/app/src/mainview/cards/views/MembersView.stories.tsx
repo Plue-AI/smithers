@@ -8,8 +8,8 @@ const expects = {
   empty: ["Members", "Will Cory", "Owner", "Add"],
   team: ["Will Cory", "Ben Carter", "Sam Lee", "Owner", "Maintainer", "Member", "Remove"],
   needs_access: ["Ben Carter", "needs access on GitHub"],
-  suspended: ["Ben Carter", "lost access on GitHub"],
-  suspended_needs_access: ["Ben Carter", "lost access on GitHub"],
+  suspended: ["Ben Carter", "suspended"],
+  suspended_needs_access: ["Ben Carter", "suspended"],
   member_view: ["Will Cory", "Ben Carter", "Sam Lee", "Owner", "Maintainer", "Member"],
   placeholder_avatar: ["Sam Lee", "Member"],
 }

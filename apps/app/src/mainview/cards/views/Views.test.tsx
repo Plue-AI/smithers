@@ -203,7 +203,11 @@ for (const path of paths) {
               field.dispatchEvent(new Event("change", { bubbles: true }))
             }
           })
-          await act(async () => control.click())
+          const confirmation = action.tag === "members.remove" ? spyOn(window, "confirm").mockReturnValue(true) : undefined
+          try {
+            await act(async () => control.click())
+            if (confirmation && !action.disabled) expect(confirmation).toHaveBeenCalledWith(`Remove @${action.args?.login}?`)
+          } finally { confirmation?.mockRestore() }
           expect(onView).toHaveBeenCalledTimes(0)
           if (action.disabled) expect(onAction).toHaveBeenCalledTimes(0)
           else {

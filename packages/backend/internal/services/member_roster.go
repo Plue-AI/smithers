@@ -291,6 +291,17 @@ func (m *Members) List(ctx context.Context) (MembersProjection, error) {
 	if err != nil {
 		return out, err
 	}
+	return m.roster(ctx, decision.Role.rank() >= InstallMaintainer.rank())
+}
+
+// SharedRoster serves committed facts for the members live topic. The topic
+// resolver authorizes each subscriber; shared snapshots carry no role controls.
+func (m *Members) SharedRoster(ctx context.Context) (MembersProjection, error) {
+	return m.roster(ctx, false)
+}
+
+func (m *Members) roster(ctx context.Context, canWrite bool) (MembersProjection, error) {
+	out := MembersProjection{Members: []MemberProjection{}}
 	repo, err := m.repository(ctx)
 	if err != nil {
 		return out, err
@@ -304,7 +315,6 @@ func (m *Members) List(ctx context.Context) (MembersProjection, error) {
 		return out, err
 	}
 	defer rows.Close()
-	canWrite := decision.Role.rank() >= InstallMaintainer.rank()
 	for rows.Next() {
 		var row MemberProjection
 		var permission string
