@@ -109,10 +109,14 @@ export const verifyCiRun = ({ github, unpack, repo, landed, label }) => {
   // Each job leg's newest attempt up to run_attempt decides: "re-run failed jobs"
   // re-executes only some legs, and the others keep their earlier attempt's result.
   const newest = new Map()
+  const identities = new Set()
   for (const artifact of artifacts) {
     const name = RESULTS.exec(artifact.name ?? '')
     if (!name || Number(name[3]) > run.run_attempt) continue
     const leg = `${name[1]}-${name[2]}`
+    const identity = `${leg}-${name[3]}`
+    if (identities.has(identity)) return refuse('artifact_ambiguous', { ...evidence, artifact: artifact.name })
+    identities.add(identity)
     if (!newest.has(leg) || Number(RESULTS.exec(newest.get(leg).name)[3]) < Number(name[3])) newest.set(leg, artifact)
   }
   // Every job leg the latest attempt executed must have uploaded at that attempt; the

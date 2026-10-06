@@ -605,3 +605,36 @@ test('completed closure requires the landed declaration to match the approved ma
     } finally { f.cleanup() }
   }
 })
+
+// The transport can return duplicate artifact names; neither list order is trusted.
+test('duplicate CI artifact identities refuse at recorder and completed-close boundaries', () => {
+  const f = fixture()
+  try {
+    const paths = ['C-FIX-01', 'C-FIX-02'].map(id => {
+      const out = f.recorded(id)
+      assert.equal(out.status, 0, out.stdout + out.stderr)
+      return JSON.parse(out.stdout).receipt
+    })
+    const statePath = join(f.root, 'transport.json')
+    const state = JSON.parse(readFileSync(statePath))
+    const artifacts = state.responses['repos/o/r/actions/runs/7/artifacts?per_page=100'].artifacts
+    artifacts.push({ ...artifacts[0], id: 11 })
+    f.put('transport.json', JSON.stringify(state))
+    const out = spawnSync(process.execPath, ['scripts/check-run.mjs', 'C-FIX-01', '--landed', f.sha], {
+      cwd: f.root, encoding: 'utf8', env: { ...process.env,
+        NODE_OPTIONS: `--import=${join(f.root, 'transport.mjs')}`,
+        PRC03_TRANSPORT: statePath, SMITHERS_GITHUB_PROXY: 'http://fixture.test' }
+    })
+    assert.equal(out.status, 1, out.stdout + out.stderr)
+    const receipt = JSON.parse(readFileSync(join(f.root, JSON.parse(out.stdout).receipt)))
+    assert.equal(receipt.exit, 1)
+    const log = JSON.parse(readFileSync(join(f.root, JSON.parse(out.stdout).receipt, '..', 'log.txt')))
+    assert.equal(log.reason, 'artifact_ambiguous')
+    const close = f.cliClose(paths)
+    assert.equal(close.status, 2, close.stdout + close.stderr)
+    assert.equal(JSON.parse(close.stdout).action, 'evidence-refused')
+    assert.deepEqual(JSON.parse(close.stdout).checks.map(row => [row.check, row.reason]),
+      [['C-FIX-01', 'failed'], ['C-FIX-02', 'failed']])
+    assert.deepEqual(JSON.parse(readFileSync(statePath)).writes, [])
+  } finally { f.cleanup() }
+})
