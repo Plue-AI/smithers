@@ -14,6 +14,12 @@ app's lib0 0.2.117; its launcher installs only offline from the existing store.
 No container runtime or guest build toolchain is needed. The Rust toolchain cross-links static Linux
 binaries with its bundled musl and LLD.
 
+Before building or starting a VM, the launcher compares the runtime source and
+embedded assets against `origin/main`. Missing, changed, symlinked or extra
+inputs refuse the launch with exit 2. The runtime installs a root helper;
+matching a branch-provided digest does not authorize its bytes. Fetch main
+before measurements. Remote browser mode does not provision a VM.
+
 Modes: `rtt` (both transports, idle/busy, setup, controls), `keystrokes` (both
 transports), `control` (retry only the write baselines), `snapshot` (jj burst capture), and `serve relay|bridge` (keep one document VM and host endpoint up
 for a second Mac). The default runs everything. `SPIKE_LAN` selects the LAN
