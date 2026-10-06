@@ -4417,25 +4417,6 @@ func (c *Client) GetAPIReposOwnerRepoWikiSlugRevisions(ctx context.Context, owne
 	return out, err
 }
 
-// GetAPIReposOwnerRepoWikiSlugStream calls GET /api/repos/{owner}/{repo}/wiki/{slug}/stream. The caller closes the response body.
-func (c *Client) GetAPIReposOwnerRepoWikiSlugStream(ctx context.Context, owner string, repo string, slug string) (*http.Response, error) {
-	return c.raw(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/"+url.PathEscape(slug)+"/stream", nil, nil, "text/event-stream")
-}
-
-// GetAPIReposOwnerRepoWikiSlugUpdates calls GET /api/repos/{owner}/{repo}/wiki/{slug}/updates.
-func (c *Client) GetAPIReposOwnerRepoWikiSlugUpdates(ctx context.Context, owner string, repo string, slug string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/"+url.PathEscape(slug)+"/updates", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoWikiSlugUpdates calls POST /api/repos/{owner}/{repo}/wiki/{slug}/updates.
-func (c *Client) PostAPIReposOwnerRepoWikiSlugUpdates(ctx context.Context, owner string, repo string, slug string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/"+url.PathEscape(slug)+"/updates", nil, nil, &out)
-	return out, err
-}
-
 // GetAPIReposOwnerRepoWikiSearch calls GET /api/repos/{owner}/{repo}/wiki/search.
 func (c *Client) GetAPIReposOwnerRepoWikiSearch(ctx context.Context, owner string, repo string) (AnyJSON, error) {
 	var out AnyJSON

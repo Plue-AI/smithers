@@ -513,26 +513,6 @@ func buildRouter(
 
 	// Wiki collaboration uses the existing shared broker and auth/revocation
 	// infrastructure. The stream must remain outside the JSON timeout group.
-	if collaborative, ok := wikiService.(routes.WikiCollaborationService); ok {
-		var broker *sse.Broker
-		if agentSessionStreamHandler != nil {
-			broker = agentSessionStreamHandler.Broker
-		}
-		handler := &routes.WikiCollaborationHandler{Service: collaborative, Broker: broker}
-		r.Group(func(r chi.Router) {
-			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
-			r.Use(authLoader(queries, cfg.Auth))
-			r.Use(sseTicketAuth)
-			if queries != nil {
-				r.Use(middleware.LoadRepoContext(queries))
-			}
-			gates := []func(http.Handler) http.Handler{middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), repoAPIQuota, gateWiki}
-			if queries != nil {
-				gates = append(gates, middleware.RequireRepoPermission(middleware.PermissionRead))
-			}
-			r.With(gates...).Get("/api/repos/{owner}/{repo}/wiki/{slug}/stream", handler.Stream)
-		})
-	}
 
 	// SSE agent session stream — registered at the top-level router (outside /api's JSONTimeout
 	// middleware group) so the connection is not subject to the 30s request timeout.
@@ -1366,8 +1346,6 @@ func buildRouter(
 					if collaborative, ok := wikiService.(routes.WikiCollaborationService); ok {
 						handler := &routes.WikiCollaborationHandler{Service: collaborative}
 						r.With(append(readRepo, gateWiki)...).Get("/wiki/{slug}/document", handler.Document)
-						r.With(append(readRepo, gateWiki)...).Get("/wiki/{slug}/updates", handler.Updates)
-						r.With(append(writeRepo, gateWiki)...).Post("/wiki/{slug}/updates", handler.Apply)
 					}
 					r.With(append(writeRepo, gateWiki)...).Patch("/wiki/{slug}", routes.UpdateWikiPage(wikiService))
 					r.With(append(writeRepo, gateWiki)...).Delete("/wiki/{slug}", routes.DeleteWikiPage(wikiService))

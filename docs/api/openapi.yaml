@@ -590,7 +590,6 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}/erase:
     post:
-      x-composition: plue
       summary: POST /api/admin/users/{username}/erase
       description: Erases the user's owned data, including stored workspace snapshots, and replaces the account with a tombstone identity. Keeps billing, credit-ledger and tax records with the name and email removed. Repeating the erase changes nothing and succeeds. With user_id the erase targets exactly that account, which must hold or have held the username. Without it, a username registered after the request date resolves to the earlier tombstone; a live account created after the request date, or a name reused after an earlier erase when both accounts predate the request, is refused with 409. An admin.user.erase_started event is written before any teardown and an admin.user.erase event with the result.
       operationId: post_api_admin_users_username_erase
@@ -1368,6 +1367,7 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/agents:
+    x-composition: install
     get:
       x-composition: install
       summary: Read factory agents
@@ -1388,6 +1388,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
   /api/agents/{role}/model:
+    x-composition: install
     put:
       x-composition: install
       summary: Assign a factory agent model
@@ -3576,6 +3577,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
   /api/install/metrics:
+    x-composition: install
     get:
       x-composition: install
       summary: Read in-process install metrics
@@ -13453,146 +13455,6 @@ paths:
     get:
       summary: GET /api/repos/{owner}/{repo}/wiki/{slug}/revisions
       operationId: get_api_repos_owner_repo_wiki_slug_revisions
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: slug
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/wiki/{slug}/stream:
-    get:
-      summary: GET /api/repos/{owner}/{repo}/wiki/{slug}/stream
-      operationId: get_api_repos_owner_repo_wiki_slug_stream
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: slug
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Event stream
-          content:
-            text/event-stream:
-              schema:
-                type: string
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/wiki/{slug}/updates:
-    get:
-      summary: GET /api/repos/{owner}/{repo}/wiki/{slug}/updates
-      operationId: get_api_repos_owner_repo_wiki_slug_updates
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: slug
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    post:
-      summary: POST /api/repos/{owner}/{repo}/wiki/{slug}/updates
-      operationId: post_api_repos_owner_repo_wiki_slug_updates
       tags:
         - Repositories
       parameters:

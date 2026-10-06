@@ -22,7 +22,6 @@ owner, as another account and anonymously through the composed backend.
 | `GET /api/repos/{owner}/{repo}/changes/events` | SSE | repository readers | live hints; no replay | opens |
 | `GET /api/repos/{owner}/{repo}/mythical/events` | SSE | repository readers | live hints; clients refetch the stack | opens |
 | `GET /api/repos/{owner}/{repo}/issues/state-events/stream` | SSE | repository readers | durable facts; `Last-Event-ID` cursor | opens |
-| `GET /api/repos/{owner}/{repo}/wiki/{slug}/stream` | SSE | repository readers of the page | page revisions; `Last-Event-ID` revision cursor | opens |
 | `GET /api/repos/{owner}/{repo}/runs/{id}/logs` | SSE | repository readers | persisted log lines; `Last-Event-ID` replay | opens |
 | `GET /api/repos/{owner}/{repo}/runs/{id}/events` | SSE | repository readers | persisted log lines; `Last-Event-ID` replay | opens |
 | `GET /api/repos/{owner}/{repo}/workflows/runs/{id}/events` | SSE | repository readers | persisted log lines; `Last-Event-ID` replay | opens |

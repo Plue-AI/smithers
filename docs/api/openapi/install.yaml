@@ -1,5 +1,6 @@
 paths:
   /api/install/metrics:
+    x-composition: install
     get:
       x-composition: install
       summary: Read in-process install metrics

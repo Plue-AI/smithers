@@ -446,6 +446,7 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/agents:
+    x-composition: install
     get:
       x-composition: install
       summary: Read factory agents
@@ -466,6 +467,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
   /api/agents/{role}/model:
+    x-composition: install
     put:
       x-composition: install
       summary: Assign a factory agent model

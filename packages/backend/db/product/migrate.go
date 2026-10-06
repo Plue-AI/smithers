@@ -161,6 +161,7 @@ var migrationRegistry = []migrationSpec{
 	{123, "migrations/0123_person_confirmations.sql"},
 	{124, "migrations/0124_github_pull_facts.sql"},
 	{125, "migrations/0125_todo_position.sql"},
+	{126, "migrations/0126_wiki_live_cutover.sql"},
 }
 
 type migration struct {

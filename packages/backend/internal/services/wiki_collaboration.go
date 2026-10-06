@@ -1,14 +1,12 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -23,10 +21,8 @@ type WikiCollaborationStore interface {
 	GetWikiPageIdentity(context.Context, db.GetWikiPageIdentityParams) (db.GetWikiPageIdentityRow, error)
 	GetWikiDocument(context.Context, db.GetWikiDocumentParams) (db.GetWikiDocumentRow, error)
 	WriteWikiDocument(context.Context, db.WriteWikiDocumentParams) (db.WikiPage, error)
-	GetWikiUpdateReceipt(context.Context, db.GetWikiUpdateReceiptParams) (db.WikiPageRevision, error)
 	CountWikiRevisions(context.Context, db.CountWikiRevisionsParams) (int64, error)
 	ListWikiRevisions(context.Context, db.ListWikiRevisionsParams) ([]db.WikiPageRevision, error)
-	ListWikiUpdatesAfter(context.Context, db.ListWikiUpdatesAfterParams) ([]db.WikiPageRevision, error)
 }
 
 type WikiDocumentHost interface {
@@ -47,18 +43,6 @@ type WikiDocumentResponse struct {
 	Page        WikiPageResponse `json:"page"`
 	State       string           `json:"state"`
 	StateVector string           `json:"state_vector"`
-}
-
-type WikiUpdateInput struct {
-	PageID   int64  `json:"page_id"`
-	UpdateID string `json:"update_id"`
-	Update   string `json:"update"`
-}
-
-type WikiUpdateResponse struct {
-	Document         WikiDocumentResponse `json:"document"`
-	UpdateID         string               `json:"update_id"`
-	AcceptedRevision int64                `json:"accepted_revision"`
 }
 
 // The document state and rendered body are accepted in one revision-checked
@@ -135,95 +119,6 @@ func (s *WikiService) initializedWikiDocument(ctx context.Context, owner, repo s
 	return db.GetWikiDocumentRow{}, pkgerrors.Conflict("wiki changed repeatedly; retry document initialization")
 }
 
-func (s *WikiService) ApplyWikiUpdate(ctx context.Context, actor *db.User, owner, repo, slug string, input WikiUpdateInput) (WikiUpdateResponse, error) {
-	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
-	if err != nil {
-		return WikiUpdateResponse{}, err
-	}
-	if err = s.requireWriteAccess(ctx, repository, actor); err != nil {
-		return WikiUpdateResponse{}, err
-	}
-	id, err := uuid.Parse(input.UpdateID)
-	if err != nil || id == uuid.Nil || input.PageID <= 0 {
-		return WikiUpdateResponse{}, pkgerrors.BadRequest("page_id and a nonzero UUID update_id are required")
-	}
-	if len(input.Update) > 4*((maxWikiBodyBytes+2)/3) {
-		return WikiUpdateResponse{}, pkgerrors.BadRequest("wiki update exceeds 1 MiB")
-	}
-	update, err := base64.StdEncoding.DecodeString(input.Update)
-	if err != nil || len(update) == 0 || len(update) > maxWikiBodyBytes {
-		return WikiUpdateResponse{}, pkgerrors.BadRequest("wiki update must be Yjs v1 base64 of at most 1 MiB")
-	}
-	updateID := pgtype.UUID{Bytes: id, Valid: true}
-	for attempt := 0; attempt < 8; attempt++ {
-		row, err := s.initializedWikiDocument(ctx, owner, repo, repository.ID, slug)
-		if err != nil {
-			return WikiUpdateResponse{}, err
-		}
-		// Slugs can be reused after deletion. The original page ID fences an
-		// offline editor from writing into the replacement page.
-		if row.ID != input.PageID {
-			return WikiUpdateResponse{}, pkgerrors.Conflict("wiki page was replaced; reopen it before editing")
-		}
-		receipt, err := s.documents.GetWikiUpdateReceipt(ctx, db.GetWikiUpdateReceiptParams{PageID: row.ID, UpdateID: updateID})
-		if err == nil {
-			if receipt.RepositoryID != repository.ID || !receipt.AuthorID.Valid || receipt.AuthorID.Int64 != actor.ID || !bytes.Equal(receipt.UpdateBytes, update) {
-				return WikiUpdateResponse{}, pkgerrors.Conflict("update_id already belongs to a different edit")
-			}
-			// The receipt can commit after our document read. Reread without
-			// merging or writing until the returned state includes that edit.
-			if row.Revision < receipt.Revision {
-				continue
-			}
-			if err = s.wikiWriteStillAuthorized(ctx, actor, owner, repo, repository.ID); err != nil {
-				return WikiUpdateResponse{}, err
-			}
-			return WikiUpdateResponse{Document: documentResponse(row), UpdateID: id.String(), AcceptedRevision: receipt.Revision}, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return WikiUpdateResponse{}, pkgerrors.Internal("failed to read wiki update receipt")
-		}
-		merged, err := s.mergeWikiDocument(ctx, owner, repo, repohost.WikiDocumentRequest{
-			Operation: "apply", State: base64.StdEncoding.EncodeToString(row.CrdtState), Update: input.Update,
-		})
-		if err != nil {
-			return WikiUpdateResponse{}, err
-		}
-		args, err := documentWrite(row, merged, updateID, update, actor.ID)
-		if err != nil {
-			return WikiUpdateResponse{}, err
-		}
-		// Recheck current repository authorization after the remote merge.
-		currentRepo, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
-		if err != nil {
-			return WikiUpdateResponse{}, err
-		}
-		if currentRepo.ID != repository.ID {
-			return WikiUpdateResponse{}, pkgerrors.Conflict("repository was replaced")
-		}
-		if err = s.requireWriteAccess(ctx, currentRepo, actor); err != nil {
-			return WikiUpdateResponse{}, err
-		}
-		if _, err = s.putWikiContent(ctx, repository.ID, []byte(args.Body)); err != nil {
-			return WikiUpdateResponse{}, err
-		}
-		if err = s.wikiWriteStillAuthorized(ctx, actor, owner, repo, repository.ID); err != nil {
-			return WikiUpdateResponse{}, err
-		}
-		written, err := s.documents.WriteWikiDocument(ctx, args)
-		if errors.Is(err, pgx.ErrNoRows) || isWikiPageConflict(err) {
-			continue
-		}
-		if err != nil {
-			return WikiUpdateResponse{}, pkgerrors.Internal("failed to store wiki update").WithCause(err)
-		}
-		response := WikiDocumentResponse{Page: mapWikiPageRecord(written, actor.Username), State: merged.State, StateVector: merged.StateVector}
-		s.dispatchWikiEvent(ctx, currentRepo, actor, "updated", response.Page)
-		return WikiUpdateResponse{Document: response, UpdateID: id.String(), AcceptedRevision: written.Revision}, nil
-	}
-	return WikiUpdateResponse{}, pkgerrors.Conflict("wiki changed repeatedly; retry the same update_id")
-}
-
 func (s *WikiService) mergeWikiDocument(ctx context.Context, owner, repo string, input repohost.WikiDocumentRequest) (repohost.WikiDocumentResult, error) {
 	result, err := s.documentHost.MergeWikiDocument(ctx, owner, repo, input)
 	if err != nil {
@@ -259,7 +154,7 @@ func documentResponse(row db.GetWikiDocumentRow) WikiDocumentResponse {
 }
 
 // Whole-document REST replacement needs an explicit revision once collaborative
-// editing has started. Concurrent editors use ApplyWikiUpdate instead.
+// editing has started. Live co-editing requires the shared document channel.
 func (s *WikiService) replaceCollaborativeWikiPage(ctx context.Context, actor *db.User, owner, repo string, pageID, repoID int64, currentSlug, nextSlug, nextTitle, nextPath string, input UpdateWikiPageInput) (WikiPageResponse, bool, error) {
 	row, err := s.documents.GetWikiDocument(ctx, db.GetWikiDocumentParams{RepositoryID: repoID, Visibility: wikiVisibility(ctx), Slug: currentSlug})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -317,64 +212,4 @@ func (s *WikiService) replaceCollaborativeWikiPage(ctx context.Context, actor *d
 		return WikiPageResponse{}, true, pkgerrors.Internal("failed to store wiki document").WithCause(err)
 	}
 	return mapWikiPageRecord(written, actor.Username), true, nil
-}
-
-// Revisions are real stored snapshots, including deletions and metadata edits.
-// The cursor is the per-page revision: unlike global sequence IDs, row-locked revisions commit in order.
-type WikiUpdateEvent struct {
-	ID       int64  `json:"id"`
-	PageID   int64  `json:"page_id"`
-	Revision int64  `json:"revision"`
-	UpdateID string `json:"update_id,omitempty"`
-	Deleted  bool   `json:"deleted"`
-	Slug     string `json:"slug"`
-}
-
-// WikiUpdatePageSize is the most updates one ListWikiUpdates call returns. A
-// shorter page means the caller has reached the end of the stream.
-const WikiUpdatePageSize = 100
-
-// ListWikiUpdates returns up to WikiUpdatePageSize committed updates after
-// afterID, oldest first.
-func (s *WikiService) ListWikiUpdates(ctx context.Context, viewer *db.User, owner, repo, slug string, pageID, afterID int64) ([]WikiUpdateEvent, error) {
-	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
-	if err != nil {
-		return nil, err
-	}
-	if err = s.requireReadAccess(ctx, repository, viewer); err != nil {
-		return nil, err
-	}
-	if s.documents == nil {
-		return nil, wikiUnavailable("wiki collaboration is unavailable")
-	}
-	if pageID <= 0 || afterID < 0 {
-		return nil, pkgerrors.BadRequest("invalid wiki update cursor")
-	}
-	normalized, err := normalizeWikiSlug(slug)
-	if err != nil {
-		return nil, err
-	}
-	_, err = s.documents.GetWikiPageIdentity(ctx, db.GetWikiPageIdentityParams{RepositoryID: repository.ID, Visibility: wikiVisibility(ctx), PageID: pageID, Slug: normalized})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, pkgerrors.NotFound("wiki page not found")
-	}
-	if err != nil {
-		return nil, pkgerrors.Internal("failed to read wiki page identity").WithCause(err)
-	}
-
-	// An established stream can replay the tombstone after the page is gone.
-	// Repository scoping in the query prevents another repo's IDs leaking.
-	rows, err := s.documents.ListWikiUpdatesAfter(ctx, db.ListWikiUpdatesAfterParams{RepositoryID: repository.ID, PageID: pageID, Revision: afterID, Limit: WikiUpdatePageSize})
-	if err != nil {
-		return nil, pkgerrors.Internal("failed to read wiki updates").WithCause(err)
-	}
-	out := make([]WikiUpdateEvent, 0, len(rows))
-	for _, row := range rows {
-		event := WikiUpdateEvent{ID: row.Revision, PageID: row.PageID, Revision: row.Revision, Deleted: row.Deleted, Slug: row.Slug}
-		if row.UpdateID.Valid {
-			event.UpdateID = uuid.UUID(row.UpdateID.Bytes).String()
-		}
-		out = append(out, event)
-	}
-	return out, nil
 }

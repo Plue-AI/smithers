@@ -1,6 +1,5 @@
 import { digestSync } from "@smthrs/crypto"
-import { Context, Data, Effect, Stream } from "effect"
-import { Sse } from "effect/unstable/encoding"
+import { Context, Data, Effect } from "effect"
 import * as Y from "yjs"
 import { z } from "zod"
 import { cloudFailure, createCloudClient } from "../state/seams/CloudClient"
@@ -33,21 +32,6 @@ export const CloudWikiDocument = z.object({
 })
 export type CloudWikiDocument = z.infer<typeof CloudWikiDocument>
 export const CloudWikiPageIndex = CloudWikiPage.omit({ body: true })
-export const CloudWikiAck = z.object({
-  document: CloudWikiDocument,
-  update_id: z.string().uuid(),
-  accepted_revision: positiveId
-})
-export const CloudWikiRevision = z.object({
-  id: positiveId,
-  page_id: positiveId,
-  revision: positiveId,
-  update_id: z.string().uuid().nullish(),
-  deleted: z.boolean(),
-  slug: z.string().min(1)
-})
-export type CloudWikiRevision = z.infer<typeof CloudWikiRevision>
-
 /** One revision as the page history lists it (`GET /wiki/history/{pageID}`): renames and the deletion included. */
 export const CloudWikiHistoryRevision = z.object({
   page_id: positiveId,
@@ -209,21 +193,6 @@ export class CloudWikiTransport extends Context.Service<CloudWikiTransport, {
     space: WikiSpace
   ) => Effect.Effect<ReadonlyArray<z.infer<typeof CloudWikiPageIndex>>, CloudWikiError>
   readonly read: (repo: string, slug: string, space: WikiSpace) => Effect.Effect<CloudWikiDocument, CloudWikiError>
-  readonly update: (
-    repo: string,
-    slug: string,
-    pageId: number,
-    updateId: string,
-    update: string,
-    space: WikiSpace
-  ) => Effect.Effect<z.infer<typeof CloudWikiAck>, CloudWikiError>
-  readonly revisions: (
-    repo: string,
-    slug: string,
-    pageId: number,
-    after: number,
-    space: WikiSpace
-  ) => Stream.Stream<CloudWikiRevision, CloudWikiError>
   /** The space's navigation index: pages with metadata and backlinks, folders, tags. */
   readonly index: (repo: string, space: WikiSpace) => Effect.Effect<CloudWikiIndex, CloudWikiError>
   /** One page's history, newest first, renames and the deletion included. */
@@ -283,14 +252,6 @@ export const makeCloudWikiTransport = (
         )
       ),
     read: (repo, slug, space) => Effect.suspend(() => json(withSpace(`${wikiPagePath(repo, slug)}/document`, space), CloudWikiDocument)),
-    update: (repo, slug, pageId, updateId, update, space) =>
-      Effect.suspend(() =>
-        json(
-          withSpace(`${wikiPagePath(repo, slug)}/updates`, space),
-          CloudWikiAck,
-          jsonBody({ page_id: pageId, update_id: updateId, update })
-        )
-      ),
     index: (repo, space) => Effect.suspend(() => json(withSpace(`${wikiRootPath(repo)}/navigation/index`, space), CloudWikiIndex)),
     history: (repo, space, pageId, page) =>
       Effect.suspend(() => json(withSpace(`${wikiRootPath(repo)}/history/${pageId}?page=${page}&per_page=50`, space), z.array(CloudWikiHistoryRevision).max(50))),
@@ -302,45 +263,6 @@ export const makeCloudWikiTransport = (
         withSpace(`${wikiRootPath(repo)}/attachments/${encodeURIComponent(slug)}?path=${encodeURIComponent(input.path)}&expected_revision=${input.expectedRevision}`, space),
         CloudWikiPage,
         { method: "PUT", headers: { "content-type": input.mediaType }, body: new Blob([input.bytes as BlobPart], { type: input.mediaType }) }
-      )),
-    revisions: (repo, slug, pageId, after, space) =>
-      Stream.unwrap(Effect.map(
-        response(withSpace(`${wikiPagePath(repo, slug)}/stream?page_id=${pageId}&after=${after}`, space), {
-          headers: { accept: "text/event-stream" }
-        }),
-        (value) =>
-          value.body === null || !value.headers.get("content-type")?.includes("text/event-stream")
-            ? Stream.fail(new CloudWikiError({ sentence: "The Wiki revision stream could not be opened." }))
-            : Stream.fromReadableStream({
-              evaluate: () => value.body!,
-              onError: () => new CloudWikiError({ sentence: "The Wiki revision stream disconnected." })
-            }).pipe(
-              Stream.decodeText(),
-              Stream.pipeThroughChannel(Sse.decode({ maxEventSize: 16 * 1024 })),
-              Stream.filter((event) => event.event === "wiki.update" || event.event === "revoked"),
-              Stream.mapEffect((event) =>
-                event.event === "revoked"
-                  ? Effect.fail(new CloudWikiError({ sentence: "Access to this Wiki was revoked.", status: 403 }))
-                  : Effect.try({
-                    try: () => {
-                      const revision = CloudWikiRevision.parse(JSON.parse(event.data))
-                      if (
-                        revision.page_id !== pageId || String(revision.revision) !== event.id ||
-                        revision.id !== revision.revision
-                      ) {
-                        throw new Error("Mismatched Wiki revision")
-                      }
-                      return revision
-                    },
-                    catch: () => new CloudWikiError({ sentence: "The Wiki returned an invalid revision event." })
-                  })
-              ),
-              Stream.mapError((error) =>
-                error instanceof CloudWikiError ?
-                  error :
-                  new CloudWikiError({ sentence: "The Wiki revision stream disconnected." })
-              )
-            )
       ))
   }
 }

@@ -292,7 +292,7 @@ test("a same-space paired agent automatic Markdown read populates the pane while
     await t.controller.commands.runForAgent("wiki.space", "public")
     await waitFor(() => t.store.session().selectedWorldDocumentId === homeId ||
       t.store.collections.cards.get(`wiki-open-${homeId}`)?.kind === "world")
-    expect(t.store.collections.worldDocuments.get(homeId)?.cloud?.phase).toBe("live")
+    expect(t.store.collections.worldDocuments.get(homeId)?.cloud?.phase).toBe("cached")
     expect(t.store.session().selectedWorldDocumentId).toBe(homeId)
     expect(t.store.collections.cards.get(`wiki-open-${homeId}`)).toBeUndefined()
     t.documentRelease.resolve()
