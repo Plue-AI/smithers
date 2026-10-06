@@ -199,7 +199,7 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 				}
 				consumed = consumed || intent
 			}
-			decision := decideGitHubFact(mythicalGitHubFact{Kind: kind, Review: &gitHubReviewFact{State: object.State, Change: change, ActiveMember: active, OwnApp: ownApp, Duplicate: duplicate, Stale: stale, Held: held, Consumed: consumed}}, mythicalGitHubFactItem{State: todoState(item)}, s.now())
+			decision := decideGitHubFact(mythicalGitHubFact{Kind: kind, Review: &gitHubReviewFact{State: object.State, Change: change, ActiveMember: active, OwnApp: ownApp, Duplicate: duplicate, Stale: stale, Held: held, Consumed: consumed, Empty: strings.TrimSpace(text) == ""}}, mythicalGitHubFactItem{State: todoState(item)}, s.now())
 			if decision.Review == nil {
 				continue
 			}

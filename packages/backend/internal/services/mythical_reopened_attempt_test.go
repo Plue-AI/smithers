@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 // The consumer is real and transactional; the accepted candidate and settled
 // branch-restoration intent are fixtures. No machine execution is claimed.
 func TestReopenedTodoInputStartsNewPinnedAttempt(t *testing.T) {
-	for _, kind := range []string{"steer", "amend", "review"} {
+	for _, kind := range []string{"steer", "amend", "review", "empty review"} {
 		t.Run(kind, func(t *testing.T) {
 			o, synced, row, item := newReviewConsumer(t)
 			pool := o.pool.(*pgxpool.Pool)
@@ -65,9 +66,13 @@ func TestReopenedTodoInputStartsNewPinnedAttempt(t *testing.T) {
 					_, err = o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Repository: o.repoID, Actor: o.userID, Request: "reopen-work", Steer: &text})
 				case "amend":
 					_, err = o.service.AmendTodo(session, item.Number.Int64, TodoAmendInput{Repository: o.repoID, Actor: o.userID, Request: "reopen-work", Prompt: text})
-				case "review":
+				case "review", "empty review":
 					err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-						_, err := synced.install.consumers[gitHubReviews](ctx, tx, reviewFact(row, 77, "after-reopen", "CHANGES_REQUESTED"))
+						fact := reviewFact(row, 77, "after-reopen", "CHANGES_REQUESTED")
+						if kind == "empty review" {
+							fact.Object = json.RawMessage(strings.NewReplacer("CHANGES_REQUESTED", "COMMENTED", "Use the backoff helper", "").Replace(string(fact.Object)))
+						}
+						_, err := synced.install.consumers[gitHubReviews](ctx, tx, fact)
 						return err
 					})
 				}
@@ -84,6 +89,13 @@ func TestReopenedTodoInputStartsNewPinnedAttempt(t *testing.T) {
 			require.NoError(t, send())
 			require.NoError(t, send(), "replay must not create another attempt")
 			queued := o.byID(uuidString(item.ID))
+			if kind == "empty review" {
+				require.Equal(t, "proposed", queued.State, "an empty review is not work")
+				require.True(t, queued.CandidateVerified)
+				require.Empty(t, mythicalChecksOf(queued).Steers)
+				require.Equal(t, accepted.Attempt, queued.Attempt)
+				return
+			}
 			require.Equal(t, "queued", queued.State, "the closed run must never resume")
 			require.Equal(t, accepted.Attempt, queued.Attempt, "only durable launch advances the attempt")
 			require.Equal(t, accepted.FlowDigest, queued.FlowDigest)
@@ -162,4 +174,32 @@ func TestReopenedTodoRebaseStartsFreshAttempt(t *testing.T) {
 	require.Equal(t, item.FlowDigest, queued.FlowDigest)
 	require.Equal(t, "new-main", mythicalChecksOf(*queued).Rebase.Onto)
 	require.False(t, mythicalChecksOf(*queued).RunAttached)
+}
+
+func TestGitHubEmptyReviewEditWithdrawsHeldText(t *testing.T) {
+	o, synced, row, item := newReviewConsumer(t)
+	pool := o.pool.(*pgxpool.Pool)
+	item.State = "blocked"
+	var err error
+	item, err = db.New(pool).SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	fact := reviewFact(row, 77, "held", "COMMENTED")
+	consume := func() error {
+		return pgx.BeginFunc(t.Context(), pool, func(tx pgx.Tx) error {
+			_, err := synced.install.consumers[gitHubReviews](t.Context(), tx, fact)
+			return err
+		})
+	}
+	require.NoError(t, consume())
+	require.Len(t, mythicalChecksOf(o.byID(uuidString(item.ID))).Steers, 1)
+	fact.Version = "empty-edit"
+	fact.Object = json.RawMessage(strings.Replace(string(fact.Object), "Use the backoff helper", "", 1))
+	require.NoError(t, consume())
+	require.NoError(t, consume())
+	current := o.byID(uuidString(item.ID))
+	require.Equal(t, "blocked", current.State)
+	require.Empty(t, mythicalChecksOf(current).Steers)
+	require.Len(t, mythicalChecksOf(current).GitHubInputs, 1)
+	require.Empty(t, mythicalChecksOf(current).GitHubInputs[0].Text)
+	require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation IN ('flow.runtime.launch','flow.runtime.steer')`))
 }

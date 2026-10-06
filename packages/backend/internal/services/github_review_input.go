@@ -44,6 +44,7 @@ type gitHubReviewFact struct {
 	Stale        bool
 	Held         bool
 	Consumed     bool
+	Empty        bool // normalized body and line comments contain no input
 }
 
 type gitHubReviewEffect struct {
@@ -102,6 +103,13 @@ func decideGitHubReview(f mythicalGitHubFact, item mythicalGitHubFactItem) mythi
 		return decision
 	}
 	if r.Consumed {
+		return decision
+	}
+	if r.Empty {
+		// Empty activity cannot start work; an edit also withdraws its held text.
+		if r.Held {
+			effect.Input = "withdraw"
+		}
 		return decision
 	}
 	switch item.State {
