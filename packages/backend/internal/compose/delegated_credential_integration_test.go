@@ -7,12 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 	"io"
@@ -65,7 +68,15 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	topics := &liveTopics{queries: q, members: members}
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
-	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{ProfileService: services.NewUserService(q), TokenService: svc, AuditService: services.NewAuditService(q)}, &routes.SSHKeyHandler{Service: services.NewSSHKeyService(q)}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: services.NewMythicalService(pool, nil)}, Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
+	stackService := services.NewMythicalService(pool, nil)
+	jobStore, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: jobStore, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		return nil, fmt.Errorf("this fixture tests durable admission, not guest execution")
+	})})
+	require.NoError(t, err)
+	stackService.SetLauncher(dispatcher)
+	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{ProfileService: services.NewUserService(q), TokenService: svc, AuditService: services.NewAuditService(q)}, &routes.SSHKeyHandler{Service: services.NewSSHKeyService(q)}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: stackService}, Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 	server.Start()
 	defer server.Close()
 
@@ -120,7 +131,8 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 		req.Header.Set("Smithers-Via", "codex")
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Idempotency-Key", "delegated-retry-key")
+		requestKey := sha256.Sum256([]byte(method + path + body))
+		req.Header.Set("Idempotency-Key", hex.EncodeToString(requestKey[:]))
 		res, err := client.Do(req)
 		require.NoError(t, err)
 		defer res.Body.Close()
@@ -167,6 +179,34 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'actor' FROM product_job_requests WHERE operation='todo.retried' ORDER BY created_at DESC LIMIT 1`).Scan(&actor))
 	require.Contains(t, string(actor), `"agent": "claude-code"`)
 	require.Contains(t, string(actor), `"login": "owner"`)
+	// Full-scope laptop delegation reaches the real Move and Answer services,
+	// while terminal_s1 remains confined by the same command/branch gates.
+	neighbor, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "queued", Checks: []byte(`{"todo":true}`)})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=2,owner_id=$2,title='Neighbor',stack_position=2,attempt=1,revisions='[]' WHERE id=$1`, neighbor.ID, owner.ID)
+	require.NoError(t, err)
+	status, body = call("POST", "/api/todos/2", `{"op":"move","direction":"up"}`, raw)
+	require.Equal(t, 202, status, body)
+	var movedPlace int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT stack_position FROM mythical_items WHERE id=$1`, neighbor.ID).Scan(&movedPlace))
+	require.EqualValues(t, 1, movedPlace)
+	// Same credential/key/payload replays the move without swapping again.
+	status, body = call("POST", "/api/todos/2", `{"op":"move","direction":"up"}`, raw)
+	require.Equal(t, 202, status, body)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT stack_position FROM mythical_items WHERE id=$1`, neighbor.ID).Scan(&movedPlace))
+	require.EqualValues(t, 1, movedPlace)
+	waitChecks, err := json.Marshal(map[string]any{"todo": true, "waits": []services.TodoWait{{ID: "laptop-question", Kind: "question", Prompt: "Which helper?", Since: time.Now().UTC(), Signal: &services.TodoWaitSignal{Scope: jobs.Scope{TenantID: "repository:fixture", PrincipalID: "todo:fixture"}, Target: flowruntime.Target{BindingKind: "repository-job-dispatch", BindingID: "fixture"}, Flow: "todo", Run: "laptop-run", Name: "clarification"}}}})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running',checks=$2 WHERE id=$1`, neighbor.ID, waitChecks)
+	require.NoError(t, err)
+	status, body = call("POST", "/api/todos/2/answer", `{"wait":"laptop-question","answer":"Use the retry helper"}`, raw)
+	require.Equal(t, 202, status, body)
+	var answeredVia string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'waits'->0->'by'->>'agent' FROM mythical_items WHERE id=$1`, neighbor.ID).Scan(&answeredVia))
+	require.Equal(t, "claude-code", answeredVia)
+	var admittedSignals int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&admittedSignals))
+	require.Equal(t, 1, admittedSignals)
 	status, body = call("POST", "/api/user/tokens", `{"name":"laptop","scopes":["repo","user"],"via":"smithers"}`, raw)
 	require.Equal(t, 201, status, body)
 	var minted services.CreateTokenResult
@@ -307,6 +347,26 @@ if(settled.status!==200) throw Error(await settled.text());
 	require.NotContains(t, string(output), credential.Token)
 	status, body = call("GET", "/api/user", "", credential.Token)
 	require.Equal(t, 200, status, body)
+	plainHome := t.TempDir()
+	plainCommand := exec.CommandContext(cliCtx, node, filepath.Join(root, "packages/smithers/bin/smithers.mjs"), "login", origin, "--format", "json")
+	plainCommand.Dir = root
+	for _, entry := range command.Env {
+		if !strings.HasPrefix(entry, "CLAUDECODE=") && !strings.HasPrefix(entry, "CODEX_") {
+			plainCommand.Env = append(plainCommand.Env, entry)
+		}
+	}
+	plainCommand.Env = append(plainCommand.Env, "HOME="+plainHome, "XDG_CONFIG_HOME="+plainHome, "XDG_DATA_HOME="+plainHome, "SMITHERS_AUTH_FILE="+filepath.Join(plainHome, "auth.json"))
+	plainOutput, err := plainCommand.CombinedOutput()
+	require.NoError(t, err, string(plainOutput))
+	plainSaved, err := os.ReadFile(filepath.Join(plainHome, "auth.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(plainSaved, &credential))
+	require.Equal(t, "delegated", credential.Kind)
+	require.Equal(t, "cli", credential.Via)
+	require.NotContains(t, string(plainOutput), credential.Token)
+	status, body = call("GET", "/api/user", "", credential.Token)
+	require.Equal(t, 200, status, body)
+	require.Contains(t, body, `"via":"cli"`)
 	unavailableAuth := *handler
 	withoutAuthorization := buildRouterCompat(cfg, nil, pool, &routes.RepoHandler{}, &unavailableAuth, &routes.UserHandler{ProfileService: services.NewUserService(q), TokenService: svc, AuditService: services.NewAuditService(q)}, &routes.SSHKeyHandler{Service: services.NewSSHKeyService(q)}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: services.NewMythicalService(pool, nil)}, Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 	noAuthorizationRequest := httptest.NewRequest("GET", origin+"/api/auth/github/cli?callback_port=43210", nil)
