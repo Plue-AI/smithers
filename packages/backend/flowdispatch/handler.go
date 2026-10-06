@@ -193,7 +193,12 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 		checkpoint.Run = &flowruntime.FlowRuntimeRun{
 			RunID: result.Receipt.RunID, FlowID: payload.FlowID, Status: result.Receipt.Status, PlanID: result.PlanID,
 		}
-		return service.settle(ctx, lease, checkpoint)
+		// A terminal launch receipt names a finished execution, not a drained
+		// journal. Observe its output and all retained pages before settling.
+		if err := service.checkpoint(ctx, lease, checkpoint, jobs.StateWaiting); err != nil {
+			return err
+		}
+		return service.observe(ctx, runtime, lease, checkpoint)
 	case "Conflict":
 		return service.fail(lease, "runtime_conflict", checkpoint)
 	default:
@@ -613,7 +618,7 @@ func (service *Service) observe(
 		if err := service.checkpoint(ctx, lease, checkpoint, jobs.StateWaiting); err != nil {
 			return err
 		}
-		if observation.Terminal {
+		if observation.Terminal && !observation.HasMore {
 			return service.settle(ctx, lease, checkpoint)
 		}
 		if !observation.HasMore {
