@@ -18,10 +18,11 @@ type AdmissionRequest struct {
 }
 
 type admissionHolder struct {
-	rows      map[string]*AdmissionRequest
-	held      bool
-	machine   string
-	releasing time.Time
+	rows          map[string]*AdmissionRequest
+	held          bool
+	machine       string
+	releasing     time.Time
+	idlePreparing bool
 }
 
 // AdmissionProviders keeps missing authority fail-closed. Ready must verify the
@@ -90,12 +91,12 @@ func (r *Runtime) Request(class, holder, actor, reason string) (AdmissionRequest
 		row.Class = class
 		row.sequence = r.admissionSequence
 	}
-	if h.held && !h.releasing.IsZero() && row.State == "granted" {
+	if h.held && (!h.releasing.IsZero() || h.idlePreparing) && row.State == "granted" {
 		r.admissionSequence++
 		row.State = "waiting"
 		row.sequence = r.admissionSequence
 	}
-	if h.held && h.releasing.IsZero() {
+	if h.held && h.releasing.IsZero() && !h.idlePreparing {
 		row.State = "granted"
 	}
 	r.rankAdmissionLocked()
@@ -165,12 +166,7 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 		return AdmissionRequest{}, nil
 	}
 	candidate := *heads[0]
-	reader := r.capacityReader
-	profile := r.config.HostProfile
 	r.mu.Unlock()
-	if reader == nil || profile == nil {
-		return AdmissionRequest{}, errors.New("admission host profile or owner capacity unavailable")
-	}
 	if err := p.Ready(ctx, candidate); err != nil {
 		return AdmissionRequest{}, err
 	}
@@ -179,16 +175,10 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	if _, err := r.prepareAdmission(ctx); err != nil {
 		return AdmissionRequest{}, err
 	}
-	maximum, err := reader(ctx)
+	maximum, err := r.admissionMaximum(ctx, p.FreeDisk)
 	if err != nil {
 		return AdmissionRequest{}, err
 	}
-	free, err := p.FreeDisk(ctx)
-	if err != nil {
-		return AdmissionRequest{}, err
-	}
-	sizing := ComputeSizing(*profile)
-	maximum = min(maximum, sizing.MemoryCapacity, sizing.CoreCapacity, int(max(int64(0), free-MinFreeDiskBytes)/MachineDiskBytes))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
@@ -203,7 +193,7 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 		return AdmissionRequest{}, nil
 	}
 	h := r.admission[candidate.Holder]
-	if h.held || r.inUseLocked() >= maximum {
+	if h.held || h.idlePreparing || r.inUseLocked() >= maximum {
 		return AdmissionRequest{}, nil
 	}
 	h.held = true
@@ -236,7 +226,7 @@ func (r *Runtime) CancelAdmission(holder, actor string, now time.Time) bool {
 			return false
 		}
 	}
-	if h.held && h.releasing.IsZero() {
+	if h.held && h.releasing.IsZero() && !h.idlePreparing {
 		h.releasing = now
 		return true
 	}
@@ -249,7 +239,7 @@ func (r *Runtime) BindAdmissionMachine(holder, machine string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h := r.admission[holder]
-	if h == nil || !h.held || !h.releasing.IsZero() || machine == "" {
+	if h == nil || !h.held || !h.releasing.IsZero() || h.idlePreparing || machine == "" {
 		return errors.New("machine requires a held admission slot")
 	}
 	if h.machine != "" && h.machine != machine {
@@ -400,6 +390,7 @@ func (r *Runtime) startAdmissionReconciler(parent context.Context) {
 			case <-ticker.C:
 				observe, done := context.WithTimeout(ctx, 10*time.Second)
 				_ = r.ReconcileAdmissionReleases(observe, time.Now())
+				_ = r.reconcileConfiguredAdmissionIdle(observe, time.Now())
 				done()
 			}
 		}
@@ -426,21 +417,25 @@ func (r *Runtime) AdmissionIdleRelease(now, hostStarted time.Time, observations 
 	if hostStarted.IsZero() || now.Sub(hostStarted) < 30*time.Second {
 		return ""
 	}
-	waiting := len(r.rankAdmissionLocked()) > 0
+	return r.admissionIdleCandidateLocked(now, observations, true, true, r.config.MaxRunningVMs)
+}
+
+func (r *Runtime) admissionIdleCandidateLocked(now time.Time, observations []AdmissionSafety, requireCapture, mark bool, maximum int) string {
+	waiting := len(r.rankAdmissionLocked()) > 0 && r.inUseLocked() >= maximum
 	selected := ""
 	var oldest time.Time
 	for _, s := range observations {
 		h := r.admission[s.Holder]
-		if h == nil || !h.held || !h.releasing.IsZero() || s.IdleSince.IsZero() || s.IdleSince.After(now) {
+		if h == nil || !h.held || !h.releasing.IsZero() || h.idlePreparing || s.IdleSince.IsZero() || s.IdleSince.After(now) {
 			continue
 		}
 		if !s.PresenceKnown || !s.SessionsKnown || !s.RunKnown || s.Presence || s.Terminal || s.SSH || s.RunningStep {
 			continue
 		}
-		if s.BurstsEnabled && (!s.BurstsKnown || s.BurstOpen || !s.CaptureConfirmed) {
+		if s.BurstsEnabled && (!s.BurstsKnown || s.BurstOpen || (requireCapture && !s.CaptureConfirmed)) {
 			continue
 		}
-		if s.DocumentsEnabled && (!s.DocumentsKnown || s.Unflushed || !s.CaptureConfirmed) {
+		if s.DocumentsEnabled && (!s.DocumentsKnown || s.Unflushed || (requireCapture && !s.CaptureConfirmed)) {
 			continue
 		}
 		timeout := 30 * time.Minute
@@ -456,7 +451,7 @@ func (r *Runtime) AdmissionIdleRelease(now, hostStarted time.Time, observations 
 			oldest = s.IdleSince
 		}
 	}
-	if selected != "" {
+	if selected != "" && mark {
 		r.admission[selected].releasing = now
 	}
 	return selected
@@ -476,7 +471,7 @@ func (r *Runtime) admitMachineLocked(ctx context.Context, maximum int, machine s
 		return r.admitRunningLocked(maximum)
 	}
 	h := r.admission[holder]
-	if h == nil || !h.held || !h.releasing.IsZero() {
+	if h == nil || !h.held || !h.releasing.IsZero() || h.idlePreparing {
 		return errors.New("machine has no active admission grant")
 	}
 	if h.machine != "" {
@@ -567,6 +562,10 @@ func (r *Runtime) WaitAdmission(ctx context.Context, p AdmissionProviders, class
 		if r.admissionGranted(holder, actor) {
 			return WithAdmissionHolder(ctx, holder), nil
 		}
+		if err := r.reconcileConfiguredAdmissionIdle(ctx, time.Now()); err != nil {
+			r.abandonAdmission(holder, actor)
+			return ctx, err
+		}
 		select {
 		case <-ctx.Done():
 		case <-changed:
@@ -618,7 +617,7 @@ func (r *Runtime) admissionGranted(holder, actor string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h := r.admission[holder]
-	return h != nil && h.held && h.releasing.IsZero() && h.rows[actor] != nil && h.rows[actor].State == "granted"
+	return h != nil && h.held && h.releasing.IsZero() && !h.idlePreparing && h.rows[actor] != nil && h.rows[actor].State == "granted"
 }
 
 // CancelFailedAdmission cancels the actor after a failed wake. A bound VM keeps

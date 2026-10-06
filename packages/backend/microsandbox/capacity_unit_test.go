@@ -1112,3 +1112,206 @@ func TestAdmissionMachineMetricsFollowRuntimeQueueAndBoots(t *testing.T) {
 		}
 	}
 }
+
+func TestAdmissionIdleCaptureFailureNeverForceStops(t *testing.T) {
+	now := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-A"))
+	_, err = r.Request("person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	safe := AdmissionSafety{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true, BurstsEnabled: true, BurstsKnown: true, DocumentsEnabled: true, DocumentsKnown: true}
+	failed := errors.New("outbox drain failed")
+	stops := 0
+	idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) { return []AdmissionSafety{safe}, nil }, Prepare: func(context.Context, string) error {
+		require.Empty(t, r.AdmissionForceStops(now.Add(time.Hour)))
+		joined, err := r.Request("person", "A", "Ben", "terminal")
+		require.NoError(t, err)
+		require.Equal(t, "waiting", joined.State)
+		require.False(t, r.CancelAdmission("A", "T1", now))
+		return failed
+	}, Stop: func(context.Context, string) error { stops++; return nil }}
+	require.ErrorIs(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle), failed)
+	require.Zero(t, stops)
+	require.Empty(t, r.AdmissionForceStops(now.Add(time.Hour)))
+	require.Equal(t, 1, r.InUse())
+	rows := r.AdmissionSnapshot()
+	require.Equal(t, "cancelled", rows[0].State)
+	require.Equal(t, "waiting", rows[1].State)
+	require.Equal(t, "granted", rows[2].State)
+}
+
+func TestAdmissionIdlePreparedStopRetainsSlot(t *testing.T) {
+	now := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-A"))
+	_, err = r.Request("person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	safe := AdmissionSafety{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}
+	failed := errors.New("stop not confirmed")
+	calls := []string{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) { return []AdmissionSafety{safe}, nil }, Prepare: func(context.Context, string) error { calls = append(calls, "capture"); cancel(); return nil }, Stop: func(ctx context.Context, holder string) error {
+		require.NoError(t, ctx.Err())
+		require.Equal(t, "A", holder)
+		calls = append(calls, "stop")
+		next, err := r.GrantNext(ctx, p)
+		require.NoError(t, err)
+		require.Empty(t, next.Holder)
+		return failed
+	}}
+	require.ErrorIs(t, r.ReconcileAdmissionIdle(ctx, now, now.Add(-time.Hour), idle), failed)
+	require.Equal(t, []string{"capture", "stop"}, calls)
+	require.Equal(t, 1, r.InUse())
+	require.Empty(t, r.AdmissionForceStops(now.Add(59900*time.Millisecond)))
+	require.Equal(t, []string{"A"}, r.AdmissionForceStops(now.Add(time.Minute)))
+	// A transport failure does not release the slot. Only the runtime's stop
+	// observation lets the queued person's machine start.
+	r.ConfirmAdmissionStop("A", false)
+	next, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "B", next.Holder)
+}
+
+func TestAdmissionIdleProviderAndSafetyRefusals(t *testing.T) {
+	now := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	for _, kind := range []string{"safety_missing", "prepare_missing", "stop_missing", "read_failed", "restart", "presence_unknown", "sessions_unknown", "run_unknown", "burst_unknown", "flush_unknown", "safe"} {
+		t.Run(kind, func(t *testing.T) {
+			r, p := admissionFixture()
+			_, err := r.Request("todo", "A", "T1", "run")
+			require.NoError(t, err)
+			_, err = r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			_, err = r.Request("person", "B", "Alice", "terminal")
+			require.NoError(t, err)
+			safe := AdmissionSafety{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}
+			prepared, stopped := 0, 0
+			idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) { return []AdmissionSafety{safe}, nil }, Prepare: func(context.Context, string) error { prepared++; return nil }, Stop: func(context.Context, string) error { stopped++; return nil }}
+			start := now.Add(-time.Hour)
+			switch kind {
+			case "safety_missing":
+				idle.Safety = nil
+			case "prepare_missing":
+				idle.Prepare = nil
+			case "stop_missing":
+				idle.Stop = nil
+			case "read_failed":
+				idle.Safety = func(context.Context) ([]AdmissionSafety, error) { return nil, errors.New("stale observation") }
+			case "restart":
+				start = now.Add(-29900 * time.Millisecond)
+			case "presence_unknown":
+				safe.PresenceKnown = false
+			case "sessions_unknown":
+				safe.SessionsKnown = false
+			case "run_unknown":
+				safe.RunKnown = false
+			case "burst_unknown":
+				safe.BurstsEnabled = true
+			case "flush_unknown":
+				safe.DocumentsEnabled = true
+			}
+			err = r.ReconcileAdmissionIdle(t.Context(), now, start, idle)
+			if strings.HasSuffix(kind, "missing") || kind == "read_failed" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if kind == "safe" {
+				require.Equal(t, 1, prepared)
+				require.Equal(t, 1, stopped)
+			} else {
+				require.Zero(t, prepared)
+				require.Zero(t, stopped)
+				require.Empty(t, r.AdmissionForceStops(now.Add(time.Hour)))
+			}
+			require.Equal(t, 1, r.InUse())
+		})
+	}
+}
+
+func TestAdmissionIdleDoesNotReleaseWithSpareCapacity(t *testing.T) {
+	now := time.Now()
+	r, p := admissionFixture()
+	r.SetCapacityReader(func(context.Context) (int, error) { return 2, nil })
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	_, err = r.Request("person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	prepared := 0
+	idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) {
+		return []AdmissionSafety{{Holder: "A", IdleSince: now.Add(-time.Minute), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+	}, Prepare: func(context.Context, string) error { prepared++; return nil }, Stop: func(context.Context, string) error { return nil }}
+	require.NoError(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle))
+	require.Zero(t, prepared)
+	// The owner lowering capacity changes release pressure without preempting a
+	// working step, and disk is reread rather than cached from host startup.
+	idle.FreeDisk = func(context.Context) (int64, error) { return 100 << 30, nil }
+	require.NoError(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle))
+	require.Equal(t, 1, prepared)
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionConfiguredIdleReleaseWakesWaitingPerson(t *testing.T) {
+	now := time.Now()
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-A"))
+	prepared := 0
+	require.Error(t, r.SetAdmissionIdleProviders(AdmissionIdleProviders{}))
+	require.NoError(t, r.SetAdmissionIdleProviders(AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) {
+		return []AdmissionSafety{{Holder: "A", IdleSince: time.Now().Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+	}, Prepare: func(context.Context, string) error { prepared++; return nil }, Stop: func(context.Context, string) error { r.ConfirmAdmissionStop("A", false); return nil }}))
+	r.mu.Lock()
+	r.admissionStarted = time.Now().Add(-time.Hour)
+	r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	granted, err := r.WaitAdmission(ctx, p, "person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	require.NotNil(t, granted)
+	require.Equal(t, 1, prepared)
+	require.Equal(t, 1, r.InUse())
+	require.Equal(t, "granted", r.AdmissionSnapshot()[1].State)
+}
+
+func TestAdmissionIdleConcurrentPreparationDoesNotBlockCancellation(t *testing.T) {
+	r, p := admissionFixture()
+	now := time.Now()
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	_, err = r.Request("person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	entered, finish, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) {
+		return []AdmissionSafety{{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+	}, Prepare: func(context.Context, string) error { close(entered); <-finish; return errors.New("capture failed") }, Stop: func(context.Context, string) error { t.Error("must not stop after capture failure"); return nil }}
+	go func() { done <- r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle) }()
+	<-entered
+	// A second tick must not wait on a blocked capture or enter it twice.
+	require.NoError(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle))
+	joined, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	require.Equal(t, "waiting", joined.State)
+	require.False(t, r.admissionGranted("A", "T1"))
+	require.False(t, r.CancelAdmission("A", "T1", now))
+	require.False(t, r.CancelAdmission("B", "Alice", now))
+	require.Empty(t, r.AdmissionForceStops(now.Add(time.Hour)))
+	close(finish)
+	require.ErrorContains(t, <-done, "capture failed")
+	require.Equal(t, 1, r.InUse())
+}

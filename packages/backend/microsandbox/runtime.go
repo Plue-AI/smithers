@@ -172,6 +172,9 @@ type Runtime struct {
 	admissionSequence uint64
 	admissionChanged  chan struct{}
 	admissionCancel   context.CancelFunc
+	admissionIdleMu   sync.Mutex
+	admissionIdle     *AdmissionIdleProviders
+	admissionStarted  time.Time
 	metrics           *machineMetrics
 }
 
@@ -252,9 +255,10 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	}
 	runtime := &Runtime{
 		cli: client, config: config, root: root, owner: owner,
-		holder:     fmt.Sprintf("backend-%d-%s", os.Getpid(), hex.EncodeToString(holderToken)),
-		semaphore:  make(chan struct{}, config.MaxConcurrent),
-		workspaces: make(map[string]*workspace),
+		admissionStarted: time.Now(),
+		holder:           fmt.Sprintf("backend-%d-%s", os.Getpid(), hex.EncodeToString(holderToken)),
+		semaphore:        make(chan struct{}, config.MaxConcurrent),
+		workspaces:       make(map[string]*workspace),
 	}
 	if config.Environments != nil {
 		environmentConfig := *config.Environments
