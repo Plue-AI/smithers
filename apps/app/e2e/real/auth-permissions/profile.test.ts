@@ -130,9 +130,12 @@ test("owner credential envelopes require a verified GitHub session cookie", () =
     const seeded = { ...envelope, sessionCookie: "a".repeat(64) }
     process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify(seeded)
     expect(ownerCredentialsFromEnvironment()).toEqual(seeded)
-    for (const sessionCookie of [undefined, null, 1, "", "a".repeat(63), "a".repeat(65), "g".repeat(64)]) {
+    const oauth = { ...envelope, sessionCookie: "82cadf58-859b-4a06-963e-1b1c56988000" }
+    process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify(oauth)
+    expect(ownerCredentialsFromEnvironment()).toEqual(oauth)
+    for (const sessionCookie of [undefined, null, 1, "", "a".repeat(63), "a".repeat(65), "g".repeat(64), "82cadf58-859b-4a06-963e-1b1c5698800", "82cadf58-859b-4a06-z63e-1b1c56988000"]) {
       process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify({ ...envelope, sessionCookie })
-      expect(() => ownerCredentialsFromEnvironment()).toThrow("invalid seeded session cookie")
+      expect(() => ownerCredentialsFromEnvironment()).toThrow("invalid owner session cookie")
     }
   } finally {
     if (previousName === undefined) delete process.env.SMITHERS_REAL_AUTH_ENVIRONMENT
