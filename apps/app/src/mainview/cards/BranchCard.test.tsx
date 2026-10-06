@@ -160,8 +160,8 @@ describe("branch card mount", () => {
   })
 })
 
-test("a hosted Branch never renders the seeded model without its live topics", () => {
-  const controller = { design: make(), bootstrap: { host: "local" } } as unknown as AppController
+test("an install Branch never renders the seeded model without its live topics", () => {
+  const controller = { design: make(), bootstrap: { host: "local", capabilities: ["install"] } } as unknown as AppController
   const card = { id: "branch:b-retry", kind: "branch", title: "Branch", status: "active", createdAt: 1, ordinal: 1, payload: { id: "b-retry" } } as const
   const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
   expect(renderToStaticMarkup(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>)).toBe("")

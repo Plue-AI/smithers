@@ -9,6 +9,7 @@ import { flow, type CommandActions, type CommandResult } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
 import { designBranchFor, designSshLine } from "../../state/seams/DesignWorld/branch"
+import { branchSeedAvailable } from "../../state/seams/BranchSeam"
 
 /** `/branch.fork retry-webhooks`, or the JSON a card button sends. */
 const field = (key: string): Grammar => args => {
@@ -109,7 +110,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
 
 /** The `branch` flow's card: tree rows, branch chips and `/branch <name>` open it. */
 export const presentDesignBranch = async (actions: CommandActions, name: string): Promise<void> => {
-  if (actions.bootstrap || actions.live) return
+  if (!branchSeedAvailable(actions)) return
   const branch = designBranchFor(actions.design.world(), name)
   if (branch !== undefined) await actions.presentBranchCard("branch", branch.id, branch.name)
 }

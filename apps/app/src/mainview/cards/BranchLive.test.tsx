@@ -7,6 +7,28 @@ import type { AppController } from "../state/AppController"
 import { ControllerTestProvider } from "../ControllerContext"
 import { CARD_RENDERERS } from "./CardRenderers"
 const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
+
+test("a demo keeps its seed on refused topics, then prefers a complete live projection", async () => {
+  const socket: LiveSocket = { readyState: 1, onopen: null, onclose: null, onmessage: null, send: () => {}, close: () => {} }
+  const live = new LiveChannel({ socket: () => socket })
+  const controller = { live, bootstrap: { capabilities: [] }, design: createDesignWorld({ timers: { set: () => 0, clear: () => {} } }) } as unknown as AppController
+  const host = document.createElement("div"), root = createRoot(host)
+  const card = { id: "branch:b-retry", kind: "branch", title: "Branch", status: "active", createdAt: 1, ordinal: 1, payload: { id: "b-retry" } } as const
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
+    expect(host.textContent).toContain("retry-webhooks")
+    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "err", id: 1, code: "unknown_topic" }) }))
+    expect(host.textContent).toContain("Retry failed webhooks")
+    const snap = async (id: number, data: unknown) => act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id, cursor: 1, data }) }))
+    await snap(1, { id: "b-retry", name: "Captured live branch", machine: { state: "asleep" }, terminals: [], presence: [], ssh_line: "ssh -p 2222 live@localhost" })
+    await snap(2, [])
+    await snap(3, [])
+    expect(host.textContent).toContain("Captured live branch")
+    expect(host.textContent).not.toContain("Retry failed webhooks")
+    expect(host.querySelector("[data-flow]")).toBeNull()
+  } finally { await act(async () => root.unmount()); live.dispose(); controller.design.dispose() }
+})
+
 test("registry reads the three real topics, never seed data, and clears a refused subscription", async () => {
   const frames: unknown[] = []
   const socket: LiveSocket = { readyState: 0, onopen: null, onclose: null, onmessage: null, send: frame => frames.push(JSON.parse(String(frame))), close: () => {} }

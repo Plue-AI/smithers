@@ -1,6 +1,11 @@
 import { z } from "zod"
 import { ActorSchema, MachineStateSchema, TodoStateSchema } from "@smthrs/rpc/CardPrimitives"
 import type { BranchCard } from "@smthrs/rpc/BranchCard"
+import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
+
+/** Demo hosts keep their seed when topics are absent; installs never use it. */
+export const branchSeedAvailable = (host: { readonly bootstrap?: AppBootstrap; readonly live?: unknown }): boolean =>
+  host.bootstrap === undefined ? !host.live : !host.bootstrap.capabilities.includes("install")
 
 // T-APP-10 owns validation of the three serialized topic projections, not View props.
 const Where = z.discriminatedUnion("kind", [

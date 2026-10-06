@@ -3,7 +3,7 @@ import { useState } from "react"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
 import { useTopic } from "../state/useTopic"
-import { branchModel } from "../state/seams/BranchSeam"
+import { branchModel, branchSeedAvailable } from "../state/seams/BranchSeam"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardActions, CardFamily, CardOf } from "./CardFamily"
@@ -83,7 +83,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   const model = branch?.error || activity?.error || files?.error ? undefined
     : branchModel(branch?.data, activity?.data, files?.data, card.payload.id)
   const bindings = cardActions(() => {}, [])
-  if (!model) return null
+  if (!model) return branchSeedAvailable(controller) ? <DesignBranchBody card={card} actions={actions} /> : null
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
     onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized" }} onView={() => {}} />
 }

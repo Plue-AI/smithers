@@ -10,6 +10,7 @@ import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
 import { goToBranch } from "../../state/seams/DesignWorld/shell"
 import { presentDesignBranch } from "./branch"
+import { branchSeedAvailable } from "../../state/seams/BranchSeam"
 
 const name: Grammar = args => {
   const text = args?.trim() ?? ""
@@ -30,7 +31,7 @@ export const shellFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     grammar: name,
     input: Schema.Struct({ name: Schema.String }),
     handler: async ({ name: target }) => {
-      if (actions.bootstrap || actions.live) return "Branch unavailable"
+      if (!branchSeedAvailable(actions)) return "Branch unavailable"
       const result = goToBranch(actions.design, actions.design.viewer(), target)
       if (!result.ok) return result.refusal
       await presentDesignBranch(actions, target)
