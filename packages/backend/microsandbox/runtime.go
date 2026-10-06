@@ -474,8 +474,19 @@ func (r *Runtime) recover(ctx context.Context) error {
 				ws.State = string(workspaceapi.WorkspaceStarting)
 				errs = append(errs, err)
 			}
-		default:
+		case status == "stopped":
 			ws.State = string(workspaceapi.WorkspaceStopped)
+		default:
+			// Provisioning, starting, stopping and unknown runtime states still
+			// own a VM. Reconciliation may not turn them into free capacity
+			// merely because they are not yet running. Settle the old boot
+			// through the same independently observed stop as running guests.
+			ws.State = string(workspaceapi.WorkspaceStarting)
+			if err := r.stopMachine(ctx, ws.Machine); err != nil {
+				errs = append(errs, fmt.Errorf("%w: reconcile microVM %s (%s): %v", ErrUnavailable, ws.Machine, status, err))
+			} else {
+				ws.State = string(workspaceapi.WorkspaceStopped)
+			}
 		}
 		if err := writeMetadata(ws); err != nil {
 			errs = append(errs, err)

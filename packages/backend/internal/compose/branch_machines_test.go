@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -144,7 +145,34 @@ func TestFrTMCH06BranchWaitPositionProductionHTTPPostgres(t *testing.T) {
 	require.NoError(t, err)
 	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, Name: "main", Kind: "container", Status: "starting", TargetBookmark: "main", EnvironmentSource: "base"})
 	require.NoError(t, err)
-	runtime := new(microsandbox.Runtime)
+	// Restart settles a transitional VM through independently confirmed stop
+	// before the authenticated Home projection can report its slot as free.
+	root := t.TempDir()
+	sum := sha256.Sum256([]byte(row.ID))
+	directory := filepath.Join(root, "workspaces", hex.EncodeToString(sum[:]))
+	require.NoError(t, os.MkdirAll(directory, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "owner"), []byte("smithers-backend-0123456789abcdef\n"), 0600))
+	machine := "smthrs-ws-01234567-" + hex.EncodeToString(sum[:])[:20]
+	metadata, err := json.Marshal(map[string]any{"version": 1, "id": row.ID, "machine": machine, "state": "starting"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "metadata.json"), metadata, 0600))
+	binary := filepath.Join(t.TempDir(), "msb")
+	marker := filepath.Join(t.TempDir(), "stop-confirmed")
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+ list) if [ -f %q ]; then echo '[{"name":%q,"status":"stopped"}]'; else echo '[{"name":%q,"status":"starting"}]'; fi ;;
+ stop) touch %q ;;
+ *) exit 99 ;;
+esac
+`, marker, machine, machine, marker)
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3, SkipQualification: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	require.FileExists(t, marker)
+	observed, err := runtime.InspectWorkspace(ctx, row.ID)
+	require.NoError(t, err)
+	require.Equal(t, workspace.WorkspaceStopped, observed.State)
 	svc := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)))
 	cfg := testConfigAllFlagsOn()
 	server := httptest.NewUnstartedServer(nil)

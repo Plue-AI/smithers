@@ -1,6 +1,7 @@
 package microsandbox
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -221,4 +222,51 @@ func doctorLine(t *testing.T, r *Runtime, name string) string {
 	}
 	t.Fatalf("doctor printed no %q line", name)
 	return ""
+}
+
+// Restart must not infer a free slot from any non-terminal runtime status.
+func TestRecoverTransitionalMachineRequiresConfirmedStop(t *testing.T) {
+	for _, status := range []string{"starting", "provisioning", "stopping", "", "unexpected"} {
+		for _, confirms := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/confirmed=%t", status, confirms), func(t *testing.T) {
+				r, log := reclaimFakeMSB(t, 0)
+				ws := addReclaimWorkspace(t, r, "boot", string(workspaceapi.WorkspaceStarting), "")
+				marker := filepath.Join(t.TempDir(), "stopped")
+				script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %q
+case "$1" in
+ list) if [ -f %q ]; then echo '[{"name":%q,"status":"stopped"}]'; else echo '[{"name":%q,"status":%q}]'; fi ;;
+ stop) if [ %t = true ]; then touch %q; fi ;;
+esac
+`, log, marker, ws.Machine, ws.Machine, status, confirms, marker)
+				require.NoError(t, os.WriteFile(r.cli.binary, []byte(script), 0700))
+				err := r.recover(t.Context())
+				if confirms {
+					require.NoError(t, err)
+					require.Zero(t, r.InUse())
+					require.Equal(t, "stopped", readReclaimMetadata(t, ws).State)
+				} else {
+					require.ErrorIs(t, err, ErrUnavailable)
+					require.Equal(t, 1, r.InUse(), "unconfirmed boot still consumes its slot")
+					require.Equal(t, "starting", readReclaimMetadata(t, ws).State)
+					r.config.MaxRunningVMs = 1
+					r.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+					profile := HostProfile{MemoryBytes: 64 << 30, PerfCores: 8}
+					r.config.HostProfile = &profile
+					_, err = r.Request("person", "workspace:next", "Alice", "terminal")
+					require.NoError(t, err)
+					grant, err := r.GrantNext(t.Context(), AdmissionProviders{
+						Ready:    func(context.Context, AdmissionRequest) error { return nil },
+						FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil },
+					})
+					require.NoError(t, err)
+					require.Empty(t, grant.Holder, "another wake cannot consume an unconfirmed slot")
+				}
+				calls := invocations(t, log)
+				require.Len(t, calls, 3)
+				require.Equal(t, "stop -t 10 -q "+ws.Machine, calls[1])
+				require.Equal(t, "list --format json", calls[2], "CLI success is independently observed")
+			})
+		}
+	}
 }
