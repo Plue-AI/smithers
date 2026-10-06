@@ -2950,6 +2950,12 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		sent, err = st.recoverOutbound(ctx, *sent)
 	}
 	if err != nil {
+		// A lost lease or item CAS is due immediately under a fresh pass.
+		// Keep the uncertain outbound slot; turning this into a GitHub outage
+		// would impose backoff even when the remote push already succeeded.
+		if errors.Is(err, db.ErrMythicalLeaseLost) || errors.Is(err, db.ErrMythicalItemMoved) {
+			return nil, err
+		}
 		// Recovery may have committed the potentially-sent version before
 		// the error. Never project a retry using the earlier intended version.
 		latest, loadErr := st.q.GetMythicalItem(ctx, saved.ID)
@@ -3493,6 +3499,11 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 			sent, err = st.recoverOutbound(ctx, *sent)
 		}
 		if err != nil {
+			// Reconcile lost claims/versions immediately, as for the push;
+			// neither is evidence that GitHub itself is unavailable.
+			if errors.Is(err, db.ErrMythicalLeaseLost) || errors.Is(err, db.ErrMythicalItemMoved) {
+				return nil, err
+			}
 			latest, loadErr := st.q.GetMythicalItem(ctx, next.ID)
 			if loadErr != nil {
 				return nil, loadErr
