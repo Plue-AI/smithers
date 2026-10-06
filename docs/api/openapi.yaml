@@ -3239,7 +3239,6 @@ paths:
           description: Flows unavailable
   /api/flows/{name}:
     get:
-      x-composition: install
       summary: Read one flow
       description: Resolves an overridable flow from the install catalog, or an install-owned system name as built in. This read never loads repository code.
       operationId: get_api_flows_name
