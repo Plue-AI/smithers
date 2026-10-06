@@ -136,7 +136,7 @@ Machine-kill recovery and retry version pinning remain fixme.
 | C-MCH-01 | [C-MCH-01.spec.ts](C-MCH-01.spec.ts) | fixme-before-implementation | T-MCH-04 |
 | C-MCH-02 | [C-MCH-02.spec.ts](C-MCH-02.spec.ts) | fixme-before-implementation | T-MCH-06 |
 | C-MCH-03 | [C-MCH-03.spec.ts](C-MCH-03.spec.ts) | fixme-before-implementation | T-MCH-07 |
-| C-MCH-04 | [C-MCH-04.spec.ts](C-MCH-04.spec.ts) | fixme-before-implementation | T-MCH-01 |
+| C-MCH-04 | [C-MCH-04.spec.ts](C-MCH-04.spec.ts) | HTTP projection fixture; bundle/router/live-home qualification pending | T-MCH-01 |
 | C-MCH-05 | [C-MCH-05.spec.ts](C-MCH-05.spec.ts) | fixme-before-implementation | T-MCH-09 |
 | C-MCH-06 | [C-MCH-06.spec.ts](C-MCH-06.spec.ts) | fixme-before-implementation | T-MCH-11 |
 | C-MCH-07 | [C-MCH-07.spec.ts](C-MCH-07.spec.ts) | fixme-before-implementation | T-MCH-12 |

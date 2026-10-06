@@ -50,7 +50,7 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(props.gestures).toEqual({}); expect(props.view).toBe(h.view); props.onView({ tab: "github" }); expect(h.patches).toEqual([{ tab: "github" }])
     expect(props.actions.map(action => [action.tag, action.args])).toEqual([
       ["settings.address", { field: "address", listen: "mac" }], ["settings.address", { field: "address", listen: "network" }],
-      ["settings.capacity", { field: "capacity", min: "0", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
+      ["settings.capacity", { field: "capacity", min: "1", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
       ["settings.model-key", { field: "key", role: "fast" }], ["settings.model-key", { field: "key", role: "coding" }], ["settings.model-key", { field: "key", role: "jev" }]
     ])
     props.onAction("settings.capacity", { capacity: "3" }); props.onAction("settings.parallel", { parallel: "1" })

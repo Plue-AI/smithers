@@ -325,7 +325,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   }
   const setInstallCapacity = (capacity: number) => {
     const model = shared.snapshot.model
-    if (!Number.isInteger(capacity) || capacity < 0 || (model && capacity > model.this_mac.capacity)) return "Machines exceed this Mac"
+    if (!Number.isInteger(capacity) || capacity < 1 || (model && capacity > model.this_mac.capacity)) return "Machines exceed this Mac"
     return write("capacity", "/install", { capacity })
   }
   const setInstallParallel = (parallel: number) => {

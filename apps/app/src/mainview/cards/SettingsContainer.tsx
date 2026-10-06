@@ -57,7 +57,7 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
     ...addressActions(model.address),
     ...(needsHttps && docsAvailable() ? [{ tag: "docs" as const, label: "Notifications need HTTPS ↗",
       args: { page: "quickstart#put-https-in-front" }, command_input: { page: "quickstart#put-https-in-front" } }] : []),
-    { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "0", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
+    { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "1", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
       input: [{ name: "value", label: "Machines", kind: "text", required: true, value: String(model.capacity) }],
       resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) },
     ...(model.parallel === undefined ? [] : [{ tag: "settings.parallel" as const, label: "At once", args: { field: "parallel", min: "1", max: "8" }, command_input: { parallel: model.parallel },

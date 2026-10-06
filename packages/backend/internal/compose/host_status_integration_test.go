@@ -42,6 +42,10 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	}
 	good := session(owner, "owner-capacity-session")
 	other := session(member, "member-capacity-session")
+	maintainer, err := q.CreateUser(ctx, db.CreateUserParams{Username: "hostmaintainer", LowerUsername: "hostmaintainer"})
+	require.NoError(t, err)
+	require.NoError(t, q.SetUserAdmin(ctx, db.SetUserAdminParams{UserID: maintainer.ID, IsAdmin: true}))
+	admin := session(maintainer, "maintainer-capacity-session")
 	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}}
 	require.NoError(t, capacity.Set(ctx, owner.ID, 2))
 	cfg := testConfigAllFlagsOn()
@@ -97,10 +101,36 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	for _, test := range []struct {
 		credential, body string
 		want             int
-	}{{other, `{"capacity":1}`, 403}, {good, `{"capacity":1,"extra":true}`, 400}, {good, `{"capacity":1} {}`, 400}, {good, `{}`, 400}, {good, `{"capacity":4}`, 422}, {good, `{"capacity":0}`, 422}, {good, `{"capacity":1}`, 200}} {
+	}{{admin, `{"capacity":1}`, 403}, {other, `{"capacity":1}`, 403}, {good, `{"capacity":1,"extra":true}`, 400}, {good, `{"capacity":1} {}`, 400}, {good, `{}`, 400}, {good, `{"capacity":4}`, 422}, {good, `{"capacity":0}`, 422}, {good, `{"capacity":-1}`, 422}, {good, `{"capacity":1}`, 200}} {
 		response = request("PUT", "/api/install", test.credential, test.body)
 		require.Equal(t, test.want, response.Code, response.Body.String())
+		if test.want == 422 {
+			require.Contains(t, response.Body.String(), `"class":"user"`)
+			if test.body == `{"capacity":4}` {
+				require.Contains(t, response.Body.String(), "capacity cannot exceed 3")
+			}
+		}
+		// Refused writes must never mutate the saved owner limit.
+		read := request("GET", "/api/install", good, "")
+		require.Equal(t, 200, read.Code, read.Body.String())
+		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &status))
+		if test.want == 200 {
+			require.Equal(t, 1, status.Capacity)
+		} else {
+			require.Equal(t, 2, status.Capacity)
+		}
 	}
+	// A restarted composition on a smaller host preserves the owner's saved 1.
+	capacity = &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 24 << 30, PerfCores: 8, PhysicalCores: 10, DiskFreeBytes: 200 << 30, MacOSVersion: "15.6", Hypervisor: true}}
+	handler.Setup.Capacity = capacity
+	router = githubAppSetupComposeRouter(cfg, pool, handler)
+	response = request("GET", "/api/install", good, "")
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	require.Equal(t, 24.0, status.Mac.Memory)
+	require.Equal(t, 8, status.Mac.PerfCores)
+	require.Equal(t, 2, status.Mac.Capacity)
+	require.Equal(t, 1, status.Capacity)
 	capacity.Profile.DiskFreeBytes = 60 << 30
 	response = request("GET", "/api/install", good, "")
 	require.Equal(t, 200, response.Code)
