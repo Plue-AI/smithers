@@ -179,6 +179,9 @@ func routerWithAdminUserHandler(adminUserHandler *routes.AdminUserHandler, authM
 	if len(authModes) > 0 {
 		cfg.Auth.Mode = authModes[0]
 	}
+	if config.IsSingleOwner(cfg.Auth) {
+		cfg.Server.PublicURL = "http://example.com"
+	}
 	return buildRouterCompat(
 		cfg,
 		nil,
@@ -233,6 +236,9 @@ func TestServerRouter_SelfhostServesTheUsersOwnOrgListWithoutProvisioning(t *tes
 	read := httptest.NewRecorder()
 	router.ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/user/orgs", nil))
 	assert.Equal(t, http.StatusUnauthorized, read.Code, "the membership read is mounted and reaches auth: %s", read.Body.String())
+	foreign := httptest.NewRecorder()
+	router.ServeHTTP(foreign, httptest.NewRequest(http.MethodGet, "http://foreign.example/api/user/orgs", nil))
+	assert.Equal(t, http.StatusMisdirectedRequest, foreign.Code, "an unconfigured Address stays refused")
 
 	for _, path := range []string{"/api/orgs", "/api/admin/orgs"} {
 		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(`{"name":"acme"}`))
