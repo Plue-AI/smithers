@@ -20,7 +20,7 @@ pub fn restore(cx: &mut LockCx, actor: &Actor) -> Result<()> {
     hooks.core.restore_rewrite(cx)?;
     hooks.documents.reconcile_all(cx, actor)?;
     hooks.broker.thaw()?;
-    cx.rewrite_pending = false;
+    cx.settle_rewrite()?;
     Ok(())
 }
 
@@ -60,7 +60,7 @@ pub fn freeze_then<T>(
     }
     // Set before calling native code: the executor catches panics, but must
     // never admit another mutation or thaw a possibly half-applied tree.
-    cx.rewrite_pending = true;
+    cx.begin_rewrite()?;
     let output = match rewrite(cx) {
         Ok(output) => output,
         Err(error) => {
@@ -70,6 +70,6 @@ pub fn freeze_then<T>(
     };
     hooks.documents.reconcile_all(cx, actor)?;
     hooks.broker.thaw()?;
-    cx.rewrite_pending = false;
+    cx.settle_rewrite()?;
     Ok(output)
 }

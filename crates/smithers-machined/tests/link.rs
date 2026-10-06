@@ -373,3 +373,67 @@ fn retained_v2_decode_does_not_negotiate_an_unready_live_peer() {
     assert_eq!(socket.read(&mut byte).unwrap(), 0);
     worker.join().unwrap();
 }
+
+struct Interrupted;
+impl smithers_machined::hooks::Core for Interrupted {
+    fn ready(&self) -> smithers_machined::hooks::Result<()> {
+        Ok(())
+    }
+    fn call(
+        &self,
+        cx: &mut smithers_machined::lock::LockCx,
+        method: u8,
+        arguments: &[u8],
+    ) -> smithers_machined::hooks::Result<Vec<u8>> {
+        if method == 4 {
+            cx.begin_rewrite()?;
+            Err(smithers_machined::freeze::pending_error())
+        } else {
+            smithers_machined::hooks::Core::call(&Reconciler, cx, method, arguments)
+        }
+    }
+}
+
+#[test]
+fn authenticated_status_cannot_report_ready_after_interrupted_rewrite() {
+    let daemon = Arc::new(
+        smithers_machined::daemon::Daemon::new(smithers_machined::hooks::Hooks {
+            core: Arc::new(Interrupted),
+            broker: Arc::new(Roster(std::sync::atomic::AtomicBool::new(false))),
+            watcher: Arc::new(Ready),
+            documents: Arc::new(Ready),
+            sessions: Arc::new(Ready),
+            events: Arc::new(Ready),
+            ..Default::default()
+        })
+        .unwrap(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let d = daemon.clone();
+    let worker = thread::spawn(move || {
+        let identity = Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let authenticated = link::authenticate(stream, &identity, 7, &[]).unwrap();
+        let _ = d.serve(authenticated);
+    });
+    let mut stream = TcpStream::connect(addr).unwrap();
+    host(&mut stream, &[9; 32], true);
+    call(&mut stream, 1, 5, &[conn::field(1, [1; 20])]);
+    call(&mut stream, 2, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    assert!(daemon.ready());
+    let failed = call(&mut stream, 3, 4, &[]);
+    assert_eq!(
+        conn::fields("response", &failed.payload[1..]).unwrap()[1].1[0],
+        255
+    );
+    assert!(!daemon.ready());
+    let status = call(&mut stream, 4, 1, &[]);
+    let result = conn::fields("response", &status.payload[1..]).unwrap()[1].1;
+    assert_eq!(conn::fields("result1", &result[1..]).unwrap()[0].1, &[2]);
+    // A roster refresh cannot bypass the recovery barrier.
+    call(&mut stream, 5, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    assert!(!daemon.ready());
+    stream.shutdown(std::net::Shutdown::Both).unwrap();
+    worker.join().unwrap();
+}
