@@ -392,6 +392,11 @@ test("member toast hiding leaves shared lines present and timeline leases use pr
   await controller.sharedConversation!.saveView({ toasts_hidden: false })
   await waitFor(() => host.querySelectorAll(".notice").length === 1)
   expect(host.querySelector('[data-entry="turn:answer"]')?.getAttribute("data-tone")).toBe("failed")
+  await controller.sharedConversation!.saveView({ global_toasts_hidden: true })
+  await waitFor(() => host.querySelectorAll(".notice").length === 0)
+  expect(host.querySelector('[data-entry="turn:answer"]')).not.toBeNull()
+  await controller.sharedConversation!.saveView({ global_toasts_hidden: false })
+  await waitFor(() => host.querySelectorAll(".notice").length === 1)
   const before = Date.now()
   controller.sharedConversation!.setTimelineVisible(true)
   await waitFor(() => typeof view.timeline_visible_until === "string")
@@ -408,5 +413,5 @@ test("member toast hiding leaves shared lines present and timeline leases use pr
   } finally { Reflect.deleteProperty(document, "hidden") }
   controller.sharedConversation!.setTimelineVisible(false)
   await waitFor(() => view.timeline_visible_until === null)
-  expect(writes.at(-1)).toEqual({ toasts_hidden: false, scroll_anchor: "turn:prompt", timeline_visible_until: null })
+  expect(writes.at(-1)).toEqual({ toasts_hidden: false, global_toasts_hidden: false, scroll_anchor: "turn:prompt", timeline_visible_until: null })
 })
