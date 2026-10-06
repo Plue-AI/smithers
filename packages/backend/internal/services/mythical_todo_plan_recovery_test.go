@@ -147,4 +147,13 @@ func TestTodoRetainedPlanCannotValidateNewCandidate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, receipt, again)
 	require.Equal(t, after, o.byID(id))
+	// A delayed native planner page cannot replace the validated candidate
+	// plan, including its required checks and wiki evidence.
+	require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), flowdispatch.ProjectionUpdate{
+		State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
+			Projection: o.launcher.last("todo").Projection, FlowID: "todo", RunID: "current-run", ExecutionDigest: todoPinOne,
+			Run: &flowruntime.Run{RunID: "current-run", Status: "running"}},
+		Events: []flowruntime.Event{nativePlanEvent("current-run", 100, "Late preparation")},
+	}))
+	require.JSONEq(t, string(after.Plan), string(o.byID(id).Plan))
 }

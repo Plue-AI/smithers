@@ -574,6 +574,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			}
 			// Only the attempt's bound run opens or withdraws its questions.
 			if !pinMismatch {
+				projectTodoPlan(&next, projection, update)
 				mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
 				projectTodoWatchdog(&next, update, s.now().UTC())
 			}
@@ -4771,6 +4772,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	PlanReceipt           *todoPlanReceipt      `json:"planReceipt,omitempty"`
 	Watchdog              *todoWatchdog         `json:"watchdog,omitempty"`
 	AdmissionDay          string                `json:"admissionDay,omitempty"`
 	IssueContext          json.RawMessage       `json:"issue_context,omitempty"`
