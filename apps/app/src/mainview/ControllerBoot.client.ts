@@ -50,6 +50,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
     const entrySearch = yield* Effect.sync(() => window.location.search)
     const requestedCard = new URLSearchParams(entrySearch).get("card")
     const card = requestedCard === "settings" || requestedCard === "members" || requestedCard === "secrets" ? requestedCard : undefined
+    const setupEntry = yield* Effect.sync(() => window.location.pathname === "/setup")
     const client = yield* promiseEffect("resolve application backend", loadRuntimeApplicationClient)
     const http = client.fetch
     const bootstrapRead = warmBootstrap(http)
@@ -79,7 +80,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
           authorizeSocket: client.authorizeWebSocket,
           bootstrap: runtime.bootstrap,
           repositoryApp: store.savedStoreUnavailable ? undefined : requested ?? undefined,
-          frameHistory: createBrowserFrameHistory(window, { keepUrl: options.keepUrl === true }),
+          frameHistory: createBrowserFrameHistory(window, { keepUrl: options.keepUrl === true || setupEntry }),
         }
       )
     )
