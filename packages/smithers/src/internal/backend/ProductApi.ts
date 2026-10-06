@@ -5308,6 +5308,30 @@ export interface PostApiTodosInput {
 export const postApiTodos = (transport: Transport, input: PostApiTodosInput): Promise<PostApiTodosResponse> =>
   transport.request("POST", `/api/todos`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosResponse>
 
+export interface GetApiTodosNAttemptsALogsDigestInput {
+  readonly path: { readonly n: number; readonly a: number; readonly digest: string }
+}
+
+/** GET /api/todos/{n}/attempts/{a}/logs/{digest}: Read a retained TODO attempt log */
+export const getApiTodosNAttemptsALogsDigest = (transport: Transport, input: GetApiTodosNAttemptsALogsDigestInput): Promise<Response> =>
+  transport.response("GET", `/api/todos/${segment(input.path.n)}/attempts/${segment(input.path.a)}/logs/${segment(input.path.digest)}`)
+
+export type GetApiTodosNEventsResponse = {
+  Events: Array<Record<string, unknown>> | null
+  Cursor: number
+  Head: number
+  More: boolean
+}
+
+export interface GetApiTodosNEventsInput {
+  readonly path: { readonly n: number }
+  readonly query?: { readonly cursor?: number }
+}
+
+/** GET /api/todos/{n}/events: Replay a TODO's shared lifecycle events */
+export const getApiTodosNEvents = (transport: Transport, input: GetApiTodosNEventsInput): Promise<GetApiTodosNEventsResponse> =>
+  transport.request("GET", `/api/todos/${segment(input.path.n)}/events${search({ cursor: input.query?.cursor })}`) as Promise<GetApiTodosNEventsResponse>
+
 export type GetApiTodosNResponse = TodoCard
 
 export interface GetApiTodosNInput {

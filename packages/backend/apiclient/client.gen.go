@@ -1830,6 +1830,19 @@ type PostAPITodosResponse struct {
 	Rev   int64  `json:"rev"`
 }
 
+// GetAPITodosNEventsParams is the query of GET /api/todos/{n}/events.
+type GetAPITodosNEventsParams struct {
+	Cursor *int64
+}
+
+// GetAPITodosNEventsResponse is generated from docs/api/openapi.yaml.
+type GetAPITodosNEventsResponse struct {
+	Events json.RawMessage `json:"Events"`
+	Cursor int64           `json:"Cursor"`
+	Head   int64           `json:"Head"`
+	More   bool            `json:"More"`
+}
+
 // PostAPITodosNBody is generated from docs/api/openapi.yaml.
 type PostAPITodosNBody struct {
 	Op        *string `json:"op,omitempty"`
@@ -5162,6 +5175,22 @@ func (c *Client) GetAPITodos(ctx context.Context) ([]TodoCard, error) {
 func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body PostAPITodosBody) (PostAPITodosResponse, error) {
 	var out PostAPITodosResponse
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos", nil, body, &out)
+	return out, err
+}
+
+// GetAPITodosNAttemptsALogsDigest calls GET /api/todos/{n}/attempts/{a}/logs/{digest}. The caller closes the response body.
+func (c *Client) GetAPITodosNAttemptsALogsDigest(ctx context.Context, n int64, a int64, digest string) (*http.Response, error) {
+	return c.raw(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/attempts/"+url.PathEscape(strconv.FormatInt(a, 10))+"/logs/"+url.PathEscape(digest), nil, nil, "text/plain")
+}
+
+// GetAPITodosNEvents calls GET /api/todos/{n}/events.
+func (c *Client) GetAPITodosNEvents(ctx context.Context, n int64, params GetAPITodosNEventsParams) (GetAPITodosNEventsResponse, error) {
+	query := url.Values{}
+	if params.Cursor != nil {
+		query.Set("cursor", strconv.FormatInt(*params.Cursor, 10))
+	}
+	var out GetAPITodosNEventsResponse
+	err := c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/events", query, nil, &out)
 	return out, err
 }
 

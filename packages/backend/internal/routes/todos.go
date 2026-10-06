@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 type TodoRouteService interface {
@@ -343,4 +344,85 @@ func (h *TodoHandler) Amend(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(receipt)
+}
+
+// Events authorizes the repository and branch before selecting the shared item stream.
+func (h *TodoHandler) Events(w http.ResponseWriter, r *http.Request) {
+	repo, _, ok := h.authorize(w, r, "todo.read")
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	cursor := int64(0)
+	if value := r.URL.Query().Get("cursor"); value != "" && err == nil {
+		cursor, err = strconv.ParseInt(value, 10, 64)
+	}
+	if err != nil || n <= 0 || cursor < 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_cursor", Class: "user", Message: "Invalid TODO number or cursor"})
+		return
+	}
+	if err := services.AuthorizeTodoBranch(r.Context(), h.Queries, repo, n); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	service, ok := h.Service.(interface {
+		TodoEvents(context.Context, int64, int64, int64) (jobs.ReplayPage, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	page, err := service.TodoEvents(r.Context(), repo, n, cursor)
+	if err != nil {
+		var expired *jobs.CursorExpiredError
+		switch {
+		case errors.As(err, &expired):
+			todoRouteError(w, &services.TodoControlError{Status: 409, Code: "cursor_expired", Class: "conflict", Message: "Reload the TODO"})
+		case errors.Is(err, jobs.ErrCursorAhead):
+			todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_cursor", Class: "user", Message: "Invalid cursor"})
+		default:
+			todoRouteError(w, err)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(page)
+}
+
+func (h *TodoHandler) Log(w http.ResponseWriter, r *http.Request) {
+	repo, _, ok := h.authorize(w, r, "todo.read")
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
+		return
+	}
+	attempt, err := strconv.ParseInt(chi.URLParam(r, "a"), 10, 32)
+	if err != nil || attempt <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_attempt", Class: "user", Message: "Invalid attempt"})
+		return
+	}
+	if err := services.AuthorizeTodoBranch(r.Context(), h.Queries, repo, n); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	service, ok := h.Service.(interface {
+		TodoLog(context.Context, int64, int64, int32, string) ([]byte, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	payload, err := service.TodoLog(r.Context(), repo, n, int32(attempt), chi.URLParam(r, "digest"))
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(payload)
 }

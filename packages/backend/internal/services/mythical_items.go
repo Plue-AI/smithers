@@ -465,6 +465,12 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if err != nil {
 				return err
 			}
+			// Late running checkpoints cannot reopen waits after settlement.
+			// Final receipts still belong to the bound attempt and may arrive
+			// after GitHub reports its merge.
+			if (item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined") && !update.State.Terminal() {
+				return nil
+			}
 			if item.Generation != projection.Generation || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
 				return nil
 			}
@@ -507,6 +513,9 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			}
 			// Only the attempt's bound run opens or withdraws its questions.
 			mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
+			if err := s.persistTodoLogs(ctx, &next); err != nil {
+				return err
+			}
 			next = retainTodoAttemptEvidence(next)
 			if next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
 				next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome &&
@@ -623,7 +632,7 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 			}
 			// A request that failed before Jev routed it carries none.
 			checks.Route = mythicalRoute(update)
-			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update))
+			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update, mythicalTodo(item)))
 			next.Checks = checks.encode()
 		}
 	case "vibe":
@@ -638,7 +647,7 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		// rechecks are still the evidence for the cleaned candidate.
 		if outcome != "" {
 			checks := mythicalChecksOf(item)
-			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VibeRunID, update))
+			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VibeRunID, update, mythicalTodo(item)))
 			next.Checks = checks.encode()
 		}
 	case "verify":
@@ -648,7 +657,7 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		if outcome != "" && item.VerifyOutcome == "" {
 			next.VerifyOutcome = outcome
 			checks := mythicalChecksOf(item)
-			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VerifyRunID, update))
+			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VerifyRunID, update, mythicalTodo(item)))
 			next.Checks = checks.encode()
 		}
 	case "review":
@@ -3947,7 +3956,14 @@ func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, ite
 func mythicalLanded(item db.MythicalItem, commit string, now time.Time) db.MythicalItem {
 	item.PRState, item.PRMergeCommit, item.State, item.Reason = "merged", commit, "landed", ""
 	item.NextAttemptAt = pgtype.Timestamptz{}
+	item.PausedAt = pgtype.Timestamptz{}
 	checks := mythicalChecksOf(item)
+	for i := range checks.Waits {
+		if checks.Waits[i].SettledAt == nil {
+			at := now
+			checks.Waits[i].SettledAt = &at
+		}
+	}
 	checks.Completion = &mythicalCompletion{Commit: commit, Since: now}
 	item.Checks = checks.encode()
 	return item

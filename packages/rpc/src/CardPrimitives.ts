@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod"
-import { HttpUrlSchema } from "./WebUrl.ts"
+import { HttpUrlSchema, RelativeUrlPathSchema } from "./WebUrl.ts"
 
 /**
  * The offline avatar shown when a person's avatar is unavailable.
@@ -333,7 +333,7 @@ export const EvidenceItemSchema = z.discriminatedUnion("kind", [
     name: z.string(),
     state: z.enum(["running", "passed", "failed"]),
     took_s: z.number().nonnegative().optional(),
-    log_url: HttpUrlSchema.optional()
+    log_url: z.union([HttpUrlSchema, RelativeUrlPathSchema]).optional()
   }),
   z.object({
     kind: z.literal("github_check"),

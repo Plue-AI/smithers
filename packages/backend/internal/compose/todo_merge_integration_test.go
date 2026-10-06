@@ -16,14 +16,17 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
@@ -32,6 +35,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
@@ -186,6 +190,119 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 	server.Start()
 	t.Cleanup(server.Close)
 
+	t.Run("shared TODO replay excludes private and other item facts", func(t *testing.T) {
+		scope := jobs.Scope{TenantID: strconv.FormatInt(repo.ID, 10), PrincipalID: "todo:" + uuid.UUID(before.ID.Bytes).String()}
+		var shared jobs.Event
+		err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+			var err error
+			shared, err = jobs.RecordFactInTx(ctx, tx, scope, uuid.NewString(), "todo.test", "working", json.RawMessage(`{"attempt":2,"actor":"Ben"}`))
+			if err != nil {
+				return err
+			}
+			for _, principal := range []string{"user:private", "todo:" + uuid.NewString()} {
+				_, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: scope.TenantID, PrincipalID: principal}, uuid.NewString(), "secret", "working", json.RawMessage(`{"secret":"hidden"}`))
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+
+		require.NoError(t, err)
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		_, err = jobs.RecordFactInTx(ctx, tx, scope, uuid.NewString(), "rolled_back", "working", json.RawMessage(`{"private":"rollback"}`))
+		require.NoError(t, err)
+		require.NoError(t, tx.Rollback(ctx))
+		read := func(suffix string) (*http.Response, []byte) {
+			request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/events"+suffix, nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			raw, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			response.Body.Close()
+			return response, raw
+		}
+		response, raw := read("")
+		require.Equal(t, 200, response.StatusCode, string(raw))
+		var page jobs.ReplayPage
+		require.NoError(t, json.Unmarshal(raw, &page))
+		require.Len(t, page.Events, 2)
+		require.Equal(t, "todo.created", page.Events[0].Type)
+		require.Equal(t, shared.EventID, page.Events[1].EventID)
+		require.Greater(t, page.Events[1].Sequence, page.Events[0].Sequence)
+		require.NotContains(t, string(raw), "hidden")
+		response, raw = read("?cursor=" + strconv.FormatInt(page.Cursor, 10))
+		require.Equal(t, 200, response.StatusCode, string(raw))
+		require.NoError(t, json.Unmarshal(raw, &page))
+		require.Empty(t, page.Events)
+		response, _ = read("?cursor=-1")
+		require.Equal(t, 400, response.StatusCode)
+	})
+
+	t.Run("attempt logs keep bytes and refuse unrelated digests", func(t *testing.T) {
+		disk, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: origin, SigningKey: bytes.Repeat([]byte{0x42}, 32)})
+		require.NoError(t, err)
+		defer disk.Close()
+		logs := &todoCountingLogStore{Store: disk}
+		mythical.SetTodoLogStore(logs)
+		payload := "literal check stdout\n"
+		hash := sha256.Sum256([]byte(payload))
+		digest := hex.EncodeToString(hash[:])
+		require.NoError(t, blob.Put(ctx, logs, "repos/"+strconv.FormatInt(repo.ID, 10)+"/todo-logs/"+digest, "text/plain", strings.NewReader(payload)))
+		oldChecks := before.Checks
+		retained, _ := json.Marshal(map[string]any{"attempts": []any{map[string]any{"attempt": 1, "revision": "old", "items": []any{map[string]any{"kind": "check", "name": "build", "log_digest": digest}}}}})
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=2,checks=$2 WHERE id=$1`, before.ID, retained)
+		require.NoError(t, err)
+		defer func() {
+			_, err := pool.Exec(ctx, `UPDATE mythical_items SET attempt=$2,checks=$3 WHERE id=$1`, before.ID, before.Attempt, oldChecks)
+			require.NoError(t, err)
+		}()
+		for _, tc := range []struct {
+			attempt, digest string
+			status          int
+		}{{"1", digest, 200}, {"2", digest, 404}, {"1", strings.Repeat("a", 64), 404}} {
+			request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/attempts/"+tc.attempt+"/logs/"+tc.digest, nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			raw, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			response.Body.Close()
+			require.Equal(t, tc.status, response.StatusCode, string(raw))
+			require.Equal(t, int64(1), logs.reads.Load(), "unrelated digests and attempts never invoke blob retrieval")
+			if tc.status == 200 {
+				require.Equal(t, payload, string(raw))
+				require.Equal(t, "nosniff", response.Header.Get("X-Content-Type-Options"))
+			}
+		}
+
+		// The canonical snapshot still references its log when the current card
+		// has no measured candidate. Rendering is not an authorization oracle.
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1 WHERE id=$1`, before.ID)
+		require.NoError(t, err)
+		{
+			request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/attempts/1/logs/"+digest, nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			raw, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			response.Body.Close()
+			require.Equal(t, http.StatusOK, response.StatusCode, string(raw))
+			require.Equal(t, payload, string(raw))
+			require.Equal(t, int64(2), logs.reads.Load())
+		}
+		response, err := http.Get(origin + "/api/todos/" + strconv.FormatInt(filed.Number, 10) + "/attempts/1/logs/" + digest)
+		require.NoError(t, err)
+		response.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, response.StatusCode)
+		require.Equal(t, int64(2), logs.reads.Load(), "unauthenticated requests never retrieve blob bytes")
+	})
 	itemID := uuid.UUID(before.ID.Bytes).String()
 	numbered := func(target string) string { return "/api/todos/" + target + "/merge" }
 	repository := func(target string) string { return "/api/repos/merge-owner/app/mythical/items/" + target + "/merge" }
@@ -263,16 +380,23 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var first map[string]any
 			for _, door := range doors {
+				first = nil
 				for _, target := range []string{door.valid, door.unknown, door.malformed, door.encoded} {
 					status, envelope := post(door.path(target), tc.set)
 					require.Equal(t, tc.status, status, "%s %s: %v", door.name, target, envelope)
 					if tc.envelope != nil {
-						require.Equal(t, tc.envelope, envelope, "%s %s", door.name, target)
+						expected := tc.envelope
+						if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
+							expected = map[string]any{"code": "permission", "class": "permission", "message": "Sign in with a browser session"}
+						}
+						require.Equal(t, expected, envelope, "%s %s", door.name, target)
 					}
 					if first == nil {
 						first = envelope
 					}
-					require.Equal(t, first, envelope, "%s %s: the same refusal through every door", door.name, target)
+					if tc.name != "the owner's personal access token" {
+						require.Equal(t, first, envelope, "%s %s: the same refusal through every door", door.name, target)
+					}
 				}
 			}
 			unchanged(t)
@@ -348,4 +472,18 @@ func todoMergeComposeRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Poo
 		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
 		routerExtras{Mythical: mythical},
 	)
+}
+
+// Instrument only retrieval; storage and reads use the production filesystem adapter.
+type todoCountingLogStore struct {
+	blob.Store
+	reads atomic.Int64
+}
+
+func (s *todoCountingLogStore) NewReader(ctx context.Context, key string) (io.ReadCloser, error) {
+	s.reads.Add(1)
+	return s.Store.NewReader(ctx, key)
+}
+func (s *todoCountingLogStore) Put(ctx context.Context, key, kind string, reader io.Reader) error {
+	return blob.Put(ctx, s.Store, key, kind, reader)
 }

@@ -1983,6 +1983,8 @@ func authLoader(queries *db.Queries, cfg config.AuthConfig) func(http.Handler) h
 func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 	r.Get("/todos", todos.List)
 	r.Get("/todos/{n}", todos.Get)
+	r.Get("/todos/{n}/events", todos.Events)
+	r.Get("/todos/{n}/attempts/{a}/logs/{digest}", todos.Log)
 }
 
 // mountFlowReads mounts the install's flow catalog, which the Flow card and

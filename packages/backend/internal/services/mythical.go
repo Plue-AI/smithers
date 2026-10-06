@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -58,6 +59,7 @@ type mythicalRepoHost interface {
 }
 
 type MythicalService struct {
+	todoLogs    blob.Store
 	store       MythicalStore
 	host        mythicalRepoHost
 	scratchRoot string

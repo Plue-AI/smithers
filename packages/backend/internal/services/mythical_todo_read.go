@@ -3,10 +3,13 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // Todo returns the shared TodoCard contract from the canonical item. The
@@ -288,6 +291,10 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 			continue
 		}
 		check := map[string]any{"kind": "check", "name": receipt.Check, "state": receipt.Status}
+		if receipt.LogDigest != "" {
+			check["log_digest"] = receipt.LogDigest
+			check["log_url"] = fmt.Sprintf("/api/todos/%d/attempts/%d/logs/%s", item.Number.Int64, item.Attempt, receipt.LogDigest)
+		}
 		if receipt.DurationMs != nil {
 			check["took_s"] = float64(*receipt.DurationMs) / 1000
 		}
@@ -377,4 +384,24 @@ func todoSteps(item db.MythicalItem) []map[string]any {
 		add("review", "Review", review.RunID, review.Verdict, "approve")
 	}
 	return steps
+}
+
+// TodoEvents replays the canonical shared item stream, never an author's private stream.
+func (s *MythicalService) TodoEvents(ctx context.Context, repositoryID, number, cursor int64) (jobs.ReplayPage, error) {
+	item, err := s.queries().GetMythicalItemByNumber(ctx, repositoryID, number)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return jobs.ReplayPage{}, &TodoControlError{404, "todo_not_found", "user", "TODO not found"}
+	}
+	if err != nil {
+		return jobs.ReplayPage{}, err
+	}
+	pool, ok := s.store.(*pgxpool.Pool)
+	if !ok {
+		return jobs.ReplayPage{}, errors.New("TODO replay requires the product database pool")
+	}
+	store, err := jobs.NewStore(pool)
+	if err != nil {
+		return jobs.ReplayPage{}, err
+	}
+	return store.Replay(ctx, todoOperationScope(item), cursor, 1000)
 }

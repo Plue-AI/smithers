@@ -19626,6 +19626,93 @@ paths:
           description: Idempotency-Key reused for a different request; merging when Before names a merging TODO; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
           description: Repository stack unavailable, or github_unavailable when Make TODO cannot read the issue
+  /api/todos/{n}/attempts/{a}/logs/{digest}:
+    get:
+      x-composition: install
+      summary: Read a retained TODO attempt log
+      operationId: get_api_todos_n_attempts_a_logs_digest
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+        - tokenAuth: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: a
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: digest
+          in: path
+          required: true
+          schema: {type: string, pattern: '^[0-9a-f]{64}$'}
+      responses:
+        '200':
+          description: Referenced check output
+          content:
+            text/plain:
+              schema: {type: string}
+        '400':
+          description: Invalid TODO number or attempt
+        '403':
+          description: Repository or branch access refused
+        '404':
+          description: No log referenced by this attempt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, class, message]
+                properties:
+                  code: {type: string, enum: [not_found]}
+                  class: {type: string, enum: [user]}
+                  message: {type: string}
+  /api/todos/{n}/events:
+    get:
+      x-composition: install
+      summary: Replay a TODO's shared lifecycle events
+      operationId: get_api_todos_n_events
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+        - tokenAuth: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: cursor
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+      responses:
+        '200':
+          description: Ordered jobs replay page with original event identities and cursors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [Events, Cursor, Head, More]
+                properties:
+                  Events:
+                    anyOf:
+                      - type: array
+                        items: {type: object, additionalProperties: true}
+                      - type: 'null'
+                  Cursor: {type: integer}
+                  Head: {type: integer}
+                  More: {type: boolean}
+        '400':
+          description: Invalid number or cursor
+        '403':
+          description: Repository or branch access refused
+        '404':
+          description: TODO not found
+        '409':
+          description: Cursor expired; reload the TODO
   /api/todos/{n}:
     get:
       x-composition: install
