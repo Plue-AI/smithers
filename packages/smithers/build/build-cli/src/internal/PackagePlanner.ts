@@ -1345,6 +1345,7 @@ const visit = async (
       context.index.factory
     ),
     context.repoResolutions,
+    context.cacheDirectory,
     context.signal
   )
 
@@ -3224,6 +3225,7 @@ const withTargetIndex = async (
   rule: string,
   attrs: unknown,
   resolver: RepoResolution.Resolver,
+  cacheDirectory: string,
   signal: AbortSignal | undefined
 ): Promise<unknown> => {
   if (rule !== "TargetIndex" || typeof attrs !== "object" || attrs === null) return attrs
@@ -3235,6 +3237,9 @@ const withTargetIndex = async (
     signal
   )
   if ((attrs as { readonly mode?: unknown }).mode !== "write") {
+    const packages = new Map(resolver.index.resolve(listing.pattern).map((row) => [
+      row.label, inputPackage(Target.metadata(row.target), row.packagePath)
+    ]))
     const missing: Array<{ path: string; label: string; sourceFile: string | undefined }> = []
     for (const row of listing.targets) {
       for (const input of row.inputs) {
@@ -3248,8 +3253,10 @@ const withTargetIndex = async (
           }) === undefined
         } else if (input.kind === "glob") {
           path = input.pattern
-          absent = (await Input.expandGlob(resolver.index.root, "", input.pattern, {
-            exclude: input.exclude,
+          absent = (await Input.expandGlob(resolver.index.root, packages.get(row.label) ?? row.package, `//${input.pattern}`, {
+            exclude: input.exclude.map((path) => `//${path}`),
+            cacheDirectory,
+            repositoryBoundaries: Object.values(resolver.index.workspace.repos ?? {}).map((repo) => repo.path),
             signal
           })).length === 0
         } else continue

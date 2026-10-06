@@ -150,6 +150,23 @@ describe("TargetIndex through the CLI", () => {
     ])
   })
 
+  it("preserves the declaring package boundary when expanding projected globs", async () => {
+    const root = await fixture()
+    await write(root, "child/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: { sources: S.Shell.Test({ shell: "true", data: [S.glob("src/**/*.ts")] }) } })
+`)
+    await write(root, "child/src/file.ts", "export const value = 1\n")
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.logs + valid.output).toBe(0)
+    await Fs.rename(NodePath.join(root, "child/src"), NodePath.join(root, "child/moved"))
+    const missing = await serve(root, ["lint", "//:targetIndex"])
+    expect(missing.exitCode).toBe(1)
+    expect(missing.logs + missing.output).toContain("child/src/**/*.ts")
+    expect(missing.logs + missing.output).toContain("//child:sources")
+    expect(missing.logs + missing.output).toContain("child/PACKAGE.ts")
+  })
+
   it("validates the declared Actionlint workflows rather than a directory listing", async () => {
     const root = await fixture()
     await write(root, ".github/workflows/generated.yml", "name: Generated\n")
