@@ -390,3 +390,5 @@ T-APP-16 prompt receipt: install composer uses only the canonical prompt body, a
 T-APP-16 view-state receipt: `C-UI-06.spec.ts` passes two browser identities with HTTP/live contract fixtures. `shared-conversation.spec.ts` passes scroll-anchor and maximized-card restoration on reload. Writes retain Home preferences and exclude the read-only queue and UI instructions. Author-only theme instructions survive reload without reapplying completed instructions. PostgreSQL privacy remains covered separately by the composed-router checks.
 
 T-APP-03 wave 2: [owner pre-approval default](C-APP-03-settings.spec.ts) passed (1): the served install field `todo_preapprove_default` toggles through the owner-only typed Settings flow, persists after reload, and can be disabled. Test-only HTTP provider; production setting attribution, creation inheritance and standing merge qualification remain T-STK-04 dependencies.
+
+T-APP-03 wave 2 revalidated C-UI-13 Setup and Commands (2 passed, 1 unrelated all-card skip): Setup explicitly boots the install capability and checks its This Mac only / Network controls before and after reload.
