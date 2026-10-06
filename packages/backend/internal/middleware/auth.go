@@ -427,6 +427,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/confirmations(?:/[^/]+/(?:approve|deny))?$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/auth/logout$`)},
+	{http.MethodPost, "self", regexp.MustCompile(`^/api/user/tokens$`)},
 	{http.MethodPost, "self.read", regexp.MustCompile(`^/api/(auth/sse-ticket|v1/sse/ticket)$`)},
 	// The app's reads on an install, as a member's browser makes them on
 	// J1 8, J2 and J4: setup state, the person's own organizations and

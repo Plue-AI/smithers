@@ -24,6 +24,16 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
 			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
+			if info != nil && info.User != nil && info.IsTokenAuth && command == "" {
+				// AuthLoader already confines these system grants to their exact
+				// workspace/child or verified coding batch before dispatch.
+				_, coding := middleware.CodingFileCredential(info)
+				scopedSystem := info.TokenSystemIssued && (info.CredentialKind() == middleware.CredentialMachine && info.WorkspaceRestriction() != "" || middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || coding)
+				if !scopedSystem {
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+					return
+				}
+			}
 			if info == nil || info.User == nil || command == "" || command == "self" {
 				next.ServeHTTP(w, r)
 				return

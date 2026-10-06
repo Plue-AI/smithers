@@ -206,6 +206,16 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, scopes)
 	}
+	// No unbound credential, even one minted for the owner, inherits the
+	// owner's legacy route fallback. Refuse before the mounted handler.
+	for _, scopes := range []string{"write:repository,read:user", "write:repository,read:user,credential:sync", "write:repository,read:user,via:codex"} {
+		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2,system_issued=true WHERE user_id=$1`, owner.ID, scopes)
+		require.NoError(t, err)
+		status, denied := call("POST", "/api/agent/turn/erase", "", ownerToken)
+		require.Equal(t, 403, status, denied)
+		require.Equal(t, "permission", denied["class"])
+		require.Equal(t, "permission", denied["code"])
+	}
 	// An ordinary role downgrade after the request's bound decision does
 	// not change that in-flight decision. The next request sees the new role.
 	downgradeAfterDecision = true
