@@ -192,6 +192,7 @@ export interface CardCommandInput {
   readonly "github": undefined
   readonly "github.retry": undefined
   readonly "monitor": undefined
+  readonly "context.inspect": { readonly branch: string; readonly answer: string }
   readonly "run.inspect": { readonly id: string }
   readonly "flow.source": { readonly name: string }
   readonly "flow.plan": { readonly name: string }

@@ -153,6 +153,9 @@ import type { WorkspaceSeam } from "./seams/WorkspaceSeam"
 import { createWorkspaceSeam } from "./seams/WorkspaceSeam"
 import { randomUuid } from "../runtime/RandomUuid"
 
+import type { ContextContainerProps } from "../ContextContainer"
+import { createContextSeam, type ContextProvider } from "./seams/ContextSeam"
+
 export interface AppController extends IssueFlowsController {
   readonly storageRecoveryState: StorageRecoveryAction["state"]
   readonly promptStorageRecovery: () => Promise<void>
@@ -254,6 +257,9 @@ export interface AppController extends IssueFlowsController {
   readonly debugApi: DebugApiSeam
   readonly debugApiCommand: (input: DebugApiInput) => string | { readonly value: string }
   readonly docsTargetAvailable: (target: string) => boolean
+  readonly contextLine: (answerId: string) => Omit<ContextContainerProps, "dispatch" | "available"> | undefined
+  readonly contextAvailable: () => boolean
+  readonly inspectContext: (branch: string, answer: string) => Promise<import("../flows/entries/Declare").CommandResult>
   readonly docsAvailable: () => boolean
   readonly openDocsPage: (page?: string) => string | { readonly value: string }
   /** `docs.read <page>`: the page's title, summary and Markdown as JSON, for the agent. */
@@ -748,6 +754,10 @@ export interface AppServices {
    * files read from disk (src/docs/DiskPages.ts).
    */
   readonly docs?: () => Docs
+  /** T-APP-17 composition gate. No production provider exists yet. */
+  readonly contextProvider?: ContextProvider
+  /** Stored answer projection, supplied only with the authenticated conversation and action-capable View. */
+  readonly contextLine?: (answerId: string) => Omit<ContextContainerProps, "dispatch" | "available"> | undefined
   /** T-CAT-01 composition gate. No production provider exists yet. */
   readonly docsCatalogAvailable?: () => boolean
   readonly debugApiGates?: () => DebugApiGates
@@ -1291,6 +1301,11 @@ export const createAppController = (
     })
     return { value: "Requested" }
   }
+  const { contextAvailable, inspectContext } = actors.pair(ctx, context =>
+    createContextSeam(context.http, context.baseUrl, services.contextProvider, () => {
+      const epoch = context.accountEpoch
+      return () => !context.disposed && context.accountEpoch === epoch
+    }, () => context.commandActor))
   const { docsTargetAvailable, docsAvailable, openDocsPage, readDocsPage } = actors.pair(ctx, (context) =>
     createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => false) }))
 
@@ -1764,6 +1779,7 @@ export const createAppController = (
     debugApi,
     debugApiCommand,
     docsTargetAvailable,
+    contextAvailable, inspectContext,
     docsAvailable,
     openDocsPage,
     readDocsPage,
@@ -2198,6 +2214,7 @@ export const createAppController = (
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
     externalSession: externalSessionSeam.session,
     timelineTitles: timelineTitleSeam.ask,
+    contextLine: answerId => contextAvailable() ? services.contextLine?.(answerId) : undefined,
     design,
     live: services.live,
     presentCard,

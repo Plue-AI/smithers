@@ -6,6 +6,7 @@ describe("temporary catalog tags", () => {
   // MVP Appendix A and B.4, frozen lead ruling 2026-10-02.
   test.each([
     "docs",
+    "context.inspect",
     "debug-api",
     "todo.return-to-item",
     "merge.confirm",
