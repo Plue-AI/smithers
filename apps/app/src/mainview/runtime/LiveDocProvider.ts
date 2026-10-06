@@ -99,7 +99,7 @@ export class LiveDocProvider {
   revoke() { this.receive({ kind: "refused" }) }
   setComparison(value: { version: string; text: string }) { this.comparison = value; this.publish() }
   file?: import("@smthrs/rpc/FileCard").FileCard
-  setFile(file: import("@smthrs/rpc/FileCard").FileCard | undefined) { this.file = file; if (this.comparison?.version !== file?.outside?.version) this.comparison = undefined; this.publish() }
+  setFile(file: import("@smthrs/rpc/FileCard").FileCard | undefined) { this.file = file; if (this.comparison?.version !== "unsaved" && this.comparison?.version !== file?.outside?.version) this.comparison = undefined; this.publish() }
   get available() { return this.assigned && this.synced && !this.disposed }
   get editable() { return !this.file?.gone && this.available && !this.recovery }
   get saved(): "saving" | "saved" { return !this.acknowledged || this.pending.length || this.recovery || !covered(this.localClocks, this.savedClocks) ? "saving" : "saved" }
@@ -183,7 +183,7 @@ export class LiveDocProvider {
         for (const [id, clock] of vector) this.savedClocks.set(id, Math.max(this.savedClocks.get(id) ?? 0, clock))
         this.acknowledged = true
         this.pending = this.pending.filter(update => !(update.seq <= event.seq && covered(update.vector, vector)))
-        if (!this.pending.length && (this.reapplying || this.recoveryEpoch === this.epoch)) { this.recovery = undefined; this.recoveryEpoch = undefined; this.reapplying = false }
+        if (!this.pending.length && (this.reapplying || this.recoveryEpoch === this.epoch)) { this.recovery = undefined; if (this.comparison?.version === "unsaved") this.comparison = undefined; this.recoveryEpoch = undefined; this.reapplying = false }
       } catch { /* Malformed acknowledgment never saves edits. */ }
       return
     }
@@ -254,7 +254,7 @@ export class LiveDocProvider {
     const copiedPending = this.reapplying ? [] : [...this.pending]
     const copied = await write(retained.text)
     if (!copied.ok) return false
-    if (this.recovery === retained) { this.recovery = undefined; this.recoveryEpoch = undefined; this.reapplying = false; this.pending = this.pending.filter(update => !copiedPending.includes(update)) }
+    if (this.recovery === retained) { this.recovery = undefined; if (this.comparison?.version === "unsaved") this.comparison = undefined; this.recoveryEpoch = undefined; this.reapplying = false; this.pending = this.pending.filter(update => !copiedPending.includes(update)) }
     this.publish()
     return true
   }

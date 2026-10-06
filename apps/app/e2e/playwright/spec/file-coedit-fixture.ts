@@ -7,8 +7,9 @@ import { decodeLiveDocBinary, encodeLiveDocBinary } from "@smthrs/rpc/LiveDoc"
 import { installCloudFixture } from "../cloudFixture"
 
 // Test-only document host: proves browser composition, never machine durability.
-export function fileCoeditFixture() {
+export function fileCoeditFixture(initial = "") {
   const doc = new Y.Doc()
+  doc.getText("content").insert(0, initial)
   const peers: Array<{ socket: WebSocketRoute; id: number; client: number; seq: number }> = []
   let nextClient = 42
   let acknowledge = true
@@ -18,6 +19,7 @@ export function fileCoeditFixture() {
     dispose: () => doc.destroy(),
     acknowledge: (value: boolean) => { acknowledge = value },
     text: () => doc.getText("content").toString(),
+    replace: (text: string) => doc.transact(() => { const content = doc.getText("content"); content.delete(0, content.length); content.insert(0, text) }),
     async install(page: Page, login: string) {
       await installCloudFixture(page, { capabilities: ["install", "identity"] })
       await page.route("**/api/user", route => route.fulfill({ json: { id: login === "Alice" ? 42 : 43, username: login.toLowerCase(), is_admin: false } }))

@@ -64,7 +64,7 @@ export class FileDocuments {
     if (!resource) return "File recovery is unavailable."
     const provider = resource.provider, model = provider.file
     if (!provider.available) return "Reconnect first."
-    if (tag === "file.reapply") return provider.reapply() ? { value: "Reapplied" } : "Reconnect first."
+    if (tag === "file.reapply") return provider.reapply() ? { value: "Reapplied" } : provider.comparison?.version === "unsaved" ? { value: "Compare" } : "Reconnect first."
     if (!model) return "File recovery is unavailable."
     if (tag === "file.compare") {
       if (!model.outside) return "No outside change."

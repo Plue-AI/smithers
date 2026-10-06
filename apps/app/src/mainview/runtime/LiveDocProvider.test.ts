@@ -167,7 +167,7 @@ test("delete-only edits need a sequence receipt even when the saved vector is un
   f.provider.dispose()
 })
 
-test("Reapply preserves new-epoch edits and opens Compare on overlapping replacement", () => {
+test("Reapply preserves new-epoch edits and opens Compare on overlapping replacement", async () => {
   for (const current of ["remote hello world", "hello changed"]) {
     const f = fixture(); f.event({ kind: "assigned", epoch, clientId: 7 })
     const seed = new Y.Doc(); seed.getText("content").insert(0, "hello world")
@@ -189,7 +189,13 @@ test("Reapply preserves new-epoch edits and opens Compare on overlapping replace
       expect(f.provider.reapply()).toBe(false)
       expect(f.provider.doc.getText("content").toString()).toBe("hello changed")
       expect(f.provider.comparison).toEqual({ version: "unsaved", text: "hello friend" })
-      expect(f.provider.unsaved?.text).toBe("hello friend")
+      f.provider.setFile({ path: "retry.ts", branch: "T12", language: "typescript", digest: "new", content: { kind: "text", text: "old card" }, mode: "read_only", authors: [], editors: [], diagnostics: [] })
+      expect(f.provider.comparison).toEqual({ version: "unsaved", text: "hello friend" })
+      const { liveFileModel } = require("../cards/liveDoc") as typeof import("../cards/liveDoc")
+      expect(liveFileModel(f.provider.file!, f.provider).content).toEqual({ kind: "text", text: "hello changed" })
+      expect(await f.provider.copy(async () => ({ ok: true }))).toBe(true)
+      expect(f.provider.comparison).toBeUndefined()
+      expect(f.provider.unsaved).toBeUndefined()
     }
     f.provider.dispose(); seed.destroy(); next.destroy()
   }

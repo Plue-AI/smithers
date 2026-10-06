@@ -52,3 +52,27 @@ test("C-J3-04: reload retains pending text and Reapply waits for a save receipt"
     await expect(page.getByRole("button", { name: "Reapply", exact: true })).toHaveCount(0)
   } finally { host.dispose() }
 })
+
+test("C-J3-04: an overlapping recovery compares current and retained bytes", async ({ page }) => {
+  const host = fileCoeditFixture("hello world")
+  try {
+    host.acknowledge(false)
+    await host.install(page, "Alice")
+    await page.goto("/")
+    await say(page, '/file {"path":"retry.ts","branch":"T12"}')
+    await expect(page.locator('[data-kind="file"][data-mode="live"]').last()).toBeVisible()
+    const editor = page.locator('[data-kind="file"] .cm-content').last()
+    await editor.click(); await page.keyboard.press("Control+End")
+    for (let i = 0; i < 5; i++) await page.keyboard.press("Backspace")
+    await page.keyboard.insertText("friend")
+    await expect.poll(() => host.text()).toBe("hello friend")
+    host.replace("hello changed")
+    await page.reload()
+    await page.getByRole("button", { name: "Reapply", exact: true }).last().press("Enter")
+    const comparison = page.getByRole("group", { name: "Live and outside versions", exact: true }).last()
+    await expect(comparison.locator('.code-file-current')).toContainText("hello changed")
+    await expect(comparison.locator('.code-file-outside')).toContainText("hello friend")
+    expect(host.text()).toBe("hello changed")
+    await expect(page.getByRole("button", { name: "Copy", exact: true }).last()).toBeVisible()
+  } finally { host.dispose() }
+})

@@ -74,7 +74,7 @@ export function liveFileModel(model: import("@smthrs/rpc/FileCard").FileCard,
   awareness: ReadonlyMap<number, unknown> = new Map(), context: ActorContext = {}) {
   model = provider.file ?? model
   if (!provider.editable || model.content.kind !== "text" || model.gone) {
-    return { ...model, content: model.gone && model.content.kind === "text" ? { kind: "text" as const, text: provider.doc.getText("content").toString() } : model.content, mode: "read_only" as const, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
+    return { ...model, content: (model.gone || (provider.available && provider.unsaved)) && model.content.kind === "text" ? { kind: "text" as const, text: provider.doc.getText("content").toString() } : model.content, mode: "read_only" as const, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
   }
   const text = provider.doc.getText("content").toString(), bytes = new TextEncoder().encode(text).length
   if (bytes > LiveFileMaxBytes) return { ...model, mode: "read_only" as const, content: { kind: "too_large" as const, bytes, text } }
