@@ -8,7 +8,7 @@
  * names are flows/entries/runs.ts (run.inspect) and todo.ts (the rest).
  */
 import { useLiveQuery } from "@tanstack/react-db"
-import { useState, type ComponentType } from "react"
+import { type ComponentType } from "react"
 import type { MonitorCard, RunViewProps } from "@smthrs/rpc/MonitorCard"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
@@ -64,11 +64,11 @@ const RunBody = ({ card, maximized }: { readonly card: CardOf<"run">; readonly m
   const world = useDesignWorld()
   useLiveQuery(controller.store.collections.httpTurns)
   useLiveQuery(controller.store.collections.identitySessions)
-  const [view, setView] = useState<Partial<RunViewProps["view"]>>({})
+  const view = card.payload.view ?? {}
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
   return <RunContainer model={controller.contextRun(card.payload.id) ?? monitorOf(world, card.payload.id)} dispatch={dispatch}
-    view={{ ...view, maximized }} onView={patch => setView(current => ({ ...current, ...patch }))} />
+    view={{ ...view, maximized }} onView={patch => { void dispatch("run.view", { cardId: card.id, ...patch }) }} />
 }
 export const runCardFamily: CardFamily<"run"> = {
   run: { render: (card, actions) => <RunBody card={card} maximized={actions.presentation === "maximized"} />, pill: () => "" }

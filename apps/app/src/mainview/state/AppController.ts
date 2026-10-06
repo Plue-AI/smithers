@@ -551,6 +551,7 @@ export interface AppController extends IssueFlowsController {
   /** With a `subject` (Branch, Terminal: card-kinds.md L5) the card is `${kind}:${subject}` with payload `{ id: subject }`. */
   readonly presentCard: (kind: "setup" | "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
   /** Opens (or reveals) the Run card for run `id`; `maximize` is Inspect. */
+  readonly setRunView: (cardId: string, patch: { selected?: string; at?: number; tab?: "run" | "journal" | "custom" }) => Promise<string | void>
   readonly contextRun: (id: string) => MonitorCard | undefined
   readonly presentRun: (id: string, title: string, maximize: boolean) => Promise<string>
   /** Opens (or reveals) the Flow card for flow `name`, at `version` when given. */
@@ -1011,6 +1012,13 @@ export const createAppController = (
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
     return `Opened ${title}`
   }
+  const { setRunView } = actors.pair(ctx, context => ({ setRunView: async (cardId: string, patch: { selected?: string; at?: number; tab?: "run" | "journal" | "custom" }): Promise<string | void> => {
+    const card = store.collections.cards.get(cardId)
+    if (card?.kind !== "run") return "This run is no longer available."
+    await store.dispatch({ type: "card.updated", actor: context.commandActor, id: cardId,
+      patch: { kind: "run", payload: { ...card.payload, view: { ...card.payload.view, ...patch } } }
+    }).isPersisted.promise
+  } }))
   const contextRun = (id: string): MonitorCard | undefined => {
     const owner = ctx.accountOwner()
     const turn = [...store.collections.httpTurns.values()].find(row => row.turnId === id && row.owner === owner)
@@ -1022,7 +1030,7 @@ export const createAppController = (
     const existing = store.collections.cards.get(id)
     await store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
       id, kind: "run", title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
-      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: runId }
+      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: runId, ...(existing?.kind === "run" ? { view: existing.payload.view } : {}) }
     } }).isPersisted.promise
     const inspect = maximize && context.commandActor === "user"
     if (inspect) maximizeCard(id)
@@ -1878,6 +1886,7 @@ export const createAppController = (
     live: services.live,
     design,
     presentCard,
+    setRunView,
     contextRun,
     presentRun,
     presentFlow,
@@ -2406,6 +2415,7 @@ export const createAppController = (
     design,
     live: services.live,
     presentCard,
+    setRunView,
     contextRun,
     presentRun,
     presentFlow,

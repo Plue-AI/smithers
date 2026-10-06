@@ -255,6 +255,7 @@ export const FLOW_NAMES = [
   "review.unrequest",
   "run",
   "run.inspect",
+  "run.view",
   "runs",
   "runs.attention",
   "runs.coding.select",

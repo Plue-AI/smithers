@@ -43,6 +43,11 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     return { value: await actions.presentRun(trace.id, trace.title, maximize) }
   }
   return [
+  flow({ name: "run.view", summary: "Select a run detail", args: "<cardId> [JSON view]",
+    input: Schema.Struct({ cardId: Schema.String, selected: Schema.optional(Schema.String),
+      at: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+      tab: Schema.optional(Schema.Literals(["run", "journal", "custom"])) }),
+    handler: ({ cardId, ...patch }) => actions.setRunView(cardId, patch) }),
   flow({ name: "monitor", summary: "Every run, with its debug view", slash: "/monitor", cli: ["monitor"],
     group: "Advanced", journey: ["J11"], visibility: "advanced", actors: ["person", "app_agent", "external_agent"],
     minimumRole: "member", agent: "run", http: { method: "GET", path: "/api/runs" },

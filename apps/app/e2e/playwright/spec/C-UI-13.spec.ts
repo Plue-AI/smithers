@@ -85,3 +85,22 @@ test("C-UI-13: /help mounts live Commands inline, maximized and after reload", a
   await page.reload()
   await expect(page.getByRole("article", { name: "Commands", exact: true })).toContainText("/help")
 })
+
+// T-FLW-07: the retained design provider exercises the mounted Run View and
+// durable gestures while authenticated install run topics are being composed.
+test("C-UI-13: Run selection survives Inspect reopening and reload", async ({ page }) => {
+  await owner(page)
+  await page.goto("/")
+  await say(page, "/run.inspect run-retry")
+  const run = page.getByRole("region", { name: "Run Retry failed webhooks with backoff", exact: true })
+  await expect(run).toBeVisible()
+  const read = run.getByRole("button", { name: /Read retry.ts/ }).first()
+  await read.press("Enter")
+  await expect(run.getByRole("region", { name: "Selected cell", exact: true })).toContainText("await sleep(30_000)")
+  await page.getByRole("button", { name: "Restore", exact: true }).press("Enter")
+  await say(page, "/run.inspect run-retry")
+  await expect(run.getByRole("region", { name: "Selected cell", exact: true })).toContainText("await sleep(30_000)")
+  await page.reload()
+  await say(page, "/run.inspect run-retry")
+  await expect(run.getByRole("region", { name: "Selected cell", exact: true })).toContainText("await sleep(30_000)")
+})

@@ -863,7 +863,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     request: z.object({ action: z.enum(["accept", "dismiss"]), owner: z.string(),
       state: z.enum(["pending", "failed"]), error: z.string().optional() }).optional()
   }) }),
-  z.object({ ...cardBaseShape, kind: z.literal("run"), payload: z.object({ id: z.string() }) }),
+  z.object({ ...cardBaseShape, kind: z.literal("run"), payload: z.object({ id: z.string(), view: z.object({ selected: z.string().optional(), at: z.number().int().nonnegative().optional(), tab: z.enum(["run", "journal", "custom"]).optional() }).optional() }) }),
   z.object({ ...cardBaseShape, kind: z.literal("flow"), payload: z.object({ name: z.string(), version: z.string().optional(), memberVersions: z.record(z.string(), z.string()).optional(), proposal: z.object({ request: z.string(), diff: z.string() }).optional() }) }),
   /* card-kinds.md L5: subject-only kinds; the card file reads its data (T-APP-03, T-APP-06, T-UI-14). */
   z.object({ ...cardBaseShape, kind: z.literal("setup"), payload: z.object({}) }),

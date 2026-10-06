@@ -59,6 +59,7 @@ export const CATALOG_TAGS = [
   "github.retry",
   "monitor",
   "run.inspect",
+  "run.view",
   "flow.source",
   "flow.plan",
   "agents",
