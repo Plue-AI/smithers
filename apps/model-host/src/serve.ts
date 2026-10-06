@@ -42,6 +42,14 @@ try {
 } catch {
   throw new Error("SMITHERS_CHAT_MODEL must be JSON")
 }
+let preflightBinding: unknown
+if (process.env.SMITHERS_CHAT_PREFLIGHT_MODEL !== undefined) {
+  try {
+    preflightBinding = JSON.parse(process.env.SMITHERS_CHAT_PREFLIGHT_MODEL)
+  } catch {
+    throw new Error("SMITHERS_CHAT_PREFLIGHT_MODEL must be JSON")
+  }
+}
 const requestedMaxTokens = Number(process.env.SMITHERS_CHAT_MAX_TOKENS ?? "4096")
 if (!Number.isSafeInteger(requestedMaxTokens) || requestedMaxTokens <= 0 || requestedMaxTokens > 1_000_000) {
   throw new Error("SMITHERS_CHAT_MAX_TOKENS is invalid")
@@ -49,7 +57,7 @@ if (!Number.isSafeInteger(requestedMaxTokens) || requestedMaxTokens <= 0 || requ
 const handle = createModelTurnHandler({
   authorization,
   callbackBaseUrl,
-  resolve: environmentModelResolver({ binding, env: process.env, maxTokens: requestedMaxTokens })
+  resolve: environmentModelResolver({ binding, preflightBinding, env: process.env, maxTokens: requestedMaxTokens })
 })
 const modelProbe = createModelProbe({ env: process.env, egress: true })
 const authorized = bearerAuthorization(authorization)

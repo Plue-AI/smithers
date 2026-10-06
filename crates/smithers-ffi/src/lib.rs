@@ -167,6 +167,9 @@ struct ChangeFile {
 struct TreeEntry {
     path: String,
     kind: &'static str,
+    // Preserve the historical file/dir shape while distinguishing regular
+    // blobs from symlinks and gitlinks for readers that cannot follow them.
+    regular_file: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1069,7 +1072,9 @@ impl RepoHandle {
             if path.as_str() <= after {
                 continue;
             }
-            let kind = match values.resolve_trivial(same_change) {
+            let resolved = values.resolve_trivial(same_change);
+            let regular_file = matches!(resolved, Some(Some(TreeValue::File { .. })));
+            let kind = match resolved {
                 Some(None) => continue,
                 Some(Some(TreeValue::Tree(_))) => "dir",
                 Some(Some(_)) => "file",
@@ -1086,7 +1091,11 @@ impl RepoHandle {
                     )))
                 }
             };
-            entries.push(TreeEntry { path, kind });
+            entries.push(TreeEntry {
+                path,
+                kind,
+                regular_file,
+            });
         }
         Ok(entries)
     }
@@ -5822,8 +5831,8 @@ mod tests {
         assert_eq!(
             root,
             serde_json::json!([
-                { "path": "README.md", "kind": "file" },
-                { "path": "src", "kind": "dir" }
+                { "path": "README.md", "kind": "file", "regular_file": true },
+                { "path": "src", "kind": "dir", "regular_file": false }
             ])
         );
         let src = c_string("src");
@@ -5838,7 +5847,7 @@ mod tests {
         };
         assert_eq!(
             nested,
-            serde_json::json!([{ "path": "src/main.rs", "kind": "file" }])
+            serde_json::json!([{ "path": "src/main.rs", "kind": "file", "regular_file": true }])
         );
         let after = c_string("README.md");
         let page = unsafe {
@@ -5850,7 +5859,10 @@ mod tests {
                 1,
             ))
         };
-        assert_eq!(page, serde_json::json!([{ "path": "src", "kind": "dir" }]));
+        assert_eq!(
+            page,
+            serde_json::json!([{ "path": "src", "kind": "dir", "regular_file": false }])
+        );
 
         let file_from_commit = unsafe {
             take_json(smithers_get_file_content(

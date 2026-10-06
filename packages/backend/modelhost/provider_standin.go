@@ -90,6 +90,16 @@ func (origin providerStandIn) model(raw json.RawMessage) (json.RawMessage, error
 // the model host plans again, to the stand-in. Managed credit and custom
 // credentials keep their own addresses.
 func (origin providerStandIn) route(binding Binding, request json.RawMessage) (Binding, json.RawMessage, error) {
+	if binding.Preflight != nil {
+		if binding.Preflight.Preflight != nil {
+			return Binding{}, nil, errors.New("nested preflight binding is invalid")
+		}
+		preflight, _, err := origin.route(*binding.Preflight, nil)
+		if err != nil {
+			return Binding{}, nil, err
+		}
+		binding.Preflight = &preflight
+	}
 	if origin == "" || binding.Managed || !builtinCredential(binding.CredentialName) {
 		return binding, request, nil
 	}

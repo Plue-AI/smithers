@@ -261,8 +261,9 @@ type ChangeFile struct {
 }
 
 type TreeEntry struct {
-	Path string `json:"path"`
-	Kind string `json:"kind"`
+	Path        string `json:"path"`
+	Kind        string `json:"kind"`
+	RegularFile *bool  `json:"regular_file,omitempty"`
 }
 
 // ListDirectory returns at most limit immediate children after the path cursor.

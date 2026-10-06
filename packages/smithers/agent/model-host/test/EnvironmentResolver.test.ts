@@ -267,3 +267,64 @@ test.each(["declared", "streamed"])("cancels oversized context bodies (%s)", asy
   await expect(Effect.runPromise(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant))).rejects.toThrow()
   expect(cancelled).toHaveBeenCalledTimes(1)
 })
+
+const fastBinding = { ...binding, baseUrl: "https://fast.test", modelId: "owner-fast", credential: "FAST" }
+const fastEnv = { ...env, SMITHERS_MODEL_KEY_FAST: "fast-key", SMITHERS_MODEL_KEY_FAST_ORIGIN: "https://fast.test" }
+
+test("the owner fast role uses its own credential and origin independently of the answer model", async () => {
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+    if (String(url) === "https://callback.test/internal/chat/context") return Response.json(contextInput)
+    expect(String(url)).toBe("https://fast.test/v1/chat/completions")
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fast-key")
+    expect(new TextDecoder().decode(init?.body as Uint8Array)).toContain("\"model\":\"owner-fast\"")
+    return new Response(
+      "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"fast answer\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+    )
+  })
+  const resolved = await Effect.runPromise(
+    environmentModelResolver({ binding, preflightBinding: fastBinding, env: fastEnv, fetchImpl })(sharedGrant)
+  )
+  expect(resolved.options).toEqual({ modelId: "fixture", credential: "fixture-key" })
+  expect(resolved.preflight?.options).toEqual({ modelId: "owner-fast", credential: "fast-key" })
+  expect(resolved.preflight?.input).toEqual(contextInput)
+  const frames: unknown[] = []
+  await Effect.runPromise(
+    runModelTurn(resolved.preflight!.model, grant.request, resolved.preflight!.options, (frame) =>
+      Effect.sync(() => {
+        frames.push(frame)
+      }))
+  )
+  expect(frames).toContainEqual({ runId: "run", type: "delta", kind: "text", text: "fast answer" })
+  expect(fetchImpl).toHaveBeenCalledTimes(2)
+})
+
+test.each([{}, null, { ...fastBinding, baseUrl: "https://attacker.test" }, {
+  ...fastBinding,
+  credential: "UNENROLLED"
+}])(
+  "an invalid owner fast role refuses without falling back to an answer call",
+  async (preflightBinding) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(contextInput))
+    await expect(
+      Effect.runPromise(environmentModelResolver({ binding, preflightBinding, env: fastEnv, fetchImpl })(sharedGrant))
+    ).rejects.toThrow("configured model route is unavailable")
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  }
+)
+
+test.each([undefined, " "])("fast credentials removed during resolution refuse (%s)", async (removed) => {
+  let reads = 0
+  const changingEnv = {
+    ...fastEnv,
+    get SMITHERS_MODEL_KEY_FAST() {
+      return ++reads === 1 ? "fast-key" : removed
+    }
+  }
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(contextInput))
+  await expect(
+    Effect.runPromise(
+      environmentModelResolver({ binding, preflightBinding: fastBinding, env: changingEnv, fetchImpl })(sharedGrant)
+    )
+  ).rejects.toThrow("configured model route is unavailable")
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
+})

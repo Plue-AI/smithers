@@ -109,6 +109,7 @@ test("refuses to start off loopback or with incomplete configuration", async () 
     [["listen"], hostEnv(), "Expected serve command"],
     [["serve"], hostEnv({ SMITHERS_CHAT_HOST_TOKEN: "" }), "configuration is incomplete"],
     [["serve"], hostEnv({ SMITHERS_CHAT_MODEL: "not json" }), "SMITHERS_CHAT_MODEL must be JSON"],
+    [["serve"], hostEnv({ SMITHERS_CHAT_PREFLIGHT_MODEL: "not json" }), "SMITHERS_CHAT_PREFLIGHT_MODEL must be JSON"],
     [["serve"], hostEnv({ SMITHERS_CHAT_MAX_TOKENS: "0" }), "SMITHERS_CHAT_MAX_TOKENS is invalid"]
   ]
   const results = await Promise.all(cases.map(([args, env]) => run(args, env).exited))

@@ -10,11 +10,11 @@ import (
 func (q *Queries) EffectiveInstallAgentModel(ctx context.Context, role string) (json.RawMessage, error) {
 	var value []byte
 	err := q.db.QueryRow(ctx, `WITH candidates AS (
- SELECT s.value, CASE WHEN s.key=$1 THEN 0 WHEN s.key='agent:fast' THEN 1 ELSE 2 END AS priority
+ SELECT s.key, s.value, CASE WHEN s.key=$1 THEN 0 WHEN s.key='agent:fast' THEN 1 ELSE 2 END AS priority
  FROM install_settings s WHERE (s.key=$1 OR ($2 AND s.key='agent:fast') OR ($3 AND s.key='agent:coding'))
  AND NOT (s.key='agent:fast' AND EXISTS (SELECT 1 FROM install_settings WHERE key='agent:fast.source' AND value='"coding"'::jsonb))
  ), eligible AS (
- SELECT value,priority FROM candidates WHERE priority<>1 OR EXISTS (
+ SELECT value,priority FROM candidates WHERE key<>'agent:fast' OR EXISTS (
  SELECT 1 FROM owner_model_credentials c JOIN self_host_owners o ON o.user_id=c.user_id
  WHERE c.name=candidates.value->>'credential' AND c.value_encrypted IS NOT NULL)
  UNION ALL SELECT d.model,3 FROM owner_model_defaults d JOIN self_host_owners o ON o.user_id=d.user_id WHERE $3

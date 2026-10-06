@@ -205,6 +205,10 @@ type localTurn struct {
 // startLocalChat composes the local chat runtime around a packaged model
 // host and a fresh product database, signed in as the repository owner.
 func startLocalChat(t *testing.T) *localChat {
+	return startConfiguredLocalChat(t, nil)
+}
+
+func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.RuntimeOptions)) *localChat {
 	t.Helper()
 	if testdb.ServerURL() == "" {
 		testdb.Unavailable(t, testdb.ErrNotConfigured)
@@ -255,7 +259,11 @@ func startLocalChat(t *testing.T) *localChat {
 	require.NoError(t, err)
 	local.host, err = modelhost.New(local.resolver, launcher)
 	require.NoError(t, err)
-	local.composition, err = newChatComposition(runOptions{topology: localTopology, Options: Options{ChatHost: local.host}}, pool, chat.RuntimeOptions{Logger: logger})
+	runtimeOptions := chat.RuntimeOptions{Logger: logger}
+	if configure != nil {
+		configure(local, &runtimeOptions)
+	}
+	local.composition, err = newChatComposition(runOptions{topology: localTopology, Options: Options{ChatHost: local.host}}, pool, runtimeOptions)
 	require.NoError(t, err)
 	t.Cleanup(local.composition.close)
 	local.serveDone = make(chan error, 1)

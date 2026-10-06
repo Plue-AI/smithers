@@ -336,13 +336,16 @@ type UpdateRepoRequest struct {
 }
 
 type RepoContent struct {
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	SHA      string `json:"sha"`
-	Type     string `json:"type"`
-	Encoding string `json:"encoding"`
-	Content  string `json:"content"`
-	Size     int64  `json:"size"`
+	// Native tree metadata for internal readers. This does not change the
+	// public contents response; nil means an older host supplied no metadata.
+	RegularFile *bool  `json:"-"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	SHA         string `json:"sha"`
+	Type        string `json:"type"`
+	Encoding    string `json:"encoding"`
+	Content     string `json:"content"`
+	Size        int64  `json:"size"`
 }
 
 type GitRefObject struct {
@@ -1354,7 +1357,7 @@ func (s *RepoService) ListRepoContentsPage(ctx context.Context, viewer *db.User,
 		if prefix == "" {
 			name = entry.Path
 		}
-		entries = append(entries, RepoContent{Name: name, Path: entry.Path, Type: entry.Kind})
+		entries = append(entries, RepoContent{Name: name, Path: entry.Path, Type: entry.Kind, RegularFile: entry.RegularFile})
 	}
 	next := ""
 	if hasMore {

@@ -64,8 +64,9 @@ func NewOwnerSecretResolver(databaseURL, secretKey func() string, options ...Own
 
 func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage) (Binding, error) {
 	var input struct {
-		RepositoryID int64           `json:"repositoryId"`
-		Model        json.RawMessage `json:"model"`
+		SharedConversation bool            `json:"sharedConversation"`
+		RepositoryID       int64           `json:"repositoryId"`
+		Model              json.RawMessage `json:"model"`
 	}
 	var model struct {
 		Protocol   string `json:"protocol"`
@@ -182,6 +183,24 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 			return Binding{}, errors.New("owner model origin is invalid")
 		}
 		binding.CredentialOrigin = origin
+	}
+	if input.SharedConversation {
+		// The shared prompt route owns this marker. Resolve the owner fast
+		// role independently of an app override; missing fast access uses
+		// the existing coding-role fallback, never the browser's model.
+		fast, err := db.New(pool).EffectiveInstallAgentModel(ctx, "fast")
+		if err != nil {
+			return Binding{}, fmt.Errorf("read preflight model: %w", err)
+		}
+		request, err := json.Marshal(map[string]json.RawMessage{"model": fast})
+		if err != nil {
+			return Binding{}, err
+		}
+		preflight, err := resolver.ResolveChatModel(ctx, ownerID, input.RepositoryID, request)
+		if err != nil {
+			return Binding{}, fmt.Errorf("resolve preflight model: %w", err)
+		}
+		binding.Preflight = &preflight
 	}
 	return binding, nil
 }

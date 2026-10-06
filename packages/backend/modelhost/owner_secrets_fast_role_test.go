@@ -112,3 +112,60 @@ func TestResolveChatModelRunsMemberTurnsOnTheInstallModels(t *testing.T) {
 		require.ErrorIs(t, err, modelhost.ErrOwnerModelUnset)
 	}
 }
+
+// An app override affects the answer, never the selector. Removing the fast
+// credential restores coding for the next preflight while an admitted binding
+// remains immutable. Use three different keys so accidental reuse is visible.
+func TestResolveSharedPreflightUsesIndependentFastRoleAndCodingFallback(t *testing.T) {
+	f := newOwnerModelsFixture(t)
+	ctx := t.Context()
+	_, err := f.pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, f.owner)
+	require.NoError(t, err)
+	q := db.New(f.pool)
+	models := map[string]string{}
+	for _, role := range []string{"coding", "fast", "app"} {
+		name := map[string]string{"coding": "CODING_KEY", "fast": "FAST_KEY", "app": "APP_KEY"}[role]
+		require.Equal(t, true, f.credential(t, "enroll", "enroll-"+role, name, "https://models.test", role+"-secret")["ok"])
+		model, err := json.Marshal(map[string]string{"protocol": "openai-chat", "modelId": role, "credential": name, "baseUrl": "https://models.test"})
+		require.NoError(t, err)
+		models[role] = string(model)
+		require.NoError(t, q.AssignInstallAgentModel(ctx, role, model))
+	}
+	resolver, err := modelhost.NewOwnerSecretResolver(func() string { return f.url }, func() string { return ownerModelsSecretKey })
+	require.NoError(t, err)
+	t.Cleanup(resolver.Close)
+	resolve := func(user int64, shared bool) modelhost.Binding {
+		request, err := json.Marshal(map[string]any{"sharedConversation": shared})
+		require.NoError(t, err)
+		binding, err := resolver.ResolveChatModel(ctx, user, 0, request)
+		require.NoError(t, err)
+		require.JSONEq(t, models["app"], string(binding.Model))
+		require.Equal(t, "app-secret", binding.CredentialValue)
+		return binding
+	}
+	require.Nil(t, resolve(f.owner, false).Preflight)
+	first := resolve(f.owner, true)
+	require.NotNil(t, first.Preflight)
+	require.JSONEq(t, models["fast"], string(first.Preflight.Model))
+	require.Equal(t, "fast-secret", first.Preflight.CredentialValue)
+	require.Nil(t, first.Preflight.Preflight)
+	var repo, member int64
+	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'roles','roles') RETURNING id`, f.owner).Scan(&repo))
+	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('role-member','role-member') RETURNING id`).Scan(&member))
+	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, member)
+	require.NoError(t, err)
+	binding, err := json.Marshal(map[string]int64{"repository_id": repo})
+	require.NoError(t, err)
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+	require.Equal(t, first, resolve(member, true))
+	require.Equal(t, true, f.credential(t, "remove", "remove-fast", "FAST_KEY", "", "")["ok"])
+	fallback := resolve(member, true)
+	require.JSONEq(t, models["coding"], string(fallback.Preflight.Model))
+	require.Equal(t, "coding-secret", fallback.Preflight.CredentialValue)
+	require.Equal(t, "fast-secret", first.Preflight.CredentialValue)
+	require.Equal(t, true, f.credential(t, "remove", "remove-coding", "CODING_KEY", "", "")["ok"])
+	_, err = resolver.ResolveChatModel(ctx, member, 0, json.RawMessage(`{"sharedConversation":true}`))
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "-secret")
+	require.Nil(t, resolve(member, false).Preflight)
+}

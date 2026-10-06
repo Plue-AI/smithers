@@ -154,3 +154,25 @@ func TestProviderStandInIsEveryProxiedProvidersUpstream(t *testing.T) {
 	_, err = ProviderStandInUpstreams("https://ai-gateway.vercel.sh")
 	assert.ErrorContains(t, err, ProviderStandInVariable)
 }
+
+func TestProviderStandInRoutesPreflightWithoutChangingAnswerOrOriginal(t *testing.T) {
+	fast := Binding{Model: json.RawMessage(`{"protocol":"openai-chat","modelId":"fast","credential":"CEREBRAS_API_KEY"}`), CredentialName: "CEREBRAS_API_KEY", CredentialValue: "fast-key"}
+	answer := Binding{Model: json.RawMessage(`{"protocol":"openai-chat","modelId":"answer","credential":"ANSWER_KEY","baseUrl":"https://answer.test"}`), CredentialName: "ANSWER_KEY", CredentialOrigin: "https://answer.test", CredentialValue: "answer-key", Preflight: &fast}
+	origin := providerStandIn("http://127.0.0.1:47400")
+	routed, request, err := origin.route(answer, json.RawMessage(`{"sharedConversation":true}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"sharedConversation":true}`, string(request))
+	require.Equal(t, answer.Model, routed.Model)
+	require.Equal(t, answer.CredentialName, routed.CredentialName)
+	require.Equal(t, "CEREBRAS_API_KEY", fast.CredentialName)
+	require.NotSame(t, answer.Preflight, routed.Preflight)
+	require.Equal(t, "STANDIN_CEREBRAS_API_KEY", routed.Preflight.CredentialName)
+	require.Equal(t, "fast-key", routed.Preflight.CredentialValue)
+	require.JSONEq(t, `{"protocol":"openai-chat","modelId":"fast","credential":"STANDIN_CEREBRAS_API_KEY","baseUrl":"http://127.0.0.1:47400"}`, string(routed.Preflight.Model))
+	fast.Model = json.RawMessage(`{"protocol":"openai-chat","modelId":"fast","credential":"CEREBRAS_API_KEY","baseUrl":"http://["}`)
+	_, _, err = origin.route(answer, nil)
+	require.Error(t, err)
+	fast.Preflight = &answer
+	_, _, err = origin.route(answer, nil)
+	require.EqualError(t, err, "nested preflight binding is invalid")
+}

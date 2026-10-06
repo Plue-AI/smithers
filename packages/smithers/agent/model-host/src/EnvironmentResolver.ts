@@ -23,6 +23,8 @@ import { ResolveFailed } from "./ModelHostError.ts"
  */
 export interface EnvironmentModelResolverOptions {
   readonly binding: unknown
+  /** Owner-resolved fast role; absent bindings reuse the resolved answer model. */
+  readonly preflightBinding?: unknown
   readonly env: ModelCredentialEnv
   readonly fetchImpl?: typeof globalThis.fetch
   readonly maxTokens?: number
@@ -105,7 +107,29 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
           },
           catch: () => new ResolveFailed({ message: "shared conversation context is unavailable" })
         })
-        return { ...resolved, preflight: { ...resolved, input } }
+        if (options.preflightBinding === undefined) return { ...resolved, preflight: { ...resolved, input } }
+        // This binding is supplied by the host launcher, never by the prompt.
+        // It may spend a different owner key, but keeps that key's own origin.
+        const fast = planModelBinding(options.preflightBinding, credentials, { kind: "generation" })
+        if (!fast.ok) return yield* Effect.fail(new ResolveFailed({ message: "preflight model is unavailable" }))
+        const fastCredential = options.env[modelCredentialEnvName(fast.plan.credential)]?.trim()
+        if (fastCredential === undefined || fastCredential === "") {
+          return yield* Effect.fail(new ResolveFailed({ message: "preflight model credential is unavailable" }))
+        }
+        const fastModel = yield* toModel(fast.plan, Redacted.make(fastCredential)).pipe(
+          Effect.provide(RequestExecutor.layer.pipe(Layer.provide(transport)))
+        )
+        return {
+          ...resolved,
+          preflight: {
+            input,
+            model: fastModel,
+            options: {
+              modelId: fast.plan.modelId,
+              credential: fastCredential
+            }
+          }
+        }
       })
     ),
     Effect.mapError(() => new ResolveFailed({ message: "configured model route is unavailable" }))

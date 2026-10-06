@@ -270,3 +270,46 @@ func TestLocalLaunchRejectsInvalidGrantBeforeRuntime(t *testing.T) {
 	require.Nil(t, lease)
 	require.EqualError(t, err, "model credential binding is invalid")
 }
+
+func TestLocalLaunchPreflightCredentialIsolation(t *testing.T) {
+	answer := Binding{Model: json.RawMessage(`{}`), CredentialName: "ANSWER_KEY", CredentialOrigin: "https://answer.test", CredentialValue: "answer-secret"}
+	for _, mode := range []string{"distinct", "same", "invalid", "nested", "key-conflict", "origin-conflict"} {
+		t.Run(mode, func(t *testing.T) {
+			fast := Binding{Model: json.RawMessage(`{}`), CredentialName: "FAST_KEY", CredentialOrigin: "https://fast.test", CredentialValue: "fast-secret"}
+			want := ""
+			switch mode {
+			case "same":
+				fast = answer
+			case "invalid":
+				fast.Model = nil
+				want = "model binding is invalid"
+			case "nested":
+				fast.Preflight = &answer
+				want = "nested preflight binding is invalid"
+			case "key-conflict":
+				fast = answer
+				fast.CredentialValue = "other-secret"
+				want = "model credential bindings disagree"
+			case "origin-conflict":
+				fast = answer
+				fast.CredentialOrigin = "https://other.test"
+				want = "model credential bindings disagree"
+			}
+			binding := answer
+			binding.Preflight = &fast
+			stopped := errors.New("runtime boundary reached")
+			runtime := &launchFailureRuntime{createErr: stopped}
+			launcher := &LocalLauncher{runtime: runtime, active: make(map[string]struct{})}
+			lease, err := launcher.LaunchChatHost(t.Context(), ports.ChatTurnGrant{OwnerID: 1, TurnID: "turn", ProducerBaseURL: "http://localhost"}, binding)
+			require.Nil(t, lease)
+			if want == "" {
+				require.ErrorIs(t, err, stopped)
+				require.Equal(t, []string{"create"}, runtime.calls)
+			} else {
+				require.EqualError(t, err, want)
+				require.Empty(t, runtime.calls)
+			}
+			require.NotContains(t, err.Error(), "secret")
+		})
+	}
+}
