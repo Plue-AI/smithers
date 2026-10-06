@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import type { Action } from "@smthrs/rpc/CardAction"
 import type { CommandsViewProps } from "@smthrs/rpc/CommandsCard"
 
@@ -11,7 +11,7 @@ function CommandRows({ commands }: { commands: CommandsViewProps["model"]["group
 }
 
 export function CommandsView({ model, actions, onAction }: CommandsViewProps) {
-  const controls = [], advancedControls = []
+  const controls: ReactNode[] = [], advancedControls: ReactNode[] = []
   for (const [index, action] of actions.entries()) {
     const control = <CommandActionView key={`${index}:${JSON.stringify(action)}`} action={action} onAction={onAction} />
     const target = action.tag === "debug.api" ? advancedControls : controls
