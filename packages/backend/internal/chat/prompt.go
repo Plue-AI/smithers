@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -46,7 +45,10 @@ func (h *Handler) Prompt(w http.ResponseWriter, r *http.Request) {
 	if !decodeBoundedWithProblem(w, r, &input, queueProblem) {
 		return
 	}
-	branch := chi.URLParam(r, "b")
+	branch, err := h.branch(w, r, scope)
+	if err != nil {
+		return
+	}
 	credential := middleware.CredentialOf(auth)
 	if !validIdentity(branch) || !validIdentity(input.IdempotencyKey) || strings.TrimSpace(input.Prompt) == "" || len(input.Prompt) > maxPayloadBytes/2 || credential == (middleware.Credential{}) {
 		queueError(w, ErrInvalidRequest)

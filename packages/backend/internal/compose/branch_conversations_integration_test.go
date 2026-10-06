@@ -17,10 +17,14 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/ports"
+	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +71,12 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 		Scopes:    "write:user,read:user," + strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "smithers"}), ","),
 		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
-	server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: unusedChatHost{}}))
+	runtime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)
+	feature, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: ben.ID, Name: "feature", TargetBookmark: "feature", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: &providers, FlowHostProductAPIURL: "http://127.0.0.1:4000", FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}}))
 	defer server.Close()
 	call := func(method, path, body, cookie string, expected int) string {
 		req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
@@ -127,7 +136,11 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 	// The preference crosses conversations, never members. A write without
 	// the preference preserves it; malformed values do not change it.
 	const otherPath = "/api/conversations/feature/view-state"
-	require.JSONEq(t, `{"toasts_hidden":true}`, call("GET", otherPath, "", benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":true}`, call("PUT", otherPath, `{"scroll_anchor":"named-entry"}`, benCookie, 200))
+	hint()
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":true}`, call("GET", "/api/conversations/"+feature.ID+"/view-state", "", benCookie, 200))
+	call("GET", "/api/conversations/missing/view-state", "", benCookie, 404)
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":true}`, call("GET", otherPath, "", benCookie, 200))
 	require.JSONEq(t, `{"scroll_anchor":"feature-entry","toasts_hidden":true}`, call("PUT", otherPath, `{"scroll_anchor":"feature-entry"}`, benCookie, 200))
 	hint()
 	call("PUT", otherPath, `{"toasts_hidden":"false"}`, benCookie, 400)
@@ -339,7 +352,12 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
 	host := revokedAuthorHost{started: make(chan ports.ChatTurnGrant, 8), stopped: make(chan string, 8)}
-	server.Config.Handler = startSplitProcess(t, Options{ChatHost: host})
+	runtime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)
+	feature, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: ben.ID, Name: "feature", TargetBookmark: "feature", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	server.Config.Handler = startSplitProcess(t, Options{ChatHost: host, Workspace: runtime, BranchMachines: &providers, FlowHostProductAPIURL: "http://127.0.0.1:4000", FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 	server.Start()
 	defer server.Close()
 	call := func(method, path, body, cookie string, expected int) string {
@@ -388,6 +406,14 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 		}
 	}
 	benSocket, aliceSocket := open(benCookie), open(aliceCookie)
+	const aliasState = `{"scroll_anchor":"alias-private-entry","toasts_hidden":false}`
+	call("PUT", "/api/conversations/feature/view-state", aliasState, benCookie, 200)
+	send(benSocket, 4, fmt.Sprintf("view:%d:feature", ben.ID))
+	require.JSONEq(t, aliasState, string(receive(benSocket, 4, "snap").Data))
+	restoredAlias := open(benCookie)
+	send(restoredAlias, 5, fmt.Sprintf("view:%d:%s", ben.ID, feature.ID))
+	require.JSONEq(t, aliasState, string(receive(restoredAlias, 5, "snap").Data))
+	restoredAlias.CloseNow()
 	benTopic, aliceTopic := fmt.Sprintf("view:%d:main", ben.ID), fmt.Sprintf("view:%d:main", alice.ID)
 	send(benSocket, 1, benTopic)
 	require.JSONEq(t, `{"toasts_hidden":false}`, string(receive(benSocket, 1, "snap").Data))

@@ -6,9 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/ports"
+	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
@@ -53,7 +57,10 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	benCookie, aliceCookie := session(ben), session(alice)
 
 	host := revokedAuthorHost{started: make(chan ports.ChatTurnGrant, 8), stopped: make(chan string, 8)}
-	server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: host}))
+	runtime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)
+	server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: host, Workspace: runtime, BranchMachines: &providers, FlowHostProductAPIURL: "http://127.0.0.1:4000", FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}}))
 	defer server.Close()
 	request := func(method, path, body, cookie string) *http.Response {
 		req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
@@ -106,6 +113,48 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	call("POST", "/api/conversations/main/prompt", `{"prompt":"hello"}`, benCookie, 400)
 	call("POST", chat.TurnPath, `{"runId":"forged-shared","conversationId":"main","sharedConversation":true,"instructions":"private","messages":[{"role":"user","content":"private legacy canary"}],"journal":{"version":1,"legId":"forged-shared-leg","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`, benCookie, 400)
 
+	// Unknown branches and another repository's UUID never admit a turn.
+	call("POST", "/api/conversations/missing/prompt", `{"prompt":"unknown","idempotencyKey":"unknown"}`, benCookie, 404)
+	otherRepo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "other", LowerName: "other", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	foreignBranch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: otherRepo.ID, UserID: ben.ID, Name: "foreign", TargetBookmark: "foreign", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	call("POST", "/api/conversations/"+foreignBranch.ID+"/prompt", `{"prompt":"foreign","idempotencyKey":"foreign"}`, benCookie, 404)
+	branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: ben.ID, Name: "feature", TargetBookmark: "scratch/ben/feature", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	for _, reference := range []string{"scratch%2Fben%2Ffeature", branch.ID} {
+		call("POST", "/api/conversations/"+reference+"/prompt", `{"prompt":"denied","idempotencyKey":"denied"}`, aliceCookie, 403)
+		call("GET", "/api/conversations/"+reference+"/view-state", "", aliceCookie, 403)
+	}
+	var aliasPrompt struct {
+		TurnID string `json:"turnId"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(call("POST", "/api/conversations/scratch%2Fben%2Ffeature/prompt", `{"prompt":"alias","idempotencyKey":"alias"}`, benCookie, 202)), &aliasPrompt))
+	require.Contains(t, call("POST", "/api/conversations/"+branch.ID+"/prompt", `{"prompt":"alias","idempotencyKey":"alias"}`, benCookie, 202), aliasPrompt.TurnID)
+	var canonicalBranch string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT conversation_id FROM chat_turns WHERE id=$1`, aliasPrompt.TurnID).Scan(&canonicalBranch))
+	require.Equal(t, branch.ID, canonicalBranch)
+	require.Contains(t, call("GET", "/api/conversations/scratch%2Fben%2Ffeature/view-state", "", benCookie, 200), "toasts_hidden")
+	select {
+	case grant := <-host.started:
+		require.Equal(t, aliasPrompt.TurnID, grant.TurnID)
+	case <-time.After(5 * time.Second):
+		t.Fatal("branch alias turn did not start")
+	}
+	var aliasQueued struct {
+		TurnID string `json:"turnId"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(call("POST", "/api/conversations/scratch%2Fben%2Ffeature/prompt", `{"prompt":"alias queued canary","idempotencyKey":"alias-queued"}`, benCookie, 202)), &aliasQueued))
+	require.Contains(t, call("GET", "/api/conversations/scratch%2Fben%2Ffeature/view-state", "", benCookie, 200), "alias queued canary")
+	require.Contains(t, call("GET", "/api/conversations/"+branch.ID+"/view-state", "", benCookie, 200), aliasQueued.TurnID)
+	call("DELETE", "/api/conversations/"+branch.ID+"/turns/"+aliasQueued.TurnID, "", benCookie, 200)
+	require.NotContains(t, call("GET", "/api/conversations/scratch%2Fben%2Ffeature/view-state", "", benCookie, 200), "alias queued canary")
+	call("POST", "/api/conversations/scratch%2Fben%2Ffeature/turns/"+aliasPrompt.TurnID+"/stop", "", benCookie, 200)
+	select {
+	case <-host.stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("branch alias stop did not reach its host")
+	}
 	first, firstID := admit("held")
 	select {
 	case grant := <-host.started:

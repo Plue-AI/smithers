@@ -65,5 +65,8 @@ func (s *WorkspaceService) PresenceBranch(ctx context.Context, branch string, re
 	if err != nil {
 		return row, err
 	}
+	if err := s.requireWorkspaceAccess(ctx, row.ID, row.UserID, userID, WorkspaceAccessRead); err != nil {
+		return row, err
+	}
 	return row, s.authorizeBranchFileRead(ctx, row, userID)
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/cleanup"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/configsync"
@@ -1701,7 +1702,18 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		topics := &liveTopics{secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 
 		if chatService != nil {
-			topics.viewState = chatService.runtime.Handler.Store.ReadMemberViewState
+			resolveBranch := conversationBranchResolver(workspaceService)
+			topics.viewState = func(ctx context.Context, member int64, branch string) (json.RawMessage, error) {
+				repository, _, err := installRepository(ctx, queries)
+				if err != nil {
+					return nil, err
+				}
+				canonical, err := resolveBranch(ctx, chat.Scope{RepositoryID: repository, UserID: member}, branch)
+				if err != nil {
+					return nil, err
+				}
+				return chatService.runtime.Handler.Store.ReadMemberViewState(ctx, member, canonical)
+			}
 		}
 
 		topics.documents = options.DocumentRelay
@@ -1785,6 +1797,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		mountBrowserFlow(router, cfg, queries, browser)
 	}
 	if chatService != nil && options.topology.servesHTTP() {
+		if config.IsSingleOwner(cfg.Auth) {
+			chatService.runtime.Handler.ResolveBranch = conversationBranchResolver(workspaceService)
+		}
 		mountChatPublic(router, chatService.runtime, queries, cfg)
 		mountChatProducerOnSharedListener(router, chatService)
 		ownerModels := modelhost.OwnerModels{Pool: pool, Codec: webhookSecretCodec}

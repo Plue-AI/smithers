@@ -308,7 +308,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					authInfo.ViaHint = r.Header.Get("Smithers-Via")
 				}
 				// Scorecard is person-session only; rejected reads mutate no token row.
-				if authInfo.TokenSource == TokenSourcePersonalAccessToken && InstallMemberCommand(r.Method, r.URL.Path) != "install.scorecard" {
+				if authInfo.TokenSource == TokenSourcePersonalAccessToken && InstallMemberCommand(r.Method, r.URL.EscapedPath()) != "install.scorecard" {
 					if err := queries.UpdateAccessTokenLastUsed(ctx, authInfo.TokenID); err != nil {
 						recordAuthLoaderFailure(r, "token_last_used", err)
 					}
@@ -331,7 +331,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					var refreshedSession *db.AuthSession
 					sessionExpiresAt := session.ExpiresAt
 					var refreshErr error
-					if InstallMemberCommand(r.Method, r.URL.Path) != "install.scorecard" {
+					if InstallMemberCommand(r.Method, r.URL.EscapedPath()) != "install.scorecard" {
 						refreshedSession, sessionExpiresAt, refreshErr = refreshLoadedSession(ctx, queries, session, now, sessionDuration, sessionRefreshWindow)
 					}
 					if refreshErr != nil {
@@ -528,7 +528,7 @@ func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo
 	if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") || r.URL.Path == "/api/auth/github" || r.URL.Path == "/api/auth/github/callback" || r.URL.Path == "/api/auth/logout" || r.URL.Path == "/setup/github/callback" || r.URL.Path == "/setup/github/installed" {
 		ctx = identity.WithSetupScope(ctx)
 	}
-	if InstallMemberCommand(r.Method, r.URL.Path) != "" {
+	if InstallMemberCommand(r.Method, r.URL.EscapedPath()) != "" {
 		ctx = identity.WithMemberRoute(ctx)
 	}
 	if err := boundary.AuthorizeMember(ctx, authInfo.User.ID); err != nil {

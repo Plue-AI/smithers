@@ -187,8 +187,12 @@ func (h *Handler) QueueTurn(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPatch && !decodeBoundedWithProblem(w, r, &input, queueProblem) {
 		return
 	}
+	branch, err := h.branch(w, r, scope)
+	if err != nil {
+		return
+	}
 	id := chi.URLParam(r, "id")
-	cursor, err := h.Store.MutateQueuedTurn(r.Context(), scope, chi.URLParam(r, "b"), id, r.Method, input.Prompt)
+	cursor, err := h.Store.MutateQueuedTurn(r.Context(), scope, branch, id, r.Method, input.Prompt)
 	if err != nil {
 		queueError(w, err)
 		return
