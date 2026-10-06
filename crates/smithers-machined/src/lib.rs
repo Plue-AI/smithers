@@ -6,3 +6,8 @@ pub mod credit;
 pub mod doc;
 pub mod outbox_store;
 pub mod stream;
+
+pub mod attrib;
+pub mod ignore;
+#[cfg(target_os = "linux")]
+pub mod watch;
