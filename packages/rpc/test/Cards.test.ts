@@ -826,6 +826,7 @@ const FIXTURES: Record<
       source: { path: "TODO.md", owner: "ben", opened: true },
       committed: { n: 12, rev: 1 },
       optionsFailure: "Could not load placement",
+      issuePreparation: { source: { number: 41, title: "Fix retry", body: "Retry on failure", url: "https://github.com/org/repo/issues/41", comments: [] }, state: "requested" },
       imagePreparation: { name: "todo", repo: "org/repo", state: "requested" },
       idempotencyKey: "commit-1",
       request: { key: "commit-1", owner: "ben", operation: "create", state: "accepted", body: {}, n: 12 }
