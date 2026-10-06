@@ -122,3 +122,16 @@ test("quickstart includes shipped LAN commands without duplicate sections", () =
   const headings = [...quickstart.matchAll(/^## (.+)$/gm)].map(match => match[1])
   expect(new Set(headings).size).toBe(headings.length)
 })
+
+
+test("recovery examples identify completed backups and current refusal", () => {
+  const quickstart = pages.get("quickstart.md")!
+  const recovery = quickstart.split("## Restart and recovery\n")[1]!.split("\n## ")[0]!
+  expect(recovery).toContain("smthrs host backup\nsmthrs host upgrade\nsmthrs host status")
+  expect(recovery).toContain("smthrs host stop\nsmthrs host restore /Users/will/Backups/smithers\nsmthrs host status")
+  expect(recovery).toContain("$STATE/backups/<version>-<UTC ts>/")
+  expect(recovery).toContain("never a `.partial-` directory")
+  expect(recovery).toContain("host_maintenance_unavailable")
+  expect(recovery).toContain("A refusal creates no backup")
+  expect(recovery.indexOf("stop the original install first")).toBeLessThan(recovery.indexOf("smthrs host restore"))
+})
