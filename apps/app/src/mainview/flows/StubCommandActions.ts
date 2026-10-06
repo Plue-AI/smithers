@@ -294,6 +294,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   refreshBalance: unexpected,
   showBalance: unexpected,
   issueTodoRefusal: unexpected,
+  issueWriteTarget: unexpected,
   inspectIssueFlows: unexpected,
   runIssueFlow: unexpected,
   runIssueImplementation: unexpected,
