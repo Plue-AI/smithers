@@ -7,11 +7,18 @@ summary: "Set up the install, merge your first TODO and invite your team."
 
 Use the [install page](https://smithers.sh/docs/installation/) on an Apple Silicon Mac with macOS 15 or later and Homebrew. Prepare a GitHub repository whose default branch is `main`, with squash merging enabled, a coding-model provider key or ChatGPT sign-in, and an AI Gateway key.
 
-Start the host on the Mac:
+Install and start the host on the Mac:
 
 ```sh
+brew install smithersai/tap/smithers
 smthrs host start
 smthrs host status
+```
+
+For LAN access, replace the hostname with your Mac’s LAN hostname:
+
+```sh
+smthrs host start --bind 0.0.0.0 --origin http://studio-mini.local:4000
 ```
 
 Open the one-time setup URL printed on the Mac. Use the localhost URL on that Mac or the configured network URL from a LAN laptop. Keep the token private. Setup resumes completed steps after a restart; use the newly printed URL if the old token has expired.
@@ -107,10 +114,6 @@ Two running installs would both act on the same repository. Keep backup director
 ## API and flows
 
 The [HTTP API reference](https://smithers.sh/docs/reference/http-api/) documents the API used by the app and CLI. See [Flows reference](flows.md#change-a-flow) to customize how TODOs run.
-
-## Open the wiki in Obsidian
-
-In Settings, set **Obsidian folder** to a folder on the install's Mac, then open that folder in Obsidian. Folder edits become wiki revisions; wiki edits return to the folder.
 
 ## Open the wiki in Obsidian
 

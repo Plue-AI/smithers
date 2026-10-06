@@ -3,12 +3,12 @@ smthrs flow — Discover, plan, and start durable flows
 Usage: smthrs flow <command>
 
 Commands:
-  dispatch  Trigger a workflow
-  execute   Execute a previously approved plan payload
-  list      List project flows
-  plan      Compile a flow plan and its approval payload without executing it
-  show      Show a discovered flow's identity and description
-  start     Plan, approve, and start one flow; optionally detach after durable admission
+  edit    Propose a change to a flow; waits for the person's confirmation
+  new     Create a new flow; waits for the person's confirmation
+  plan    See what a flow would run
+  run     Run a flow with typed input
+  show    Show a flow's steps and versions
+  source  Co-edit a flow's source
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -3,14 +3,9 @@ smthrs issue — Manage repository issues
 Usage: smthrs issue <command>
 
 Commands:
-  close    Close an issue
-  comment  Add a comment to an issue
-  create   Create an issue
-  edit     Edit an issue
-  list     List issues
-  reopen   Reopen an issue
-  view     View an issue
-  views    List the repository's saved issue views
+  comment  Comment on an issue; waits for the person's confirmation
+  new      Open a GitHub issue; waits for the person's confirmation
+  show     Open an issue's card
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
