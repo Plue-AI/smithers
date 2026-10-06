@@ -5,7 +5,7 @@ import { TodoContainer } from "../../cards/TodoCard"
 import { TodoView } from "../../cards/views/TodoView"
 import { CardSchema } from "@smthrs/rpc/Cards"
 import { createAppStore } from "../AppStore"
-import { memoryStorage, waitFor } from "../TestFixtures"
+import { memoryStorage, settle, waitFor } from "../TestFixtures"
 import type { SeamContext } from "./SeamContext"
 import { createTodoSeam, type DraftEntry, type TodoEntry, type TodoReceipt, type TodoTopics, type TodoSeamOptions } from "./TodoSeam"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
@@ -22,7 +22,7 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
 }
-const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true, openSource?: TodoSeamOptions["openSource"]) => {
+const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true, openSource?: TodoSeamOptions["openSource"], draftIssue?: TodoSeamOptions["draftIssue"]) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   const observed = new Map<string, (model: unknown, receipts?: readonly TodoReceipt[]) => void>()
@@ -38,7 +38,7 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage(), act
     isDisposed: () => disposed,
     resolveToast: (key, outcome) => { outcomes.push({ key, ...outcome }); store.dispatch({ type: "toast.resolved", actor: "system", key, status: outcome.status, detail: outcome.detail }) }
   }
-  const seam = createTodoSeam(context, { openSource, actors, topics: live ? topics : undefined, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
+  const seam = createTodoSeam(context, { draftIssue, openSource, actors, topics: live ? topics : undefined, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
   return { store, seam, observed, outcomes, reports, context, storage,
     draft: () => [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry,
     todo: () => store.collections.cards.get("todo:12") as TodoEntry,
@@ -1331,5 +1331,59 @@ for (const operation of ["stop", "resume"] as const) test(`${operation} without 
     await h.seam.applyTodoProjection(12, operation === "stop" ? { ...initial, state: "paused", pause: fixtures.paused.model.pause }
       : { ...initial, state: "queued", pause: undefined })
     expect(h.outcomes.at(-1)).toMatchObject({ status: "ok", detail: operation === "stop" ? "Paused" : "Resumed" })
+  } finally { h.close() }
+})
+
+
+test("issue model drafting acknowledges unresolved work, freezes its snapshot and recovers the same private Draft", async () => {
+  const source = { number: 7, title: "Original", body: "Original body", digest: "a".repeat(64), url: "https://github.com/owner/repo/issues/7", comments: [{ author: "carol", body: "Quoted comment" }] }
+  let calls = 0
+  let finish!: (draft: { title: string; prompt: string; acceptance: string[] }) => void
+  const pending = new Promise<{ title: string; prompt: string; acceptance: string[] }>(resolve => { finish = resolve })
+  const storage = memoryStorage()
+  const first = await harness(async () => { throw Error("No admission while drafting") }, storage, undefined, true, undefined, async snapshot => {
+    calls++; expect(snapshot).toEqual(source); return pending
+  })
+  expect(await first.seam.draftFromIssue(source)).toEqual({ value: "Requested" })
+  expect(await first.seam.draftFromIssue({ ...source, body: "Later remote edit" })).toEqual({ value: "Requested" })
+  expect(calls).toBe(1)
+  expect(first.draft().payload.issuePreparation?.state).toBe("requested")
+  expect(await first.seam.newTodo({ cardId: first.draft().id })).toBe("Issue draft is not ready.")
+  await waitFor(() => first.store.collections.toasts.size > 0)
+  expect(first.outcomes).toEqual([])
+  const id = first.draft().id
+  first.close()
+  const restored = await harness(async () => { throw Error("No admission while drafting") }, storage, undefined, true, undefined, async snapshot => {
+    expect(snapshot).toEqual(source)
+    return { title: "Model title", prompt: "Model prompt", acceptance: ["Behavior verified"] }
+  })
+  try {
+    restored.seam.resumeTodos()
+    await waitFor(() => restored.draft().payload.issuePreparation?.state === "ready")
+    expect(restored.draft().id).toBe(id)
+    expect(restored.draft().payload).toMatchObject({ title: "Model title", prompt: "Model prompt", acceptance: ["Behavior verified"], issueDigest: source.digest })
+    finish({ title: "Stale", prompt: "Stale", acceptance: [] })
+    await settle()
+    expect(restored.draft().payload.title).toBe("Model title")
+    expect(restored.outcomes).toContainEqual({ key: `todo.request.${id}`, status: "ok", detail: "Drafted" })
+  } finally { restored.close() }
+})
+
+test("failed issue model preparation is visible and retry uses the admitted snapshot", async () => {
+  const source = { number: 7, title: "Original", body: "Body", url: "https://github.com/owner/repo/issues/7", comments: [] }
+  let calls = 0
+  const h = await harness(async () => json([]), memoryStorage(), undefined, true, undefined, async snapshot => {
+    expect(snapshot).toEqual(source)
+    if (++calls === 1) throw Error("Model unavailable")
+    return { title: "Ready", prompt: "Prompt", acceptance: [] }
+  })
+  try {
+    expect(await h.seam.draftFromIssue(source)).toEqual({ value: "Requested" })
+    await waitFor(() => h.draft().payload.issuePreparation?.state === "failed")
+    expect(h.draft().payload.issuePreparation?.error).toBe("Model unavailable")
+    expect(await h.seam.newTodo({ cardId: h.draft().id })).toBe("Issue draft is not ready.")
+    expect(await h.seam.draftFromIssue({ ...source, body: "Later edit" })).toEqual({ value: "Requested" })
+    await waitFor(() => h.draft().payload.issuePreparation?.state === "ready")
+    expect(calls).toBe(2)
   } finally { h.close() }
 })

@@ -20,8 +20,8 @@ const githubIssue = (number: number, title: string, body: string, login: string)
 })
 
 /** An install's app signed in as alice; the owner's app loads the repository, a member's loads none (GET /api/user/repos is empty). */
-const installApp = async ({ loaded = true, allowed = true } = {}) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+const installApp = async ({ loaded = true, allowed = true, issueResponse, storage = memoryStorage() }: { loaded?: boolean; allowed?: boolean; issueResponse?: Promise<Response>; storage?: ReturnType<typeof memoryStorage> } = {}) => {
+  const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   if (loaded) await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "local-owner", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
   const install = { ...installFixture(), repository: { owner: "local-owner", name: "demo" }, repositories: [REPO] }
@@ -33,6 +33,7 @@ const installApp = async ({ loaded = true, allowed = true } = {}) => {
     if (path === "/api/issues/2") return Response.json({ issue_digest: "a".repeat(64), make_todo_allowed: allowed, issue: githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", "ben"),
       comments: [{ id: 5, body: "Keep it short.", user: { login: "carol" }, created_at: "2026-10-05T11:00:00Z" }] })
     if (path === "/api/issues/9") return Response.json({ code: "not_found", class: "user", message: "Issue #9 was not found" }, { status: 404 })
+    if (path === "/api/model/stream") return new Response([JSON.stringify({ runId: "draft", type: "delta", kind: "text", text: JSON.stringify({ title: "Say goodbye", prompt: "JOURNEY.md should end with a farewell.\n\n@carol:\n> Keep it short.", acceptance: ["JOURNEY.md ends with a farewell"] }) }), JSON.stringify({ runId: "draft", type: "done", reason: "stop" })].join("\n"))
     if (path === "/api/todos") return Response.json({ state: "accepted", n: 4, rev: 1 }, { status: 202 })
     if (path === "/api/install" && !loaded) return Response.json(install)
     return new Response("", { status: 404 })
@@ -44,6 +45,7 @@ const installApp = async ({ loaded = true, allowed = true } = {}) => {
       const method = init?.method ?? "GET"
       calls.push(`${method} ${url.pathname}${url.search}`)
       if (method === "POST") posts.push({ path: url.pathname, body: typeof init?.body === "string" ? JSON.parse(init.body) : null })
+      if (url.pathname === "/api/issues/2" && issueResponse) return issueResponse
       return answer(url.pathname, url.search)
     }).fetchImpl
   })
@@ -89,9 +91,13 @@ test("Make TODO on an install's issue card drafts the issue and its discussion a
     expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({ status: "executed" })
     expect(cardOf(store.collections.cards.values(), `issue-github-${REPO}-2`, "issue").payload.comments).toHaveLength(1)
     // The card's Make TODO button runs todo.from-issue with the card's number and repository.
-    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Drafted" })
+    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
+    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "draft" && card.payload.issuePreparation?.state === "ready"))
     const draft = [...store.collections.cards.values()].find(card => card.kind === "draft")
     if (draft?.kind !== "draft") throw new Error("no Draft")
+    const modelRequest = posts.find(post => post.path === "/api/model/stream")?.body
+    expect(modelRequest).toMatchObject({ tools: [], messages: [{ role: "user" }] })
+    expect(JSON.stringify(modelRequest)).toContain("quoted_issue_snapshot")
     expect(draft.audience_member_id).toBe("alice")
     expect(draft.payload).toMatchObject({ title: "Say goodbye", prompt: "JOURNEY.md should end with a farewell.\n\n@carol:\n> Keep it short.",
       issue: { number: 2, url: `https://github.com/${REPO}/issues/2`, fixes: true } })
@@ -123,9 +129,50 @@ test("an install refuses a Member draft from outsider text before writing any Dr
     await controller.runCommandForResult("issue", "#2")
     expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "failed", error: "Only a maintainer can make a TODO from this issue." })
     const agent = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: `2 ${REPO}` }) })
+    // The private Draft action keeps the same trust preflight for the app agent.
     expect(agent).toContain("Only a maintainer")
     expect([...store.collections.cards.values()].filter(card => card.kind === "confirm")).toHaveLength(0)
     expect([...store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)
     expect(posts.filter(post => post.path === "/api/todos")).toHaveLength(0)
   } finally { await controller.dispose() }
+})
+
+
+test("unopened Make TODO persists and acknowledges before its snapshot read; reload resumes without mounting an issue", async () => {
+  let finish!: (response: Response) => void
+  const issueResponse = new Promise<Response>(resolve => { finish = resolve })
+  const storage = memoryStorage()
+  const first = await installApp({ storage, issueResponse })
+  expect(await first.controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
+  expect(await first.controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
+  await waitFor(() => first.calls.includes("GET /api/issues/2"))
+  expect(first.calls.filter(call => call === "GET /api/issues/2")).toHaveLength(1)
+  expect(first.store.session().issueTodoRequests).toMatchObject([{ owner: "alice", repo: REPO, number: 2, state: "requested" }])
+  expect([...first.store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)
+  await first.controller.dispose()
+  const recovered = await installApp({ storage })
+  try {
+    await waitFor(() => [...recovered.store.collections.cards.values()].some(card => card.kind === "draft" && card.payload.issuePreparation?.state === "ready"))
+    expect([...recovered.store.collections.cards.values()].filter(card => card.kind === "issue")).toHaveLength(0)
+    expect(recovered.posts.filter(post => post.path === "/api/model/stream")).toHaveLength(1)
+    finish(Response.json({ issue: githubIssue(2, "Stale", "Stale", "ben"), comments: [], issue_digest: "b".repeat(64), make_todo_allowed: true }))
+    await settle()
+    const draft = [...recovered.store.collections.cards.values()].find(card => card.kind === "draft")
+    if (draft?.kind !== "draft") throw Error("no Draft")
+    expect(draft.payload.title).toBe("Say goodbye")
+    expect(draft.payload.issueDigest).toBe("a".repeat(64))
+    expect(await recovered.controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Drafted" })
+    expect(recovered.calls.filter(call => call === "GET /api/issues/2")).toHaveLength(1)
+  } finally { await recovered.controller.dispose() }
+})
+
+test("unopened outsider Make TODO saves a visible refusal without creating a Draft or calling the model", async () => {
+  const h = await installApp({ allowed: false })
+  try {
+    expect(await h.controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
+    await waitFor(() => h.store.session().issueTodoRequests?.[0]?.state === "failed")
+    expect(h.store.session().issueTodoRequests?.[0]?.error).toBe("Only a maintainer can make a TODO from this issue.")
+    expect([...h.store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)
+    expect(h.posts).toEqual([])
+  } finally { await h.controller.dispose() }
 })
