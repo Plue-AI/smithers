@@ -1,5 +1,7 @@
 # Machine placement: this Mac and other computers
 
+> **Deferred until after launch** (M-40 revised 2026-10-06, spec §8.13.0). The MVP builds none of this page; it records the agreed design so the MVP leaves room for it. Remote computers are the first item after launch.
+
 Design for #3706 (Will, 2026-10-04: sandboxes on this machine and on remote boxes such as Smithers Cloud, feature flagged). The product contract is #3706's "Product position", which lands as M-40 in [`../product/mvp.md`](../product/mvp.md). The engineering contract is 8a's. This page answers three questions:
 
 1. Where does the owner add a computer?
@@ -59,31 +61,37 @@ Settings is the owner's card (mvp.md Appendix A `/settings`). When the flag is o
 
 ### Add computer
 
-**Add computer** opens a form in the card. The computer joins by running the Smithers worker, which registers itself with the install (8a §8.13.0; Will, 2026-10-04: reuse the Smithers Cloud controller and worker). It uses Setup's step pattern: each step shows when the step before it is done.
+**Add computer** opens a form in the card. The install always connects out to the computer's worker (spec §8.13.3, §8.13.7). A computer never needs a route to the install, so the install keeps its loopback default (§1.4) with the flag on or off. The form uses Setup's step pattern: each step shows once the step before it is done.
 
 ```
  Add computer
  Kind      ( Linux computer | Smithers Cloud )
  Name      beaver
+ Address   beaver.local                         ← where this install reaches beaver
  Run on beaver:
-   curl -fsSL https://maya-mini.tail1234.ts.net/join/7Kq2… | sh   [ Copy ]
+   curl -fsSL https://get.smithers.sh/worker | sh -s -- --join 7Kq2…   [ Copy ]
  ─────────────────────────────────────────────
- ◐ Waiting for beaver…
- ✓ Joined     ✓ Linux x86_64     ✕ Runtime     ○ Machine image
+ ◐ Connecting to beaver…
+ ✓ Paired     ✓ Linux x86_64     ✕ Runtime     ○ Machine image
    Virtualization is off · turn on VT-x in firmware ↗   [ Retry ]
  Capacity  1 machine (15 GB, 4 cores)
                                          [ Add beaver ]
 ```
 
 - **Linux computer:**
-  - Naming it creates a one-time join line, with Copy (copyText). The line expires after 1 hour, and **New line** replaces it.
-  - The owner runs it on the computer. Until the worker checks in, the form reads "Waiting for beaver…". No address, key or port is typed into Smithers.
-  - Once the worker joins, the steps run: **Joined**, then the OS and architecture, then **Runtime** (the computer can run isolated machines), then **Machine image**, the same progress as Setup step 6.
+  - Naming it and giving its address creates a one-time join line, with Copy (copyText). The line carries a join secret that expires after 1 hour; **New line** replaces it.
+  - The owner runs the line on the computer. It starts the worker and holds the secret, and nothing is sent back by hand.
+  - The install then connects out to that address. It pairs with the secret into mutual TLS, and the form reads "Connecting to beaver…" until the first connection succeeds.
+  - Then the steps run:
+    - **Paired.**
+    - **OS and architecture.**
+    - **Runtime:** the computer can run isolated machines.
+    - **Machine image:** the same progress as Setup step 6.
   - Runtime fails with its fix, as toolchain detection does. On `beaver` today that line is "Virtualization is off · turn on VT-x in firmware ↗" (no `/dev/kvm`, #3706 13:20 facts). Retry reruns the probe after a person fixes it at the keyboard.
-- **Smithers Cloud:** shows Sign in, then a Machines limit stepper.
+  - **When the install can't reach the address** (wrong name, firewall, the worker isn't running): the Connecting step fails in place with the reason and Retry, and the join line stays valid until it expires.
+- **Smithers Cloud:** shows Sign in, then a Machines limit stepper. The install connects out to Cloud's controller in the same way.
 - Each step fails in place with its reason and Retry. The primary button stays disabled until the image is ready, and names the computer: "Add beaver".
 - Capacity is the install's rule applied to that computer (§8.2.1). `beaver` gets 1.
-- Open with 8a until §8.13 is rewritten: the join line's exact command, and whether the computer must reach the install's address (§1.4 keeps it on loopback by default). If it must, the form shows that requirement as a blocked step with its fix link, the same way Setup shows address problems.
 
 ## 2. Seeing where a machine runs
 
@@ -129,7 +137,7 @@ The override lives where a TODO is shaped: the **Draft** card's place row, and *
 These are additions only. Every one is optional, so the flag-off props are unchanged.
 
 ```ts
-type ComputerStep = Omit<SetupStep, "id"> & { id: "joined" | "os" | "runtime" | "image" }
+type ComputerStep = Omit<SetupStep, "id"> & { id: "connecting" | "paired" | "os" | "runtime" | "image" }
 type Computer = {
   id: string; name: string                                   // "This Mac", "beaver"
   kind: "this_mac" | "linux" | "cloud"
@@ -141,7 +149,7 @@ type Computer = {
   queued_pinned: number                                      // named in the Remove two-step
 }
 // SettingsModel: computers?: Computer[]            present when the flag is on, or any non-This-Mac computer holds branches
-//                adding?: { kind: "linux" | "cloud"; steps: ComputerStep[]; join_line?: string; join_expires_at?: string; capacity?: number }
+//                adding?: { kind: "linux" | "cloud"; address?: string; steps: ComputerStep[]; join_line?: string; join_expires_at?: string; capacity?: number }
 // MachineState (all variants): computer?: string   the name; present only when 2+ computers exist
 //   "failed" with error.class "unreachable" | "signed_out" renders the section 2 copy
 // DraftModel:    runs_on?: { value: "auto" | string; options: { id: string; name: string; disabled?: { reason: string } }[] }
@@ -167,4 +175,4 @@ This page lands as proposed and becomes the design when 98's M-40 commit lands. 
 
 ## Falsifier
 
-This design fails if the owner can't add `beaver` from Settings and then see `Machine awake · beaver` on a branch card, within one session, with no step except running the join line on `beaver`.
+This design fails if the owner can't add `beaver` from Settings and then see `Machine awake · beaver` on a branch card, within one session, with no step except running the join line on `beaver`. (After launch: §8.13 is deferred.)
