@@ -313,6 +313,7 @@ impl<'a> Cursor<'a> {
             _ => {}
         }
         let (width, min, max) = match typ {
+            "bool" => (1, 0, 1),
             "u16" => (2, 0, 65535),
             "u32" => (4, 0, 4294967295),
             "u64" => (8, 0, u64::MAX),
@@ -524,6 +525,43 @@ pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor), Prot
     c.take(7)?;
     let n = c.number(4)? as usize;
     Ok((onto, crate::hooks::Actor::Principal(c.take(n)?.to_vec())))
+}
+
+/// Borrow the validated fields of a named ADR structure. Hook implementations
+/// use the same schema parser as framing, rather than another TLV decoder.
+pub fn fields<'a>(name: &str, bytes: &'a [u8]) -> Result<Vec<(u8, &'a [u8])>, ProtocolError> {
+    let schema = structure(name).ok_or(BadValue)?;
+    let mut check = Cursor(bytes);
+    check.value(name)?;
+    if !check.0.is_empty() {
+        return Err(TrailingBytes);
+    }
+    let mut inner = Cursor(&bytes[4..]);
+    let mut result = vec![];
+    while !inner.0.is_empty() {
+        let tag = inner.number(1)? as u8;
+        let typ = schema.iter().find(|f| f.0 == tag).ok_or(UnknownField)?.2;
+        let start = inner.0;
+        inner.value(typ)?;
+        result.push((tag, &start[..start.len() - inner.0.len()]));
+    }
+    Ok(result)
+}
+
+/// Local writes use the identical typed values but never accept an actor field.
+pub fn local_write_args(bytes: &[u8], run: String) -> Result<WriteArgs, ProtocolError> {
+    let fields = fields("local_write", bytes)?;
+    let mut host_fields: Vec<Vec<u8>> = fields
+        .iter()
+        .map(|(tag, value)| field(*tag, value))
+        .collect();
+    host_fields.push(field(
+        4,
+        actor_bytes(&crate::hooks::Actor::Principal(vec![])),
+    ));
+    let mut args = write_args(&structure_bytes(&host_fields))?;
+    args.actor = crate::hooks::Actor::Run(run);
+    Ok(args)
 }
 
 /// Method 16 uses the ordinary ADR 0004 list of User structures. Semantic
