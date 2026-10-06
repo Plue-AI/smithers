@@ -142,7 +142,7 @@ import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
-import { designMembers, designMembersRoster, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
+import { designMembers, designMembersRoster, designSecrets, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
 import { shellViewsOf } from "./seams/DesignWorld/shell"
 import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
 import { flowCardOf, flowNames } from "./seams/DesignWorld/run"
@@ -891,6 +891,7 @@ export const createAppController = (
   const membersSeam = createMembersSeam({ ready: installHost, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
   ctx.onDispose(membersSeam.dispose)
+  if (installHost) membersSeam.start()
   const membersRoster = installHost ? membersSeam.snapshots : designMembersRoster(design)
   const membersRole = (): "owner" | "maintainer" | "member" => {
     if (!installHost) return designViewerRole(design)
@@ -1030,7 +1031,11 @@ export const createAppController = (
   }, () => ctx.disposed))
   const repositoryUpdate = actors.pair(seamCtx, context => createRepositoryUpdate(context, () => ctx.disposed))
   const environmentSeam = actors.pair(seamCtx, (context) => createEnvironmentSeam(context))
-  const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast))
+  const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast, { install: installHost, live: services.live, onDispose: ctx.onDispose,
+    fallback: !installHost && services.bootstrap !== undefined ? {
+      rows: () => designSecrets(design).rows().map(secret => ({ name: secret.name, mainOnly: secret.scope === "main only", hosts: [], matchHeaders: [], updatedAt: null, reconnect: false })),
+      set: (name, scope) => designSecrets(design).set(name, scope === "main_only" ? "main only" : "all branches"), remove: name => designSecrets(design).remove(name)
+    } : undefined }))
   /* A registration is a launched flow run: it rides the app's own run watch and the shared toast stack. */
   const triggersSeam = actors.pair(seamCtx, (context, select) => createTriggersSeam(context, {
     requestRun: (repo, slug, operation) => select(workflowController).requestTriggerRun(repo, slug, operation),

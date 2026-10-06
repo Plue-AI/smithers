@@ -153,10 +153,10 @@ describe("secrets seam — secrets.list", () => {
     expect(JSON.stringify(card)).not.toContain("DO_NOT_EXPOSE_SECRET_BYTES")
   })
 
-  test("the agent receives an explicit empty secrets list", async () => {
+  test("a person receives an explicit empty secrets list", async () => {
     const { store, controller } = await freshController("empty")
     await ready(store)
-    const outcome = await controller.commands.runForAgent("secrets.list")
+    const outcome = await controller.commands.run("secrets.list")
     expect(outcome.status).toBe("executed")
     expect(outcome.status === "executed" ? outcome.value : undefined).toBe("No secrets in will/flows.")
   })
@@ -181,18 +181,12 @@ describe("secrets seam — secrets.list", () => {
     expect(cards[0]?.ordinal).toBeGreaterThan(first ?? Number.POSITIVE_INFINITY)
   })
 
-  test("the agent's door reads the same list", async () => {
+  test("the agent cannot read secret names", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.runForAgent("secrets.list")
-    expect(outcome.status).toBe("executed")
-    const value = outcome.status === "executed" ? outcome.value : undefined
-    for (const text of ["will/flows", "NPM_TOKEN", "registry.npmjs.org", "authorization", "2026-08-01T00:00:00.000Z", "SETUP_ONLY"]) {
-      expect(value).toContain(text)
-    }
-    expect(value).not.toContain("DO_NOT_EXPOSE_SECRET_BYTES")
-    expect(requests).toHaveLength(1)
-    expect(secretsCard(store)?.payload.secrets.map((secret) => secret.name)).toEqual(["NPM_TOKEN", "SETUP_ONLY"])
+    expect(await controller.commands.runForAgent("secrets")).toMatchObject({ status: "failed" })
+    expect(requests).toHaveLength(0)
+    expect(secretsCard(store)).toBeUndefined()
   })
 
   test("an inventory-less signed-in session answers the repo-resolution error as-is", async () => {
@@ -213,7 +207,7 @@ describe("secrets seam — secrets.list", () => {
     await signedOut(store)
     const outcome = await controller.commands.runForAgent("secrets.list", "will/flows")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toContain("Sign in with GitHub first")
+    if (outcome.status === "failed") expect(outcome.error).toContain("user-only")
     expect(requests).toHaveLength(0)
     expect(secretsCard(store)).toBeUndefined()
   })
@@ -283,16 +277,16 @@ describe("secrets seam — secrets.scope", () => {
     expect(marked).toMatchObject({ status: "executed", value: "DEPLOY: main only" })
     expect(requests[0]).toMatchObject({ method: "PATCH", body: { main_only: true } })
     expect(requests[0]!.url).toEndWith("/api/repos/will/flows/secrets/DEPLOY")
-    expect(await controller.commands.run("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed", value: "DEPLOY: every run" })
+    expect(await controller.commands.run("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed", value: "DEPLOY: all branches" })
     expect(requests[1]).toMatchObject({ body: { main_only: false } })
     const missing = await controller.commands.run("secrets.scope", "MISSING main-only")
     expect(JSON.stringify(missing)).toContain("secret not found")
-    // The agent may only ask to give a secret to every run; a human confirms.
+    // The agent may only ask to give a secret to all branches; a human confirms.
     const before = requests.length
-    expect(await controller.commands.runForAgent("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed" })
+    expect(await controller.commands.runForAgent("secrets.scope", "DEPLOY all")).toMatchObject({ status: "failed" })
     expect(requests.length).toBe(before)
     const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.scope")
-    expect(confirmation?.action?.args).toStartWith("DEPLOY all")
+    expect(confirmation).toBeUndefined()
   })
 })
 
@@ -328,11 +322,11 @@ describe("secrets seam — secrets.bind", () => {
     await store.dispatch({ type: "repo.selected", actor: "user", id: "will/flows" }).isPersisted.promise
     const before = requests.length
     expect(await controller.commands.runForAgent("secrets.bind", JSON.stringify({ name: "NPM_TOKEN", hosts: "evil.example.com", headers: "authorization" })))
-      .toMatchObject({ status: "executed" })
+      .toMatchObject({ status: "failed" })
     expect(requests.length).toBe(before)
     const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.bind")
     // The confirmation pins the repository named at ask time.
-    expect(JSON.parse(String(confirmation?.action?.args))).toEqual({ name: "NPM_TOKEN", hosts: "evil.example.com", headers: "authorization", repo: "will/flows" })
+    expect(confirmation).toBeUndefined()
   })
 })
 
@@ -422,7 +416,7 @@ for (const retirement of ["account", "sign-out", "dispose"] as const) for (const
   })
 }
 
-test("duplicate user and agent reads join the held request and publish one metadata card", async () => {
+test("duplicate person reads join the held request and publish one metadata card", async () => {
   const reply = heldResponse()
   const entered = Promise.withResolvers<void>()
   let reads = 0
@@ -430,7 +424,7 @@ test("duplicate user and agent reads join the held request and publish one metad
   await heldReady(store, signupReads)
   const first = track(controller.commands.run("secrets.list"))
   await bounded(entered.promise)
-  const duplicate = track(controller.commands.runForAgent("secrets.list"))
+  const duplicate = track(controller.commands.run("secrets.list"))
   await checkpoint()
   expect(reads).toBe(1)
   expect(secretsCard(store)).toBeUndefined()
@@ -440,7 +434,7 @@ test("duplicate user and agent reads join the held request and publish one metad
   const outcomes = await bounded(Promise.all([first, duplicate]))
   expect(outcomes).toEqual([
     { status: "executed", value: undefined },
-    { status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" }
+    { status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · all branches · hosts: none · headers: none · updated: unknown" }
   ])
   expect(reads).toBe(1)
   expect([...store.collections.cards.values()].filter(card => card.kind === "secrets")).toHaveLength(1)
@@ -452,7 +446,7 @@ test("a refused read can retry immediately without caching the failed answer", a
   const { store, controller, signupReads } = await heldController({ fetchImpl: async () => ++reads === 1 ? json(503, { message: "Try the repository again" }) : json(200, metadataAnswer()) })
   await heldReady(store, signupReads)
   expect(await controller.commands.run("secrets.list")).toEqual({ status: "failed", error: "The secrets for will/flows couldn't be read (HTTP 503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
-  expect(await controller.commands.run("secrets.list")).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" })
+  expect(await controller.commands.run("secrets.list")).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · all branches · hosts: none · headers: none · updated: unknown" })
   expect(reads).toBe(2)
   expect(secretsCard(store)?.status).toBe("active")
   expect(secretsCard(store)?.body).toBeUndefined()
@@ -467,8 +461,8 @@ test("optional secret bindings survive without leaking unexpected credential fie
   ]
   const { store, controller, signupReads } = await heldController({ fetchImpl: async () => json(200, wire) })
   await heldReady(store, signupReads)
-  const outcome = await controller.commands.runForAgent("secrets.list")
-  expect(outcome).toEqual({ status: "executed", value: "Secrets · will/flows\nOMITTED · every run · hosts: none · headers: none · updated: unknown\nNULL_BINDINGS · every run · hosts: none · headers: none · updated: unknown\nREFUSED · every run · hosts: none · headers: none · updated: unknown\nBOUND · main only · hosts: api.example.test · headers: authorization · updated: 2026-09-28T00:00:00Z" })
+  const outcome = await controller.commands.run("secrets.list")
+  expect(outcome).toEqual({ status: "executed", value: "Secrets · will/flows\nOMITTED · all branches · hosts: none · headers: none · updated: unknown\nNULL_BINDINGS · all branches · hosts: none · headers: none · updated: unknown\nREFUSED · all branches · hosts: none · headers: none · updated: unknown\nBOUND · main only · hosts: api.example.test · headers: authorization · updated: 2026-09-28T00:00:00Z" })
   expect(secretsCard(store)?.payload.secrets).toEqual([
     { name: "OMITTED", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null },
     { name: "NULL_BINDINGS", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null },
@@ -490,4 +484,71 @@ test("a same-owner held network rejection remains an exact visible failure", asy
   expect(await bounded(reading)).toEqual({ status: "failed", error: failure })
   expect(store.collections.cards.get("secrets-will/flows")).toMatchObject({ status: "error", loading: false, body: failure })
   expect(JSON.stringify((await store.eventHistory()).events)).toContain(failure)
+})
+
+test("install /secrets reads only its live topic and acknowledges a write before HTTP completion", async () => {
+  const { LiveChannel } = await import("../../runtime/LiveChannel")
+  const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+  const reply = heldResponse()
+  const sockets: import("../../runtime/LiveChannel").LiveSocket[] = []
+  let cursor = 1, topicId = 0
+  const live = new LiveChannel({ socket: () => {
+    const socket: import("../../runtime/LiveChannel").LiveSocket = { readyState: 1, onopen: null, onclose: null, onmessage: null, close() {}, send(raw) {
+      const frame = JSON.parse(String(raw))
+      if (frame.t === "sub" && frame.topic === "secrets") {
+        topicId = frame.id
+        queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: frame.id, cursor: cursor++, data: { secrets: [{ name: "DEPLOY", scope: "main_only", hosts: ["api.example.test"], actions: [] }] } }) }))
+      }
+    } }
+    sockets.push(socket); queueMicrotask(() => socket.onopen?.()); return socket
+  } })
+  const hits: { url: string; init?: RequestInit }[] = []
+  const { store, controller, signupReads } = await heldController({ live,
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const url = String(input)
+      if (!url.includes("/api/secrets")) return json(404, {})
+      hits.push({ url, init }); return reply.promise
+    }
+  })
+  try {
+    await heldReady(store, signupReads)
+    await bounded(controller.commands.run("secrets"))
+    await checkpoint()
+    expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "DEPLOY", mainOnly: true, hosts: ["api.example.test"], matchHeaders: [], updatedAt: null }])
+    expect(hits).toEqual([])
+    const result = await bounded(controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "DEPLOY", repo: "will/flows" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_WRITE" }) }))
+    expect(result).toMatchObject({ status: "executed", value: "Requested" })
+    await checkpoint()
+    expect(hits[0]?.url).toBe("/api/secrets")
+    expect(hits[0]?.init?.method).toBe("PUT")
+    expect(new Headers(hits[0]?.init?.headers).get("Idempotency-Key")).toBeTruthy()
+    expect(hits[0]?.init?.body).toBe('{"name":"DEPLOY","value":"PRIVATE_WRITE"}')
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_WRITE")
+    expect(store.session().secretRequests?.[0]?.state).toBe("requested")
+    reply.resolve(json(200, {}))
+    await bounded(Promise.allSettled([...pending]))
+    for (let i = 0; i < 10 && store.session().secretRequests?.[0]?.state !== "completed"; i++) await checkpoint()
+    expect(store.session().secretRequests?.[0]?.state).toBe("completed")
+    sockets[0]!.onmessage?.({ data: JSON.stringify({ t: "snap", id: topicId, cursor: cursor++, data: { secrets: [{ name: "NEW_NAME", scope: "all_branches", actions: [] }] } }) })
+    await checkpoint()
+    expect(secretsCard(store)?.payload.secrets[0]?.name).toBe("NEW_NAME")
+    expect(hits).toHaveLength(1)
+  } finally { reply.resolve(json(503, {})); await controller.dispose(); live.dispose() }
+})
+
+test("an install without the live provider refuses /secrets and write gestures without polling", async () => {
+  const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+  const hits: string[] = []
+  const { store, controller, signupReads } = await heldController({
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async input => { if (String(input).includes("/secrets")) hits.push(String(input)); return json(404, {}) }
+  })
+  try {
+    await heldReady(store, signupReads)
+    expect(await controller.commands.run("secrets")).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+    expect(await controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "KEY", repo: "will/flows" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_MISSING_PROVIDER" }) })).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+    expect(hits).toEqual([])
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_MISSING_PROVIDER")
+  } finally { await controller.dispose() }
 })

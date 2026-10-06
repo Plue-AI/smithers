@@ -1,3 +1,5 @@
+import { SecretsCardSchema } from "@smthrs/rpc/SecretsCard"
+import type { LiveChannel } from "../../runtime/LiveChannel"
 import { preparedView, type ViewAction } from "../PreparedView"
 /*
  * The secrets seam: a repository's CI secrets (/api/repos/{owner}/{repo}/secrets,
@@ -101,6 +103,7 @@ export interface SecretsSeam {
 }
 
 export interface SecretInput {
+  readonly scope?: "all_branches" | "main_only"
   readonly name: string
   /** Comma- or space-separated; both blank keeps an existing secret's binding. */
   readonly hosts?: string
@@ -113,6 +116,14 @@ const SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,254}$/
 const listOf = (value: string | undefined): string[] => (value ?? "").split(/[\s,]+/).filter(item => item !== "")
 
 export interface SecretsSeamOptions {
+  readonly fallback?: {
+    rows: () => ReadonlyArray<RepositorySecret>
+    set: (name: string, scope: "all_branches" | "main_only") => unknown
+    remove: (name: string) => unknown
+  }
+  readonly install?: boolean
+  readonly live?: Pick<LiveChannel, "subscribe" | "getSnapshot">
+  readonly onDispose?: (stop: () => void) => void
   /** The wait between device-sign-in polls; tests hold or skip it. */
   readonly sleep?: (ms: number) => Promise<void>
   readonly now?: () => number
@@ -583,11 +594,63 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     state.secretApplied.set(repo, seq)
     return true
   }
+  let source: "real" | "seed" | undefined
+  let liveStop: (() => void) | undefined
+  let liveRepo: string | undefined
+  const readSecrets = async (repo: string): Promise<ReadonlyArray<RepositorySecret> | string> => {
+    if (!options.install) {
+      const rows = await readRepositorySecrets(ctx, repo)
+      if (typeof rows !== "string") { source = "real"; return rows }
+      if (source !== "real" && options.fallback) { source = "seed"; return options.fallback.rows() }
+      return rows
+    }
+    if (!options.live) return "Secrets unavailable"
+    liveRepo = repo
+    const authorized = captureCloudOwner(ctx, false)
+    const decode = (): ReadonlyArray<RepositorySecret> | string | undefined => {
+      const snapshot = options.live!.getSnapshot("secrets")
+      if (snapshot?.error) return "Secrets unavailable"
+      if (snapshot?.data === undefined) return undefined
+      const parsed = SecretsCardSchema.safeParse(snapshot.data)
+      if (!parsed.success) return "Secrets unavailable"
+      return parsed.data.secrets.map(secret => ({ name: secret.name, mainOnly: secret.scope === "main_only",
+        hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null, reconnect: false }))
+    }
+    const update = () => {
+      const rows = decode()
+      if (!authorized() || !liveRepo || rows === undefined || ctx.isDisposed?.()) return
+      if (typeof rows === "string") {
+        const previous = ctx.store.collections.cards?.get(`secrets-${liveRepo}`)
+        if (previous?.kind === "secrets") ctx.dispatch({ type: "card.upsert", actor: "system", card: { ...previous, payload: { ...previous.payload, secrets: [] } } })
+        return
+      }
+      const previous = ctx.store.collections.cards?.get(`secrets-${liveRepo}`)
+      if (previous?.kind === "secrets") ctx.dispatch({ type: "card.upsert", actor: "system", card: {
+        ...secretsCard(liveRepo, rows, previous.ordinal), createdAt: previous.createdAt } })
+    }
+    if (!liveStop) {
+      liveStop = options.live.subscribe("secrets", update)
+      options.onDispose?.(() => { liveStop?.(); liveStop = undefined })
+    }
+    const current = decode()
+    if (current !== undefined) return current
+    return new Promise(resolve => {
+      let stop = () => {}
+      const receive = () => { const rows = decode(); if (rows !== undefined) { stop(); resolve(rows) } }
+      stop = options.live!.subscribe("secrets", receive)
+      options.onDispose?.(() => { stop(); resolve("Secrets unavailable") })
+      receive()
+    })
+  }
+  const secretUrl = (repo: string, name?: string) => options.install
+    ? `${ctx.baseUrl}/api/secrets${name === undefined ? "" : `/${encodeURIComponent(name)}`}`
+    : repositorySecretsUrl(ctx, repo, name)
   /** Re-read an open secrets card in place after a write; a failed read keeps the rows it had. */
   const refreshSecrets = async (repo: string, current: () => boolean): Promise<void> => {
     if (ctx.store.collections.cards?.get(`secrets-${repo}`)?.kind !== "secrets") return
     const seq = secretRead(repo)
-    const config = await readRepositorySecrets(ctx, repo).catch(() => "unread")
+    if (options.install) return
+    const config = await readSecrets(repo).catch(() => "unread")
     if (!current() || typeof config === "string" || !secretFresh(repo, seq)) return
     const previous = ctx.store.collections.cards?.get(`secrets-${repo}`)
     if (previous?.kind !== "secrets") return
@@ -614,7 +677,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   }
   /** Send one DELETE; a secret already gone is removed. */
   const sendDelete = async (row: SecretRequest, current: () => boolean): Promise<true | string | typeof TOAST_SUPERSEDED> => {
-    const response = await ctx.http(repositorySecretsUrl(ctx, row.repo, row.name), { method: "DELETE" })
+    const response = await ctx.http(secretUrl(row.repo, options.install ? undefined : row.name), { method: "DELETE", headers: { "Idempotency-Key": row.id, "content-type": "application/json" }, ...(options.install ? { body: JSON.stringify({ name: row.name }) } : {}) })
     if (!current()) return TOAST_SUPERSEDED
     if (response.status !== 204 && response.status !== 404) {
       const message = await readErrorMessage(response, `${row.name} couldn't be deleted (HTTP ${response.status}).`)
@@ -624,8 +687,16 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     void refreshSecrets(row.repo, current)
     return true
   }
+  const sendScope = async (row: SecretRequest, current: () => boolean): Promise<true | string | typeof TOAST_SUPERSEDED> => {
+    const response = await ctx.http(secretUrl(row.repo, row.name), { method: "PATCH",
+      headers: { "content-type": "application/json", "Idempotency-Key": row.id }, body: JSON.stringify({ main_only: row.mainOnly }) })
+    if (!current()) return TOAST_SUPERSEDED
+    await response.body?.cancel()
+    if (!await saveSecretRequest({ ...row, state: response.ok ? "completed" : "failed" }, current)) return TOAST_SUPERSEDED
+    return response.ok ? true : `${row.name} couldn't be changed (HTTP ${response.status}).`
+  }
   const runSecret = (row: SecretRequest, flight: Flight, work: () => Promise<true | string | typeof TOAST_SUPERSEDED>): void => {
-    const verb = row.action === "set" ? ["Saving", "saved"] : ["Deleting", "deleted"]
+    const verb = row.action === "delete" ? ["Deleting", "deleted"] : ["Saving", "saved"]
     void withToast(secretKey(row), `${verb[0]} ${row.name}…`, `${row.name} ${verb[1]}`, async () => {
       try { return await work() }
       catch {
@@ -641,6 +712,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     try {
       const login = owner()
       const current = captureCloudOwner(ctx, false)
+      if (options.install && !options.live) return "Secrets unavailable"
       if (!login) return "Sign in to save a secret."
       const target = resolveTargetRepo(ctx.store, input.repo)
       if ("error" in target) return target.error
@@ -650,6 +722,11 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       const hosts = listOf(input.hosts)
       const headers = listOf(input.headers)
       if ((hosts.length === 0) !== (headers.length === 0)) return "Give both hosts and headers, or neither."
+      if (source === "seed" && options.fallback) {
+        options.fallback.set(name, input.scope ?? (options.fallback.rows().find(row => row.name === name)?.mainOnly === true ? "main_only" : "all_branches"))
+        await refreshSecrets(target.repo, current)
+        return { value: "Requested" }
+      }
       const row: SecretRequest = { id: randomUuid(), owner: login, repo: target.repo, name, action: "set", state: "requested" }
       const admitted = await admitSecret(row, current)
       if (typeof admitted === "string") return admitted
@@ -659,9 +736,9 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
         try {
           if (!current()) return TOAST_SUPERSEDED
           // An omitted binding keeps a replaced secret's stored one.
-          const body = JSON.stringify({ name, value: sending, ...(hosts.length === 0 ? {} : { hosts, match_headers: headers }) })
+          const body = JSON.stringify({ name, value: sending, ...(input.scope ? { main_only: input.scope === "main_only" } : {}), ...(hosts.length === 0 ? {} : { hosts, match_headers: headers }) })
           sending = undefined
-          const response = await ctx.http(repositorySecretsUrl(ctx, row.repo), { method: "POST", headers: { "content-type": "application/json" }, body })
+          const response = await ctx.http(secretUrl(row.repo), { method: options.install ? "PUT" : "POST", headers: { "content-type": "application/json", "Idempotency-Key": row.id }, body })
           if (!current()) return TOAST_SUPERSEDED
           if (!response.ok) {
             const message = await readErrorMessage(response, `${name} couldn't be saved (HTTP ${response.status}).`)
@@ -680,11 +757,13 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   const deleteSecret: SecretsSeam["deleteSecret"] = async (input, repo) => {
     const login = owner()
     const current = captureCloudOwner(ctx, false)
+    if (options.install && !options.live) return "Secrets unavailable"
     if (!login) return "Sign in to delete a secret."
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
     const name = input.trim()
     if (!SECRET_NAME.test(name)) return "Use letters, digits and _ for the name."
+    if (source === "seed" && options.fallback) { options.fallback.remove(name); await refreshSecrets(target.repo, current); return { value: "Requested" } }
     const row: SecretRequest = { id: randomUuid(), owner: login, repo: target.repo, name, action: "delete", state: "requested" }
     const admitted = await admitSecret(row, current)
     if (typeof admitted === "string") return admitted
@@ -701,6 +780,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       runSecret(row, flight, async () => {
         if (!current()) return TOAST_SUPERSEDED
         if (row.action === "delete") return sendDelete(row, current)
+        if (row.action === "scope") return sendScope(row, current)
         // The value was never persisted, so an interrupted save is not replayed.
         return await saveSecretRequest({ ...row, state: "failed" }, current) ? `Saving ${row.name} was interrupted. Enter it again.` : TOAST_SUPERSEDED
       })
@@ -717,7 +797,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     if ("error" in target) return target.error
     return { id: `secrets-${target.repo}`, title: `Secrets · ${target.repo}`, read: async () => {
     const seq = secretRead(target.repo)
-    const config = await readRepositorySecrets(ctx, target.repo)
+    const config = await readSecrets(target.repo)
     if (typeof config === "string") return config
     // A list is the person's newest read: it applies, and any earlier refresh still in flight is dropped.
     state.secretApplied.set(target.repo, Math.max(seq, state.secretApplied.get(target.repo) ?? 0))
@@ -727,7 +807,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       : [
         `Secrets · ${card.payload.repo}`,
         ...card.payload.secrets.map((secret) =>
-          `${secret.name} · ${secret.mainOnly ? "main only" : "every run"} · hosts: ${secret.hosts.join(", ") || "none"} · headers: ${secret.matchHeaders.join(", ") || "none"} · updated: ${secret.updatedAt ?? "unknown"}`)
+          `${secret.name} · ${secret.mainOnly ? "main only" : "all branches"} · hosts: ${secret.hosts.join(", ") || "none"} · headers: ${secret.matchHeaders.join(", ") || "none"} · updated: ${secret.updatedAt ?? "unknown"}`)
       ].join("\n")) }
     } }
   })
@@ -737,12 +817,27 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
    * bookmark. The platform answers with the stored mark, which the reply names.
    */
   const scopeSecret: SecretsSeam["scopeSecret"] = async (name, scope, repo) => {
+    if (options.install && !options.live) return "Secrets unavailable"
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
+    if (source === "seed" && options.fallback) {
+      options.fallback.set(name, scope === "main-only" ? "main_only" : "all_branches")
+      await refreshSecrets(target.repo, captureCloudOwner(ctx, false)); return { value: "Requested" }
+    }
+    if (options.install) {
+      const login = owner()
+      if (!login) return "Sign in to change a secret."
+      const current = captureCloudOwner(ctx, false)
+      const row: SecretRequest = { id: randomUuid(), owner: login, repo: target.repo, name, action: "scope", mainOnly: scope === "main-only", state: "requested" }
+      const admitted = await admitSecret(row, current)
+      if (typeof admitted === "string") return admitted
+      runSecret(row, admitted.flight, () => sendScope(row, current))
+      return { value: "Requested" }
+    }
     let response: Response
     try {
       response = await ctx.http(
-        repositorySecretsUrl(ctx, target.repo, name),
+        secretUrl(target.repo, name),
         { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ main_only: scope === "main-only" }) }
       )
     } catch {
@@ -750,7 +845,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     }
     if (!response.ok) return readErrorMessage(response, `${name} couldn't be changed in ${target.repo} (HTTP ${response.status}).`)
     const stored = await response.json().catch(() => undefined) as { main_only?: unknown } | undefined
-    return { value: `${name}: ${stored?.main_only === true ? "main only" : "every run"}` }
+    return { value: `${name}: ${stored?.main_only === true ? "main only" : "all branches"}` }
   }
 
   /*
@@ -769,7 +864,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     let response: Response
     try {
       response = await ctx.http(
-        repositorySecretsUrl(ctx, target.repo, name),
+        secretUrl(target.repo, name),
         { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ hosts, match_headers: headers }) }
       )
     } catch {

@@ -171,7 +171,7 @@ test("Delete answers before the held DELETE, joins nothing twice, and refreshes 
   await waitFor(() => rows(store)?.length === 0)
   // The agent may only ask; a human confirms.
   const before = world.calls.length
-  expect(await controller.commands.runForAgent("secrets.delete", "OTHER")).toMatchObject({ status: "executed" })
+  expect(await controller.commands.runForAgent("secrets.delete", "OTHER")).toMatchObject({ status: "failed" })
   expect(world.calls.length).toBe(before)
 })
 

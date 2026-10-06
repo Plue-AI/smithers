@@ -47,19 +47,19 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ id }) => actions.revokeCodingProvider(id)
   }),
   flow({
-    name: "secrets.scope",
-    summary: "Limit a repository secret to trusted runs on main, or give it to every run",
+    name: "secrets.scope", userOnly: true, userOnlyReason: "Secret names and values are person-only",
+    summary: "Limit a repository secret to trusted runs on main, or give it to all branches",
     runtime: ["cloud"],
     args: "<name> <main-only|all> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({ name: Schema.String, scope: Schema.Literals(["main-only", "all"]), repo: Schema.optional(Schema.String) }),
     /*
-     * Giving a main-only secret to every run hands it to agent runs, so the
+     * Giving a main-only secret to all branches hands it to agent runs, so the
      * agent may only ask; the human confirms, for the repository named at
      * ask time.
      */
     confirm: payload => payload["scope"] === "all"
-      ? `give ${String(payload["name"])} to every run in ${scopeRepo(actions, payload) ?? "the selected repository"}`
+      ? `give ${String(payload["name"])} to all branches in ${scopeRepo(actions, payload) ?? "the selected repository"}`
       : undefined,
     confirmArgs: payload => {
       const repo = scopeRepo(actions, payload)
@@ -68,7 +68,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, scope, repo }) => actions.scopeSecret(name, scope, repo)
   }),
   flow({
-    name: "secrets.bind",
+    name: "secrets.bind", userOnly: true, userOnlyReason: "Secret names and values are person-only",
     summary: "Set the hosts and headers a repository secret may be sent to",
     runtime: ["cloud"],
     args: "<NAME> [owner/repo]",
@@ -97,14 +97,14 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, hosts, headers, repo }) => actions.bindSecret({ name, hosts, headers, repo })
   }),
   flow({
-    name: "secrets.set",
+    name: "secrets.set", userOnly: true, userOnlyReason: "Secret names and values are person-only",
     summary: "Add a repository secret or replace its value",
     runtime: ["cloud"],
     args: "<NAME> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({
       name: Schema.String, value: Schema.optional(Schema.String),
-      hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
+      scope: Schema.optional(Schema.Literals(["all_branches", "main_only"])), hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
     }),
     form: {
       submitLabel: "Save",
@@ -119,11 +119,10 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" }
       }
     },
-    confirm: payload => `save secret ${String(payload["name"])}`,
-    handler: ({ name, hosts, headers, repo }, _signal, _call, gesture) => actions.setSecret({ name, hosts, headers, repo }, gesture)
+    handler: ({ name, scope, hosts, headers, repo }, _signal, _call, gesture) => actions.setSecret({ name, scope, hosts, headers, repo }, gesture)
   }),
   flow({
-    name: "secrets.delete",
+    name: "secrets.delete", userOnly: true, userOnlyReason: "Secret names and values are person-only",
     summary: "Delete a repository secret",
     runtime: ["cloud"],
     args: "<NAME> [owner/repo]",
@@ -136,8 +135,11 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     },
     handler: ({ name, repo }) => actions.deleteSecret(name, repo)
   }),
+  flow({ name: "secrets", summary: "Secrets", runtime: ["cloud"], requires: ["signed-in"],
+    userOnly: true, userOnlyReason: "Secret names and values are person-only", input: RepoTarget,
+    prepare: ({ repo }) => actions.listSecrets.preload?.(repo), handler: ({ repo }) => actions.listSecrets(repo) }),
   flow({
-    name: "secrets.list",
+    name: "secrets.list", hidden: true, userOnly: true, userOnlyReason: "Secret names and values are person-only",
     summary: "Show the secrets a repository's sessions may use: names and bindings, never values",
     runtime: ["cloud"],
     args: "[owner/repo]",

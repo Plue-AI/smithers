@@ -258,6 +258,7 @@ export const FLOW_NAMES = [
   "secrets.connect.codex",
   "secrets.connections",
   "secrets.delete",
+  "secrets",
   "secrets.list",
   "secrets.move",
   "secrets.revoke",

@@ -822,7 +822,8 @@ export const SessionSchema = z.object({
   })).optional(),
   /* Repository secret writes (SecretsSeam.setSecret/deleteSecret): never a value, only what a reload needs to settle them. */
   secretRequests: z.array(z.object({
-    id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete"]),
+    id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete", "scope"]),
+    mainOnly: z.boolean().optional(),
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
   /** Atomic egress additions can be replayed; only the authorized owner, repository and host are saved. */

@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url"
 // T-UI-16: CodeSurface is already reachable; T-APP-11 wires its live props. No new View.
 // Views built dark await their owning wiring tickets. Wiring removes its row.
 const PENDING_WIRING: Record<string, string> = {
-  "SecretsView.tsx": "T-APP-13",
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -46,4 +45,13 @@ test("T-APP-21 mounts DebugApiView through CardRenderers", () => {
   visit(join(root, "cards/CardRenderers.tsx"))
   expect(reachable.has(join(root, "cards/views", API_WIRING.view))).toBe(true)
   for (const path of API_WIRING.legacy) expect(() => statSync(join(root, path))).toThrow()
+})
+
+const SECRETS_WIRING = { view: "SecretsView.tsx", ticket: "T-APP-13" }
+test("T-APP-13 mounts SecretsView and deletes the legacy table", () => {
+  visit(join(root, "cards/CardRenderers.tsx"))
+  expect(reachable.has(join(root, "cards/views", SECRETS_WIRING.view))).toBe(true)
+  const source = readFileSync(join(root, "cards/SecretsCard.tsx"), "utf8")
+  expect(source).not.toContain("<table")
+  expect(source).not.toContain("secrets-table")
 })

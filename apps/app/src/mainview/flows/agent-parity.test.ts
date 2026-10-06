@@ -33,6 +33,13 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "secrets": "Secret names and values are person-only",
+  "secrets.list": "Secret names and values are person-only",
+  "secrets.set": "Secret names and values are person-only",
+  "secrets.delete": "Secret names and values are person-only",
+  "secrets.scope": "Secret names and values are person-only",
+  "secrets.bind": "Secret names and values are person-only",
+
   "todo.takeover": "TODO ownership belongs to a person; agents never take over",
   "notifications.allow": "browser permission requires the person’s in-card gesture",
   "debug.api": "raw API bypasses flow typing and approvals; agents use flows",
