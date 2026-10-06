@@ -1479,11 +1479,17 @@ esac
 			log, err := os.ReadFile(calls)
 			require.NoError(t, err)
 			var parents []string
+			boots := 0
 			for _, line := range strings.Split(string(log), "\n") {
-				if fields := strings.Fields(line); len(fields) > 2 && fields[0] == "run" && fields[1] == "--from-snapshot" && strings.Contains(line, "smthrs-prep-") {
-					parents = append(parents, fields[2])
+				if fields := strings.Fields(line); len(fields) > 2 && fields[0] == "run" && fields[1] == "--from-snapshot" {
+					boots++
+					require.True(t, strings.HasSuffix(line, "--entrypoint /bin/sleep -- infinity"), "a snapshot must not start the image CMD: %s", line)
+					if strings.Contains(line, "smthrs-prep-") {
+						parents = append(parents, fields[2])
+					}
 				}
 			}
+			require.Equal(t, 2, boots, "preparation and verification both boot idle snapshots")
 			require.Equal(t, []string{names[test.want]}, parents)
 			require.NotContains(t, string(log), "--from-snapshot "+names["branch"])
 		})

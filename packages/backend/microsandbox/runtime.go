@@ -706,6 +706,14 @@ func (r *Runtime) machineFlags(workspaceID string) []string {
 	return args
 }
 
+// Snapshot launches must keep the VM idle rather than execute the image CMD.
+// msb run otherwise starts Node's default command, which exits on closed stdin
+// and stops the VM before its agent relay is available.
+func snapshotBootArgs(snapshot string, flags []string) []string {
+	args := append([]string{"run", "--from-snapshot", snapshot, "-d"}, flags...)
+	return append(args, "--entrypoint", "/bin/sleep", "--", "infinity")
+}
+
 func (r *Runtime) createMachine(ctx context.Context, ws *workspace) error {
 	if ws.Snapshot == "" && r.config.Image != DefaultImage {
 		return fmt.Errorf("%w: unapproved workspace base image", ErrUnavailable)
@@ -713,7 +721,7 @@ func (r *Runtime) createMachine(ctx context.Context, ws *workspace) error {
 	ws.RelayPort = relayPort(r.config.EgressRelay)
 	var args []string
 	if ws.Snapshot != "" {
-		args = append([]string{"run", "--from-snapshot", ws.Snapshot, "-d"}, r.machineFlags(ws.ID)...)
+		args = snapshotBootArgs(ws.Snapshot, r.machineFlags(ws.ID))
 	} else {
 		pull := "if-missing"
 		if r.config.Bundle != nil {
