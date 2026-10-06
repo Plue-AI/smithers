@@ -111,6 +111,15 @@ test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete
   // Live metadata can arrive before the durable write receipt. Finish the
   // scope request before changing identity or reloading its persisted state.
   await expect(page.getByText("Saving CANARY_TOKEN…", { exact: true })).toHaveCount(0)
+  page.once("dialog", dialog => { void dialog.accept() })
+  await row.getByRole("button", { name: "all branches", exact: true }).press("Enter")
+  await expect.poll(() => writes.length).toBe(5)
+  await expect(row.locator(".secret-scope")).toHaveText("all branches")
+  await expect(page.getByText("Saving CANARY_TOKEN…", { exact: true })).toHaveCount(0)
+  page.once("dialog", dialog => { void dialog.dismiss() })
+  await row.getByRole("button", { name: "Delete", exact: true }).press("Enter")
+  expect(writes.length).toBe(5)
+  await expect(row).toContainText("CANARY_TOKEN")
   role = "member"; notices.get("members")!()
   await expect(card.getByRole("button")).toHaveCount(0)
   expect(await card.innerHTML()).not.toContain("private-canary")
@@ -123,5 +132,5 @@ test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete
   page.once("dialog", dialog => { void dialog.accept() })
   await row.getByRole("button", { name: "Delete", exact: true }).press("Enter")
   await expect(row).toHaveCount(0)
-  expect(writes.length).toBe(5)
+  expect(writes.length).toBe(6)
 })
