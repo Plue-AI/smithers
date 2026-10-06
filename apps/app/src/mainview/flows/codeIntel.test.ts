@@ -81,6 +81,12 @@ describe("code intelligence stays dark until guest validation lands", () => {
           expect(controller.commands.find(name)).toBeUndefined()
           expect(callable.has(name)).toBe(false)
           expect(disclosed.has(name)).toBe(false)
+          // The slash/button boundary also refuses an explicit invocation;
+          // absence from the menu alone does not prevent execution.
+          const outcome = await controller.commands.run(name, name === "code.diagnostics" ? "src/b.ts" : "src/b.ts:5:1")
+          expect(["unknown-command", "unavailable"]).toContain(outcome.status)
+          const agentOutcome = await controller.commands.runAsAgent(name, name === "code.diagnostics" ? "src/b.ts" : "src/b.ts:5:1")
+          expect(["unknown-command", "unavailable"]).toContain(agentOutcome.status)
         }
       } finally {
         await controller.dispose()

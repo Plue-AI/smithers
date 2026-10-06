@@ -958,6 +958,11 @@ func buildRouter(
 			r.Patch("/todos/{n}", todos.Amend)
 			r.Post("/todos/{n}/merge", todos.Merge)
 			r.Post("/todos/{n}/answer", todos.Answer)
+			proposals, _ := extras.Mythical.Service.(routes.LearningProposalRoutes)
+			handler := &routes.LearningProposalsHandler{Queries: queries, Service: proposals}
+			r.Get("/proposals", handler.List)
+			r.Post("/proposals/{id}/accept", handler.Accept)
+			r.Post("/proposals/{id}/dismiss", handler.Dismiss)
 			// The issue list card and the issue card read the install
 			// repository's GitHub issues through the install's App.
 			issueService, _ := extras.Mythical.Service.(routes.InstallIssueRouteService)
@@ -1046,8 +1051,6 @@ func buildRouter(
 			}
 		}
 		if extras.Recommender != nil {
-			r.Post("/recommend", extras.Recommender.Recommend)
-			r.Post("/recommend/outcome", extras.Recommender.Outcome)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/commands/select", extras.Recommender.Select)
 		}
 		if extras.ModelStream != nil {
@@ -1309,9 +1312,6 @@ func buildRouter(
 				r.With(writeRepo...).Post("/bookmarks", jjVCSHandler.CreateBookmark)
 				r.With(writeRepo...).Delete("/bookmarks/{name}", jjVCSHandler.DeleteBookmark)
 				r.With(writeRepo...).Post("/changes/{change_id}/revert", jjVCSHandler.RevertChange)
-				if config.IsMultitenant(cfg.Auth) {
-					r.With(writeRepo...).Post("/changes/{change_id}/split", jjVCSHandler.SplitChange)
-				}
 				r.With(writeRepo...).Put("/changes/{change_id}/walkthrough", jjVCSHandler.PutChangeWalkthrough)
 				if stackHandler != nil {
 					r.With(append(writeRepo, repoStackQuota)...).Post("/stacks/active", stackHandler.UpsertActiveStack)
@@ -1517,7 +1517,9 @@ func buildRouter(
 					r.With(append(writeRepo, gateAgents)...).Post("/agent/sessions", agentSessionHandler.CreateSession)
 					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions", agentSessionHandler.ListSessions)
 					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions/{id}", agentSessionHandler.GetSession)
-					r.With(append(readRepo, gateAgents)...).Get("/agent-sessions/{id}/egress", agentSessionHandler.ListEgressAudit)
+					if config.IsMultitenant(cfg.Auth) {
+						r.With(append(readRepo, gateAgents)...).Get("/agent-sessions/{id}/egress", agentSessionHandler.ListEgressAudit)
+					}
 					r.With(append(writeRepo, gateAgents)...).Delete("/agent/sessions/{id}", agentSessionHandler.DeleteSession)
 					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions/{id}/messages", agentSessionHandler.ListMessages)
 					r.With(append(agentMessageWriteRepo, gateAgents)...).Post("/agent/sessions/{id}/messages", agentSessionHandler.PostMessage)

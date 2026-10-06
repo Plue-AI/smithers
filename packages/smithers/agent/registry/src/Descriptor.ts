@@ -437,6 +437,8 @@ export interface Source {
   readonly root: string
   readonly naming: "path" | "frontmatter"
   readonly system?: boolean | undefined
+  /** Repository dependency root; discovery binds its lockfiles without importing code. */
+  readonly lockfileRoot?: string | undefined
   /** A missing root produces an empty scan; other root failures still fail. */
   readonly optionalRoot?: boolean | undefined
   /** Pack root whose real path bounds discovery when the host can resolve it. */
@@ -742,7 +744,13 @@ export class FlowDescriptor extends Schema.Class<FlowDescriptor>("flows/registry
   presentation: Schema.optional(CallPresentation),
   path: Schema.String,
   frontmatter: Schema.Record(Schema.String, Schema.Json),
-  provenance: Provenance
+  provenance: Provenance,
+  /** Snapshot-compatible lockfile identity; root is relative to provenance.root.
+   * Optional so historical descriptors retain their original identity. */
+  lockfiles: Schema.optional(Schema.Struct({
+    root: Schema.String,
+    digest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+  }))
 }) {}
 
 const executionDigests = new WeakMap<FlowDescriptor, string>()

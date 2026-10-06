@@ -1512,6 +1512,28 @@ type MembersCardMembersItem struct {
 	Actions     []map[string]json.RawMessage `json:"actions"`
 }
 
+// LearningProposalCard is generated from docs/api/openapi.yaml.
+type LearningProposalCard struct {
+	ID       string                         `json:"id"`
+	Title    string                         `json:"title"`
+	Evidence []string                       `json:"evidence"`
+	Refs     []LearningProposalCardRefsItem `json:"refs"`
+	State    string                         `json:"state"`
+	Todo     *LearningProposalCardTodo      `json:"todo,omitempty"`
+}
+
+// LearningProposalCardRefsItem is generated from docs/api/openapi.yaml.
+type LearningProposalCardRefsItem struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+// LearningProposalCardTodo is generated from docs/api/openapi.yaml.
+type LearningProposalCardTodo struct {
+	N     int64  `json:"n"`
+	Title string `json:"title"`
+}
+
 // TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
 type TodoCard struct {
 	N                    int64                         `json:"n"`
@@ -1634,6 +1656,69 @@ type GetAPIAgentConversationsParams struct {
 	Limit *int64
 }
 
+// GetAPIConversationViewStateResponse is generated from docs/api/openapi.yaml.
+type GetAPIConversationViewStateResponse struct {
+	ToastsHidden         bool                       `json:"toasts_hidden"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members GetAPIConversationViewStateResponse does not declare in AdditionalProperties.
+func (v *GetAPIConversationViewStateResponse) UnmarshalJSON(data []byte) error {
+	type plain GetAPIConversationViewStateResponse
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "toasts_hidden")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of GetAPIConversationViewStateResponse.
+func (v GetAPIConversationViewStateResponse) MarshalJSON() ([]byte, error) {
+	type plain GetAPIConversationViewStateResponse
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
+// PutAPIConversationViewStateBody is generated from docs/api/openapi.yaml.
+type PutAPIConversationViewStateBody struct {
+	ToastsHidden         *bool                      `json:"toasts_hidden,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members PutAPIConversationViewStateBody does not declare in AdditionalProperties.
+func (v *PutAPIConversationViewStateBody) UnmarshalJSON(data []byte) error {
+	type plain PutAPIConversationViewStateBody
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "toasts_hidden")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of PutAPIConversationViewStateBody.
+func (v PutAPIConversationViewStateBody) MarshalJSON() ([]byte, error) {
+	type plain PutAPIConversationViewStateBody
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
+// PutAPIConversationViewStateResponse is generated from docs/api/openapi.yaml.
+type PutAPIConversationViewStateResponse struct {
+	ToastsHidden         bool                       `json:"toasts_hidden"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members PutAPIConversationViewStateResponse does not declare in AdditionalProperties.
+func (v *PutAPIConversationViewStateResponse) UnmarshalJSON(data []byte) error {
+	type plain PutAPIConversationViewStateResponse
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "toasts_hidden")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of PutAPIConversationViewStateResponse.
+func (v PutAPIConversationViewStateResponse) MarshalJSON() ([]byte, error) {
+	type plain PutAPIConversationViewStateResponse
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
 // GetAPIAuthGithubCliParams is the query of GET /api/auth/github/cli.
 type GetAPIAuthGithubCliParams struct {
 	CallbackPort  int64
@@ -1653,6 +1738,19 @@ type PostAPIBillingCheckoutBody struct {
 type PostAPIBranchesBody struct {
 	From string  `json:"from"`
 	Name *string `json:"name,omitempty"`
+}
+
+// PostAPIBranchesBBody is generated from docs/api/openapi.yaml.
+type PostAPIBranchesBBody struct {
+	Op       string `json:"op"`
+	ID       string `json:"id"`
+	Revision string `json:"revision"`
+}
+
+// PostAPIBranchesBResponse is generated from docs/api/openapi.yaml.
+type PostAPIBranchesBResponse struct {
+	State *string `json:"state,omitempty"`
+	N     *int64  `json:"n,omitempty"`
 }
 
 // GetAPIBranchFileParams is the query of GET /api/branches/{b}/files/{path}.
@@ -1950,6 +2048,11 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 	StopReason     *string    `json:"stop_reason,omitempty"`
 	FailureMessage *string    `json:"failure_message,omitempty"`
 	ExpiresAt      time.Time  `json:"expires_at"`
+}
+
+// DeleteAPISecretsBody is generated from docs/api/openapi.yaml.
+type DeleteAPISecretsBody struct {
+	Name string `json:"name"`
 }
 
 // PostAPITerminalsBody is generated from docs/api/openapi.yaml.
@@ -2432,15 +2535,15 @@ func (c *Client) PostAPIAgentConversationsReplay(ctx context.Context, body Saved
 }
 
 // GetAPIConversationViewState calls GET /api/conversations/{b}/view-state.
-func (c *Client) GetAPIConversationViewState(ctx context.Context, b string) (map[string]json.RawMessage, error) {
-	var out map[string]json.RawMessage
+func (c *Client) GetAPIConversationViewState(ctx context.Context, b string) (GetAPIConversationViewStateResponse, error) {
+	var out GetAPIConversationViewStateResponse
 	err := c.do(ctx, "GET", "/api/conversations/"+url.PathEscape(b)+"/view-state", nil, nil, &out)
 	return out, err
 }
 
 // PutAPIConversationViewState calls PUT /api/conversations/{b}/view-state.
-func (c *Client) PutAPIConversationViewState(ctx context.Context, b string, body map[string]json.RawMessage) (map[string]json.RawMessage, error) {
-	var out map[string]json.RawMessage
+func (c *Client) PutAPIConversationViewState(ctx context.Context, b string, body PutAPIConversationViewStateBody) (PutAPIConversationViewStateResponse, error) {
+	var out PutAPIConversationViewStateResponse
 	err := c.do(ctx, "PUT", "/api/conversations/"+url.PathEscape(b)+"/view-state", nil, body, &out)
 	return out, err
 }
@@ -2688,6 +2791,13 @@ func (c *Client) PostAPIBranches(ctx context.Context, body PostAPIBranchesBody) 
 func (c *Client) GetAPIBranchesB(ctx context.Context, b string) (Branch, error) {
 	var out Branch
 	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b), nil, nil, &out)
+	return out, err
+}
+
+// PostAPIBranchesB calls POST /api/branches/{b}.
+func (c *Client) PostAPIBranchesB(ctx context.Context, b string, idempotencyKey string, body PostAPIBranchesBBody) (PostAPIBranchesBResponse, error) {
+	var out PostAPIBranchesBResponse
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/branches/"+url.PathEscape(b), nil, body, &out)
 	return out, err
 }
 
@@ -3419,24 +3529,31 @@ func (c *Client) PostAPIOrgsOrgBillingRefresh(ctx context.Context, org string) (
 	return out, err
 }
 
+// GetAPIProposals calls GET /api/proposals.
+func (c *Client) GetAPIProposals(ctx context.Context) ([]LearningProposalCard, error) {
+	var out []LearningProposalCard
+	err := c.do(ctx, "GET", "/api/proposals", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIProposalsIDAccept calls POST /api/proposals/{id}/accept.
+func (c *Client) PostAPIProposalsIDAccept(ctx context.Context, id string) (LearningProposalCard, error) {
+	var out LearningProposalCard
+	err := c.do(ctx, "POST", "/api/proposals/"+url.PathEscape(id)+"/accept", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIProposalsIDDismiss calls POST /api/proposals/{id}/dismiss.
+func (c *Client) PostAPIProposalsIDDismiss(ctx context.Context, id string) (LearningProposalCard, error) {
+	var out LearningProposalCard
+	err := c.do(ctx, "POST", "/api/proposals/"+url.PathEscape(id)+"/dismiss", nil, nil, &out)
+	return out, err
+}
+
 // GetAPIPublicRepos calls GET /api/public/repos.
 func (c *Client) GetAPIPublicRepos(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/public/repos", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIRecommend calls POST /api/recommend.
-func (c *Client) PostAPIRecommend(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/recommend", nil, body, &out)
-	return out, err
-}
-
-// PostAPIRecommendOutcome calls POST /api/recommend/outcome.
-func (c *Client) PostAPIRecommendOutcome(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/recommend/outcome", nil, body, &out)
 	return out, err
 }
 
@@ -4748,13 +4865,6 @@ func (c *Client) PostAPIReposOwnerRepoChangesChangeIDRevert(ctx context.Context,
 	return out, err
 }
 
-// PostAPIReposOwnerRepoChangesChangeIDSplit calls POST /api/repos/{owner}/{repo}/changes/{change_id}/split.
-func (c *Client) PostAPIReposOwnerRepoChangesChangeIDSplit(ctx context.Context, owner string, repo string, changeID string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/changes/"+url.PathEscape(changeID)+"/split", nil, nil, &out)
-	return out, err
-}
-
 // PostAPIReposOwnerRepoGithubProxy calls POST /api/repos/{owner}/{repo}/github-proxy.
 func (c *Client) PostAPIReposOwnerRepoGithubProxy(ctx context.Context, owner string, repo string) (AnyJSON, error) {
 	var out AnyJSON
@@ -5358,6 +5468,37 @@ func (c *Client) GetAPISearchRepositories(ctx context.Context) (AnyJSON, error) 
 func (c *Client) GetAPISearchUsers(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/search/users", nil, nil, &out)
+	return out, err
+}
+
+// GetAPISecrets calls GET /api/secrets.
+func (c *Client) GetAPISecrets(ctx context.Context) ([]SecretMetadata, error) {
+	var out []SecretMetadata
+	err := c.do(ctx, "GET", "/api/secrets", nil, nil, &out)
+	return out, err
+}
+
+// PutAPISecrets calls PUT /api/secrets.
+func (c *Client) PutAPISecrets(ctx context.Context, body SetRepositorySecretRequest) (SecretMetadata, error) {
+	var out SecretMetadata
+	err := c.do(ctx, "PUT", "/api/secrets", nil, body, &out)
+	return out, err
+}
+
+// DeleteAPISecrets calls DELETE /api/secrets.
+func (c *Client) DeleteAPISecrets(ctx context.Context, body DeleteAPISecretsBody) error {
+	return c.do(ctx, "DELETE", "/api/secrets", nil, body, nil)
+}
+
+// DeleteAPISecretsName calls DELETE /api/secrets/{name}.
+func (c *Client) DeleteAPISecretsName(ctx context.Context, name string) error {
+	return c.do(ctx, "DELETE", "/api/secrets/"+url.PathEscape(name), nil, nil, nil)
+}
+
+// PatchAPISecretsName calls PATCH /api/secrets/{name}.
+func (c *Client) PatchAPISecretsName(ctx context.Context, name string, body UpdateRepositorySecretRequest) (SecretMetadata, error) {
+	var out SecretMetadata
+	err := c.do(ctx, "PATCH", "/api/secrets/"+url.PathEscape(name), nil, body, &out)
 	return out, err
 }
 

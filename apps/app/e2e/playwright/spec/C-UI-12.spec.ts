@@ -63,9 +63,10 @@ test("C-UI-12: Flow versions, actions and Paper focus remain usable in both them
     await proposed.press("Enter")
     await expect(proposed).toHaveAttribute("aria-pressed", "true")
     await expect(flow.locator('[data-added="true"]')).toContainText("Update docs")
-    expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([])
+    expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([{ kind: "view", value: { tab: "v4" } }])
     for (const label of ["Source", "Plan", "Run", "Edit"]) await flow.getByRole("button", { name: label, exact: true }).press("Space")
     expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([
+      { kind: "view", value: { tab: "v4" } },
       { kind: "action", value: { tag: "flow.source", args: { name: "todo" } } },
       { kind: "action", value: { tag: "flow.plan", args: { name: "todo" } } },
       { kind: "action", value: { tag: "flow.run", args: { name: "todo" } } },

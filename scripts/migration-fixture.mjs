@@ -31,12 +31,13 @@ export function installMigrationFixture(dir) {
  writeFileSync(join(dir, '.gitignore'), 'node_modules\n.flows/\n')
  writeFileSync(join(dir, 'package.json'), '{"name":"migration-fixture","private":true,"type":"module","packageManager":"pnpm@11.25.0","engines":{"node":">=26.4.0"}}\n')
  writeFileSync(join(dir, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n")
- writeFileSync(join(dir, 'WORKSPACE.ts'), `import { Smithers as S } from "@smthrs/targets"
+ mkdirSync(join(dir, '.smithers'), { recursive: true })
+ writeFileSync(join(dir, '.smithers/WORKSPACE.ts'), `import { Smithers as S } from "@smthrs/targets"
 const manifest = S.file("//package.json")
 export const Workspace = S.Workspace("fixture", {
  repository: "git+https://example.invalid/fixture.git", cache: S.Cache({directory:".flows"}),
  runtime: S.Runtime.Node({version:">=26.4.0"}),
- packageManager: S.PackageManager.Pnpm({manifest,lockfile:S.file("//pnpm-lock.yaml")}),
+ packageManager: S.PackageManager.Pnpm({version:"11.25.0",runtime:S.Runtime.Node({version:">=26.4.0"})}),
  nodeModules: S.Npm.NodeModules({packageJson:manifest}),
 })
 `)

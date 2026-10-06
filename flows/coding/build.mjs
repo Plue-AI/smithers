@@ -101,7 +101,7 @@ export const bundle = async (entryPoint, outfile) => {
   const policyTexts = new Map()
   for (const source of policySources) policyTexts.set(source, await readFile(resolve(root, source), "utf8"))
   const compiled = result.outputFiles[0].text.replace(/^(#![^\n]*\n)/,
-    `$1const __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\n`)
+    `$1const __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\nconst __SMITHERS_BUILTIN_TODO__ = ${JSON.stringify(await readFile(resolve(root, "flows/todo/flow.ts"), "utf8"))};\n`)
   if (compiled === result.outputFiles[0].text) throw new Error("Coding artifact has no executable banner")
   const digest = createHash("sha256").update(compiled).digest("hex")
   // Hash the exact compiled artifact before inserting its own identity. This

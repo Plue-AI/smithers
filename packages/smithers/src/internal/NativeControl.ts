@@ -407,7 +407,7 @@ export const make = (
    * @since 0.1.0
    */
   const projectSources = (root: string): ReadonlyArray<Descriptor.Source> => [
-    { source: "project", root: join(root, "flows"), naming: "path", optionalRoot: true }
+    { source: "project", root: join(root, "flows"), naming: "path", optionalRoot: true, lockfileRoot: root }
   ]
 
   // Resolve the shared Jev judge lazily. Pure flows and observing

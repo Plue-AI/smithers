@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -66,7 +67,10 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	} {
 		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(value)}))
 	}
-	for _, user := range []db.User{owner, member} {
+	maintainer, err := q.CreateUser(ctx, db.CreateUserParams{Username: "quiescemaintainer", LowerUsername: "quiescemaintainer"})
+	require.NoError(t, err)
+	require.NoError(t, q.SetUserAdmin(ctx, db.SetUserAdminParams{UserID: maintainer.ID, IsAdmin: true}))
+	for _, user := range []db.User{owner, member, maintainer} {
 		token := user.Username + "-session"
 		hash := sha256.Sum256([]byte(token))
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(hash[:]), UserID: user.ID, Username: user.Username, ExpiresAt: time.Now().Add(time.Hour)})
@@ -85,7 +89,11 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 		r := httptest.NewRequest(method, "http://localhost:4000"+path, strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:1234"
 		r.Header.Set("Content-Type", "application/json")
-		r.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+		if strings.HasPrefix(token, "smithers_") {
+			r.Header.Set("Authorization", "Bearer "+token)
+		} else {
+			r.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+		}
 		r.Header.Set("Origin", "http://localhost:4000")
 		r.Header.Set("X-CSRF-Token", "csrf")
 		r.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
@@ -94,7 +102,43 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 		return w
 	}
 
-	require.Equal(t, 403, request("PUT", "/api/install", "quiescemember-session", `{"parallel":8}`).Code)
+	// Every credential goes through the composed authentication chain. Refusal
+	// must preserve the requested value, including when the bearer belongs to
+	// the owner; administrator status cannot substitute for install ownership.
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "parallel", Value: []byte(`2`)}))
+	for _, credential := range []struct {
+		name, scopes string
+		issued       bool
+	}{
+		{"delegated", "write:repository,via:cli", true},
+		{"run", "write:repository", true},
+		{"machine", "credential:sync", true},
+		{"personal", "all", false},
+	} {
+		t.Run(credential.name, func(t *testing.T) {
+			seed := sha256.Sum256([]byte("parallel-" + credential.name))
+			raw := "smithers_" + hex.EncodeToString(seed[:])[:40]
+			digest := sha256.Sum256([]byte(raw))
+			_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: credential.name, TokenHash: hex.EncodeToString(digest[:]), TokenLastEight: hex.EncodeToString(digest[:])[56:], Scopes: credential.scopes, SystemIssued: credential.issued, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+			require.NoError(t, err)
+			denied := request("PUT", "/api/install", raw, `{"parallel":8}`)
+			require.Equal(t, 403, denied.Code, denied.Body.String())
+			require.Contains(t, denied.Body.String(), `"class":"permission"`)
+			saved, err := q.GetInstallParallel(ctx)
+			require.NoError(t, err)
+			require.JSONEq(t, `2`, string(saved))
+		})
+	}
+	for _, session := range []string{"quiescemember-session", "quiescemaintainer-session"} {
+		denied := request("PUT", "/api/install", session, `{"parallel":8}`)
+		require.Equal(t, 403, denied.Code, denied.Body.String())
+		require.Contains(t, denied.Body.String(), `"class":"permission"`)
+		saved, err := q.GetInstallParallel(ctx)
+		require.NoError(t, err)
+		require.JSONEq(t, `2`, string(saved))
+	}
+	// The former per-repository setter must not remain an owner bypass.
+	require.Equal(t, 404, request("PUT", "/api/repos/quiesceowner/fixture/mythical/config", "quiesceowner-session", `{"maxParallel":8}`).Code)
 	for _, body := range []string{`{"parallel":0}`, `{"parallel":9}`, `{"parallel":2.5}`} {
 		require.Equal(t, 400, request("PUT", "/api/install", "quiesceowner-session", body).Code)
 	}
@@ -113,6 +157,20 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	setting, err := capacity.Parallel(ctx)
 	require.NoError(t, err)
 	require.Equal(t, services.InstallParallel{Requested: 8, Effective: 0}, setting)
+	// Reconstruct the service against persisted storage, as install restart does.
+	restarted := &services.InstallCapacityService{Queries: q, Profile: capacity.Profile, FreeDisk: capacity.FreeDisk}
+	restored, err := restarted.Parallel(ctx)
+	require.NoError(t, err)
+	require.Equal(t, services.InstallParallel{Requested: 8, Effective: 0}, restored)
+	// A lost policy provider fails closed even for the authenticated owner.
+	authorize := capacity.AuthorizeParallel
+	capacity.AuthorizeParallel = nil
+	denied := request("PUT", "/api/install", "quiesceowner-session", `{"parallel":1}`)
+	require.Equal(t, 503, denied.Code, denied.Body.String())
+	raw, err = q.GetInstallParallel(ctx)
+	require.NoError(t, err)
+	require.JSONEq(t, `8`, string(raw))
+	capacity.AuthorizeParallel = authorize
 	// An unsaved default must also fit the owner field on a larger host.
 	_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='parallel'`)
 	require.NoError(t, err)

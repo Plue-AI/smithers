@@ -9,7 +9,7 @@ const Foreign = Schema.Struct({ branch: Text, revision: Text })
 const Learning = Schema.Struct({ id: Text })
 const control = <const Name extends string, I extends OperationPayload>(name: Name, summary: string, input: I,
   agent: "run" | "confirm" | "never", minimumRole: "member" | "maintainer" | "owner" = "member") =>
-  operation({ name, summary, input, agent, hidden: true, minimumRole, visibility: "in-card", slash: null, cli: null, http: null,
+  operation({ name, summary, input, agent, hidden: true, minimumRole, visibility: "in-card", slash: null, cli: null, http: name === "learning.accept" ? { method: "POST" as const, path: "/api/proposals/{id}/accept" } : name === "learning.dismiss" ? { method: "POST" as const, path: "/api/proposals/{id}/dismiss" } : null,
     journey: [], group: "", actors: agent === "never" ? ["person"] as const : ["person", "app_agent"] as const })
 
 export const pendingControls = [

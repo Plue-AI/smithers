@@ -35,9 +35,7 @@ package instead of the first casualty.
 
 ## Updating documentation
 
-Edit main-site pages in `apps/site/src/content/docs/docs/`. Package sites
-are generated from each package's `docs/` directory; edit those sources,
-then run `pnpm docs:sync`. See [package docs authoring](apps/docs/shared/AUTHORING.md).
+Edit main-site pages in `apps/site/src/content/docs/docs/`. Library documentation lives in each package's `docs/` directory and ships in its npm tarball. Edit those sources directly.
 
 After changing CLI declarations, package API docs, or examples, run
 `pnpm --filter @smithers/site run sync:docs` to refresh command help,
@@ -46,7 +44,7 @@ copy, edit `apps/site/src/data/project.json` and run
 `node apps/site/scripts/generate-project-copy.mjs` before syncing.
 
 Before review, run the docs checks above, `pnpm --filter @smithers/site run build`,
-and `pnpm docs:build`. Preview the main docs locally with
+and verify package tarballs with `pnpm docs:check`. Preview the main docs locally with
 `pnpm --filter @smithers/site run dev` and open `/docs/`. Commit generated
 content with its source changes.
 

@@ -213,6 +213,17 @@ test("live presses refuse each missing provider and dispatch only the bound TODO
   expect(liveBranchActionDefinitions({ ...model, item: undefined, name: "scratch/ben/try" }, providers)).toEqual([])
 })
 
+test("live file gestures preserve branch and coordinates and refuse a missing file provider", () => {
+  const model = definitionsOf(make(), "b-retry").model
+  const { calls, dispatch } = recorder()
+  cardActions(dispatch, liveBranchActionDefinitions(model, new Set())).onAction("file", { path: "retry.ts", line: "12" })
+  expect(calls).toEqual([])
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["file"])))
+  bindings.onAction("file", { path: "retry.ts", line: "12" })
+  bindings.onAction("file", { path: "deliver.ts" })
+  expect(calls).toEqual([["file", { path: "retry.ts", branch: model.name, line: 12 }], ["file", { path: "deliver.ts", branch: model.name }]])
+})
+
 test("opening a Branch announces its authorized scope while child topics are unresolved, and unmount releases it", async () => {
   const leases: unknown[] = [], released: unknown[] = []
   const live = { subscribe: () => () => {}, getSnapshot: () => undefined,
@@ -240,7 +251,7 @@ test("branch action copy passes the catalog text lint", async () => {
   if (!forked.ok || !forked.id) throw new Error("fork refused")
   for (const id of ["b-retry", "b-checkout", "b-stripe", forked.id]) {
     const { definitions, model } = definitionsOf(design, id)
-    const all = [...definitions, ...liveBranchActionDefinitions(model, new Set(["branch.fork", "todo.answer", "todo.steer"])), ...changeActionDefinitions(model)]
+    const all = [...definitions, ...liveBranchActionDefinitions(model, new Set(["branch.fork", "todo.answer", "todo.steer", "file"])), ...changeActionDefinitions(model)]
     // Item titles are user content; every emitted action label is product copy.
     const productActions = all.filter(action => !("gesture" in action) || action.gesture !== "item")
     for (const action of productActions) expect(lintText(action.label)).toEqual([])
@@ -249,4 +260,55 @@ test("branch action copy passes the catalog text lint", async () => {
       if (action.disabled) expect(lintText(action.disabled.reason)).toEqual([])
     }
   }
+})
+
+test("registered live terminal links dispatch Watch and disappear with unavailable viewer identity", async () => {
+  const { LiveChannel } = await import("../runtime/LiveChannel")
+  const { createTerminalSource } = await import("../state/seams/TerminalSeam")
+  const frames: { t: string; id: number; topic?: string }[] = []
+  const socket = { readyState: 1, onopen: null, onclose: null, onmessage: null,
+    send: (frame: string | Uint8Array) => { if (typeof frame === "string") frames.push(JSON.parse(frame)) }, close: () => {} } as import("../runtime/LiveChannel").LiveSocket
+  const live = new LiveChannel({ socket: () => socket })
+  let viewer: string | undefined = "alice"
+  const provider = createTerminalSource({ repo: () => "o/r", viewer: () => viewer, knownBranches: () => ["b1"], live,
+    // HTTP/transport doubles only: this VM has no PostgreSQL or microVM runtime.
+    http: async () => Response.json([{ name: "b1" }]) })
+  const submitted: unknown[] = []
+  const controller = { design: createDesignWorld({ enabled: false }), live, terminalCards: provider.source,
+    commands: { submit: async (input: unknown) => { submitted.push(input); return { status: "executed" } } } } as unknown as AppController
+  const card = { id: "branch:b1", kind: "branch", title: "Branch", status: "active", createdAt: 1, ordinal: 1, payload: { id: "b1" } } as const
+  const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
+  const owner = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }
+  const metadata = { id: "b1", name: "retry-webhooks", machine: { state: "awake" }, ssh_line: "",
+    presence: [{ actor: owner, where: { kind: "terminal", id: "t-ben" } }],
+    terminals: [{ id: "t-ben", title: "Ben's shell", owner, agents: [], watchers: [], frozen: false }] }
+  const host = document.createElement("div"), root = createRoot(host)
+  const render = () => act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
+  try {
+    await render(); socket.onopen?.()
+    for (const [topic, data] of [["branch:b1", metadata], ["branch:b1:activity", []], ["branch:b1:files", []]] as const) {
+      const frame = frames.find(frame => frame.topic === topic)!
+      await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }) }))
+    }
+    expect(provider.source.branch("t-ben")).toBe("b1")
+    const link = host.querySelector<HTMLButtonElement>('[data-flow="terminal.watch"]')!
+    expect(link.textContent).toBe("Ben's shell")
+    await act(async () => link.click())
+    expect(submitted).toEqual([{ name: "terminal.watch", payload: { branch: "b1", id: "t-ben" }, actor: "user", originCardId: "branch:b1" }])
+    viewer = undefined; await render()
+    expect(host.querySelector('[data-flow="terminal.watch"]')).toBeNull()
+  } finally { await act(async () => root.unmount()); provider.dispose(); live.dispose(); controller.design.dispose() }
+})
+
+test("live item gestures open only the supplied TODO and require its provider", () => {
+  const model = definitionsOf(make(), "b-retry").model
+  const { calls, dispatch } = recorder()
+  cardActions(dispatch, liveBranchActionDefinitions(model, new Set())).onAction("todo", { n: "200" })
+  expect(calls).toEqual([])
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["todo"])))
+  expect(bindings.gestures.item?.tag).toBe("todo")
+  bindings.onAction("todo", { n: "200" })
+  expect(calls).toEqual([["todo", { n: 9 }]])
+  expect(liveBranchActionDefinitions({ ...model, item: undefined }, new Set(["todo"]))).toEqual([])
+  expect(liveBranchActionDefinitions({ ...model, machine: { state: "closed" } }, new Set(["todo"]))[0]?.gesture).toBe("item")
 })

@@ -73,7 +73,7 @@ try {
   }
   run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true, gateEnvironment)
   if (push) {
-    const result = spawnSync("pnpm", ["exec", "smthrs", "lint", "//:driftCi", "//:targetIndex", "//:ci", "//scripts:trackedHygiene", "//scripts:conflictMarkers"], {
+    const result = spawnSync("smthrs", ["lint", "//:driftCi", "//:targetIndex", "//:ci", "//scripts:trackedHygiene", "//scripts:conflictMarkers"], {
       cwd: root, stdio: "inherit", env: gateEnvironment
     })
     if (result.error || result.status !== 0) throw new Error(`Mandatory drift gates failed (${result.error?.message ?? result.status})`)

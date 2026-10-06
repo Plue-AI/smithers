@@ -207,6 +207,8 @@ func TestGitHubReviewPollBatchesAnchorsAndReplays(t *testing.T) {
 		return func(_ context.Context, resource string, _ url.Values, _ string) (GitHubSyncedRepoConditionalPage, error) {
 			raw := ""
 			switch resource {
+			case "issues/3/comments":
+				raw = `[]`
 			case "pulls/3/reviews":
 				raw = `[{"id":42,"user":{"id":77,"login":"owner"},"state":"CHANGES_REQUESTED","body":"Fix these","submitted_at":"2026-10-05T10:00:00Z"}]`
 			case "pulls/3/comments":
@@ -217,8 +219,8 @@ func TestGitHubReviewPollBatchesAnchorsAndReplays(t *testing.T) {
 			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(raw)}, nil
 		}
 	})
-	require.NoError(t, synced.readInstallPullFacts(t.Context(), row, 3, "head", "reviews"))
-	require.NoError(t, synced.readInstallPullFacts(t.Context(), row, 3, "head", "reviews"))
+	require.NoError(t, synced.ReadInstallPullFacts(t.Context(), row, 3, "head", "reviews"))
+	require.NoError(t, synced.ReadInstallPullFacts(t.Context(), row, 3, "head", "reviews"))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='pulls/reviews'`))
 	require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='pulls/comments'`))
 	var snapshot []byte
@@ -290,4 +292,62 @@ func TestGitHubInstallAppReviewIsIgnored(t *testing.T) {
 	require.Empty(t, mythicalChecksOf(o.byID(uuidString(item.ID))).GitHubInputs)
 	require.Empty(t, mythicalChecksOf(o.byID(uuidString(item.ID))).Steers)
 	require.Empty(t, o.facts(item, "todo.github_input"))
+}
+
+func TestGitHubConversationSnapshotWithdrawsHeldInputAndReplays(t *testing.T) {
+	o, synced, row, item := newReviewConsumer(t)
+	pool := o.pool.(*pgxpool.Pool)
+	item.State = "blocked"
+	_, err := db.New(pool).SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	pullRead, err := synced.beginPullRead(t.Context(), row, 3)
+	require.NoError(t, err)
+	require.NoError(t, pgx.BeginFunc(t.Context(), pool, func(tx pgx.Tx) error {
+		return synced.commitFetchedIssue(t.Context(), tx, row, GitHubRepoMetadataPulls, pullRead, json.RawMessage(`{"id":707,"number":3,"state":"open","title":"Change","head":{"sha":"head","ref":"smithers/review"},"updated_at":"2026-10-05T10:00:00Z"}`))
+	}))
+	body := `[{"id":901,"body":"Use backoff","user":{"id":77,"login":"owner"},"issue_url":"https://api.github.com/repos/smithers-canary/smithers/issues/3","created_at":"2026-10-05T10:00:00Z","updated_at":"2026-10-05T10:00:00Z"}]`
+	synced.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher {
+		return func(_ context.Context, resource string, _ url.Values, _ string) (GitHubSyncedRepoConditionalPage, error) {
+			raw := `[]`
+			if resource == "issues/3/comments" {
+				raw = body
+			}
+			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(raw)}, nil
+		}
+	})
+	read := func() error { return synced.ReadInstallPullFacts(t.Context(), row, 3, "head", "reviews") }
+	require.NoError(t, read())
+	drain := func(want int) {
+		stop := runFetchedFixture(t, synced)
+		require.Eventually(t, func() bool {
+			return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='issues/comments' AND state='completed'`) == want
+		}, 5*time.Second, 10*time.Millisecond)
+		stop()
+	}
+	drain(1)
+	checks := mythicalChecksOf(o.byID(uuidString(item.ID)))
+	require.Len(t, checks.Steers, 1)
+	require.True(t, checks.Steers[0].ReleasePending)
+	body = `[]`
+	// A failed cache/delivery transaction cannot publish a partial tombstone.
+	_, err = pool.Exec(t.Context(), `CREATE FUNCTION reject_conversation_tombstone() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.operation='github.fetched.consume' AND NEW.payload->'object'->>'deleted'='true' THEN RAISE EXCEPTION 'tombstone crash'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_conversation_tombstone BEFORE INSERT ON product_job_requests FOR EACH ROW EXECUTE FUNCTION reject_conversation_tombstone()`)
+	require.NoError(t, err)
+	require.ErrorContains(t, read(), "tombstone crash")
+	var deleted bool
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT COALESCE((payload->>'deleted')::boolean,false) FROM github_synced_issue_comments WHERE github_id=901`).Scan(&deleted))
+	require.False(t, deleted)
+	_, err = pool.Exec(t.Context(), `DROP TRIGGER reject_conversation_tombstone ON product_job_requests`)
+	require.NoError(t, err)
+	require.NoError(t, read())
+	require.NoError(t, read())
+	drain(2)
+	checks = mythicalChecksOf(o.byID(uuidString(item.ID)))
+	require.Empty(t, checks.Steers)
+	require.Len(t, checks.GitHubInputs, 1)
+	require.True(t, checks.GitHubInputs[0].Hidden)
+	require.Equal(t, "blocked", o.byID(uuidString(item.ID)).State)
+	require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`))
+	// Restart preserves the cache tombstone and its one delivery identity.
+	require.NoError(t, read())
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='issues/comments'`))
 }

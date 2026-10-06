@@ -7582,7 +7582,7 @@ publication ordering.
 # @smthrs/build
 https://smithers.sh/docs/reference/api/build/
 
-> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/build/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/docs/api.md)
+> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/build/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/docs/api.md) · [package docs](https://build.smithers.sh)
 
 > **Related APIs:** [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/plan`](/docs/reference/api/plan/)
 
@@ -7747,7 +7747,7 @@ lives in [`@smthrs/build-cli`](https://github.com/smithersai/smithers/tree/main/
 # @smthrs/build-cli
 https://smithers.sh/docs/reference/api/build-cli/
 
-> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/build/build-cli/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/build-cli/docs/api.md)
+> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/build/build-cli/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/build-cli/docs/api.md) · [package docs](https://build-cli.smithers.sh)
 
 > **Related APIs:** [`@smthrs/build`](/docs/reference/api/build/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/keys`](/docs/reference/api/keys/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/targets`](/docs/reference/api/targets/)
 
@@ -7800,7 +7800,7 @@ runtime signal and environment through to discovery.
 `@smthrs/build-cli/Watch.run` resolves a cycle and invokes `cycleCompleted`
 only after its owned POSIX process group is gone. File changes, watcher errors,
 and the caller's signal all await that cleanup. Cleanup failure rejects the
-watch instead of starting another cycle. See [Commands](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/build-cli/docs/cli.md) for the
+watch instead of starting another cycle. See [Commands](https://build-cli.smithers.sh/cli/) for the
 platform and parent-crash limits.
 
 ### makeCli
@@ -7809,11 +7809,11 @@ platform and parent-crash limits.
 const makeCli: (config?: RuntimeConfig) => Cli
 ```
 
-Creates the configured `smithers-build` CLI. The [command reference](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/build-cli/docs/cli.md)
+Creates the configured `smithers-build` CLI. The [command reference](https://build-cli.smithers.sh/cli/)
 is the complete command inventory. `serve(argv, { exit, stdout })` runs one
 invocation. Every field of `config` replaces something the process would otherwise read for itself,
 which is what makes an invocation testable. See
-[Embed the CLI in another program](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/build-cli/docs/guides/embed-the-cli.md).
+[Embed the CLI in another program](https://build-cli.smithers.sh/guides/embed-the-cli/).
 
 ### cli
 
@@ -8092,7 +8092,7 @@ mode, and interactive capability; it never exposes environment values.
 touching workspace state. `incurArguments(argv, policy)` selects Incur formatting
 for harness-owned PTYs, using incremental JSONL for logs. `markers` is the
 verified registry. Detection is never an authorization boundary; see
-[output policy](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/build-cli/docs/concepts/output.md) and [marker evidence](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/build-cli/docs/reference/agent-detection.md).
+[output policy](https://build-cli.smithers.sh/concepts/output/) and [marker evidence](https://build-cli.smithers.sh/reference/agent-detection/).
 
 ## Reporter
 
@@ -9517,7 +9517,7 @@ unrestricted authority is within only unrestricted authority.
 # @smthrs/chain
 https://smithers.sh/docs/reference/api/chain/
 
-> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/chain/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/chain/docs/api.md) · [package docs](https://chain.smithers.sh)
+> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/chain/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/chain/docs/api.md)
 
 > **workspace-private:** `@smthrs/chain` is documented for contributors and is not installable from npm.
 
@@ -10485,7 +10485,7 @@ Only the root chain drains, and only at the `link/ordinal` boundary of a
 live author call. Non-empty drains journal a `SteeringDrained` event;
 drained lines reach every subsequent author attempt of the link as
 `[steering] <line>` context. For the design behind every entry on this page,
-see [The chain contract](https://chain.smithers.sh/contract/).
+see [The chain contract](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/chain/docs/contract.md).
 
 ---
 
@@ -16543,7 +16543,7 @@ surface is worth the extra imports.
 # @smthrs/fs
 https://smithers.sh/docs/reference/api/fs/
 
-> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/fs/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/fs/docs/api.md) · [package docs](https://fs.smithers.sh)
+> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/fs/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/fs/docs/api.md)
 
 > **workspace-private:** `@smthrs/fs` is documented for contributors and is not installable from npm.
 
@@ -16911,7 +16911,7 @@ type Code =
 Stable failure codes for routing, parsing, loading, and decoding, also
 exported as a `Schema.Literals` value for decoding. For the meaning and
 trigger of each code, see the
-[error codes table](https://fs.smithers.sh/contract/#error-codes).
+[error codes table](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/fs/docs/contract.md#error-codes).
 
 ### `FsError`
 

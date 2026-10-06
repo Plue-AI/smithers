@@ -6,9 +6,10 @@
 
 import * as Digest from "@smthrs/core/Digest"
 import * as Effect from "effect/Effect"
-import type * as FileSystem from "effect/FileSystem"
-import type * as Path from "effect/Path"
+import * as FileSystem from "effect/FileSystem"
+import * as Path from "effect/Path"
 import type { FlowDescriptor } from "../Descriptor.ts"
+import { measureLockfiles } from "./Lockfiles.ts"
 
 type BodyFailure =
   | { readonly _tag: "unmeasured" }
@@ -31,6 +32,16 @@ export const readVerifiedBody = (
   Effect.gen(function*() {
     const digest = descriptor.body.contentDigest
     if (digest === undefined) return yield* Effect.fail({ _tag: "unmeasured" } as const)
+
+    if (descriptor.lockfiles !== undefined) {
+      const measured = yield* measureLockfiles(path.resolve(descriptor.provenance.root, descriptor.lockfiles.root))
+        .pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.mapError((cause) => ({ _tag: "unreadable" as const, cause }))
+        )
+      if (measured !== descriptor.lockfiles.digest) return yield* Effect.fail({ _tag: "changed" } as const)
+    }
 
     const bytes = yield* Effect.gen(function*() {
       const sourcePath = descriptor.body.path

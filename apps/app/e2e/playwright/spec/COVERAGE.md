@@ -50,7 +50,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J7-03 | [C-J7-03.spec.ts](C-J7-03.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-02 |
 | C-J8-01 | [C-J8-01.spec.ts](C-J8-01.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
 | C-J8-02 | [C-J8-02.spec.ts](C-J8-02.spec.ts) | fixme-before-implementation | T-COL-09 |
-| C-J8-03 | [C-J8-03.spec.ts](C-J8-03.spec.ts) | passing: owner folder PUT, sync status, refusal retained, unavailable control absent; composed PostgreSQL worker proof separate; Mac timing pending | T-FLW-12 |
+| C-J8-03 | [C-J8-03.spec.ts](C-J8-03.spec.ts) | passing: owner folder PUT, sync status, refusal retained, unavailable control absent; composed PostgreSQL worker and forced mid-pass race proof separate; reference scenario in e2e/real/wiki-obsidian.spec.ts; Mac execution pending | T-FLW-12 |
 | C-J8-04 | [C-J8-04.spec.ts](C-J8-04.spec.ts) | fixme-before-implementation | T-FLW-10 |
 | C-J8-05 | [C-J8-05.spec.ts](C-J8-05.spec.ts) | fixme-before-implementation | T-FLW-10, T-COL-09 |
 | C-J8-06 | [C-J8-06.spec.ts](C-J8-06.spec.ts) | fixme-before-implementation | T-FLW-02, T-APP-01, T-REL-02 |
@@ -310,7 +310,7 @@ Cycle 31: repository flow listing, failed activation, edit-to-merge, typed execu
 | A-MONITOR | [A-MONITOR.spec.ts](A-MONITOR.spec.ts) | fixme-before-implementation | T-FLW-07 |
 | A-DEBUG-API | [A-DEBUG-API.spec.ts](A-DEBUG-API.spec.ts) | fixme-before-implementation | T-APP-21 |
 | A-RUN-INSPECT | [A-RUN-INSPECT.spec.ts](A-RUN-INSPECT.spec.ts) | fixme-before-implementation | T-FLW-07 |
-| A-FLOW-SOURCE | [A-FLOW-SOURCE.spec.ts](A-FLOW-SOURCE.spec.ts) | mounted source passes; S2/S3 editing pending | T-APP-05, T-FLW-04, T-FLW-05 |
+| A-FLOW-SOURCE | [A-FLOW-SOURCE.spec.ts](A-FLOW-SOURCE.spec.ts), [install Source continuation](../flow-card-install.spec.ts) | mounted source and confirmed Draft-to-branch Source/reload pass; S2/S3 editing pending | T-APP-05, T-FLW-04, T-FLW-05 |
 
 Cycle 32: live run recovery, GitHub stale/refused sync, the full monitor,
 API playground and collaborative flow-source editing retain complete pending
@@ -370,7 +370,8 @@ The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets
 | C-UI-12 Debug API | [Debug API stories](../view-stories.spec.ts) | passed: all 15 states, light/dark, 1280/1440/390, axe/overflow; Enter/Space selection and Send; POST/PUT/PATCH/DELETE confirmation, disabled/absent actions, inert response/failure text | T-UI-22 |
 | C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; install activation remains T-APP-20 | T-UI-21 |
 | C-UI-12 Secrets | [Secrets stories](../view-stories.spec.ts) | passed: 11 stories, light/dark, 1440/390, axe/overflow; Add/Replace/Cancel clear Value, redacted callbacks, absent/disabled actions, optional Hosts, inert names, keyboard Delete | T-UI-18 |
-| C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Open branch from REST TODO through the composed app provider to the live Branch card; Branch tabs survive reload; 1 passed | T-UI-04 |
+| C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Open branch from REST TODO through the composed app provider to the live Branch card; Branch tabs survive reload; keyboard item title returns through the real TODO flow/REST seam; 1 passed | T-UI-04 |
+| C-UI-12 Proposal | [Proposal stories](../view-stories.spec.ts) | passed: open/accepted/dismissed/read-only, hostile refs, zero/one/multiple lessons, keyboard callbacks; light/dark, 1440/390, axe and overflow | T-UI-20; install mounting and lessons source await T-FLW-06 |
 
 T-MCH-08 scratch Diff has a passing install HTTP contract and browser projection in [scratch-diff.spec.ts](../scratch-diff.spec.ts): fork revision, unresolved read, duplicate input and reload. C-J7-02 remains pending for Add to stack/Confirm/Drop; C-MCH-08 remains pending for real capture and source boot continuity.
 

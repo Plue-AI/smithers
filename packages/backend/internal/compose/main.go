@@ -208,8 +208,8 @@ type Options struct {
 	ChatCallbackListener  net.Listener
 	ChatProducerBaseURL   string
 	Recommender           ports.Recommender
-	RecommendationLog     ports.RecommendationLog
-	ModelStreamHost       ports.ModelStreamHost
+
+	ModelStreamHost ports.ModelStreamHost
 	// MetricsCollectors are deployment collectors exported with the product
 	// registry on this process's /metrics endpoint.
 	MetricsCollectors []prometheus.Collector
@@ -491,7 +491,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	stopRevocationBus := func() {
 		stopRevocationListener(cancelRevocationBus, revocationBus, revocationBusStopTimeout)
 	}
-	defer stopRevocationBus()
+	defer func() {
+		stopRevocationBus()
+		// A stopped install must not leave its database's revoked identities
+		// attached to the next composition in this process.
+		routes.SetRevocationSource(nil)
+		revocationChecker = nil
+	}()
 	revocationPublisher := revocation.NewDBPublisher(queries, revocationBus)
 	routes.SetRevocationSource(revocationBus)
 	revocationChecker = revocationBus
@@ -1268,7 +1274,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		FindingsService:    changeService,
 		ConflictResolver:   changeService,
 		ChangeReverter:     changeRevertService,
-		ChangeSplitter:     changeService,
 		ChangeOperations:   changeOperationService,
 		WalkthroughService: changeService,
 		Broker:             sseBroker,
@@ -1330,7 +1335,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repositoryJobService.SetOutsiderEgress(workspaceService)
 	repositoryJobService.SetRepositoryPolicyReader(repoHostClient)
 	mythicalService.SetPolicyReader(repoHostClient)
-	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
 	// InvokeWorkflow runs a file flow through the same Flow dispatcher.
 	invokedFlowService := services.NewInvokedFlowService(pool, repositoryJobService, workspaceService)
 	invokedFlowService.SetSecretInjector(secretInjector)
@@ -1344,7 +1348,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return errors.New("workflow run service cannot cancel invoked Flow runs")
 	}
 	options.Repository = repoHostClient
-	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, repositorySetupService)
+	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService)
 	if err != nil {
 		return err
 	}
@@ -1360,7 +1364,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if flow != nil {
 		agentService.SetFlowDispatcher(flow.dispatcher)
 		repositoryJobService.SetFlowDispatcher(flow.dispatcher)
-		repositorySetupService.SetFlowDispatcher(flow.dispatcher)
 		invokedFlowService.SetFlowDispatcher(flow.dispatcher)
 		mythicalService.SetLauncher(flow.dispatcher)
 		if config.IsSingleOwner(cfg.Auth) {
@@ -1551,18 +1554,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			recommender = jev
 		}
 	}
-	recommendationLog := options.RecommendationLog
-	if recommender != nil && recommendationLog == nil {
-		recommendationLog = routes.NewPostgresRecommendationLog(pool)
-	}
-	if recommender != nil && recommendationLog != nil {
+	if recommender != nil {
 		// A multitenant deployment pays for Jev and meters it; a single-owner
 		// installation runs it on its owner's key.
 		var recommendationMeter *modelproxy.Meter
 		if options.topology.hosted() || options.PlatformModelKeys != nil {
 			recommendationMeter = modelMeter
 		}
-		recommendationHandler = routes.NewRecommendationHandler(recommender, recommendationLog, recommendationMeter)
+		recommendationHandler = routes.NewRecommendationHandler(recommender, recommendationMeter)
 	}
 	var modelStreamHandler *routes.ModelStreamHandler
 	modelStreamHost := options.ModelStreamHost

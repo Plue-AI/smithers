@@ -245,3 +245,24 @@ func TestGitHubConversationPauseDoesNotBlockOtherStreams(t *testing.T) {
 		})
 	}
 }
+
+func TestGitHubConversationSnapshotPreservesNewerConcurrentCache(t *testing.T) {
+	s, pool, row := newFetchedFixture(t)
+	allowFetched(s)
+	stamp := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	raw := json.RawMessage(`{"id":19,"body":"arrived during the read","issue_url":"https://api.github.com/repos/factory/app/issues/7","created_at":"2026-10-06T12:00:01Z","updated_at":"2026-10-06T12:00:01Z"}`)
+	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, nil, []json.RawMessage{raw}))
+	commit := func(number int64, objects []json.RawMessage) error {
+		return pgx.BeginFunc(t.Context(), pool, func(tx pgx.Tx) error {
+			return s.commitFetchedConversationSnapshot(t.Context(), tx, row, number, stamp, objects)
+		})
+	}
+	require.NoError(t, commit(7, nil))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
+	var body string
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT payload->>'body' FROM github_synced_issue_comments WHERE github_id=19`).Scan(&body))
+	require.Equal(t, "arrived during the read", body)
+	require.Error(t, commit(8, []json.RawMessage{raw}), "a conversation for another PR cannot populate this snapshot")
+	require.Error(t, commit(7, []json.RawMessage{json.RawMessage(`{"id":20}`)}))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
+}

@@ -2,8 +2,6 @@ package routes
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -73,7 +71,6 @@ func (h *PublicRepositoryCatalogHandler) ServeHTTP(w http.ResponseWriter, r *htt
 // signed-in user; a single-owner installation runs Jev on its owner's key.
 type RecommendationHandler struct {
 	Recommender ports.Recommender
-	Log         ports.RecommendationLog
 	Meter       *modelproxy.Meter
 	// SelectDeadline bounds the Jev call behind Select; zero means
 	// CommandSelectDeadline.
@@ -84,8 +81,8 @@ type RecommendationHandler struct {
 // it before answering a chat message.
 const CommandSelectDeadline = 1500 * time.Millisecond
 
-func NewRecommendationHandler(recommender ports.Recommender, log ports.RecommendationLog, meter *modelproxy.Meter) *RecommendationHandler {
-	return &RecommendationHandler{Recommender: recommender, Log: log, Meter: meter}
+func NewRecommendationHandler(recommender ports.Recommender, meter *modelproxy.Meter) *RecommendationHandler {
+	return &RecommendationHandler{Recommender: recommender, Meter: meter}
 }
 
 const (
@@ -97,71 +94,6 @@ const (
 	recommendSummaryMax  = 512
 )
 
-func (h *RecommendationHandler) Recommend(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if h.Recommender == nil || h.Log == nil {
-		http.Error(w, `{"status":"error","code":"recommend_unavailable"}`, http.StatusNotFound)
-		return
-	}
-	user := middleware.UserFromContext(r.Context())
-	if h.Meter != nil && user == nil {
-		// A platform-key call needs a payer.
-		writeRecommendationError(w, http.StatusUnauthorized, "auth_required")
-		return
-	}
-	var input ports.RecommendationRequest
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, recommendBodyLimit))
-	if err := decodeSingleJSONDocument(decoder, &input); err != nil || !validRecommendationRequest(input) {
-		writeRecommendationError(w, http.StatusBadRequest, "request_invalid")
-		return
-	}
-	result, err := h.recommend(r.Context(), user, input)
-	if err != nil {
-		if errors.Is(err, credits.ErrInsufficient) || errors.Is(err, credits.ErrSealed) {
-			writeRecommendationError(w, http.StatusPaymentRequired, modelproxy.OutOfCredit)
-		} else if errors.Is(err, modelproxy.ErrSpendCapReached) {
-			w.Header().Set("Retry-After", modelproxy.SpendCapRetryAfter)
-			writeRecommendationError(w, http.StatusTooManyRequests, "spend_cap_reached")
-		} else if errors.Is(err, ports.ErrModelCredentialMissing) {
-			writeRecommendationError(w, http.StatusServiceUnavailable, "credential_missing")
-		} else {
-			writeRecommendationError(w, http.StatusBadGateway, "recommend_failed")
-		}
-		return
-	}
-	result.Commands = filterRecommendationCommands(result.Commands, input.Commands)
-	if strings.TrimSpace(result.Model) == "" {
-		writeRecommendationError(w, http.StatusBadGateway, "recommend_failed")
-		return
-	}
-	tailBytes, _ := json.Marshal(input.Tail)
-	digest := sha256.Sum256(tailBytes)
-	id, err := h.Log.AppendRecommendation(r.Context(), input, result, hex.EncodeToString(digest[:]))
-	if err != nil {
-		writeRecommendationError(w, http.StatusServiceUnavailable, "recommend_log_unavailable")
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "commands": result.Commands, "model": result.Model})
-}
-
-// recommend runs one Jev recommendation, metered to user when the deployment pays.
-func (h *RecommendationHandler) recommend(ctx context.Context, user *db.User, input ports.RecommendationRequest) (ports.RecommendationResult, error) {
-	var result ports.RecommendationResult
-	err := h.metered(ctx, user, func(ctx context.Context) (*ports.RecommendationUsage, error) {
-		var err error
-		result, err = h.Recommender.Recommend(ctx, input)
-		return result.Usage, err
-	})
-	return result, err
-}
-
-// metered runs one Jev call, metered to user when the deployment pays. call
-// reports the token count Jev returned, nil when it reported none.
 func (h *RecommendationHandler) metered(ctx context.Context, user *db.User, call func(context.Context) (*ports.RecommendationUsage, error)) error {
 	if h.Meter == nil {
 		_, err := call(ctx)
@@ -320,94 +252,6 @@ func filterSelectedCommands(selected []ports.SelectedCommand, offered []ports.Re
 	})
 	if len(filtered) > ports.CommandSelectionMax {
 		filtered = filtered[:ports.CommandSelectionMax]
-	}
-	return filtered
-}
-
-func (h *RecommendationHandler) Outcome(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if h.Log == nil {
-		http.Error(w, `{"status":"error","code":"recommend_unavailable"}`, http.StatusNotFound)
-		return
-	}
-	var input struct {
-		ID      string `json:"id"`
-		Command string `json:"command"`
-	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
-	if err := decodeSingleJSONDocument(decoder, &input); err != nil || strings.TrimSpace(input.ID) == "" || strings.TrimSpace(input.Command) == "" || len(input.Command) > recommendNameMax {
-		writeRecommendationError(w, http.StatusBadRequest, "request_invalid")
-		return
-	}
-	status, err := h.Log.RecordRecommendationOutcome(r.Context(), input.ID, input.Command, time.Now().UTC())
-	if err != nil {
-		writeRecommendationError(w, http.StatusServiceUnavailable, "recommend_log_unavailable")
-		return
-	}
-	switch status {
-	case http.StatusNoContent:
-		w.WriteHeader(http.StatusNoContent)
-	case http.StatusNotFound:
-		writeRecommendationError(w, http.StatusNotFound, "recommendation_not_found")
-	case http.StatusConflict:
-		writeRecommendationError(w, http.StatusConflict, "recommendation_already_recorded")
-	default:
-		writeRecommendationError(w, http.StatusInternalServerError, "recommend_log_unavailable")
-	}
-}
-
-func validRecommendationRequest(input ports.RecommendationRequest) bool {
-	if len(input.Tail) > recommendTailMax || len(input.Commands) > recommendCommandsMax {
-		return false
-	}
-	textSize := 0
-	for _, message := range input.Tail {
-		if message.Role != "user" && message.Role != "assistant" && message.Role != "system" {
-			return false
-		}
-		textSize += len(message.Text)
-	}
-	if textSize > recommendTextMax {
-		return false
-	}
-	for _, command := range input.Commands {
-		if strings.TrimSpace(command.Name) == "" || len(command.Name) > recommendNameMax || len(command.Summary) > recommendSummaryMax {
-			return false
-		}
-	}
-	if len(input.Model) > 0 {
-		var binding struct {
-			ModelID string `json:"modelId"`
-		}
-		if json.Unmarshal(input.Model, &binding) != nil || strings.TrimSpace(binding.ModelID) != ports.RecommendationModelID {
-			return false
-		}
-	}
-	return true
-}
-
-func filterRecommendationCommands(names []string, offered []ports.RecommendationCommand) []string {
-	known := make(map[string]struct{}, len(offered))
-	for _, command := range offered {
-		known[command.Name] = struct{}{}
-	}
-	filtered := make([]string, 0, len(names))
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if _, ok := known[name]; !ok {
-			continue
-		}
-		duplicate := false
-		for _, existing := range filtered {
-			duplicate = duplicate || existing == name
-		}
-		if !duplicate && len(filtered) < 5 {
-			filtered = append(filtered, name)
-		}
 	}
 	return filtered
 }

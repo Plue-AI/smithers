@@ -1,10 +1,12 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +25,22 @@ import (
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
+
+// The real filesystem store remains in use; this barrier schedules a person edit
+// after the worker has read its expected revision, before the durable write.
+type obsidianRaceStore struct {
+	blob.Store
+	beforePut func()
+}
+
+func (s *obsidianRaceStore) Put(ctx context.Context, key, media string, data io.Reader) error {
+	if s.beforePut != nil {
+		edit := s.beforePut
+		s.beforePut = nil
+		edit()
+	}
+	return blob.Put(ctx, s.Store, key, media, data)
+}
 
 func TestInstallObsidianSettingsRouteWorkerPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
@@ -165,18 +183,30 @@ func TestInstallObsidianSettingsRouteWorkerPostgres(t *testing.T) {
 	page, err = svc.GetWikiPage(ctx, &owner, owner.Username, "app", slug)
 	require.NoError(t, err)
 	concurrentApp := markdown + "app newer\n"
-	_, err = svc.UpdateWikiPage(ctx, &owner, owner.Username, "app", slug, services.UpdateWikiPageInput{Body: &concurrentApp, ExpectedRevision: &page.Revision})
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(vault, "Retry.md"), []byte(markdown+"disk concurrent\n"), 0600))
-	require.Error(t, svc.SyncInstallWikiFolder(ctx, source))
+	diskEdit := markdown + "disk concurrent\n"
+	require.NoError(t, os.WriteFile(filepath.Join(vault, "Retry.md"), []byte(diskEdit), 0600))
+	raced := false
+	barrier := &obsidianRaceStore{Store: store}
+	barrier.beforePut = func() {
+		raced = true
+		_, editErr := svc.UpdateWikiPage(ctx, &owner, owner.Username, "app", slug, services.UpdateWikiPageInput{Body: &concurrentApp, ExpectedRevision: &page.Revision})
+		require.NoError(t, editErr)
+	}
+	worker := services.NewWikiService(q, nil, services.WithWikiCollaboration(q, nil), services.WithWikiContent(barrier))
+	require.ErrorContains(t, worker.SyncInstallWikiFolder(ctx, source), "wiki changed")
+	require.True(t, raced, "person edit must occur during the production reconciliation pass")
 	page, err = svc.GetWikiPage(ctx, &owner, owner.Username, "app", slug)
 	require.NoError(t, err)
 	require.Equal(t, concurrentApp, page.Body)
 	disk, err := os.ReadFile(filepath.Join(vault, "Retry.md"))
 	require.NoError(t, err)
-	require.Equal(t, markdown+"disk concurrent\n", string(disk))
+	require.Equal(t, diskEdit, string(disk))
+	// Restore the last acknowledged disk copy; replay then exports the person edit.
 	require.NoError(t, os.WriteFile(filepath.Join(vault, "Retry.md"), []byte(body), 0600))
 	require.NoError(t, svc.SyncInstallWikiFolder(ctx, source))
+	disk, err = os.ReadFile(filepath.Join(vault, "Retry.md"))
+	require.NoError(t, err)
+	require.Equal(t, concurrentApp, string(disk))
 	require.Contains(t, request("GET", owner.Username, "").Body.String(), "last_sync_at")
 	require.Equal(t, 200, set(owner.Username, next).Code)
 	require.NoError(t, os.WriteFile(filepath.Join(vault, "Ignored.md"), []byte("# Ignored\n"), 0600))

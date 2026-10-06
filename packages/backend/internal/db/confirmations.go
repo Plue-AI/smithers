@@ -26,6 +26,14 @@ type Confirmation struct {
 const confirmationColumns = `id, member_id, kind, state, command, subject, revision, generation, reviewed_head_sha, payload, expires_at`
 
 func (q *Queries) ListMemberConfirmations(ctx context.Context, member int64) ([]Confirmation, error) {
+	// Expiry is durable even if nobody presses the card. The same projection
+	// feeds HTTP and the private live topic, so neither can advertise an
+	// elapsed confirmation as pending. Never settle another member's rows or
+	// unrelated run waits during this read.
+	_, err := q.db.Exec(ctx, `UPDATE approvals SET state='expired', decided_at=now(), decided_by=NULL WHERE member_id=$1 AND state='pending' AND expires_at <= now()`, member)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := q.db.Query(ctx, `SELECT `+confirmationColumns+` FROM approvals WHERE member_id=$1 ORDER BY created_at DESC, id`, member)
 	if err != nil {
 		return nil, err

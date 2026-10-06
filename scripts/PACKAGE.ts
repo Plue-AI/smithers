@@ -12,6 +12,8 @@
  * `node`.
  */
 import { Smithers } from "@smthrs/targets"
+import { existsSync, readdirSync } from "node:fs"
+import { libraryPackages, repoRoot } from "./workspace-packages.mjs"
 
 /**
  * Everything under `scripts/`, digested as the input of every gate here.
@@ -517,7 +519,6 @@ const lockfileParity = Smithers.NodeTest({
     Smithers.file("//examples/package.json"),
     Smithers.file("//flows/package.json"),
     Smithers.glob("//apps/*/package.json"),
-    Smithers.glob("//apps/docs/*/package.json"),
     Smithers.glob("//evals/*/package.json")
   ],
   deps: []
@@ -1024,6 +1025,25 @@ const securityReview = Smithers.SecurityReview({
   ]
 })
 
+/** Explicit cross-package inputs; declaration-scoped globs do not cross child packages. */
+const packageDocInputs = libraryPackages().flatMap(({ dir }) => {
+  const docs = `${repoRoot}/${dir}/docs`
+  const walk = (path: string): string[] => readdirSync(path, { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory() ? walk(`${path}/${entry.name}`) : [`${path}/${entry.name}`])
+  return [
+    Smithers.file(`//${dir}/package.json`),
+    ...(existsSync(`${repoRoot}/${dir}/README.md`) ? [Smithers.file(`//${dir}/README.md`)] : []),
+    ...(existsSync(docs) ? walk(docs).map((path) => Smithers.file(`//${path.slice(repoRoot.length + 1)}`)) : [])
+  ]
+})
+const packageDocs = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/package-docs.test.mjs"), Smithers.file("//scripts/package-docs-redirect.test.mjs")]),
+  timeout: "30m",
+  cache: false,
+  srcs: [...sources, Smithers.file("//pnpm-workspace.yaml"), ...packageDocInputs],
+  deps: []
+})
+
 export const Package = Smithers.Package({
   targets: {
     apiBaseline,
@@ -1032,6 +1052,7 @@ export const Package = Smithers.Package({
     trackedHygiene,
     trackedHygieneUnit,
     docsDrift,
+    packageDocs,
     driftJob,
     providerLiveGuards,
     openapiBundle,

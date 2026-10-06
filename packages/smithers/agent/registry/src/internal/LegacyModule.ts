@@ -1,4 +1,12 @@
-/** Frozen admission rule for retained modules using the removed Core constructor. */
+/**
+ * Frozen admission rule for retained modules using the removed Core constructor.
+ * @since 1.0.0-rc.1
+ */
+
+/** Identify the retained legacy constructor without evaluating a module.
+ * @category guards
+ * @since 1.0.0-rc.1
+ */
 export const isLegacyObjectModule = (bytes: Uint8Array): boolean => {
   const source = new TextDecoder().decode(bytes)
   const aliases: Array<string> = []

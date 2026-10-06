@@ -12,6 +12,9 @@ run-kind targets; `flow start` starts durable flows.
 
 | Command | Purpose |
 | --- | --- |
+| `auth login/logout/status/token`, `login` | Authenticate to Smithers and inspect token status. |
+| `index <pattern>` | Read selected target declarations. |
+| `mcp add` | Register Smithers with a coding agent. |
 | `build/test/lint/docs/review/ci/run <patterns...>` | Execute the union of the selected target kinds; `ci` combines build, test, lint, and docs. |
 | `target <labels...>` or `//package:target` | Execute exact declarations using their own kinds. |
 | `targets [pattern]` | List target labels and summaries. |
@@ -34,6 +37,32 @@ run-kind targets; `flow start` starts durable flows.
 | `host backup`, `host upgrade`, `host restore <directory>` | Host maintenance commands. Currently refuse until capture, drain and owner authorization are composed; restore validates the backup before any state change. |
 | `serve`, `doctor`, `suggest`, `migrate`, `update`, `bug` | Host, diagnose, discover uses, migrate source, check versions, or submit a report. |
 | `token mint` | Mint a scoped, expiring gateway token under `SMITHERS_TOKEN`. |
+| `agent` | Configure an agent |
+| `agents` | The factory's agents |
+| `api` | Make raw API calls to the Smithers server |
+| `branch` | Add a scratch branch as a TODO; waits for the person's confirmation |
+| `branches` | List branches with presence |
+| `cp` | Copy files or directories between the local machine and a workspace |
+| `debug` | Call the documented API |
+| `diff` | Show a branch's changes |
+| `exec` | Run a workspace command with a durable receipt and bounded output |
+| `file` | Open and co-edit a file |
+| `files` | Browse a branch's files |
+| `flows` | List the repository's flows |
+| `github` | Show sync status and retry |
+| `issue` | Comment on an issue; waits for the person's confirmation |
+| `issues` | List the repository's issues |
+| `merge` | Review and merge the next item; waits for the person's confirmation |
+| `monitor` | Every run, with its debug view |
+| `pr` | Open a pull request's card |
+| `review` | Review a change, return findings; waits for the person's confirmation |
+| `search` | Search code, wiki and runs |
+| `shell` | Open an interactive terminal in a workspace via the WebSocket terminal endpoint |
+| `ssh-key` | Add an SSH key |
+| `stack` | Reorder an item |
+| `todo` | Change an unmerged TODO's prompt; waits for the person's confirmation |
+| `wiki` | Open or create a page |
+| `workspace` | SSH into a workspace (creates one if none exists for the repo) |
 
 Target patterns include `//...`, `//package/...`, and `//package:target`.
 Execution supports `--plan`, `--jobs`, and `--no-cache`. `affected` compares
@@ -360,9 +389,7 @@ scripts. The Claude mirror protocol is hidden as `internal claude`.
 
 ## Command pages
 
-Every canonical command has a page generated from its `--help` at
-[smithers.sh/docs/reference/cli](https://smithers.sh/docs/reference/cli/), with
-the hidden-alias table.
+
 
 ## Other reference
 

@@ -66,8 +66,6 @@ import { Package as cliPackage } from "../../packages/smithers/PACKAGE.ts"
 import { Package as testingPackage } from "../../packages/testing/PACKAGE.ts"
 import { workspacePackages } from "../../scripts/workspace-packages.mjs"
 import { Package as uiPackage } from "../app/PACKAGE.ts"
-import { sites as docsSites } from "../docs/shared/manifest.mjs"
-import { Package as docsSharedPackage } from "../docs/shared/PACKAGE.ts"
 
 const cwd = "apps/site"
 
@@ -100,12 +98,16 @@ const sources = [
  */
 const appSources = uiPackage.webSources
 
-/**
- * The shared docs kit: scripts/docs-notice.mjs imports its release notice
- * middleware into the /docs routes, so its edit changes the rendered pages
- * without touching a file under apps/site. The edge carries its digest here.
- */
-const docsKit = docsSharedPackage.sources
+/** Package metadata used by documentation projections. */
+const docsKit = Smithers.Filegroup({
+  srcs: [
+    Smithers.file("//scripts/package-docs.mjs"),
+    Smithers.file("//scripts/workspace-packages.mjs"),
+    Smithers.file("//pnpm-workspace.yaml"),
+    ...workspacePackages().map(({ dir }) => Smithers.file(`//${dir}/package.json`))
+  ],
+  cwd
+})
 
 /** `astro check`: the pages, components and the island's app sources typecheck against the package tsconfig. */
 const check = Smithers.ToolRun({
@@ -312,7 +314,6 @@ const checkExitTest = Smithers.Shell.Test({
     Smithers.file("public/llms.txt"),
     Smithers.file("public/llms-full.txt"),
     docsKit,
-    Smithers.file("//apps/docs/shared/sync-content.mjs"),
     // The copied tree carries every member manifest and each documented
     // package's docs; explicit files cross package boundaries, a glob cannot.
     ...workspacePackages().map(({ dir }) => Smithers.file(`//${dir}/package.json`)),
@@ -451,20 +452,11 @@ const docsRuntimeTests = Smithers.Shell.Test({
   data: [
     Smithers.file("scripts/deployment.test.mjs"),
     Smithers.file("package.json"),
-    Smithers.file("//apps/docs/shared/alchemy-site.mjs"),
-    Smithers.file("//apps/docs/shared/alchemy-site.d.ts"),
-    Smithers.file("//apps/docs/shared/manifest.mjs"),
-    Smithers.file("//apps/docs/shared/package.json"),
     Smithers.glob("//apps/*/wrangler.jsonc"),
     Smithers.glob("//apps/*/alchemy.run.ts"),
     Smithers.file("//apps/server/scripts/canary/workers-manifest.ts"),
-    Smithers.file("//apps/docs/README.md"),
     Smithers.file("//apps/bug-worker/README.md"),
     Smithers.file("//apps/bug-worker/package.json"),
-    ...docsSites.flatMap((site) => [
-      Smithers.file(`//apps/docs/${site.slug}/alchemy.run.ts`),
-      Smithers.file(`//apps/docs/${site.slug}/package.json`)
-    ]),
     examplesPackage.docs,
     cliPackage.docsSources,
     flowPackage.docsSources,

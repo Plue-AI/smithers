@@ -57,7 +57,8 @@
     "LICENSE",
     "README.md",
     "CHANGELOG.md",
-    "dist/vendor/**"
+    "dist/vendor/**",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",

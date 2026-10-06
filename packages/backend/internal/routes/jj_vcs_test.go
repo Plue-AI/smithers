@@ -82,14 +82,6 @@ type mockChangeRevertService struct {
 	revertFn func(context.Context, *db.User, int64, string, string, string) (services.ChangeRevertResponse, error)
 }
 
-type mockChangeSplitService struct {
-	splitFn func(context.Context, int64, string, string, string, services.SplitChangeInput) (services.SplitChangeResponse, error)
-}
-
-func (m mockChangeSplitService) SplitChange(ctx context.Context, repositoryID int64, owner, repo, changeID string, input services.SplitChangeInput) (services.SplitChangeResponse, error) {
-	return m.splitFn(ctx, repositoryID, owner, repo, changeID, input)
-}
-
 func (m mockChangeRevertService) RevertChange(ctx context.Context, actor *db.User, repositoryID int64, owner, repo, changeID string) (services.ChangeRevertResponse, error) {
 	return m.revertFn(ctx, actor, repositoryID, owner, repo, changeID)
 }
@@ -1035,95 +1027,6 @@ func TestJJVCSHandler_RevertChange_RequiresAuthentication(t *testing.T) {
 	h.RevertChange(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
-
-func TestJJVCSHandler_SplitChange_ReturnsBothChanges(t *testing.T) {
-	t.Parallel()
-
-	h := &JJVCSHandler{
-		RepoResolver: jjVCSLegacyResolver{},
-		ChangeSplitter: mockChangeSplitService{splitFn: func(_ context.Context, repositoryID int64, owner, repo, changeID string, input services.SplitChangeInput) (services.SplitChangeResponse, error) {
-			assert.Equal(t, int64(1), repositoryID)
-			assert.Equal(t, "alice", owner)
-			assert.Equal(t, "demo", repo)
-			assert.Equal(t, "original", changeID)
-			assert.Equal(t, services.SplitChangeInput{Paths: []string{"src/a.go"}, Description: "Extract a"}, input)
-			return services.SplitChangeResponse{
-				Original: repohost.Change{ChangeID: "original", CommitID: "original-2"},
-				Split:    repohost.Change{ChangeID: "split", CommitID: "split-1"},
-			}, nil
-		}},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/changes/original/split", strings.NewReader(`{"paths":["src/a.go"],"description":"Extract a"}`))
-	req = withJJRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "change_id": "original"})
-	req = req.WithContext(middleware.ContextWithAuthInfo(req.Context(), &middleware.AuthInfo{User: &db.User{ID: 7}}))
-	rec := httptest.NewRecorder()
-
-	h.SplitChange(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	var response services.SplitChangeResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
-	assert.Equal(t, "original", response.Original.ChangeID)
-	assert.Equal(t, "split", response.Split.ChangeID)
-}
-
-func TestJJVCSHandler_SplitChange_ValidatesRequestAndAuthentication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		auth       bool
-		wantStatus int
-	}{
-		{name: "authentication", body: `{"paths":["a.go"]}`, wantStatus: http.StatusUnauthorized},
-		{name: "invalid JSON", body: `{`, auth: true, wantStatus: http.StatusBadRequest},
-		{name: "missing paths", body: `{}`, auth: true, wantStatus: http.StatusBadRequest},
-		{name: "empty path", body: `{"paths":[""]}`, auth: true, wantStatus: http.StatusBadRequest},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := &JJVCSHandler{RepoResolver: jjVCSLegacyResolver{}, ChangeSplitter: mockChangeSplitService{splitFn: func(context.Context, int64, string, string, string, services.SplitChangeInput) (services.SplitChangeResponse, error) {
-				t.Fatal("service should not be called")
-				return services.SplitChangeResponse{}, nil
-			}}}
-			req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/changes/original/split", strings.NewReader(tt.body))
-			req = withJJRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "change_id": "original"})
-			if tt.auth {
-				req = req.WithContext(middleware.ContextWithAuthInfo(req.Context(), &middleware.AuthInfo{User: &db.User{ID: 7}}))
-			}
-			rec := httptest.NewRecorder()
-			h.SplitChange(rec, req)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestJJVCSHandler_SplitChange_PropagatesConflictAndUnprocessable(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name       string
-		err        error
-		wantStatus int
-	}{
-		{name: "landed", err: pkgerrors.Conflict("landed changes cannot be split"), wantStatus: http.StatusConflict},
-		{name: "no matching path", err: pkgerrors.UnprocessableEntity("no listed path is in the change"), wantStatus: http.StatusUnprocessableEntity},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := &JJVCSHandler{RepoResolver: jjVCSLegacyResolver{}, ChangeSplitter: mockChangeSplitService{splitFn: func(context.Context, int64, string, string, string, services.SplitChangeInput) (services.SplitChangeResponse, error) {
-				return services.SplitChangeResponse{}, tc.err
-			}}}
-			req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/changes/original/split", strings.NewReader(`{"paths":["missing.go"]}`))
-			req = withJJRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "change_id": "original"})
-			req = req.WithContext(middleware.ContextWithAuthInfo(req.Context(), &middleware.AuthInfo{User: &db.User{ID: 7}}))
-			rec := httptest.NewRecorder()
-			h.SplitChange(rec, req)
-			assert.Equal(t, tc.wantStatus, rec.Code)
-		})
-	}
-}
-
-// --- GetChangeDiff ---
 
 func TestJJVCSHandler_GetChangeDiff_Success(t *testing.T) {
 	t.Parallel()

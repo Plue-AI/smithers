@@ -259,3 +259,34 @@ test("a TODO notice uses the same current action as its timeline and edge", () =
   click(host.querySelector('[data-flow="todo.retry"]'))
   expect(calls).toEqual([["todo.retry", { n: 12 }]])
 })
+
+
+test("the install shell keeps a missing TODO entry's notice visible without its saved Retry", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "smithersai", admin: false, scopesPlain: null }).isPersisted.promise
+  const writes: string[] = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input), "https://install.test").pathname
+      if (init?.method && init.method !== "GET") writes.push(path)
+      return path === "/api/install" ? Response.json(installFixture())
+        : path === "/api/todos" ? Response.json([]) : new Response("", { status: 404 })
+    }
+  })
+  await store.dispatch({ type: "toast.shown", actor: "system", key: "old-todo", title: "Checks failed", sourceCard: "todo:24",
+    action: { flow: "todo.retry", args: "T24", label: "Retry" } }).isPersisted.promise
+  await store.dispatch({ type: "toast.resolved", actor: "system", key: "old-todo", title: "Checks failed", detail: "Lint failed", status: "failed" }).isPersisted.promise
+  const host = mount(<ControllerTestProvider controller={controller}><MessageScrollerProvider>
+    <ShellRail home={true} entries={[card("current-entry", "active", "Current conversation")]} />
+  </MessageScrollerProvider></ControllerTestProvider>)
+  await waitFor(() => host.querySelector('[data-entry="home"] .tl-text b')?.textContent === "smithersai/smithers")
+  expect(controller.design.enabled).toBe(false)
+  expect(host.querySelector(".notice")?.textContent).toContain("Checks failed")
+  expect(host.querySelector('.notice [data-flow="todo.retry"]')).toBeNull()
+  expect(writes).toEqual([])
+  click(host.querySelector('[aria-label="Hide Checks failed"]'))
+  await waitFor(() => host.querySelectorAll(".notice").length === 0)
+  expect(host.querySelector('[data-entry="current-entry"] .tl-text b')?.textContent).toBe("Current conversation")
+  expect(writes).toEqual([])
+})

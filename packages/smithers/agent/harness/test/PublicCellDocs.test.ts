@@ -110,7 +110,7 @@ it("keeps copyable guide flow declarations free of filesystem-root grants", () =
   // Both the package source and the published site mirror are checked, and both
   // the `/**` and slash-less `**` spellings count as root-wide.
   const guides = ["bind-flows", "run-cells", "drive-the-loop", "workerd"]
-  const roots = ["../docs/guides/", "../../../../../apps/docs/harness/src/content/docs/guides/"]
+  const roots = ["../docs/guides/"]
   // The workerd `fs/list` projection lists a directory, so its read grant matches its purpose.
   const allowed = /name: "fs\/list",\n\s*description: "List a directory\.",\n\s*capabilities: \["fs:read:\*\*"\]/
   for (const root of roots) {

@@ -20,7 +20,7 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
 }
-const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true) => {
+const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true, openSource?: TodoSeamOptions["openSource"]) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   const observed = new Map<string, (model: unknown, receipts?: readonly TodoReceipt[]) => void>()
@@ -36,7 +36,7 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage(), act
     isDisposed: () => disposed,
     resolveToast: (key, outcome) => { outcomes.push({ key, ...outcome }); store.dispatch({ type: "toast.resolved", actor: "system", key, status: outcome.status, detail: outcome.detail }) }
   }
-  const seam = createTodoSeam(context, { actors, topics: live ? topics : undefined, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
+  const seam = createTodoSeam(context, { openSource, actors, topics: live ? topics : undefined, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
   return { store, seam, observed, outcomes, reports, context, storage,
     draft: () => [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry,
     todo: () => store.collections.cards.get("todo:12") as TodoEntry,
@@ -946,4 +946,63 @@ test("Edit toast waits for the exact admitted revision, then settles from the re
   expect(h.outcomes).toEqual([expect.objectContaining({ status: "ok", detail: "Amended" })])
   expect(h.todo().payload.requests).toEqual([])
  } finally { h.close() }
+})
+
+
+test("Source refuses a missing File continuation before drafting", async () => {
+  const h = await harness(async () => { throw new Error("No HTTP expected") })
+  try {
+    expect(await h.seam.newFlowSourceTodo({ title: "Change the TODO flow", text: "Edit the source" }, "flows/todo/flow.ts")).toBe("Branch files are unavailable.")
+    expect(h.draft()).toBeUndefined()
+  } finally { h.close() }
+})
+
+test("Source keeps polling after a live publication until the derived file is ready", async () => {
+  let ready = false
+  let opens = 0
+  let reads = 0
+  let posts = 0
+  const h = await harness(async (_url, init) => {
+    if (init?.method === "POST") { posts++; return json({ state: "accepted", n: 12 }) }
+    reads++
+    return json(fixtures.in_review.model, 200)
+  }, memoryStorage(), undefined, true, async () => { opens++; return ready })
+  try {
+    await h.seam.newFlowSourceTodo({ title: "Change the TODO flow", text: "Edit the source" }, "flows/todo/flow.ts")
+    expect(opens).toBe(0)
+    const id = h.draft().id
+    await h.seam.newTodo({ cardId: id })
+    await waitFor(() => h.observed.has("todo:12"))
+    h.seam.resumeTodos()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(posts).toBe(1)
+    h.observed.get("todo:12")!(fixtures.in_review.model, [{ key: h.draft().payload.idempotencyKey, committed: { n: 12, rev: 1 } }])
+    await waitFor(() => opens === 1)
+    expect(h.draft().payload.source?.opened).toBe(false)
+    ready = true
+    await waitFor(() => h.draft().payload.source?.opened === true)
+    expect(reads).toBeGreaterThan(0)
+    expect(opens).toBe(2)
+    await h.seam.applyTodoProjection(12, fixtures.in_review.model, [])
+    expect(opens).toBe(2)
+  } finally { h.close() }
+})
+
+
+test("a server snapshot recovers Source after the TODO receipt cleared before its Draft persisted", async () => {
+  let posts = 0
+  const h = await harness(async () => { posts++; return json({ state: "accepted", n: 12 }) }, memoryStorage(), undefined, true, async () => true)
+  try {
+    await h.seam.newFlowSourceTodo({ title: "Recover a confirmed edit", text: "Edit the source" }, "flows/todo/flow.ts")
+    await h.seam.newTodo({ cardId: h.draft().id })
+    await waitFor(() => h.observed.has("todo:12"))
+    const card = h.todo()
+    await h.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload, requests: [] } } }).isPersisted.promise
+    expect(h.draft().payload.committed).toBeUndefined()
+    await h.seam.applyTodoProjection(12, { ...fixtures.in_review.model, title: "Recover a confirmed edit",
+      prompt_revisions: [{ ...fixtures.in_review.model.prompt_revisions[0], text: "Edit the source", acceptance: [] }] }, [])
+    expect(h.draft().payload.committed).toEqual({ n: 12, rev: 1 })
+    expect(h.draft().payload.source?.opened).toBe(true)
+    expect(posts).toBe(1)
+  } finally { h.close() }
 })

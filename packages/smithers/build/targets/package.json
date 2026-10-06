@@ -135,7 +135,6 @@
   },
   "files": [
     "src/**/*.ts",
-    "docs/**",
     "dist/**/*.js",
     "dist/**/*.js.map",
     "dist/**/*.d.ts",
@@ -143,7 +142,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",

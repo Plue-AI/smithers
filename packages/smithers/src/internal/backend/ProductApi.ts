@@ -912,6 +912,21 @@ export type MembersCard = {
   access_url: string
 }
 
+export type LearningProposalCard = {
+  id: string
+  title: string
+  evidence: Array<string>
+  refs: Array<{
+    label: string
+    url: string
+  }>
+  state: "open" | "accepted" | "dismissed"
+  todo?: {
+    n: number
+    title: string
+  }
+}
+
 /** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
 export type TodoCard = {
   n: number
@@ -1256,7 +1271,10 @@ export interface PostApiAgentConversationsReplayInput {
 export const postApiAgentConversationsReplay = (transport: Transport, input: PostApiAgentConversationsReplayInput): Promise<PostApiAgentConversationsReplayResponse> =>
   transport.request("POST", `/api/agent/conversations/replay`, input.body) as Promise<PostApiAgentConversationsReplayResponse>
 
-export type GetApiConversationViewStateResponse = Record<string, unknown>
+export type GetApiConversationViewStateResponse = {
+  toasts_hidden: boolean
+  [key: string]: unknown
+}
 
 export interface GetApiConversationViewStateInput {
   readonly path: { readonly b: string }
@@ -1266,9 +1284,15 @@ export interface GetApiConversationViewStateInput {
 export const getApiConversationViewState = (transport: Transport, input: GetApiConversationViewStateInput): Promise<GetApiConversationViewStateResponse> =>
   transport.request("GET", `/api/conversations/${segment(input.path.b)}/view-state`) as Promise<GetApiConversationViewStateResponse>
 
-export type PutApiConversationViewStateBody = Record<string, unknown>
+export type PutApiConversationViewStateBody = {
+  toasts_hidden?: boolean
+  [key: string]: unknown
+}
 
-export type PutApiConversationViewStateResponse = Record<string, unknown>
+export type PutApiConversationViewStateResponse = {
+  toasts_hidden: boolean
+  [key: string]: unknown
+}
 
 export interface PutApiConversationViewStateInput {
   readonly path: { readonly b: string }
@@ -1555,6 +1579,27 @@ export interface GetApiBranchesBInput {
 /** GET /api/branches/{b}: Read one branch */
 export const getApiBranchesB = (transport: Transport, input: GetApiBranchesBInput): Promise<GetApiBranchesBResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}`) as Promise<GetApiBranchesBResponse>
+
+export type PostApiBranchesBBody = {
+  op: "bring-in" | "discard-foreign"
+  id: string
+  revision: string
+}
+
+export type PostApiBranchesBResponse = {
+  state?: "accepted"
+  n?: number
+}
+
+export interface PostApiBranchesBInput {
+  readonly path: { readonly b: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiBranchesBBody
+}
+
+/** POST /api/branches/{b}: Answer an outside push to a TODO branch */
+export const postApiBranchesB = (transport: Transport, input: PostApiBranchesBInput): Promise<PostApiBranchesBResponse> =>
+  transport.request("POST", `/api/branches/${segment(input.path.b)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiBranchesBResponse>
 
 export type GetApiBranchesBDiffResponse = TODOBranchDiff
 
@@ -2560,35 +2605,37 @@ export interface PostApiOrgsOrgBillingRefreshInput {
 export const postApiOrgsOrgBillingRefresh = (transport: Transport, input: PostApiOrgsOrgBillingRefreshInput): Promise<PostApiOrgsOrgBillingRefreshResponse> =>
   transport.request("POST", `/api/orgs/${segment(input.path.org)}/billing/refresh`) as Promise<PostApiOrgsOrgBillingRefreshResponse>
 
+export type GetApiProposalsResponse = Array<LearningProposalCard>
+
+/** GET /api/proposals: Read learning proposals */
+export const getApiProposals = (transport: Transport): Promise<GetApiProposalsResponse> =>
+  transport.request("GET", `/api/proposals`) as Promise<GetApiProposalsResponse>
+
+export type PostApiProposalsIdAcceptResponse = LearningProposalCard
+
+export interface PostApiProposalsIdAcceptInput {
+  readonly path: { readonly id: string }
+}
+
+/** POST /api/proposals/{id}/accept: Make a TODO from a learning proposal */
+export const postApiProposalsIdAccept = (transport: Transport, input: PostApiProposalsIdAcceptInput): Promise<PostApiProposalsIdAcceptResponse> =>
+  transport.request("POST", `/api/proposals/${segment(input.path.id)}/accept`) as Promise<PostApiProposalsIdAcceptResponse>
+
+export type PostApiProposalsIdDismissResponse = LearningProposalCard
+
+export interface PostApiProposalsIdDismissInput {
+  readonly path: { readonly id: string }
+}
+
+/** POST /api/proposals/{id}/dismiss: Dismiss a learning proposal */
+export const postApiProposalsIdDismiss = (transport: Transport, input: PostApiProposalsIdDismissInput): Promise<PostApiProposalsIdDismissResponse> =>
+  transport.request("POST", `/api/proposals/${segment(input.path.id)}/dismiss`) as Promise<PostApiProposalsIdDismissResponse>
+
 export type GetApiPublicReposResponse = AnyJSON
 
 /** GET /api/public/repos */
 export const getApiPublicRepos = (transport: Transport): Promise<GetApiPublicReposResponse> =>
   transport.request("GET", `/api/public/repos`) as Promise<GetApiPublicReposResponse>
-
-export type PostApiRecommendBody = AnyJSON
-
-export type PostApiRecommendResponse = AnyJSON
-
-export interface PostApiRecommendInput {
-  readonly body?: PostApiRecommendBody
-}
-
-/** POST /api/recommend */
-export const postApiRecommend = (transport: Transport, input?: PostApiRecommendInput): Promise<PostApiRecommendResponse> =>
-  transport.request("POST", `/api/recommend`, input?.body) as Promise<PostApiRecommendResponse>
-
-export type PostApiRecommendOutcomeBody = AnyJSON
-
-export type PostApiRecommendOutcomeResponse = AnyJSON
-
-export interface PostApiRecommendOutcomeInput {
-  readonly body?: PostApiRecommendOutcomeBody
-}
-
-/** POST /api/recommend/outcome */
-export const postApiRecommendOutcome = (transport: Transport, input?: PostApiRecommendOutcomeInput): Promise<PostApiRecommendOutcomeResponse> =>
-  transport.request("POST", `/api/recommend/outcome`, input?.body) as Promise<PostApiRecommendOutcomeResponse>
 
 export type GetApiReposOwnerRepoChangesCountResponse = AnyJSON
 
@@ -4446,16 +4493,6 @@ export interface PostApiReposOwnerRepoChangesChangeIdRevertInput {
 export const postApiReposOwnerRepoChangesChangeIdRevert = (transport: Transport, input: PostApiReposOwnerRepoChangesChangeIdRevertInput): Promise<PostApiReposOwnerRepoChangesChangeIdRevertResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/changes/${segment(input.path.change_id)}/revert`) as Promise<PostApiReposOwnerRepoChangesChangeIdRevertResponse>
 
-export type PostApiReposOwnerRepoChangesChangeIdSplitResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoChangesChangeIdSplitInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly change_id: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/changes/{change_id}/split */
-export const postApiReposOwnerRepoChangesChangeIdSplit = (transport: Transport, input: PostApiReposOwnerRepoChangesChangeIdSplitInput): Promise<PostApiReposOwnerRepoChangesChangeIdSplitResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/changes/${segment(input.path.change_id)}/split`) as Promise<PostApiReposOwnerRepoChangesChangeIdSplitResponse>
-
 export type PostApiReposOwnerRepoGithubProxyResponse = AnyJSON
 
 export interface PostApiReposOwnerRepoGithubProxyInput {
@@ -5410,6 +5447,57 @@ export type GetApiSearchUsersResponse = AnyJSON
 /** GET /api/search/users */
 export const getApiSearchUsers = (transport: Transport): Promise<GetApiSearchUsersResponse> =>
   transport.request("GET", `/api/search/users`) as Promise<GetApiSearchUsersResponse>
+
+export type GetApiSecretsResponse = Array<SecretMetadata>
+
+/** GET /api/secrets */
+export const getApiSecrets = (transport: Transport): Promise<GetApiSecretsResponse> =>
+  transport.request("GET", `/api/secrets`) as Promise<GetApiSecretsResponse>
+
+export type PutApiSecretsBody = SetRepositorySecretRequest
+
+export type PutApiSecretsResponse = SecretMetadata
+
+export interface PutApiSecretsInput {
+  readonly body: PutApiSecretsBody
+}
+
+/** PUT /api/secrets */
+export const putApiSecrets = (transport: Transport, input: PutApiSecretsInput): Promise<PutApiSecretsResponse> =>
+  transport.request("PUT", `/api/secrets`, input.body) as Promise<PutApiSecretsResponse>
+
+export type DeleteApiSecretsBody = {
+  name: string
+}
+
+export interface DeleteApiSecretsInput {
+  readonly body: DeleteApiSecretsBody
+}
+
+/** DELETE /api/secrets */
+export const deleteApiSecrets = (transport: Transport, input: DeleteApiSecretsInput): Promise<void> =>
+  transport.request("DELETE", `/api/secrets`, input.body).then(() => undefined)
+
+export interface DeleteApiSecretsNameInput {
+  readonly path: { readonly name: string }
+}
+
+/** DELETE /api/secrets/{name} */
+export const deleteApiSecretsName = (transport: Transport, input: DeleteApiSecretsNameInput): Promise<void> =>
+  transport.request("DELETE", `/api/secrets/${segment(input.path.name)}`).then(() => undefined)
+
+export type PatchApiSecretsNameBody = UpdateRepositorySecretRequest
+
+export type PatchApiSecretsNameResponse = SecretMetadata
+
+export interface PatchApiSecretsNameInput {
+  readonly path: { readonly name: string }
+  readonly body: PatchApiSecretsNameBody
+}
+
+/** PATCH /api/secrets/{name} */
+export const patchApiSecretsName = (transport: Transport, input: PatchApiSecretsNameInput): Promise<PatchApiSecretsNameResponse> =>
+  transport.request("PATCH", `/api/secrets/${segment(input.path.name)}`, input.body) as Promise<PatchApiSecretsNameResponse>
 
 export type PostApiTelemetryErrorsResponse = AnyJSON
 

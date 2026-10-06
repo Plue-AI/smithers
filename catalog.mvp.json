@@ -3487,6 +3487,16 @@
                   "type": "null"
                 }
               ]
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -5947,7 +5957,10 @@
       "minimumRole": "member",
       "agent": "confirm",
       "summary": "Make TODO",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/proposals/{id}/accept"
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
@@ -5980,7 +5993,10 @@
       "minimumRole": "member",
       "agent": "confirm",
       "summary": "Dismiss",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/proposals/{id}/dismiss"
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
@@ -9224,7 +9240,7 @@
       "actors": [
         "person"
       ],
-      "minimumRole": "maintainer",
+      "minimumRole": "member",
       "agent": "never",
       "summary": "Set secrets machines can use",
       "http": null,
@@ -9504,7 +9520,7 @@
       ],
       "minimumRole": "maintainer",
       "agent": "never",
-      "summary": "Limit a repository secret to trusted runs on main, or give it to every run",
+      "summary": "Limit a repository secret to trusted runs on main, or give it to all branches",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -9567,6 +9583,20 @@
               "anyOf": [
                 {
                   "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "scope": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "all_branches",
+                    "main_only"
+                  ]
                 },
                 {
                   "type": "null"

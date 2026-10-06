@@ -111,7 +111,7 @@ test("on an install, flow doors read GET /api/flows: the built-in TODO flow is e
       flowCardFamily.flow.render(card as Parameters<typeof flowCardFamily.flow.render>[0], { presentation: "embedded" } as CardActions)))
     expect(html).toContain("Built-in")
     for (const label of ["Plan", "Implement", "Verify", "Review", "Propose", "Wait for merge"]) expect(html).toContain(label)
-    expect([...html.matchAll(/data-flow="([^"]+)"/g)].map(match => match[1])).toEqual(["flow.edit"])
+    expect([...html.matchAll(/data-flow="([^"]+)"/g)].map(match => match[1])).toEqual(["flow.source", "flow.edit"])
     expect(await h.controller.runCommandForResult("flows")).toMatchObject({ status: "executed", value: "1 flows" })
     expect(await h.controller.runCommandForResult("flow", "merge")).toMatchObject({ status: "failed", error: expect.stringContaining("No flow merge") })
     expect(await h.controller.runCommandForResult("flow.edit", "todo Add review")).toMatchObject({ status: "executed" })

@@ -11,12 +11,13 @@ import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as Descriptor from "./Descriptor.ts"
 import type { ClosureModule, Executable, VerifiedSource } from "./Executable.ts"
+import { measureLockfiles } from "./internal/Lockfiles.ts"
 import * as Prompt from "./Prompt.ts"
+export { measureLockfiles } from "./internal/Lockfiles.ts"
 
 /** Snapshot integrity, availability, and dependency drift failures.
  * @category errors
@@ -70,24 +71,6 @@ const Manifest = Schema.Struct({
 const fail = (code: ExecutionSnapshotError["code"], message: string, cause?: unknown, indexMissing?: true) =>
   new ExecutionSnapshotError({ code, message, cause, ...(indexMissing ? { indexMissing } : {}) })
 const address = (value: string) => /^[a-f0-9]{64}$/.test(value)
-const lockfiles = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb"]
-/** Measure the repository dependency environment without executing it.
- * @category utilities
- * @since 1.0.0-rc.1
- */
-export const measureLockfiles = (root: string) =>
-  Effect.gen(function*() {
-    const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
-    const measured: Array<readonly [string, string]> = []
-    for (const name of lockfiles) {
-      const bytes = yield* fs.readFile(path.join(root, name)).pipe(
-        Effect.map(Option.some),
-        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(Option.none()))
-      )
-      if (Option.isSome(bytes)) measured.push([name, Digest.digest(bytes.value)])
-    }
-    return Digest.digest(new TextEncoder().encode(JSON.stringify(measured)))
-  })
 
 const verifiedCompilation = (filename: string, module: ClosureModule, descriptor: Descriptor.FlowDescriptor) =>
   Effect.gen(function*() {
@@ -162,6 +145,12 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
         )
         if (manifest.executionDigest !== digest || Descriptor.executionDigest(manifest.descriptor) !== digest) {
           return yield* Effect.fail(fail("corrupt", "Execution snapshot descriptor identity differs"))
+        }
+        if (
+          manifest.descriptor.lockfiles !== undefined &&
+          manifest.descriptor.lockfiles.digest !== manifest.lockfileDigest
+        ) {
+          return yield* Effect.fail(fail("corrupt", "Execution snapshot lockfiles differ from its descriptor"))
         }
         if (checkLockfiles && manifest.lockfileDigest !== (yield* lockfileDigest)) {
           return yield* Effect.fail(fail("lockfile_changed", "Project lockfiles changed after admission"))
@@ -249,6 +238,12 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
             }
           }
         }
+        const dependencyDigest = yield* lockfileDigest
+        if (
+          executable.descriptor.lockfiles !== undefined && executable.descriptor.lockfiles.digest !== dependencyDigest
+        ) {
+          return yield* Effect.fail(fail("lockfile_changed", "Project lockfiles changed before admission"))
+        }
         const indexPath = path.join(directory, `${executionDigest}.json`)
         if (yield* fs.exists(indexPath)) {
           const retained = yield* restore(executionDigest).pipe(
@@ -282,7 +277,7 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
           modules,
           compiled,
           descriptor: executable.descriptor,
-          lockfileDigest: yield* lockfileDigest
+          lockfileDigest: dependencyDigest
         }
         const encoded = yield* Schema.encodeEffect(Schema.toCodecJson(Manifest))(manifest)
         const bytes = new TextEncoder().encode(yield* Effect.try(() => JSON.stringify(encoded)))

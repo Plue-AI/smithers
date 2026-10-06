@@ -19,6 +19,7 @@ var SystemFlows = []string{
 	"history.show", "history.view", "history.parallel", "history.bootstrap", "history.backfill",
 	"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.drop", "todo.takeover",
 	"todo.preapprove", "todo.unapprove",
+	"learning.accept", "learning.dismiss",
 	"history.todo", "issue.implement", "runs.steer", "history.retry",
 	"branch.fork", "branch.add-to-stack", "branch.rebase",
 	// B.4: foreign-push answers stay install-owned even before their

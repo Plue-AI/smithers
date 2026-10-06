@@ -37,3 +37,46 @@ test("install flow versions retain selection across refresh and reload", async (
   await expect(flow.getByRole("button", { name: "Source", exact: true })).toBeVisible()
   await expect(flow.getByRole("button", { name: "Run", exact: true })).toHaveCount(0)
 })
+
+test("Source without a proposal continues after Commit and reload on the served TODO branch", async ({ page }) => {
+  const { fixtures } = await import("../../../../packages/rpc/test/fixtures/Todo")
+  await owner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
+  } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  await page.route("**/api/flows", route => route.fulfill({ json: [{ name: "todo", source: { builtin: true }, system: false,
+    versions: [{ id: "d1", state: "active", steps: [] }] }] }))
+  let body: { title: string; prompt: string } | undefined
+  let creates = 0
+  let fileReady = false
+  await page.route("**/api/branches/main/files/flows/todo/flow.ts", route => route.fulfill({ status: 404, json: { class: "conflict", code: "not_found" } }))
+  await page.route("**/api/todos", async route => {
+    if (route.request().method() !== "POST") return route.fulfill({ json: [] })
+    body = route.request().postDataJSON()
+    creates++
+    await route.fulfill({ status: 202, json: { state: "accepted", n: 43 } })
+  })
+  await page.route("**/api/todos/43", route => route.fulfill({ json: { ...fixtures.in_review.model, n: 43,
+    title: body?.title ?? "Change the TODO flow: Edit the source",
+    prompt_revisions: [{ ...fixtures.in_review.model.prompt_revisions[0], text: body?.prompt ?? "", acceptance: [] }],
+    branch: { id: "branch-43", name: "flow-source-43", machine: { state: "awake" } } } }))
+  await page.route("**/api/branches/branch-43/files/flows/todo/flow.ts", route => fileReady
+    ? route.fulfill({ json: { branch: "branch-43", path: "flows/todo/flow.ts", language: "typescript", digest: "file-43",
+      content: { kind: "text", text: "export default derivedComposition\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] } })
+    : route.fulfill({ status: 404, json: { class: "conflict", code: "not_found" } }))
+  await page.goto("/")
+  await say(page, "/flow.source todo")
+  const prompt = page.getByRole("textbox", { name: "Prompt", exact: true }).last()
+  await expect(prompt).toHaveValue("Change flows/todo/flow.ts: Edit the source; start from the built-in composition when no override exists")
+  expect(creates).toBe(0)
+  await page.getByRole("button", { name: "Commit", exact: true }).last().press("Enter")
+  await expect.poll(() => creates).toBe(1)
+  await expect(page.getByText("Committed as T43", { exact: true })).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await page.reload()
+  fileReady = true
+  await expect(page.getByText("export default derivedComposition", { exact: false }).last()).toBeVisible({ timeout: 30000 })
+  expect(creates).toBe(1)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})

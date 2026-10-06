@@ -33,6 +33,11 @@ test("install /flow mounts the served versions through the production card rende
     const path = new URL(request.url).pathname
     reads.push(path)
     if (path === "/api/todos" && request.method === "POST") { writes.push(await request.json()); return Response.json({ state: "accepted", n: 43 }, { status: 202 }) }
+    if (path === "/api/todos/43" && writes.length) return Response.json({ ...todoFixtures.in_review.model, n: 43,
+      title: (writes[0] as { title: string }).title, prompt_revisions: [{ ...todoFixtures.in_review.model.prompt_revisions[0], text: (writes[0] as { prompt: string }).prompt, acceptance: [] }],
+      branch: { id: "branch-43", name: "flow-source-43", machine: { state: "awake" } } })
+    if (path === "/api/branches/branch-43/files/flows/todo/flow.ts") return Response.json({ branch: "branch-43", path: "flows/todo/flow.ts", language: "typescript", digest: "file-43", content: { kind: "text", text: "export default derivedComposition\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
+    if (path === "/api/branches/main/files/flows/todo/flow.ts") return Response.json({ class: "infra", code: "unavailable" }, { status: sourceUnavailable ? 503 : 404 })
     if (path === "/api/todos/42" && sourceUnavailable) return Response.json({ class: "infra", code: "unavailable" }, { status: 503 })
     if (path === "/api/todos/42") return Response.json({ ...todoFixtures.in_review.model, n: 42, branch: { id: "branch-42", name: "flow-edit-42", machine: { state: "awake" } } })
     if (path === "/api/branches/branch-42/files/flows/todo/flow.ts") return Response.json({ branch: "branch-42", path: "flows/todo/flow.ts", language: "typescript", digest: "file-42", content: { kind: "text", text: "export default pinnedComposition\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
@@ -79,11 +84,26 @@ test("install /flow mounts the served versions through the production card rende
     catalog[0]!.versions = versions.filter(version => version.state !== "proposed")
     await act(async () => { await controller!.flowCards() })
     expect([...host.querySelectorAll("[data-flow]")].map(node => node.textContent)).toEqual(["builder", "Source", "Edit"])
+    sourceUnavailable = true
+    expect(await controller.commands.submit({ name: "flow.source", actor: "user", payload: { name: "todo" } })).toMatchObject({ status: "failed" })
+    expect([...store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)
+    expect(writes).toEqual([])
+    sourceUnavailable = false
     expect(await controller.commands.submit({ name: "flow.source", actor: "user", payload: { name: "todo" } })).toMatchObject({ status: "executed" })
     expect(writes).toEqual([])
     const sourceDraft = [...store.collections.cards.values()].find(card => card.kind === "draft")!
     expect(sourceDraft).toMatchObject({ payload: { prompt: "Change flows/todo/flow.ts: Edit the source; start from the built-in composition when no override exists" } })
-    await controller.commands.submit({ name: "draft.discard", actor: "user", payload: { draft: sourceDraft.id } })
+    expect(sourceDraft).toMatchObject({ payload: { source: { path: "flows/todo/flow.ts", owner: "will", opened: false } } })
+    await controller.commands.submit({ name: "todo.new", actor: "user", payload: { cardId: sourceDraft.id } })
+    await waitFor(() => { const row = store.collections.cards.get(sourceDraft.id); return row?.kind === "draft" && row.payload.source?.opened === true }, 5000)
+    expect(writes).toHaveLength(1)
+    expect(reads).toContain("/api/branches/branch-43/files/flows/todo/flow.ts")
+    expect([...store.collections.cards.values()].find(card => card.kind === "file" && card.payload.ref === "branch-43")).toMatchObject({ payload: { content: "export default derivedComposition\n" } })
+    await controller.commands.submit({ name: "todo.new", actor: "user", payload: { cardId: sourceDraft.id } })
+    expect(writes).toHaveLength(1)
+    await store.dispatch({ type: "card.removed", actor: "system", id: sourceDraft.id }).isPersisted.promise
+    for (const file of store.collections.cards.values()) if (file.kind === "file") await store.dispatch({ type: "card.removed", actor: "system", id: file.id }).isPersisted.promise
+    writes.length = 0
     catalog[0]!.versions = versions
     await act(async () => { await controller!.flowCards() })
     expect(await controller.commands.submit({ name: "flow.source", actor: "user", payload: { name: "todo" } })).toMatchObject({ status: "executed" })
@@ -137,4 +157,4 @@ test("install /flow mounts the served versions through the production card rende
     host.remove()
     Object.assign(globalThis, domHttp)
   }
-})
+}, 15000)

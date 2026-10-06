@@ -24,7 +24,6 @@ packages:
   - "flows"
   - "flows/coding"
   - "apps/*"
-  - "apps/docs/*"
   - "evals/*"
 
 allowBuilds:

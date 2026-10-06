@@ -60,6 +60,9 @@ func (r *pendingBranchInspection) InspectWorkspace(ctx context.Context, _ string
 }
 
 func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
+	t.Cleanup(func() {
+		require.Nil(t, revocationChecker, "install shutdown releases the revoked member identities before another install starts")
+	})
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
 	user := func(login string) db.User {

@@ -90,9 +90,27 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	}
 	id := seed("one_click", "todo.drop", false)
 	expired := seed("review_merge", "merge", true)
-	w := call("GET", "/api/confirmations", ownerCookie, "", "")
+	// Listing another member's confirmations must not settle the owner's rows.
+	w := call("GET", "/api/confirmations", otherCookie, "", "")
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.JSONEq(t, `[]`, w.Body.String())
+	var beforeList string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, expired).Scan(&beforeList))
+	require.Equal(t, "pending", beforeList)
+	w = call("GET", "/api/confirmations", ownerCookie, "", "")
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "reviewed-head-secret")
+	var fullRows []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &fullRows))
+	require.Len(t, fullRows, 2)
+	for _, row := range fullRows {
+		if row["id"] == expired {
+			require.Equal(t, "expired", row["state"])
+		} else {
+			require.Equal(t, id, row["id"])
+			require.Equal(t, "pending", row["state"])
+		}
+	}
 	w = call("GET", "/api/confirmations", otherCookie, "", "")
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.JSONEq(t, `[]`, w.Body.String())
@@ -103,7 +121,12 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.Len(t, projection, 2)
 	for _, row := range projection {
 		require.Len(t, row, 2)
-		require.Equal(t, "pending", row["state"])
+		if row["id"] == expired {
+			require.Equal(t, "expired", row["state"])
+		} else {
+			require.Equal(t, id, row["id"])
+			require.Equal(t, "pending", row["state"])
+		}
 	}
 	for _, pair := range []struct{ cookie, bearer string }{{otherCookie, ""}, {"", token}, {ownerCookie, token}} {
 		w = call("POST", "/api/confirmations/"+id+"/approve", pair.cookie, pair.bearer, "press")
@@ -141,12 +164,22 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.Empty(t, legacy)
 	_, err = q.GetApproval(ctx, id)
 	require.Error(t, err)
+	liveExpired := seed("one_click", "todo.drop", true)
 	topics := &liveTopics{queries: q}
 	source, status := topics.resolve(ctx, fmt.Sprintf("confirmations:%d", owner.ID), repo.ID, "maya/demo", owner.ID)
 	require.Empty(t, status)
 	payload, err := source.Build(ctx)
 	require.NoError(t, err)
 	require.Contains(t, string(payload), "reviewed-head-secret")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, liveExpired).Scan(&state))
+	require.Equal(t, "expired", state)
+	// A read never revives a denied confirmation, even when its deadline passes.
+	_, err = pool.Exec(ctx, `UPDATE approvals SET expires_at=now()-interval '1 minute' WHERE id=$1`, id)
+	require.NoError(t, err)
+	_, err = source.Build(ctx)
+	require.NoError(t, err)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, id).Scan(&state))
+	require.Equal(t, "rejected", state)
 	_, status = topics.resolve(ctx, fmt.Sprintf("confirmations:%d", owner.ID), repo.ID, "maya/demo", other.ID)
 	require.Equal(t, live.Forbidden, status)
 	_, status = topics.resolve(ctx, fmt.Sprintf("confirmations:%d:extra", owner.ID), repo.ID, "maya/demo", owner.ID)

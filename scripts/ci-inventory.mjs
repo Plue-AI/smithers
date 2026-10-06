@@ -23,10 +23,11 @@ export function targetInvocation(run) {
   const match = run.match(/^pnpm exec smthrs (ci|test|build|lint|docs) '(\/\/[^']+)'(.*)$/)
   if (!match) throw new Error(`Unrecognized CI target invocation: ${run}`)
   const [, verb, pattern, tail] = match
-  const options = tail.trim() === "" ? [] : tail.trim().split(/\s+/)
+  const options = tail.trim() === "" ? [] : tail.trim().match(/"[^"]*"|'[^']*'|\S+/g) ?? []
   let jobs
   let knownRed
   let verbose = false
+  let resultsFile
   for (let index = 0; index < options.length; index++) {
     const option = options[index]
     if (option === "--verbose" && !verbose) verbose = true
@@ -34,9 +35,12 @@ export function targetInvocation(run) {
       jobs = Number(options[++index])
     } else if (option === "--known-red" && knownRed === undefined && /^'[^']+'$/.test(options[index + 1] ?? "")) {
       knownRed = options[++index].slice(1, -1)
+    } else if (option === "--results-file" && resultsFile === undefined && /^"[^"]+"$/.test(options[index + 1] ?? "")) {
+      resultsFile = options[++index].slice(1, -1)
     } else throw new Error(`Unrecognized CI target option in: ${run}`)
   }
-  return knownRed === undefined ? { verb, pattern, jobs, verbose } : { verb, pattern, jobs, knownRed, verbose }
+  return { verb, pattern, jobs, ...(knownRed === undefined ? {} : { knownRed }), verbose,
+    ...(resultsFile === undefined ? {} : { resultsFile }) }
 }
 
 export function planned(verb, pattern, workspace = root) {

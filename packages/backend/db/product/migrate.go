@@ -163,6 +163,8 @@ var migrationRegistry = []migrationSpec{
 	{125, "migrations/0125_todo_position.sql"},
 	{126, "migrations/0126_wiki_live_cutover.sql"},
 	{127, "migrations/0127_github_main_health.sql"},
+	{128, "migrations/0128_learning_notes.sql"},
+	{129, "migrations/0129_model_usage_step.sql"},
 }
 
 type migration struct {

@@ -27,6 +27,7 @@ type LearningProposal struct {
 	Evidence  []string `json:"evidence"`
 	Todos     []int64  `json:"todos"`
 	Prompt    string   `json:"prompt"`
+	Diff      string   `json:"diff,omitempty"`
 }
 
 // LearningBinding comes from the stored run, not the success payload.

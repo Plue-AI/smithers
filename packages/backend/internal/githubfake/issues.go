@@ -372,11 +372,15 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		return 200, events, true
 	case len(path) == 3 && path[2] == "comments" && r.Method == http.MethodGet:
 		comments := []any{}
-		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page <= 1 {
-			for _, comment := range s.comments[key] {
-				comments = append(comments, map[string]any{"id": comment.ID, "body": comment.Body, "user": s.actor(comment.Author, comment.ViaApp),
-					"performed_via_github_app": s.viaApp(comment.ViaApp), "created_at": comment.CreatedAt})
+		start, end := pageBounds(r, len(s.comments[key]))
+		for _, comment := range s.comments[key][start:end] {
+			updated := comment.UpdatedAt
+			if updated.IsZero() {
+				updated = comment.CreatedAt
 			}
+			comments = append(comments, map[string]any{"id": comment.ID, "body": comment.Body, "user": s.fetchedActor(comment.Author, comment.ViaApp),
+				"performed_via_github_app": s.viaApp(comment.ViaApp), "created_at": comment.CreatedAt, "updated_at": updated,
+				"issue_url": s.URL + "/repos/" + repo + "/issues/" + strconv.FormatInt(number, 10)})
 		}
 		return 200, comments, true
 	}
@@ -552,4 +556,22 @@ func (s *Server) repositoryIssueComments(r *http.Request, repo string) []any {
 		out = append(out, map[string]any{"id": c.ID, "body": c.Body, "user": s.fetchedActor(c.Author, c.ViaApp), "performed_via_github_app": s.viaApp(c.ViaApp), "created_at": c.CreatedAt, "updated_at": e.updated, "issue_url": scheme + "://" + r.Host + "/repos/" + repo + "/issues/" + strconv.FormatInt(e.number, 10)})
 	}
 	return out
+}
+
+// DeleteComment removes a fixture comment as a person would on GitHub.
+func (s *Server) DeleteComment(repo string, id int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, comments := range s.comments {
+		if !strings.HasPrefix(key, repo+"/") {
+			continue
+		}
+		for i, comment := range comments {
+			if comment.ID == id {
+				s.comments[key] = append(comments[:i], comments[i+1:]...)
+				return true
+			}
+		}
+	}
+	return false
 }
