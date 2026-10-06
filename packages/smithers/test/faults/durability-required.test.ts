@@ -8,12 +8,12 @@ import { requireReachedGoFault } from "./harness/durability.ts"
 const root = fileURLToPath(new URL("../../../../", import.meta.url))
 const backend = `${root}packages/backend`
 const cases = [
-  ["C-DUR-01", "internal/services/todo_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes"],
-  ["C-DUR-01", "internal/services/postgres_kill_fault_test.go", "TestTodoPostgresCrashThroughRoute"],
-  ["C-DUR-03", "internal/services/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute"],
-  ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null],
-  ["C-DUR-04", "internal/machined/fault_test.go", null],
-  ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseCrashThroughDispatcher"]
+  ["C-DUR-01", "internal/services/todo_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes", ["start", "stop", "resume"]],
+  ["C-DUR-01", "internal/services/postgres_kill_fault_test.go", "TestTodoPostgresCrashThroughRoute", ["postgres-transition"]],
+  ["C-DUR-03", "internal/services/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute", ["merge-pre-land", "merge-post-land", "merge-post-call"]],
+  ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, []],
+  ["C-DUR-04", "internal/machined/fault_test.go", null, []],
+  ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]]
 ] as const
 
 // These TypeScript siblings are automatically executed by FaultSuite once
@@ -25,9 +25,9 @@ for (const file of ["host/case40-host-kill-todo-run.test.ts", "github-step-kill.
 }
 
 const selected = process.env.SMITHERS_FAULT_HOST === "reference"
-  ? [...cases, ["C-DUR-02", "flowhost/machine_kill_fault_test.go", null] as const]
+  ? [...cases, ["C-DUR-02", "flowhost/machine_kill_fault_test.go", null, []] as const]
   : cases
-for (const [check, file, name] of selected) {
+for (const [check, file, name, points] of selected) {
   test(`${check}: ${name ?? file}`, () => {
     expect(existsSync(`${backend}/${file}`), `Missing production fault case: ${file}`).toBe(true)
     expect(process.env.SMITHERS_TEST_DATABASE_URL, "Real PostgreSQL is required").toBeTruthy()
@@ -48,6 +48,6 @@ for (const [check, file, name] of selected) {
     expect(result.error, "Go fault process failed to execute").toBeUndefined()
     expect(result.signal, "Go fault process terminated by a signal").toBeNull()
     expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
-    for (const entry of names) requireReachedGoFault(result.stdout, entry)
+    for (const entry of names) requireReachedGoFault(result.stdout, entry, points)
   })
 }
