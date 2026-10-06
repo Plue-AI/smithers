@@ -183,6 +183,9 @@ export const Package = S.Package({ targets: {
     const valid = await serve(root, ["lint", "//:targetIndex"])
     expect(valid.exitCode, valid.logs + valid.output).toBe(0)
     await Fs.rename(NodePath.join(root, "crates/owned/src/lib.rs"), NodePath.join(root, "crates/owned/src/lib.moved"))
+    // Main’s declared-input contract allows an empty existing glob prefix.
+    expect((await serve(root, ["lint", "//:targetIndex"])).exitCode).toBe(0)
+    await Fs.rename(NodePath.join(root, "crates/owned/src"), NodePath.join(root, "crates/owned/src.moved"))
     const missing = await serve(root, ["lint", "//:targetIndex"])
     expect(missing.exitCode).toBe(1)
     expect(missing.logs + missing.output).toContain('crates/owned/src/**/*.rs')
@@ -192,10 +195,10 @@ export const Package = S.Package({ targets: {
 
   it("validates Markdown supplied by an owning Filegroup dependency of a Vitest target", async () => {
     const root = await fixture()
-    await write(root, "infra/README.md", "# Infrastructure\n")
+    await write(root, "infra/docs/README.md", "# Infrastructure\n")
     await write(root, "infra/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
 export const Package = S.Package({ targets: {
-  docsFiles: S.Filegroup({ cwd: "infra", srcs: [S.glob("**/*.md")] })
+  docsFiles: S.Filegroup({ cwd: "infra", srcs: [S.glob("docs/**/*.md")] })
 } })
 `)
     await write(root, "test/docs.test.ts", "export {}\n")
@@ -207,10 +210,13 @@ export const Package = S.Package({ targets: {
     const valid = await serve(root, ["lint", "//:targetIndex"])
     expect(valid.exitCode, valid.logs + valid.output).toBe(0)
     expect((await indexOf(root)).find((row) => row.label === "//:docsTest")?.dependencies).toContain("//infra:docsFiles")
-    await Fs.rename(NodePath.join(root, "infra/README.md"), NodePath.join(root, "infra/README.moved"))
+    await Fs.rename(NodePath.join(root, "infra/docs/README.md"), NodePath.join(root, "infra/docs/README.moved"))
+    // Main’s declared-input contract allows an empty existing glob prefix.
+    expect((await serve(root, ["lint", "//:targetIndex"])).exitCode).toBe(0)
+    await Fs.rename(NodePath.join(root, "infra/docs"), NodePath.join(root, "infra/docs.moved"))
     const missing = await serve(root, ["lint", "//:targetIndex"])
     expect(missing.exitCode).toBe(1)
-    expect(missing.logs + missing.output).toContain("infra/**/*.md")
+    expect(missing.logs + missing.output).toContain("infra/docs/**/*.md")
     expect(missing.logs + missing.output).toContain("//infra:docsFiles")
     expect(missing.logs + missing.output).toContain("infra/PACKAGE.ts")
   })
@@ -249,6 +255,9 @@ export const Package = S.Package({ targets: {} })
     expect(valid.exitCode, valid.logs + valid.output).toBe(0)
     expect((await indexOf(root)).find((row) => row.label === "//:consumer")?.dependencies).toEqual(["//:checkoutInputs"])
     await Fs.rename(NodePath.join(root, "shared/src/source.ts"), NodePath.join(root, "shared/src/source.moved"))
+    // Main’s declared-input contract allows an empty existing glob prefix.
+    expect((await serve(root, ["lint", "//:targetIndex"])).exitCode).toBe(0)
+    await Fs.rename(NodePath.join(root, "shared/src"), NodePath.join(root, "shared/src.moved"))
     const missing = await serve(root, ["lint", "//:targetIndex"])
     expect(missing.exitCode).toBe(1)
     expect(missing.logs + missing.output).toContain("shared/src/*.ts")
