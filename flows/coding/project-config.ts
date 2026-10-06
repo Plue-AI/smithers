@@ -21,9 +21,13 @@ export const ProjectLimits = Schema.Struct({
 })
 const Project = Schema.Struct({
   detected: Schema.optionalKey(Schema.Array(Schema.Struct({
-    flow: text, argv: Schema.Array(text), timeoutMs: positiveMs
+    flow: text,
+    argv: Schema.Array(text),
+    timeoutMs: positiveMs
   }))),
-  conflictAttempts: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(8))),
+  conflictAttempts: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(8))
+  ),
   limits: Schema.optionalKey(ProjectLimits),
   wiki: Schema.optionalKey(Schema.Boolean),
   wikiOutput: Schema.optionalKey(text),

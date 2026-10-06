@@ -277,6 +277,21 @@ func TestMythicalAppendedCandidatesRebaseAndRewritesDoNot(t *testing.T) {
 	var conflict *errMythicalConflict
 	require.ErrorAs(t, err, &conflict)
 	assert.Equal(t, []string{"b.txt"}, conflict.Paths)
+	require.NotEmpty(t, conflict.Tree)
+	require.NotEmpty(t, conflict.Head)
+	retained, err := f.git.readCommit(ctx, conflict.Head)
+	require.NoError(t, err)
+	require.Equal(t, conflict.Tree, retained.Tree)
+	require.Equal(t, []string{folded.ID}, retained.Parents)
+	markers := f.file(conflict.Head, "b.txt")
+	require.Contains(t, markers, "<<<<<<<")
+	require.Contains(t, markers, "b2\n")
+	require.Contains(t, markers, "b3\n")
+	retainedHead := conflict.Head
+	_, err = f.git.rebaseCandidate(ctx, folded.ID, mythicalCandidate{Base: oldTip, Head: conflicting}, 100)
+	require.ErrorAs(t, err, &conflict)
+	require.Equal(t, retainedHead, conflict.Head, "restart recomputes the same retained conflict")
+	require.Equal(t, "b3", f.file(conflicting, "b.txt"), "the pre-rebase candidate stays untouched")
 
 	// A candidate that rewrote a stack change cannot be rebased server-side.
 	base, err := f.git.readCommit(ctx, oldTip)

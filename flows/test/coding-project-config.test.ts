@@ -96,6 +96,25 @@ test("repository coding project decodes with registered flows, real source paths
   )
 })
 
+test("the coding project preserves a zero conflict budget and refuses invalid budgets", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-conflict-budget-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const platform = process.versions.bun
+    ? (await import("@effect/platform-bun/BunServices")).layer
+    : NodeServices.layer
+  const load = async (conflictAttempts: unknown) => {
+    await writeFile(join(root, "project.json"), JSON.stringify({ wiki: false, checks: [], conflictAttempts }))
+    return Effect.runPromise(loadProject(root, "project.json").pipe(Effect.provide(platform)))
+  }
+  for (const budget of [0, 1, 8]) {
+    assert.equal((await load(budget)).conflictAttempts, budget)
+  }
+  assert.equal((await load(undefined)).conflictAttempts, undefined)
+  for (const budget of [-1, 9, 0.5, "0", null]) {
+    await assert.rejects(load(budget), /Invalid SMITHERS_CODING_PROJECT/)
+  }
+})
+
 test("repository coding project routes roles to seat aliases or the routing graph and refuses jev or unknown seats", async () => {
   const root = await mkdtemp(join(tmpdir(), "coding-seats-"))
   try {
@@ -328,9 +347,17 @@ test("an install snapshot loads literal command declarations without reading rep
   const check = { ...snapshot.checks[0], flowDigest: "literal-check-digest" }
   assert.deepEqual(Schema.decodeUnknownSync(PlanningContext.fields.checks)([check]), [check])
   assert.throws(() => Schema.decodeUnknownSync(PlanningContext.fields.checks)([]))
-  const draft = { rationale: "Run the required check", baseChangeId: "base", changes: [{
-    id: "one", title: "One", intent: "One change", atoms: [{ changeId: null, message: "Change", intent: "Change", reads: [], writes: ["main.go"] }], checks: ["test"]
-  }] }
+  const draft = {
+    rationale: "Run the required check",
+    baseChangeId: "base",
+    changes: [{
+      id: "one",
+      title: "One",
+      intent: "One change",
+      atoms: [{ changeId: null, message: "Change", intent: "Change", reads: [], writes: ["main.go"] }],
+      checks: ["test"]
+    }]
+  }
   assert.deepEqual(Schema.decodeUnknownSync(Draft)(draft), draft)
   assert.throws(() => Schema.decodeUnknownSync(Draft)({ ...draft, changes: [{ ...draft.changes[0], checks: [] }] }))
 })

@@ -225,6 +225,28 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	require.Equal(t, "queued", card["state"], "the earlier open PR does not hide a queued retry")
 	status, mismatch := call("POST", `{"op":"retry"}`, "current-1")
 	require.Equal(t, 409, status, mismatch)
+	// A retained rebase conflict cannot use Retry to spend another attempt.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='integrating',reason='rebase_conflict_pending',
+		candidate_head=$2,candidate_base=$3,integration=$4,checks=$5 WHERE id=$1`, item.ID,
+		strings.Repeat("a", 40), strings.Repeat("b", 40),
+		`{"conflict":{"paths":["src/retry.ts"],"onto":"cccccccccccccccccccccccccccccccccccccccc","head":"dddddddddddddddddddddddddddddddddddddddd"}}`,
+		`{"todo":true,"runLaunched":true,"runAttached":true,"rebase":{"onto":"cccccccccccccccccccccccccccccccccccccccc","name":"main","since":"2026-10-06T00:00:00Z"}}`)
+	require.NoError(t, err)
+	retained, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	status, card = call("GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "working", card["state"])
+	require.Equal(t, map[string]any{"onto": "main"}, card["rebase_pending"])
+	require.NotContains(t, card, "failure")
+	for _, key := range []string{"conflict-1", "conflict-2", "conflict-3"} {
+		status, receipt = call("POST", `{"op":"retry"}`, key)
+		require.Equal(t, 409, status, receipt)
+		saved, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, retained, saved)
+	}
+
 	t.Run("Drop cancels the attempt across candidate generations atomically", func(t *testing.T) {
 		store, err := jobs.NewStore(pool)
 		require.NoError(t, err)

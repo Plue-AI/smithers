@@ -32,6 +32,8 @@ var (
 // errMythicalConflict is a textual conflict in a three-way tree merge.
 type errMythicalConflict struct {
 	Paths []string
+	Tree  string
+	Head  string
 }
 
 func (e *errMythicalConflict) Error() string {
@@ -276,7 +278,7 @@ func (g mythicalGit) merge3(ctx context.Context, base, ours, theirs string) (str
 		if errors.As(err, &exit) && exit.ExitCode() == 1 && len(fields) > 0 && mythicalSHA.MatchString(fields[0]) {
 			paths := append([]string(nil), fields[1:]...)
 			sort.Strings(paths)
-			return "", &errMythicalConflict{Paths: dedupe(paths)}
+			return "", &errMythicalConflict{Paths: dedupe(paths), Tree: fields[0]}
 		}
 		return "", err
 	}
@@ -503,6 +505,18 @@ func (g mythicalGit) replant(ctx context.Context, parent string, commits []mythi
 		if rebase && commit.Parent() != parent {
 			merged, err := g.merge3(ctx, commit.Parent(), parent, commit.ID)
 			if err != nil {
+				var conflict *errMythicalConflict
+				if errors.As(err, &conflict) {
+					// Retain the marker tree on the exact prefix that conflicted.
+					// It is data only; no working copy or bookmark is rewritten.
+					conflict.Head, err = g.writeCommit(ctx, mythicalCommit{Tree: conflict.Tree,
+						Parents: []string{parent}, Author: commit.Author, Committer: mythicalCommitter(commit.Committer),
+						ChangeID: mythicalChangeIDFor(kind, commit.ID, parent), Message: commit.Message})
+					if err != nil {
+						return nil, err
+					}
+					return nil, conflict
+				}
 				return nil, err
 			}
 			tree = merged

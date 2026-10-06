@@ -32,14 +32,14 @@ func TestRebaseWaitsForAnEarlierRebaseBeforeEffects(t *testing.T) {
 		CandidateHead: "one-rebased", Checks: mythicalChecks{Rebase: &mythicalRebase{Onto: "new-main", Name: "main", Rebased: true}}.encode()}
 	second := db.MythicalItem{ID: id(2), Number: pgtype.Int8{Int64: 2, Valid: true}, State: "integrating", CandidateBase: "one",
 		CandidateHead: "two", Generation: 4, Reason: "rebase_pending"}
-	st := mythicalItemStep{r: &mythicalRun{mainTip: "new-main"}, items: []db.MythicalItem{first, second}, now: time.Unix(100, 0)}
+	st := mythicalItemStep{r: &mythicalRun{mainTip: "new-main"}, items: []db.MythicalItem{first, second}, now: time.Unix(100, 0).UTC()}
 	next, launched, err := st.integrate(context.Background(), second)
 	require.NoError(t, err)
 	require.False(t, launched)
 	require.NotNil(t, next)
 	rebase := mythicalChecksOf(*next).Rebase
 	require.NotNil(t, rebase)
-	require.Equal(t, mythicalRebase{Onto: "new-main", Name: "T1", Since: time.Unix(100, 0)}, *rebase)
+	require.Equal(t, mythicalRebase{Onto: "new-main", Name: "T1", Since: time.Unix(100, 0).UTC()}, *rebase)
 	require.Equal(t, "rebase_pending", next.Reason)
 	require.Equal(t, "two", next.CandidateHead, "the candidate is untouched until it is rebased")
 	require.Equal(t, int64(4), next.Generation)
@@ -49,7 +49,7 @@ func TestRebaseWaitsForAnEarlierRebaseBeforeEffects(t *testing.T) {
 	held.WorkspaceID = "lane"
 	require.Nil(t, st.rebaseWaits(held))
 	st.items[1] = *next
-	st.now = time.Unix(200, 0)
+	st.now = time.Unix(200, 0).UTC()
 	again, launched, err := st.integrate(context.Background(), *next)
 	require.NoError(t, err)
 	require.False(t, launched)
@@ -71,12 +71,12 @@ func TestInvalidatePrefixVoidsTheApproval(t *testing.T) {
 	second := db.MythicalItem{ID: id(2), Number: pgtype.Int8{Int64: 2, Valid: true}, State: "proposed", CandidateBase: "main",
 		CandidateHead: "two", CandidateVerified: true, PRHead: "pr-head", PRNumber: pgtype.Int8{Int64: 9, Valid: true}, PRState: "open",
 		Checks: mythicalChecks{Land: land}.encode()}
-	st := mythicalItemStep{r: &mythicalRun{mainTip: "main"}, items: []db.MythicalItem{first, second}, now: time.Unix(5, 0)}
+	st := mythicalItemStep{r: &mythicalRun{mainTip: "main"}, items: []db.MythicalItem{first, second}, now: time.Unix(5, 0).UTC()}
 	next := st.invalidatePrefix(second)
 	checks := mythicalChecksOf(*next)
 	require.Nil(t, checks.Land, "the new generation voids the approval of the old head")
 	require.Equal(t, "pr-head", checks.ApprovalCleared)
-	require.Equal(t, &mythicalRebase{Onto: "one", Name: "T1", Since: time.Unix(5, 0)}, checks.Rebase)
+	require.Equal(t, &mythicalRebase{Onto: "one", Name: "T1", Since: time.Unix(5, 0).UTC()}, checks.Rebase)
 	require.Equal(t, "integrating", next.State)
 	require.False(t, next.CandidateVerified)
 	require.Equal(t, "pr-head", next.PRHead, "the last published head stays until the new one is pushed")
@@ -153,4 +153,16 @@ func TestCandidateChangedPrefixRefusesBeforePublication(t *testing.T) {
 	require.False(t, launched)
 	require.True(t, next.CandidateVerified)
 	require.Equal(t, "proposing", next.State)
+}
+
+func TestRetainedConflictPollDoesNotDispatch(t *testing.T) {
+	// No service or repository providers: any dispatch would panic.
+	st := mythicalItemStep{}
+	item := db.MythicalItem{State: "integrating", CandidateHead: "retained", Reason: "rebase_conflict_pending"}
+	for range 10 {
+		next, launched, err := st.integrate(context.Background(), item)
+		require.NoError(t, err)
+		require.Nil(t, next)
+		require.False(t, launched)
+	}
 }

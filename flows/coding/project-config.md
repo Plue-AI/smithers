@@ -51,6 +51,7 @@ flow digests; the existing catalog supplies verified execution identities.
 `reviewer` identifies the semantic review policy, not a provider credential or
 a claim that review already passed. Page entries use the existing wiki
 `PageSpec`; check entries use the existing `Check` without `flowDigest`.
+`conflictAttempts` accepts integers from 0 through 8; an explicit 0 is preserved.
 `historyLimit` is optional (1–100, default 100). `maxMemoryBytes` is optional
 (1024–92160, default 49152). A project with no adequate required checks still
 fails the existing planning/validation policy; the loader invents none.

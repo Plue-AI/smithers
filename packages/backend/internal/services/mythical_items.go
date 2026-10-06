@@ -2523,6 +2523,12 @@ func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.Mythic
 // item's next verified head.
 func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
+	// Conflict dispatch needs the retained guest change and a continuation of
+	// this attempt's pinned TODO run. Until those providers are composed, keep
+	// the conflict pending; polling must never spend another coding attempt.
+	if item.Reason == "rebase_conflict_pending" {
+		return nil, false, nil
+	}
 	if item.CandidateHead == "" {
 		return nil, false, nil
 	}
@@ -2564,10 +2570,22 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	case errors.Is(err, errMythicalRewrite):
 		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", nil, st.now), false, nil
 	case errors.As(err, &conflict):
-		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": onto}})
-		retried := mythicalRetry(item, "rebasing onto the new tip conflicted in "+strings.Join(conflict.Paths, ", "), nil, st.now)
-		retried.Integration = integration
-		return retried, false, nil
+		if err := s.pin(ctx, r, conflict.Head); err != nil {
+			return mythicalInfraOutage(item, "launch", "the conflict could not be retained: "+err.Error(), st.now), false, nil
+		}
+		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": onto,
+			"head": conflict.Head, "tree": conflict.Tree, "base": item.CandidateBase, "pre_rebase_head": item.CandidateHead}})
+		next.Integration, next.Reason = integration, "rebase_conflict_pending"
+		checks := mythicalChecksOf(next)
+		if checks.Rebase == nil {
+			checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
+		}
+		checks.Land, checks.Fault = nil, nil
+		if item.PRHead != "" {
+			checks.ApprovalCleared = item.PRHead
+		}
+		next.Checks = checks.encode()
+		return &next, false, nil
 	case err != nil:
 		return mythicalInfraOutage(item, "launch", "the candidate could not be rebased: "+err.Error(), st.now), false, nil
 	}
@@ -3649,6 +3667,10 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		checks.ForeignHead = pull.HeadSHA
 		checks.notice("foreign_push:"+pull.HeadSHA, "Smithers is holding this TODO: "+next.Reason+".")
 		next.Checks = checks.encode()
+	case item.State == "rejected" && fact.Kind == "closed":
+		// A closed PR has no branch work to rebuild. Only an admitted reopen
+		// or a person's Retry may return its retained candidate to the stack.
+		next.PRState = pull.State
 	case mythicalChecksOf(item).ForeignHead == "" && item.CandidateBase != st.prefix(item):
 		// main or an earlier item published a new revision under this one
 		// (§10.5.1): its pull request rebuilds on the new prefix, whatever
