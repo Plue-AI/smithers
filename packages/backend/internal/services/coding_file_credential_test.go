@@ -31,6 +31,10 @@ type codingGrantFixture struct {
 }
 
 func newCodingGrantFixture(t *testing.T) codingGrantFixture {
+	return newCodingGrantFixtureWithWorkspace(t, nil)
+}
+
+func newCodingGrantFixtureWithWorkspace(t *testing.T, setup func(codingGrantFixture)) codingGrantFixture {
 	t.Helper()
 	pool := newProductTestPool(t)
 	ctx := t.Context()
@@ -40,6 +44,9 @@ func newCodingGrantFixture(t *testing.T) codingGrantFixture {
 	require.NoError(t, err)
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'repo','repo') RETURNING id`, f.user).Scan(&f.repo))
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id,status,vm_id) VALUES($1,$2,'running','vm-1') RETURNING id::text`, f.repo, f.user).Scan(&f.workspace))
+	if setup != nil {
+		setup(f)
+	}
 	store, err := flowhost.NewStore(pool, callbackTestCodec{})
 	require.NoError(t, err)
 	lease, err := store.Acquire(ctx, flowhost.Authority{Target: flowruntime.Target{TenantID: "repository:1", PrincipalID: "user:1", BindingKind: "browser-flow", BindingID: "owner/repo"},
