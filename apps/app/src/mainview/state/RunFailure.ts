@@ -82,7 +82,7 @@ export const SETUP_REFUSAL_COPY: ReadonlyMap<string, string> = new Map([
 export const RECEIPT_CODES = [
   "invalid_plan", "invalid_request", "fast_gate", "check_infra", "stale_revision", "invalid_receipt", "unavailable",
   "execution", "source_missing", "source_changed", "source_refused", "source_unavailable", "declined",
-  "stalled", "evicted"
+  "stalled", "evicted", "isolation_required"
 ] as const
 
 /** One member of {@link RECEIPT_CODES}. */
@@ -117,7 +117,8 @@ const receiptFault = (code: ReceiptCode, sentence: string): PlueFault => {
     case "evicted": return "factory"
     /* Nothing judged the request: the source host or the flow's dependency did not answer. */
     case "unavailable":
-    case "source_unavailable": return "dependency"
+    case "source_unavailable":
+    case "isolation_required": return "dependency"
     /* A plan this app's own flow built, and an execution that died under it. */
     case "invalid_plan": return "bug"
     /* A check whose infrastructure could not measure the revision; never repair feedback. */

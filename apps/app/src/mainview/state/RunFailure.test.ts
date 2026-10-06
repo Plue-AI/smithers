@@ -320,6 +320,7 @@ const setupCodes = [
   { code: "unavailable", fault: "dependency", message: "Something Smithers depends on failed. Not your doing." },
   { code: "execution", fault: "infra", message: INFRA },
   { code: "source_missing", fault: "user" }, { code: "source_changed", fault: "user" }, { code: "source_refused", fault: "user" },
+  { code: "isolation_required", fault: "dependency", message: "Something Smithers depends on failed. Not your doing." },
   { code: "source_unavailable", fault: "dependency", message: "Something Smithers depends on failed. Not your doing." },
   { code: "declined", fault: "user" }, { code: "stalled", fault: "user" },
   { code: "evicted", fault: "factory", message: "Smithers could not finish this one. Not your fault." }
