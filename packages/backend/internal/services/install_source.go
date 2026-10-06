@@ -262,6 +262,9 @@ func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware
 		return repohost.FileContent{}, "", ErrSourcePathRefused
 	}
 	owner, repository, _, err := s.readable(ctx, credential, userID, 0, func(info *middleware.AuthInfo) bool {
+		if delegation, delegated := info.Delegation(); delegated && delegation.Branch != "" && branch == "main" {
+			return false
+		}
 		if info.ReadsRepositoriesAsPerson() {
 			return true
 		}
