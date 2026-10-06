@@ -23,6 +23,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -286,10 +287,11 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "owner-delegated", TokenHash: delegatedHash, TokenLastEight: delegatedHash[len(delegatedHash)-8:], Scopes: "all", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
 	// Eligible delegated callers are refused before reads or membership effects.
-	for _, door := range []struct{ method, path, body string }{
-		{"GET", "/api/members", ""}, {"POST", "/api/members", `{"login":"writer"}`},
-		{"PATCH", "/api/members/owner", `{"role":"member"}`}, {"DELETE", "/api/members/owner", ""},
+	for _, door := range []struct{ method, path, body, command string }{
+		{"GET", "/api/members", "", "members.list"}, {"POST", "/api/members", `{"login":"writer"}`, "members.add"},
+		{"PATCH", "/api/members/owner", `{"role":"member"}`, "members.role"}, {"DELETE", "/api/members/owner", "", "members.remove"},
 	} {
+		require.Equal(t, door.command, middleware.InstallMemberCommand(door.method, door.path))
 		req, err := http.NewRequest(door.method, origin+door.path, strings.NewReader(door.body))
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer "+delegatedToken)

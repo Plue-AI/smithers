@@ -608,9 +608,9 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "review.reopen", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/threads/[0-9]+/reopen$`)},
 	{http.MethodPatch, "approval.deny", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/reviews/[0-9]+$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
-	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
-	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
-	{http.MethodDelete, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
+	{http.MethodPost, "members.add", regexp.MustCompile(`^/api/members$`)},
+	{http.MethodPatch, "members.role", regexp.MustCompile(`^/api/members/[^/]+$`)},
+	{http.MethodDelete, "members.remove", regexp.MustCompile(`^/api/members/[^/]+$`)},
 	// Provider account management is the owner's person-only Secrets surface.
 	// The pool's machine grant is separate and never admits these routes.
 	{http.MethodGet, "settings", regexp.MustCompile(`^/api/user/provider-connections(?:/[^/]+)?$`)},
