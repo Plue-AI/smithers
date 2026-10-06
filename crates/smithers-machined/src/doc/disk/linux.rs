@@ -4,18 +4,16 @@ use super::super::{
     state::{Digest, Record},
     Error, Result, MAX_STATE_BYTES, MAX_TEXT_BYTES,
 };
-use super::{valid_path, Disk, Displaced, Recovery};
-use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags, ResolveFlags};
+use super::{Disk, Displaced, Recovery};
+use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags};
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{Read, Seek, SeekFrom, Write},
+    io::Write,
     os::unix::fs::{MetadataExt, PermissionsExt},
 };
 
-const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
-    .union(ResolveFlags::NO_MAGICLINKS)
-    .union(ResolveFlags::NO_XDEV);
+use crate::confine::RESOLVE;
 
 /// T-COL-04a's recorded-version adapter supplies this; no local blob substitute.
 pub trait Versions: Send {
@@ -56,29 +54,21 @@ fn random() -> Result<String> {
 fn meta(temp: &str) -> String {
     format!("displaced-{}", temp.trim_start_matches(".smithers-doc-"))
 }
-fn regular(file: &File) -> Result<()> {
-    if !file.metadata()?.is_file() {
-        return Err(Error::Invalid);
+fn confined_error(error: std::io::Error) -> Error {
+    if error.kind() == std::io::ErrorKind::InvalidInput {
+        Error::Invalid
+    } else {
+        error.into()
     }
-    Ok(())
+}
+fn regular(file: &File) -> Result<()> {
+    crate::confine::regular(file).map_err(confined_error)
 }
 fn read(file: &mut File, limit: usize) -> Result<Vec<u8>> {
-    regular(file)?;
-    file.seek(SeekFrom::Start(0))?;
-    let mut bytes = vec![];
-    file.take((limit + 1) as u64).read_to_end(&mut bytes)?;
-    Ok(bytes)
+    crate::confine::read(file, limit).map_err(confined_error)
 }
 fn open(parent: &File, name: &str, flags: OFlags, mode: Mode) -> Result<File> {
-    Ok(fs::openat2(
-        parent,
-        name,
-        flags | OFlags::CLOEXEC | OFlags::NONBLOCK | OFlags::NOFOLLOW,
-        mode,
-        RESOLVE,
-    )
-    .map_err(io)?
-    .into())
+    crate::confine::open(parent, name, flags, mode).map_err(Into::into)
 }
 impl<V: Versions> LinuxDisk<V> {
     pub fn new(workspace: File, store: File, versions: V) -> Result<Self> {
@@ -105,19 +95,7 @@ impl<V: Versions> LinuxDisk<V> {
         })
     }
     fn parent(&self, path: &str) -> Result<(File, String)> {
-        if !valid_path(path) {
-            return Err(Error::Invalid);
-        }
-        let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
-        let dir = fs::openat2(
-            &self.workspace,
-            parent,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-            RESOLVE,
-        )
-        .map_err(io)?;
-        Ok((dir.into(), name.into()))
+        crate::confine::parent(&self.workspace, path).map_err(confined_error)
     }
     fn keep(&mut self, parent: File, name: String, file: File) -> Result<Displaced> {
         regular(&file)?;

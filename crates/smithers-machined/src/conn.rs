@@ -509,3 +509,24 @@ pub fn open_doc_args(bytes: &[u8]) -> Result<(String, Option<Vec<u8>>), Protocol
     };
     Ok((path, actor))
 }
+
+/// Borrow the validated fields of a named ADR structure. Hook implementations
+/// use the same schema parser as framing, rather than another TLV decoder.
+pub fn fields<'a>(name: &str, bytes: &'a [u8]) -> Result<Vec<(u8, &'a [u8])>, ProtocolError> {
+    let schema = structure(name).ok_or(BadValue)?;
+    let mut check = Cursor(bytes);
+    check.value(name)?;
+    if !check.0.is_empty() {
+        return Err(TrailingBytes);
+    }
+    let mut inner = Cursor(&bytes[4..]);
+    let mut result = vec![];
+    while !inner.0.is_empty() {
+        let tag = inner.number(1)? as u8;
+        let typ = schema.iter().find(|f| f.0 == tag).ok_or(UnknownField)?.2;
+        let start = inner.0;
+        inner.value(typ)?;
+        result.push((tag, &start[..start.len() - inner.0.len()]));
+    }
+    Ok(result)
+}

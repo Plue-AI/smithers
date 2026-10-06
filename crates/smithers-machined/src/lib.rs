@@ -23,3 +23,12 @@ pub mod versions;
 pub mod watch;
 
 pub mod document_payload;
+
+pub mod boot;
+pub mod freeze;
+pub mod link;
+pub mod objects;
+pub mod outbox;
+
+#[cfg(target_os = "linux")]
+pub mod confine;
