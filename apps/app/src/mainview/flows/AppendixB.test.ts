@@ -1,34 +1,17 @@
 import { expect, test } from "bun:test"
-import { readFileSync } from "node:fs"
+import appendixB from "./fixtures/AppendixB.json"
 import { FLOW_NAMES } from "./FlowName"
 import { generateCatalog } from "../../../../../scripts/catalog-mvp"
 
-const spec = readFileSync(new URL("../../../../../.specs/product/mvp.md", import.meta.url), "utf8")
-const appendix = spec.split("### B.1 ")[1].split("### B.3 ")[0]
-const cutRows = appendix.split("\n").filter(line => {
-  const columns = line.split("|")
-  return columns.length >= 6 && columns[4].trim().startsWith("Cut")
-})
-
-// These names have new meanings explicitly kept by Appendix A/B. They do not
-// restore the retired pane or the old native issue-state surface. The mixed
-// search row explicitly hides secrets instead of cutting it.
-const replacements = new Set(["flows", "issues", "search.secrets"])
-const patterns = cutRows.flatMap(line => {
-  const names = [...line.split("|")[1].matchAll(/`([^`]+)`/g)].map(match => match[1])
-  let prefix = ""
-  return names.map(name => {
-    const expanded = name.startsWith(".") ? prefix + name : name
-    if (!name.startsWith(".")) prefix = name
-    return expanded
-  }).filter(name => !replacements.has(name))
-})
+// Reviewed literal B.1/B.2 expansions. Runtime expectations never parse the
+// product document, so editing a product row cannot silently weaken this gate.
+const patterns = appendixB.cut
 const matches = (name: string, pattern: string) => pattern.endsWith("*")
   ? name.startsWith(pattern.slice(0, -1)) : name === pattern
 
 test("C-CAT-01 Appendix B Cut rows have no registered or catalog door", () => {
   // Guard the oracle itself: a missing section must not make this pass vacuously.
-  expect(cutRows).toHaveLength(15)
+  expect(patterns).toHaveLength(48)
   expect(patterns).toContain("agent.session.*")
   expect(patterns).toContain("setup.*")
   expect(patterns).toContain("workspace.rename.edit")

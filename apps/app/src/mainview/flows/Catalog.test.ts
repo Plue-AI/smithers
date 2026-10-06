@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import appendixA from "./fixtures/AppendixA.json"
 import { generateCatalog, generateSkill } from "../../../../../scripts/catalog-mvp"
 import { lintText } from "../cards/productWords"
-import { disclosedToAgent, visible } from "./registry"
+import { disclosedToAgent, visible, viewerAdmitted, type CommandState } from "./registry"
 
 const rows = generateCatalog()
 describe("C-CAT-01 literal Appendix A contract", () => {
@@ -17,6 +17,16 @@ describe("C-CAT-01 literal Appendix A contract", () => {
         actors: expected.actors, minimumRole: expected.minimumRole, agent: expected.agent })
     }
   })
+  test("declared core doors remain visible to an eligible person despite legacy hidden hints", () => {
+    const state = { viewerRole: "owner", surface: "chat", typing: false, hasConnectors: true, admin: true, signedOut: false } as CommandState
+    const entry = { name: "branch", summary: "Open a branch", group: "Branches and machines", visibility: "core" as const,
+      hidden: true, actors: ["person" as const, "app_agent" as const], minimumRole: "member" as const, agent: "run" as const }
+    expect(viewerAdmitted(state, [entry]).map(row => row.name)).toEqual(["branch"])
+    expect(viewerAdmitted(state, [{ ...entry, visibility: "hidden" }])).toEqual([])
+    expect(viewerAdmitted({ ...state, viewerRole: "member" }, [{ ...entry, minimumRole: "owner" }])).toEqual([])
+  })
+  // Product §6.15 permits every member to read names and the Members card;
+  // maintainer-only writes stay separate (engineering §5.2.0c).
   test("catalog regeneration is byte-for-byte stable", () => {
     expect(readFileSync(new URL("../../../../../catalog.mvp.json", import.meta.url), "utf8"))
       .toBe(JSON.stringify({ version: 1, operations: rows }, null, 2) + "\n")

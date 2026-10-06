@@ -6286,7 +6286,7 @@
       "actors": [
         "person"
       ],
-      "minimumRole": "maintainer",
+      "minimumRole": "member",
       "agent": "never",
       "summary": "Add people and manage roles",
       "http": null,

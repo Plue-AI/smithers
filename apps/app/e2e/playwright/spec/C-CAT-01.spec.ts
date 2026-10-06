@@ -20,6 +20,9 @@ test("C-CAT-01: Commands show MVP doors and hide retired commands", async ({ pag
   for (const copy of ["Ask", "TODOs and the stack", "Branches and machines", "Files and code", "Review", "Issues", "Wiki", "Flows", "Runs", "GitHub", "Account and settings"]) {
     await expect(commands.getByRole("heading", { name: copy, exact: true })).toBeVisible()
   }
+  for (const door of ["/branch <name|T12>", "/branch.fork <branch>", "/branch.add-to-stack <branch>", "/branch.rebase <branch>", "/terminal <branch>"]) {
+    await expect(commands.getByText(door, { exact: true })).toBeVisible()
+  }
   await expect(commands.getByText("/monitor", { exact: true })).not.toBeVisible()
   await commands.getByText("Advanced", { exact: true }).press("Enter")
   await expect(commands.getByText("/monitor", { exact: true })).toBeVisible()

@@ -1206,7 +1206,7 @@
     "actors": [
       "person"
     ],
-    "minimumRole": "maintainer",
+    "minimumRole": "member",
     "agent": "never",
     "http": null
   },
@@ -1223,7 +1223,7 @@
     "actors": [
       "person"
     ],
-    "minimumRole": "maintainer",
+    "minimumRole": "member",
     "agent": "never",
     "http": null
   },
