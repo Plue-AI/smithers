@@ -126,6 +126,52 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_discard-foreign'`).Scan(&count))
 	require.Equal(t, 1, count)
 	call(ownerCookie, strings.Replace(body, `"id":"foreign"`, `"id":"changed"`, 1), "discard", 409)
+	// A later outside push is independent of the earlier decision receipt.
+	// Replaying the first press must not settle or lease against the new head.
+	newHead := strings.Repeat("e", 40)
+	var newer map[string]any
+	require.NoError(t, json.Unmarshal(after.Checks, &newer))
+	newer["foreignHead"] = newHead
+	newer["waits"] = append(newer["waits"].([]any), map[string]any{
+		"id": "foreign-new", "kind": "foreign_push", "sha": newHead,
+		"by":     map[string]any{"kind": "github", "login": "Alice", "color_index": 7},
+		"prompt": "Alice pushed again", "since": "2026-10-05T10:00:00Z",
+	})
+	newChecks, err := json.Marshal(newer)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, newChecks)
+	require.NoError(t, err)
+	observed, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	call(ownerCookie, body, "discard", 202)
+	call(ownerCookie, body, "old-answer-after-new-push", 409)
+	staleNew := strings.Replace(body, `"id":"foreign"`, `"id":"foreign-new"`, 1)
+	call(ownerCookie, staleNew, "new-wait-old-head", 409)
+	unchanged, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, observed, unchanged)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_discard-foreign'`).Scan(&count))
+	require.Equal(t, 1, count)
+	current := strings.Replace(staleNew, head, newHead, 1)
+	call(ownerCookie, current, "new-discard", 202)
+	newDecision, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, newHead, newDecision.PRHead)
+	require.Equal(t, observed.CandidateHead, newDecision.CandidateHead)
+	require.Equal(t, observed.PausedAt, newDecision.PausedAt)
+	var decided struct {
+		ForeignHead string
+		Waits       []map[string]any
+	}
+	require.NoError(t, json.Unmarshal(newDecision.Checks, &decided))
+	require.Empty(t, decided.ForeignHead)
+	require.Len(t, decided.Waits, 3)
+	require.Nil(t, decided.Waits[0]["settled_at"])
+	require.NotNil(t, decided.Waits[1]["settled_at"])
+	require.NotNil(t, decided.Waits[2]["settled_at"])
+	require.Equal(t, "discard-foreign", decided.Waits[2]["answer"])
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_discard-foreign'`).Scan(&count))
+	require.Equal(t, 2, count)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='landed' WHERE id=$1`, item.ID)
 	require.NoError(t, err)
 	call(ownerCookie, body, "discard", 202)
