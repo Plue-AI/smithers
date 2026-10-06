@@ -3612,9 +3612,9 @@ export const legacyCards = [
         ]
       }
     },
-    "expectedKind": "retired",
+    "expectedKind": "repository-choice",
     "expectedTitle": "Aomi",
-    "expectedWas": "repository-choice"
+    "expectedWas": null
   },
   {
     "row": {

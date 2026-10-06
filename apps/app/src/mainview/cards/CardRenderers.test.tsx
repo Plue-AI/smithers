@@ -12,6 +12,7 @@ import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, cardRenderer, pillStatus
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createDesignWorld } from "../state/seams/DesignWorld"
+import { cardAvailable } from "../state/CardAvailability"
 import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorld/settings"
 
@@ -24,7 +25,7 @@ import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorl
 
 /** Every card kind the wire declares, read off the discriminated union itself. */
 const wireKinds = (): ReadonlyArray<string> =>
-  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["retired", "balance", "billing-plans", "stack", "factory.home"].includes(kind))
+  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["repository-choice", "retired", "balance", "billing-plans", "stack", "factory.home"].includes(kind))
 
 const base = { id: "card-x", title: "Card", createdAt: 1, ordinal: 1 } as const
 
@@ -323,4 +324,17 @@ test("legacy File and Diff render with live controls dark", async () => {
       expect(calls).toEqual([])
     }
   } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+})
+
+
+test("deferred repository choices retain their payload without a member renderer", () => {
+  const payload = { cutoff: "2026-10-06T00:00:00Z", partial: false, error: null,
+    selected: "owner/repo", created: null, repositories: [{ fullName: "owner/repo",
+      count: 1, latest: null, coverage: "default-branch", error: null }] }
+  const card = CardSchema.parse({ ...base, kind: "repository-choice", status: "active", payload })
+  expect(card.kind).toBe("repository-choice")
+  expect(card.payload).toEqual(payload)
+  expect(cardAvailable(card.kind)).toBe(false)
+  expect(Object.keys(CARD_RENDERERS)).not.toContain(card.kind)
+  expect(renderToStaticMarkup(<CardView card={card} {...handlers} />)).not.toContain("owner/repo")
 })

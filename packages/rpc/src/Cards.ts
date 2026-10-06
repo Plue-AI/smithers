@@ -780,6 +780,26 @@ export const RepositoryImportRequestSchema = z.object({
 export type RepositoryImportRequest = z.infer<typeof RepositoryImportRequestSchema>
 
 const CurrentCardSchema = z.discriminatedUnion("kind", [
+  /* The deferred repository chooser and its shared-backend creation receipt. */
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("repository-choice"),
+    payload: z.object({
+      cutoff: z.string(),
+      partial: z.boolean(),
+      error: z.string().nullable(),
+      selected: z.string().nullable(),
+      created: z.object({ fullName: z.string() }).nullable(),
+      repositories: z.array(z.object({
+        fullName: z.string(),
+        count: z.number().nullable(),
+        latest: z.string().nullable(),
+        coverage: z.enum(["default-branch", "unknown"]),
+        error: z.string().nullable()
+      }))
+    })
+  }),
+
   z.object({
     ...cardBaseShape,
     kind: z.literal("factory.home"),
@@ -2564,7 +2584,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
  */
 export const LEGACY_CARD_KINDS = [
   "workflow-repo",
-  "repository-choice",
   "provider-accounts", "repo-import", "connector-setup",
   "env",
   "account",
@@ -2818,6 +2837,12 @@ export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> &
       return { ...row, payload: { ...payload, facet: "terminal" } }
     }
 
+    if (row.kind === "repository-choice" && typeof payload?.created === "object" && payload.created !== null) {
+      const created = payload.created as Record<string, unknown>
+      if (typeof created.fullName !== "string" && typeof created.name === "string") {
+        return { ...row, payload: { ...payload, created: { fullName: created.name } } }
+      }
+    }
     return value
   }, CurrentCardSchema),
   { options: CurrentCardSchema.options }

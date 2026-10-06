@@ -876,6 +876,30 @@ const FIXTURES: Record<
       }]
     }
   },
+  "repository-choice": {
+    minimal: {
+      cutoff: "2026-08-10T00:00:00Z",
+      partial: false,
+      error: null,
+      selected: null,
+      created: null,
+      repositories: []
+    },
+    full: {
+      cutoff: "2026-08-10T00:00:00Z",
+      partial: true,
+      error: "GitHub answered 403 for one repository",
+      selected: "smithersai/smithers",
+      created: { fullName: "owner/smithers-playground" },
+      repositories: [{
+        fullName: "smithersai/smithers",
+        count: 12,
+        latest: "2026-09-05T09:00:00Z",
+        coverage: "default-branch",
+        error: null
+      }]
+    }
+  },
   plan: {
     minimal: { items: [] },
     full: { items: [{ id: "p1", title: "Read the route", status: "done" }] }
@@ -3027,8 +3051,9 @@ test("a saved local repository receipt drops its retired path", () => {
     created: { name: "smithers-playground", path: "/tmp/smithers-playground" },
     repositories: []
   }))
-  expect(parsed.kind).toBe("retired")
-  expect(parsed.payload).toEqual({ was: "repository-choice" })
+  expect(parsed.kind).toBe("repository-choice")
+  expect(parsed.payload).toMatchObject({ created: { fullName: "smithers-playground" } })
+  expect(parsed.payload).not.toHaveProperty("created.path")
 })
 
 test("saved provider sync settings disappear while native conversation history and sends remain", () => {
