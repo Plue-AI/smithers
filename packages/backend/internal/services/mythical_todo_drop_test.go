@@ -127,11 +127,9 @@ func TestTodoDropRefusedWhileMergingAndOnceMerged(t *testing.T) {
 	require.Equal(t, "TODO is settled", refusal.Message)
 }
 
-// Drop of a working TODO cancels its attempt's run in the same transaction
-// (the dispatcher's worker then stops it), settles its open waits and
-// clears its pause; the run's late updates never revive it, and the stack
-// releases its lane.
-func TestTodoDropCancelsTheRunAndReleasesTheLane(t *testing.T) {
+// A live composition needs a stopped-writer capture before Drop may cancel
+// its launch, settle its waits, or remove its retained workspace.
+func TestTodoDropRefusesLiveWriterWithoutCapture(t *testing.T) {
 	o, session := newTodoAdmission(t)
 	ctx := context.Background()
 	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
@@ -153,42 +151,18 @@ func TestTodoDropCancelsTheRunAndReleasesTheLane(t *testing.T) {
 
 	press := TodoControlInput{Op: "drop", Repository: o.repoID, Actor: o.userID, Request: "drop-working"}
 	_, err = o.service.ControlTodo(mythicalRunContext(ctx, o.userID), n, press)
-	refusal := refusalOf(t, err)
+	var refusal *AccessError
+	require.ErrorAs(t, err, &refusal)
 	require.Equal(t, http.StatusForbidden, refusal.Status, "a run never drops a TODO")
 	require.Empty(t, o.launcher.cancelled)
 
-	receipt, err := o.service.ControlTodo(session, n, press)
-	require.NoError(t, err)
-	require.Equal(t, TodoControlReceipt{State: "accepted"}, receipt)
-	require.Equal(t, []string{launches[0].RequestID}, o.launcher.cancelled, "the attempt's run is cancelled with the drop")
-	dropped := o.byID(id)
-	require.Equal(t, "dropped", todoState(dropped))
-	records := mythicalChecksOf(dropped).Attempts
-	require.Len(t, records, 1)
-	require.Equal(t, "dropped", records[0].Outcome)
-	require.Equal(t, "todo-run-1", records[0].RunID)
-	require.Empty(t, todoOpenWaits(dropped))
-	waits := mythicalChecksOf(dropped).Waits
-	require.Len(t, waits, 1)
-	require.NotNil(t, waits[0].SettledAt, "the open question is settled with the drop")
-	require.False(t, dropped.PausedAt.Valid)
+	_, err = o.service.ControlTodo(session, n, press)
+	require.Equal(t, todoControlUnavailable(), err)
+	require.Equal(t, working, o.byID(id), "a refused Drop leaves the run, waits, attempt and lane intact")
+	require.Empty(t, o.launcher.cancelled)
+	require.Empty(t, o.lanes.deleted)
+	require.Empty(t, o.facts(working, "todo.dropped"))
 
-	facts := o.facts(dropped, "todo.dropped")
-	require.Len(t, facts, 1)
-	require.Equal(t, "needs_you", facts[0]["from"])
-	require.Equal(t, "dropped", facts[0]["to"])
-	require.Equal(t, false, facts[0]["pr"])
-
-	// The cancelled run ends; its update changes nothing the drop decided.
-	o.projectTodo(launches[0], jobs.StateCancelled, "todo-run-1", todoPinOne, "")
-	o.wake()
-	o.wake()
-	released := o.byID(id)
-	require.Equal(t, "cancelled", released.State)
-	require.Equal(t, records, mythicalChecksOf(released).Attempts, "late cancellation preserves the domain outcome and binding")
-	require.Empty(t, released.WorkspaceID, "a dropped TODO's lane is released")
-	require.Len(t, o.launcher.byFlow("todo"), 1, "nothing starts again")
-	require.Contains(t, o.lanes.deleted, working.WorkspaceID)
 }
 
 // mythicalDropped closes only an open pull request and keeps every other

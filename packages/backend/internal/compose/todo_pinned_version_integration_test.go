@@ -116,6 +116,37 @@ func TestTodoPinnedVersionComposedInstall(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, before, after, "unavailable controls cannot mutate a pinned attempt")
 	}
+	// Drop must not cancel a live writer or remove a fork source while its
+	// capture/fold providers are absent. Enter the same served control door.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running',checks=jsonb_set(checks,'{run_launched}','true') WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	live, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	refusal := control("drop", "live-drop", http.StatusServiceUnavailable)
+	require.Equal(t, "todo_control_unavailable", refusal["code"])
+	afterDrop, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, live, afterDrop)
+	var signals int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE tenant_id=$1`, fmt.Sprintf("repository:%d", repo.ID)).Scan(&signals))
+	require.Zero(t, signals, "refusal must precede cancellation admission")
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked',checks=checks-'run_launched' WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	workspace, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: pgtype.UUID{Bytes: uuid.New(), Valid: true}, RepositoryID: repo.ID, UserID: owner.ID, Name: "fork", Kind: "container", Status: "stopped", TargetBookmark: "item/fork", ForkedFromItem: item.ID, ForkedFromBase: source})
+	require.NoError(t, err)
+	child, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "queued", WorkspaceID: workspace.ID})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id=$2 WHERE id=$1`, child.ID, workspace.ID)
+	require.NoError(t, err)
+	beforeForkDrop, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	refusal = control("drop", "fork-drop", http.StatusServiceUnavailable)
+	require.Equal(t, "infra", refusal["class"])
+	afterDrop, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, beforeForkDrop, afterDrop)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='cancelled' WHERE id=$1`, child.ID)
+	require.NoError(t, err)
 	// A watchdog/early-return no_proposal is a person-retryable failure,
 	// and its public card keeps the attempt pin until Retry is admitted.
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks, '{fault}', '{"class":"factory","tag":"no_proposal","kind":"plan"}'::jsonb) WHERE id=$1`, item.ID)
@@ -260,5 +291,10 @@ func TestTodoPinnedVersionComposedInstall(t *testing.T) {
 			require.Equal(t, card["flow_version"], read()["flow_version"], "the authenticated card retains the admitted version")
 		})
 	}
-
+	// An ended attempt without unmerged descendants remains droppable through
+	// the same install door; the refusal does not disable ordinary Drop.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked',request_outcome='failed: fixture',checks=checks-'run_launched',pending_op=NULL WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, "accepted", control("drop", "settled-drop", http.StatusAccepted)["state"])
+	require.Equal(t, "dropped", read()["state"])
 }
