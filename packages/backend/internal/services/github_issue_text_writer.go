@@ -48,13 +48,14 @@ var errGitHubIssueTextUnavailable = errors.New("GitHub did not answer who wrote 
 // writer of each part (nil when GitHub names none, such as a deleted
 // account).
 type gitHubIssueText struct {
-	Title, Body             string
-	Author                  *gitHubActor
-	TitleWriter, BodyWriter *gitHubActor
+	Title, Body                 string
+	TitleEditedAt, BodyEditedAt time.Time
+	Author                      *gitHubActor
+	TitleWriter, BodyWriter     *gitHubActor
 }
 
-const gitHubIssueTextFields = `title body author{__typename login} userContentEdits(first:1){nodes{editor{__typename login}}} ` +
-	`timelineItems(itemTypes:[RENAMED_TITLE_EVENT],last:1){nodes{... on RenamedTitleEvent{actor{__typename login}}}}`
+const gitHubIssueTextFields = `title body lastEditedAt author{__typename login} userContentEdits(first:1){nodes{editor{__typename login}}} ` +
+	`timelineItems(itemTypes:[RENAMED_TITLE_EVENT],last:1){nodes{... on RenamedTitleEvent{createdAt actor{__typename login}}}}`
 
 const gitHubIssueTextQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){` +
 	`issueOrPullRequest(number:$number){... on Issue{` + gitHubIssueTextFields + `} ... on PullRequest{` + gitHubIssueTextFields + `}}}}`
@@ -80,17 +81,19 @@ func (g *gitHubIssueTextAPI) IssueText(ctx context.Context, token, owner, repo s
 		Data struct {
 			Repository *struct {
 				Issue *struct {
-					Title  string              `json:"title"`
-					Body   string              `json:"body"`
-					Author *gitHubGraphQLActor `json:"author"`
-					Edits  struct {
+					Title        string              `json:"title"`
+					LastEditedAt time.Time           `json:"lastEditedAt"`
+					Body         string              `json:"body"`
+					Author       *gitHubGraphQLActor `json:"author"`
+					Edits        struct {
 						Nodes []struct {
 							Editor *gitHubGraphQLActor `json:"editor"`
 						} `json:"nodes"`
 					} `json:"userContentEdits"`
 					Renames struct {
 						Nodes []struct {
-							Actor *gitHubGraphQLActor `json:"actor"`
+							Actor     *gitHubGraphQLActor `json:"actor"`
+							CreatedAt time.Time           `json:"createdAt"`
 						} `json:"nodes"`
 					} `json:"timelineItems"`
 				} `json:"issueOrPullRequest"`
@@ -116,13 +119,14 @@ func (g *gitHubIssueTextAPI) IssueText(ctx context.Context, token, owner, repo s
 		return gitHubIssueText{}, pkgerrors.Forbidden("GitHub did not show who wrote the issue text")
 	}
 	issue := out.Data.Repository.Issue
-	text := gitHubIssueText{Title: issue.Title, Body: issue.Body}
+	text := gitHubIssueText{Title: issue.Title, Body: issue.Body, BodyEditedAt: issue.LastEditedAt}
 	if author := issue.Author.actor(); author != nil {
 		// GraphQL types the author by its account; the rule needs a user.
 		text.Author, text.TitleWriter, text.BodyWriter = author, author, author
 	}
 	if len(issue.Renames.Nodes) > 0 {
 		text.TitleWriter = issue.Renames.Nodes[0].Actor.actor()
+		text.TitleEditedAt = issue.Renames.Nodes[0].CreatedAt
 	}
 	if len(issue.Edits.Nodes) > 0 {
 		text.BodyWriter = issue.Edits.Nodes[0].Editor.actor()

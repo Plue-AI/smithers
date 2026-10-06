@@ -756,6 +756,7 @@ func (q *Queries) InsertMythicalTodo(ctx context.Context, repositoryID, userID i
 // TODO): its number, the title, body and URL read for the Draft, that text's
 // digest, whether the text is an outsider's, and whether the TODO fixes it.
 type MythicalTodoIssue struct {
+	Context                  json.RawMessage
 	Number                   int64
 	Title, Body, URL, Digest string
 	Outsider, Fixes          bool

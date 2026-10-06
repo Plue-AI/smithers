@@ -1377,6 +1377,8 @@ const FIXTURES: Record<
       state: "verified",
       author: "will",
       issueBody: "shard-3 wedges on sqlite",
+      issueDigest: "a".repeat(64),
+      makeTodoAllowed: true,
       source: "github",
       htmlUrl: "https://github.com/smithersai/smithers/issues/1634",
       labels: ["ci", "flaky"],

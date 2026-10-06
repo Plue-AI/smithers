@@ -18,6 +18,7 @@ func (s *MythicalService) UseInstallGitHubPolling(synced *GitHubSyncedRepoServic
 	s.installGitHubPolling, s.installGitHubSync = true, synced
 	s.installPullHints = &mythicalPullHints{pending: make(map[pgtype.UUID]mythicalPullHint), wake: make(chan struct{}, 1)}
 	if synced != nil && synced.install != nil {
+		synced.install.consumers[gitHubIssueEvents] = s.consumeGitHubTodoLabels
 		synced.install.requestPulls = s.requestInstallPulls
 		synced.install.requiredPulls = s.requiredInstallPulls
 		if synced.install.consumers != nil {

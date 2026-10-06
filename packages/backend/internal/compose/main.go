@@ -1052,6 +1052,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
 	mythicalService.SetTodoLogStore(blobStore)
 	composeGitHubTodoPolling(mythicalService, gitHubMainPullService, gitHubSyncedRepoService, options.topology)
+	gitHubSyncedRepoService.SetIssueEventsEvery(options.GitHubIssueEventsEvery)
 	if installSync {
 		composeGitHubInstallAuthority(gitHubSyncedRepoService, gitHubAppCredentials, os.Geteuid() != 0)
 	}

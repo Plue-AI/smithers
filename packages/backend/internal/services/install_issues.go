@@ -2,12 +2,19 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // The install's GitHub issues (J2 steps 1 and 2, mvp.md §6.3): the issue
@@ -64,8 +71,10 @@ type InstallIssueComment struct {
 
 // InstallIssueThread is one issue and its comments, oldest first.
 type InstallIssueThread struct {
-	Issue    InstallIssue          `json:"issue"`
-	Comments []InstallIssueComment `json:"comments"`
+	IssueDigest     string                `json:"issue_digest,omitempty"`
+	MakeTodoAllowed *bool                 `json:"make_todo_allowed,omitempty"`
+	Issue           InstallIssue          `json:"issue"`
+	Comments        []InstallIssueComment `json:"comments"`
 }
 
 // gitHubListedIssue is an entry of GitHub's issues API, which lists pull
@@ -208,5 +217,38 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 	if !found {
 		return InstallIssueThread{}, &TodoControlError{http.StatusNotFound, "not_found", "user", fmt.Sprintf("Issue #%d was not found", number)}
 	}
+	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil && !info.IsTokenAuth {
+		decision, err := Authorize(ctx, s.queries(), "issue.read")
+		if err != nil {
+			return InstallIssueThread{}, err
+		}
+		issue := mythicalIssue{Number: number, Title: thread.Issue.Title, Body: thread.Issue.Body, URL: thread.Issue.HTMLURL, State: thread.Issue.State}
+		team, err := s.todoIssueTeamText(ctx, repositoryID, gh, issue)
+		if err != nil {
+			return InstallIssueThread{}, err
+		}
+		thread.IssueDigest = todoIssueSnapshotDigest(thread)
+		allowed := team || decision.Role.rank() >= InstallMaintainer.rank()
+		thread.MakeTodoAllowed = &allowed
+		{
+			payload, _ := json.Marshal(map[string]any{"issue": number, "digest": thread.IssueDigest, "thread": thread, "outsider": !team, "read_at": s.now().UTC()})
+			err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+				_, err := jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: strconv.FormatInt(repositoryID, 10), PrincipalID: fmt.Sprintf("issue-read:%d", info.User.ID)}, uuid.NewString(), "issue.read", "completed", payload)
+				return err
+			})
+			if err != nil {
+				return InstallIssueThread{}, err
+			}
+		}
+	}
 	return thread, nil
+}
+
+func todoIssueSnapshotDigest(thread InstallIssueThread) string {
+	snapshot, _ := json.Marshal(struct {
+		Issue    InstallIssue
+		Comments []InstallIssueComment
+	}{thread.Issue, thread.Comments})
+	sum := sha256.Sum256(snapshot)
+	return hex.EncodeToString(sum[:])
 }

@@ -1,8 +1,6 @@
 package compose
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -34,6 +32,9 @@ func TestJ2Rehearsal(t *testing.T) {
 	labeled := r.fake.OpenIssue(repo, "ben", "Say goodbye", "JOURNEY.md should end with a farewell.")
 	if !r.install("Install ready") {
 		return
+	}
+	if _, err := r.expect("POST", "/api/members", `{"login":"ben"}`, 204); err != nil {
+		t.Fatal(err)
 	}
 	todos := func() ([]struct {
 		N     int64 `json:"n"`
@@ -74,15 +75,23 @@ func TestJ2Rehearsal(t *testing.T) {
 	var number int64
 	todoPath := "/api/todos/{n}"
 	if !r.step("2 Make TODO", "POST /api/todos {issue, issue_digest, fixes}; GET /api/todos/{n}", "202 accepted; the TODO is the issue's and fixes it; the same press answers the same TODO", "T-STK-09", func() error {
-		view, ok := r.fake.Issue(repo, made)
+		_, ok := r.fake.Issue(repo, made)
 		if !ok {
 			return fmt.Errorf("issue #%d is not on GitHub", made)
 		}
-		// The Draft carries the digest of the title and body its author read.
-		digest := sha256.Sum256([]byte(view.Title + "\x00" + view.Body))
+		snapshot, err := r.expect("GET", fmt.Sprintf("/api/issues/%d", made), "", 200)
+		if err != nil {
+			return err
+		}
+		var read struct {
+			Digest string `json:"issue_digest"`
+		}
+		if err = json.Unmarshal(snapshot, &read); err != nil {
+			return err
+		}
 		body, _ := json.Marshal(map[string]any{"title": "Greet visitors", "prompt": "Add a greeting to JOURNEY.md, as the issue asks. " + ask,
 			"acceptance": []string{"JOURNEY.md ends with a greeting"}, "place": map[string]string{"mode": "append"},
-			"issue": made, "issue_digest": hex.EncodeToString(digest[:]), "fixes": true})
+			"issue": made, "issue_digest": read.Digest, "fixes": true})
 		var first int64
 		for press := range 2 {
 			code, data, err := r.keyed("POST", "/api/todos", string(body), "j2-make-todo")

@@ -53,7 +53,7 @@ func TestOpenedIssuesAnswerTextEventsCommentsAndClose(t *testing.T) {
 	// Its text is the author's: GraphQL names the author and no later writer.
 	status, body = request(t, server, "POST", "/graphql", access.Token, []byte(`{"query":"query{repository{issueOrPullRequest(number:1){title}}}","variables":{"owner":"acme","name":"app","number":1}}`))
 	require.Equal(t, 200, status)
-	require.JSONEq(t, `{"data":{"repository":{"issueOrPullRequest":{"title":"Retry webhooks","body":"Webhooks fail on 502","author":{"__typename":"User","login":"ben"},"userContentEdits":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}`, string(body))
+	require.JSONEq(t, `{"data":{"repository":{"issueOrPullRequest":{"title":"Retry webhooks","body":"Webhooks fail on 502","lastEditedAt":null,"author":{"__typename":"User","login":"ben"},"userContentEdits":{"nodes":[]},"timelineItems":{"nodes":[]}}}}}`, string(body))
 
 	// A person's label and the App's label are told apart by their events.
 	event := server.LabelIssue("acme/app", 1, "ben", "todo")

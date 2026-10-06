@@ -45,15 +45,16 @@ type gitHubInstallSync struct {
 	jobs *jobs.Store
 	// Qualification includes the install credential, storage, permission and
 	// runtime providers. Nil leaves fetching and consumption disabled.
-	authorize     func(context.Context, db.GithubSyncedRepo) error
-	consumers     map[string]gitHubFetchedConsumer
-	mu            sync.Mutex
-	requested     map[gitHubStreamKey]bool
-	streams       map[gitHubStreamKey]gitHubPollState
-	etags         map[gitHubPageKey]gitHubPageValidator
-	wake          chan struct{}
-	requestPulls  func(context.Context, db.GithubSyncedRepo) error
-	requiredPulls func(context.Context, db.GithubSyncedRepo) ([]GitHubSyncStream, error)
+	authorize        func(context.Context, db.GithubSyncedRepo) error
+	consumers        map[string]gitHubFetchedConsumer
+	issueEventsEvery time.Duration
+	mu               sync.Mutex
+	requested        map[gitHubStreamKey]bool
+	streams          map[gitHubStreamKey]gitHubPollState
+	etags            map[gitHubPageKey]gitHubPageValidator
+	wake             chan struct{}
+	requestPulls     func(context.Context, db.GithubSyncedRepo) error
+	requiredPulls    func(context.Context, db.GithubSyncedRepo) ([]GitHubSyncStream, error)
 }
 
 // ConfigureInstallSync replaces webhook cache writes with fetch hints on an
@@ -279,5 +280,12 @@ func (s *GitHubSyncedRepoService) BindInstallAuthority(credentials GitHubAppCred
 			return gitHubFetchUnavailable()
 		}
 		return nil
+	}
+}
+
+// SetIssueEventsEvery supplies the install composition's test cadence; zero keeps 120 s.
+func (s *GitHubSyncedRepoService) SetIssueEventsEvery(every time.Duration) {
+	if s != nil && s.install != nil && every > 0 {
+		s.install.issueEventsEvery = every
 	}
 }

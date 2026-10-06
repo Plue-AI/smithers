@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { expect, test } from "bun:test"
 import { createAppController } from "../AppController"
 import type { Card } from "../AppState"
@@ -21,7 +20,7 @@ const githubIssue = (number: number, title: string, body: string, login: string)
 })
 
 /** An install's app signed in as alice; the owner's app loads the repository, a member's loads none (GET /api/user/repos is empty). */
-const installApp = async ({ loaded = true } = {}) => {
+const installApp = async ({ loaded = true, allowed = true } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   if (loaded) await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "local-owner", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
@@ -31,7 +30,7 @@ const installApp = async ({ loaded = true } = {}) => {
   const answer = (path: string, search: string): Response => {
     if (path === "/api/issues") return Response.json(new URLSearchParams(search).get("state") === "closed" ? []
       : [githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", "ben"), githubIssue(1, "Retry webhooks", "They drop on 502.", "ben")])
-    if (path === "/api/issues/2") return Response.json({ issue: githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", "ben"),
+    if (path === "/api/issues/2") return Response.json({ issue_digest: "a".repeat(64), make_todo_allowed: allowed, issue: githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", "ben"),
       comments: [{ id: 5, body: "Keep it short.", user: { login: "carol" }, created_at: "2026-10-05T11:00:00Z" }] })
     if (path === "/api/issues/9") return Response.json({ code: "not_found", class: "user", message: "Issue #9 was not found" }, { status: 404 })
     if (path === "/api/todos") return Response.json({ state: "accepted", n: 4, rev: 1 }, { status: 202 })
@@ -98,7 +97,7 @@ test("Make TODO on an install's issue card drafts the issue and its discussion a
       issue: { number: 2, url: `https://github.com/${REPO}/issues/2`, fixes: true } })
     expect(await controller.runCommandForResult("todo.new", JSON.stringify({ cardId: draft.id }))).toEqual({ status: "executed", value: "Requested" })
     await waitFor(() => posts.some(post => post.path === "/api/todos"))
-    const digest = createHash("sha256").update("Say goodbye\0JOURNEY.md should end with a farewell.").digest("hex")
+    const digest = "a".repeat(64)
     expect(posts.find(post => post.path === "/api/todos")?.body).toMatchObject({ title: "Say goodbye", issue: 2, fixes: true, issue_digest: digest, place: { mode: "append" } })
   } finally { await controller.dispose() }
 })
@@ -114,5 +113,19 @@ test("a member's app, which loads no repository, lists and opens the install rep
     expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({ status: "executed" })
     expect(cardOf(store.collections.cards.values(), `issues-${REPO}`, "issue").payload).toMatchObject({ repo: REPO, number: 2, source: "github" })
     expect(calls.filter(call => call.includes("issues"))).toEqual(["GET /api/issues?state=open", "GET /api/issues/2"])
+  } finally { await controller.dispose() }
+})
+
+
+test("an install refuses a Member draft from outsider text before writing any Draft", async () => {
+  const { store, controller, posts } = await installApp({ allowed: false })
+  try {
+    await controller.runCommandForResult("issue", "#2")
+    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toEqual({ status: "failed", error: "Only a maintainer can make a TODO from this issue." })
+    const agent = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: `2 ${REPO}` }) })
+    expect(agent).toContain("Only a maintainer")
+    expect([...store.collections.cards.values()].filter(card => card.kind === "confirm")).toHaveLength(0)
+    expect([...store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)
+    expect(posts.filter(post => post.path === "/api/todos")).toHaveLength(0)
   } finally { await controller.dispose() }
 })

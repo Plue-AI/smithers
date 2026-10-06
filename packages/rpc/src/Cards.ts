@@ -1593,6 +1593,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       state: z.enum(["open", "fixed", "verified", "closed"]),
       author: z.string().nullable(),
       issueBody: z.string(),
+      issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+      makeTodoAllowed: z.boolean().optional(),
       source: z.enum(["smithers-cloud", "github"]).optional(),
       htmlUrl: HttpUrlSchema.optional(),
       conversation: z.object({ branchId: z.string(), owner: z.string(), creationKey: z.string() }).optional(),
