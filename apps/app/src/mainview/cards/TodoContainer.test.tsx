@@ -379,3 +379,20 @@ test("a daily token pause names the owner without exposing a raw resume timestam
  expect(h.dispatches).toEqual([{ tag: "todo.retry-current-flow", input: { n: fixtures.failed.model.n, text: "use the new helper" } }])
  expect(mount(fixtures.working.model).props.actions.some(action => action.tag === "todo.retry-current-flow")).toBe(false)
  })
+
+test("merged TODO mounts the design lessons receipt with wiki and Proposal doors", async () => {
+  const model = TodoCardSchema.parse({ ...fixtures.queued.model, n: 7, state: "merged", lessons: 2,
+    lessons_receipt: { todo: 7, lessons: [{ title: "Retry helper", ref: "wiki:retry-helper" }, { title: "Run lint", ref: "proposal:lint" }] } })
+  const card: TodoEntry = { id: "todo:7", kind: "todo", title: model.title, status: "active", createdAt: 1, ordinal: 1,
+    payload: { n: 7, model, requests: [] } }
+  const { createRoot } = await import("react-dom/client")
+  const host = document.createElement("div"), root = createRoot(host)
+  const calls: unknown[] = []
+  try {
+    await act(async () => root.render(<TodoContainer card={card} role="member" dispatch={(tag, input) => { calls.push({ tag, input }) }} View={TodoView} view={{ maximized: false }} onView={() => {}} />))
+    expect(host.textContent?.match(/2 lessons/g)).toHaveLength(1)
+    const receipt = host.querySelector('[aria-label="Lessons from T7"]')!
+    await act(async () => { for (const button of receipt.querySelectorAll<HTMLButtonElement>("button[data-flow]")) button.click() })
+    expect(calls).toEqual([{ tag: "wiki.page", input: { name: "retry-helper" } }, { tag: "proposal", input: { id: "lint" } }])
+  } finally { await act(async () => root.unmount()) }
+})

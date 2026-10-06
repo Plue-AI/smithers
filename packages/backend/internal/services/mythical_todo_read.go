@@ -129,6 +129,23 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			card["owner_removed"] = true
 		}
 	}
+	if todoState(item) == "merged" {
+		var count *int
+		var raw []byte
+		if err := s.store.QueryRow(ctx, `SELECT lessons,learning_receipt FROM mythical_items WHERE id=$1`, item.ID).Scan(&count, &raw); err != nil {
+			return nil, err
+		}
+		if count != nil {
+			card["lessons"] = *count
+		}
+		if len(raw) > 0 {
+			var receipt LearningReceipt
+			if err := json.Unmarshal(raw, &receipt); err != nil {
+				return nil, err
+			}
+			card["lessons_receipt"] = receipt
+		}
+	}
 	if answer := todoFirstAnswer(item); answer != nil {
 		card["first_answer"] = answer
 	}

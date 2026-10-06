@@ -6804,6 +6804,45 @@
       }
     },
     {
+      "name": "proposal",
+      "slash": "/proposal",
+      "cli": [
+        "proposal"
+      ],
+      "journey": [
+        "J5",
+        "J8"
+      ],
+      "group": "Wiki",
+      "visibility": "in-card",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "Open a proposal",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "prs",
       "slash": null,
       "cli": null,
@@ -12397,6 +12436,17 @@
             "name": {
               "type": "string",
               "minLength": 1
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [

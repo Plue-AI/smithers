@@ -509,6 +509,7 @@ export interface AppController extends IssueFlowsController {
   readonly draftImagePackage: TodoSeam["draftImagePackage"]
   readonly discardForeign: TodoSeam["discardForeign"]
   readonly controlTodo: TodoSeam["controlTodo"]
+  readonly openProposal: ProposalSeam["openProposal"]
   readonly resolveProposal: ProposalSeam["resolveProposal"]
   /** Move up or Move down on Tn: the seed's, or this host's POST /api/todos/{n} {op: move}. */
   readonly moveTodo: TodoSeam["moveTodo"]
@@ -1016,7 +1017,12 @@ export const createAppController = (
   const proposalSource = installHost ? todoSource : todoSourceProbe(seamCtx, services.bootstrap !== undefined, "/api/proposals")
   const proposalSeam = actors.pair(seamCtx, context => {
     const real = createProposalSeam(context)
-    return { ...real, resolveProposal: async (id: string, action: "accept" | "dismiss") => {
+    return { ...real, openProposal: async (id: string) => {
+      const seed = design.enabled && proposalSource.known() !== "real" ? design.world().proposals.find(row => row.id === id) : undefined
+      if (seed) return { value: await presentSubject({ id: `proposal:${id}`, kind: "proposal", title: seed.title,
+        payload: { id, model: designProposalCard(design.world(), seed) } }) }
+      return real.openProposal(id)
+    }, resolveProposal: async (id: string, action: "accept" | "dismiss") => {
       if (design.enabled && await proposalSource.ask() === "seed") {
         const before = design.world(), seed = before.proposals.find(row => row.id === id)
         const result = action === "accept" ? design.proposalTodo(id, design.viewer()) : design.dismissProposal(id)
@@ -2034,6 +2040,7 @@ export const createAppController = (
     draftImagePackage: todoSeam.draftImagePackage,
     discardForeign: todoSeam.discardForeign,
     controlTodo: todoSeam.controlTodo,
+    openProposal: proposalSeam.openProposal,
     resolveProposal: proposalSeam.resolveProposal,
     moveTodo: todoSeam.moveTodo,
     refreshWiki: stackSeam.refreshWiki,
@@ -2044,11 +2051,11 @@ export const createAppController = (
     listCommits: commitsSeam.listCommits,
     readCommit: commitsSeam.readCommit,
     branchFiles: filesSeam.branchFiles,
-    listFiles: installHost ? (_path, branch) => filesSeam.branchFiles.list(branch) : filesSeam.listFiles,
+    listFiles: filesSeam.listFiles,
     ...diffFilesSeam,
     // Before branch providers are composed, read from the authenticated mirror.
     // An absent live-branch scope must not disable Source-ready file cards.
-    readFile: installHost && services.branchOptions !== undefined ? (path, branch, anchor, ref) => ref === undefined ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
+    readFile: installHost && services.branchOptions !== undefined ? (path, branch, anchor, ref) => ref === undefined && filesSeam.branchFiles.available() ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
     codeHover,
     codeDefinition,
     codeDiagnostics,

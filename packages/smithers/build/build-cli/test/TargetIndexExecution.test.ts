@@ -316,6 +316,31 @@ export const Package = S.Package({ targets: {
     expect(missing.logs + missing.output).toContain('crates/owned/PACKAGE.ts')
   })
 
+  it("validates Markdown supplied by an owning Filegroup dependency of a Vitest target", async () => {
+    const root = await fixture()
+    await write(root, "infra/README.md", "# Infrastructure\n")
+    await write(root, "infra/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {
+  docsFiles: S.Filegroup({ cwd: "infra", srcs: [S.glob("**/*.md")] })
+} })
+`)
+    await write(root, "test/docs.test.ts", "export {}\n")
+    await write(root, "PACKAGE.ts", packageModule().replace(
+      "const good =",
+      'import { Package as infra } from "./infra/PACKAGE.ts"\nconst docsTest = S.Vitest({ tests: [S.glob("test/**/*.test.ts")], sources: [], deps: [infra.docsFiles], config: null, environment: "node", passWithNoTests: false })\nconst good ='
+    ).replace("all, good, notes, targetIndex", "docsTest, all, good, notes, targetIndex"))
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.logs + valid.output).toBe(0)
+    expect((await indexOf(root)).find((row) => row.label === "//:docsTest")?.dependencies).toContain("//infra:docsFiles")
+    await Fs.rename(NodePath.join(root, "infra/README.md"), NodePath.join(root, "infra/README.moved"))
+    const missing = await serve(root, ["lint", "//:targetIndex"])
+    expect(missing.exitCode).toBe(1)
+    expect(missing.logs + missing.output).toContain("infra/**/*.md")
+    expect(missing.logs + missing.output).toContain("//infra:docsFiles")
+    expect(missing.logs + missing.output).toContain("infra/PACKAGE.ts")
+  })
+
   it("prints the same rows through the index verb", async () => {
     const root = await fixture()
     const listed = await serve(root, ["index", "//..."])

@@ -857,6 +857,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
   /* L5 subject references: the Run card (T-FLW-07) names its run; the Flow card (T-APP-05) its flow and chosen version. */
   z.object({ ...cardBaseShape, kind: z.literal("proposal"), payload: z.object({
     id: z.string(), model: ProposalCardSchema.optional(),
+    load: z.object({ owner: z.string(), state: z.enum(["pending","failed"]), error: z.string().optional() }).optional(),
     request: z.object({ action: z.enum(["accept", "dismiss"]), owner: z.string(),
       state: z.enum(["pending", "failed"]), error: z.string().optional() }).optional()
   }) }),

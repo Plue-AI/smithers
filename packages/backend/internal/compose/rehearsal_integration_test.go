@@ -191,11 +191,20 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	}
 	switch os.Getenv("REHEARSAL_CONFIG_FIXTURE") {
 
-	case "node":
+	case "node", "node-packages":
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"vitest run","lint":"eslint ."}}`), 0600))
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0600))
 	case "go":
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "go.mod"), []byte("module example.test/app\n\ngo 1.23\n"), 0600))
+	}
+	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "node-packages" {
+		// Reverse insertion order proves the inventory is ordered by package
+		// name, rather than the filesystem or source listing order.
+		for i := 13; i >= 0; i-- {
+			dir := filepath.Join(seed, fmt.Sprintf("pkg%02d", i))
+			require.NoError(t, os.MkdirAll(dir, 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "index.ts"), []byte("export {}\n"), 0600))
+		}
 	}
 	git("-C", seed, "add", ".")
 	git("-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary")

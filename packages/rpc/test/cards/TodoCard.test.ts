@@ -229,3 +229,11 @@ describe("pinned flow version", () => {
     expect(TodoCardSchema.safeParse({ ...fixtures.working.model, flow_version }).success).toBe(false)
   })
 })
+
+test("merged TODO retains its source-linked lesson subjects", () => {
+  const receipt = { todo: 7, lessons: [{ title: "Retry helper", ref: "wiki:retry-helper" }, { title: "Run lint", ref: "proposal:check:lint@review" }] }
+  const model = TodoCardSchema.parse({ ...fixtures.merged.model, n: 7, lessons: 2, lessons_receipt: receipt })
+  expect(model.lessons).toBe(2)
+  expect(model.lessons_receipt).toEqual(receipt)
+  expect(TodoCardSchema.safeParse({ ...model, lessons_receipt: { todo: 0, lessons: [] } }).success).toBe(false)
+})

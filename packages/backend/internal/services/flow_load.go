@@ -31,8 +31,8 @@ import (
 // loaded once. The run (flows/coding/flow-load) answers each overridable
 // flow's version; settling it writes the versions and moves Active in one
 // transaction (flow_versions.go). The stack's own MainMoved listener is the
-// trigger: the pass that folds main is the pass after which this step sees
-// the new main.
+// trigger: the production GitHub poll callback records the observed main,
+// and this step loads it independently of stack folding or a frozen stack.
 const (
 	flowLoadFlow        = "flow-load"
 	flowLoadBindingKind = "flow-load"

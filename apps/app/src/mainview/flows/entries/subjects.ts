@@ -49,6 +49,9 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   const install = () => actions.bootstrap?.capabilities.includes("install") === true
   const realFiles = () => install() || actions.branchFiles.available()
   return [
+    flow({ name: "proposal", slash: "/proposal", cli: ["proposal"], journey: ["J5","J8"], group: "Wiki", visibility: "in-card", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open a proposal", args: "<id>", discloseToAgent: true,
+      grammar: positional("id"), agent: "run", input: Schema.Struct({ id: Schema.NonEmptyString }),
+      handler: ({ id }) => actions.openProposal(id) }),
     flow({ name: "issue",   slash: "/issue", cli: ["issue","show"], journey: ["J2"], group: "Issues", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/issues/{number}"}, summary: "Open an issue's card", args: "#n", discloseToAgent: true,
       grammar: numbered(), agent: "run", input: Schema.Struct({ number: Schema.Number }),
       handler: ({ number }) => {
@@ -70,6 +73,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       grammar: positional("path"), agent: "run", input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number), revision: Schema.optional(Schema.String) }),
       handler: ({ path, branch, line, revision }) => {
         if (revision !== undefined) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, revision)
+        if (install() && !actions.branchFiles.available()) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, branch)
         if (realFiles()) return actions.branchFiles.open(path, branch, line)
         const world = design.world()
         if (path === "") return open(fileListCard(repo(), findBranch(world, branch ?? "")?.id ?? "main"))
@@ -78,7 +82,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       } }),
     flow({ name: "files",   slash: "/files", cli: ["files"], journey: ["J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Browse a branch's files", args: "[branch]", discloseToAgent: true,
       grammar: positional("branch"), agent: "run", input: Schema.Struct({ branch: Schema.optional(Schema.String) }),
-      handler: ({ branch }) => realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(repo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
+      handler: ({ branch }) => install() ? actions.listFiles("", branch) : realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(repo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
     flow({ name: "diff",   slash: "/diff", cli: ["diff"], journey: ["J2","J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
       grammar: positional("subject"),
       agent: "run", input: Schema.Struct({ subject: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), path: Schema.optional(Schema.String), entry: Schema.optional(Schema.String) }),

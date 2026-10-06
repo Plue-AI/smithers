@@ -300,7 +300,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	firstUID := uid
 	require.GreaterOrEqual(t, uid, 20000)
 	// OAuth start/callback uses the composed router and production HTTP client.
-	login := func(name string, want int) {
+	login := func(name string, want int) string {
 		github.mu.Lock()
 		github.login = name
 		github.mu.Unlock()
@@ -326,6 +326,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 				require.NotEqual(t, "session", cookie.Name)
 			}
 		}
+		return string(body)
 	}
 	keyFixture := func() string {
 		pub, _, err := ed25519.GenerateKey(rand.Reader)
@@ -342,6 +343,17 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	login("reader", 403)
 	login("writer", 302)
 	login("writer", 302)
+	// A listed GitHub writer who loses push access is refused at the actual
+	// OAuth callback, with the repository access page and no person cookie.
+	github.mu.Lock()
+	github.roles["writer"] = "read"
+	github.mu.Unlock()
+	refusedAccess := login("writer", 403)
+	require.JSONEq(t, `{"class":"permission","code":"needs_github_access","message":"Needs access on GitHub ↗","fix":"https://github.com/owner/app/settings/access"}`, refusedAccess)
+	github.mu.Lock()
+	github.roles["writer"] = "write"
+	github.mu.Unlock()
+
 	writer, err := q.GetUserByLowerUsername(ctx, "writer")
 	require.NoError(t, err)
 	createSession(writer, "writer-cookie")

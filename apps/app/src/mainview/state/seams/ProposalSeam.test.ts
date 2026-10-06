@@ -76,3 +76,27 @@ test("concurrent accept and dismiss keep the first durable request and send once
   expect(urls).toEqual(["https://install.test/api/proposals/lint%2Freview/accept"])
   expect(h.card()).toMatchObject({ payload: { request: { action: "accept", state: "pending" } } })
 })
+
+test("opening a receipt proposal acknowledges before HTTP, deduplicates and hydrates the real card", async () => {
+  let resolve!: (response: Response) => void
+  const calls: string[] = []
+  const h = await boot(async url => { calls.push(String(url)); return new Promise<Response>(done => { resolve = done }) })
+  expect(await h.seam.openProposal(model.id)).toEqual({ value: "Requested" })
+  expect(await h.seam.openProposal(model.id)).toEqual({ value: "Requested" })
+  expect(calls).toEqual(["https://install.test/api/proposals"])
+  expect(h.card()).toMatchObject({ payload: { load: { owner: "ben", state: "pending" } } })
+  resolve(json([model, { ...model, id: "other" }], 200))
+  await waitFor(() => h.card()?.payload.model?.id === model.id)
+  expect(h.card()).toMatchObject({ title: "Run lint", payload: { load: undefined, model } })
+})
+test("pending proposal reads resume after reload; a refused read stays retryable", async () => {
+  const h = await boot(async () => new Promise<Response>(() => {}))
+  await h.seam.openProposal(model.id)
+  const reopened = await boot(async () => json({ code: "permission", message: "Access revoked" }, 403), h.storage)
+  reopened.seam.resumeProposals()
+  await waitFor(() => reopened.card()?.status === "error")
+  expect(reopened.card()).toMatchObject({ payload: { load: { state: "failed", error: "Access revoked" } } })
+  const retry = createProposalSeam({ ...reopened.ctx, http: async () => json([model], 200) })
+  expect(await retry.openProposal(model.id)).toEqual({ value: "Requested" })
+  await waitFor(() => reopened.card()?.payload.model?.id === model.id)
+})

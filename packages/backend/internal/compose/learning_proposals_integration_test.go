@@ -11,10 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -153,6 +157,93 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 	require.Equal(t, 200, response.Code, response.Body.String())
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &cards))
 	require.Len(t, cards, 3, "invalid output must not hide valid proposals or be published")
+
+	t.Run("transactional machine receipt", func(t *testing.T) {
+		// Supplemental output-consumer proof: merge admission and machine
+		// execution are not forged into an acceptance-check claim by this fixture.
+		var itemID string
+		require.NoError(t, pool.QueryRow(ctx, `UPDATE mythical_items SET state='landed',pr_state='merged',pr_number=41,pr_url='https://github.com/maya/app/pull/41',pr_merge_commit=repeat('c',40) WHERE repository_id=$1 AND number=1 RETURNING id::text`, repo).Scan(&itemID))
+		store, err := jobs.NewStore(pool)
+		require.NoError(t, err)
+		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
+		target := flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: "learning-machine-1", BindingKind: "learning", BindingID: itemID}
+		pin := flowruntime.Pin{Flow: "learning", SourceCommit: strings.Repeat("c", 40), ExecutionDigest: strings.Repeat("d", 64)}
+		launch, _ := json.Marshal(map[string]any{"target": target, "flowId": "learning", "payload": map[string]any{"todo": 1}, "pin": pin})
+		admitted, err := store.Admit(ctx, jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: "learning:" + itemID, Payload: launch, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent, EffectKey: "learning:" + itemID})
+		require.NoError(t, err)
+		output := `{"repository":"maya/app","todo":1,"run":"learning-1","pages":[{"title":"Retry helper","body":"Use the existing retry helper because it already backs off. Change: https://github.com/maya/app/pull/41; commit cccccccccccccccccccccccccccccccccccccccc; attempt-1; attempt-2"}],"proposals":[{"signature":"check:test@verify","title":"Run tests","prompt":"Run tests before review","evidence":["1 of the last 1 failed tests"],"todos":[1]}]}`
+		cp := flowdispatch.RuntimeCheckpoint{Version: 1, Target: target, FlowID: "learning", RunID: "learning-1", ExecutionDigest: pin.ExecutionDigest, Identity: flowruntime.Identity{SourceRevision: pin.SourceCommit}, Run: &flowruntime.Run{RunID: "learning-1", FlowID: "learning", Status: "completed", FinalOutput: &output}}
+		saved, _ := json.Marshal(cp)
+		_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, admitted.OperationID, saved)
+		require.NoError(t, err)
+		content, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: cfg.Server.PublicURL, SigningKey: []byte("learning-test-key-with-32-bytes!!")})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, content.Close()) })
+		wiki := services.NewWikiService(q, nil, services.WithWikiContent(content))
+		runtime := services.NewLearningRuntime(service, wiki)
+		update := flowdispatch.ProjectionUpdate{OperationID: admitted.OperationID, Scope: scope, State: jobs.StateCompleted, Checkpoint: cp}
+		wrong := update
+		wrong.Checkpoint.Target.WorkspaceID = "another-machine"
+		require.ErrorIs(t, runtime.ProjectFlowRuntime(ctx, wrong), services.ErrLearningBinding)
+		wrong = update
+		wrong.Checkpoint.RunID = "another-run"
+		require.ErrorIs(t, runtime.ProjectFlowRuntime(ctx, wrong), services.ErrLearningBinding)
+		badOutput := strings.Replace(output, "https://github.com/maya/app/pull/41", "https://github.com/other/app/pull/41", 1)
+		badUpdate := update
+		badRun := *cp.Run
+		badRun.FinalOutput = &badOutput
+		badUpdate.Checkpoint.Run = &badRun
+		badSaved, _ := json.Marshal(badUpdate.Checkpoint)
+		_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, admitted.OperationID, badSaved)
+		require.NoError(t, err)
+		require.ErrorIs(t, runtime.ProjectFlowRuntime(ctx, badUpdate), services.ErrLearningBinding)
+		_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, admitted.OperationID, saved)
+		require.NoError(t, err)
+		// Fail after page and note insertion, before the receipt commits.
+		_, err = pool.Exec(ctx, `CREATE FUNCTION reject_learning_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.lessons IS NOT NULL THEN RAISE EXCEPTION 'injected receipt failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_learning_receipt BEFORE UPDATE ON mythical_items FOR EACH ROW EXECUTE FUNCTION reject_learning_receipt()`)
+		require.NoError(t, err)
+		require.ErrorContains(t, runtime.ProjectFlowRuntime(ctx, update), "injected receipt failure")
+		var pages, notes int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1`, repo).Scan(&pages))
+		require.Zero(t, pages)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM memory_notes WHERE namespace_id=$1 AND provenance_json::jsonb->>'signature'='check:test@verify'`, fmt.Sprintf("learning:%d", repo)).Scan(&notes))
+		require.Zero(t, notes)
+		_, err = pool.Exec(ctx, `DROP TRIGGER reject_learning_receipt ON mythical_items; DROP FUNCTION reject_learning_receipt()`)
+		require.NoError(t, err)
+		var facts int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&facts))
+		require.Zero(t, facts)
+		require.NoError(t, runtime.ProjectFlowRuntime(ctx, update))
+		require.NoError(t, runtime.ProjectFlowRuntime(ctx, update))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&facts))
+		require.Equal(t, 1, facts)
+		var fact []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&fact))
+		require.Contains(t, string(fact), `"topics": ["todo:1", "home", "proposals"]`)
+
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM wiki_page_revisions WHERE repository_id=$1`, repo).Scan(&pages))
+		require.Equal(t, 1, pages)
+		var author []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT learning_author FROM wiki_page_revisions WHERE repository_id=$1`, repo).Scan(&author))
+		require.JSONEq(t, `{"agent":"coding","run":"learning-1"}`, string(author))
+		status, body := call("GET", "/api/todos/1", "", "read-receipt")
+		require.Equal(t, 200, status, body)
+		require.Equal(t, "merged", body["state"])
+		require.Equal(t, float64(2), body["lessons"])
+		receipt := body["lessons_receipt"].(map[string]any)
+		require.Len(t, receipt["lessons"], 2)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, get)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		var all []map[string]any
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &all))
+		require.Len(t, all, 4)
+		source, refusal := (&liveTopics{todos: service, queries: q}).resolve(ctx, "todo:1", repo, "maya/app", owner.ID)
+		require.Empty(t, refusal)
+		raw, err := source.Build(ctx)
+		require.NoError(t, err)
+		require.Contains(t, string(raw), `"lessons":2`)
+	})
 	_, err = pool.Exec(ctx, `DELETE FROM self_host_owners`)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `DELETE FROM collaborators WHERE user_id=$1`, owner.ID)

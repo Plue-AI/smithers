@@ -531,6 +531,140 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		control()
 		require.Equal(t, dropped.Version, item().Version, "replayed Drop creates no second effect")
 	})
+	t.Run("literal Drop sources settle independent waits atomically", func(t *testing.T) {
+		// Stored engine states and their product projections are literal inputs;
+		// neither the production projection nor a spec file supplies the oracle.
+		states := []struct{ engine, product string }{
+			{"queued", "queued"}, {"skipped", "queued"}, {"running", "working"},
+			{"delivering", "working"}, {"integrating", "working"}, {"verifying", "working"},
+			{"proposing", "working"}, {"waiting", "working"}, {"retrying", "working"},
+			{"proposed", "in_review"}, {"blocked", "failed"},
+			{"landed", "merged"}, {"cancelled", "dropped"}, {"rejected", "dropped"}, {"declined", "dropped"},
+		}
+		readCard := func(n int64) map[string]any {
+			req, err := http.NewRequest(http.MethodGet, origin+fmt.Sprintf("/api/todos/%d", n), nil)
+			require.NoError(t, err)
+			browser("owner-browser-session", false, "")(req)
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var card map[string]any
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+			return card
+		}
+		accepted, refused := 0, 0
+		for index, state := range states {
+			for _, paused := range []bool{false, true} {
+				for _, waiting := range []bool{false, true} {
+					name := fmt.Sprintf("%s/pause=%v/waits=%v", state.engine, paused, waiting)
+					t.Run(name, func(t *testing.T) {
+						checks := `{"waits":[]}`
+						if waiting {
+							checks = `{"waits":[{"id":"question","kind":"question","prompt":"Which policy?","since":"2026-10-05T12:00:00Z"},{"id":"foreign","kind":"foreign_push","prompt":"Alice pushed","since":"2026-10-05T12:00:01Z"}]}`
+						}
+						var n int64
+						var id pgtype.UUID
+						require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,revisions,owner_id,paused_at,checks)
+ VALUES ($1,'todo',$2,'Drop fixture','Drop fixture','[{"rev":1,"text":"Drop fixture"}]',$3,CASE WHEN $4 THEN NOW() ELSE NULL END,$5::jsonb) RETURNING id,number`, repo.ID, state.engine, owner.ID, paused, checks).Scan(&id, &n))
+						terminal := index >= 11
+						from := state.product
+						if !terminal {
+							if waiting {
+								from = "needs_you"
+							} else if paused {
+								from = "paused"
+							}
+						}
+						require.Equal(t, from, readCard(n)["state"])
+						before, err := q.GetMythicalItem(ctx, id)
+						require.NoError(t, err)
+						key := "literal-drop-" + uuid.NewString()
+						press := func() int {
+							req, err := http.NewRequest(http.MethodPost, origin+fmt.Sprintf("/api/todos/%d", n), strings.NewReader(`{"op":"drop"}`))
+							require.NoError(t, err)
+							req.Header.Set("Content-Type", "application/json")
+							req.Header.Set("Origin", origin)
+							browser("owner-browser-session", true, key)(req)
+							resp, err := http.DefaultClient.Do(req)
+							require.NoError(t, err)
+							defer resp.Body.Close()
+							return resp.StatusCode
+						}
+						if index == 0 && !paused && !waiting {
+							// Fail after SaveMythicalItem but before the fact can commit.
+							_, err := pool.Exec(ctx, `CREATE FUNCTION refuse_drop_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.dropped' THEN RAISE EXCEPTION 'injected fact failure'; END IF; RETURN NEW; END $$;
+ CREATE TRIGGER refuse_drop_fact BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_drop_fact()`)
+							require.NoError(t, err)
+							t.Cleanup(func() {
+								_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS refuse_drop_fact ON product_job_events; DROP FUNCTION IF EXISTS refuse_drop_fact()`)
+							})
+							require.Equal(t, http.StatusServiceUnavailable, press())
+							rolledBack, err := q.GetMythicalItem(ctx, id)
+							require.NoError(t, err)
+							require.Equal(t, before, rolledBack)
+							require.Equal(t, from, readCard(n)["state"])
+							_, err = pool.Exec(ctx, `DROP TRIGGER refuse_drop_fact ON product_job_events; DROP FUNCTION refuse_drop_fact()`)
+							require.NoError(t, err)
+						}
+						want := http.StatusAccepted
+						if terminal {
+							want = http.StatusConflict
+						}
+						require.Equal(t, want, press())
+						after, err := q.GetMythicalItem(ctx, id)
+						require.NoError(t, err)
+						var facts [][]byte
+						rows, err := pool.Query(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.dropped' AND data->>'item'=$1 ORDER BY sequence`, uuid.UUID(id.Bytes).String())
+						require.NoError(t, err)
+						for rows.Next() {
+							var fact []byte
+							require.NoError(t, rows.Scan(&fact))
+							facts = append(facts, fact)
+						}
+						rows.Close()
+						require.NoError(t, rows.Err())
+						if terminal {
+							refused++
+							require.Equal(t, before, after)
+							require.Empty(t, facts)
+							return
+						}
+						accepted++
+						require.Equal(t, "cancelled", after.State)
+						require.False(t, after.PausedAt.Valid)
+						var stored struct {
+							Waits []services.TodoWait `json:"waits"`
+						}
+						require.NoError(t, json.Unmarshal(after.Checks, &stored))
+						for _, wait := range stored.Waits {
+							require.NotNil(t, wait.SettledAt, wait.ID)
+							require.Empty(t, wait.Answer)
+						}
+						card := readCard(n)
+						require.Equal(t, "dropped", card["state"])
+						require.Nil(t, card["needs_you"])
+						require.Len(t, facts, 1)
+						var fact map[string]any
+						require.NoError(t, json.Unmarshal(facts[0], &fact))
+						require.Equal(t, from, fact["from"])
+						require.Equal(t, "dropped", fact["to"])
+						require.Equal(t, map[string]any{"kind": "person", "id": float64(owner.ID), "login": owner.Username}, fact["actor"])
+						require.Equal(t, http.StatusAccepted, press())
+						replayed, err := q.GetMythicalItem(ctx, id)
+						require.NoError(t, err)
+						require.Equal(t, after, replayed)
+						var eventCount int
+						require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.dropped' AND data->>'item'=$1`, uuid.UUID(id.Bytes).String()).Scan(&eventCount))
+						require.Equal(t, 1, eventCount, "replayed Drop writes no second event")
+					})
+				}
+			}
+		}
+		require.Equal(t, 44, accepted)
+		require.Equal(t, 16, refused)
+		t.Logf("literal Drop boundary cases: %d accepted, %d refused", accepted, refused)
+	})
 	t.Run("machine proxy mutations mint no token", func(t *testing.T) {
 		seed := sha256.Sum256([]byte("outbound-machine-token"))
 		machine := "smithers_" + hex.EncodeToString(seed[:])[:40]

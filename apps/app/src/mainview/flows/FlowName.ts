@@ -49,6 +49,7 @@ export const FLOW_NAMES = [
   "file.restore-deleted",
   "file.follow-rename",
   "branch.rebase-now",
+  "proposal",
   "learning.accept",
   "learning.dismiss",
   "todo.takeover",

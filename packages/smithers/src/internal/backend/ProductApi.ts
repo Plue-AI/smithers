@@ -1271,6 +1271,42 @@ export interface PostApiAgentConversationsReplayInput {
 export const postApiAgentConversationsReplay = (transport: Transport, input: PostApiAgentConversationsReplayInput): Promise<PostApiAgentConversationsReplayResponse> =>
   transport.request("POST", `/api/agent/conversations/replay`, input.body) as Promise<PostApiAgentConversationsReplayResponse>
 
+export type GetApiConversationResponse = {
+  id: string
+  entries: Array<{
+    id: string
+    author: number
+    runId: string
+    prompt: string
+    state: string
+    frames: Array<AnyJSON>
+  }>
+}
+
+export interface GetApiConversationInput {
+  readonly path: { readonly b: string }
+}
+
+/** GET /api/conversations/{b}: Read shared branch entries */
+export const getApiConversation = (transport: Transport, input: GetApiConversationInput): Promise<GetApiConversationResponse> =>
+  transport.request("GET", `/api/conversations/${segment(input.path.b)}`) as Promise<GetApiConversationResponse>
+
+export type PostApiConversationPromptBody = {
+  prompt: string
+  idempotencyKey: string
+}
+
+export type PostApiConversationPromptResponse = AnyJSON
+
+export interface PostApiConversationPromptInput {
+  readonly path: { readonly b: string }
+  readonly body: PostApiConversationPromptBody
+}
+
+/** POST /api/conversations/{b}/prompt: Queue my branch prompt */
+export const postApiConversationPrompt = (transport: Transport, input: PostApiConversationPromptInput): Promise<PostApiConversationPromptResponse> =>
+  transport.request("POST", `/api/conversations/${segment(input.path.b)}/prompt`, input.body) as Promise<PostApiConversationPromptResponse>
+
 export type DeleteApiConversationTurnResponse = AnyJSON
 
 export interface DeleteApiConversationTurnInput {

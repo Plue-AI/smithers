@@ -309,7 +309,24 @@ paths:
                 properties:
                   state: {type: string, enum: [accepted]}
                   attempt: {type: integer, minimum: 1}
-                  place: {type: integer, minimum: 1}
+                  lessons: {type: integer, minimum: 0}
+        lessons_receipt:
+          type: object
+          required: [todo, lessons]
+          properties:
+            todo: {type: integer, minimum: 1}
+            run: {type: string}
+            lessons:
+              type: array
+              items:
+                type: object
+                required: [title, ref]
+                properties:
+                  title: {type: string}
+                  ref:
+                    type: string
+                    description: A wiki:<slug> or proposal:<id> subject.
+        place: {type: integer, minimum: 1}
         '400':
           description: Invalid TODO number, invalid_control, invalid_steer, or a missing Idempotency-Key
         '403':

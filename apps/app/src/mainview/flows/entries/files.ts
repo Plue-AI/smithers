@@ -39,7 +39,7 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     form: { args: (payload) => fileArgs(text(payload, "path") ?? "/", text(payload, "repo")) },
     /* The model host binds its listing of the mirrored main to the same catalog entry and grammar (@smthrs/rpc/FileList). */
     summary: FILES_LIST_COMMAND.summary,
-    runtimeAny: ["cloud"],
+    runtimeAny: ["install", "cloud"],
     args: FILES_LIST_COMMAND.args,
     requires: ["first-run-target", "repo-source"],
     input: Schema.Struct({ path: Schema.String, repo: Schema.optional(Schema.String) }),
@@ -81,4 +81,3 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
       actions.readFile(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref)
   })
 ]
-

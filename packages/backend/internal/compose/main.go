@@ -1116,6 +1116,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	gitHubMainPullService.SetSynced(services.NewLandingGitHubMergeService(queries, repoHostClient, repoConnectionService, webhookDispatcher).Reconcile)
 	gitHubWebhookEventWorker.SetMythical(mythicalService)
 	mythicalService.SetWiki(wikiService)
+	mythicalService.SetLearningWiki(wikiService)
 	mythicalService.SetOrchestration(services.NewMythicalGitHub(queries, repoConnectionService, gitHubUserReposService, repoConnectionService),
 		nil, services.NewWorkspaceMythicalLanes(workspaceService))
 	if config.IsSingleOwner(cfg.Auth) {
@@ -1703,6 +1704,22 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 		if chatService != nil {
 			resolveBranch := conversationBranchResolver(workspaceService)
+			topics.conversation = func(ctx context.Context, member int64, branch string) (json.RawMessage, error) {
+				repository, _, err := installRepository(ctx, queries)
+				if err != nil {
+					return nil, err
+				}
+				scope := chat.Scope{RepositoryID: repository, UserID: member}
+				canonical, err := resolveBranch(ctx, scope, branch)
+				if err != nil {
+					return nil, err
+				}
+				entries, err := chatService.runtime.Handler.Store.SharedEntries(ctx, scope, canonical)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(entries)
+			}
 			topics.viewState = func(ctx context.Context, member int64, branch string) (json.RawMessage, error) {
 				repository, _, err := installRepository(ctx, queries)
 				if err != nil {

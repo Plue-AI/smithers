@@ -18,7 +18,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
-| C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts) | fixme-before-implementation | T-STK-04 |
+| C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: mounted merged-TODO receipt navigation passes in Chromium; merge/background-learning journey remains fixme | T-STK-04 |
 | C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | fixme-before-implementation | T-APP-01 |
 | C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge (acceptance stays In review until terminal projection), Move, Retry and pending execution; real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
@@ -42,7 +42,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-10 | [C-J3-10.spec.ts](C-J3-10.spec.ts) | fixme-before-implementation | T-TRM-05, T-REL-02 |
 | C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts), [install versions](../flow-card-install.spec.ts) | proposal-to-Draft, install selection/reload and live Proposed → syncing → Active/failed-load projection pass; joint real merge/load/pinning pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
 | C-J5-02 | [C-J5-02.spec.ts](C-J5-02.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-11 |
-| C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
+| C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: receipt → Proposal → Make TODO → reload passes in Chromium; automatic learning, flow activation and sixth-TODO journey remain fixme | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | fixme-before-implementation | T-TRM-02, T-APP-09, T-REL-02 |
 | C-J6-02 | [C-J6-02.spec.ts](C-J6-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-REL-02 |
 | C-J7-01 | [C-J7-01.spec.ts](C-J7-01.spec.ts) | app HTTP-seam proof: private Before draft, stack order, Amend, retained identity and reload; guest steer/ancestry and reference-host receipts pending | T-STK-02, T-STK-06, T-REL-02 |
@@ -66,7 +66,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
 | C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-STK-04 |
 | C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | passing: removal, owner protection, retained TODO history | T-ACC-02 |
-| C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | fixme-before-implementation | T-ACC-01, T-ACC-02 |
+| C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | roster and sign-in refusal HTTP projections pass; composed OAuth qualification separate | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | fixme-before-implementation | T-STK-03 |
 | C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts), [current-flow Retry](todo-current-flow.spec.ts) | current-flow Retry passes; Stop/Resume pending | T-STK-05 |
@@ -198,7 +198,7 @@ are engineering-only terminal projections, not passing qualification evidence.
 | C-SEC-01 | [C-SEC-01.spec.ts](C-SEC-01.spec.ts) | fixme-before-implementation | T-MCH-12, T-FLW-01 |
 | C-SEC-02 | [C-SEC-02.spec.ts](C-SEC-02.spec.ts) | fixme-before-implementation | T-FLW-01, T-INS-02, T-INS-08, T-FLW-11, T-STK-12, T-MCH-14 |
 | C-SEC-03 | [C-SEC-03.spec.ts](C-SEC-03.spec.ts) | fixme-before-implementation | T-STK-09, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05 |
-| C-SEC-04 | [C-SEC-04.spec.ts](C-SEC-04.spec.ts) | fixme-before-implementation | T-ACC-01, T-INS-06, T-INS-08 |
+| C-SEC-04 | [C-SEC-04.spec.ts](C-SEC-04.spec.ts) | setup HTTP projection passes; backend and reference-host qualification separate | T-ACC-01, T-INS-06, T-INS-08 |
 | C-SEC-05 | [C-SEC-05.spec.ts](C-SEC-05.spec.ts) | fixme-before-implementation | T-TRM-02 |
 
 Cycle 23: cross-Mac backup and production security fixtures remain pending.

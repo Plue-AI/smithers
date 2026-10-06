@@ -1299,6 +1299,16 @@ func (s *Store) Erase(ctx context.Context, runID, legID, proof string) error {
 }
 
 func (s *Store) retireTurnTx(ctx context.Context, tx pgx.Tx, turn turnRecord) error {
+	// A private archive erasure proof cannot delete the branch's permanent
+	// conversation. Both legacy retirement doors share this boundary.
+	var request map[string]any
+	if json.Unmarshal(turn.Request, &request) != nil {
+		return ErrCorrupt
+	}
+	if request["sharedConversation"] == true {
+		return ErrForbidden
+	}
+
 	if turn.AcceptanceHash == nil {
 		return ErrCorrupt
 	}

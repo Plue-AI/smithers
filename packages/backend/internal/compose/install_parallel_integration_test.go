@@ -225,6 +225,39 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `8`, string(raw))
 	capacity.AuthorizeParallel = authorize
+	// Read unsaved defaults through the served Settings endpoint. Disk alone
+	// varies; startup memory/cores permit all six literal capacity cases.
+	_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key IN ('parallel', 'capacity')`)
+	require.NoError(t, err)
+	capacity.Profile.MemoryBytes = 128 << 30
+	capacity.Profile.PerfCores = 32
+	for _, fixture := range []struct {
+		capacity, parallel int
+		free               int64
+	}{
+		{0, 1, 60 << 30},
+		{1, 1, 72 << 30},
+		{2, 1, 104 << 30},
+		{3, 2, 136 << 30},
+		{6, 5, 232 << 30},
+		{7, 6, 264 << 30},
+	} {
+		t.Run(fmt.Sprintf("default_capacity_%d", fixture.capacity), func(t *testing.T) {
+			capacity.FreeDisk = func(context.Context) (int64, error) { return fixture.free, nil }
+			read := request("GET", "/api/install", "quiesceowner-session", "")
+			require.Equal(t, 200, read.Code, read.Body.String())
+			var snapshot struct {
+				Parallel int `json:"parallel"`
+				Capacity int `json:"capacity"`
+			}
+			require.NoError(t, json.Unmarshal(read.Body.Bytes(), &snapshot))
+			require.Equal(t, fixture.parallel, snapshot.Parallel)
+			require.Equal(t, fixture.capacity, snapshot.Capacity)
+			saved, err := q.GetInstallParallel(ctx)
+			require.NoError(t, err)
+			require.Empty(t, saved, "reading a default does not persist a request")
+		})
+	}
 	// An unsaved default must also fit the owner field on a larger host.
 	_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='parallel'`)
 	require.NoError(t, err)

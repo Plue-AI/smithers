@@ -156,12 +156,47 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 		t.Fatal("branch alias stop did not reach its host")
 	}
 	first, firstID := admit("held")
+	var firstGrant ports.ChatTurnGrant
 	select {
 	case grant := <-host.started:
 		require.Equal(t, first, grant.RunID)
+		firstGrant = grant
 	case <-time.After(5 * time.Second):
 		t.Fatal("first turn did not start")
 	}
+	frames := fmt.Sprintf(`[{"runId":%q,"type":"delta","kind":"text","text":"Shared answer"},{"runId":%q,"type":"delta","kind":"reasoning","text":"private reasoning canary"},{"runId":%q,"type":"card","card":{"kind":"approval","payload":{"secret":"private Confirm canary"}}},{"runId":%q,"type":"card","card":{"kind":"todo-draft","payload":{"prompt":"private Draft canary"}}}]`, first, first, first, first)
+	cursorJSON, err := json.Marshal(firstGrant.Cursor)
+	require.NoError(t, err)
+	producerRequest, err := http.NewRequest("POST", firstGrant.ProducerBaseURL+chat.CommitPath, strings.NewReader(fmt.Sprintf(`{"turnId":%q,"generation":%d,"expected":%s,"frames":%s}`, firstGrant.TurnID, firstGrant.Generation, cursorJSON, frames)))
+	require.NoError(t, err)
+	producerRequest.Header.Set("Authorization", "Bearer "+firstGrant.Token)
+	producerRequest.Header.Set("Content-Type", "application/json")
+	producerResponse, err := http.DefaultClient.Do(producerRequest)
+	require.NoError(t, err)
+	producerBody, err := io.ReadAll(producerResponse.Body)
+	producerResponse.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, 200, producerResponse.StatusCode, string(producerBody))
+	shared := call("GET", "/api/conversations/main", "", benCookie, 200)
+	require.JSONEq(t, shared, call("GET", "/api/conversations/main", "", aliceCookie, 200))
+	require.Contains(t, shared, firstID)
+	require.Contains(t, shared, "Shared answer")
+	require.NotContains(t, shared, "private reasoning canary")
+	require.NotContains(t, shared, "private Confirm canary")
+	require.NotContains(t, shared, "private Draft canary")
+	require.NotContains(t, shared, aliasPrompt.TurnID)
+	require.JSONEq(t, `{"status":"ok","conversations":[],"next":null}`, call("GET", chat.HistoryPath, "", benCookie, 200))
+	call("POST", chat.AccountReplayPath, fmt.Sprintf(`{"runId":%q,"legId":%q}`, first, firstGrant.LegID), benCookie, 403)
+	var eraseProof string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT access_hash FROM chat_turns WHERE id=$1`, firstID).Scan(&eraseProof))
+	call("POST", chat.ErasePath, fmt.Sprintf(`{"runId":%q,"legId":%q,"retirementProof":%q}`, first, firstGrant.LegID, eraseProof), benCookie, 403)
+	require.JSONEq(t, shared, call("GET", "/api/conversations/main", "", aliceCookie, 200))
+	require.NotContains(t, shared, "instructions")
+	require.NotContains(t, shared, "token")
+	require.Contains(t, shared, `"author":`)
+	call("GET", "/api/conversations/missing", "", benCookie, 404)
+	call("GET", "/api/conversations/"+foreignBranch.ID, "", benCookie, 404)
+	call("GET", "/api/conversations/"+branch.ID, "", aliceCookie, 403)
 	// Concurrent retries serialize through the production journal, while the
 	// first model execution remains unresolved.
 	type retryAnswer struct {
@@ -217,6 +252,10 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	call("DELETE", "/api/conversations/main/turns/"+concurrentID, "", benCookie, 200)
 	edited, editedID := admit("edited")
 	_, removedID := admit("removed")
+	shared = call("GET", "/api/conversations/main", "", aliceCookie, 200)
+	require.NotContains(t, shared, editedID)
+	require.NotContains(t, shared, removedID)
+	require.JSONEq(t, shared, call("GET", "/api/conversations/main", "", benCookie, 200))
 	foreign := call("POST", "/api/conversations/main/prompt", `{"prompt":"Alice question","idempotencyKey":"edited"}`, aliceCookie, 202)
 	require.NotContains(t, foreign, editedID, "idempotency keys are scoped to the caller")
 	var alicePrompt struct {
@@ -279,17 +318,17 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	require.Contains(t, privateView, "original")
 	require.NotContains(t, privateView, "force rollback")
 	call("PATCH", path(editedID), `{"prompt":"list changed tests"}`, benCookie, 200)
-	// Account recovery uses the same journal verifier after the acceptance was resealed.
+	// Queue recovery stays private; shared turns are not Earlier archives.
 	var leg string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT leg_id FROM chat_turns WHERE id=$1`, editedID).Scan(&leg))
-	replay := call("POST", chat.AccountReplayPath, fmt.Sprintf(`{"runId":%q,"legId":%q}`, edited, leg), benCookie, 200)
-	require.Contains(t, replay, "list changed tests")
+	call("POST", chat.AccountReplayPath, fmt.Sprintf(`{"runId":%q,"legId":%q}`, edited, leg), benCookie, 403)
+	require.Contains(t, call("GET", "/api/conversations/main/view-state", "", benCookie, 200), "list changed tests")
 	call("DELETE", path(removedID), "", benCookie, 200)
 	call("DELETE", path(removedID), "", benCookie, 409)
 	call("POST", path(firstID)+"/stop", "", benCookie, 200)
 	call("POST", path(firstID)+"/stop", "", benCookie, 200)
 	var terminalBatches int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turn_batches WHERE turn_id=$1`, firstID).Scan(&terminalBatches))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turn_batches WHERE turn_id=$1 AND frames @> '[{"type":"done"}]'::jsonb`, firstID).Scan(&terminalBatches))
 	require.Equal(t, 1, terminalBatches, "repeated stop must append only one terminal receipt")
 	select {
 	case run := <-host.stopped:
@@ -305,6 +344,14 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("edited turn did not start")
 	}
+	shared = call("GET", "/api/conversations/main", "", aliceCookie, 200)
+	var transcript chat.SharedConversation
+	require.NoError(t, json.Unmarshal([]byte(shared), &transcript))
+	require.Len(t, transcript.Entries, 2)
+	require.Equal(t, firstID, transcript.Entries[0].ID)
+	require.Equal(t, editedID, transcript.Entries[1].ID)
+	require.Equal(t, "list changed tests", transcript.Entries[1].Prompt)
+	require.JSONEq(t, shared, call("GET", "/api/conversations/main", "", benCookie, 200))
 	var state string
 	var leased bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state,producer_token_hash IS NOT NULL OR producer_lease_expires_at IS NOT NULL FROM chat_turns WHERE id=$1`, removedID).Scan(&state, &leased))
@@ -324,6 +371,7 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
 	call("POST", "/api/conversations/main/prompt", `{"prompt":"revoked","idempotencyKey":"revoked"}`, benCookie, 403)
+	call("GET", "/api/conversations/main", "", benCookie, 403)
 	call("PATCH", path(pendingID), `{"prompt":"revoked"}`, benCookie, 403)
 	call("POST", path(holdID)+"/stop", "", benCookie, 403)
 }

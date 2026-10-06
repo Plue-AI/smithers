@@ -388,6 +388,63 @@ paths:
                 anyOf:
                   - $ref: '#/components/schemas/SavedConversationProblem'
                   - $ref: '#/components/schemas/Error'
+  /api/conversations/{b}:
+    get:
+      summary: Read shared branch entries
+      description: Active branch members read started prompts and committed public answer output in turn and batch order. Queued prompts, legacy private history, approvals and browser Drafts are excluded. No journal capability or private request context is returned.
+      operationId: get_api_conversation
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 160
+      responses:
+        '200':
+          description: Shared conversation snapshot with canonical id and ordered entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, entries]
+                properties:
+                  id:
+                    type: string
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, author, runId, prompt, state, frames]
+                      properties:
+                        id:
+                          type: string
+                        author:
+                          type: integer
+                          format: int64
+                        runId:
+                          type: string
+                        prompt:
+                          type: string
+                        state:
+                          type: string
+                        frames:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/AnyJSON'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Conversation storage or branch provider unavailable.
   /api/conversations/{b}/prompt:
     post:
       summary: Queue my branch prompt

@@ -31,7 +31,7 @@ export default Flow.make("todo", {
   capabilities: [],
   effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
   modelInvocable: false,
-  payload: Schema.Unknown,
+  payload: Schema.Struct({}),
   success: Schema.Struct({ returned: Schema.Boolean }),
   body: () => Node.succeed({ returned: true })
 })
@@ -83,7 +83,7 @@ export default Flow.make("todo", {
   capabilities: [],
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
   modelInvocable: false,
-  payload: Schema.Unknown,
+  payload: Schema.Struct({}),
   success: Schema.Void,
   error: Sleep.SleepRequestInvalid,
   body: () => Node.all(Object.fromEntries(Array.from({ length: 1030 }, (_, i) =>
@@ -171,7 +171,7 @@ export default Flow.make("todo", {
   capabilities: [],
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
   modelInvocable: false,
-  payload: Schema.Unknown,
+  payload: Schema.Struct({}),
   success: Schema.String,
   error: Sleep.SleepRequestInvalid,
   body: () => Sleep.action.call({ until: 1 }).pipe(Node.map(() => {

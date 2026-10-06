@@ -14,6 +14,7 @@ import { useController } from "../ControllerContext"
 import { useDesignTodoCard } from "../state/seams/DesignWorld/todo"
 import type { CardFamily, CardOf } from "./CardFamily"
 import { TodoView } from "./views/TodoView"
+import { LessonsReceiptContainer } from "./LessonsReceiptContainer"
 
 export interface TodoViewProps extends CardProps<TodoCard> {
   readonly answer?: { readonly text: string; readonly answered_by: string }
@@ -156,12 +157,15 @@ export const TodoContainer =({ card, role, dispatch, View, view, onView, availab
   const bindings = cardActions(dispatch, definitions)
   // Render exactly the wait controls the adapter bound, including their stable wait args.
   // A provider refusal cannot leave an unbound button visible in a mounted wait.
-  const projected = { ...model, waits: model.waits.map(wait => ({ ...wait, actions: definitions
+  const receipt = model.state === "merged" && model.lessons_receipt?.todo === model.n && model.lessons === model.lessons_receipt.lessons.length ? model.lessons_receipt : undefined
+  const projected = { ...model, ...(receipt ? { lessons: undefined } : {}), waits: model.waits.map(wait => ({ ...wait, actions: definitions
     .filter(action => action.gesture !== undefined && action.args?.wait === wait.id)
     .map(action => bindings.gestures[action.gesture!]!) })) }
-  return <View model={projected} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView}
+  return <><View model={projected} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView}
     conflictTerminal={conflictTerminal}
     answer={card.payload.answeredBy ? { text: card.payload.answerDraft ?? "", answered_by: card.payload.answeredBy } : undefined} />
+    <LessonsReceiptContainer model={receipt} dispatch={dispatch} />
+  </>
 }
 
 /** The `todo` kind: the seeded design world's Tn while the seed is mounted (mock seam), else the server projection. */
