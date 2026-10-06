@@ -2421,6 +2421,9 @@ importers:
       redis:
         specifier: 6.2.1
         version: 6.2.1(@opentelemetry/api@1.9.1)
+      smol-toml:
+        specifier: 1.8.0
+        version: 1.8.0
       tar:
         specifier: 7.5.22
         version: 7.5.22
