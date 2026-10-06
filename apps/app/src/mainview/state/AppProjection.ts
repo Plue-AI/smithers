@@ -1,3 +1,4 @@
+import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import { flowArgs } from "../flows/FlowArgs"
 import { historyHasNewerUserIntent, verifyConversationHistory } from "./ConversationHistory"
 import type { HistoricalHttpLeg, HttpTurn } from "./HttpTurn"
@@ -1737,7 +1738,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               let leg: HistoricalHttpLeg = { id: saved.legId, attemptId, turnId: saved.runId, ordinal: counts.get(saved.runId) ?? 0, cursor: saved.initial, status: "streaming", createdAt: saved.acceptedAt }
               for (const batch of saved.batches) {
                 for (const [frameIndex, frame] of batch.frames.entries()) {
-                  const projected = projectHttpFrame(turn, leg, frame, {
+                  const projected = projectHttpFrame(turn, leg, AgentTurnFrameSchema.parse(frame), {
                     answer: collections.messages.get(`message-${saved.runId}-smithers`)?.text ?? "",
                     card: id => collections.cards.get(id), protectedCard: id => approvalRequest(id) !== undefined,
                     executedLegs: leg.ordinal

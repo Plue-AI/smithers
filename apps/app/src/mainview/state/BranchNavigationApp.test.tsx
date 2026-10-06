@@ -1,3 +1,4 @@
+import cutHistory from "./testdata/cut-history.json"
 import { LiveChannel, type LiveSocket } from "../runtime/LiveChannel"
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
 import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
@@ -163,4 +164,60 @@ test("Earlier hides live confirmation actions and returning restores the same pe
   expect(confirmation()?.textContent).toContain("Drop")
   expect(pending.state).toBe("pending")
   expect(writes).toEqual([])
+})
+
+
+test("Earlier verifies seven historical cut cards before decoding, persists titles and fences member/prompt access", async () => {
+  const storage = memoryStorage()
+  const store = await createAppStore({ kind: "localStorage", storage })
+  let owner = "ben"
+  const origin = process.env.SMITHERS_CUT_HISTORY_ORIGIN
+  const history = createConversationHistory({ fetchImpl: async (input, init) => origin
+    ? fetch(`${origin}${input}`, { ...init, headers: { ...init?.headers,
+      Authorization: `Bearer ${owner === "ben" ? process.env.SMITHERS_CUT_HISTORY_BEN : process.env.SMITHERS_CUT_HISTORY_ALICE}` } })
+    : Response.json(owner === "alice" ? { status: "ok", conversations: [], next: null }
+      : String(input).endsWith("/replay") ? cutHistory.replay : cutHistory.index) }).history
+  const requests: unknown[] = []
+  const controller = controllerFor(store, { ...silentAgent, available: true, history, startTurn: async request => {
+    requests.push(request); return { status: "error", message: "Captured" }
+  } }, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      if (String(input).endsWith("/prompt")) { requests.push(JSON.parse(String(init?.body))); return Response.json({}, { status: 503 }) }
+      return Response.json([])
+    }
+  })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: owner, admin: false, scopesPlain: null }).isPersisted.promise
+  const host = mount(controller)
+  await controller.submitCommand({ name: "branches", payload: {}, actor: "user" })
+  await waitFor(() => store.collections.branches.has("earlier:journal:legacy-journal"))
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-node="earlier"]')!.click())
+  await waitFor(() => host.querySelector('[data-archive="earlier:journal:legacy-journal"]') !== null)
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-archive="earlier:journal:legacy-journal"]')!.click())
+  await waitFor(() => host.querySelector(".archive-entries") !== null)
+  const entries = host.querySelector(".archive-entries")!
+  for (const kind of ["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"]) expect(entries.textContent).toContain(`Saved ${kind}`)
+  expect(entries.textContent).toContain("<script>archiveCanary()</script>")
+  expect(entries.querySelector("script,button,input,textarea")).toBeNull()
+  expect(entries.textContent).not.toContain("private-body-canary")
+  expect(entries.textContent).not.toContain("private-payload-canary")
+  expect(store.collections.cards.size).toBe(0)
+  expect(requests).toHaveLength(0)
+  const snapshot = store.collections.branches.get("earlier:journal:legacy-journal")!.snapshot!
+  expect(snapshot.cards).toHaveLength(8)
+  expect(snapshot.cards.every(card => card.kind === "retired" && !('body' in card))).toBe(true)
+  expect(JSON.stringify(snapshot)).not.toContain("private-payload-canary")
+  await controller.setBranchNavigationView({ selected_branch: "main" })
+  controller.send("Current question")
+  await waitFor(() => requests.length === 1)
+  expect(JSON.stringify(requests)).not.toContain("private-payload-canary")
+  expect(JSON.stringify(requests)).not.toContain("private-body-canary")
+  expect(JSON.stringify(requests)).not.toContain("Saved admin-health")
+  owner = "alice"
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: owner, admin: false, scopesPlain: null }).isPersisted.promise
+  await controller.submitCommand({ name: "branches", payload: {}, actor: "user" })
+  await waitFor(() => host.querySelector('[data-node="earlier"]') !== null)
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-node="earlier"]')!.click())
+  await waitFor(() => host.querySelector('[aria-label="Earlier"]') !== null)
+  expect(host.querySelectorAll("[data-archive]")).toHaveLength(0)
 })

@@ -308,11 +308,25 @@ export type AgentConversationReplayAccess = z.infer<typeof AgentConversationRepl
  * @since 1.0.0
  * @category schemas
  */
+// Saved batches retain the signed wire bytes until the archive verifies their hash.
+// CardSchema can then retire old cards without changing the authenticated prefix.
+export const AgentConversationBatchSchema = AgentTurnBatchSchema.extend({
+  frames: z.array(z.object({ type: z.string(), runId: Identity }).passthrough().superRefine((frame, ctx) => {
+    const result = AgentTurnFrameSchema.safeParse(frame)
+    if (!result.success) for (const issue of result.error.issues) ctx.addIssue({ ...issue })
+  })).min(1).max(256)
+})
+export type AgentConversationBatch = z.infer<typeof AgentConversationBatchSchema>
+
 export const AgentConversationReplaySchema = z.object({
   status: z.literal("ok"),
   conversationId: Identity,
   userText: z.string().max(2 << 20),
-  page: AgentTurnJournalReplySchema.refine((page) => page.status === "ok")
+  page: z.object({
+    status: z.literal("ok"), after: AgentTurnCursorSchema, next: AgentTurnCursorSchema,
+    head: AgentTurnCursorSchema, terminal: z.boolean(), more: z.boolean(),
+    batches: z.array(AgentConversationBatchSchema)
+  }).strict()
 }).strict()
 /** Verified committed output plus its visible conversation identity.
  * @since 1.0.0

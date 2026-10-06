@@ -11,7 +11,6 @@ import { cardAvailable } from "./CardAvailability"
 import { canonicalEventValue, decodeEventValue, encodeEventValue } from "./EventValue"
 import { memoryStorage, waitFor } from "./TestFixtures"
 import { createAppController } from "./AppController"
-import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 
 const kinds = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent", "grant-confirm", "flow-form"] as const
 const opened: AppStore[] = []
@@ -83,12 +82,19 @@ for (const kind of kinds) test(`a version 32 ${kind} checkpoint and original upd
   inert(reopened.collections.cards.get("saved-cut-card"), kind)
   expect((await reopened.eventHistory()).head.streamId).toBe(rotated.head.streamId)
   expect((await reopened.verifyState()).valid).toBe(true)
-  const requests: StartAgentTurnRequest[] = []
-  // Fake only the model transport: persisted recovery and command dispatch are real.
+  await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  const requests: unknown[] = []
+  // The install prompt door is a fake HTTP transport; persistence and dispatch are real.
   const controller = createAppController(reopened, { available: true,
     startTurn: async request => { requests.push(request); return { status: "error", message: "Captured" } },
     cancelTurn: async () => {}, subscribe: () => () => {}
-  }, { fetchImpl: async () => Response.json({}, { status: 404 }) })
+  }, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      if (String(input).endsWith("/prompt")) { requests.push(JSON.parse(String(init?.body))); return Response.json({}, { status: 503 }) }
+      return Response.json({}, { status: 404 })
+    }
+  })
   try {
     expect((await controller.runCommandForResult("card.maximize", "saved-cut-card")).status).toBe("failed")
     expect((await controller.runCommandForResult("tab.open", "saved-cut-card")).status).toBe("unknown-command")
@@ -98,7 +104,7 @@ for (const kind of kinds) test(`a version 32 ${kind} checkpoint and original upd
     expect(JSON.stringify(requests[0])).not.toContain("Private old")
     expect(JSON.stringify(requests[0])).not.toContain("Private updated")
     expect(JSON.stringify(requests[0])).not.toContain("signup.finish")
-    expect(requests[0]!.context?.recentCards ?? []).toEqual([])
+    expect(requests[0]).toMatchObject({ prompt: "Read the current conversation" })
   } finally {
     await controller.dispose()
     opened.splice(opened.indexOf(reopened), 1)
