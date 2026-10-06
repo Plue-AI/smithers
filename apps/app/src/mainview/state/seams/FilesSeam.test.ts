@@ -728,7 +728,8 @@ describe("install file cards before Machine ready", () => {
       bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
       fetchImpl: async input => {
         const url = String(input); requests.push(url)
-        if (url === "/api/members") return json(200, INSTALL_MEMBERS)
+        if (url === "/api/members") return store.collections.identitySessions.get("identity")?.state === "signed-in"
+          ? json(200, INSTALL_MEMBERS) : json(401, { class: "permission", code: "unauthenticated", message: "Sign in" })
         if (url === "/api/branches/main/files/src/b.ts") return json(200, {
           path: "src/b.ts", branch: "main", language: "typescript", digest: "sha256:fixture",
           content: { kind: "text", text: '\n\n\n\nadd(1, "2")\n' }, mode: "read_only", diagnostics: [], authors: [], editors: []
@@ -738,13 +739,13 @@ describe("install file cards before Machine ready", () => {
     })
     try {
       await ready(store)
-      await controller.presentCard("commands", "Commands")
       const result = await controller.commands.run("files.read", "src/b.ts:5:3")
       expect(result.status).toBe("executed")
       const cards = [...store.collections.cards.values()].filter(card => card.kind === "file")
       expect(cards).toHaveLength(1)
       expect(cards[0]?.payload).toMatchObject({ path: "src/b.ts", content: '\n\n\n\nadd(1, "2")\n', line: 5, column: 3 })
       expect(requests).toContain("/api/branches/main/files/src/b.ts")
+      expect(requests.filter(url => url === "/api/members").length).toBeGreaterThanOrEqual(2)
       expect(requests.some(url => url.includes("/contents/src/b.ts") || url.includes("/workspace/sessions"))).toBe(false)
       expect(controller.commands.find("code.hover")).toBeUndefined()
       expect(controller.commands.find("code.definition")).toBeUndefined()
@@ -769,7 +770,6 @@ test.each([
   })
   try {
     await ready(store)
-    await controller.presentCard("commands", "Commands")
     await controller.commands.run("files.read", "src/b.ts")
     expect([...store.collections.cards.values()].filter(card => card.kind === "file")).toHaveLength(0)
     expect(requests.filter(url => url.includes("src/b.ts"))).toEqual(["/api/branches/main/files/src/b.ts"])

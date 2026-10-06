@@ -906,7 +906,13 @@ export const createAppController = (
   const membersSeam = createMembersSeam({ ready: installHost, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
   ctx.onDispose(membersSeam.dispose)
-  if (installHost) membersSeam.start()
+  if (installHost) {
+    membersSeam.start()
+    // Catalog authority must load without requiring a visit to Members or
+    // Commands, and refresh when sign-in changes the authenticated viewer.
+    const membershipIdentity = store.collections.identitySessions.subscribeChanges(() => { void membersSeam.read() })
+    ctx.onDispose(() => membershipIdentity.unsubscribe())
+  }
   const membersRoster = installHost ? membersSeam.snapshots : designMembersRoster(design)
   const membersRole = (): "owner" | "maintainer" | "member" => {
     if (!installHost) return designViewerRole(design)
