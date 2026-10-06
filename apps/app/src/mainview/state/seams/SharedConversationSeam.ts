@@ -1,14 +1,21 @@
 import { z } from "zod"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import { ContextItemSchema } from "@smthrs/rpc/CardPrimitives"
+import { MessageSchema } from "../AppState"
 import type { ControllerContext } from "../controller/context"
 import type { LiveTopics } from "../useTopic"
 
-export const SharedConversationSchema = z.object({ id: z.string(), entries: z.array(z.object({
+// Imports reuse the durable message decoder and cannot decode as executable turns.
+const SharedTurnSchema = z.object({
+  origin: z.literal("smithers").optional(),
   id: z.string(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
   state: z.enum(["accepted", "running", "completed", "failed", "cancelled", "uncertain"]),
   frames: z.array(AgentTurnFrameSchema), context: z.array(ContextItemSchema).optional()
-})) })
+}).strict()
+export const SharedConversationSchema = z.object({
+  id: z.string(),
+  entries: z.array(z.union([MessageSchema.refine(message => message.origin === "external"), SharedTurnSchema]))
+})
 export type SharedConversation = z.infer<typeof SharedConversationSchema>
 export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.literal("theme"), mode: z.enum(["light", "dark"]) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
 export type ConversationView = z.infer<typeof ConversationViewSchema>

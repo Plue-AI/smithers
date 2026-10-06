@@ -1,4 +1,3 @@
-import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, afterEach, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
@@ -34,8 +33,7 @@ test("mounted conversation preserves external attribution, ordering and copy acr
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { copied = text } } })
   cleanups.push(() => { if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard); else delete (navigator as { clipboard?: Clipboard }).clipboard })
   let starts = 0
-  let lastRequest = ""
-  const agent = { ...silentAgent, startTurn: async (request: StartAgentTurnRequest) => { starts++; lastRequest = JSON.stringify(request); return { status: "started" as const } } }
+  const agent = { ...silentAgent, startTurn: async () => { starts++; return { status: "started" as const } } }
   const store = await createAppStore({ kind: "localStorage", storage })
   const controller = createController(store, agent)
   const { host, remove } = mount(controller)
@@ -79,11 +77,10 @@ test("mounted conversation preserves external attribution, ordering and copy acr
   expect(restored.collections.messages.get("external-claude-tool")?.correlation_id).toBe("tool-1")
   expect(restored.collections.messages.get("external-claude-error")?.correlation_id).toBe("tool-1")
   await next.commands.submit({ name: "chat.send", payload: { text: "Hello Smithers" }, actor: "user" })
-  await waitFor(() => starts === 1)
-  expect(starts).toBe(1)
-  expect(lastRequest).not.toContain("Run the webhook tests")
-  expect(lastRequest).not.toContain("malicious")
-  expect([...restored.collections.messages.values()].filter(row => row.role === "user" && row.origin !== "external" && row.text === "Hello Smithers")).toHaveLength(1)
+  // T-APP-16 requires host conversation admission; a legacy-only mount
+  // must not execute a turn locally. The install seam test covers admission.
+  expect(starts).toBe(0)
+  expect([...restored.collections.messages.values()].filter(row => row.role === "user" && row.origin !== "external" && row.text === "Hello Smithers")).toHaveLength(0)
   reloadedMount.remove()
   cleanups.pop()
   await next.dispose()

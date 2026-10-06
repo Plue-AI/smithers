@@ -2090,7 +2090,7 @@ export const createAppController = (
     openApproval: runs.openApproval,
     maximizeCard: id => {
       const shared = sharedConversation?.get()
-      if (shared?.conversation?.entries.some(turn => turn.frames.some(frame => frame.type === "card" && frame.card.id === id))) {
+      if (shared?.conversation?.entries.some(turn => "frames" in turn && turn.frames.some(frame => frame.type === "card" && frame.card.id === id))) {
         void sharedConversation!.saveView({ card_view: { [id]: "maximized" } })
         return
       }

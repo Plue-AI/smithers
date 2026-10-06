@@ -123,7 +123,7 @@ function AppContent() {
   const earlier = session.branchNavigation?.open && session.branchNavigation.owner === (accountOwnerOf(identityRows[0]) ?? null) && session.branchNavigation.selected_branch === "earlier"
   const conversationTabId = conversationTabIdOf(session)
   // A recovery door is an acknowledgment only once its journal receipt exists.
-  const messages = messageRows.filter((message) => (!controller.sharedConversation || message.origin === "external" || message.action !== undefined) && inConversation(message, conversationTabId) &&
+  const messages = messageRows.filter((message) => (!controller.sharedConversation || message.action !== undefined) && inConversation(message, conversationTabId) &&
     (message.action?.flow !== "sign-in" || savedSignInPrompts.some(receipt => receipt.id === message.id)))
   const conversationRows = cardRows.filter((card) => inConversation(card, conversationTabId))
   // Admin chrome follows the same capability-filtered registry as every act.
@@ -147,7 +147,7 @@ function AppContent() {
   useLiveQuery(collections.repositoryFlows)
   const flows = controller.commands.all()
   const sharedConversation = useSharedConversation(controller.sharedConversation)
-  const typing = controller.sharedConversation ? sharedConversation.conversation?.entries.some(row => row.authorLogin === identityRows[0]?.login && (row.state === "running" || row.state === "accepted")) === true : session.phase === "responding"
+  const typing = controller.sharedConversation ? sharedConversation.conversation?.entries.some(row => "authorLogin" in row && row.authorLogin === identityRows[0]?.login && (row.state === "running" || row.state === "accepted")) === true : session.phase === "responding"
   const streamingMessageId = typing ? messages[messages.length - 1]?.id : undefined
   const identity = identityRows[0]
   const confirmations = useTopic(identity?.state === "signed-in" && identity.memberId && controller.live
@@ -486,7 +486,7 @@ function AppContent() {
             {!earlier && !repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
             {!loginScreen && !repositoryNotice && <BranchNavigation />}
             {!earlier && controller.sharedConversation && <SharedConversation source={controller.sharedConversation} />}
-            {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.origin === "external" || entry.message.action !== undefined).map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
+            {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.action !== undefined).map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "card" ?
                 (
                   <CardView
