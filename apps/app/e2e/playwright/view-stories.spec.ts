@@ -959,6 +959,30 @@ for (const key of ["Enter", "Space"]) test(`T-UI-15 keyboard ${key} controls pre
   await expect(page.locator("button[data-flow]")).toHaveCount(0)
 })
 
+test("T-UI-15 tab arrow and boundary keys move focus through the View seam", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=BranchView/branch-active-activity&theme=${theme}`)
+    await page.evaluate(() => {
+      Object.assign(window, { branchCalls: [] })
+      window.addEventListener("story-callback", event =>
+        (window as unknown as { branchCalls: unknown[] }).branchCalls.push((event as CustomEvent).detail))
+    })
+    await page.locator('[data-tab="activity"]').focus()
+    for (const [key, tab] of [
+      ["ArrowLeft", "terminals"], ["ArrowRight", "activity"],
+      ["ArrowRight", "files"], ["End", "terminals"], ["Home", "activity"],
+    ]) {
+      await page.evaluate(() => { Reflect.get(window, "branchCalls").length = 0 })
+      await page.keyboard.press(key!)
+      await expect(page.locator(`[data-tab="${tab}"]`)).toBeFocused()
+      expect(await page.evaluate(() => Reflect.get(window, "branchCalls"))).toEqual([
+        { kind: "view", value: { tab } },
+      ])
+    }
+  }
+})
+
 test("T-UI-15 tabs and SSH use only their supplied View and clipboard seams", async ({ page }) => {
   await page.addInitScript(() => {
     Object.assign(window, { branchCalls: [], branchCopied: [] })

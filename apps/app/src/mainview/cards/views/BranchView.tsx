@@ -176,6 +176,17 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
               key={value}
               data-tab={value}
               onClick={() => onView({ tab: value })}
+              onKeyDown={(event) => {
+                const index = tabs.indexOf(value)
+                const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
+                  : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+                  : event.key === "Home" ? 0
+                  : event.key === "End" ? tabs.length - 1 : undefined
+                if (next === undefined) return
+                event.preventDefault()
+                event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-tab="${tabs[next]}"]`)?.focus()
+                onView({ tab: tabs[next]! })
+              }}
             >
               {value === "activity" ? "Activity" : value === "files" ? "Files" : "Terminals"}
               {value === "files" && model.changed_files.length ? (
