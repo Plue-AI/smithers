@@ -1,12 +1,22 @@
 // Bundle door for the existing host service; the full authoring CLI needs a checkout.
 import { dirname } from "node:path"
+import { parseArgs } from "node:util"
 import * as HostService from "../../../packages/smithers/src/internal/backend/HostService"
 
 try {
   const [group, command, ...args] = process.argv.slice(2)
   if (group !== "host") throw new Error("Use smthrs host start|stop|status")
-  if (command === "start" && (args.length === 0 || args.length === 2 && args[0] === "--bundle")) {
-    const result = await HostService.start(args[1] ?? dirname(dirname(process.execPath)))
+  if (command === "start") {
+    let values
+    try {
+      values = parseArgs({ args, strict: true, allowPositionals: false, options: {
+        bundle: { type: "string" }, bind: { type: "string" }, origin: { type: "string", multiple: true }
+      } }).values
+    } catch { throw new Error("Use smthrs host start [--bundle <dir>] [--bind <address>] [--origin <url>]") }
+    const result = await HostService.start(values.bundle ?? dirname(dirname(process.execPath)), {
+      ...(values.bind === undefined ? {} : { bind: values.bind }),
+      ...(values.origin === undefined ? {} : { origins: values.origin })
+    })
     console.log(JSON.stringify(result.setup_urls ? { setup_urls: result.setup_urls } : { message: result.message }))
     process.exitCode = result.exitCode
   } else if (command === "stop" && args.length === 0) {
