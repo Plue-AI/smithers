@@ -204,7 +204,7 @@ test("C-UI-04: shared history supplies actor lines and keyboard jumps to the sha
 })
 
 
-test("C-UI-04: saved toast hiding suppresses the owner's new notice while the entry updates", async ({ page }) => {
+for (const preference of ["toasts_hidden", "global_toasts_hidden"]) test(`C-UI-04: saved ${preference} suppresses the owner's new notice while the entry updates`, async ({ page }) => {
   await installOwner(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   let state = "in_review"
@@ -214,7 +214,7 @@ test("C-UI-04: saved toast hiding suppresses the owner's new notice while the en
     merge: { state: "waiting", reason: "state", on_github: false }
   })
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
-  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { toasts_hidden: true } }))
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { [preference]: true } }))
   await page.route("**/api/todos", route => route.fulfill({ json: [model()] }))
   await page.route("**/api/todos/24", route => route.fulfill({ json: model() }))
   await page.goto("/")

@@ -80,6 +80,7 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
 
 /** Shared history uses exactly the transcript's scroll ids and recorded actors. */
 export const sharedRailLines = (conversation: SharedConversation | undefined, viewer: Parameters<typeof actionFor>[1]): TimelineLine[] => (conversation?.entries ?? []).flatMap(turn => {
+  if ("role" in turn) return railLines([{ kind: "message", message: turn }], viewer)
   const color_index = (turn.author % 6) as 0 | 1 | 2 | 3 | 4 | 5
   const person = { login: turn.authorLogin, name: turn.authorLogin, avatar_url: PlaceholderAvatarUrl }
   const frames = turn.frames.filter(frame => frame.runId === turn.runId)
@@ -207,7 +208,7 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const edges = railEdges(lines, band)
   const all = [...toasts, ...privacyNotices]
   const member = accountOwnerOf(identities.find(identity => identity.id === "identity"))
-  const notices = controller.sharedConversation && ((!shared.view && !shared.error) || shared.view?.toasts_hidden) ? [] : railNotices(all, lines, member)
+  const notices = controller.sharedConversation && ((!shared.view && !shared.error) || (shared.view?.toasts_hidden || shared.view?.global_toasts_hidden)) ? [] : railNotices(all, lines, member)
   const onView = (patch: ShellView): void => {
     if (patch.toast_hidden !== undefined) controller.runCommand("toast.dismiss", patch.toast_hidden)
     if (patch.jump_to !== undefined) scroller.scrollToMessage(patch.jump_to, { behavior: "smooth" })

@@ -114,3 +114,31 @@ func TestSharedConversationAssemblesPreflightAcrossReplayPages(t *testing.T) {
 		require.NotContains(t, string(raw), "canary")
 	}
 }
+
+func TestSharedConversationIndependentToastPreferences(t *testing.T) {
+	f := newContextFixture(t)
+	// The same authenticated HTTP door writes both preferences, independently.
+	server := httptest.NewServer(authenticatedRoutes(f.handler, f.scope.UserID, f.scope.Owner))
+	defer server.Close()
+	write := func(body string) map[string]any {
+		req, err := http.NewRequest(http.MethodPut, server.URL+"/api/conversations/main/view-state", strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		response, err := server.Client().Do(req)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var view map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&view))
+		return view
+	}
+	view := write(`{"toasts_hidden":true,"global_toasts_hidden":false}`)
+	require.Equal(t, true, view["toasts_hidden"])
+	require.Equal(t, false, view["global_toasts_hidden"])
+	view = write(`{"toasts_hidden":false,"global_toasts_hidden":true}`)
+	require.Equal(t, false, view["toasts_hidden"])
+	require.Equal(t, true, view["global_toasts_hidden"])
+	raw, err := f.handler.Store.ReadMemberViewState(t.Context(), f.scope.UserID, "another-branch")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"global_toasts_hidden":true}`, string(raw))
+}
