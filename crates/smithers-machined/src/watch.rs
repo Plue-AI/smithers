@@ -159,14 +159,36 @@ impl<I: Ignore> Inotify<I> {
         self.dirs.clear();
         let mut files = vec![];
         self.scan(Path::new("."), false, true, &mut files)?;
+        self.rearm_metadata()?;
+        Ok(files)
+    }
+    // Watch the fixed metadata ancestors as well: jj may be initialized after
+    // startup, and tools replace refs/op-head directories with atomic renames.
+    // These shallow watches observe only the next metadata component.
+    fn rearm_metadata(&mut self) -> io::Result<()> {
+        let old: Vec<_> = self
+            .dirs
+            .iter()
+            .filter_map(|(wd, d)| d.metadata.then_some(*wd))
+            .collect();
+        for wd in old {
+            match inotify::remove_watch(&self.fd, wd) {
+                Ok(()) | Err(rustix::io::Errno::INVAL) => (),
+                Err(e) => return Err(e.into()),
+            }
+            self.dirs.remove(&wd);
+        }
         for (p, recursive) in [
             (".git", false),
+            (".jj", false),
+            (".jj/repo", false),
+            (".jj/repo/op_heads", false),
             (".git/refs", true),
             (".jj/repo/op_heads/heads", true),
         ] {
-            self.scan(Path::new(p), true, recursive, &mut files)?;
+            self.scan(Path::new(p), true, recursive, &mut vec![])?;
         }
-        Ok(files)
+        Ok(())
     }
     pub fn tracked(&mut self, path: &str) -> io::Result<bool> {
         Ok(!self.ignore.ignored(Path::new(path), false)?)
@@ -237,6 +259,7 @@ impl<I: Ignore> Inotify<I> {
         let ignored = self.ignore.batch(&candidates)?;
         let filtered: BTreeMap<_, _> = candidates.into_iter().zip(ignored).collect();
         let mut out = vec![];
+        let mut metadata_rearm = false;
         for (wd, flags, cookie, name) in raw {
             if flags.contains(inotify::ReadFlags::QUEUE_OVERFLOW) {
                 return Ok(vec![Event::Overflow]);
@@ -251,11 +274,12 @@ impl<I: Ignore> Inotify<I> {
             let metadata = d.metadata;
             let recursive = d.recursive;
             if flags.intersects(inotify::ReadFlags::DELETE_SELF | inotify::ReadFlags::MOVE_SELF) {
-                return Ok(vec![if metadata {
-                    Event::Metadata
-                } else {
-                    Event::Overflow
-                }]);
+                if metadata {
+                    metadata_rearm = true;
+                    out.push(Event::Metadata);
+                    continue;
+                }
+                return Ok(vec![Event::Overflow]);
             }
             let Some(name) = name.and_then(|n| String::from_utf8(n).ok()) else {
                 continue;
@@ -266,14 +290,24 @@ impl<I: Ignore> Inotify<I> {
                 d.path.join(&name)
             };
             if metadata {
-                if recursive || name == "HEAD" || name == "packed-refs" || name == "refs" {
+                let relevant = recursive
+                    || match d.path.to_str() {
+                        Some(".git") => matches!(name.as_str(), "HEAD" | "packed-refs" | "refs"),
+                        Some(".jj") => name == "repo",
+                        Some(".jj/repo") => name == "op_heads",
+                        Some(".jj/repo/op_heads") => name == "heads",
+                        _ => false,
+                    };
+                if relevant {
                     out.push(Event::Metadata);
-                    if flags.contains(inotify::ReadFlags::ISDIR)
-                        && flags
-                            .intersects(inotify::ReadFlags::CREATE | inotify::ReadFlags::MOVED_TO)
-                    {
-                        self.scan(&path, true, true, &mut vec![])?;
-                    }
+                    metadata_rearm |= flags.contains(inotify::ReadFlags::ISDIR);
+                }
+                continue;
+            }
+            if path == Path::new(".git") || path == Path::new(".jj") {
+                if flags.contains(inotify::ReadFlags::ISDIR) {
+                    metadata_rearm = true;
+                    out.push(Event::Metadata);
                 }
                 continue;
             }
@@ -318,6 +352,9 @@ impl<I: Ignore> Inotify<I> {
                     to: flags.contains(inotify::ReadFlags::MOVED_TO),
                 });
             }
+        }
+        if metadata_rearm {
+            self.rearm_metadata()?;
         }
         Ok(out)
     }
