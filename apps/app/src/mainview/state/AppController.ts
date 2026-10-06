@@ -505,6 +505,7 @@ export interface AppController extends IssueFlowsController {
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly newTodo: TodoSeam["newTodo"]
+  readonly newFlowSourceTodo: TodoSeam["newFlowSourceTodo"]
   readonly mergeTodo: TodoSeam["mergeTodo"]
   /** Review & merge for this host's TODO Tn: the person's private Confirm card bound to the PR head (T-APP-04). */
   readonly reviewTodoMerge: TodoSeam["reviewMerge"]
@@ -1001,7 +1002,28 @@ export const createAppController = (
   }
   /* MOCK SEAM: the seed answers TODO and Draft flows until this host serves /api/todos (todoSourceProbe). */
   const todoSource = installHost ? { known: () => "real" as const, ask: () => Promise.resolve("real" as const) } : todoSourceProbe(seamCtx, services.bootstrap !== undefined)
-  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
+  const flowSourceBranch = async (context: SeamContext, n: number) => {
+    const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/todos/${n}`, { credentials: "include" })
+    if (!response.ok) return { error: "Could not open the TODO." } as const
+    const model = TodoCardSchema.safeParse(await response.json())
+    return !model.success || model.data.n !== n || !model.data.branch
+      ? { error: "Branch files are unavailable." } as const : { branch: model.data.branch.id } as const
+  }
+  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { sourceAvailable: async path => {
+    try {
+      const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/branches/main/files/${path.split("/").map(encodeURIComponent).join("/")}`, { credentials: "include" })
+      // A built-in has no override file yet; a missing file is a served read, not missing infrastructure.
+      return response.ok || response.status === 404
+    } catch { return false }
+  }, openSource: async (n, path, live) => {
+    const source = await flowSourceBranch(context, n)
+    if (!live() || source.branch === undefined) return false
+    // Wait for derivation on the machine. The host only reads the produced file.
+    const file = await context.http(`${baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(source.branch)}/files/${path.split("/").map(encodeURIComponent).join("/")}`, { credentials: "include" })
+    if (!live() || !file.ok) return false
+    const opened = await filesSeam.readFile(path, undefined, undefined, source.branch)
+    return opened !== undefined && typeof opened !== "string"
+  }, topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
     const snapshot = services.live!.getSnapshot(topic)
     if (snapshot?.data !== undefined) receive(snapshot.data)
   }) } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
@@ -1065,11 +1087,8 @@ export const createAppController = (
     read: async (n: number, path: string) => {
       const read = select(filesSeam.readFile)
       try {
-        const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/todos/${n}`, { credentials: "include" })
-        if (!response.ok) return "Could not open the TODO."
-        const model = TodoCardSchema.safeParse(await response.json())
-        if (!model.success || model.data.n !== n || model.data.branch === undefined) return "Branch files are unavailable."
-        return read(path, undefined, undefined, model.data.branch.id)
+        const source = await flowSourceBranch(context, n)
+        return source.branch === undefined ? source.error : read(path, undefined, undefined, source.branch)
       } catch { return "Branch files are unavailable." }
     }
   })).read
@@ -1991,6 +2010,7 @@ export const createAppController = (
     setStackParallel: stackSeam.setStackParallel,
     retryStackItem: stackSeam.retryStackItem,
     newTodo: todoSeam.newTodo,
+    newFlowSourceTodo: todoSeam.newFlowSourceTodo,
     showTodo: todoSeam.showTodo,
     readFlowSource,
     mergeTodo: todoSeam.mergeTodo,
