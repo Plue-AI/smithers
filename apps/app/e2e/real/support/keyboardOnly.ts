@@ -74,3 +74,52 @@ export function assertKeyboardOnly(log: readonly KeyboardInput[]): void {
   if (log.some(input => input.result === "refused")) throw new Error("C-UI-01 refused input remains in the guard log")
   if (!log.some(input => input.result === "allowed")) throw new Error("C-UI-01 no app keyboard input was observed")
 }
+
+export type KeyboardFocus = {
+  readonly at: string
+  readonly element: string
+  readonly focusVisible: boolean
+  readonly outlineStyle: string
+  readonly outlineWidth: number
+  readonly ringMatches: boolean
+}
+
+/** Read after an action AND after its asynchronous card/live update settles.
+ * Deliberately retains no text, labels, field values or URL query parameters.
+ * This observation alone never proves completion of a release journey.
+ */
+export async function recordKeyboardFocus(page: Page, log: KeyboardFocus[]): Promise<void> {
+  const observation = await page.evaluate(() => {
+    let active = document.activeElement
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement
+    const style = active ? getComputedStyle(active) : undefined
+    const ring = style?.getPropertyValue("--ring-border").trim()
+    const probe = document.createElement("span")
+    probe.style.outlineColor = ring || "transparent"
+    probe.hidden = true
+    document.body.append(probe)
+    const expected = getComputedStyle(probe).outlineColor
+    probe.remove()
+    return {
+      at: new Date().toISOString(),
+      element: active?.tagName.toLowerCase() ?? "none",
+      focusVisible: active?.matches(":focus-visible") ?? false,
+      outlineStyle: style?.outlineStyle ?? "none",
+      outlineWidth: Number.parseFloat(style?.outlineWidth ?? "0"),
+      ringMatches: Boolean(ring && style?.outlineColor === expected)
+    }
+  })
+  log.push(observation)
+  assertKeyboardFocus([observation])
+}
+
+/** Caught failures must remain failures when the evidence is finalized. */
+export function assertKeyboardFocus(log: readonly KeyboardFocus[]): void {
+  if (!log.length) throw new Error("C-UI-01 no focus observations were recorded")
+  if (log.some(observation =>
+    ["body", "html", "none"].includes(observation.element) || !observation.focusVisible ||
+    observation.outlineStyle === "none" || observation.outlineStyle === "hidden" ||
+    !(observation.outlineWidth > 0) || !observation.ringMatches)) {
+    throw new Error("C-UI-01 focus is missing or does not show the --ring-border outline")
+  }
+}
