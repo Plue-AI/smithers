@@ -799,7 +799,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	// Only the test-owned child is killed. Its successor reads the same database.
 	require.NoError(t, command.Process.Kill())
 	require.Error(t, command.Wait())
-	start()
+	command, _ = start()
 	response, err = client.Get(origin + "/api/install")
 	require.NoError(t, err)
 	require.Equal(t, 200, response.StatusCode)
