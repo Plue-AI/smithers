@@ -97,8 +97,10 @@ impl<I: Input> Pipe<I> {
                 self.pending.extend(&p[2..]);
             }
             2 if p[1] == 0 => {
-                self.receiver.eof()?;
-                self.input_eof = true;
+                if !self.input_eof {
+                    self.receiver.eof()?;
+                    self.input_eof = true;
+                }
             }
             3 => {
                 let cols = u16::from_be_bytes(p[1..3].try_into().unwrap());
@@ -261,6 +263,12 @@ impl<I: Input> Pipe<I> {
             return Err(invalid());
         }
         let bytes = self.sender.attach(received)?;
+        // The peer resumes stdin at the delivered offset, not at the number of
+        // bytes accepted by this transport. Keeping undelivered bytes here would
+        // enqueue the replay twice. Validate output offsets before discarding.
+        self.receiver.reattach(self.input_finished)?;
+        self.pending.clear();
+        self.input_eof = self.input_finished;
         self.acknowledge((received - self.acknowledged) as usize);
         let mut offset = 0;
         let mut frames = Vec::new();

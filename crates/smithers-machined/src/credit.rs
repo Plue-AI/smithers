@@ -115,6 +115,17 @@ impl Receiver {
     pub fn close(&mut self) {
         self.closed = true;
     }
+    /// Reconnect starts a fresh input window at the consumer's delivered offset.
+    /// Unconsumed transport bytes are discarded and resent by the peer. A closed
+    /// stream cannot be reopened; EOF persists only if the consumer received it.
+    pub fn reattach(&mut self, delivered_eof: bool) -> io::Result<()> {
+        if self.closed {
+            return Err(invalid("stream closed"));
+        }
+        self.pending = 0;
+        self.eof = delivered_eof;
+        Ok(())
+    }
     pub fn pending(&self) -> usize {
         self.pending
     }
@@ -213,7 +224,15 @@ mod tests {
         assert!(receiver.eof().is_err());
         assert!(receiver.data(0).is_err());
         assert_eq!(receiver.consumed(262_144).unwrap(), 262_144);
+        receiver.reattach(false).unwrap();
+        receiver.data(4).unwrap();
+        assert_eq!(receiver.pending(), 4);
+        receiver.reattach(true).unwrap();
+        assert_eq!(receiver.pending(), 0);
+        assert!(receiver.data(1).is_err());
+        assert!(receiver.consumed(1).is_err());
         receiver.close();
+        assert!(receiver.reattach(false).is_err());
         assert!(receiver.data(1).is_err());
         assert!(receiver.eof().is_err());
         assert!(receiver.consumed(1).is_err());
