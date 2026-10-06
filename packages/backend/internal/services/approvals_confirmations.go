@@ -379,9 +379,19 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if item == nil {
 			return p, todoControlConflict("TODO is settled or merging")
 		}
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_items WHERE id=$1 FOR UPDATE`, item.ID); err != nil {
+			return p, err
+		}
+		locked, err := db.New(tx).GetMythicalItem(ctx, item.ID)
+		if err != nil {
+			return p, err
+		}
+		item = &locked
 		if _, err := foreignPushAnswerWait(*item, answer.ID, answer.Revision); err != nil {
 			return p, err
 		}
+		p.revision = uuidString(item.ID) + ":" + strconv.FormatInt(item.Version, 10) + ":" + strconv.FormatInt(item.Generation, 10) + ":" + answer.Revision
+		text = answer.Revision
 		p.title = item.Title.String
 		verb = "Bring in"
 		if input.Command == "branch.discard-foreign" {
@@ -536,7 +546,15 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				return expire()
 			}
 			if err != nil {
-				return err
+				var access *AccessError
+				var control *TodoControlError
+				unavailable := errors.As(err, &access) && access.Status == 503 || errors.As(err, &control) && control.Status == 503
+				if decision != "deny" || !unavailable {
+					return err
+				}
+				// Cancellation grants no execution authority; a missing consumer
+				// must not trap a pending request on the person's card.
+				prepared.revision = revision
 			}
 			if prepared.revision != revision {
 				return expire()

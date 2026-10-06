@@ -129,7 +129,9 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		}
 		unchanged, err := q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
-		require.Equal(t, callBefore, unchanged)
+		if status != 200 || !strings.HasSuffix(path, "/approve") {
+			require.Equal(t, callBefore, unchanged)
+		}
 		return string(raw)
 	}
 	confirmationIDs := map[string]string{}
@@ -165,11 +167,14 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='write:repository,' || scopes WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
 	for _, answer := range []string{"bring-in", "discard-foreign"} {
-		confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 403, "permission")
+		raw := confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 202, "")
+		var receipt map[string]string
+		require.NoError(t, json.Unmarshal([]byte(raw), &receipt))
+		confirmationCall("/api/confirmations/"+receipt["confirmation"]+"/deny", "", ownerCookie, `{}`, "cancel-direct-"+answer, 200, "")
 	}
 	var confirmations int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&confirmations))
-	require.Equal(t, 3, confirmations)
+	require.Equal(t, 5, confirmations)
 	confirmationCall("/api/confirmations/"+confirmationIDs["owner-bring"]+"/approve", "", ownerCookie, `{}`, "bring-press", 503, "checkpoint_rebase_unavailable")
 	for _, command := range []string{"branch.bring-in", "branch.discard-foreign"} {
 		id := uuid.NewString()
@@ -373,5 +378,39 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 			}
 		})
 	}
+
+	// Generation changes invalidate the same observed head without consuming
+	// the foreign wait. A failed approval CAS rolls the branch effect back.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, []byte(checks))
+	require.NoError(t, err)
+	requestDiscard := func(key string) string {
+		raw := confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":"discard-foreign","id":"foreign","revision":%q}`, head), key, 202, "")
+		var result map[string]string
+		require.NoError(t, json.Unmarshal([]byte(raw), &result))
+		return result["confirmation"]
+	}
+	stale := requestDiscard("generation-discard")
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	stable, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	confirmationCall("/api/confirmations/"+stale+"/approve", "", ownerCookie, `{}`, "generation-press", 409, "confirmation_resolved")
+	unchanged, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, stable, unchanged)
+	retry := requestDiscard("rollback-discard")
+	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_confirmation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.state='approved' THEN RAISE EXCEPTION 'forced approval failure'; END IF; RETURN NEW; END $$;
+ CREATE TRIGGER reject_confirmation BEFORE UPDATE ON approvals FOR EACH ROW EXECUTE FUNCTION reject_confirmation()`)
+	require.NoError(t, err)
+	confirmationCall("/api/confirmations/"+retry+"/approve", "", ownerCookie, `{}`, "rollback-press", 503, "todo_unavailable")
+	unchanged, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, stable, unchanged)
+	var pendingState string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, retry).Scan(&pendingState))
+	require.Equal(t, "pending", pendingState)
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_confirmation ON approvals`)
+	require.NoError(t, err)
+	confirmationCall("/api/confirmations/"+retry+"/approve", "", ownerCookie, `{}`, "rollback-press", 200, "")
 
 }
