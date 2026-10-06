@@ -74,6 +74,9 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry", label: "Retry", command_input: { n },
     input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
     resolve_input: input => ({ n, text: input.text }) })
+  if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry-current-flow", label: "Retry with the current flow", command_input: { n },
+    input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
+    resolve_input: input => ({ n, text: input.text }) })
   if (model.state === "queued") {
     const revision = model.prompt_revisions.at(-1)
     definitions.push({ tag: "todo.amend", label: "Save", command_input: { n, text: revision?.text ?? "", acceptance: revision?.acceptance ?? [] },
@@ -181,8 +184,8 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
 }
 // POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
 // Branch navigation is supplied when its install provider is composed.
-// Stop/Resume/current-flow retry and branch repair/terminal providers remain gated until their composition lands.
-const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.takeover", "image.add", "merge"]
+// Stop/Resume and branch repair/terminal providers remain gated until their composition lands.
+const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge"]
 
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }

@@ -49,6 +49,13 @@ func todoState(item db.MythicalItem) string {
 	case "proposed":
 		return "in_review"
 	case "queued":
+		// An accepted retry queues a new attempt; the previous run and PR
+		// remain historical facts until admission replaces the live binding.
+		for _, retry := range checks.Retries {
+			if retry.Attempt == item.Attempt+1 {
+				return "queued"
+			}
+		}
 		if checks.RunLaunched && !checks.RunAttached {
 			return "starting"
 		}

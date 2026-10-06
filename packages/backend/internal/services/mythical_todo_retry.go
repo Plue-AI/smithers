@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -46,11 +47,12 @@ type todoSteer struct {
 // and the attempt it starts. The same key again answers this receipt and
 // starts nothing more.
 type todoRetry struct {
-	Request    string    `json:"request"`
-	Credential string    `json:"credential,omitempty"`
-	By         string    `json:"by"`
-	At         time.Time `json:"at"`
-	Attempt    int32     `json:"attempt"`
+	Pin        *flowruntime.Pin `json:"pin,omitempty"`
+	Request    string           `json:"request"`
+	Credential string           `json:"credential,omitempty"`
+	By         string           `json:"by"`
+	At         time.Time        `json:"at"`
+	Attempt    int32            `json:"attempt"`
 }
 
 // todoFeedbackBytes bounds the steers an attempt receives as its coding
@@ -109,10 +111,25 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			}
 			now, attempt := s.now().UTC(), item.Attempt+1
 			retried := mythicalChecksOf(next)
+			var retryPin *flowruntime.Pin
+			if input.Op == "retry-current-flow" {
+				if s.todoFlow == nil {
+					return todoControlUnavailable()
+				}
+				stack, err := q.GetMythicalStack(ctx, input.Repository)
+				if err != nil {
+					return err
+				}
+				pin, err := s.activeTodoPin(ctx, q, input.Repository, stack.LandedMain)
+				if err != nil {
+					return todoControlUnavailable()
+				}
+				retryPin = &pin
+			}
 			if input.Steer != nil {
 				retried.Steers = append(retried.Steers, todoSteer{Text: *input.Steer, By: todoActor(ctx, person), At: now, Attempt: attempt})
 			}
-			retried.Retries = append(retried.Retries, todoRetry{Request: input.Request, Credential: credential, By: person.Username, At: now, Attempt: attempt})
+			retried.Retries = append(retried.Retries, todoRetry{Request: input.Request, Credential: credential, By: person.Username, At: now, Attempt: attempt, Pin: retryPin})
 			next.Checks = retried.encode()
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if errors.Is(err, pgx.ErrNoRows) {

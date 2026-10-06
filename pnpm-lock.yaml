@@ -3235,6 +3235,9 @@ importers:
       '@smthrs/kernel':
         specifier: workspace:*
         version: link:../../flows/kernel
+      '@smthrs/memory':
+        specifier: workspace:*
+        version: link:../memory
       '@smthrs/model':
         specifier: workspace:*
         version: link:../model

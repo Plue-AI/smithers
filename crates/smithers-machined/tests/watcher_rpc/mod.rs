@@ -959,3 +959,26 @@ fn registered_run_external_write_uses_run_actor_and_presence_hook() {
     assert_eq!(shared.f.lock().unwrap().where_file, vec![(1, "a".into())]);
     executor.shutdown().unwrap();
 }
+
+#[test]
+fn late_jj_metadata_blocks_rpc_until_debounced_moved_off_check() {
+    let (shared, executor) = setup();
+    let root = shared.f.lock().unwrap().root.clone();
+    fs::create_dir_all(root.join(".jj/repo/op_heads/heads")).unwrap();
+    fs::write(root.join(".jj/repo/op_heads/heads/op1"), b"operation").unwrap();
+    let response = request(&executor, write_request("a", None, b"abc", b"maya"));
+    assert_eq!(Frame::decode(&response).unwrap().payload[11], 255);
+    assert!(!root.join("a").exists());
+    assert!(shared.sink.frames.lock().unwrap().is_empty());
+    std::thread::sleep(std::time::Duration::from_millis(210));
+    let response = request(&executor, write_request("a", None, b"abc", b"maya"));
+    assert_eq!(Frame::decode(&response).unwrap().payload[11], 3);
+    close(&executor);
+    assert_eq!(burst_commits(&shared).len(), 1);
+    // Subsequent op-head writes must remain visible through the new watch.
+    fs::write(root.join(".jj/repo/op_heads/heads/op2"), b"next").unwrap();
+    let response = request(&executor, write_request("b", None, b"def", b"ben"));
+    assert_eq!(Frame::decode(&response).unwrap().payload[11], 255);
+    assert!(!root.join("b").exists());
+    executor.shutdown().unwrap();
+}

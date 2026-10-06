@@ -5,6 +5,7 @@
  */
 
 export * from "./ConfiguredModelRoute.ts"
+export * from "./ContextPreflight.ts"
 export * from "./DurableChatProducer.ts"
 export * from "./EnvironmentResolver.ts"
 export * from "./HostServer.ts"

@@ -476,7 +476,13 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 	// when the stack cannot fold it (frozen or awaiting a prepared write).
 	loadRun := *r
 	loadRun.row.LandedMain = r.mainTip
-	s.advanceFlowLoad(ctx, &loadRun)
+	// The initial lane clones mythical. Bootstrap must publish that bookmark
+	// before flow-load allocates a machine; otherwise the first load burns an
+	// attempt on a branch that does not exist. Once present, loading remains
+	// independent of folding, including a frozen stack.
+	if r.tip != "" {
+		s.advanceFlowLoad(ctx, &loadRun)
+	}
 
 	// A prepared write from an earlier claim is settled before anything else.
 	if len(row.PendingOp) > 0 {

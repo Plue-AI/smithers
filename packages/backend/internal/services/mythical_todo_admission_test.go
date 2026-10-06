@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -231,6 +232,9 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	active = todoPinTwo
 	o.commit("✨ feat: three", "c.txt", "c\n")
 	o.publish()
+	// A backend restart may lose its scratch objects. Retention must fetch
+	// the original pin even though the mirrored main now points elsewhere.
+	o.service.scratchRoot = filepath.Join(t.TempDir(), "restarted-stack")
 	o.wake()
 	require.NotEqual(t, landed, o.landedMain(), "the stack folded the new main")
 	o.wake()
@@ -248,6 +252,7 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.Equal(t, landed, decodeJSON(t, launches[1].AuthorizationContext)["flowSource"])
 	require.EqualValues(t, 2, decodeJSON(t, launches[1].AuthorizationContext)["attempt"])
 	require.Equal(t, &flowruntime.Pin{Flow: "todo", SourceCommit: landed, ExecutionDigest: todoPinOne}, launches[1].Pin)
+	require.Equal(t, landed, o.hostRef(repohost.WorkspaceSourceRef(item.WorkspaceID, landed)), "the retry's new lane can import the original flow source after main moves")
 }
 
 // Fable round 1, F5: an item's pin admits a launch, or binds a run, only

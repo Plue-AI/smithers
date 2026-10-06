@@ -1563,7 +1563,7 @@ func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProvider
 // workspace starts names it in SMITHERS_WORKSPACE_CODING_CONFIG. Only a
 // smithers-jj-export built with trusted-process-binding reads that file; the
 // credential is the head publisher's Git cache, as in a guest.
-// A host that exits before it is ready leaves its stderr in the evidence.
+// A host that exits before it is ready leaves both output streams in the evidence.
 type bindingProcessRuntime struct {
 	*process.Runtime
 	evidence string
@@ -1627,12 +1627,11 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 	})
 	connection, err := r.Runtime.StartManagedHost(ctx, workspaceID, spec)
 	if err != nil {
-		if service, inspectErr := r.InspectService(context.WithoutCancel(ctx), workspaceID, spec.Name); inspectErr == nil && service.Stderr != "" {
-			stderr, _ := os.OpenFile(filepath.Join(r.evidence, "coding-host.stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-			if stderr != nil {
-				fmt.Fprintf(stderr, "--- %s %s: %v\n%s\n", time.Now().UTC().Format(time.RFC3339), spec.Name, err, service.Stderr)
-				_ = stderr.Close()
-			}
+		service, inspectErr := r.InspectService(context.WithoutCancel(ctx), workspaceID, spec.Name)
+		output, _ := os.OpenFile(filepath.Join(r.evidence, "coding-host.output.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if output != nil {
+			fmt.Fprintf(output, "--- %s workspace=%s %s: %v\ninspect=%v exit=%d truncated=%t\nstdout:\n%s\nstderr:\n%s\n", time.Now().UTC().Format(time.RFC3339), workspaceID, spec.Name, err, inspectErr, service.ExitCode, service.OutputTruncated, service.Stdout, service.Stderr)
+			_ = output.Close()
 		}
 	}
 	return connection, err

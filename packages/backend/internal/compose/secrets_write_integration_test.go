@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -30,7 +32,9 @@ import (
 // never; a run credential, a delegated member and an outsider keep their
 // refusals; a removed or suspended member's session is dead (401). No
 // refusal writes a row.
-func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
+func TestSecretsWriteComposedInstallPostgres(t *testing.T) { testSecretsComposed(t, false) }
+func TestSecretsInstallAPIAndLivePostgres(t *testing.T)    { testSecretsComposed(t, true) }
+func testSecretsComposed(t *testing.T, install bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
@@ -44,7 +48,7 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 	require.NoError(t, err)
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
 	require.NoError(t, err)
-	binding := fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d}`, repo.ID)
+	binding := fmt.Sprintf(`{"owner_login":"owner","repository_name":"app","repository_id":%d}`, repo.ID)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(strings.TrimSuffix(binding, "}") + `,"last_access_check_at":"2026-10-04T22:00:00Z"}`)}))
 	for _, row := range []struct {
@@ -57,7 +61,10 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 		require.NoError(t, err)
 	}
 	github := &rosterGitHub{roles: map[string]string{"owner": "admin", "writer": "write", "maintainer": "maintain"}}
-	provider := httptest.NewServer(http.HandlerFunc(github.serve))
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = strings.Replace(r.URL.Path, "/repos/owner/app/", "/repos/acme/app/", 1)
+		github.serve(w, r)
+	}))
 	defer provider.Close()
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
 	members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
@@ -69,8 +76,12 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 	origin := "http://" + server.Listener.Addr().String()
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
-	secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool)), AgentEnvironment: services.NewAgentEnvironmentService(q, nil)}
-	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, secrets, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}})
+	secretService := services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))
+	secrets := &routes.SecretHandler{Service: secretService, AgentEnvironment: services.NewAgentEnvironmentService(q, nil)}
+	topics := &liveTopics{queries: q, secrets: secretService}
+	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
+	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, secrets, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
+
 	server.Start()
 	defer server.Close()
 
@@ -158,7 +169,7 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 	type credential struct{ cookie, bearer string }
 	ownerSession, maintainerSession, writerSession, outsiderSession := credential{cookie: session(owner)}, credential{cookie: session(maintainer)}, credential{cookie: session(writer)}, credential{cookie: session(outsider)}
 	delegated := func(u db.User) credential {
-		return credential{bearer: token(u, "cli", "write:repository,via:cli", true)}
+		return credential{bearer: token(u, fmt.Sprintf("cli-%d", time.Now().UnixNano()), "write:repository,via:cli", true)}
 	}
 	run := credential{bearer: token(maintainer, "run", "write:repository", true)}
 	ownerPAT := credential{bearer: token(owner, "pat", "all", false)}
@@ -198,6 +209,16 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 	}
 	request := func(c credential, method, path, body string) (int, map[string]any) {
 		t.Helper()
+		if install && strings.HasPrefix(path, "/secrets") {
+			if method == "POST" {
+				method = "PUT"
+			}
+			if method == "DELETE" {
+				body = fmt.Sprintf(`{"name":%q}`, strings.TrimPrefix(path, "/secrets/"))
+				path = "/secrets"
+			}
+			return call(c, method, "/api"+path, body)
+		}
 		return call(c, method, "/api/repos/owner/app"+path, body)
 	}
 	stored := func() []string {
@@ -225,6 +246,38 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 		status, body = request(tc.who, "PATCH", "/secrets/"+tc.name, `{"main_only":true}`)
 		require.Equal(t, 200, status, body)
 		require.Equal(t, true, body["main_only"], body)
+	}
+	if install {
+		for _, who := range []credential{ownerSession, maintainerSession, writerSession} {
+			req, err := http.NewRequest("GET", origin+"/api/secrets", nil)
+			require.NoError(t, err)
+			req.AddCookie(&http.Cookie{Name: "session", Value: who.cookie})
+			res, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			raw, err := io.ReadAll(res.Body)
+			res.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, 200, res.StatusCode, string(raw))
+			require.Contains(t, string(raw), "OWNER_KEY")
+			require.NotContains(t, string(raw), "v2")
+			require.NotContains(t, string(raw), `"value"`)
+		}
+		for _, who := range []credential{delegated(owner), run, ownerPAT} {
+			status, _ := call(who, "GET", "/api/secrets", "")
+			require.Equal(t, 403, status)
+		}
+		header := http.Header{}
+		header.Set("Origin", origin)
+		header.Set("Cookie", "session="+writerSession.cookie)
+		socket, _, err := websocket.Dial(ctx, strings.Replace(origin, "http:", "ws:", 1)+"/api/live", &websocket.DialOptions{HTTPHeader: header, Subprotocols: []string{"smithers.live.v1"}})
+		require.NoError(t, err)
+		defer socket.CloseNow()
+		require.NoError(t, socket.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"secrets"}`)))
+		_, raw, err := socket.Read(ctx)
+		require.NoError(t, err)
+		require.Contains(t, string(raw), `"scope":"main_only"`)
+		require.Contains(t, string(raw), "OWNER_KEY")
+		require.NotContains(t, string(raw), `"value"`)
 	}
 	require.Equal(t, []string{"MAINTAINER_KEY", "OWNER_KEY"}, stored())
 	status, body := request(maintainerSession, "DELETE", "/secrets/MAINTAINER_KEY", "")

@@ -67,8 +67,9 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       form: { submitLabel: "Comment", fields: { number: { label: "Issue" }, body: { label: "Comment" } }, args: json },
       handler: ({ number, body }) => commentIssue(design, number, body, design.viewer()) ? { value: `Commented on #${number}` } : `No issue #${number}` }),
     flow({ name: "file",   slash: "/file", cli: ["file"], journey: ["J3","J9"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open and co-edit a file", args: "<path>", discloseToAgent: true,
-      grammar: positional("path"), agent: "run", input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number) }),
-      handler: ({ path, branch, line }) => {
+      grammar: positional("path"), agent: "run", input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number), revision: Schema.optional(Schema.String) }),
+      handler: ({ path, branch, line, revision }) => {
+        if (revision !== undefined) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, revision)
         if (realFiles()) return actions.branchFiles.open(path, branch, line)
         const world = design.world()
         if (path === "") return open(fileListCard(repo(), findBranch(world, branch ?? "")?.id ?? "main"))

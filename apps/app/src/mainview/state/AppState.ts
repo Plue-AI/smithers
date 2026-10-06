@@ -565,7 +565,7 @@ export const MessageSchema = z.object({
   /** A one-line visible tool act ("Smithers ran /world.new-note") renders as a marker row, not a bubble. */
   act: z.string().optional(),
   /** The Context line of an answer (T-APP-17): what it read, shown as "Context · N". */
-  context: z.array(ContextItemSchema).max(16).optional(),
+  context: z.array(ContextItemSchema).optional(),
   /**
    * A door's own refusal, written where it stays.
    *
@@ -853,7 +853,8 @@ export const SessionSchema = z.object({
   })).optional(),
   /* Repository secret writes (SecretsSeam.setSecret/deleteSecret): never a value, only what a reload needs to settle them. */
   secretRequests: z.array(z.object({
-    id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete"]),
+    id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete", "scope"]),
+    mainOnly: z.boolean().optional(),
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
   /** Atomic egress additions can be replayed; only the authorized owner, repository and host are saved. */

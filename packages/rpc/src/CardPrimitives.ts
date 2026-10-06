@@ -305,7 +305,9 @@ export const ContextItemSchema = z.object({
   kind: z.enum(["file", "page", "todo", "run", "issue"]),
   label: z.string(),
   ref: z.string(),
-  revision: z.string().optional()
+  revision: z.string().optional(),
+  /** Absent only on historical persisted context lines. */
+  reason: z.string().optional()
 })
 
 /**

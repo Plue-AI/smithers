@@ -327,7 +327,7 @@ test("served TODO cards retain composed takeover and image controls, and withhol
   expect(render({ ...fixtures.failed.model, failure: { ...fixtures.failed.model.failure!, missing_tool: { name: "figlet", file: ".smithers/machine.json" } } })).toContain('data-flow="image.add"')
   expect(render(fixtures.working.model)).not.toContain('data-flow="todo.stop"')
   expect(render(fixtures.paused.model)).not.toContain('data-flow="todo.resume"')
-  expect(render(fixtures.failed.model)).not.toContain('data-flow="todo.retry-current-flow"')
+  expect(render(fixtures.failed.model)).toContain('data-flow="todo.retry-current-flow"')
   expect(render(fixtures.working.model)).not.toContain('data-flow="branch"')
   Object.assign(controller, { openBranch: async () => undefined })
   expect(render(fixtures.working.model)).toContain('data-flow="branch"')
@@ -373,3 +373,9 @@ test("a daily token pause names the owner without exposing a raw resume timestam
   expect(markup).toContain(` · ${props.model.pause!.owner!.name}`)
   expect(markup).not.toContain(props.model.pause!.resume_at!)
 })
+ test("failed TODO current-flow Retry dispatches the same typed control with its steer", () => {
+ const h = mount(fixtures.failed.model)
+ h.props.onAction("todo.retry-current-flow", { text: "use the new helper" })
+ expect(h.dispatches).toEqual([{ tag: "todo.retry-current-flow", input: { n: fixtures.failed.model.n, text: "use the new helper" } }])
+ expect(mount(fixtures.working.model).props.actions.some(action => action.tag === "todo.retry-current-flow")).toBe(false)
+ })

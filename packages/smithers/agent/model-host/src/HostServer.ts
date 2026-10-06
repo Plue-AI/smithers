@@ -69,6 +69,12 @@ const WireGrantSchema = z.object({
 export interface ModelTurnResolution {
   readonly model: Model.Model
   readonly options: ModelTurnOptions
+  /** Authorized SharedEntries and pinned repository data, resolved on the host. */
+  readonly preflight?: {
+    readonly input: import("@smthrs/rpc/ContextPreflight").ContextPreflightInput
+    readonly model: Model.Model
+    readonly options: ModelTurnOptions
+  }
 }
 
 /** Resolves the owner's configured provider inside the trusted host process.
@@ -347,8 +353,8 @@ export const createModelTurnHandler = (options: ModelTurnHandlerOptions): (reque
     const started = performance.now()
     const exit = await Effect.runPromiseExit(
       options.resolve(grant).pipe(
-        Effect.flatMap(({ model, options: modelOptions }) =>
-          runDurableChatTurn(model, grant, modelOptions, callbackBaseUrl, options.fetchImpl)
+        Effect.flatMap(({ model, options: modelOptions, preflight }) =>
+          runDurableChatTurn(model, grant, modelOptions, callbackBaseUrl, options.fetchImpl, preflight)
         )
       ),
       { signal: request.signal }

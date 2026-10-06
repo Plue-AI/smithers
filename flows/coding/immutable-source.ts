@@ -2,6 +2,7 @@
 import * as Digest from "@smthrs/core/Digest"
 import { Effect, type FileSystem, Option, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { NativeCoding, requestIdFor } from "./native.ts"
 import { CodingError, type Revision } from "./schema.ts"
 
 export const ExportedTree = Schema.Struct({
@@ -242,6 +243,32 @@ export const withImmutableCommit = <A, E, R>(
   !/^[0-9a-f]{40}$/.test(commitId)
     ? Effect.fail(invalid("Checks require a full immutable native commit ID"))
     : exportTree(options, { commitId }, use)
+
+/** Startup imports only the admitted pin's retained object. It does not move
+ * the editable branch, and no repository code loads before import and export
+ * have both acknowledged the exact commit. */
+export const withPinnedSource = <A, E, R>(
+  options: ImmutableSourceOptions,
+  workspaceId: string,
+  commitId: string,
+  use: (tree: typeof ExportedTree.Type, root: string) => Effect.Effect<A, E, R>
+) =>
+  Effect.gen(function*() {
+    if (!/^[0-9a-f]{40}$/.test(commitId)) return yield* invalid("Pinned source requires a full immutable commit ID")
+    const native = yield* NativeCoding
+    if (native.importSource === undefined) return yield* invalid("Pinned source import is unavailable")
+    const imported = yield* native.importSource({
+      requestId: requestIdFor(workspaceId, `pinned-source/${commitId}`),
+      commits: [{ commitId, ref: `refs/smithers/workspaces/${workspaceId}/sources/${commitId}` }]
+    })
+    if (
+      imported.workspaceId !== workspaceId ||
+      !imported.revisions.some((revision) => revision.commitId === commitId && revision.kind === "resolved")
+    ) {
+      return yield* invalid("Pinned source import did not acknowledge its workspace and commit")
+    }
+    return yield* withImmutableCommit(options, commitId, use)
+  })
 
 const exportTree = <A, E, R>(
   options: ImmutableSourceOptions,

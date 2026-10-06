@@ -219,3 +219,38 @@ func TestMythicalRetryBoundCountsFromTheLastRetry(t *testing.T) {
 	stopped := mythicalRetry(*hard, "the plan failed", nil, now)
 	require.Equal(t, "blocked", stopped.State)
 }
+
+func TestTodoRetryCurrentFlowPinsAtAcceptance(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx := context.Background()
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "current retry")
+	id := uuidString(item.ID)
+	o.wake()
+	launches := o.launcher.byFlow("todo")
+	require.Len(t, launches, 1)
+	o.projectTodo(launches[0], jobs.StateWaiting, "old-run", todoPinOne, "")
+	failed := o.byID(id)
+	failed.State, failed.Reason = "blocked", "fixture failure"
+	failed, err := o.service.queries().SaveMythicalItem(ctx, failed)
+	require.NoError(t, err)
+	earlier := currentTodoEvidence(failed)
+	active := strings.Repeat("c", 64)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return active, nil })
+	receipt, err := o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Op: "retry-current-flow", Repository: o.repoID, Actor: o.userID, Request: "current-retry"})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, receipt.Attempt)
+	queued := o.byID(id)
+	require.Equal(t, todoPinOne, queued.FlowDigest.String)
+	require.Equal(t, "old-run", queued.RequestRunID)
+	require.Equal(t, earlier, mythicalChecksOf(queued).Attempts[0])
+	// Another activation before admission cannot change the accepted retry.
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	o.wake()
+	o.wake()
+	launches = o.launcher.byFlow("todo")
+	require.Len(t, launches, 2)
+	require.Equal(t, active, launches[1].Pin.ExecutionDigest)
+	require.EqualValues(t, 2, o.byID(id).Attempt)
+	require.Equal(t, earlier, mythicalChecksOf(o.byID(id)).Attempts[0])
+}

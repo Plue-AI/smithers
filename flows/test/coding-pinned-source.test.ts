@@ -1,10 +1,95 @@
 import { Effect, FileSystem } from "effect"
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { withImmutableCommit } from "../coding/immutable-source.ts"
+import { withImmutableCommit, withPinnedSource } from "../coding/immutable-source.ts"
+import { nativeLayer } from "../coding/native.ts"
+
+for (const mode of ["valid", "refused", "wrong-workspace", "wrong-commit"] as const) {
+  test(`pinned startup ${mode} imports retained source before exporting or loading it`, async (t) => {
+    const temporary = await mkdtemp(join(tmpdir(), "coding-pinned-import-"))
+    t.after(() => rm(temporary, { recursive: true, force: true }))
+    const branch = join(temporary, "branch"), state = join(temporary, "state"), helper = join(temporary, "helper")
+    await mkdir(branch)
+    await writeFile(join(branch, "editable"), "keep the person's work")
+    const workspace = "11111111-1111-4111-a111-111111111111", commit = "a".repeat(40)
+    // Protocol fixture: the selected immutable commit does not exist until
+    // native import acknowledges it. Exercise the real native adapter and
+    // exporter process boundaries; transport itself is covered by J1.
+    await writeFile(
+      helper,
+      `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+if (process.argv[2] === '--local') {
+  const request = JSON.parse(fs.readFileSync(0, 'utf8'));
+  fs.appendFileSync(${JSON.stringify(join(temporary, "imports"))}, JSON.stringify(request) + '\\n');
+  if (${JSON.stringify(mode)} === 'refused') {
+    console.log(JSON.stringify({error:{code:'source_refused', message:'retention unavailable'}})); process.exit(1);
+  }
+  fs.writeFileSync(path.join(request.repositoryPath, 'imported'), 'yes');
+  const revision = {kind:'resolved', commitId:${JSON.stringify(mode === "wrong-commit" ? "b".repeat(40) : commit)},
+    treeId:'${"c".repeat(40)}', changeId:'${"k".repeat(32)}', operationId:'${
+        "d".repeat(128)
+      }', parentCommitIds:[], description:''};
+  console.log(JSON.stringify({status:'imported', requestId:request.requestId,
+    workspaceId:${JSON.stringify(mode === "wrong-workspace" ? "22222222-2222-4222-a222-222222222222" : workspace)},
+    repositoryId:1, operationId:'${"d".repeat(128)}', head:revision, revisions:[revision]}));
+} else {
+  if (!fs.existsSync(path.join(process.argv[2], 'imported'))) process.exit(2);
+  fs.appendFileSync(${JSON.stringify(join(temporary, "exports"))}, 'export\\n');
+  const root = path.join(process.argv[4], 'source'); fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'pinned'), 'approved source');
+  console.log(JSON.stringify({commitId:process.argv[3], treeId:'${
+        "c".repeat(40)
+      }', changeId:'source', path:root, fileCount:1}));
+}
+`,
+      { mode: 0o700 }
+    )
+    const { platform } = await import("../../packages/smithers/src/internal/NodeControlHost.ts")
+    let loaded = 0
+    const run = () =>
+      Effect.runPromise(
+        Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          return yield* withPinnedSource(
+            {
+              repositoryPath: branch,
+              fs,
+              sourceDirectory: state,
+              exporterPath: helper,
+              environment: { PATH: process.env.PATH! }
+            },
+            workspace,
+            commit,
+            (_tree, root) =>
+              Effect.gen(function*() {
+                loaded++
+                assert.equal(yield* fs.readFileString(join(root, "pinned")), "approved source")
+              })
+          ).pipe(Effect.provide(nativeLayer({ repositoryPath: branch, helperPath: helper })))
+        }).pipe(Effect.result, Effect.provide(platform.host))
+      )
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await run()
+      assert.equal(result._tag, mode === "valid" ? "Success" : "Failure")
+    }
+    assert.equal(loaded, mode === "valid" ? 2 : 0)
+    const requests = (await readFile(join(temporary, "imports"), "utf8")).trim().split("\n").map((line) =>
+      JSON.parse(line)
+    )
+    assert.equal(requests[0].requestId, requests[1].requestId, "startup retries retain their import identity")
+    assert.deepEqual(requests[0].commits, [{
+      commitId: commit,
+      ref: `refs/smithers/workspaces/${workspace}/sources/${commit}`
+    }])
+    assert.equal(await readFile(join(branch, "editable"), "utf8"), "keep the person's work")
+    if (mode !== "valid") await assert.rejects(readFile(join(temporary, "exports")), { code: "ENOENT" })
+  })
+}
 
 for (const mode of ["valid", "wrong-commit", "outside", "unavailable"] as const) {
   test(`pinned machine source export ${mode} never selects the editable checkout`, async (t) => {

@@ -276,11 +276,29 @@ func unionKeys(a, b map[string]string) map[string]bool {
 	return keys
 }
 
-// retainMainFor makes main's commit reachable in the workspace's source ref.
+// retainMainFor makes a pinned main commit reachable in the workspace's source ref.
 func (s *MythicalService) retainMainFor(ctx context.Context, r *mythicalRun, workspaceID, commit string) (string, error) {
 	if !r.g.has(ctx, commit) {
-		if err := r.g.fetch(ctx, r.bridge.URL(), 1, 0, "refs/heads/"+r.branch); err != nil {
-			return "", fmt.Errorf("fetch main: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		// After scratch loss, prefer an advertised ref retaining the exact pin.
+		// The repository server need not allow requests for unadvertised SHAs.
+		refs, err := r.g.lsRemote(ctx, r.bridge.URL())
+		if err != nil {
+			return "", fmt.Errorf("locate pinned main: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		}
+		for _, ref := range slices.Sorted(maps.Keys(refs)) {
+			if refs[ref] == commit {
+				if err := r.g.fetch(ctx, r.bridge.URL(), 1, 0, ref); err != nil {
+					return "", fmt.Errorf("fetch pinned main: %s", sanitizeMirrorError(err, r.bridge.URL()))
+				}
+				break
+			}
+		}
+		if !r.g.has(ctx, commit) {
+			// A pin without its own ref is still recoverable from append-only
+			// main. Reuse the bounded, resumable history fetch.
+			if err := s.connectMain(ctx, r, commit); err != nil {
+				return "", err
+			}
 		}
 	}
 	return s.retainFor(ctx, r, workspaceID, commit)

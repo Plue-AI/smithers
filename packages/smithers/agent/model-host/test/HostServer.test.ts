@@ -484,3 +484,66 @@ test("the model stream refuses a response that outgrows the stream byte ceiling"
   expect(response.status).toBe(502)
   expect(await response.json()).toEqual({ status: "error", code: "stream_failed" })
 })
+
+test("trusted preflight precedes the answer and its choices cross the durable HTTP journal", async () => {
+  const requests: any[] = [], frames: any[] = []
+  const model = Model.make({ stream: request => {
+    requests.push(request)
+    return Stream.fromIterable([
+      { type: "text-delta" as const, id: "t", text: requests.length === 1 ? '[{"index":0,"reason":"Retry code"}]' : "Retries three times." },
+      { type: "settle" as const, stopReason: "stop" as const }
+    ])
+  } })
+  const handler = createModelTurnHandler({
+    authorization: "host-token", callbackBaseUrl: "http://callback.test",
+    resolve: () => Effect.succeed({ model, options: { modelId: "coding" }, preflight: {
+      model, options: { modelId: "owner-fast" }, input: {
+        prompt: "where do we retry webhooks?", author: "ben", branch: "main", state: "synced",
+        recent: [{ title: "Shared", text: "Shared last text" }], tokenBudget: 24000, wikiOnly: false,
+        candidates: [{ item: { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123" }, text: "retry(3)" }]
+      }
+    } }),
+    fetchImpl: async (url, init) => {
+      if (String(url).includes("provider-started")) return new Response(null, { status: 204 })
+      const body = JSON.parse(String(init?.body)); frames.push(...body.frames)
+      return Response.json(committed(body))
+    }
+  })
+  const response = await handler(new Request("http://host.test/v1/chat/turn", {
+    method: "POST", headers: { authorization: "Bearer host-token", "content-type": "application/json" },
+    body: JSON.stringify({ ...grant, request: { ...grant.request, messages: [{ role: "user", content: "canary-browser" }],
+      selectedContext: [{ item: { kind: "file", label: "secret", ref: "secret" }, text: "canary-selection" }] } })
+  }))
+  expect(response.status).toBe(204)
+  expect(requests.map(request => request.modelId)).toEqual(["owner-fast", "coding"])
+  expect(frames[0]).toMatchObject({ type: "context.preflight", phase: "started", result: { context: [], model: "owner-fast" } })
+  expect(frames[1]).toMatchObject({ type: "context.preflight", phase: "completed", result: { context: [
+    { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123", reason: "Retry code" }
+  ], model: "owner-fast" } })
+  expect(JSON.stringify(requests)).not.toContain("canary-browser")
+  expect(JSON.stringify(requests)).not.toContain("canary-selection")
+  expect(requests[1].messages).toHaveLength(2)
+})
+
+test("unavailable durable preflight writes refuse before either model or provider-start", async () => {
+  let calls = 0, starts = 0, commits = 0
+  const model = Model.make({ stream: () => { calls++; return Stream.empty } })
+  const handler = createModelTurnHandler({
+    authorization: "host-token", callbackBaseUrl: "http://callback.test",
+    resolve: () => Effect.succeed({ model, options: { modelId: "coding" }, preflight: {
+      model, options: { modelId: "fast" }, input: {
+        prompt: "Retry?", author: "ben", branch: "main", state: "synced", recent: [], candidates: [], tokenBudget: 24000, wikiOnly: false
+      }
+    } }),
+    fetchImpl: async url => {
+      if (String(url).includes("provider-started")) starts++
+      else commits++
+      return new Response(null, { status: 503 })
+    }
+  })
+  const response = await handler(post(JSON.stringify(grant)))
+  expect(response.status).toBeGreaterThanOrEqual(500)
+  expect(commits).toBe(2)
+  expect(starts).toBe(0)
+  expect(calls).toBe(0)
+})

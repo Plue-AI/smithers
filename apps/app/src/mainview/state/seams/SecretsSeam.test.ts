@@ -277,11 +277,11 @@ describe("secrets seam — secrets.scope", () => {
     expect(marked).toMatchObject({ status: "executed", value: "DEPLOY: main only" })
     expect(requests[0]).toMatchObject({ method: "PATCH", body: { main_only: true } })
     expect(requests[0]!.url).toEndWith("/api/repos/will/flows/secrets/DEPLOY")
-    expect(await controller.commands.run("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed", value: "DEPLOY: every run" })
+    expect(await controller.commands.run("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed", value: "DEPLOY: all branches" })
     expect(requests[1]).toMatchObject({ body: { main_only: false } })
     const missing = await controller.commands.run("secrets.scope", "MISSING main-only")
     expect(JSON.stringify(missing)).toContain("secret not found")
-    // The agent may only ask to give a secret to every run; a human confirms.
+    // The agent may only ask to give a secret to all branches; a human confirms.
     const before = requests.length
     expect(await controller.commands.runForAgent("secrets.scope", "DEPLOY all")).toMatchObject({ status: "failed" })
     expect(requests.length).toBe(before)
@@ -433,7 +433,7 @@ test("duplicate person reads join the held request and publish one metadata card
   reply.resolve(json(200, metadataAnswer()))
   const outcomes = await bounded(Promise.all([first, duplicate]))
   expect(outcomes[0]).toMatchObject({ status: "executed" })
-  expect(outcomes[1]).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" })
+  expect(outcomes[1]).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · all branches · hosts: none · headers: none · updated: unknown" })
   expect(reads).toBe(1)
   expect([...store.collections.cards.values()].filter(card => card.kind === "secrets")).toHaveLength(1)
   expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "CURRENT_SECRET", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null }])
@@ -483,4 +483,96 @@ test("a same-owner held network rejection remains an exact visible failure", asy
   expect(await bounded(reading)).toEqual({ status: "failed", error: failure })
   expect(store.collections.cards.get("secrets-will/flows")).toMatchObject({ status: "error", loading: false, body: failure })
   expect(JSON.stringify((await store.eventHistory()).events)).toContain(failure)
+})
+
+test("install /secrets reads only its live topic and acknowledges a write before HTTP completion", async () => {
+  const { LiveChannel } = await import("../../runtime/LiveChannel")
+  const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+  const reply = heldResponse()
+  const sockets: import("../../runtime/LiveChannel").LiveSocket[] = []
+  let cursor = 1, topicId = 0
+  const live = new LiveChannel({ socket: () => {
+    const socket: import("../../runtime/LiveChannel").LiveSocket = { readyState: 1, onopen: null, onclose: null, onmessage: null, close() {}, send(raw) {
+      const frame = JSON.parse(String(raw))
+      if (frame.t === "sub" && frame.topic === "secrets") {
+        topicId = frame.id
+        queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: frame.id, cursor: cursor++, data: { secrets: [{ name: "DEPLOY", scope: "main_only", hosts: ["api.example.test"], actions: [] }] } }) }))
+      }
+    } }
+    sockets.push(socket); queueMicrotask(() => socket.onopen?.()); return socket
+  } })
+  const hits: { url: string; init?: RequestInit }[] = []
+  const { store, controller, signupReads } = await heldController({ live,
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const url = String(input)
+      if (!url.includes("/api/secrets")) return json(404, {})
+      hits.push({ url, init }); return reply.promise
+    }
+  })
+  try {
+    await heldReady(store, signupReads)
+    await bounded(controller.commands.run("secrets"))
+    await checkpoint()
+    expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "DEPLOY", mainOnly: true, hosts: ["api.example.test"], matchHeaders: [], updatedAt: null }])
+    expect(hits).toEqual([])
+    const result = await bounded(controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "DEPLOY", repo: "will/flows" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_WRITE" }) }))
+    expect(result).toMatchObject({ status: "executed", value: "Requested" })
+    await checkpoint()
+    expect(hits[0]?.url).toBe("/api/secrets")
+    expect(hits[0]?.init?.method).toBe("PUT")
+    expect(new Headers(hits[0]?.init?.headers).get("Idempotency-Key")).toBeTruthy()
+    expect(hits[0]?.init?.body).toBe('{"name":"DEPLOY","value":"PRIVATE_WRITE"}')
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_WRITE")
+    expect(store.session().secretRequests?.[0]?.state).toBe("requested")
+    reply.resolve(json(200, {}))
+    await bounded(Promise.allSettled([...pending]))
+    for (let i = 0; i < 10 && store.session().secretRequests?.[0]?.state !== "completed"; i++) await checkpoint()
+    expect(store.session().secretRequests?.[0]?.state).toBe("completed")
+    sockets[0]!.onmessage?.({ data: JSON.stringify({ t: "snap", id: topicId, cursor: cursor++, data: { secrets: [{ name: "NEW_NAME", scope: "all_branches", actions: [] }] } }) })
+    await checkpoint()
+    expect(secretsCard(store)?.payload.secrets[0]?.name).toBe("NEW_NAME")
+    expect(hits).toHaveLength(1)
+  } finally { reply.resolve(json(503, {})); await controller.dispose(); live.dispose() }
+})
+
+test("an install without the live provider refuses /secrets and write gestures without polling", async () => {
+  const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+  const hits: string[] = []
+  const { store, controller, signupReads } = await heldController({
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async input => { if (String(input).includes("/secrets")) hits.push(String(input)); return json(404, {}) }
+  })
+  try {
+    await heldReady(store, signupReads)
+    expect(await controller.commands.run("secrets")).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+    expect(await controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "KEY", repo: "will/flows" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_MISSING_PROVIDER" }) })).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+    expect(hits).toEqual([])
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_MISSING_PROVIDER")
+  } finally { await controller.dispose() }
+})
+
+
+test("outside an install the seed stands in until real metadata serves, then never masks a failed real read", async () => {
+  let available = false
+  const hits: string[] = []
+  const { store, controller, signupReads } = await heldController({
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async input => { hits.push(String(input)); return available ? json(200, []) : json(404, { message: "No provider" }) }
+  })
+  try {
+    await heldReady(store, signupReads)
+    await controller.commands.run("secrets")
+    expect(secretsCard(store)?.payload.secrets.map(row => [row.name, row.mainOnly])).toEqual([["STRIPE_TEST_KEY", false], ["SENTRY_DSN", true]])
+    const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+    expect(await controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "LOCAL_KEY", scope: "main_only" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_SEED" }) })).toMatchObject({ status: "executed", value: "Requested" })
+    expect(secretsCard(store)?.payload.secrets.find(row => row.name === "LOCAL_KEY")?.mainOnly).toBe(true)
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_SEED")
+    available = true
+    await controller.commands.run("secrets")
+    expect(secretsCard(store)?.payload.secrets).toEqual([])
+    available = false
+    expect(await controller.commands.run("secrets")).toMatchObject({ status: "failed", error: "No provider" })
+    expect(hits.every(url => url.endsWith("/secrets"))).toBe(true)
+  } finally { await controller.dispose() }
 })

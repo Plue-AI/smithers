@@ -126,3 +126,43 @@ fn descriptor_reads_refuse_traversal_symlink_and_nonregular() {
         assert!(w.read(path).is_err(), "{path}");
     }
 }
+
+#[test]
+fn metadata_created_after_startup_and_replaced_directories_stay_watched() {
+    let f = Fixture::new();
+    let mut w = f.watcher();
+    fs::create_dir_all(f.0.join(".jj/repo/op_heads/heads")).unwrap();
+    fs::write(f.0.join(".jj/repo/op_heads/heads/op1"), b"operation").unwrap();
+    let events = w.drain().unwrap();
+    assert!(events.contains(&Event::Metadata));
+    assert!(paths(events).is_empty());
+    fs::write(f.0.join(".jj/repo/op_heads/heads/op2"), b"next operation").unwrap();
+    let events = w.drain().unwrap();
+    assert!(!events.is_empty());
+    assert!(events.iter().all(|e| *e == Event::Metadata));
+    // Shallow ancestor watches must not turn jj's store into metadata traffic.
+    fs::create_dir_all(f.0.join(".jj/repo/store")).unwrap();
+    fs::write(f.0.join(".jj/repo/store/object"), b"internal").unwrap();
+    assert!(w.drain().unwrap().is_empty());
+    for dir in [".git/refs", ".jj/repo/op_heads/heads"] {
+        fs::rename(f.0.join(dir), f.0.join(format!("{dir}-old"))).unwrap();
+        fs::create_dir_all(f.0.join(dir)).unwrap();
+        let events = w.drain().unwrap();
+        assert!(events.contains(&Event::Metadata), "{dir}");
+        assert!(paths(events).is_empty());
+        fs::write(f.0.join(dir).join("next"), b"new head").unwrap();
+        let events = w.drain().unwrap();
+        assert!(!events.is_empty(), "{dir}");
+        assert!(events.iter().all(|e| *e == Event::Metadata), "{dir}");
+        fs::remove_dir_all(f.0.join(dir)).unwrap();
+        let events = w.drain().unwrap();
+        assert!(events.contains(&Event::Metadata), "removed {dir}");
+        assert!(paths(events).is_empty());
+        fs::create_dir_all(f.0.join(dir)).unwrap();
+        assert!(w.drain().unwrap().contains(&Event::Metadata));
+        fs::write(f.0.join(dir).join("recreated"), b"head after deletion").unwrap();
+        let events = w.drain().unwrap();
+        assert!(!events.is_empty(), "recreated {dir}");
+        assert!(events.iter().all(|e| *e == Event::Metadata), "{dir}");
+    }
+}

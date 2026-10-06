@@ -93,6 +93,59 @@ func loadBase(t *testing.T, request flowdispatch.LaunchRequest) (string, string)
 	return payload.Base.CommitID, payload.Base.Ref
 }
 
+func TestFlowLoadWaitsForInitialStackBookmark(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	f.commit("initial main", "README.md", "hello\n")
+	main := f.publish()
+	launcher, lanes := &fakeMythicalLauncher{}, &fakeMythicalLanes{}
+	lanes.provision = func(string) {
+		require.NotEmpty(t, f.hostRef("refs/heads/mythical"), "a lane cannot clone mythical before bootstrap creates it")
+	}
+	f.service.SetOrchestration(nil, launcher, lanes)
+	f.service.SetFlowLoad(true)
+	ctx := context.Background()
+	_, err := f.service.RequestBootstrap(ctx, f.repoID, f.userID, 100, false)
+	require.NoError(t, err)
+	stack := f.poll()
+	require.Equal(t, "active", stack.State, stack.LastError)
+	// PollOnce may consume the bootstrap's immediate wake in the same call;
+	// ordering at provisioning, not the number of polls, is the contract.
+	f.service.MainMoved(ctx, f.repoID)
+	f.poll()
+	loads := launcher.byFlow(flowLoadFlow)
+	require.Len(t, loads, 1)
+	require.Len(t, lanes.created, 1, "initial loading allocates exactly one machine")
+	commit, ref := loadBase(t, loads[0])
+	require.Equal(t, main, commit)
+	require.Equal(t, main, f.hostRef(ref))
+	f.service.MainMoved(ctx, f.repoID)
+	f.poll()
+	require.Len(t, launcher.byFlow(flowLoadFlow), 1, "the first load is not duplicated")
+}
+
+func TestPinnedMainRetentionFetchesOriginalAfterScratchLoss(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	f.commit("pinned source", "README.md", "original\n")
+	pinned := f.publish()
+	f.commit("new main", "README.md", "new\n")
+	main := f.publish()
+	ctx := context.Background()
+	bridge, err := startMythicalBridge(ctx, f.host, "smithers-canary", "smithers", RepositoryStillAt(db.New(f.pool), f.repoID, "smithers-canary", "smithers"))
+	require.NoError(t, err)
+	defer bridge.Close()
+	g := mythicalGit{dir: filepath.Join(t.TempDir(), "empty-scratch.git")}
+	require.NoError(t, g.init(ctx))
+	require.NoError(t, g.fetch(ctx, bridge.URL(), 1, 0, "refs/heads/main"))
+	require.True(t, g.has(ctx, main))
+	require.False(t, g.has(ctx, pinned), "a shallow current-main fetch does not contain the old pin")
+	r := &mythicalRun{g: g, bridge: bridge, branch: "main", mainTip: main, row: db.MythicalStack{RepositoryID: f.repoID}}
+	ref, err := f.service.retainMainFor(ctx, r, "11111111-1111-4111-a111-111111111111", pinned)
+	require.NoError(t, err)
+	require.True(t, g.has(ctx, pinned))
+	require.Equal(t, pinned, f.hostRef(ref))
+	require.Equal(t, main, f.hostRef("refs/heads/main"), "retaining the pin never moves main")
+}
+
 // C-J5-02 at the stack's boundary: every main move admits one flow-load at
 // main's commit; loads coalesce; a loaded version becomes Active, a failed
 // one leaves Active in place and shows its error, and a load whose digests

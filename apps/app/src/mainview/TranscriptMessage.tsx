@@ -13,6 +13,8 @@ import { scrubToolEcho } from "./state/MessageScrub"
 import { timeLabel } from "./Timestamps"
 import { StorageRecoveryButton } from "./StorageRecoveryButton"
 import { ContextLine } from "./ContextLine"
+import { contextActions } from "./flows/contextActions"
+import { contextOpenAction } from "./flows/contextOpenAction"
 import { STORAGE_RECOVERY_EXPORT } from "./state/StorageRecoveryContract"
 import type { CommandOutcome } from "./flows/Commands"
 
@@ -59,7 +61,9 @@ function CopyMessageButton({
 /* The answer's Context line: expanding is this viewer's transient chrome (T-APP-17). */
 function AnswerContext({ items }: { items: NonNullable<Message["context"]> }) {
   const [expanded, setExpanded] = useState(false)
-  return <ContextLine count={items.length} items={[...items]} expanded={expanded} onView={patch => setExpanded(patch.expanded)} />
+  const controller = useController()
+  const actions = contextActions(items, (tag, input) => controller.runCommand(tag, JSON.stringify(input)), contextOpenAction)
+  return <ContextLine count={items.length} items={[...items]} expanded={expanded} onView={patch => setExpanded(patch.expanded)} {...actions} />
 }
 
 export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind: "message"; message: Message } | { kind: "init"; message: InitMessage }; streamingMessageId?: string }) {
@@ -145,7 +149,7 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
         const bindings = answerActions((name, input) => controller.commands.submit({ name, payload: (input ?? {}) as Record<string, unknown>, actor: "user", ...(name === "wiki.save" ? { display: flowArgs("wiki.save", input as { name?: string; text?: string }) } : {}) }), scrubToolEcho(entry.message.text))
         return <div className="message-answer-actions">{bindings.actions.map(action => <DiffAction key={action.tag} action={action} onAction={bindings.onAction} />)}</div>
       })() : null}
-      {entry.kind === "message" && entry.message.context !== undefined && entry.message.context.length > 0 ? <AnswerContext items={entry.message.context} /> : null}
+      {entry.kind === "message" && entry.message.context !== undefined ? <AnswerContext items={entry.message.context} /> : null}
       {/* The synthetic auth message has no clock time to tell. */}
       {!external && entry.message.answeredAction && <p role="status">{entry.message.answeredAction.answer}</p>}
       {entry.message.createdAt > 0 ?

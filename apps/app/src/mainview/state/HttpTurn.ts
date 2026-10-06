@@ -1,3 +1,4 @@
+import { ContextPreflightResultSchema } from "@smthrs/rpc/ContextPreflight"
 import { Data } from "effect"
 import { z } from "zod"
 import { digest } from "@smthrs/core/Digest"
@@ -19,6 +20,7 @@ export const HttpPendingCallSchema = z.object({ callId: Identity, name: z.string
 export const HttpTurnSchema = z.object({
   id: Identity, turnId: Identity, owner: z.string().nullable().optional(), legId: Identity,
   status: z.enum(["active", "complete", "failed", "cancelled", "ambiguous"]),
+  preflight: ContextPreflightResultSchema.optional(),
   receivedText: z.boolean(), runLaunch: z.string().optional(), askClass: HttpAskClassSchema.optional(), claimBuffer: z.string(),
   createdAt: z.number().finite(), revision: z.number().int().nonnegative()
 }).strict()
@@ -105,7 +107,9 @@ export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, f
   let turn = { ...prior }, leg = { ...priorLeg }
   const transitions: AppTransition[] = []
   const act = (text: string): void => { transitions.push({ type: "message.tool.executed", actor: "smithers", turnId: turn.turnId, text }) }
-  if (frame.type === "card") {
+  if (frame.type === "context.preflight") {
+    turn.preflight = frame.result
+  } else if (frame.type === "card") {
     if (!isRuntimeOwnedCard(frame.card) && !isRuntimeOwnedCard(view.card(frame.card.id)) && !view.protectedCard(frame.card.id)) {
       transitions.push({ type: "card.upsert", actor: "smithers", card: agentFrameCard(frame.card, view.card(frame.card.id)) })
     }
@@ -148,7 +152,7 @@ export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, f
           : leg.call !== undefined ? `I hit the tool-call limit for this turn (${MAX_TOOL_LEGS}) — stopping here instead of looping.`
           : !turn.receivedText ? "Smithers returned an empty response." : undefined)
         turn.status = error === undefined ? "complete" : "failed"; leg.status = turn.status
-        transitions.push(error === undefined ? { type: "message.response.completed", actor: "smithers", turnId: turn.turnId }
+        transitions.push(error === undefined ? { type: "message.response.completed", actor: "smithers", turnId: turn.turnId, ...(turn.preflight === undefined ? {} : { context: turn.preflight.context }) }
           : { type: "message.response.failed", actor: "system", turnId: turn.turnId, message: error })
       }
     }

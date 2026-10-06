@@ -443,9 +443,34 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
   const invoke = cli.serve.bind(cli)
   const serve: typeof cli.serve = (argv = [], serveOptions) => {
     const parsed = Argv.parse(argv, cli)
+    // Published commands keep explicit help even when omitted from install
+    // discovery. Resolve against both existing trees; never expose them in
+    // manifests, skill generation or MCP.
+    let helpOffset = 0
+    while (parsed.rest[helpOffset]?.startsWith("-")) {
+      const flag = parsed.rest[helpOffset]!
+      const value = parsed.options.get(flag.split("=")[0]!)
+      helpOffset += !flag.includes("=") && typeof value === "string" ? 2 : 1
+    }
+    let invocationTree = Cli.toCommands.get(cli as never)!
+    let visibleTree = discoveryTree
+    let hiddenHelp = false
+    for (const word of parsed.rest.slice(helpOffset)) {
+      if (word.startsWith("-")) break
+      const entry = invocationTree.get(word)
+      if (entry === undefined) break
+      const visible = visibleTree.get(word)
+      if (visible === undefined) { hiddenHelp = true; break }
+      if (!("_group" in entry) || !("_group" in visible)) break
+      invocationTree = entry.commands
+      visibleTree = visible.commands
+    }
+    const explicitHiddenHelp = hiddenHelp && (argv.includes("--help") || argv.includes("-h")) &&
+      !parsed.mcp && !argv.includes("--http") && !argv.includes("--schema") &&
+      !argv.includes("--llms") && !argv.includes("--llms-full")
     const rootDiscovery = parsed.rest[0] === undefined || parsed.rest[0]?.startsWith("-") ||
       parsed.rest[0] === "skills" || parsed.mcp || argv.includes("--help") || argv.includes("-h") || argv.includes("--llms") || argv.includes("--llms-full")
-    const dispatch = (options: typeof serveOptions) => rootDiscovery ? discovery.serve(argv, options) : invoke(argv, options)
+    const dispatch = (options: typeof serveOptions) => rootDiscovery && !explicitHiddenHelp ? discovery.serve(argv, options) : invoke(argv, options)
     if (argv.some(word => word === "--mcp" || word === "--http")) return dispatch(serveOptions)
     return Presentation.withErrorEnvelope(serveOptions?.stdout ?? (text => process.stdout.write(text)),
       stdout => dispatch({ ...serveOptions, stdout }))

@@ -12,10 +12,11 @@ import { remoteLayer } from "../repository/remote.ts"
 import { consume as consumeCheckEnvironment } from "./check-environment.ts"
 import { share } from "./host-modules.ts"
 import { layer, operatorSeats, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
-import { prepareFlowDependencies, withImmutableCommit } from "./immutable-source.ts"
+import { prepareFlowDependencies, withPinnedSource } from "./immutable-source.ts"
 import { consumeInstallProject } from "./install-project.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
+import { nativeLayer } from "./native.ts"
 import { loadProject } from "./project-config.ts"
 import { resolveRuntimeBridgeIdentity } from "./runtime-bridge.ts"
 import * as CodingState from "./state.ts"
@@ -219,14 +220,15 @@ if (parsed.values.version) {
               sourceDirectory: resolve(stateRoot, "source"),
               environment: selectEnvironment(["PATH", "HOME"])
             }
-            return yield* withImmutableCommit(
+            return yield* withPinnedSource(
               sourceOptions,
+              landing.workspaceId,
               options.runtimeSourceRevision ?? "",
               (tree, sourceRoot) =>
                 prepareFlowDependencies(sourceOptions, sourceRoot).pipe(
                   Effect.andThen(serveSource(sourceRoot, tree.commitId))
                 )
-            )
+            ).pipe(Effect.provide(nativeLayer({ repositoryPath: root })))
           })
           : serveSource(root))
       }),
