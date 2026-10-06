@@ -115,7 +115,9 @@ func TestInstallPollingTenPullsThroughStackWorker(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, f.stack.PollOnce(ctx))
 	}
-	f.clock.Add(2) // Seeded rows are now due on the injected worker clock.
+	// PostgreSQL stamps fixture rows after migrations and bootstrap. Align the
+	// injected clock with those rows before measuring the 45-second cadence.
+	f.clock.Store(time.Now().Unix() + 2)
 	pass()
 	assertReads := func(want int) {
 		for i := 1; i <= 10; i++ {
