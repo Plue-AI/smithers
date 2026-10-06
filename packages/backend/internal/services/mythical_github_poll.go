@@ -69,6 +69,17 @@ func (st *mythicalItemStep) followInstallPull(ctx context.Context, item db.Mythi
 	if err := synced.pollInstallPullFacts(ctx, row, item.PRNumber.Int64); err != nil {
 		st.s.logger.Warn("github.todo_facts.failed", "pull", item.PRNumber.Int64, "error", err)
 	}
+	// Fetched consumers commit lifecycle/review effects during these reads.
+	// Schedule from their current version so saving the cadence cannot lose its
+	// own CAS or overwrite the effects that just landed.
+	latest, err := st.q.GetMythicalItem(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	if latest.RepositoryID != item.RepositoryID || latest.PRNumber != item.PRNumber {
+		return nil, nil
+	}
+	item = latest
 	next := item
 	if item.State == "cancelled" && mythicalChecksOf(item).Dropped != nil && len(item.PendingOp) == 0 {
 		checks := mythicalChecksOf(item)
