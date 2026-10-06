@@ -82,6 +82,13 @@ func TestTodoTakeoverComposedInstall(t *testing.T) {
 		Scopes:       strings.Join(append([]string{"read:repository", "read:user", middleware.RepositoryRestrictionScope(repo)}, middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch.ID, Profile: middleware.TerminalProfileS1, Session: subject.ID})...), ","),
 		SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
+	external := "smithers_0000000000000000000000000000000000003491"
+	externalDigest := sha256.Sum256([]byte(external))
+	externalHash := hex.EncodeToString(externalDigest[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: ben.ID, Name: "takeover-codex", TokenHash: externalHash, TokenLastEight: externalHash[len(externalHash)-8:],
+		Scopes:       strings.Join(append([]string{"write:repository", "read:user"}, middleware.DelegationScopes(middleware.Delegation{Via: "codex"})...), ","),
+		SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
 	service := services.NewMythicalService(pool, nil)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
@@ -100,7 +107,9 @@ func TestTodoTakeoverComposedInstall(t *testing.T) {
 		req.Header.Set("Origin", origin)
 		req.Header.Set("X-CSRF-Token", "takeover-csrf")
 		req.Header.Set("Idempotency-Key", key)
-		if login == "delegated" {
+		if login == "external" {
+			req.Header.Set("Authorization", "Bearer "+external)
+		} else if login == "delegated" {
 			req.Header.Set("Authorization", "Bearer "+delegated)
 		} else {
 			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookies[login]})
@@ -122,7 +131,12 @@ func TestTodoTakeoverComposedInstall(t *testing.T) {
 	require.Equal(t, "permission", body["code"])
 	status, body = call("delegated", "POST", 3, "delegated-refused")
 	require.Equal(t, 403, status)
+	require.Equal(t, "permission", body["code"])
+	require.Equal(t, "permission", body["class"])
+	status, body = call("external", "POST", 3, "external-refused")
+	require.Equal(t, 403, status)
 	require.Equal(t, "never", body["code"])
+	require.Equal(t, "never", body["class"])
 	for _, login := range []string{"ben", "alice", "maya"} {
 		status, body = call(login, "GET", 3, "")
 		require.Equal(t, 200, status)
