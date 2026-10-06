@@ -217,15 +217,16 @@ type BillingEntitlement struct {
 }
 
 type BillingPlanGrant struct {
-	ID        int64     `json:"id"`
-	OwnerType string    `json:"owner_type"`
-	OwnerID   int64     `json:"owner_id"`
-	SourceKey string    `json:"source_key"`
-	PlanKey   string    `json:"plan_key"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Actor     string    `json:"actor"`
-	Reason    string    `json:"reason"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                  int64       `json:"id"`
+	OwnerType           string      `json:"owner_type"`
+	OwnerID             int64       `json:"owner_id"`
+	SourceKey           string      `json:"source_key"`
+	PlanKey             string      `json:"plan_key"`
+	ExpiresAt           time.Time   `json:"expires_at"`
+	Actor               string      `json:"actor"`
+	Reason              string      `json:"reason"`
+	CreatedAt           time.Time   `json:"created_at"`
+	ConcurrentSandboxes pgtype.Int8 `json:"concurrent_sandboxes"`
 }
 
 type BillingSubscription struct {

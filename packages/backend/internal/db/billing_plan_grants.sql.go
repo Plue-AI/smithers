@@ -8,10 +8,12 @@ package db
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getActiveBillingPlanGrant = `-- name: GetActiveBillingPlanGrant :one
-SELECT id, owner_type, owner_id, source_key, plan_key, expires_at, actor, reason, created_at FROM billing_plan_grants
+SELECT id, owner_type, owner_id, source_key, plan_key, expires_at, actor, reason, created_at, concurrent_sandboxes FROM billing_plan_grants
 WHERE owner_type = $1 AND owner_id = $2
  AND expires_at > $3::timestamptz
 ORDER BY id DESC LIMIT 1
@@ -36,12 +38,13 @@ func (q *Queries) GetActiveBillingPlanGrant(ctx context.Context, arg GetActiveBi
 		&i.Actor,
 		&i.Reason,
 		&i.CreatedAt,
+		&i.ConcurrentSandboxes,
 	)
 	return i, err
 }
 
 const getBillingPlanGrantByKey = `-- name: GetBillingPlanGrantByKey :one
-SELECT id, owner_type, owner_id, source_key, plan_key, expires_at, actor, reason, created_at FROM billing_plan_grants
+SELECT id, owner_type, owner_id, source_key, plan_key, expires_at, actor, reason, created_at, concurrent_sandboxes FROM billing_plan_grants
 WHERE owner_type = $1 AND owner_id = $2
  AND source_key = $3
 `
@@ -65,25 +68,27 @@ func (q *Queries) GetBillingPlanGrantByKey(ctx context.Context, arg GetBillingPl
 		&i.Actor,
 		&i.Reason,
 		&i.CreatedAt,
+		&i.ConcurrentSandboxes,
 	)
 	return i, err
 }
 
 const insertBillingPlanGrant = `-- name: InsertBillingPlanGrant :execrows
-INSERT INTO billing_plan_grants (owner_type, owner_id, source_key, plan_key, expires_at, actor, reason)
+INSERT INTO billing_plan_grants (owner_type, owner_id, source_key, plan_key, expires_at, actor, reason, concurrent_sandboxes)
 VALUES ($1, $2, $3, $4,
- $5, $6, $7)
+ $5, $6, $7, $8)
 ON CONFLICT (owner_type, owner_id, source_key) DO NOTHING
 `
 
 type InsertBillingPlanGrantParams struct {
-	OwnerType string    `json:"owner_type"`
-	OwnerID   int64     `json:"owner_id"`
-	SourceKey string    `json:"source_key"`
-	PlanKey   string    `json:"plan_key"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Actor     string    `json:"actor"`
-	Reason    string    `json:"reason"`
+	OwnerType           string      `json:"owner_type"`
+	OwnerID             int64       `json:"owner_id"`
+	SourceKey           string      `json:"source_key"`
+	PlanKey             string      `json:"plan_key"`
+	ExpiresAt           time.Time   `json:"expires_at"`
+	Actor               string      `json:"actor"`
+	Reason              string      `json:"reason"`
+	ConcurrentSandboxes pgtype.Int8 `json:"concurrent_sandboxes"`
 }
 
 func (q *Queries) InsertBillingPlanGrant(ctx context.Context, arg InsertBillingPlanGrantParams) (int64, error) {
@@ -95,6 +100,7 @@ func (q *Queries) InsertBillingPlanGrant(ctx context.Context, arg InsertBillingP
 		arg.ExpiresAt,
 		arg.Actor,
 		arg.Reason,
+		arg.ConcurrentSandboxes,
 	)
 	if err != nil {
 		return 0, err

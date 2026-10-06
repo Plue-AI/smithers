@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -22,6 +23,10 @@ type PlanGrant struct {
 	ExpiresAt time.Time
 	Actor     string
 	Reason    string
+	// ConcurrentSandboxes replaces the plan's concurrent-sandbox limit while
+	// the grant applies. Zero keeps the plan's own limit; the catalog and its
+	// price never change.
+	ConcurrentSandboxes int64
 }
 
 // Validate checks required inputs before a caller opens a database. Expiry is
@@ -44,6 +49,9 @@ func (g PlanGrant) Validate() error {
 	}
 	if g.ExpiresAt.IsZero() {
 		return errors.New("plans: -expires is required")
+	}
+	if g.ConcurrentSandboxes < 0 || g.ConcurrentSandboxes >= unlimitedBillingQuantity {
+		return errors.New("plans: -concurrent-sandboxes must be a positive, finite number")
 	}
 	return nil
 }
@@ -77,7 +85,8 @@ func (s *BillingService) GrantPlan(ctx context.Context, g PlanGrant) error {
 		OwnerType: g.OwnerType, OwnerID: g.OwnerID, SourceKey: g.Key,
 	})
 	if err == nil {
-		if prior.PlanKey != g.PlanKey || !prior.ExpiresAt.Equal(g.ExpiresAt) || prior.Actor != g.Actor || prior.Reason != g.Reason {
+		if prior.PlanKey != g.PlanKey || !prior.ExpiresAt.Equal(g.ExpiresAt) || prior.Actor != g.Actor || prior.Reason != g.Reason ||
+			prior.ConcurrentSandboxes != g.concurrentSandboxes() {
 			return credits.ErrConflict
 		}
 		return tx.Commit(ctx)
@@ -91,6 +100,7 @@ func (s *BillingService) GrantPlan(ctx context.Context, g PlanGrant) error {
 	_, err = q.InsertBillingPlanGrant(ctx, db.InsertBillingPlanGrantParams{
 		OwnerType: g.OwnerType, OwnerID: g.OwnerID, SourceKey: g.Key,
 		PlanKey: g.PlanKey, ExpiresAt: g.ExpiresAt, Actor: g.Actor, Reason: g.Reason,
+		ConcurrentSandboxes: g.concurrentSandboxes(),
 	})
 	if err != nil {
 		return err
@@ -112,5 +122,14 @@ func (s *BillingService) compedPlan(ctx context.Context, owner billingOwnerRef) 
 		return billingPlanDefinition{}, pkgerrors.Internal("failed to load plan grant").WithCause(err)
 	}
 	plan = s.checkoutPlans[owner.OwnerType][grant.PlanKey+":"+BillingIntervalMonthly]
+	if grant.ConcurrentSandboxes.Valid {
+		plan.Limits.ConcurrentSandboxes = grant.ConcurrentSandboxes.Int64
+	}
 	return plan, nil
+}
+
+// concurrentSandboxes is the stored form of the grant's limit: NULL keeps the
+// plan's own limit.
+func (g PlanGrant) concurrentSandboxes() pgtype.Int8 {
+	return pgtype.Int8{Int64: g.ConcurrentSandboxes, Valid: g.ConcurrentSandboxes > 0}
 }

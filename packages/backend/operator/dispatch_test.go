@@ -39,6 +39,9 @@ func TestDispatchValidatesBeforeOpeningDatabase(t *testing.T) {
 		{name: "plans blank reason", args: append(append([]string{}, basePlan[:len(basePlan)-1]...), " "), handled: true, want: "-reason"},
 		{name: "plans disallowed plan", args: []string{"plans", "grant", "-owner", "user:alice", "-plan", "team", "-expires", "2099-01-01T00:00:00Z", "-key", "case-1", "-actor", "operator", "-reason", "support"}, handled: true, want: "-plan"},
 		{name: "plans bad end date", args: []string{"plans", "grant", "-owner", "user:alice", "-plan", "pro", "-expires", "tomorrow", "-key", "case-1", "-actor", "operator", "-reason", "support"}, handled: true, want: "-expires"},
+		{name: "plans zero concurrent sandboxes", args: append(append([]string{}, basePlan...), "-concurrent-sandboxes", "0"), handled: true, want: "-concurrent-sandboxes"},
+		{name: "plans negative concurrent sandboxes", args: append(append([]string{}, basePlan...), "-concurrent-sandboxes", "-5"), handled: true, want: "-concurrent-sandboxes"},
+		{name: "plans non-numeric concurrent sandboxes", args: append(append([]string{}, basePlan...), "-concurrent-sandboxes", "lots"), handled: true, want: "-concurrent-sandboxes"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opens := 0
@@ -181,4 +184,44 @@ func TestDispatchOperatorFirstPreservesConfiguredSignupCredit(t *testing.T) {
 	balance, err := ledger.OwnerBalance(t.Context(), "user", 102)
 	require.NoError(t, err)
 	require.Equal(t, signup+25*credits.NanosPerUSD, balance)
+}
+
+func TestDispatchGrantsConcurrentSandboxesThroughProductDatabase(t *testing.T) {
+	if testdb.ServerURL() == "" {
+		testdb.Unavailable(t, testdb.ErrNotConfigured)
+	}
+	pool, url := postgresfixture.NewProductDatabase(t)
+	_, err := pool.Exec(t.Context(), `INSERT INTO users (id, username, lower_username) VALUES (101, 'Will', 'will')`)
+	require.NoError(t, err)
+	var out bytes.Buffer
+	run := func(args ...string) error {
+		t.Helper()
+		out.Reset()
+		handled, err := Dispatch(t.Context(), args, Config{OpenDatabase: func(ctx context.Context) (*pgxpool.Pool, error) {
+			return postgresfixture.Open(ctx, url, 0)
+		}, Stdout: &out})
+		require.True(t, handled)
+		return err
+	}
+	grant := []string{"plans", "grant", "-owner", "user:will", "-plan", "max", "-concurrent-sandboxes", "256",
+		"-expires", "2099-01-01T00:00:00Z", "-key", "will-256", "-actor", "admin@example.com", "-reason", "founder fan-out"}
+	require.NoError(t, run(grant...))
+	require.Equal(t, "user:will max with 256 concurrent sandboxes until 2099-01-01T00:00:00Z\n", out.String())
+	require.NoError(t, run(grant...), "exact replay must be safe")
+	changed := append([]string{}, grant...)
+	changed[7] = "128"
+	require.ErrorIs(t, run(changed...), credits.ErrConflict)
+	var planKey string
+	var concurrent *int64
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT plan_key, concurrent_sandboxes FROM billing_plan_grants WHERE source_key = 'will-256'`).Scan(&planKey, &concurrent))
+	require.Equal(t, "max", planKey)
+	require.NotNil(t, concurrent)
+	require.Equal(t, int64(256), *concurrent)
+
+	// Without the flag the grant keeps the plan's own limit.
+	require.NoError(t, run("plans", "grant", "-owner", "user:will", "-plan", "pro", "-expires", "2099-01-01T00:00:00Z",
+		"-key", "plain", "-actor", "admin@example.com", "-reason", "plain comp"))
+	require.Equal(t, "user:will pro until 2099-01-01T00:00:00Z\n", out.String())
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT concurrent_sandboxes FROM billing_plan_grants WHERE source_key = 'plain'`).Scan(&concurrent))
+	require.Nil(t, concurrent)
 }

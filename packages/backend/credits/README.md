@@ -47,6 +47,8 @@ smithers-backend credits balance -owner user:alice
 smithers-backend credits list -owner user:alice
 smithers-backend plans grant -owner user:alice -plan pro -key support-123 \
   -expires 2027-01-01T00:00:00Z -actor will -reason "Support case 123"
+smithers-backend plans grant -owner user:alice -plan max -concurrent-sandboxes 256 \
+  -key fanout-1 -expires 2027-01-01T00:00:00Z -actor will -reason "Fan-out trial"
 ```
 
 Credit grants require `-actor` and `-reason` before database access.
@@ -66,6 +68,12 @@ owner, key, plan, end date, actor, reason and creation time atomically.
 Each owner/key applies once; changing plan, amount, expiry, actor or reason
 on a replay fails. Plan replays remain no-ops after expiry. A new grant's end
 date must be in the future. Timestamps use PostgreSQL microsecond precision.
+
+`-concurrent-sandboxes N` replaces the granted plan's concurrent-sandbox limit
+with a positive `N` for the life of that grant. Every other limit, the plan
+catalog and its price stay unchanged. The value is part of the receipt, so a
+replay with a different `N` fails. A grant without the flag uses its plan's
+own limit. The deployment's fleet-wide agent cap still applies.
 
 The latest still-active comp applies until its end date. A live Stripe
 subscription takes precedence, including its dunning and payment reversal
