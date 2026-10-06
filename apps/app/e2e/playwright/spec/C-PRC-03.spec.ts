@@ -1,20 +1,23 @@
+import { execFile } from "node:child_process"
+import { resolve } from "node:path"
+import { promisify } from "node:util"
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
 
-// UI projection of .specs/engineering/checks/C-PRC-03.md; not a qualification receipt.
-// Receipt validation is engineering-only; isolated CI transport and terminal execution are required.
-// Written before implementation: mvp.md §12.1, M-29; lands with T-PRC-03
-test("C-PRC-03: Receipt refusal cases remain observable without publishing an issue", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §12.1, M-29; lands with T-PRC-03")
-  await owner(page)
-  await page.goto("/")
-  await say(page, "/branch retry-webhooks")
-  await page.getByRole("button", { name: "New terminal", exact: true }).last().press("Enter")
-  const terminal = page.getByRole("region", { name: / output$/ }).last()
-  await terminal.click()
-  // This fixture suite intercepts publication; the lane never closes a live issue.
-  await page.keyboard.type("node --test scripts/check-receipts.test.mjs")
-  await page.keyboard.press("Enter")
-  await expect(terminal).toContainText("# fail 0")
-  await expect(terminal).toContainText("# pass")
+// Engineering-only check: exercise its public CLI, not a seeded terminal.
+// The shared suite retains production recording, verification and close dispatch;
+// only external GitHub transport is isolated. No live issue is written.
+test("C-PRC-03: Receipt refusal cases remain observable without publishing an issue", async () => {
+  const { stdout } = await promisify(execFile)(process.execPath, [
+    "--test", "--test-reporter=tap", "scripts/check-receipts.test.mjs"
+  ], {
+    cwd: resolve(__dirname, "../../../../.."),
+    timeout: 55_000,
+    maxBuffer: 4 << 20
+  })
+  expect(stdout).toContain("# fail 0")
+  expect(stdout).toMatch(/# pass [1-9][0-9]*/)
+  expect(stdout).toContain("# skipped 0")
+  expect(stdout).toContain("executable CLI closes recorder-produced evidence through isolated transport")
+  expect(stdout).toContain("root-check-mapping-validation: markers refuse recorder and close without dispatch")
+  expect(stdout).toContain("duplicate CI artifact identities refuse at recorder and completed-close boundaries")
 })
