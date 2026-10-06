@@ -2987,6 +2987,13 @@ func (c *Client) GetAPIFlows(ctx context.Context) ([]FlowCard, error) {
 	return out, err
 }
 
+// GetAPIFlowsName calls GET /api/flows/{name}.
+func (c *Client) GetAPIFlowsName(ctx context.Context, name string) (FlowCard, error) {
+	var out FlowCard
+	err := c.do(ctx, "GET", "/api/flows/"+url.PathEscape(name), nil, nil, &out)
+	return out, err
+}
+
 // PostAPIGatewaysHostFileWriteGrants calls POST /api/gateways/{hostID}/file-write-grants.
 func (c *Client) PostAPIGatewaysHostFileWriteGrants(ctx context.Context, hostID string, body PostAPIGatewaysHostFileWriteGrantsBody) (PostAPIGatewaysHostFileWriteGrantsResponse, error) {
 	var out PostAPIGatewaysHostFileWriteGrantsResponse

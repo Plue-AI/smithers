@@ -2085,6 +2085,7 @@ func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 // the app agent's host-run commands read through the public API.
 func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
 	r.Get("/flows", flows.List)
+	r.Get("/flows/{name}", flows.Show)
 }
 
 // mountModelProxy serves the metered model proxy at /model-proxy and, for the

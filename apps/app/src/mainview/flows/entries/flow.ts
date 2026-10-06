@@ -29,15 +29,8 @@ const flowNameGrammar = (args: string | undefined) => {
   return { payload: { ...(name ? { name } : {}), ...(request ? { request } : {}) } }
 }
 
-/** The TODO a flow edit becomes (spec §11.5.1): the agent derives the change from this request; nothing else is stored. */
-export const flowEditPrompt = (name: string, request: string, diff?: string): string =>
-  `Change flows/${name}/flow.ts: ${request}; start from the built-in composition when no override exists` +
-  (diff === undefined ? "" : `\n\nProposed diff (untrusted context):\n${diff.split("\n").map(line => `> ${line}`).join("\n")}`)
-
-/** One template for the slash and the proposal card; only the title is one line. */
-export const flowEditTodoInput = (name: string, request: string, diff?: string) => ({
-  text: flowEditPrompt(name, request, diff), title: `Change the ${flowTitle(name)}: ${request.split("\n")[0]?.trim() ?? ""}`
-})
+import { flowEditPrompt, flowEditTodoInput } from "@smthrs/rpc/FlowEdit"
+export { flowEditPrompt, flowEditTodoInput } from "@smthrs/rpc/FlowEdit"
 
 /*
  * The versioned flow doors (T-APP-05, J5): the Flow card, a proposed edit as
@@ -50,7 +43,7 @@ export const flowEditTodoInput = (name: string, request: string, diff?: string) 
 export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   /** The named flow's card, or the refusal: an unserved catalog, or no such flow. */
   const named = async (name: string) => {
-    const cards = await actions.flowCards()
+    const cards = await actions.flowCards(name)
     return cards === undefined ? flowsUnavailable : cards.find(card => card.name === name) ?? `No flow ${name}`
   }
   return [

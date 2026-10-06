@@ -43,6 +43,8 @@ import { boundToolResult, MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import type { Card } from "@smthrs/rpc/Cards"
 import { fileListCard, FILES_LIST_COMMAND, parseFileListArgs } from "@smthrs/rpc/FileList"
 import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc/FileRead"
+import { FlowCardSchema } from "@smthrs/rpc/FlowCard"
+import { flowEditTodoInput, flowTitle } from "@smthrs/rpc/FlowEdit"
 import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
 import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
@@ -524,6 +526,58 @@ const todoNew: Bind = (grant) => {
     })
 }
 
+/** Flow proposals use the same catalog and private Draft as the browser. */
+const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
+  const author = grant.api?.author
+  if (author === undefined) return undefined
+  return (args, ordinal) => Effect.gen(function*() {
+    let input: { name?: string | undefined; request?: string | undefined; diff?: string | undefined }
+    try {
+      const raw = args?.trimStart() ?? ""
+      const boundary = raw.search(/\s/)
+      const parsed = raw.startsWith("{") ? JSON.parse(raw) : {
+        ...(raw === "" ? {} : { name: boundary < 0 ? raw : raw.slice(0, boundary) }),
+        ...(boundary < 0 ? {} : { request: raw.slice(boundary).trimStart() })
+      }
+      input = z.strictObject({ name: z.string().min(1).optional(), request: z.string().min(1).optional(), diff: z.string().optional() }).parse(parsed)
+    } catch { return { refusal: `Invalid arguments for ${row.name}; use its declared payload.` } }
+    const missing = ["name", ...(row.name === "flow.edit" ? ["request"] : [])].filter(key => input[key as "name" | "request"] === undefined)
+    if (missing.length > 0) {
+      const form: Card = { id: `form:${globalThis.crypto.randomUUID()}`, kind: "flow-form", title: row.summary,
+        status: "active", ordinal, createdAt: Date.now(), payload: {
+          flow: row.name, via: "agent", given: input, draft: {},
+          fields: missing.map(name => ({ name, label: name === "name" ? "Flow" : "Request", kind: "text", required: true }))
+        } }
+      return { cards: [form], value: `Rendered a form for ${missing.join(", ")}.` }
+    }
+    // The required name was checked above; no user code is loaded to resolve it.
+    const name = input.name!
+    const answer = yield* api("/api/flows", { method: "GET" })
+    if ("code" in answer) return { refusal: answer.code }
+    const parsed = z.array(FlowCardSchema).safeParse(answer.body)
+    if (answer.status !== 200 || !parsed.success) return { refusal: "Flows unavailable" }
+    let model = parsed.data.find(flow => flow.name === name)
+    if (model === undefined) {
+      const named = yield* api(`/api/flows/${encodeURIComponent(name)}`, { method: "GET" })
+      if (!("code" in named) && named.status === 200) {
+        const selected = FlowCardSchema.safeParse(named.body)
+        if (selected.success && selected.data.name === name) model = selected.data
+      }
+    }
+    if (model === undefined) return { refusal: `No flow ${name}` }
+    if (row.name === "flow.edit" && model.system) return { refusal: `${flowTitle(name)} is built in` }
+    const now = Date.now()
+    if (row.name === "flow.edit") {
+      const draft = flowEditTodoInput(name, input.request!, input.diff)
+      return { cards: [draftCard({ id: `draft:${globalThis.crypto.randomUUID()}`, author,
+        ...draft, options: [], idempotencyKey: globalThis.crypto.randomUUID() }, ordinal, now)], value: DRAFTED }
+    }
+    const card: Card = { id: `flow:${name}`, kind: "flow", title: flowTitle(name), status: "active",
+      ordinal, createdAt: now, payload: { name } }
+    return { cards: [card], value: JSON.stringify(model) }
+  })
+}
+
 /** The one descriptor-to-HTTP dispatch path; policy/confirmations stay on the server. */
 const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
   if (grant.api === undefined || row.http === null) return undefined
@@ -606,6 +660,7 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
     const bind = row.name === "files.list" ? filesList
       : row.name === "files.read" ? filesRead
       : row.name === "todo.new" && grant.request.sharedConversation !== true ? todoNew
+      : row.name === "flow" || row.name === "flow.edit" ? flowCommand(row)
       : row.name === "theme" ? themeCommand(row)
       : catalogCommand(row)
     const run = bind(grant, transport)

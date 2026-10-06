@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -38,6 +39,41 @@ func (h *FlowsHandler) List(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(cards)
+}
+
+// Show resolves system names without putting them in the overridable list.
+func (h *FlowsHandler) Show(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Queries == nil {
+		todoRouteError(w, &services.TodoControlError{Status: 503, Class: "infra", Code: "flows_unavailable", Message: "Flows unavailable"})
+		return
+	}
+	if _, err := services.Authorize(r.Context(), h.Queries, "flows.read"); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	cards, err := h.catalog(r)
+	if err != nil {
+		todoRouteError(w, &services.TodoControlError{Status: 503, Class: "infra", Code: "flows_unavailable", Message: "Flows unavailable"})
+		return
+	}
+	name := chi.URLParam(r, "name")
+	var selected *services.FlowCard
+	for i := range cards {
+		if cards[i].Name == name {
+			selected = &cards[i]
+			break
+		}
+	}
+	if selected == nil && !services.Overridable(name) {
+		selected = &services.FlowCard{Name: name, System: true, Source: services.FlowSource{Builtin: true}, Versions: []services.FlowVersion{}}
+	}
+	if selected == nil {
+		todoRouteError(w, &services.TodoControlError{Status: 404, Class: "user", Code: "flow_not_found", Message: "No flow " + name})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(selected)
 }
 
 // catalog is the install repository's catalog (its loaded versions), or the

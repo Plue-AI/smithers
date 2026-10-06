@@ -62,6 +62,22 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &cards))
 		return cards
 	}
+	for _, name := range []string{"todo", "merge", "missing"} {
+		request := httptest.NewRequest(http.MethodGet, cfg.Server.PublicURL+"/api/flows/"+name, nil)
+		request.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if name == "missing" {
+			require.Equal(t, 404, response.Code, response.Body.String())
+			require.Contains(t, response.Body.String(), "flow_not_found")
+			continue
+		}
+		require.Equal(t, 200, response.Code, response.Body.String())
+		var card services.FlowCard
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &card))
+		require.Equal(t, name, card.Name)
+		require.Equal(t, name == "merge", card.System)
+	}
 	cards := read()
 	var refused, custom, builtin bool
 	for _, card := range cards {

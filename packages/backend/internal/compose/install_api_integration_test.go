@@ -64,6 +64,10 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 				calls := []any{}
 				for i, args := range []string{
 					`{"action":"execute","name":"stack"}`,
+					`{"action":"execute","name":"flow","args":"todo"}`,
+					`{"action":"execute","name":"flow.edit","args":"merge Add a step"}`,
+					`{"action":"execute","name":"flow.edit","args":"todo Run tests"}`,
+					`{"action":"execute","name":"flow.edit","args":"{\"name\":\"todo\",\"request\":\"Run tests\",\"diff\":\"+pnpm test\"}"}`,
 					`{"action":"execute","name":"stack.move","args":"T2 up"}`,
 					`{"action":"execute","name":"todo.stop","args":"T1"}`,
 					`{"action":"execute","name":"todo.drop","args":"T1"}`,
@@ -133,7 +137,7 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 			router := fn.CallSlice(args)[0].Interface().(chi.Router)
 			mountChatPublic(router, runtime, q, cfg)
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/api/stack" || strings.HasPrefix(r.URL.Path, "/api/todos/") {
+				if strings.HasPrefix(r.URL.Path, "/api/flows") || r.URL.Path == "/api/stack" || strings.HasPrefix(r.URL.Path, "/api/todos/") {
 					if r.URL.Path == "/api/stack" {
 						require.Equal(t, "GET", r.Method)
 					} else if r.Method == http.MethodPost {
@@ -206,6 +210,7 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	}
 	callsMu.Lock()
 	require.Equal(t, 1, calls["GET /api/stack"])
+	require.Equal(t, 4, calls["GET /api/flows"])
 	require.Equal(t, 1, calls["POST /api/todos/2 move"])
 	require.Equal(t, 1, calls["POST /api/todos/1 stop"])
 	require.Equal(t, 1, calls["POST /api/todos/1 drop"])
@@ -228,6 +233,12 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	var frames string
 	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT string_agg(frames::text,'') FROM chat_turn_batches WHERE turn_id=$1`, admitted.TurnID).Scan(&frames))
 	require.Contains(t, frames, "Stack listed.")
+	require.Contains(t, frames, `"kind": "flow"`)
+	require.Contains(t, frames, `"kind": "draft"`)
+	require.Contains(t, frames, "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists")
+	require.Contains(t, frames, "Proposed diff (untrusted context):")
+	require.Contains(t, frames, "> +pnpm test")
+	require.Contains(t, frames, `"audience_member_id": "chatowner"`)
 	require.NotContains(t, frames, token)
 	require.NotContains(t, local.logs.String(), token)
 	mu.Lock()
@@ -235,8 +246,10 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	mu.Unlock()
 	modelRequests := strings.Join(captured, "\n")
 	require.Contains(t, modelRequests, "Add greeting")
+	require.Contains(t, modelRequests, "Merge flow is built in")
 	require.Contains(t, modelRequests, "todo_control_unavailable")
-	require.NotContains(t, modelRequests, "confirmation_unavailable")
+	// Merge has no qualified consumer in this fixture; Drop below still records its private confirmation.
+	require.Contains(t, modelRequests, "confirmation_unavailable")
 	var confirmations int
 	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM approvals WHERE repository_id=$1 AND member_id=$2 AND command='todo.drop' AND state='pending'`, local.repoID, local.ownerID).Scan(&confirmations))
 	require.Equal(t, 1, confirmations, "drop requests one private confirmation for its author")

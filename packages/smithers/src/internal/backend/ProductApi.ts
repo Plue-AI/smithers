@@ -1810,6 +1810,16 @@ export type GetApiFlowsResponse = Array<FlowCard>
 export const getApiFlows = (transport: Transport): Promise<GetApiFlowsResponse> =>
   transport.request("GET", `/api/flows`) as Promise<GetApiFlowsResponse>
 
+export type GetApiFlowsNameResponse = FlowCard
+
+export interface GetApiFlowsNameInput {
+  readonly path: { readonly name: string }
+}
+
+/** GET /api/flows/{name}: Read one flow */
+export const getApiFlowsName = (transport: Transport, input: GetApiFlowsNameInput): Promise<GetApiFlowsNameResponse> =>
+  transport.request("GET", `/api/flows/${segment(input.path.name)}`) as Promise<GetApiFlowsNameResponse>
+
 export type PostApiGatewaysHostFileWriteGrantsBody = {
   run_id: string
   batch_digest: string

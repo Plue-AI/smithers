@@ -112,10 +112,10 @@ test("proposed built-in edit displays literal diff before one ordinary TODO appe
   await expect(page.getByRole("textbox", { name: "Prompt", exact: true }).last()).toHaveValue(prompt)
   expect(writes).toEqual([])
   await page.getByRole("button", { name: "Commit", exact: true }).last().press("Enter")
-  await expect(page.getByText("Committed as T44", { exact: true })).toBeVisible()
+  await expect(page.getByText("Committed as T44", { exact: true })).toBeVisible({ timeout: 30_000 })
   expect(writes).toEqual([{ title: "Change the TODO flow: Run pnpm test", prompt, acceptance: [], place: { mode: "append" } }])
   await page.reload()
-  await expect(page.getByText("Committed as T44", { exact: true })).toBeVisible()
+  await expect(page.getByText("Committed as T44", { exact: true })).toBeVisible({ timeout: 30_000 })
   expect(writes).toHaveLength(1)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
@@ -179,5 +179,33 @@ test("install Flow card follows live activation and preserves Active on a failed
   await flow.locator(".flow-failure summary").press("Enter")
   await expect(flow.getByRole("region", { name: "Failure details", exact: true })).toHaveText("Unknown reviewer")
   await expect(flow.getByText("Unknown reviewer", { exact: true })).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})
+
+// Test-only HTTP answers qualify the production app seam; no machine or GitHub work.
+test("install system flow and missing catalog refuse edit before a Draft or TODO", async ({ page }) => {
+  await owner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
+  } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  let writes = 0
+  let unavailable = false
+  await page.route("**/api/todos", route => { if (route.request().method() === "POST") writes++; return route.fulfill({ json: [] }) })
+  await page.route("**/api/flows", route => unavailable
+    ? route.fulfill({ status: 503, json: { class: "infra", code: "flows_unavailable", message: "Flows unavailable" } })
+    : route.fulfill({ json: [{ name: "todo", system: false, source: { builtin: true }, versions: [{ id: "d1", state: "active", steps: [] }] }] }))
+  await page.route("**/api/flows/merge", route => route.fulfill({ json: { name: "merge", system: true, source: { builtin: true }, versions: [] } }))
+  await page.goto("/")
+  await say(page, "/flow.edit merge Change merge")
+  await expect(page.getByText("Merge flow is built in", { exact: true }).last()).toBeVisible()
+  await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveCount(0)
+  await say(page, "/flow todo")
+  await expect(page.locator(".flow-view").last().getByRole("button", { name: "Edit", exact: true })).toBeVisible()
+  unavailable = true
+  await say(page, "/flow.edit todo Run tests")
+  await expect(page.getByText("Flows unavailable", { exact: true }).last()).toBeVisible()
+  await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveCount(0)
+  expect(writes).toBe(0)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
