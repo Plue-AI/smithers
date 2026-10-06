@@ -1656,6 +1656,28 @@ type GetAPIAgentConversationsParams struct {
 	Limit *int64
 }
 
+// GetAPIConversationResponse is generated from docs/api/openapi.yaml.
+type GetAPIConversationResponse struct {
+	ID      string                                  `json:"id"`
+	Entries []GetAPIConversationResponseEntriesItem `json:"entries"`
+}
+
+// GetAPIConversationResponseEntriesItem is generated from docs/api/openapi.yaml.
+type GetAPIConversationResponseEntriesItem struct {
+	ID     string    `json:"id"`
+	Author int64     `json:"author"`
+	RunID  string    `json:"runId"`
+	Prompt string    `json:"prompt"`
+	State  string    `json:"state"`
+	Frames []AnyJSON `json:"frames"`
+}
+
+// PostAPIConversationPromptBody is generated from docs/api/openapi.yaml.
+type PostAPIConversationPromptBody struct {
+	Prompt         string `json:"prompt"`
+	IdempotencyKey string `json:"idempotencyKey"`
+}
+
 // PatchAPIConversationTurnBody is generated from docs/api/openapi.yaml.
 type PatchAPIConversationTurnBody struct {
 	Prompt string `json:"prompt"`
@@ -2537,6 +2559,20 @@ func (c *Client) GetAPIAgentConversations(ctx context.Context, params GetAPIAgen
 func (c *Client) PostAPIAgentConversationsReplay(ctx context.Context, body SavedConversationReplayRequest) (SavedConversationReplay, error) {
 	var out SavedConversationReplay
 	err := c.do(ctx, "POST", "/api/agent/conversations/replay", nil, body, &out)
+	return out, err
+}
+
+// GetAPIConversation calls GET /api/conversations/{b}.
+func (c *Client) GetAPIConversation(ctx context.Context, b string) (GetAPIConversationResponse, error) {
+	var out GetAPIConversationResponse
+	err := c.do(ctx, "GET", "/api/conversations/"+url.PathEscape(b), nil, nil, &out)
+	return out, err
+}
+
+// PostAPIConversationPrompt calls POST /api/conversations/{b}/prompt.
+func (c *Client) PostAPIConversationPrompt(ctx context.Context, b string, body PostAPIConversationPromptBody) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "POST", "/api/conversations/"+url.PathEscape(b)+"/prompt", nil, body, &out)
 	return out, err
 }
 

@@ -34,16 +34,17 @@ type liveSync interface {
 // person: home, todo:<n>, flows and members. Every topic serves shared facts only,
 // so one stream serves every member byte for byte.
 type liveTopics struct {
-	queries   *db.Queries
-	todos     liveTodos
-	sync      liveSync
-	install   *services.InstallSetupService
-	members   *services.Members
-	documents *live.DocRelay
-	capacity  *services.InstallCapacityService
-	presence  *branchPresence
-	viewState func(context.Context, int64, string) (json.RawMessage, error)
-	secrets   *services.SecretService
+	queries      *db.Queries
+	todos        liveTodos
+	sync         liveSync
+	install      *services.InstallSetupService
+	members      *services.Members
+	documents    *live.DocRelay
+	capacity     *services.InstallCapacityService
+	presence     *branchPresence
+	conversation func(context.Context, int64, string) (json.RawMessage, error)
+	viewState    func(context.Context, int64, string) (json.RawMessage, error)
+	secrets      *services.SecretService
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -193,7 +194,26 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}, ""
 	case "doc":
 		return t.documents.Resolve(ctx, topic, repository, member)
-	case "branch", "conversation", "run":
+	case "conversation":
+		if repository <= 0 || member <= 0 || rest == "" || t.conversation == nil {
+			return live.Source{}, live.Unsupported
+		}
+		// Authorize before Join can deliver a cached snapshot. Scope the
+		// builder to its reader so losing a workspace grant fails closed even
+		// while another member remains subscribed to the same conversation.
+		initial, err := t.conversation(ctx, member, rest)
+		if err != nil {
+			return live.Source{}, live.Forbidden
+		}
+		var identity struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(initial, &identity) != nil || identity.ID == "" {
+			return live.Source{}, live.Unsupported
+		}
+		key := "conversation:" + strconv.FormatInt(repository, 10) + ":" + identity.ID + ":member:" + strconv.FormatInt(member, 10)
+		return live.Source{Key: key, Every: liveRefreshEvery, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) { return t.conversation(ctx, member, identity.ID) }}, ""
+	case "branch", "run":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
