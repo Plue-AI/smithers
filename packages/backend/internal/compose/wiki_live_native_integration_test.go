@@ -27,6 +27,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -78,6 +79,15 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 	defer cancel()
 	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
+	// Match the install's fail-closed live upgrade and durable revocation source.
+	bus := revocation.NewBus(pool, q)
+	busCtx, stopBus := context.WithCancel(context.Background())
+	require.NoError(t, bus.Start(busCtx))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() {
+		routes.SetRevocationSource(nil)
+		stopRevocationListener(stopBus, bus, revocationBusStopTimeout)
+	})
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "wiki-owner", LowerUsername: "wiki-owner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, owner.ID)

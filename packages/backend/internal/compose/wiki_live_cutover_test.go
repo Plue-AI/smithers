@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -55,6 +56,15 @@ func TestWikiLiveCutoverRetiresHTTPProtocol(t *testing.T) {
 func TestWikiLiveCutoverDocumentAdmission(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
+	// Match the install's fail-closed live upgrade and durable revocation source.
+	bus := revocation.NewBus(pool, q)
+	busCtx, stopBus := context.WithCancel(context.Background())
+	require.NoError(t, bus.Start(busCtx))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() {
+		routes.SetRevocationSource(nil)
+		stopRevocationListener(stopBus, bus, revocationBusStopTimeout)
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "wiki-owner", LowerUsername: "wiki-owner"})

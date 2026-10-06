@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -43,8 +44,17 @@ func TestWikiHostCrashChild(t *testing.T) {
 	defer cancel()
 	pool, err := postgresfixture.Open(ctx, databaseURL, 8)
 	require.NoError(t, err)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	q := db.New(pool)
+	// Match the install's fail-closed live upgrade and durable revocation source.
+	bus := revocation.NewBus(pool, q)
+	busCtx, stopBus := context.WithCancel(context.Background())
+	require.NoError(t, bus.Start(busCtx))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() {
+		routes.SetRevocationSource(nil)
+		stopRevocationListener(stopBus, bus, revocationBusStopTimeout)
+	})
 	path := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	native := repohostffi.New(path)
 	require.NoError(t, native.Load())

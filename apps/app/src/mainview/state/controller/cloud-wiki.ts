@@ -6,6 +6,9 @@ import {
   CloudWikiTransport,
   makeCloudWikiTransport,
   mergeWikiState,
+  editWikiState,
+  decodeWikiState,
+  encodeWikiState,
   wikiAttachmentSlug,
   wikiContentPath,
   wikiDocumentId,
@@ -22,6 +25,8 @@ import { resolveTargetRepo } from "../RepoContext"
 import { scrubToolEcho } from "../MessageScrub"
 import type { ControllerContext } from "./context"
 import { randomUuid } from "../../runtime/RandomUuid"
+import * as Y from "yjs"
+import { LiveChannel } from "../../runtime/LiveChannel"
 import { LiveDocProvider } from "../../runtime/LiveDocProvider"
 
 /** The space a page row lives in; rows saved before spaces existed were public. */
@@ -64,6 +69,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
   const shared = actorSharedState(ctx, "cloudWiki", () => {
     const transport = makeCloudWikiTransport({ http: ctx.http, baseUrl: ctx.baseUrl })
     const documents = new Map<string, LiveDocProvider>()
+    const prepared = new Map<string, CloudWikiState["pending"]>()
     const editors = new Map<string, Map<string, MarkdownEditorHandle>>()
     let disposed = false
     let lifetime = new AbortController()
@@ -129,7 +135,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         const pending = sameScope ? previousCloud.pending : []
         // A stale response can acknowledge one UUID, but cannot regress a newer bootstrap.
         const newer = sameScope && previousCloud.remoteRevision > incoming.page.revision
-        const baseState = newer ? previousCloud.state : incoming.state
+        const baseState = newer || (sameScope && previousCloud?.live?.pending.length) ? previousCloud!.state : incoming.state
         const merged = yield* Effect.try({
           try: () => {
             if (!newer && mergeWikiState(incoming.state).body !== incoming.page.body) {
@@ -163,6 +169,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
             remoteUpdatedAt: newer ? previousCloud.remoteUpdatedAt : incoming.page.updated_at,
             state: merged.state,
             pending,
+            ...(sameScope && previousCloud?.live ? { live: previousCloud.live } : {}),
             accountLogin: owner,
             branchId: originBranch,
             phase: "cached",
@@ -171,12 +178,38 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         }, actor)
       })
 
-    // No Wiki authority or durable client binding is composed yet. The provider keeps admission
-    // fail-closed; snapshot reads never enable writes or acknowledge saved edits.
     const watch = (id: string) => {
       if (documents.has(id)) return
       const row = read(id)
-      if (row !== undefined) documents.set(id, new LiveDocProvider(`doc:wiki:${row.cloud.pageId}`))
+      if (!row || row.cloud.accountLogin !== login() || row.cloud.branchId !== branch()) return
+      const scopeOwner = login(), scopeBranch = branch(), scopeEpoch = ctx.accountEpoch
+      const current = () => !disposed && ctx.accountEpoch === scopeEpoch && login() === scopeOwner && branch() === scopeBranch
+      const provider = new LiveDocProvider(`doc:wiki:${row.cloud.pageId}`, ctx.services.live instanceof LiveChannel ? ctx.services.live : undefined,
+        { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true }, {
+          ...(row.cloud.live ? { initial: { state: decodeWikiState(row.cloud.state), clientId: row.cloud.live.clientId,
+            ...(row.cloud.live.epoch ? { epoch: row.cloud.live.epoch } : {}), pending: row.cloud.live.pending.map(decodeWikiState) } } : {}),
+          save: async value => {
+            if (!current()) throw new Error("Wiki account changed")
+            const latest = read(id)
+            if (!latest) throw new Error("Wiki page gone")
+            const state = encodeWikiState(value.state)
+            // Persistence may trail rapid admitted keystrokes. Render the current
+            // replica and locally staged edits, never an earlier save snapshot.
+            const merged = mergeWikiState(encodeWikiState(Y.encodeStateAsUpdate(provider.doc)), ...(prepared.get(id) ?? latest.cloud.pending).map(item => item.update))
+            await Effect.runPromise(persist({ ...latest, body: merged.body,
+              links: [...new Set(parseWikilinks(merged.body).map(link => link.target).filter(Boolean))],
+              cloud: { ...latest.cloud, state, phase: provider.available ? "live" : "cached",
+                live: { clientId: value.clientId, ...(value.epoch ? { epoch: value.epoch } : {}), pending: value.pending.map(encodeWikiState) } } }))
+          }
+        })
+      documents.set(id, provider)
+      provider.subscribeText(() => {
+        if (!current() || !provider.available) return
+        const body = mergeWikiState(encodeWikiState(Y.encodeStateAsUpdate(provider.doc)), ...(prepared.get(id) ?? []).map(item => item.update)).body
+        for (const editor of editors.get(id)?.values() ?? []) {
+          if (restoreWikilinks(editor.getMarkdown()) !== body) editor.setMarkdown(body)
+        }
+      })
     }
     const stopDocument = (id: string) => {
       documents.get(id)?.dispose()
@@ -187,6 +220,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       lifetime.abort()
       lifetime = new AbortController()
       for (const id of documents.keys()) stopDocument(id)
+      prepared.clear()
       if (!resetRows) return
       for (const document of ctx.store.collections.worldDocuments.values()) {
         if (document.cloud !== undefined && document.cloud.phase !== "deleted" && document.cloud.phase !== "cached") {
@@ -243,6 +277,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       accept,
       watch,
       documents,
+      prepared,
       stopDocument,
       editors,
       paneRead: 0,
@@ -497,12 +532,42 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     return "value" in outcome ? outcome : "superseded" in outcome ? outcome.superseded : outcome.refusal
   }
 
-  // A command can read the real page while document transport is unavailable,
-  // but must not create a new draft or transmit through the retired protocol.
-  const prepareCloudWiki = (_id: string, _body: string): PreparedWikiEdit | undefined => undefined
-  const editCloudWiki = async (id: string, _body: string): Promise<string | void> => {
+  const prepareCloudWiki = (id: string, body: string): PreparedWikiEdit | undefined => {
+    const row = shared.read(id), provider = shared.documents.get(id)
+    if (!row || !provider?.editable) return undefined
+    // Persist the draft on the existing row before command admission; only the
+    // admitted continuation enters Yjs and the authenticated document channel.
+    const pending = shared.prepared.get(id) ?? row.cloud.pending
+    const staged = mergeWikiState(encodeWikiState(Y.encodeStateAsUpdate(provider.doc)), ...pending.map(item => item.update))
+    const edited = editWikiState(staged.state, body, provider.doc.clientID)
+    const updateId = randomUuid(), owner = shared.login(), branch = shared.branch(), epoch = ctx.accountEpoch
+    const drafts = [...pending, { updateId, update: edited.update, actor: ctx.commandActor, admitted: false }]
+    // Reserve causal clocks synchronously; collection persistence and command
+    // admission can trail the next keyboard event. This is local staging only.
+    shared.prepared.set(id, drafts)
+    const draft = shared.run(shared.persist({ ...row, body, cloud: { ...row.cloud, pending: drafts } }, ctx.commandActor))
+    let done = false
+    return { release() {}, complete: async () => {
+      await draft
+      if (done) return
+      done = true
+      if (ctx.accountEpoch !== epoch || shared.login() !== owner || shared.branch() !== branch || !provider.editable) return "Live Wiki editing is unavailable."
+      provider.doc.transact(transaction => {
+        Y.applyUpdate(provider.doc, decodeWikiState(edited.update))
+        // The prepared delta belongs to this tab. Yjs otherwise treats it as
+        // a foreign replica with our id and rotates the authenticated identity.
+        transaction.local = true
+      })
+      shared.prepared.set(id, (shared.prepared.get(id) ?? []).filter(item => item.updateId !== updateId))
+      const latest = shared.read(id)
+      if (latest) await shared.run(shared.persist({ ...latest, cloud: { ...latest.cloud, pending: shared.prepared.get(id)! } }, ctx.commandActor))
+    } }
+  }
+  const editCloudWiki = async (id: string, body: string): Promise<string | void> => {
     if (shared.read(id) === undefined) return "This Wiki page is no longer available."
-    return "Live Wiki editing is unavailable."
+    const prepared = prepareCloudWiki(id, body)
+    if (!prepared) return "Live Wiki editing is unavailable."
+    return prepared.complete()
   }
   const retryCloudWiki = async (id: string): Promise<string | void | { value: string }> => {
     const document = shared.read(id)
