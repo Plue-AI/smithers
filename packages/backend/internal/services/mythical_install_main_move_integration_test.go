@@ -3,6 +3,7 @@ package services
 import (
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,26 +34,30 @@ func TestReviewedTodoMainMoveSchedulesRebuild(t *testing.T) {
 				defer runFetchedFixture(t, synced)()
 			}
 
-			// An outside main commit arrives in the mirror. The stack must fold
-			// that commit before scheduling the reviewed candidate's rebuild.
+			// An outside main commit arrives in the mirror. refreshMerged calls
+			// follow with this observed tip before folding it into the stack.
 			h.git(h.work, "checkout", "-q", "main")
 			h.commit("Outside main change", "OUTSIDE.md", "outside\n")
 			main := h.publish()
 			h.git(h.work, "push", "-q", h.github, "main:refs/heads/main")
-			h.pass()
 			stack, err := h.q.GetMythicalStack(t.Context(), h.repoID)
 			require.NoError(t, err)
-			require.Equal(t, main, stack.LandedMain)
-			h.pass()
-
-			after := h.item(n)
-			require.Equal(t, "integrating", after.State, "reviewed TODO must rebuild on the newly folded main")
+			require.Equal(t, main, h.hostRef("refs/heads/main"))
+			require.NotEqual(t, main, before.CandidateBase)
+			// Inspect the follow boundary itself: a full worker poll may both
+			// schedule the rebuild and advance it to another execution state.
+			step := &mythicalItemStep{s: h.service, q: h.q, now: h.service.now(),
+				r: &mythicalRun{row: stack, mainTip: main}, items: []db.MythicalItem{before}}
+			after, err := step.follow(t.Context(), before)
+			require.NoError(t, err)
+			require.NotNil(t, after)
+			require.Equal(t, "integrating", after.State, "reviewed TODO must rebuild on the observed new main")
 			require.Equal(t, "rebase_pending", after.Reason)
 			require.False(t, after.CandidateVerified, "old-base verification cannot authorize the new candidate")
 			require.Equal(t, head, after.PRHead, "scheduling alone must not publish an unverified head")
 			require.Equal(t, before.CandidateHead, after.CandidateHead, "retain the captured edit until rebuild")
-			require.NotNil(t, mythicalChecksOf(after).Rebase)
-			require.Equal(t, main, mythicalChecksOf(after).Rebase.Onto)
+			require.NotNil(t, mythicalChecksOf(*after).Rebase)
+			require.Equal(t, main, mythicalChecksOf(*after).Rebase.Onto)
 		})
 	}
 }
