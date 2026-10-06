@@ -1,3 +1,6 @@
+import type { Card } from "../AppState"
+import type { ControllerContext } from "../controller/context"
+import { randomUuid } from "../../runtime/RandomUuid"
 import { projectBranchFiles } from "@smthrs/rpc/FileCard"
 import { DiffCardSchema } from "@smthrs/rpc/DiffCard"
 import { z } from "zod"
@@ -7,11 +10,12 @@ import { encodeRepoPath,unsafePath } from "./FilesSeam"
 import type { SeamContext } from "./SeamContext"
 import { readErrorMessage,readResult } from "./SeamContext"
 
-export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOptions, files?: BranchFileOperations) => {
+export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOptions, files?: BranchFileOperations, scratchDiff?: (branch: string) => Promise<string | undefined>) => {
   let generation = 0
   const watches = new Map<string, () => void>()
   options?.onDispose?.(() => { for (const stop of watches.values()) stop(); watches.clear(); generation++ })
   const branchDiff = async (branch = options?.scope()?.branch) => {
+    if (scratchDiff && branch?.startsWith("scratch/")) return scratchDiff(branch)
     if (!options || BRANCH_FILE_PROVIDERS.some(provider => !options.ready(provider))) return "Branch files are unavailable."
     const scope = options.scope()
     if (!scope || !branch || scope.branch !== branch || !scope.member) return "Branch access was removed."
@@ -80,6 +84,64 @@ export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOption
           readAt: { changeId: card.payload.pin.changeId, commitId } }
       } }).isPersisted.promise
       return readResult(content.slice(0, CARD_CONTENT_CAP))
+    }
+  }
+}
+
+const Result = z.object({ files: z.array(DiffCardSchema) })
+
+/** One persisted request owns the read, its card and its debounced toast. */
+export const createScratchDiffReader = (ctx: ControllerContext) => {
+  const running = new Set<string>()
+  const current = (id: string, request: string) => {
+    const card = ctx.store.collections.cards.get(id)
+    return !ctx.disposed && card?.kind === "diff" && card.payload.branchDiffRequest === request ? card : undefined
+  }
+  const launch = (card: Extract<Card, { kind: "diff" }>) => {
+    const request = card.payload.branchDiffRequest, branch = card.payload.branchDiffSource
+    if (!request || !branch || !card.payload.branchDiffPending || running.has(request)) return
+    running.add(request)
+    void ctx.withToast(`scratch-diff.${request}`, card.title, card.title, async () => {
+      let failure = "Diff unavailable"
+      try {
+        const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(branch)}/diff`, { credentials: "same-origin" })
+        const body: unknown = await response.json()
+        const parsed = response.ok ? Result.safeParse(body) : undefined
+        const latest = current(card.id, request)
+        if (!latest) return true
+        if (parsed?.success && parsed.data.files.every(file => file.branch === branch && !unsafePath(file.path) && (!file.renamed_to || !unsafePath(file.renamed_to)))) {
+          await ctx.store.dispatch({ type: "card.upsert", actor: "system", card: { ...latest, status: "active",
+            payload: { ...latest.payload, branchFiles: parsed.data.files, branchDiffPending: false } } }).isPersisted.promise
+          return true
+        }
+        if (body && typeof body === "object" && "message" in body && typeof body.message === "string") failure = body.message
+      } catch { /* The persisted request retains a retryable failure. */ }
+      const latest = current(card.id, request)
+      if (latest) await ctx.store.dispatch({ type: "card.upsert", actor: "system", card: { ...latest, status: "error",
+        payload: { ...latest.payload, branchDiffPending: false, error: failure } } }).isPersisted.promise
+      return failure
+    }, false, () => current(card.id, request) !== undefined, card.id).finally(() => running.delete(request))
+  }
+  const resume = () => {
+    if (ctx.disposed || ctx.store.collections.identitySessions.get("identity")?.state !== "signed-in") return
+    for (const card of ctx.store.collections.cards.values()) if (card.kind === "diff") launch(card)
+  }
+  const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resume))
+  ctx.onDispose(() => { subscription.unsubscribe() })
+  queueMicrotask(resume)
+  return {
+    readScratchDiff: async (branch: string): Promise<string | undefined> => {
+      branch = branch.trim()
+      if (!branch.startsWith("scratch/")) return "Choose a scratch branch"
+      const id = `diff-branch-${branch}`
+      const existing = ctx.store.collections.cards.get(id)
+      if (existing?.kind === "diff" && existing.payload.branchDiffPending) { launch(existing); return }
+      const card: Extract<Card, { kind: "diff" }> = { id, kind: "diff", title: `Diff · ${branch}`, status: "active",
+        createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? ctx.store.nextOrdinal(),
+        payload: { repo: "", changeId: branch, from: "fork", to: "current", pin: { changeId: branch, seq: null, commitId: null }, files: [], branchFiles: [],
+          branchDiffSource: branch, branchDiffRequest: randomUuid(), branchDiffPending: true } }
+      await ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
+      launch(card)
     }
   }
 }
