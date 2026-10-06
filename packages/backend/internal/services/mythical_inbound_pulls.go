@@ -127,7 +127,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 
 			case pull.State == "closed":
 				fact.Kind = "closed"
-			case item.State == "rejected":
+			case item.State == "rejected" || item.State == "cancelled" && checks.Dropped != nil:
 				fact.Kind = "reopened"
 			default:
 				fact.Kind = "push"
@@ -179,6 +179,14 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 					position = max + 1
 				}
 				next.StackPosition = pgtype.Int8{Int64: position, Valid: true}
+				// Restoration keeps the accepted generation and pin, never a live
+				// destination for input to the ended attempt. Retain its evidence
+				// before clearing the binding; restart admission owns the next run.
+				next.Checks = checks.encode()
+				next = retainTodoAttemptEvidence(next)
+				checks = mythicalChecksOf(next)
+				next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
+				checks.RunLaunched, checks.RunAttached = false, false
 				next.State, next.PRState, next.Reason = "proposed", "open", ""
 				checks.GitHubClosedAt = nil
 				// Missing branches are restored from the last verified proposal; a

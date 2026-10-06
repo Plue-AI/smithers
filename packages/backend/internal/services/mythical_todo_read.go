@@ -346,6 +346,16 @@ var wikiCitationDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 	evidence := todoAttemptEvidence{Attempt: item.Attempt, RunID: item.RequestRunID, Revision: item.CandidateHead, Items: []map[string]any{}}
+	// Reopen removes the live run binding. Its ended attempt remains readable
+	// through the retained identity, including a second close/reopen cycle.
+	if evidence.RunID == "" {
+		for _, retained := range mythicalChecksOf(item).Attempts {
+			if retained.Attempt == item.Attempt {
+				evidence.RunID = retained.RunID
+				break
+			}
+		}
+	}
 	for _, receipt := range mythicalReceiptsView(item) {
 		if receipt.Commit != item.CandidateHead {
 			continue

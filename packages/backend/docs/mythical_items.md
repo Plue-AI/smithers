@@ -156,6 +156,11 @@ The PR-close primitive uses a narrowly scoped installation
 token and must be called only through persisted outbound intent/recovery after
 cancellation, final capture and the merge fence settle.
 
+Reopening a GitHub-closed or Smithers-dropped PR within seven days restores
+its accepted generation without binding the ended run. The earlier run's
+evidence remains readable; reopening alone starts no attempt. Smithers Drop's
+window is anchored to the committed Drop, not subsequent close or lane updates.
+
 No root operation or host-process execution fallback is added. Completing
 Stop/Resume and qualifying restored-input execution still requires their
 production PostgreSQL/microVM boundary receipts.

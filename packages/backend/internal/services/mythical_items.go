@@ -1357,10 +1357,10 @@ func mythicalGitHubClosedAt(item db.MythicalItem) time.Time {
 	return item.UpdatedAt.Time
 }
 
-// Rejected PRs are retained in the polling set through the inclusive seven-day
+// Dropped PRs are retained in the polling set through the inclusive seven-day
 // reopen window. Polls must not move the close timestamp forward.
 func mythicalReopenFollowed(item db.MythicalItem, now time.Time) bool {
-	if item.State != "rejected" || item.PRState != "closed" || !item.PRNumber.Valid {
+	if (item.State != "rejected" && !(item.State == "cancelled" && mythicalChecksOf(item).Dropped != nil)) || item.PRState != "closed" || !item.PRNumber.Valid {
 		return false
 	}
 	at := mythicalGitHubClosedAt(item)
@@ -1643,7 +1643,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
-	case "rejected":
+	case "rejected", "cancelled":
 		if mythicalReopenFollowed(item, st.now) {
 			next, err := st.follow(ctx, item)
 			return next, false, err

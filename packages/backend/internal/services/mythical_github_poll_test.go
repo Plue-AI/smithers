@@ -67,6 +67,12 @@ func TestRejectedPullFollowWindowDoesNotSlide(t *testing.T) {
 			require.Equal(t, !tc.followed, due.IsZero())
 		})
 	}
+	// Smithers Drop's timestamp remains fixed even when closing the PR and
+	// retiring the lane update the row days later.
+	item = mythicalDropped(item, todoDrop{At: closed, By: "ben"})
+	item.UpdatedAt.Time = closed.Add(6 * 24 * time.Hour)
+	require.True(t, mythicalReopenFollowed(item, closed.Add(7*24*time.Hour)))
+	require.False(t, mythicalReopenFollowed(item, closed.Add(7*24*time.Hour+time.Nanosecond)))
 	item.State = "landed"
 	require.False(t, mythicalReopenFollowed(item, closed))
 	item.State = "rejected"

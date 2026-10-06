@@ -345,6 +345,12 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 	if state == "merged" || state == "dropped" {
 		return item, todoSteer{}, false, false, &TodoControlError{http.StatusConflict, "todo_closed", "conflict", "TODO is closed"}
 	}
+	// A restored proposal has no live destination. Until retained-workspace
+	// restart admission exists, refuse before changing its verified generation
+	// or recording input that no run can consume.
+	if item.State == "proposed" && !checks.RunLaunched && item.RequestRunID == "" && len(checks.Attempts) > 0 {
+		return item, todoSteer{}, false, false, todoControlUnavailable()
+	}
 	next, attempt := item, item.Attempt
 	fenced := mythicalMergeFenced(item)
 	deliver := todoSteerReady(item)

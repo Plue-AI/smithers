@@ -195,7 +195,7 @@ func decideGitHubFact(f mythicalGitHubFact, item mythicalGitHubFactItem, now tim
 		}
 		return mythicalGitHubFactDecision{Event: "dropped"}
 	case f.Kind == "reopened":
-		if item.State != "dropped" && item.State != "rejected" {
+		if item.State != "dropped" && item.State != "rejected" && item.State != "cancelled" {
 			return mythicalGitHubFactDecision{Noop: "not_dropped"}
 		}
 		if item.ClosedAt.IsZero() || now.Before(item.ClosedAt) || now.Sub(item.ClosedAt) > 7*24*time.Hour {

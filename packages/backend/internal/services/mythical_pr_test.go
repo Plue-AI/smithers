@@ -66,6 +66,8 @@ func TestTODOPrLifecycleDecision(t *testing.T) {
 		{"close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "failed"}, mythicalGitHubFactDecision{Event: "dropped"}},
 		{"duplicate close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "dropped"}, mythicalGitHubFactDecision{Noop: "already_closed"}},
 		{"cancelled absorbs close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "cancelled"}, mythicalGitHubFactDecision{Noop: "already_closed"}},
+		{"Smithers Drop day six", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "cancelled", ClosedAt: now.Add(-6 * 24 * time.Hour)}, mythicalGitHubFactDecision{Event: "in_review"}},
+		{"Smithers Drop day eight", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "cancelled", ClosedAt: now.Add(-8 * 24 * time.Hour)}, mythicalGitHubFactDecision{Noop: "reopen_window_expired"}},
 		{"day six", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-6 * 24 * time.Hour)}, mythicalGitHubFactDecision{Event: "in_review"}},
 		{"day seven inclusive", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-7 * 24 * time.Hour)}, mythicalGitHubFactDecision{Event: "in_review"}},
 		{"one nanosecond late", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-7*24*time.Hour - time.Nanosecond)}, mythicalGitHubFactDecision{Noop: "reopen_window_expired"}},
