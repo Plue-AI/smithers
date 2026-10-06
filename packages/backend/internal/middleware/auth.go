@@ -406,6 +406,8 @@ var installMemberRoutes = []struct {
 	// conversations.
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn(/cancel|/replay|/retire)?$`)},
 	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/agent/conversations$`)},
+	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/view-state$`)},
+	{http.MethodPut, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/view-state$`)},
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/conversations/replay$`)},
 	// The issue list card and the issue card (J2 1 and 2).
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues$`)},

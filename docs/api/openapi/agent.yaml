@@ -388,6 +388,63 @@ paths:
                 anyOf:
                   - $ref: '#/components/schemas/SavedConversationProblem'
                   - $ref: '#/components/schemas/Error'
+  /api/conversations/{b}/view-state:
+    parameters:
+      - name: b
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+    get:
+      summary: Read my conversation view state
+      operationId: get_api_conversation_view_state
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated member's saved state, or an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      summary: Save my conversation view state
+      operationId: put_api_conversation_view_state
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: The authenticated member's saved state.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
   schemas:
     SavedConversationCursor:

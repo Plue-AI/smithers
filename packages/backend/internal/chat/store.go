@@ -246,6 +246,7 @@ func headHash(acceptance Acceptance, cursor Cursor, bytes int64, terminal bool) 
 }
 
 type turnRecord struct {
+	ConversationID         *string
 	ID                     string
 	RepositoryID           int64
 	UserID                 int64
@@ -276,7 +277,7 @@ type turnRecord struct {
 	UpdatedAt              time.Time
 }
 
-const turnColumns = `id,repository_id,user_id,run_id,leg_id,request_payload,request_hash,owner_hash,access_hash,writer_hash,acceptance,acceptance_hash,accepted_at_ms,head_batch,head_position,cursor_hash,head_hash,output_bytes,terminal,state,producer_generation,producer_token_hash,producer_lease_expires_at,producer_started_at,cancel_requested_at,retirement,created_at,updated_at`
+const turnColumns = `id,repository_id,conversation_id,user_id,run_id,leg_id,request_payload,request_hash,owner_hash,access_hash,writer_hash,acceptance,acceptance_hash,accepted_at_ms,head_batch,head_position,cursor_hash,head_hash,output_bytes,terminal,state,producer_generation,producer_token_hash,producer_lease_expires_at,producer_started_at,cancel_requested_at,retirement,created_at,updated_at`
 
 type scanner interface{ Scan(...any) error }
 
@@ -287,7 +288,7 @@ type journalQuerier interface {
 
 func scanTurn(row scanner) (turnRecord, error) {
 	var value turnRecord
-	err := row.Scan(&value.ID, &value.RepositoryID, &value.UserID, &value.RunID, &value.LegID, &value.Request, &value.RequestHash,
+	err := row.Scan(&value.ID, &value.RepositoryID, &value.ConversationID, &value.UserID, &value.RunID, &value.LegID, &value.Request, &value.RequestHash,
 		&value.OwnerHash, &value.AccessHash, &value.WriterHash, &value.AcceptanceJSON, &value.AcceptanceHash, &value.AcceptedAtMS,
 		&value.HeadBatch, &value.HeadPosition, &value.CursorHash, &value.HeadHash, &value.OutputBytes, &value.Terminal, &value.State,
 		&value.ProducerGeneration, &value.ProducerTokenHash, &value.ProducerLeaseExpiresAt, &value.ProducerStartedAt,
@@ -392,6 +393,16 @@ func (s *Store) Admit(ctx context.Context, input AdmitInput) (AdmitResult, error
 			}
 		}
 	}
+	var conversationID *string
+	state := StateAccepted
+	if request, ok := value.(map[string]any); ok {
+		if id, ok := request["conversationId"].(string); ok {
+			conversationID = &id
+			if input.Scope.RepositoryID > 0 {
+				state = StateQueued
+			}
+		}
+	}
 	requestHash := digestCanonical("request", canonical)
 	ownerHash, accessHash, err := authHashes(input.Scope, input.Journal.Token)
 	if err != nil {
@@ -436,10 +447,10 @@ func (s *Store) Admit(ctx context.Context, input AdmitInput) (AdmitResult, error
 	turnID := uuid.NewString()
 	result, err := tx.Exec(ctx, `INSERT INTO chat_turns(
 		id,repository_id,user_id,run_id,leg_id,request_payload,request_hash,owner_hash,access_hash,writer_hash,acceptance,acceptance_hash,accepted_at_ms,
-		head_batch,head_position,cursor_hash,head_hash,output_bytes,terminal,state,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,0,$12,$14,0,false,'accepted',$15,$15)
+		head_batch,head_position,cursor_hash,head_hash,output_bytes,terminal,state,created_at,updated_at,conversation_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,0,$12,$14,0,false,$17,$15,$15,$16)
 		ON CONFLICT(user_id,run_id,leg_id) DO NOTHING`, turnID, input.Scope.RepositoryID, input.Scope.UserID, input.RunID, input.Journal.LegID,
-		json.RawMessage(canonical), requestHash, ownerHash, accessHash, writerHash, acceptanceJSON, acceptance.Hash, now.UnixMilli(), hash, now)
+		json.RawMessage(canonical), requestHash, ownerHash, accessHash, writerHash, acceptanceJSON, acceptance.Hash, now.UnixMilli(), hash, now, conversationID, state)
 	if err != nil {
 		return AdmitResult{}, err
 	}
@@ -478,6 +489,32 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 		return ProducerGrant{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	// Take the branch lock before any row lock: competing claims must never
+	// each hold a row while waiting for the other conversation's claim.
+	var repositoryID int64
+	var conversationID *string
+	err = tx.QueryRow(ctx, `SELECT repository_id,conversation_id FROM chat_turns WHERE id=$1 AND user_id=$2`, turnID, scope.UserID).Scan(&repositoryID, &conversationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProducerGrant{}, ErrNotFound
+	}
+	if err != nil {
+		return ProducerGrant{}, err
+	}
+	if conversationID != nil && repositoryID > 0 {
+		if err = lockTurnIdentity(ctx, tx, fmt.Sprint(repositoryID), "conversation:"+*conversationID); err != nil {
+			return ProducerGrant{}, err
+		}
+		var blocked bool
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chat_turns candidate
+		 WHERE candidate.repository_id=$1 AND candidate.conversation_id=$2 AND candidate.id<>$3 AND NOT candidate.terminal
+		 AND (candidate.state='running' OR (candidate.created_at,candidate.id)<(SELECT created_at,id FROM chat_turns WHERE id=$3)))`, repositoryID, *conversationID, turnID).Scan(&blocked)
+		if err != nil {
+			return ProducerGrant{}, err
+		}
+		if blocked {
+			return ProducerGrant{}, ErrProducerBusy
+		}
+	}
 	turn, err := scanTurn(tx.QueryRow(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE id=$1 AND user_id=$2 FOR UPDATE`, turnID, scope.UserID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProducerGrant{}, ErrNotFound
@@ -1265,7 +1302,12 @@ func (s *Store) RecoveryCandidates(ctx context.Context, limit int) ([]Candidate,
 	// A lease is a live producer, a retry backoff or a quarantine. Its expiry
 	// uses the Go clock, as Claim does, so clock skew between a replica and
 	// PostgreSQL cannot make recovery and Claim disagree.
-	rows, err := s.pool.Query(ctx, `SELECT repository_id,user_id,id FROM chat_turns WHERE state IN ('accepted','running') AND (producer_lease_expires_at IS NULL OR producer_lease_expires_at<=$2) ORDER BY created_at LIMIT $1`, limit, s.now().UTC())
+	rows, err := s.pool.Query(ctx, `SELECT t.repository_id,t.user_id,t.id FROM chat_turns t
+	 WHERE t.state IN ('accepted','queued','running') AND (t.producer_lease_expires_at IS NULL OR t.producer_lease_expires_at<=$2)
+	 AND (t.repository_id=0 OR t.conversation_id IS NULL OR NOT EXISTS(SELECT 1 FROM chat_turns earlier
+	  WHERE earlier.repository_id=t.repository_id AND earlier.conversation_id=t.conversation_id AND earlier.id<>t.id AND NOT earlier.terminal
+	  AND (earlier.state='running' OR (earlier.created_at,earlier.id)<(t.created_at,t.id))))
+	 ORDER BY t.created_at,t.id LIMIT $1`, limit, s.now().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -1374,7 +1416,7 @@ func (s *Store) stopProducerWith(ctx context.Context, grant ProducerGrant, code 
 func (s *Store) Quarantine(ctx context.Context, candidate Candidate, delay time.Duration) error {
 	now := s.now().UTC()
 	_, err := s.pool.Exec(ctx, `UPDATE chat_turns SET producer_lease_expires_at=$3,updated_at=$4
-		WHERE id=$1 AND user_id=$2 AND NOT terminal AND state IN ('accepted','running')
+		WHERE id=$1 AND user_id=$2 AND NOT terminal AND state IN ('accepted','queued','running')
 		AND (producer_lease_expires_at IS NULL OR producer_lease_expires_at<=$4)`,
 		candidate.TurnID, candidate.Scope.UserID, now.Add(delay), now)
 	return err

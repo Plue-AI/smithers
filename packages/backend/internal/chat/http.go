@@ -563,6 +563,8 @@ func (h *Handler) MountAuthenticated(router chi.Router) {
 	router.Post(CancelPath, h.Cancel)
 	router.Post(ReplayPath, h.Replay)
 	router.Post(RetirePath, h.Retire)
+	router.Get("/api/conversations/{b}/view-state", h.ViewState)
+	router.Put("/api/conversations/{b}/view-state", h.ViewState)
 	router.Get(HistoryPath, h.History)
 	router.Post(AccountReplayPath, h.ReplayAccount)
 }
