@@ -368,8 +368,9 @@ const expectedAskers: Record<string, string> = {
 for (const [name, story] of Object.entries(confirmStories)) {
   test(`renders ${name}`, () => {
     const host = render({ ...story, ...callbacks })
-    expect(host.querySelector("h2")).not.toBeNull()
-    for (const text of story.expect) expect(host.textContent).toContain(text)
+    expect(host.querySelector("h2") !== null).toBe(!["done", "cancelled", "expired"].includes(name))
+    const receiptLabels: Record<string, string[]> = { done: ["Amended T12 · Ben"], cancelled: ["Cancelled"], expired: ["Expired"] }
+    for (const text of receiptLabels[name] ?? story.expect) expect(host.textContent).toContain(text)
     if (story.model.kind === "one_click" && !story.model.receipt) {
       const label = expectedAskers[name]
       expect(label).toBeDefined()

@@ -186,34 +186,42 @@ test("primitive labels, starting animation and neutral glyph colors", async ({ p
 })
 
 test("Confirm approval and Cancel keep supplied revision bindings", async ({ page }) => {
-  await page.goto("/view-stories.html?story=ConfirmView/review_merge")
-  await page.evaluate(() => {
-    const receipts: unknown[] = []
-    Object.assign(window, { confirmCallbacks: receipts })
-    window.addEventListener("story-callback", event => receipts.push((event as CustomEvent).detail))
-  })
-  await page.locator('[data-flow="merge.confirm"]').focus()
-  await page.keyboard.press("Enter")
-  await page.locator('[data-flow="confirm.cancel"]').focus()
-  await page.keyboard.press("Space")
-  expect(await page.evaluate(() => (window as unknown as { confirmCallbacks: unknown[] }).confirmCallbacks)).toEqual([
-    { kind: "action", value: { tag: "merge.confirm", args: { n: "12", revision: "4bc79ae" } } },
-    { kind: "action", value: { tag: "confirm.cancel", args: { confirmation: "confirm-review_merge", revision: "4bc79ae" } } }
-  ])
-  await expect(page.locator(".confirm-view h2")).toHaveText("Merge T12 into main?")
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=ConfirmView/review_merge&theme=${theme}`)
+    await page.evaluate(() => {
+      const receipts: unknown[] = []
+      Object.assign(window, { confirmCallbacks: receipts })
+      window.addEventListener("story-callback", event => receipts.push((event as CustomEvent).detail))
+    })
+    await page.locator('[data-flow="merge.confirm"]').focus()
+    await page.keyboard.press("Enter")
+    await page.locator('[data-flow="confirm.cancel"]').focus()
+    await page.keyboard.press("Space")
+    expect(await page.evaluate(() => (window as unknown as { confirmCallbacks: unknown[] }).confirmCallbacks)).toEqual([
+      { kind: "action", value: { tag: "merge.confirm", args: { n: "12", revision: "4bc79ae" } } },
+      { kind: "action", value: { tag: "confirm.cancel", args: { confirmation: "confirm-review_merge", revision: "4bc79ae" } } }
+    ])
+    await expect(page.locator(".confirm-view h2")).toHaveText("Merge T12 into main?")
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
 })
 
 test("Confirm disabled, absent actions and stale approval", async ({ page }) => {
-  await page.goto("/view-stories.html?story=ConfirmView/disabled")
-  await expect(page.getByRole("button", { name: "Amend" })).toBeDisabled()
-  await expect(page.locator(".confirm-disabled")).toHaveText("Revision moved")
-  for (const name of ["no_actions", "done", "cancelled", "expired", "merging", "merged"]) {
-    await page.goto(`/view-stories.html?story=ConfirmView/${name}`)
-    await expect(page.locator(".confirm-view button")).toHaveCount(0)
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=ConfirmView/disabled&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Amend" })).toBeDisabled()
+    await expect(page.locator(".confirm-disabled")).toHaveText("Revision moved")
+    for (const name of ["no_actions", "done", "cancelled", "expired", "merging", "merged"]) {
+      await page.goto(`/view-stories.html?story=ConfirmView/${name}&theme=${theme}`)
+      await expect(page.locator(".confirm-view button")).toHaveCount(0)
   }
-  await page.goto("/view-stories.html?story=ConfirmView/stale_approval")
-  await expect(page.locator(".confirm-stale")).toHaveText("You approved 1b2c3d4. Review 9e8f7a6.")
+  await page.goto(`/view-stories.html?story=ConfirmView/stale_approval&theme=${theme}`)
+  await expect(page.locator(".confirm-stale")).toHaveText("Approved 1b2c3d4 · Review 9e8f7a6")
   await expect(page.locator('[data-flow="merge.confirm"]')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
 })
 test("answer and late draft use their supplied actions", async ({ page }) => {
   await page.goto("/view-stories.html?story=TodoView/needs_you");

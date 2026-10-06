@@ -395,3 +395,5 @@ T-APP-03 wave 2 revalidated C-UI-13 Setup and Commands (2 passed, 1 unrelated al
 
 T-FLW-07 additional contract coverage: [install monitor](C-J11-01-monitor-install.spec.ts) exercises authenticated run snapshots through `/run.inspect`, native phases and interrupted state, journal tab reads/restoration, GET-only replay, an unresolved `/monitor` list read with usable chat, background runs, and topic refusal. This uses test-only HTTP/WebSocket contracts; native run ingest, host projections and the full C-J11-01/C-J11-04/C-UI-13 checks remain pending.
 T-APP-03 rerun: C-UI-13 now runs each card door independently without fixme. Flow and Agent doors use served HTTP fixtures; other doors retain the seed provider. This is app projection evidence, not production provider or reference-host qualification.
+
+| C-UI-12 Confirm | [Confirm stories](../view-stories.spec.ts) | Keyboard approval/Cancel forward supplied revision bindings; disabled/absent actions, stale approval and receipts; light/dark at 1440/390; View DOM tests pass. Install activation remains T-APP-04. | T-UI-05 |
