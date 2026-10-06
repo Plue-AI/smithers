@@ -1,7 +1,7 @@
 /*
  * Who may decide an approval. Most waits belong to the person whose run it
  * is; a registration's review and its note belong to the Smithers admin
- * (docs/mvp/REGISTRATION.md), who reaches them through the approvals inbox.
+ * who reaches them through the approvals inbox.
  * An action nobody here can take is never rendered.
  */
 import type { Card } from "./AppState"
