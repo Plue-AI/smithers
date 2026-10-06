@@ -14,8 +14,7 @@ paths:
           description: Own confirmation rows; delegated credentials receive only id and state
         '401':
           description: Credential is absent or dead
-        '403':
-          description: Credential cannot read confirmations
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
     post:
       x-composition: install
       summary: Request a confirmation through delegated command dispatch
@@ -32,23 +31,13 @@ paths:
             type: string
       responses:
         '202':
-          description: Private confirmation recorded without executing the command
+          description: Private confirmation recorded without executing the command. Replays report current state.
           content:
             application/json:
-              schema:
-                type: object
-                required: [confirmation, state]
-                properties:
-                  confirmation:
-                    type: string
-                    format: uuid
-                  state:
-                    type: string
-                    enum: [pending, approved, rejected, expired]
+              schema: {$ref: '#/components/schemas/ConfirmationReceipt'}
         '409':
           description: Credential-scoped idempotency key names a different request
-        '403':
-          description: Session, restricted or ineligible credential
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Command consumer unavailable; no row or effect
   /api/confirmations/{id}/approve:
@@ -89,8 +78,7 @@ paths:
                     enum: [approved]
         '400':
           description: Missing Idempotency-Key
-        '403':
-          description: Not the requesting member's session or current command role
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409':
           description: Expired or resolved confirmation
         '503':
@@ -121,7 +109,6 @@ paths:
           description: The confirmation is rejected
         '400':
           description: Missing Idempotency-Key
-        '403':
-          description: Not the requesting member's session or current command role
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409':
           description: Expired or resolved confirmation

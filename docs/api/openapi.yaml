@@ -40,8 +40,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -76,8 +75,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -113,8 +111,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -152,8 +149,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -185,8 +181,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -218,8 +213,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -251,8 +245,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -284,8 +277,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -317,8 +309,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -350,8 +341,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -382,8 +372,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -447,8 +436,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -480,8 +468,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -513,8 +500,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -545,8 +531,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -578,8 +563,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -689,8 +673,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
@@ -725,8 +708,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -763,8 +745,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -796,8 +777,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -834,8 +814,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -872,8 +851,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -910,8 +888,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -1633,8 +1610,7 @@ paths:
                 $ref: '#/components/schemas/AnyJSON'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
   /api/agents/{role}/model:
     x-composition: install
     put:
@@ -1670,8 +1646,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
   /api/app-timelines/{id}/members/{userId}:
     delete:
       summary: DELETE /api/app-timelines/{id}/members/{userId}
@@ -2276,8 +2251,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2337,8 +2311,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2366,8 +2339,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2461,8 +2433,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2495,8 +2466,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2550,8 +2520,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2584,8 +2553,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2618,8 +2586,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2652,8 +2619,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2685,8 +2651,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -2749,8 +2714,7 @@ paths:
                   $ref: '#/components/schemas/Branch'
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member of the install
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Branch machines or the install repository unavailable
     post:
@@ -2800,8 +2764,7 @@ paths:
           description: Invalid from or name, or a scratch branch as from (scratch_fork_unavailable)
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member, or not a person
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No such TODO (todo_not_found)
         '409':
@@ -2833,8 +2796,7 @@ paths:
                 $ref: '#/components/schemas/Branch'
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member of the install
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No such branch
         '503':
@@ -2883,20 +2845,12 @@ paths:
           description: Decision recorded
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  state:
-                    type: string
-                    enum: [accepted]
-                  n:
-                    type: integer
+              schema: {"oneOf":[{"type":"object","properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer"}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
         '400':
           description: Invalid answer or missing Idempotency-Key
         '401':
           description: No person session
-        '403':
-          description: Not permitted
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No TODO on this branch
         '409':
@@ -2924,8 +2878,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TODOBranchDiff'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '503':
@@ -2980,8 +2933,7 @@ paths:
           description: Invalid repository path
         '401':
           description: Not signed in
-        '403':
-          description: Repository read authority required
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: File or branch not found
         '503':
@@ -3020,8 +2972,7 @@ paths:
                     size: {type: integer, format: int64}
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/build-cache/healthz:
@@ -3132,8 +3083,7 @@ paths:
           description: Own confirmation rows; delegated credentials receive only id and state
         '401':
           description: Credential is absent or dead
-        '403':
-          description: Credential cannot read confirmations
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
     post:
       x-composition: install
       summary: Request a confirmation through delegated command dispatch
@@ -3150,23 +3100,13 @@ paths:
             type: string
       responses:
         '202':
-          description: Private confirmation recorded without executing the command
+          description: Private confirmation recorded without executing the command. Replays report current state.
           content:
             application/json:
-              schema:
-                type: object
-                required: [confirmation, state]
-                properties:
-                  confirmation:
-                    type: string
-                    format: uuid
-                  state:
-                    type: string
-                    enum: [pending, approved, rejected, expired]
+              schema: {$ref: '#/components/schemas/ConfirmationReceipt'}
         '409':
           description: Credential-scoped idempotency key names a different request
-        '403':
-          description: Session, restricted or ineligible credential
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Command consumer unavailable; no row or effect
   /api/confirmations/{id}/approve:
@@ -3207,8 +3147,7 @@ paths:
                     enum: [approved]
         '400':
           description: Missing Idempotency-Key
-        '403':
-          description: Not the requesting member's session or current command role
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409':
           description: Expired or resolved confirmation
         '503':
@@ -3239,8 +3178,7 @@ paths:
           description: The confirmation is rejected
         '400':
           description: Missing Idempotency-Key
-        '403':
-          description: Not the requesting member's session or current command role
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409':
           description: Expired or resolved confirmation
   /api/feature-flags:
@@ -3296,12 +3234,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Flows unavailable
   /api/gateways/{hostID}/file-write-grants:
@@ -3370,8 +3303,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409':
           description: Coding workspace is no longer running.
         '500':
@@ -3449,8 +3381,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -3494,8 +3425,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -3593,8 +3523,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -3643,8 +3572,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -4082,8 +4010,7 @@ paths:
                     additionalProperties: true
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '500':
           $ref: '#/components/responses/InternalError'
   /api/install/scorecard:
@@ -4787,12 +4714,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: github_unavailable, or the install repository is unavailable
           content:
@@ -4827,12 +4749,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: not_found, for a missing number or a pull request's
           content:
@@ -4872,8 +4789,7 @@ paths:
           description: The smithers.live.v1 subprotocol is missing
         '401':
           description: No browser session, or a token
-        '403':
-          description: Another origin, or not a member
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '421':
           description: Unknown host
         '503':
@@ -4901,12 +4817,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Install repository unavailable
     post:
@@ -4939,12 +4850,7 @@ paths:
                 $ref: '#/components/schemas/AccessError'
         '401':
           description: Not signed in
-        '403':
-          description: Not a maintainer (permission), or the person needs write access on GitHub (needs_github_access, class user, with fix)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No such GitHub user (unknown_github_user)
         '503':
@@ -4980,12 +4886,7 @@ paths:
           description: Invalid username or role
         '401':
           description: Not signed in
-        '403':
-          description: Not a maintainer (permission), or the owner's role (owner_immutable)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: Not on the roster
         '503':
@@ -5011,12 +4912,7 @@ paths:
           description: Invalid username
         '401':
           description: Not signed in
-        '403':
-          description: Not a maintainer (permission), or the owner (owner_immutable)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Install repository unavailable
   /api/meta/failure-codes:
@@ -6450,8 +6346,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -7050,8 +6945,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -7088,8 +6982,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -7126,8 +7019,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -7152,7 +7044,7 @@ paths:
               schema:
                 type: array
                 items: {$ref: '#/components/schemas/LearningProposalCard'}
-        '403': {description: Membership unavailable}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
   /api/proposals/{id}/accept:
     post:
       x-composition: install
@@ -7168,8 +7060,8 @@ paths:
           description: Proposal accepted with its one ordinary TODO
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/LearningProposalCard'}
-        '403': {description: Person session or current membership required}
+              schema: {"oneOf":[{"$ref":"#/components/schemas/LearningProposalCard"},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404': {description: Proposal absent from the install repository}
         '409': {description: Proposal dismissed}
         '503': {description: TODO append unavailable; proposal remains pending}
@@ -7188,8 +7080,8 @@ paths:
           description: Dismissed; repeated dismissal retains its first timestamp
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/LearningProposalCard'}
-        '403': {description: Person session or current membership required}
+              schema: {"oneOf":[{"$ref":"#/components/schemas/LearningProposalCard"},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404': {description: Proposal absent from the install repository}
         '409': {description: Proposal accepted}
   /api/public/repos:
@@ -9753,8 +9645,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -18074,8 +17965,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -18122,8 +18012,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -18175,8 +18064,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -18223,8 +18111,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -19126,8 +19013,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -20093,8 +19979,7 @@ paths:
           description: Invalid review request
         '401':
           description: No active credential
-        '403':
-          description: No member permission
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Review runtime unavailable; no launch
   /api/search/code:
@@ -20247,8 +20132,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -20284,8 +20168,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -20319,8 +20202,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -20363,8 +20245,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
@@ -20392,8 +20273,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -20453,8 +20333,7 @@ paths:
       responses:
         '401':
           description: Authentication required
-        '403':
-          description: Not admitted to the install
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Owner-uid terminal providers unavailable
           content:
@@ -20494,8 +20373,7 @@ paths:
                 $ref: '#/components/schemas/HomeCard'
         '401':
           description: A live credential is required
-        '403':
-          description: Repository access refused
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Stack projection unavailable
   /api/todos:
@@ -20517,8 +20395,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TodoCard'
-        '403':
-          description: Not a member, not a person's browser session, or (merge) not a maintainer
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Install repository unavailable
     post:
@@ -20573,17 +20450,10 @@ paths:
           description: Persisted TODO creation; execution has not completed
           content:
             application/json:
-              schema:
-                type: object
-                required: [state, n, rev]
-                properties:
-                  state: {type: string, enum: [accepted]}
-                  n: {type: integer, minimum: 1}
-                  rev: {type: integer, minimum: 1}
+              schema: {"oneOf":[{"type":"object","required":["state","n","rev"],"properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer","minimum":1},"rev":{"type":"integer","minimum":1}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
         '400':
           description: Invalid TODO, missing Idempotency-Key, invalid_place (amend, or Before a TODO that is not on the stack), or an issue reference that is incomplete or names a pull request
-        '403':
-          description: Not a member, or not a person's browser session. A terminal's delegated credential gets confirm_in_app ("Confirm in the app") and files nothing; its TODO waits for its person's Confirm in the app, which stage 1 does not serve.
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409':
           description: Idempotency-Key reused for a different request; merging when Before names a merging TODO; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
@@ -20619,8 +20489,7 @@ paths:
               schema: {type: string}
         '400':
           description: Invalid TODO number or attempt
-        '403':
-          description: Repository or branch access refused
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No log referenced by this attempt
           content:
@@ -20669,8 +20538,7 @@ paths:
                   More: {type: boolean}
         '400':
           description: Invalid number or cursor
-        '403':
-          description: Repository or branch access refused
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: TODO not found
         '409':
@@ -20699,8 +20567,7 @@ paths:
                 $ref: '#/components/schemas/TodoCard'
         '400':
           description: Invalid TODO number
-        '403':
-          description: Not a member, not a person's browser session, or (merge) not a maintainer
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: TODO not found
         '503':
@@ -20743,20 +20610,12 @@ paths:
           description: Revision and steering intent committed; runtime completion is asynchronous
           content:
             application/json:
-              schema:
-                type: object
-                required: [state, n, rev]
-                properties:
-                  state: {type: string, enum: [accepted]}
-                  n: {type: integer, minimum: 1}
-                  rev: {type: integer, minimum: 2}
-                  attempt: {type: integer, minimum: 1}
+              schema: {"oneOf":[{"type":"object","required":["state","n","rev"],"properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer","minimum":1},"rev":{"type":"integer","minimum":2},"attempt":{"type":"integer","minimum":1}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
         '400':
           description: invalid_todo, invalid_amendment or invalid_idempotency_key
         '401':
           description: Authentication required
-        '403':
-          description: Not an active member or a permitted credential
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: todo_not_found
         '409':
@@ -20802,13 +20661,7 @@ paths:
           description: The control was recorded; a retry names the attempt it starts and a move the place it took
           content:
             application/json:
-              schema:
-                type: object
-                required: [state]
-                properties:
-                  state: {type: string, enum: [accepted]}
-                  attempt: {type: integer, minimum: 1}
-                  lessons: {type: integer, minimum: 0}
+              schema: {"oneOf":[{"type":"object","required":["state"],"properties":{"state":{"type":"string","enum":["accepted"]},"attempt":{"type":"integer","minimum":1},"lessons":{"type":"integer","minimum":0}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
         lessons_receipt:
           type: object
           required: [todo, lessons]
@@ -20828,8 +20681,7 @@ paths:
         place: {type: integer, minimum: 1}
         '400':
           description: Invalid TODO number, invalid_control, invalid_steer, or a missing Idempotency-Key
-        '403':
-          description: Not a member, or not a person's browser session. A terminal's delegated credential only steers, and only the TODO on its own branch.
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: todo_not_found
         '409':
@@ -20868,12 +20720,20 @@ paths:
       responses:
         '202':
           description: Approval and merge fence recorded, or the same Idempotency-Key's request answered again; Merged requires GitHub's merge and main containment
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [state]
+                    properties:
+                      state: {type: string, enum: [accepted]}
+                  - $ref: '#/components/schemas/ConfirmationReceipt'
         '400':
           description: Invalid TODO number, reviewed head or missing Idempotency-Key
         '401':
           description: No credential, or the browser session has ended
-        '403':
-          description: Install owner browser session or GitHub maintainer required (permission); a request an in-app agent makes with the person's session, Smithers-Via, is never
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: TODO not found
         '409':
@@ -20922,8 +20782,7 @@ paths:
                   state: {type: string, enum: [accepted]}
         '400':
           description: Invalid TODO number, question or answer
-        '403':
-          description: Not a member, or not a person's browser session. A terminal's delegated credential answers only the TODO on its own branch, and the answer is by its terminal or the agent working in it ("Claude Code for Ben").
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: TODO or question not found
         '409':
@@ -24718,6 +24577,28 @@ components:
           type: array
           items:
             type: string
+    AuthorizationRefusal:
+      oneOf:
+        - type: object
+          required: [class, code, message]
+          properties:
+            class: {type: string, enum: [permission]}
+            code: {type: string}
+            message: {type: string}
+            fix: {type: string}
+        - type: object
+          required: [class, code, message]
+          properties:
+            class: {type: string, enum: [never]}
+            code: {type: string, enum: [never]}
+            message: {type: string, enum: [Only a person can do this]}
+    ConfirmationReceipt:
+      type: object
+      additionalProperties: false
+      required: [confirmation, state]
+      properties:
+        confirmation: {type: string, format: uuid}
+        state: {type: string, enum: [pending, approved, rejected, expired]}
     AdminCreditGrantRequest:
       type: object
       additionalProperties: false
@@ -25887,6 +25768,11 @@ components:
           type: array
           items: {type: object, additionalProperties: true}
   responses:
+    AuthorizationForbidden:
+      description: Scope or role refused (permission); eligible forbidden delegation refused (never). No effect occurs.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/AuthorizationRefusal'}
     BadRequest:
       description: Bad request
       content:

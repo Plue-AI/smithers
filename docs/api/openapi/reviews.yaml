@@ -21,7 +21,6 @@ paths:
           description: Invalid review request
         '401':
           description: No active credential
-        '403':
-          description: No member permission
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Review runtime unavailable; no launch

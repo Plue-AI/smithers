@@ -15,7 +15,7 @@ paths:
               schema:
                 type: array
                 items: {$ref: '#/components/schemas/LearningProposalCard'}
-        '403': {description: Membership unavailable}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
   /api/proposals/{id}/accept:
     post:
       x-composition: install
@@ -31,8 +31,8 @@ paths:
           description: Proposal accepted with its one ordinary TODO
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/LearningProposalCard'}
-        '403': {description: Person session or current membership required}
+              schema: {"oneOf":[{"$ref":"#/components/schemas/LearningProposalCard"},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404': {description: Proposal absent from the install repository}
         '409': {description: Proposal dismissed}
         '503': {description: TODO append unavailable; proposal remains pending}
@@ -51,8 +51,8 @@ paths:
           description: Dismissed; repeated dismissal retains its first timestamp
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/LearningProposalCard'}
-        '403': {description: Person session or current membership required}
+              schema: {"oneOf":[{"$ref":"#/components/schemas/LearningProposalCard"},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404': {description: Proposal absent from the install repository}
         '409': {description: Proposal accepted}
 components:

@@ -154,3 +154,15 @@ func TestInstallCommandCatalogPolicies(t *testing.T) {
 	_, ok := installCommandPolicy("unmapped")
 	assert.False(t, ok)
 }
+
+func TestTerminalProfileCannotUsePersonOnlyCommands(t *testing.T) {
+	for _, command := range []string{"members.list", "members.write", "secrets.read", "secrets.write", "install.read", "settings.parallel", "confirmations.read"} {
+		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,via:terminal,branch:own,profile:terminal_s1"}
+		_, err := Authorize(middleware.ContextWithAuthInfo(context.Background(), info), nil, command)
+		var refusal *AccessError
+		assert.ErrorAs(t, err, &refusal, command)
+		assert.Equal(t, 403, refusal.Status, command)
+		assert.Equal(t, "permission", refusal.Class, command)
+		assert.Equal(t, "permission", refusal.Code, command)
+	}
+}

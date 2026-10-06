@@ -21,8 +21,7 @@ paths:
                 $ref: '#/components/schemas/HomeCard'
         '401':
           description: A live credential is required
-        '403':
-          description: Repository access refused
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Stack projection unavailable
   /api/todos:
@@ -44,8 +43,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TodoCard'
-        '403':
-          description: Not a member, not a person's browser session, or (merge) not a maintainer
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Install repository unavailable
     post:
@@ -100,17 +98,10 @@ paths:
           description: Persisted TODO creation; execution has not completed
           content:
             application/json:
-              schema:
-                type: object
-                required: [state, n, rev]
-                properties:
-                  state: {type: string, enum: [accepted]}
-                  n: {type: integer, minimum: 1}
-                  rev: {type: integer, minimum: 1}
+              schema: {"oneOf":[{"type":"object","required":["state","n","rev"],"properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer","minimum":1},"rev":{"type":"integer","minimum":1}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
         '400':
           description: Invalid TODO, missing Idempotency-Key, invalid_place (amend, or Before a TODO that is not on the stack), or an issue reference that is incomplete or names a pull request
-        '403':
-          description: Not a member, or not a person's browser session. A terminal's delegated credential gets confirm_in_app ("Confirm in the app") and files nothing; its TODO waits for its person's Confirm in the app, which stage 1 does not serve.
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409':
           description: Idempotency-Key reused for a different request; merging when Before names a merging TODO; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
@@ -146,8 +137,7 @@ paths:
               schema: {type: string}
         '400':
           description: Invalid TODO number or attempt
-        '403':
-          description: Repository or branch access refused
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No log referenced by this attempt
           content:
@@ -196,8 +186,7 @@ paths:
                   More: {type: boolean}
         '400':
           description: Invalid number or cursor
-        '403':
-          description: Repository or branch access refused
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: TODO not found
         '409':
@@ -226,8 +215,7 @@ paths:
                 $ref: '#/components/schemas/TodoCard'
         '400':
           description: Invalid TODO number
-        '403':
-          description: Not a member, not a person's browser session, or (merge) not a maintainer
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: TODO not found
         '503':
@@ -270,20 +258,12 @@ paths:
           description: Revision and steering intent committed; runtime completion is asynchronous
           content:
             application/json:
-              schema:
-                type: object
-                required: [state, n, rev]
-                properties:
-                  state: {type: string, enum: [accepted]}
-                  n: {type: integer, minimum: 1}
-                  rev: {type: integer, minimum: 2}
-                  attempt: {type: integer, minimum: 1}
+              schema: {"oneOf":[{"type":"object","required":["state","n","rev"],"properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer","minimum":1},"rev":{"type":"integer","minimum":2},"attempt":{"type":"integer","minimum":1}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
         '400':
           description: invalid_todo, invalid_amendment or invalid_idempotency_key
         '401':
           description: Authentication required
-        '403':
-          description: Not an active member or a permitted credential
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: todo_not_found
         '409':
@@ -329,13 +309,7 @@ paths:
           description: The control was recorded; a retry names the attempt it starts and a move the place it took
           content:
             application/json:
-              schema:
-                type: object
-                required: [state]
-                properties:
-                  state: {type: string, enum: [accepted]}
-                  attempt: {type: integer, minimum: 1}
-                  lessons: {type: integer, minimum: 0}
+              schema: {"oneOf":[{"type":"object","required":["state"],"properties":{"state":{"type":"string","enum":["accepted"]},"attempt":{"type":"integer","minimum":1},"lessons":{"type":"integer","minimum":0}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
         lessons_receipt:
           type: object
           required: [todo, lessons]
@@ -355,8 +329,7 @@ paths:
         place: {type: integer, minimum: 1}
         '400':
           description: Invalid TODO number, invalid_control, invalid_steer, or a missing Idempotency-Key
-        '403':
-          description: Not a member, or not a person's browser session. A terminal's delegated credential only steers, and only the TODO on its own branch.
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: todo_not_found
         '409':
@@ -395,12 +368,20 @@ paths:
       responses:
         '202':
           description: Approval and merge fence recorded, or the same Idempotency-Key's request answered again; Merged requires GitHub's merge and main containment
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [state]
+                    properties:
+                      state: {type: string, enum: [accepted]}
+                  - $ref: '#/components/schemas/ConfirmationReceipt'
         '400':
           description: Invalid TODO number, reviewed head or missing Idempotency-Key
         '401':
           description: No credential, or the browser session has ended
-        '403':
-          description: Install owner browser session or GitHub maintainer required (permission); a request an in-app agent makes with the person's session, Smithers-Via, is never
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: TODO not found
         '409':
@@ -449,8 +430,7 @@ paths:
                   state: {type: string, enum: [accepted]}
         '400':
           description: Invalid TODO number, question or answer
-        '403':
-          description: Not a member, or not a person's browser session. A terminal's delegated credential answers only the TODO on its own branch, and the answer is by its terminal or the agent working in it ("Claude Code for Ben").
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: TODO or question not found
         '409':

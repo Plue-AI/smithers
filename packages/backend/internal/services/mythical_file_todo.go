@@ -77,7 +77,11 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	if s == nil || s.store == nil {
 		return MythicalItemView{}, issueTodoUnavailable()
 	}
-	decision, err := Authorize(ctx, s.queries(), "todo.new")
+	command := "todo.new"
+	if input.Issue != nil {
+		command = "todo.from-issue"
+	}
+	decision, err := Authorize(ctx, s.queries(), command)
 	if err != nil {
 		return MythicalItemView{}, err
 	}

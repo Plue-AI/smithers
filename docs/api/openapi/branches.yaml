@@ -20,8 +20,7 @@ paths:
                   $ref: '#/components/schemas/Branch'
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member of the install
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Branch machines or the install repository unavailable
     post:
@@ -71,8 +70,7 @@ paths:
           description: Invalid from or name, or a scratch branch as from (scratch_fork_unavailable)
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member, or not a person
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No such TODO (todo_not_found)
         '409':
@@ -104,8 +102,7 @@ paths:
                 $ref: '#/components/schemas/Branch'
         '401':
           description: No person's browser session
-        '403':
-          description: Not a member of the install
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No such branch
         '503':
@@ -154,20 +151,12 @@ paths:
           description: Decision recorded
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  state:
-                    type: string
-                    enum: [accepted]
-                  n:
-                    type: integer
+              schema: {"oneOf":[{"type":"object","properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer"}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
         '400':
           description: Invalid answer or missing Idempotency-Key
         '401':
           description: No person session
-        '403':
-          description: Not permitted
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No TODO on this branch
         '409':
@@ -195,8 +184,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TODOBranchDiff'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '503':
@@ -251,8 +239,7 @@ paths:
           description: Invalid repository path
         '401':
           description: Not signed in
-        '403':
-          description: Repository read authority required
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: File or branch not found
         '503':
@@ -291,8 +278,7 @@ paths:
                     size: {type: integer, format: int64}
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 components:

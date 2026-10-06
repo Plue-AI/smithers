@@ -369,6 +369,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: middleware.UnauthenticatedMessage(ctx)}
 	}
 	_, terminalProfile := info.TerminalDelegation()
+	if terminalProfile && !terminalCommands[command] {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
+	}
 	if info.IsTokenAuth && !terminalProfile && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) {
 		scope := middleware.ScopeWriteRepository
 		switch command {

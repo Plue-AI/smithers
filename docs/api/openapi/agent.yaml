@@ -712,8 +712,7 @@ paths:
                 $ref: '#/components/schemas/AnyJSON'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
   /api/agents/{role}/model:
     x-composition: install
     put:
@@ -749,8 +748,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
 components:
   schemas:
     SavedConversationCursor:

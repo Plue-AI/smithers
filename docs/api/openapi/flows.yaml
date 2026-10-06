@@ -24,12 +24,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Flows unavailable
 components:

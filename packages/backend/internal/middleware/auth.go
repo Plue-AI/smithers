@@ -66,7 +66,14 @@ var (
 // the children credential to the children routes. Git smart HTTP lives
 // outside /api and applies its own ref policy. It writes the 403 itself and
 // returns false when refused.
-func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info *AuthInfo) bool {
+func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info *AuthInfo, install ...bool) bool {
+	refuse := func(message string) {
+		verdict := errors.Forbidden(message)
+		if len(install) > 0 && install[0] {
+			verdict = errors.New(errors.CodePermission, message)
+		}
+		errors.WriteError(w, verdict)
+	}
 	workspaceID := info.WorkspaceRestriction()
 	if workspaceID == "" || !strings.HasPrefix(r.URL.Path, "/api/") {
 		return true
@@ -80,13 +87,13 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 			(r.Method == http.MethodPost && own(workspaceChildStopPath)) {
 			return true
 		}
-		errors.WriteError(w, errors.Forbidden("workspace children credentials may only manage their own workspace's children"))
+		refuse("workspace children credentials may only manage their own workspace's children")
 		return false
 	}
 	if r.Method == http.MethodPost && own(workspaceHeadReportPath) {
 		return true
 	}
-	errors.WriteError(w, errors.Forbidden("workspace credentials may only report their own workspace head"))
+	refuse("workspace credentials may only report their own workspace head")
 	return false
 }
 
@@ -280,7 +287,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
 					return
 				}
-				if !allowWorkspaceRestrictedToken(w, r, authInfo) {
+				if !allowWorkspaceRestrictedToken(w, r, authInfo, config.IsSingleOwner(cfg)) {
 					return
 				}
 				if !allowTerminalProfileToken(w, r, authInfo) {
