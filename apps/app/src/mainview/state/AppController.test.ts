@@ -186,6 +186,7 @@ describe("the controller's command surface", () => {
       "presentCard",
       "presentBranchCard",
       "presentRun",
+      "contextRun",
       "presentFlow",
       "tappedFetch",
       "commands",
