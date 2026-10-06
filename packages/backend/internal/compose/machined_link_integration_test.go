@@ -2,6 +2,8 @@ package compose
 
 import (
 	"context"
+	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"net"
 	"testing"
 
@@ -81,27 +83,85 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	fields, err := wire.Fields("args13", args)
 	require.NoError(t, err)
 	require.Equal(t, wire.String("retry.ts"), fields[1])
-	require.Equal(t, wire.Union(1, wire.Field(1, wire.Bytes([]byte("Be")))), fields[2])
+	require.Equal(t, wire.Union(1, wire.Field(1, wire.Bytes([]byte("host")))), fields[2])
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(13, wire.Field(1, wire.U32(5)))))}))
-	for _, name := range []string{"epoch", "sync", "saved"} {
-		require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: docGolden(t, name)}))
-	}
-	f.text(t, `{"t":"snap","id":7,"cursor":0,"data":{"epoch":"00112233445566778899aabbccddeeff","client_id":42}}`)
-	kind, body = f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-	require.Equal(t, []byte{1, 0, 0, 0, 7, 0, 1, 0}, body)
-	f.text(t, `{"t":"saved","id":7,"sv":"ASoB","at":"2026-10-03T12:00:00Z"}`)
-	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, []byte{1, 0, 0, 0, 7, 0, 1, 0}))
-	input, err := wire.Read(guest)
+
+	// The host mirror first asks the daemon for its persisted state. Complete
+	// that sync before expecting a browser snapshot, then accept real native
+	// updates and return sequence-bound durability receipts from the fake peer.
+	syncRequest, err := wire.Read(guest)
 	require.NoError(t, err)
-	require.Equal(t, byte(wire.Documents), input.Kind)
-	require.Equal(t, uint32(5), input.Stream)
-	require.Equal(t, docGolden(t, "input"), input.Payload)
+	initial, err := wire.DecodeDocumentV2(syncRequest.Payload)
+	require.NoError(t, err)
+	require.Equal(t, []byte("host"), initial.Actor)
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: docGolden(t, "epoch")}))
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: []byte{3, 1, 2, 0, 0}}))
+	daemonDocument, err := f.relay.Host.Library.Open(livedocument.Code, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { daemonDocument.Close() })
+	finished := make(chan error, 1)
+	go func() {
+		for {
+			frame, err := wire.Read(guest)
+			if err != nil {
+				finished <- err
+				return
+			}
+			if frame.Kind == wire.Control {
+				closeID, method, _, err := frame.Request()
+				if err != nil {
+					finished <- err
+					return
+				}
+				if method != byte(wire.CloseDoc) {
+					finished <- wire.UnknownMethod
+					return
+				}
+				text, err := daemonDocument.Text("content")
+				if err != nil {
+					finished <- err
+					return
+				}
+				if text != "hello" {
+					finished <- fmt.Errorf("daemon text = %q", text)
+					return
+				}
+				finished <- wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(closeID)), wire.Field(2, wire.Union(14)))})
+				return
+			}
+			msg, err := wire.DecodeDocumentV2(frame.Payload)
+			if err != nil {
+				finished <- err
+				return
+			}
+			if frame.Kind != wire.Documents || frame.Stream != 5 || msg.Msg != wire.DocumentInput {
+				finished <- wire.BadValue
+				return
+			}
+			_, update := codeDecode(t, msg.Data)
+			if _, err = daemonDocument.Peer(update); err != nil {
+				finished <- err
+				return
+			}
+			vector, err := daemonDocument.Sync1()
+			if err != nil {
+				finished <- err
+				return
+			}
+			saved, err := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSaved, AtMS: 1791028800000, ThroughSeq: msg.Seq, Data: vector})
+			if err != nil {
+				finished <- err
+				return
+			}
+			if err = wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: saved}); err != nil {
+				finished <- err
+				return
+			}
+		}
+	}()
+	client := f.assigned(t)
+	f.update(t, codeInsert(client, "hello"))
+	readSaved(t, f, 1)
 	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageText, []byte(`{"t":"unsub","id":7}`)))
-	closeRequest, err := wire.Read(guest)
-	require.NoError(t, err)
-	closeID, method, _, err := closeRequest.Request()
-	require.NoError(t, err)
-	require.Equal(t, byte(wire.CloseDoc), method)
-	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(closeID)), wire.Field(2, wire.Union(14)))}))
+	require.NoError(t, <-finished)
 }
