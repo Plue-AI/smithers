@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -15,6 +16,8 @@ import (
 // context, writer tokens, approvals and the member's queue never enter it.
 type SharedTurn struct {
 	ID          string             `json:"id"`
+	Title       string             `json:"title"`
+	Tone        string             `json:"tone"`
 	Author      int64              `json:"author"`
 	AuthorLogin string             `json:"authorLogin"`
 	RunID       string             `json:"runId"`
@@ -85,7 +88,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 		if e != nil {
 			return result, e
 		}
-		entry := SharedTurn{ID: turn.ID, Author: turn.UserID, RunID: turn.RunID, Prompt: prompt, State: turn.State, Frames: []json.RawMessage{}}
+		entry := SharedTurn{ID: turn.ID, Author: turn.UserID, RunID: turn.RunID, Prompt: prompt, Title: entryTitle(prompt), Tone: entryTone(turn.State), State: turn.State, Frames: []json.RawMessage{}}
 		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorLogin); err != nil {
 			return result, err
 		}
@@ -249,4 +252,27 @@ func (p *sharedPreflight) apply(raw json.RawMessage) error {
 		p.context = &selected
 	}
 	return nil
+}
+
+// Non-TODO turns have no TODO state. Their label and tone come solely from
+// committed host facts, shared by HTTP and live subscribers.
+func entryTitle(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if title := strings.TrimSpace(line); title != "" {
+			return title
+		}
+	}
+	return ""
+}
+func entryTone(state State) string {
+	switch state {
+	case StateAccepted, StateRunning:
+		return "live"
+	case StateFailed:
+		return "failed"
+	case StateCompleted:
+		return "done"
+	default:
+		return "quiet"
+	}
 }
