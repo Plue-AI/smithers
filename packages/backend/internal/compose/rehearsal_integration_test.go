@@ -199,6 +199,8 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0600))
 	case "go":
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "go.mod"), []byte("module example.test/app\n\ngo 1.23\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "app.go"), []byte("package app\n\nfunc Sum(a, b int) int { return a + b }\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "app_test.go"), []byte("package app\n\nimport \"testing\"\n\nfunc TestSum(t *testing.T) { if Sum(20, 22) != 42 { t.Fatal(\"wrong sum\") } }\n"), 0600))
 	case "rust":
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "Cargo.toml"), []byte(`[package]
 name = "app"
@@ -266,6 +268,9 @@ path = "lib.rs"
 	// from its in-process client. Source ready must import main through it.
 	engine, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
 	require.NoError(t, err, "build the repository's smithers-ffi library first")
+	// The install wiki composition consumes the same native library as the mirror.
+	// Resolve it once for both; go test runs from internal/compose, not the repo root.
+	t.Setenv("SMITHERS_FFI_LIBRARY_PATH", library)
 	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
 	r.repoClient = engine.Client()
 	require.True(t, engine.Client().InstallMainMirror(), "the install engine's client must carry the install fact")
