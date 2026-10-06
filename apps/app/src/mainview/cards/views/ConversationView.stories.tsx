@@ -16,7 +16,7 @@ const entryExpect: Record<keyof typeof entries, string[]> = {
   working: ["Coding agent for Ben", "Working", "Added typed TODO fields", "Context · 1"],
   needs_you: ["Needs you", "Answer"], in_review: ["In review", "Merge"],
   failed: ["Claude Code for Ben", "Failed", "Retry", "Repository access refused"],
-  event: ["Install event", "Source ready"], done: ["Merged"], private: ["Only you", "Drop T12"],
+  event: ["Smithers", "Source ready"], done: ["Merged"], private: ["Only you", "Drop T12"],
 }
 // spec §14.5.2: independent literal controls, never derived from fixture action arrays.
 const entryActions: Partial<Record<keyof typeof entries, ViewStory["actions"]>> = {

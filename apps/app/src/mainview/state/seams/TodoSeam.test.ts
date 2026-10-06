@@ -28,14 +28,16 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage(), act
   const finalizers: (() => void)[] = []
   const topics: TodoTopics = { subscribe: (topic, receive) => { observed.set(topic, receive); return () => { observed.delete(topic) } } }
   const outcomes: unknown[] = []
+  const reports: { scope: string; error: unknown }[] = []
   const context: SeamContext = {
     http: (url, init) => url.endsWith("/api/todos") && !init?.method
       ? Promise.resolve(json([fixtures.in_review.model, fixtures.merged.model, fixtures.dropped.model], 200)) : http(url, init), store, dispatch: store.dispatch, baseUrl: "https://install.test", actor: () => "user", nextOrdinal: store.nextOrdinal,
+    report: (scope, error) => { reports.push({ scope, error }) },
     isDisposed: () => disposed,
     resolveToast: (key, outcome) => { outcomes.push({ key, ...outcome }); store.dispatch({ type: "toast.resolved", actor: "system", key, status: outcome.status, detail: outcome.detail }) }
   }
   const seam = createTodoSeam(context, { actors, topics: live ? topics : undefined, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
-  return { store, seam, observed, outcomes, context, storage,
+  return { store, seam, observed, outcomes, reports, context, storage,
     draft: () => [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry,
     todo: () => store.collections.cards.get("todo:12") as TodoEntry,
     close: () => { disposed = true; finalizers.forEach(fn => fn()) } }
@@ -477,6 +479,43 @@ test("TODO HTTP and live projections normalize historical delegated authors", as
     h.observed.get("todo:12")!({ ...projection, steers: [{ text: "Cookie", by: { person: "member-ben", session: "cookie" }, at: "later" }] })
     await waitFor(() => h.todo().payload.model!.steers[0]!.text === "Cookie")
     expect(actorName(h.todo().payload.model!.steers[0]!.by)).toBe("Ben")
+  } finally { h.close() }
+})
+
+test("TODO history refuses missing recorded member context", async () => {
+  const projection = { ...fixtures.working.model,
+    steers: [{ text: "Unknown", by: { person: "missing-ben", via: "claude-code" }, at: "now" }] }
+  let served: unknown = projection
+  const h = await harness(async () => json(served, 200))
+  try {
+    expect(await h.seam.showTodo(12)).toBe("Could not reach TODOs. Nothing answered at all — that's the connection, not something you did. Try it again.")
+    expect(h.todo()).toBeUndefined()
+    await expect(h.seam.applyTodoProjection(12, projection)).rejects.toThrow("Actor member missing-ben is missing from the roster")
+    expect(h.todo()).toBeUndefined()
+    served = fixtures.working.model
+    await h.seam.showTodo(12)
+    const reports = h.reports
+    h.observed.get("todo:12")!(projection)
+    expect(reports).toHaveLength(1)
+    expect(reports[0]!.scope).toBe("todo.projection")
+    expect(String(reports[0]!.error)).toContain("Actor member missing-ben is missing from the roster")
+    expect(h.todo().payload.model).toEqual(fixtures.working.model)
+  } finally { h.close() }
+})
+
+test("TODO HTTP and subscribed history keep Smithers system attribution", async () => {
+  const { actorName } = await import("../ProductActor")
+  const projection = { ...fixtures.working.model,
+    steers: [{ text: "Recorded", by: { system: "smithers", requester: "member-ben" }, at: "now" }] }
+  const h = await harness(async () => json(projection, 200))
+  try {
+    await h.seam.showTodo(12)
+    expect(h.todo().payload.model!.steers[0]!.by).toEqual({ kind: "system", color_index: 7 })
+    expect(actorName(h.todo().payload.model!.steers[0]!.by)).toBe("Smithers")
+    h.observed.get("todo:12")!({ ...projection, steers: [{ ...projection.steers[0]!, text: "Updated" }] })
+    await waitFor(() => h.todo().payload.model!.steers[0]!.text === "Updated")
+    expect(h.todo().payload.model!.steers[0]!.by).toEqual({ kind: "system", color_index: 7 })
+    expect(actorName(h.todo().payload.model!.steers[0]!.by)).toBe("Smithers")
   } finally { h.close() }
 })
 

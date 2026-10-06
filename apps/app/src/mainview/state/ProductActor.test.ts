@@ -23,7 +23,7 @@ for (const [agent, label] of [["coding", "Coding agent for Ben"], ["reviewer", "
 }
 test("system stays system, including requester; no credential inference", () => {
   expect(toActor({ system: "smithers", requester: "b" }, roster)).toEqual({ kind: "system", color_index: 7 })
-  expect(actorName(toActor({ system: "smithers" }))).toBe("Install event")
+  expect(actorName(toActor({ system: "smithers" }))).toBe("Smithers")
   expect(actorName(toActor({ person: "b", session: "cookie" }, roster))).toBe("Ben")
 })
 test("neutral actors and removed members", () => {

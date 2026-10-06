@@ -52,7 +52,7 @@ test("shared labels retain first names and non-agent identities", () => {
   expect(actorName({ kind: "person", ...ben, via: "terminal" })).toBe("Ben's terminal")
   expect(actorName({ kind: "github", login: "ben", color_index: 7 })).toBe("@ben")
   expect(actorName({ kind: "outside", color_index: 7 })).toBe("Changed outside Smithers")
-  expect(actorName({ kind: "system", color_index: 7 })).toBe("Install event")
+  expect(actorName({ kind: "system", color_index: 7 })).toBe("Smithers")
 })
 for (const via of ["ssh", "terminal", "cli"] as const) test(`${via} retains person identity and badge`, async () => {
   await withActor({ kind: "person", ...ben, via }, node => {

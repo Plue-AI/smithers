@@ -181,7 +181,7 @@ test("primitive labels, starting animation and neutral glyph colors", async ({ p
       expect(colors.actual).toBe(colors.expected)
     }
     await page.goto(`/view-stories.html?story=PrimitivesView/actor-fixture-system&theme=${theme}`)
-    await expect(page.locator(".avatar")).toHaveAttribute("aria-label", "Install event")
+    await expect(page.locator(".avatar")).toHaveAttribute("aria-label", "Smithers")
   }
 })
 

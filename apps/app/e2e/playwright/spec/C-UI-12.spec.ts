@@ -271,7 +271,7 @@ test("C-UI-12: primitive actors, states and tones render in both Paper themes", 
   test.setTimeout(180_000)
   const actors = [
     ["person", "Ben"], ["person-ssh", "Maya via SSH"], ["person-terminal", "Maya's terminal"],
-    ["person-cli", "Maya via CLI"], ["system", "Install event"], ["github", "@octocat"],
+    ["person-cli", "Maya via CLI"], ["system", "Smithers"], ["github", "@octocat"],
     ["outside", "Changed outside Smithers"], ["smithers", "Smithers"],
     ["smithers-for-ben", "Smithers for Ben"], ["coding-for-ben", "Coding agent for Ben"],
     ["reviewer-for-ben", "Reviewer for Ben"], ["claude-code-for-ben", "Claude Code for Ben"],

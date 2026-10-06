@@ -361,7 +361,7 @@ const expectedAskers: Record<string, string> = {
   actor_reviewer_for_ben: "Reviewer for Ben",
   actor_undelegated_agent: "Aider",
   actor_undelegated_smithers: "Smithers",
-  actor_system: "Install event",
+  actor_system: "Smithers",
   actor_github_user: "@octocat",
   actor_outside: "Changed outside Smithers"
 }
@@ -1117,7 +1117,7 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
   try {
     expect(row.host.querySelector(".entry-title")?.textContent).toBe(hostile)
     expect(row.host.querySelector(".entry-summary")?.textContent).toBe(hostile)
-    expect(row.host.querySelector(".avatar")?.getAttribute("aria-label")).toBe("Install event")
+    expect(row.host.querySelector(".avatar")?.getAttribute("aria-label")).toBe("Smithers")
     expect(row.host.querySelector("script")).toBeNull()
     expect(row.host.querySelector("button")).toBeNull()
   } finally { await row.close() }
