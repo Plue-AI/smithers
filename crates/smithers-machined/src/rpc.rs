@@ -17,7 +17,7 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
         let hook = if frame.kind == 4 {
             // Only authenticated host input messages enter the document provider.
             // Output, refusal and malformed envelopes must never mutate a document.
-            match crate::document_payload::Document::decode(&frame.payload) {
+            match crate::document_payload::Document::decode_v2(&frame.payload) {
                 Ok(document) if matches!(document.msg, 1 | 2) => cx.hooks.documents.frame(frame),
                 _ => Err(crate::hooks::Error::unsupported()),
             }

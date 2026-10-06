@@ -243,12 +243,10 @@ impl<V: Versions> Disk for LinuxDisk<V> {
         }) {
             Ok(file) => file,
             Err(error) => {
-                // A symlink/nonregular target swapped in after the precheck.
-                fs::renameat_with(&parent, &temp, &parent, &name, RenameFlags::EXCHANGE)
-                    .map_err(io)?;
+                // Never exchange back: another outside save may now occupy
+                // the destination. Keep the displaced entry and its metadata
+                // for recovery, even when it cannot be read as a regular file.
                 parent.sync_all()?;
-                fs::unlinkat(&parent, &temp, AtFlags::empty()).map_err(io)?;
-                self.remove_meta(&temp)?;
                 return Err(error);
             }
         };

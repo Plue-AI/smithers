@@ -72,7 +72,26 @@ pub trait Watcher: Send + Sync {
         false
     }
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentWrite {
+    pub digest: Digest,
+    pub raced: Option<Digest>,
+}
 pub trait Documents: Send + Sync {
+    /// Continues saving after a host disconnect; called by the lock executor.
+    fn tick(&self, _cx: &mut LockCx) -> Result<()> {
+        Ok(())
+    }
+    /// Runs timers and drains output on the same mutation lock as RPCs.
+    fn poll(&self, _cx: &mut LockCx) -> Result<Vec<Frame>> {
+        Ok(vec![])
+    }
+    fn completed_write(&self, _cx: &mut LockCx, _path: &str, _actor: &Actor) -> Result<()> {
+        Err(Error::unsupported())
+    }
+    fn gone(&self, _cx: &mut LockCx, _path: &str, _gone: crate::doc::gone::Gone) -> Result<()> {
+        Err(Error::unsupported())
+    }
     /// Report readiness only after this provider's real dependencies are ready.
     /// Implementing an operation alone must not activate a partial daemon.
     fn ready(&self) -> Result<()> {
@@ -90,7 +109,7 @@ pub trait Documents: Send + Sync {
         _base: &Base,
         _content: &[u8],
         _actor: &Actor,
-    ) -> Option<Result<Digest>> {
+    ) -> Option<Result<DocumentWrite>> {
         None
     }
     /// Reconcile open documents after a settled rewrite, on the mutation lock.

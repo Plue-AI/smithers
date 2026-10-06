@@ -37,11 +37,14 @@ impl Documents for Provider {
         _: &Base,
         _: &[u8],
         _: &Actor,
-    ) -> Option<Result<Digest>> {
+    ) -> Option<Result<DocumentWrite>> {
         match path {
             "closed" => None,
             "refused" => Some(Err(Error::unsupported())),
-            _ => Some(Ok([42; 32])),
+            _ => Some(Ok(DocumentWrite {
+                digest: [42; 32],
+                raced: None,
+            })),
         }
     }
     fn reconcile_all(&self, _: &mut LockCx, _: &Actor) -> Result<()> {
@@ -139,7 +142,10 @@ fn readiness_is_live_and_document_contract_runs_on_shared_lock() {
             );
             assert_eq!(
                 documents.write_through(cx, "open", &Base::Absent, b"", &Actor::Outside),
-                Some(Ok([42; 32]))
+                Some(Ok(DocumentWrite {
+                    digest: [42; 32],
+                    raced: None
+                }))
             );
             assert_eq!(documents.reconcile_all(cx, &Actor::Outside), Ok(()));
         })

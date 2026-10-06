@@ -32,7 +32,10 @@ fn host(stream: &mut TcpStream, secret: &[u8], good: bool) {
     };
     hello(
         2,
-        &[conn::field(1, 1u16.to_be_bytes()), conn::field(2, mac)],
+        &[
+            conn::field(1, conn::PROTOCOL.to_be_bytes()),
+            conn::field(2, mac),
+        ],
     )
     .write(stream)
     .unwrap();
@@ -137,7 +140,7 @@ fn handshake_order_refuses_before_credentials_and_welcome_is_required() {
             hello(
                 2,
                 &[
-                    conn::field(1, 1u16.to_be_bytes()),
+                    conn::field(1, conn::PROTOCOL.to_be_bytes()),
                     conn::field(2, conn::host_mac(&[9; 32], &boot, &nonce)),
                 ],
             )
@@ -202,7 +205,7 @@ impl smithers_machined::hooks::Core for Reconciler {
         if method == 1 {
             Ok(conn::structure_bytes(&[
                 conn::field(1, [3]),
-                conn::field(2, 1u16.to_be_bytes()),
+                conn::field(2, conn::PROTOCOL.to_be_bytes()),
                 conn::field(3, [0, 1, b'v']),
                 conn::field(4, 7u32.to_be_bytes()),
                 conn::field(6, 2u16.to_be_bytes()),
@@ -340,7 +343,7 @@ fn authenticated_dispatch_requires_reconcile_and_roster_on_every_link() {
 }
 
 #[test]
-fn retained_v2_decode_does_not_negotiate_an_unready_live_peer() {
+fn retained_v1_decode_does_not_negotiate_unsequenced_live_documents() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let worker = thread::spawn(move || {
@@ -359,7 +362,7 @@ fn retained_v2_decode_does_not_negotiate_an_unready_live_peer() {
     hello(
         2,
         &[
-            conn::field(1, 2u16.to_be_bytes()),
+            conn::field(1, 1u16.to_be_bytes()),
             conn::field(2, conn::host_mac(&[9; 32], &boot, &nonce)),
         ],
     )

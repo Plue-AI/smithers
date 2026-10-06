@@ -21,6 +21,7 @@ struct Model {
     fail: Option<&'static str>,
     next: u64,
     bases: BTreeMap<u64, Record>,
+    swap_race: Option<Vec<u8>>,
 }
 impl Model {
     fn with(text: &str) -> Self {
@@ -56,6 +57,9 @@ impl Disk for Model {
     }
     fn swap_text(&mut self, path: &str, _: Digest, bytes: &[u8]) -> Result<Option<Displaced>> {
         self.step("swap")?;
+        if let Some(outside) = self.swap_race.take() {
+            self.files.insert(path.into(), outside);
+        }
         let old = self.files.insert(path.into(), bytes.to_vec());
         Ok(old.map(|old| {
             self.next += 1;
@@ -132,7 +136,7 @@ fn editor(state: &[u8], id: u64) -> Doc {
     core::apply(&doc, core::decode(state).unwrap()).unwrap();
     doc
 }
-fn edit(host: &mut Host<Model>, stream: u32, text: &str, now: u64) {
+fn edit<D: Disk>(host: &mut Host<D>, stream: u32, text: &str, now: u64) {
     let id = host.client(stream, "alice", now).unwrap();
     let doc = editor(&host.state(stream).unwrap(), id);
     let update = reconcile::replace(&doc, text, id).unwrap();
@@ -311,13 +315,13 @@ fn debounce_and_continuous_typing_deadline_are_inclusive() {
         h.notices().last(),
         Some(Notice::Saved { at_ms: 300, .. })
     ));
-    for now in (400..1400).step_by(100) {
+    for now in (400..900).step_by(100) {
         edit(&mut h, s, &now.to_string(), now);
         h.tick(now, true).unwrap();
     }
     assert_eq!(h.disk.files["a.rs"], b"b");
-    h.tick(1400, true).unwrap();
-    assert_eq!(h.disk.files["a.rs"], b"1300");
+    h.tick(900, true).unwrap();
+    assert_eq!(h.disk.files["a.rs"], b"800");
 }
 #[test]
 fn saved_notice_follows_record_and_swap_and_failures_never_ack() {
@@ -783,4 +787,367 @@ fn ordinary_and_sticky_permissions_are_preserved_and_set_id_modes_refuse() {
     for mode in [0o104644, 0o102644, 0o106644] {
         assert_eq!(saved_mode(mode), Err(Error::Unsupported));
     }
+}
+
+#[test]
+fn rewrite_deletion_pauses_edits_and_capture_until_explicit_restore() {
+    let (mut h, s) = host("saved");
+    h.flush_all(0).unwrap();
+    h.tick(200, true).unwrap();
+    h.notices();
+    edit(&mut h, s, "unsaved typing", 201);
+    h.disk.files.remove("a.rs");
+    h.reconcile_all("rebased:Tk", 202).unwrap();
+    assert_eq!(h.text(s).unwrap(), "unsaved typing");
+    assert_eq!(
+        h.projection("a.rs").unwrap().gone,
+        Some(Gone::Deleted {
+            by: "rebased:Tk".into()
+        })
+    );
+    assert!(matches!(h.notices().last(), Some(Notice::Gone { .. })));
+    h.flush_all(203).unwrap();
+    h.tick(10000, true).unwrap();
+    assert!(!h.disk.files.contains_key("a.rs"));
+    h.write_through(
+        "a.rs",
+        digest(b"unsaved typing"),
+        "unsaved typing",
+        "alice",
+        10001,
+    )
+    .unwrap();
+    h.flush_all(10001).unwrap();
+    assert_eq!(h.disk.files["a.rs"], b"unsaved typing");
+    assert!(h.projection("a.rs").unwrap().gone.is_none());
+}
+
+mod dispatcher {
+    use super::*;
+    use smithers_machined::{
+        conn::{self, Frame},
+        doc::service::Service,
+        document_payload::Document,
+        hooks::{self, Documents},
+        lock::LockCx,
+        rpc,
+    };
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    };
+    use yrs::{
+        sync::SyncMessage,
+        updates::{decoder::Decode, encoder::Encode},
+        ReadTxn,
+    };
+    #[derive(Clone)]
+    struct Shared(Arc<Mutex<Model>>);
+    impl Disk for Shared {
+        fn read(&mut self, p: &str) -> Result<Option<Vec<u8>>> {
+            self.0.lock().unwrap().read(p)
+        }
+        fn load_record(&mut self, k: Digest) -> Result<Option<Record>> {
+            self.0.lock().unwrap().load_record(k)
+        }
+        fn store_record(&mut self, k: Digest, r: &Record) -> Result<()> {
+            self.0.lock().unwrap().store_record(k, r)
+        }
+        fn swap_text(&mut self, p: &str, k: Digest, b: &[u8]) -> Result<Option<u64>> {
+            self.0.lock().unwrap().swap_text(p, k, b)
+        }
+        fn recover_temps(&mut self, p: &str, k: Digest) -> Result<Vec<Recovery>> {
+            self.0.lock().unwrap().recover_temps(p, k)
+        }
+        fn read_displaced(&mut self, t: u64) -> Result<Vec<u8>> {
+            self.0.lock().unwrap().read_displaced(t)
+        }
+        fn remove_displaced(&mut self, t: u64) -> Result<()> {
+            self.0.lock().unwrap().remove_displaced(t)
+        }
+        fn record_outside(&mut self, p: &str, b: &[u8], a: &str) -> Result<String> {
+            self.0.lock().unwrap().record_outside(p, b, a)
+        }
+        fn own_write(&mut self, p: &str, d: Digest) {
+            self.0.lock().unwrap().own_write(p, d)
+        }
+    }
+    struct Clock(AtomicU64, std::time::Instant);
+    impl hooks::Clock for Clock {
+        fn now(&self) -> std::time::SystemTime {
+            std::time::UNIX_EPOCH + std::time::Duration::from_millis(self.0.load(Ordering::Relaxed))
+        }
+        fn mono(&self) -> std::time::Instant {
+            self.1 + std::time::Duration::from_millis(self.0.load(Ordering::Relaxed))
+        }
+    }
+    fn control(method: u8, fields: &[Vec<u8>]) -> Frame {
+        Frame {
+            kind: 1,
+            stream: 0,
+            payload: conn::tagged(
+                1,
+                &[
+                    conn::field(1, 1u32.to_be_bytes()),
+                    conn::field(2, conn::tagged(method, fields)),
+                ],
+            ),
+        }
+    }
+    fn input(id: u32, seq: u64, actor: &str, message: SyncMessage) -> Frame {
+        Frame {
+            kind: 4,
+            stream: id,
+            payload: Document {
+                msg: 1,
+                seq,
+                actor: actor.as_bytes().to_vec(),
+                data: message.encode_v1(),
+                ..Default::default()
+            }
+            .encode_v2()
+            .unwrap(),
+        }
+    }
+    #[test]
+    fn unopened_text_write_compares_creates_and_reports_displaced_bytes() {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock);
+        let mut cx = LockCx::new(Default::default());
+        let stale = service
+            .write_through(
+                &mut cx,
+                "a.rs",
+                &hooks::Base::Digest(digest(b"stale")),
+                b"tool",
+                &hooks::Actor::Outside,
+            )
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(stale.code, 4);
+        assert_eq!(stale.current_digest, Some(digest(b"before")));
+        assert!(disk.0.lock().unwrap().records.is_empty());
+        disk.0.lock().unwrap().swap_race = Some(b"outside in swap".to_vec());
+        let applied = service
+            .write_through(
+                &mut cx,
+                "a.rs",
+                &hooks::Base::Digest(digest(b"before")),
+                b"tool",
+                &hooks::Actor::Outside,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(applied.digest, digest(b"tool"));
+        assert_eq!(applied.raced, Some(digest(b"outside in swap")));
+        assert!(disk
+            .0
+            .lock()
+            .unwrap()
+            .versions
+            .contains(&b"outside in swap".to_vec()));
+        let created = service
+            .write_through(
+                &mut cx,
+                "new.rs",
+                &hooks::Base::Absent,
+                b"new",
+                &hooks::Actor::Outside,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(created.digest, digest(b"new"));
+        assert_eq!(created.raced, None);
+        assert_eq!(disk.0.lock().unwrap().files["new.rs"], b"new");
+        let bad = service
+            .write_through(
+                &mut cx,
+                "../escape",
+                &hooks::Base::Absent,
+                b"new",
+                &hooks::Actor::Outside,
+            )
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(bad.code, 1);
+        assert!(!disk.0.lock().unwrap().files.contains_key("../escape"));
+    }
+    #[test]
+    fn mutation_executor_saves_without_a_connected_host() {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let mut host = Host::new(disk.clone(), gates(), ids());
+        let id = host.open("a.rs", [7; 16], 0).unwrap();
+        edit(&mut host, id, "after disconnect", 0);
+        let service = Arc::new(Service::new(host, clock.clone()));
+        let executor = smithers_machined::lock::Executor::start(hooks::Hooks {
+            documents: service.clone(),
+            clock: clock.clone(),
+            ..Default::default()
+        })
+        .unwrap();
+        clock.0.store(200, Ordering::Relaxed);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while disk.0.lock().unwrap().files["a.rs"] != b"after disconnect" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "disconnected save missed deadline"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"after disconnect");
+        executor.shutdown().unwrap();
+    }
+    #[test]
+    fn rpc_peer_delete_only_receipt_waits_for_disk_and_replay_cannot_reuse_sequence() {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("abc"))));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Arc::new(Service::new(
+            Host::new(disk.clone(), gates(), ids()),
+            clock.clone(),
+        ));
+        let mut cx = LockCx::new(hooks::Hooks {
+            documents: service.clone(),
+            clock: clock.clone(),
+            ..Default::default()
+        });
+        let reply = rpc::dispatch(
+            &control(
+                13,
+                &[
+                    conn::field(1, [0, 4, b'a', b'.', b'r', b's']),
+                    conn::field(
+                        2,
+                        conn::actor_bytes(&hooks::Actor::Principal(b"host".to_vec())),
+                    ),
+                ],
+            ),
+            &mut cx,
+        )
+        .unwrap();
+        let result = conn::fields("response", &reply.payload[1..]).unwrap()[1].1;
+        assert_eq!(result[0], 13);
+        let id = u32::from_be_bytes(
+            conn::fields("result13", &result[1..]).unwrap()[0]
+                .1
+                .try_into()
+                .unwrap(),
+        );
+        let output = service.poll(&mut cx).unwrap();
+        let epoch = Document::decode_v2(&output[0].payload).unwrap();
+        assert_eq!(epoch.msg, 5);
+        let reply = rpc::dispatch(
+            &input(id, 0, "host", SyncMessage::SyncStep1(Default::default())),
+            &mut cx,
+        )
+        .unwrap();
+        let sync = Document::decode_v2(&reply.payload).unwrap();
+        let SyncMessage::SyncStep2(state) = SyncMessage::decode_v1(&sync.data).unwrap() else {
+            panic!("sync2")
+        };
+        let peer = editor(&state, epoch.client_id as u64);
+        // Host registers a browser's client id before forwarding its edits.
+        let before = peer.transact().state_vector();
+        peer.get_or_insert_map("authors")
+            .insert(&mut peer.transact_mut(), "4242", "alice");
+        let register = peer.transact().encode_state_as_update_v1(&before);
+        let reply = rpc::dispatch(
+            &input(id, 1, "alice", SyncMessage::Update(register)),
+            &mut cx,
+        )
+        .unwrap();
+        assert_eq!(reply.payload[0], 3);
+        service.flush_all(&mut cx).unwrap();
+        service.poll(&mut cx).unwrap();
+        let browser = editor(&core::state(&peer), 4242);
+        let before = browser.transact().state_vector();
+        browser
+            .get_or_insert_text("content")
+            .remove_range(&mut browser.transact_mut(), 1, 1);
+        assert_eq!(
+            browser.transact().state_vector(),
+            before,
+            "delete-only has no new clock"
+        );
+        let deletion = browser.transact().encode_state_as_update_v1(&before);
+        let request = input(id, 2, "alice", SyncMessage::Update(deletion));
+        let reply = rpc::dispatch(&request, &mut cx).unwrap();
+        assert_eq!(reply.payload[0], 3);
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"abc");
+        clock.0.store(199, Ordering::Relaxed);
+        assert!(service.poll(&mut cx).unwrap().is_empty());
+        clock.0.store(200, Ordering::Relaxed);
+        let output = service.poll(&mut cx).unwrap();
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"ac");
+        let saved = output
+            .iter()
+            .map(|f| Document::decode_v2(&f.payload).unwrap())
+            .find(|d| d.msg == 6)
+            .unwrap();
+        assert_eq!(saved.through_seq, 2);
+        assert_eq!(rpc::dispatch(&request, &mut cx).unwrap().payload[0], 3);
+        let forged = input(id, 2, "alice", SyncMessage::Update(vec![0, 0]));
+        assert_eq!(rpc::dispatch(&forged, &mut cx).unwrap().payload[0], 255);
+        disk.0.lock().unwrap().files.remove("a.rs");
+        service
+            .reconcile_all(&mut cx, &hooks::Actor::Outside)
+            .unwrap();
+        let output = service.poll(&mut cx).unwrap();
+        assert!(output
+            .iter()
+            .any(|f| Document::decode_v2(&f.payload).unwrap().gone_kind == 1));
+        service.flush_all(&mut cx).unwrap();
+        assert!(!disk.0.lock().unwrap().files.contains_key("a.rs"));
+    }
+}
+
+#[test]
+fn compare_swap_race_keeps_displaced_and_later_outside_save_without_rollback() {
+    for round in 0..40 {
+        let (mut h, stream) = host("base");
+        h.flush_all(0).unwrap();
+        h.tick(200, true).unwrap();
+        h.disk.swap_race = Some(format!("outside-{round}").into_bytes());
+        let (post, raced) = h
+            .write_saved("a.rs", digest(b"base"), "tool", "alice", 201)
+            .unwrap()
+            .unwrap();
+        assert_eq!(post, digest(b"tool"));
+        assert_eq!(raced, Some(digest(format!("outside-{round}").as_bytes())));
+        assert!(h
+            .disk
+            .versions
+            .contains(&format!("outside-{round}").into_bytes()));
+        // ADR 0003: a save after exchange must never be swapped into a temp
+        // and deleted by a rollback of the preceding write.
+        h.disk
+            .files
+            .insert("a.rs".into(), b"latest outside".to_vec());
+        h.completed_write("a.rs", "ben", 202).unwrap();
+        h.tick(2201, true).unwrap();
+        assert!(h.disk.versions.contains(&b"latest outside".to_vec()));
+        assert!(h
+            .disk
+            .versions
+            .contains(&format!("outside-{round}").into_bytes()));
+        assert_eq!(h.text(stream).unwrap().as_bytes(), h.disk.files["a.rs"]);
+    }
+}
+
+#[test]
+fn stale_write_does_not_modify_document_record_or_file() {
+    let (mut h, stream) = host("current");
+    h.flush_all(0).unwrap();
+    h.tick(200, true).unwrap();
+    let records = h.disk.records.clone();
+    let log = h.disk.log.clone();
+    assert_eq!(
+        h.write_saved("a.rs", digest(b"old"), "new", "alice", 201),
+        Err(Error::Stale)
+    );
+    assert_eq!(h.text(stream).unwrap(), "current");
+    assert_eq!(h.disk.files["a.rs"], b"current");
+    assert_eq!(h.disk.records, records);
+    assert_eq!(h.disk.log, log);
 }

@@ -48,7 +48,19 @@ impl Executor {
             .name("machined-lock".into())
             .spawn(move || {
                 let mut cx = LockCx::new(hooks);
-                while let Ok((name, job)) = rx.recv() {
+                loop {
+                    let (name, job) = match rx.recv_timeout(Duration::from_millis(25)) {
+                        Ok(job) => job,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            // A failed save stays dirty and retries; never emit a
+                            // success receipt for a failed persistence attempt.
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                cx.hooks.documents.clone().tick(&mut cx)
+                            }));
+                            continue;
+                        }
+                    };
                     let start = cx.hooks.clock.mono();
                     job(&mut cx);
                     cx.completed += 1;

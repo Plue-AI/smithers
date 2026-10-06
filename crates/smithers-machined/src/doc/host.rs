@@ -141,12 +141,147 @@ impl<D: Disk> Host<D> {
             clients: BTreeMap::new(),
         }
     }
+    pub fn ready(&self) -> Result<()> {
+        self.gates.check()
+    }
+    pub fn paths(&self) -> Vec<String> {
+        self.docs.keys().cloned().collect()
+    }
+    pub fn streams_for(&self, path: &str) -> Vec<u32> {
+        self.docs
+            .get(path)
+            .map(|d| d.subscribers.iter().copied().collect())
+            .unwrap_or_default()
+    }
+    pub fn require_receipt(&mut self, stream: u32, now: u64) -> Result<()> {
+        let path = self.streams.get(&stream).ok_or(Error::Invalid)?;
+        let doc = self.docs.get_mut(path).ok_or(Error::Invalid)?;
+        Self::dirty(doc, now);
+        Ok(())
+    }
+    pub fn current_digest(&self, path: &str) -> Option<Digest> {
+        self.docs.get(path).map(|d| {
+            digest(
+                d.doc
+                    .get_or_insert_text("content")
+                    .get_string(&d.doc.transact())
+                    .as_bytes(),
+            )
+        })
+    }
+    /// One authenticated host peer owns author allocation. It may only extend
+    /// the map for the envelope's actor; it cannot reassign existing authors.
+    pub fn peer_update(&mut self, stream: u32, actor: &str, bytes: &[u8], now: u64) -> Result<()> {
+        self.gates.check()?;
+        let path = self.streams.get(&stream).ok_or(Error::Invalid)?;
+        let doc = self.docs.get_mut(path).ok_or(Error::Invalid)?;
+        if doc.readonly {
+            return Err(Error::ReadOnly);
+        }
+        if doc.gone.is_some() {
+            return Err(Error::Gone);
+        }
+        if bytes.len() > MAX_STATE_BYTES {
+            return Err(Error::Invalid);
+        }
+        let scratch = core::document(None);
+        scratch.get_or_insert_text("content");
+        scratch.get_or_insert_map("authors");
+        core::apply(
+            &scratch,
+            core::decode(&core::state(&doc.doc)).map_err(|_| Error::Invalid)?,
+        )
+        .map_err(|_| Error::Invalid)?;
+        core::apply(&scratch, core::decode(bytes).map_err(|_| Error::Invalid)?)
+            .map_err(|_| Error::Invalid)?;
+        core::validate(&scratch, "content", true).map_err(|_| Error::Forged)?;
+        let before = authors::entries(&doc.doc)?;
+        let after = authors::entries(&scratch)?;
+        if before.iter().any(|(id, by)| after.get(id) != Some(by))
+            || after
+                .iter()
+                .any(|(id, by)| !before.contains_key(id) && by != actor)
+        {
+            return Err(Error::Forged);
+        }
+        let text = scratch
+            .get_or_insert_text("content")
+            .get_string(&scratch.transact());
+        if text.len() > MAX_TEXT_BYTES || core::state(&scratch).len() > MAX_STATE_BYTES {
+            return Err(Error::Invalid);
+        }
+        if before == after {
+            authors::checked_actor_update(&doc.doc, bytes, actor)?;
+        } else if text
+            != doc
+                .doc
+                .get_or_insert_text("content")
+                .get_string(&doc.doc.transact())
+        {
+            // Registration and edits are separate messages, as in the host.
+            return Err(Error::Forged);
+        }
+        let old = core::state(&doc.doc);
+        core::apply(&doc.doc, core::decode(bytes).map_err(|_| Error::Invalid)?)
+            .map_err(|_| Error::Invalid)?;
+        if old != core::state(&doc.doc) {
+            Self::dirty(doc, now);
+            doc.activity.insert(actor.into(), now.saturating_add(2000));
+        }
+        Ok(())
+    }
+    /// A file-tool write is durable before its RPC succeeds. Keep displaced
+    /// bytes immediately, then retain the inode for the ordinary quiet reread.
+    pub fn write_saved(
+        &mut self,
+        path: &str,
+        base: Digest,
+        text: &str,
+        actor: &str,
+        now: u64,
+    ) -> Result<Option<(Digest, Option<Digest>)>> {
+        if !self.write_through(path, base, text, actor, now)? {
+            return Ok(None);
+        }
+        let doc = self.docs.get_mut(path).ok_or(Error::Invalid)?;
+        let start = doc.displaced.len();
+        Self::save(&mut self.disk, &mut self.notices, path, doc, now)?;
+        let mut raced = None;
+        for pending in &doc.displaced[start..] {
+            let bytes = self.disk.read_displaced(pending.token)?;
+            let displaced = digest(&bytes);
+            if displaced != pending.expected && displaced != pending.saved {
+                let version = self.disk.record_outside(path, &bytes, "outside")?;
+                doc.outside_change = Some((version.clone(), "outside".into()));
+                self.notices.push(Notice::Outside {
+                    path: path.into(),
+                    version,
+                    by: "outside".into(),
+                });
+                raced = Some(displaced);
+            }
+        }
+        Ok(Some((doc.last_disk, raced)))
+    }
     pub fn notices(&mut self) -> Vec<Notice> {
         std::mem::take(&mut self.notices)
     }
     /// Epoch randomness comes from the authority's OS entropy provider; the
     /// production adapter must not expose this input in RPC or stream schemas.
     pub fn open(&mut self, path: &str, fresh_epoch: [u8; 16], now: u64) -> Result<u32> {
+        self.open_inner(path, fresh_epoch, now, false)
+    }
+    /// File writes can create a missing path without planting placeholder bytes.
+    pub fn open_for_write(&mut self, path: &str, fresh_epoch: [u8; 16], now: u64) -> Result<u32> {
+        self.open_inner(path, fresh_epoch, now, true)
+    }
+    fn open_inner(
+        &mut self,
+        path: &str,
+        fresh_epoch: [u8; 16],
+        now: u64,
+        allow_absent: bool,
+    ) -> Result<u32> {
         self.gates.check()?;
         if !disk::valid_path(path) {
             return Err(Error::Invalid);
@@ -158,12 +293,18 @@ impl<D: Disk> Host<D> {
             return Err(Error::Invalid);
         }
         if !self.docs.contains_key(path) {
-            let bytes = self.disk.read(path)?.ok_or(Error::Gone)?;
+            let disk_bytes = self.disk.read(path)?;
+            let missing = disk_bytes.is_none();
+            let bytes = match disk_bytes {
+                Some(bytes) => bytes,
+                None if allow_absent => vec![],
+                None => return Err(Error::Gone),
+            };
             let text = std::str::from_utf8(&bytes);
             let readonly = bytes.len() > MAX_TEXT_BYTES || text.is_err();
             let text = if readonly { "" } else { text.unwrap() };
             let key = digest(path.as_bytes());
-            let record = if readonly {
+            let record = if readonly || missing {
                 None
             } else {
                 self.disk.load_record(key)?
@@ -525,7 +666,9 @@ impl<D: Disk> Host<D> {
         let Some(doc) = self.docs.get_mut(path) else {
             return Ok(());
         };
-        let bytes = self.disk.read(path)?.ok_or(Error::Gone)?;
+        let Some(bytes) = self.disk.read(path)? else {
+            return self.gone(path, Gone::Deleted { by: actor.into() });
+        };
         Self::outside(
             (&mut self.disk, &mut self.notices),
             path,
@@ -643,7 +786,7 @@ impl<D: Disk> Host<D> {
                 }
             }
             let due = doc.dirty_since.is_some_and(|first| {
-                now >= doc.updated.saturating_add(200) || now >= first.saturating_add(1000)
+                now >= doc.updated.saturating_add(200) || now >= first.saturating_add(500)
             });
             if saves_allowed && (due || doc.closing.is_some_and(|at| now >= at)) {
                 Self::save(&mut self.disk, &mut self.notices, path, doc, now)?;

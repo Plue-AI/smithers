@@ -1,0 +1,456 @@
+//! Documents on the daemon mutation executor. Network sends stay outside it.
+use super::{
+    disk::Disk,
+    gone::Gone,
+    host::{Host, Notice},
+    state::digest,
+    Error,
+};
+use crate::{
+    conn::Frame,
+    document_payload::Document,
+    hooks::{self, Actor, Base, DocumentWrite, Documents},
+    lock::LockCx,
+};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::{Arc, Mutex},
+    time::UNIX_EPOCH,
+};
+use yrs::{
+    sync::SyncMessage,
+    updates::{decoder::Decode, encoder::Encode},
+};
+
+pub struct Service<D: Disk> {
+    inner: Mutex<State<D>>,
+    clock: Arc<dyn hooks::Clock>,
+    started: std::time::Instant,
+    unix_ms: u64,
+}
+struct Peer {
+    path: String,
+    seq: u64,
+    last: Option<[u8; 32]>,
+}
+struct State<D: Disk> {
+    host: Host<D>,
+    peers: BTreeMap<u32, Peer>,
+    output: VecDeque<Frame>,
+    notices: Vec<Notice>,
+}
+fn error(e: Error) -> hooks::Error {
+    hooks::Error {
+        code: match e {
+            Error::Unsupported => 2,
+            Error::Invalid => 1,
+            Error::Forged => 11,
+            Error::Epoch | Error::Stale => 4,
+            Error::ReadOnly => 7,
+            Error::Gone => 5,
+            Error::Io(_) => 12,
+        },
+        ..hooks::Error::unsupported()
+    }
+}
+fn actor(a: &Actor) -> hooks::Result<String> {
+    Ok(match a {
+        Actor::Principal(bytes) => std::str::from_utf8(bytes)
+            .map_err(|_| error(Error::Invalid))?
+            .into(),
+        Actor::Session(id) => format!("session:{id}"),
+        Actor::Run(id) => format!("run:{id}"),
+        Actor::Outside => "outside".into(),
+    })
+}
+fn frame(stream: u32, d: Document) -> hooks::Result<Frame> {
+    Ok(Frame {
+        kind: 4,
+        stream,
+        payload: d.encode_v2().map_err(|_| error(Error::Invalid))?,
+    })
+}
+impl<D: Disk> Service<D> {
+    pub fn new(host: Host<D>, clock: Arc<dyn hooks::Clock>) -> Self {
+        let started = clock.mono();
+        let unix_ms = clock
+            .now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        Self {
+            started,
+            unix_ms,
+            inner: Mutex::new(State {
+                host,
+                peers: BTreeMap::new(),
+                output: VecDeque::new(),
+                notices: vec![],
+            }),
+            clock,
+        }
+    }
+    fn now(&self) -> u64 {
+        self.unix_ms.saturating_add(
+            self.clock
+                .mono()
+                .saturating_duration_since(self.started)
+                .as_millis() as u64,
+        )
+    }
+    fn state(&self) -> hooks::Result<std::sync::MutexGuard<'_, State<D>>> {
+        self.inner
+            .lock()
+            .map_err(|_| error(Error::Io("document lock poisoned".into())))
+    }
+    /// The watcher adapter consumes activity/outside receipts under LockCx.
+    pub fn take_notices(&self, _cx: &mut LockCx) -> hooks::Result<Vec<Notice>> {
+        let mut s = self.state()?;
+        s.collect()?;
+        Ok(std::mem::take(&mut s.notices))
+    }
+}
+impl<D: Disk> State<D> {
+    fn collect(&mut self) -> hooks::Result<()> {
+        for notice in self.host.notices() {
+            match &notice {
+                Notice::Saved {
+                    path,
+                    epoch: _,
+                    sv,
+                    at_ms,
+                    ..
+                } => {
+                    for (&id, peer) in &self.peers {
+                        if &peer.path == path {
+                            self.output.push_back(frame(
+                                id,
+                                Document {
+                                    msg: 6,
+                                    at_ms: *at_ms,
+                                    through_seq: peer.seq,
+                                    data: sv.clone(),
+                                    ..Default::default()
+                                },
+                            )?);
+                        }
+                    }
+                }
+                Notice::Gone { path, state } => {
+                    let (kind, by, to) = match state {
+                        Gone::Deleted { by } => (1, by.clone(), String::new()),
+                        Gone::Renamed { by, to } => (2, by.clone(), to.clone()),
+                    };
+                    for (&id, peer) in &self.peers {
+                        if &peer.path == path {
+                            self.output.push_back(frame(
+                                id,
+                                Document {
+                                    msg: 7,
+                                    gone_kind: kind,
+                                    gone_by: by.clone(),
+                                    gone_to: to.clone(),
+                                    ..Default::default()
+                                },
+                            )?);
+                        }
+                    }
+                }
+                _ => self.notices.push(notice),
+            }
+        }
+        Ok(())
+    }
+    fn broadcast(&mut self, path: &str) -> hooks::Result<()> {
+        for id in self.host.streams_for(path) {
+            self.output.push_back(frame(
+                id,
+                Document {
+                    msg: 3,
+                    data: SyncMessage::Update(self.host.state(id).map_err(error)?).encode_v1(),
+                    ..Default::default()
+                },
+            )?);
+        }
+        Ok(())
+    }
+}
+impl<D: Disk> Documents for Service<D> {
+    fn ready(&self) -> hooks::Result<()> {
+        self.state()?.host.ready().map_err(error)
+    }
+    fn open_authenticated(&self, path: &str, by: &[u8]) -> hooks::Result<u32> {
+        let by = std::str::from_utf8(by).map_err(|_| error(Error::Invalid))?;
+        if by.is_empty() {
+            return Err(error(Error::Forged));
+        }
+        let mut epoch = [0; 16];
+        getrandom::fill(&mut epoch).map_err(|_| error(Error::Io("entropy".into())))?;
+        let mut s = self.state()?;
+        let id = s.host.open(path, epoch, self.now()).map_err(error)?;
+        let epoch = s.host.epoch(id).map_err(error)?;
+        // The host allocates browser ids. This id belongs only to its peer.
+        let client = match s.host.client(id, by, self.now()) {
+            Ok(client) => client as u32,
+            Err(Error::ReadOnly) => 1,
+            Err(e) => {
+                let _ = s.host.close(id, self.now());
+                return Err(error(e));
+            }
+        };
+        s.peers.insert(
+            id,
+            Peer {
+                path: path.into(),
+                seq: 0,
+                last: None,
+            },
+        );
+        s.output.push_back(frame(
+            id,
+            Document {
+                msg: 5,
+                epoch,
+                client_id: client,
+                ..Default::default()
+            },
+        )?);
+        s.collect()?;
+        Ok(id)
+    }
+    fn close(&self, stream: u32) -> hooks::Result<()> {
+        let mut s = self.state()?;
+        s.host.close(stream, self.now()).map_err(error)?;
+        s.peers.remove(&stream);
+        s.output.retain(|f| f.stream != stream);
+        Ok(())
+    }
+    fn frame(&self, f: &Frame) -> hooks::Result<Frame> {
+        let input = Document::decode_v2(&f.payload).map_err(|_| error(Error::Invalid))?;
+        let mut s = self.state()?;
+        s.collect()?;
+        let peer = s
+            .peers
+            .get(&f.stream)
+            .ok_or_else(|| error(Error::Invalid))?;
+        if input.msg == 2 {
+            // Awareness was stamped and admitted by the authenticated host.
+            return frame(
+                f.stream,
+                Document {
+                    msg: 4,
+                    data: input.data,
+                    ..Default::default()
+                },
+            );
+        }
+        if input.msg != 1 {
+            return Err(error(Error::Invalid));
+        }
+        let message = SyncMessage::decode_v1(&input.data).map_err(|_| error(Error::Invalid))?;
+        if message.encode_v1() != input.data {
+            return Err(error(Error::Invalid));
+        }
+        let by = std::str::from_utf8(&input.actor).map_err(|_| error(Error::Invalid))?;
+        match message {
+            SyncMessage::SyncStep1(sv) => {
+                let epoch = s.host.epoch(f.stream).map_err(error)?;
+                let replies = s
+                    .host
+                    .sync_message(f.stream, epoch, by, SyncMessage::SyncStep1(sv), self.now())
+                    .map_err(error)?;
+                frame(
+                    f.stream,
+                    Document {
+                        msg: 3,
+                        data: replies[0].encode_v1(),
+                        ..Default::default()
+                    },
+                )
+            }
+            SyncMessage::SyncStep2(bytes) | SyncMessage::Update(bytes) => {
+                let fingerprint = digest(&f.payload);
+                if input.seq == 0 && peer.seq != 0 {
+                    return Err(error(Error::Forged));
+                }
+                if input.seq != 0
+                    && (input.seq < peer.seq
+                        || (input.seq == peer.seq && peer.last != Some(fingerprint)))
+                {
+                    return Err(error(Error::Forged));
+                }
+                s.host
+                    .peer_update(f.stream, by, &bytes, self.now())
+                    .map_err(error)?;
+                if input.seq != 0 {
+                    s.host
+                        .require_receipt(f.stream, self.now())
+                        .map_err(error)?;
+                    let peer = s.peers.get_mut(&f.stream).unwrap();
+                    peer.seq = input.seq;
+                    peer.last = Some(fingerprint);
+                }
+                // No save acknowledgment here: only flush/tick can issue one.
+                frame(
+                    f.stream,
+                    Document {
+                        msg: 3,
+                        data: SyncMessage::Update(bytes).encode_v1(),
+                        ..Default::default()
+                    },
+                )
+            }
+        }
+    }
+    fn flush_all(&self, _cx: &mut LockCx) -> hooks::Result<u16> {
+        let mut s = self.state()?;
+        let count = s.host.flush_all(self.now()).map_err(error)?;
+        s.collect()?;
+        Ok(count)
+    }
+    fn reconcile_all(&self, _cx: &mut LockCx, by: &Actor) -> hooks::Result<()> {
+        let mut s = self.state()?;
+        s.host
+            .reconcile_all(&actor(by)?, self.now())
+            .map_err(error)?;
+        for path in s.host.paths() {
+            s.broadcast(&path)?;
+        }
+        s.collect()
+    }
+    fn write_through(
+        &self,
+        _cx: &mut LockCx,
+        path: &str,
+        base: &Base,
+        bytes: &[u8],
+        by: &Actor,
+    ) -> Option<hooks::Result<DocumentWrite>> {
+        let mut s = match self.state() {
+            Ok(s) => s,
+            Err(e) => return Some(Err(e)),
+        };
+        Some((|| {
+            s.host.ready().map_err(error)?;
+            if !super::disk::valid_path(path) {
+                return Err(error(Error::Invalid));
+            }
+            let text = std::str::from_utf8(bytes).map_err(|_| error(Error::ReadOnly))?;
+            if bytes.len() > super::MAX_TEXT_BYTES {
+                return Err(error(Error::ReadOnly));
+            }
+            let mut temporary = None;
+            let current = if let Some(current) = s.host.current_digest(path) {
+                if base != &Base::Digest(current) {
+                    return Err(hooks::Error {
+                        code: 4,
+                        current_digest: Some(current),
+                        ..hooks::Error::unsupported()
+                    });
+                }
+                current
+            } else {
+                let current = s
+                    .host
+                    .disk
+                    .read(path)
+                    .map_err(error)?
+                    .as_deref()
+                    .map(digest);
+                let matches = match (base, current) {
+                    (Base::Absent, None) => true,
+                    (Base::Digest(expected), Some(actual)) => *expected == actual,
+                    _ => false,
+                };
+                if !matches {
+                    return Err(hooks::Error {
+                        code: 4,
+                        current_digest: current,
+                        ..hooks::Error::unsupported()
+                    });
+                }
+                let mut epoch = [0; 16];
+                getrandom::fill(&mut epoch).map_err(|_| error(Error::Io("entropy".into())))?;
+                temporary = Some(
+                    s.host
+                        .open_for_write(path, epoch, self.now())
+                        .map_err(error)?,
+                );
+                let recovered = s
+                    .host
+                    .current_digest(path)
+                    .ok_or_else(hooks::Error::unsupported)?;
+                if current.map_or(recovered != digest(b""), |d| d != recovered) {
+                    if let Some(id) = temporary {
+                        let _ = s.host.close(id, self.now());
+                    }
+                    return Err(hooks::Error {
+                        code: 4,
+                        current_digest: Some(recovered),
+                        ..hooks::Error::unsupported()
+                    });
+                }
+                recovered
+            };
+            let result = (|| {
+                let (digest, raced) = s
+                    .host
+                    .write_saved(path, current, text, &actor(by)?, self.now())
+                    .map_err(error)?
+                    .ok_or_else(hooks::Error::unsupported)?;
+                // The tool's internal stream is not a network subscriber.
+                if temporary.is_none() {
+                    s.broadcast(path)?;
+                }
+                s.collect()?;
+                Ok(DocumentWrite { digest, raced })
+            })();
+            if let Some(id) = temporary {
+                s.host.close(id, self.now()).map_err(error)?;
+            }
+            result
+        })())
+    }
+
+    fn completed_write(&self, _cx: &mut LockCx, path: &str, by: &Actor) -> hooks::Result<()> {
+        let mut s = self.state()?;
+        s.host
+            .completed_write(path, &actor(by)?, self.now())
+            .map_err(error)?;
+        s.broadcast(path)?;
+        s.collect()
+    }
+    fn gone(&self, _cx: &mut LockCx, path: &str, gone: Gone) -> hooks::Result<()> {
+        let mut s = self.state()?;
+        s.host.gone(path, gone).map_err(error)?;
+        s.collect()
+    }
+    fn tick(&self, cx: &mut LockCx) -> hooks::Result<()> {
+        let mut s = self.state()?;
+        let before: Vec<_> = s
+            .host
+            .paths()
+            .into_iter()
+            .map(|p| {
+                let d = s.host.current_digest(&p);
+                (p, d)
+            })
+            .collect();
+        s.host
+            .tick(self.now(), !cx.rewrite_pending)
+            .map_err(error)?;
+        for (path, old) in before {
+            if s.host.current_digest(&path) != old {
+                s.broadcast(&path)?;
+            }
+        }
+        s.collect()
+    }
+    fn poll(&self, cx: &mut LockCx) -> hooks::Result<Vec<Frame>> {
+        self.tick(cx)?;
+        Ok(self.state()?.output.drain(..).collect())
+    }
+    fn all_flushed(&self) -> bool {
+        self.state().is_ok_and(|s| s.host.all_flushed())
+    }
+}

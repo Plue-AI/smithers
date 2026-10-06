@@ -109,7 +109,7 @@ fn stale_document_base_is_preserved_by_the_file_rpc() {
             base: &hooks::Base,
             content: &[u8],
             actor: &hooks::Actor,
-        ) -> Option<hooks::Result<hooks::Digest>> {
+        ) -> Option<hooks::Result<hooks::DocumentWrite>> {
             assert_eq!(path, "a");
             assert_eq!(base, &hooks::Base::Absent);
             assert_eq!(content, b"new");

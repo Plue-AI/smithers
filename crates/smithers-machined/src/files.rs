@@ -58,10 +58,19 @@ impl Files {
         let documents = cx.hooks.documents.clone();
         // This hook compares against document text for an open path, and uses
         // the same confined never-rollback swap for a closed path (W15).
-        let digest = documents
+        let write = documents
             .write_through(cx, &args.path, &args.base, &args.content, &args.actor)
             .ok_or_else(Error::unsupported)??;
-        Ok(conn::structure_bytes(&[conn::field(1, digest)]))
+        let mut fields = vec![conn::field(1, write.digest)];
+        if let Some(displaced) = write.raced {
+            let mut path = (args.path.len() as u16).to_be_bytes().to_vec();
+            path.extend(args.path.as_bytes());
+            fields.push(conn::field(
+                2,
+                conn::structure_bytes(&[conn::field(1, path), conn::field(2, displaced)]),
+            ));
+        }
+        Ok(conn::structure_bytes(&fields))
     }
 }
 impl Core for Files {

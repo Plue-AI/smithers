@@ -45,17 +45,32 @@ impl Daemon {
         // Bound outstanding requests while allowing the reader to continue.
         let (tx, rx) = std::sync::mpsc::sync_channel(64);
         let output = writer.clone();
-        let responder = std::thread::spawn(move || {
-            for receipt in rx {
-                let receipt: crate::lock::Receipt<Result<Frame, ProtocolError>> = receipt;
-                let frame = match receipt.wait() {
-                    Ok(Ok(frame)) => frame,
-                    _ => break,
-                };
-                let Ok(mut socket) = output.lock() else { break };
-                if frame.write(&mut *socket).is_err() {
-                    break;
+        let lock = self.executor.lock.clone();
+        let responder = std::thread::spawn(move || loop {
+            match rx.recv_timeout(std::time::Duration::from_millis(25)) {
+                Ok(receipt) => {
+                    let receipt: crate::lock::Receipt<Result<Frame, ProtocolError>> = receipt;
+                    let frame = match receipt.wait() {
+                        Ok(Ok(frame)) => frame,
+                        _ => break,
+                    };
+                    let Ok(mut socket) = output.lock() else { break };
+                    if frame.write(&mut *socket).is_err() {
+                        break;
+                    }
                 }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => (),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+            let frames = match lock
+                .run_blocking("document_tick", |cx| cx.hooks.documents.clone().poll(cx))
+            {
+                Ok(Ok(frames)) => frames,
+                _ => break,
+            };
+            let Ok(mut socket) = output.lock() else { break };
+            if frames.iter().any(|f| f.write(&mut *socket).is_err()) {
+                break;
             }
         });
         let result = (|| loop {
