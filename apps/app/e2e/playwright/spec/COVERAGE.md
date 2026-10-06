@@ -121,7 +121,7 @@ C-COL-05 also has a passing projection for the mounted Branch Files panel:
 no changed rows before a write, and Alice's presence opens readable file content
 by keyboard and retains it across reload. Watcher faults remain fixme.
 
-| C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts) | passing UI projection (2026-10-05; isolated Chromium fixture) | T-CUT-01, T-CUT-03 |
+| C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts) | passing UI projection (2026-10-06; isolated Chromium fixture); Appendix B Cut registry/catalog regression passes | T-CUT-01, T-CUT-03 |
 | C-CUT-02 | [C-CUT-02.spec.ts](C-CUT-02.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
 | C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
