@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { J1PreconditionError, requireJ1Preconditions } from "./j1-preconditions"
 
 // Stay in the worktree: the QA lane cannot write fixtures elsewhere.
-const names = ["SMITHERS_REAL_BASE_URL", "SMITHERS_E2E_BASE_URL", "SMITHERS_J1_PRECONDITIONS", "SMITHERS_J1_FINAL_EVIDENCE", "SMITHERS_J1_REVIEW", "SMITHERS_REAL_HEADED", "SMITHERS_REAL_E2E_ARTIFACTS", "SMITHERS_REAL_E2E_HOST", "SMITHERS_REAL_E2E_BUILD_SHA", "SMITHERS_J1_ACTIVATION"]
+const names = ["SMITHERS_REAL_BASE_URL", "SMITHERS_E2E_BASE_URL", "SMITHERS_J1_PRECONDITIONS", "SMITHERS_J1_FINAL_EVIDENCE", "SMITHERS_J1_REVIEW", "SMITHERS_J1_RECORDING_REVIEW", "SMITHERS_REAL_HEADED", "SMITHERS_REAL_E2E_ARTIFACTS", "SMITHERS_REAL_E2E_HOST", "SMITHERS_REAL_E2E_BUILD_SHA", "SMITHERS_J1_ACTIVATION"]
 const run = (body: (dir: string, value: ReturnType<typeof fixture>) => void) => {
   const saved = Object.fromEntries(names.map(name => [name, process.env[name]]))
   const dir = mkdtempSync(join(process.cwd(), ".j1-precondition-test-"))
@@ -16,6 +16,7 @@ const run = (body: (dir: string, value: ReturnType<typeof fixture>) => void) => 
     process.env.SMITHERS_J1_PRECONDITIONS = join(dir, "preconditions.json")
     process.env.SMITHERS_J1_REVIEW = join(dir, "review.json")
     process.env.SMITHERS_J1_FINAL_EVIDENCE = join(dir, "final.json")
+    process.env.SMITHERS_J1_RECORDING_REVIEW = join(dir, "recording-review.json")
     process.env.SMITHERS_REAL_HEADED = "1"
     writeFileSync(process.env.SMITHERS_J1_PRECONDITIONS, JSON.stringify(value))
     body(dir, value)
@@ -50,7 +51,7 @@ test("missing human evidence cannot enable activation", () => run(() => {
   expect(requireJ1Preconditions).toThrow("precondition/human_evidence_missing")
   expect(process.env.SMITHERS_J1_ACTIVATION).toBeUndefined()
 }))
-for (const invalid of ["operator", "clock", "origin", "recording", "stage", "headless", "review"] as const) {
+for (const invalid of ["operator", "clock", "origin", "recording", "stage", "headless", "review", "recording-review"] as const) {
   test(`refuses invalid ${invalid} evidence`, () => run((_dir, value) => {
     if (invalid === "operator") value.operator.didNotBuildTickets = false
     if (invalid === "clock") value.t0 = new Date(Date.now() - 3_600_001).toISOString()
@@ -59,6 +60,7 @@ for (const invalid of ["operator", "clock", "origin", "recording", "stage", "hea
     if (invalid === "stage") value.operator.instructions = "quickstart"
     if (invalid === "headless") delete process.env.SMITHERS_REAL_HEADED
     if (invalid === "review") delete process.env.SMITHERS_J1_REVIEW
+    if (invalid === "recording-review") delete process.env.SMITHERS_J1_RECORDING_REVIEW
     writeFileSync(process.env.SMITHERS_J1_PRECONDITIONS!, JSON.stringify(value))
     expect(requireJ1Preconditions).toThrow("precondition/human_evidence_invalid")
     expect(process.env.SMITHERS_J1_ACTIVATION).toBeUndefined()
