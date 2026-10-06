@@ -226,6 +226,7 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 			return InstallIssueThread{}, err
 		}
 		issue := mythicalIssue{Number: number, Title: thread.Issue.Title, Body: thread.Issue.Body, URL: thread.Issue.HTMLURL, State: thread.Issue.State, ViaApp: thread.Issue.ViaApp != nil && string(*thread.Issue.ViaApp) != "null"}
+		issue.AppID = gitHubAppID(thread.Issue.ViaApp)
 		team, err := s.todoIssueTeamText(ctx, repositoryID, gh, issue)
 		if err != nil {
 			return InstallIssueThread{}, err
@@ -316,7 +317,17 @@ func (s *MythicalService) todoIssueWriter(ctx context.Context, repositoryID int6
 
 func (s *MythicalService) todoIssueTeamText(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
 	if issue.ViaApp {
-		return false, nil
+		api, ok := s.github.(*mythicalGitHubAPI)
+		if !ok || api.credentials == nil || issue.AppID <= 0 {
+			return false, nil
+		}
+		app, err := api.credentials.Load(ctx)
+		if err != nil {
+			return false, err
+		}
+		if issue.AppID != app.ID {
+			return false, nil
+		}
 	}
 	api, ok := s.github.(*mythicalGitHubAPI)
 	if !ok {

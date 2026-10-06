@@ -33,6 +33,7 @@ type mythicalIssue struct {
 	Author           gitHubActor
 	// ViaApp: a GitHub App created the issue for its author.
 	ViaApp bool
+	AppID  int64
 	// TextByMaintainer: the author and the last writers of the title and
 	// body are maintainer persons (issueTextByMaintainerField).
 	TextByMaintainer bool
@@ -219,10 +220,25 @@ type mythicalGitHubIssue struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// Missing or malformed App provenance has no trusted identity.
+func gitHubAppID(raw *json.RawMessage) int64 {
+	if raw == nil {
+		return 0
+	}
+	var app struct {
+		ID int64 `json:"id"`
+	}
+	if json.Unmarshal(*raw, &app) != nil {
+		return 0
+	}
+	return app.ID
+}
+
 func (i mythicalGitHubIssue) issue() mythicalIssue {
 	out := mythicalIssue{Number: i.Number, Title: i.Title, URL: i.HTMLURL, State: i.State,
 		Author: i.User, ViaApp: i.ViaApp != nil && string(*i.ViaApp) != "null",
 		TextByMaintainer: i.TextByMaintainer, PullRequest: i.PullRequest != nil, CreatedAt: i.CreatedAt}
+	out.AppID = gitHubAppID(i.ViaApp)
 	if i.Body != nil {
 		out.Body = *i.Body
 	}
