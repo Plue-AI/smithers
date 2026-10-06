@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -126,7 +127,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 				var frame liveFrame
 				require.NoError(t, json.Unmarshal(raw, &frame))
 				require.NotEqual(t, "err", frame.T, string(raw))
-				if frame.T != "snap" {
+				if frame.T != "snap" && frame.T != "delta" {
 					continue
 				}
 				var home struct {
@@ -147,6 +148,12 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 						wiki["detail"] = "Page review failed"
 					}
 					expected = append(expected, wiki)
+				}
+				// A shared hub may send its previous snapshot first. The live
+				// contract refreshes on hints or polling, so wait for the real
+				// terminal update rather than treating cached data as completion.
+				if !reflect.DeepEqual(expected, home.Runs) {
+					continue
 				}
 				require.Equal(t, expected, home.Runs)
 				break
