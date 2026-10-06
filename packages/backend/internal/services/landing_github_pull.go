@@ -413,8 +413,9 @@ func defaultPushLandingCommit(ctx context.Context, sourceURL, sourceRef, commitI
 }
 
 type landingGitHubAPI struct {
-	client  *http.Client
-	baseURL func() string
+	maxResponseBytes int64 // Zero uses the repository metadata limit.
+	client           *http.Client
+	baseURL          func() string
 }
 
 func (a *landingGitHubAPI) request(ctx context.Context, token, method, path string, body any, out any, refusal ...*GitHubRefusal) (int, error) {
@@ -435,9 +436,11 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(a.baseURL(), "/")+path, reader)
 	if err != nil {
-		return 0, nil, pkgerrors.Internal("build GitHub request").WithCause(err)
+		return 0, nil, GitHubRequestFailure(ctx, "GitHub request URL is invalid")
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	if method == http.MethodGet && etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}
@@ -456,8 +459,12 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 		return resp.StatusCode, resp.Header.Clone(), limited
 	}
 
-	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, githubRepoMetadataMaxResponseBytes+1))
-	if readErr != nil || int64(len(raw)) > githubRepoMetadataMaxResponseBytes {
+	limit := a.maxResponseBytes
+	if limit == 0 {
+		limit = githubRepoMetadataMaxResponseBytes
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if readErr != nil || int64(len(raw)) > limit {
 		return resp.StatusCode, resp.Header.Clone(), GitHubRequestFailure(ctx, "GitHub returned an incomplete response")
 	}
 	if resp.StatusCode >= 400 && len(refusal) > 0 && refusal[0] != nil {

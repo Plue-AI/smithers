@@ -155,9 +155,11 @@ func TestGitHubRateLimitDirectReaders(t *testing.T) {
 			return e
 		}},
 		{"installation list", func() error { _, e := list.ListInstallationRepositories(t.Context(), 42, url.Values{}); return e }},
-		{"manifest owner", func() error { return manifest.request(t.Context(), http.MethodGet, "/users/acme", "", nil) }},
+		{"manifest owner", func() error {
+			return requestGitHubApp(t.Context(), manifest.client, manifest.apiBaseURL, "", http.MethodGet, "/users/acme", nil)
+		}},
 		{"manifest conversion", func() error {
-			return manifest.request(t.Context(), http.MethodPost, "/app-manifests/secret/conversions", "", nil)
+			return requestGitHubApp(t.Context(), manifest.client, manifest.apiBaseURL, "", http.MethodPost, "/app-manifests/secret/conversions", nil)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

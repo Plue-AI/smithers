@@ -24,9 +24,9 @@ func TestGitHubAppUnknownOwnerIsUserError(t *testing.T) {
 	var account struct {
 		Type string `json:"type"`
 	}
-	require.NoError(t, service.request(context.Background(), http.MethodGet, "/users/acme", "", &account))
+	require.NoError(t, requestGitHubApp(context.Background(), service.client, service.apiBaseURL, "", http.MethodGet, "/users/acme", &account))
 	require.Equal(t, "User", account.Type)
-	err = service.request(context.Background(), http.MethodGet, "/users/missing-owner", "", &account)
+	err = requestGitHubApp(context.Background(), service.client, service.apiBaseURL, "", http.MethodGet, "/users/missing-owner", &account)
 	var api *pkgerrors.APIError
 	require.ErrorAs(t, err, &api)
 	require.Equal(t, http.StatusBadRequest, api.Status)
@@ -36,12 +36,12 @@ func TestGitHubAppUnknownOwnerIsUserError(t *testing.T) {
 	require.NoError(t, err)
 	defer outage.Close()
 	unavailable := NewGitHubAppManifestService(nil, nil, outage.URL, nil)
-	err = unavailable.request(context.Background(), http.MethodGet, "/users/acme", "", &account)
+	err = requestGitHubApp(context.Background(), unavailable.client, unavailable.apiBaseURL, "", http.MethodGet, "/users/acme", &account)
 	require.ErrorAs(t, err, &api)
 	require.Equal(t, http.StatusBadGateway, api.Status)
 	// An unavailable GitHub connection remains an infrastructure failure.
 	fake.Close()
-	err = service.request(context.Background(), http.MethodGet, "/users/acme", "", &account)
+	err = requestGitHubApp(context.Background(), service.client, service.apiBaseURL, "", http.MethodGet, "/users/acme", &account)
 	require.ErrorAs(t, err, &api)
 	require.Equal(t, http.StatusBadGateway, api.Status)
 }

@@ -376,7 +376,7 @@ func (e *EnvGitHubAppCredentials) Load(ctx context.Context) (GitHubAppCredential
 			} `json:"owner"`
 		}
 		api := os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL")
-		if err := NewGitHubAppManifestService(nil, nil, api, nil).request(ctx, http.MethodGet, "/app", jwt, &identity); err != nil {
+		if err := requestGitHubApp(ctx, &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, api, jwt, http.MethodGet, "/app", &identity); err != nil {
 			return GitHubAppCredentials{}, err
 		}
 		if identity.ID != c.ID || !gitHubAppComponent.MatchString(identity.Slug) || !gitHubAppComponent.MatchString(identity.Owner.Login) || (identity.Owner.Type != "User" && identity.Owner.Type != "Organization") {

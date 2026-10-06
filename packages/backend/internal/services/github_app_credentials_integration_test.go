@@ -380,6 +380,7 @@ func TestGitHubAppManifestHTTPFailuresNeverLeakCredentialsOrFollowRedirects(t *t
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Empty(t, r.Header.Get("Authorization"), "manifest conversion is unauthenticated")
 				w.Header().Set("Location", target.URL)
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.body))
@@ -387,7 +388,7 @@ func TestGitHubAppManifestHTTPFailuresNeverLeakCredentialsOrFollowRedirects(t *t
 			defer server.Close()
 			service := NewGitHubAppManifestService(nil, nil, server.URL, nil)
 			var output map[string]any
-			err := service.request(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), http.MethodPost, "/app-manifests/code/conversions", "", &output)
+			err := requestGitHubApp(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), service.client, service.apiBaseURL, "", http.MethodPost, "/app-manifests/code/conversions", &output)
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), "raw-sensitive-upstream-value")
 		})
@@ -397,7 +398,7 @@ func TestGitHubAppManifestHTTPFailuresNeverLeakCredentialsOrFollowRedirects(t *t
 	cancel()
 	service := NewGitHubAppManifestService(nil, nil, target.URL, nil)
 	var output any
-	require.Error(t, service.request(canceled, http.MethodGet, "/app", "", &output))
+	require.Error(t, requestGitHubApp(canceled, service.client, service.apiBaseURL, "", http.MethodGet, "/app", &output))
 }
 
 func TestGitHubAppManifestHTTPBodyLimitAndInterruptedResponse(t *testing.T) {
@@ -421,7 +422,7 @@ func TestGitHubAppManifestHTTPBodyLimitAndInterruptedResponse(t *testing.T) {
 			defer server.Close()
 			service := NewGitHubAppManifestService(nil, nil, server.URL, nil)
 			var output any
-			err := service.request(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), http.MethodGet, "/app", "", &output)
+			err := requestGitHubApp(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), service.client, service.apiBaseURL, "", http.MethodGet, "/app", &output)
 			if tc.accepted {
 				require.NoError(t, err)
 			} else {
@@ -542,7 +543,7 @@ func TestGitHubAppManifestHooklessConversionSealsGeneratedWebhookSecretPostgres(
 func TestGitHubAppManifestMalformedAPIURLDoesNotLeakConversionCode(t *testing.T) {
 	service := NewGitHubAppManifestService(nil, nil, "%malformed-url", nil)
 	var output any
-	err := service.request(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), http.MethodPost, "/app-manifests/secret-conversion-code/conversions", "", &output)
+	err := requestGitHubApp(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), service.client, service.apiBaseURL, "", http.MethodPost, "/app-manifests/secret-conversion-code/conversions", &output)
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "secret-conversion-code")
 	var failure *pkgerrors.APIError

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -255,9 +256,32 @@ func (h *GitHubAppSetupHandler) Begin(w http.ResponseWriter, r *http.Request) {
 		writeInstallAPIError(w, pkgerrors.BadRequest("invalid setup body"))
 		return
 	}
-	input, err := services.ValidateInstallSetupBody("app_manifest", raw)
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		writeInstallAPIError(w, pkgerrors.BadRequest("invalid setup body"))
+		return
+	}
+	manual := false
+	for _, field := range []string{"app_id", "slug", "pem", "client_id", "client_secret", "webhook_secret", "callbacks_confirmed"} {
+		if _, ok := fields[field]; ok {
+			manual = true
+		}
+	}
+	var manualInput services.GitHubAppManualRequest
+	var input services.InstallSetupInput
+	if manual {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		err = decoder.Decode(&manualInput)
+	} else {
+		input, err = services.ValidateInstallSetupBody("app_manifest", raw)
+	}
 	if err != nil {
-		WriteInstallSetupError(w, r, err)
+		if manual {
+			writeInstallAPIError(w, pkgerrors.BadRequest("invalid setup body"))
+		} else {
+			WriteInstallSetupError(w, r, err)
+		}
 		return
 	}
 	if h.Setup != nil {
@@ -284,9 +308,26 @@ func (h *GitHubAppSetupHandler) Begin(w http.ResponseWriter, r *http.Request) {
 		session = info.SessionHash
 	}
 	ctx := services.WithGitHubAppSetupSession(r.Context(), session, origin)
-	start, err := h.Service.Begin(ctx, req)
+	var start services.GitHubAppManifestStart
+	if manual {
+		service, ok := h.Service.(interface {
+			ConfigureManual(context.Context, services.GitHubAppManualRequest) (services.GitHubAppManifestStart, error)
+		})
+		if !ok {
+			writeInstallAPIError(w, pkgerrors.Internal("manual App setup unavailable"))
+			return
+		}
+		start, err = service.ConfigureManual(ctx, manualInput)
+	} else {
+		start, err = h.Service.Begin(ctx, req)
+	}
 	if err != nil {
 		WriteInstallSetupError(w, r, err)
+		return
+	}
+	if manual {
+		w.Header().Set("Cache-Control", "no-store")
+		pkgerrors.WriteJSON(w, http.StatusOK, map[string]string{"install_url": start.InstallURL})
 		return
 	}
 	if start.State != "" {

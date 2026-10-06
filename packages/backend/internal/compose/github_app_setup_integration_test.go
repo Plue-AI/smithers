@@ -517,3 +517,154 @@ func TestGitHubFetchedInstallWebhookBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestGitHubAppManualFallbackThroughInstallRouterPostgres(t *testing.T) {
+	for _, origin := range []string{"http://localhost:4000", "http://lan-a:4000"} {
+		t.Run(origin, func(t *testing.T) {
+			pool, _ := postgresfixture.NewProductDatabase(t)
+			q := db.New(pool)
+			codec, err := webhook.NewSecretCodec("manual-fallback-install-key")
+			require.NoError(t, err)
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			require.NoError(t, err)
+			privateKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+			fake, err := githubfake.New(githubfake.Config{AppID: 42, Slug: "manual-app", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: privateKey})
+			require.NoError(t, err)
+			t.Cleanup(fake.Close)
+			origins := []string{"http://localhost:4000", "http://lan-a:4000"}
+			store := services.NewGitHubAppCredentialStore(pool, codec)
+			sessions := &services.InstallSetupSessions{Pool: pool}
+			digest := sha256.Sum256([]byte("manual-token"))
+			value, _ := json.Marshal(hex.EncodeToString(digest[:]))
+			require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "setup.token", Value: value}))
+			session, err := sessions.Exchange(t.Context(), "manual-token")
+			require.NoError(t, err)
+			h := &routes.GitHubAppSetupHandler{Service: services.NewGitHubAppManifestService(pool, store, fake.URL, middleware.FixedOrigins(origins...)), Store: store, Owners: q, Sessions: sessions, Origins: middleware.FixedOrigins(origins...)}
+			cfg := testConfigAllFlagsOn()
+			cfg.Auth.Mode = "selfhost"
+			cfg.Server.PublicURL = origins[0]
+			cfg.Server.AllowedOrigins = origins
+			router := githubAppSetupComposeRouter(cfg, pool, h)
+			input := map[string]any{"app_id": 42, "slug": "manual-app", "pem": privateKey, "client_id": "client", "client_secret": "manual-client-secret", "webhook_secret": "manual-webhook-secret", "callbacks_confirmed": []string{"http://localhost:4000/api/auth/github/callback", "http://lan-a:4000/api/auth/github/callback"}}
+			post := func(body map[string]any, path string) *httptest.ResponseRecorder {
+				raw, err := json.Marshal(body)
+				require.NoError(t, err)
+				req := httptest.NewRequest("POST", origin+path, bytes.NewReader(raw))
+				req.Header.Set("Origin", origin)
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-CSRF-Token", "csrf")
+				req.AddCookie(&http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: session})
+				req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				require.NotContains(t, w.Body.String(), privateKey)
+				require.NotContains(t, w.Body.String(), "manual-client-secret")
+				require.NotContains(t, w.Body.String(), "manual-webhook-secret")
+				return w
+			}
+			require.Equal(t, 409, post(input, "/api/install/setup/app").Code)
+			require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "setup.step.address", Value: []byte(`{"status":"done"}`)}))
+			for _, field := range []string{"app_id", "slug", "pem", "client_id", "client_secret", "webhook_secret", "callbacks_confirmed"} {
+				saved := input[field]
+				delete(input, field)
+				w := post(input, "/api/install/setup/app")
+				require.Equal(t, 400, w.Code, w.Body.String())
+				require.Contains(t, w.Body.String(), field)
+				input[field] = saved
+				_, err := store.Load(t.Context())
+				require.ErrorIs(t, err, services.ErrGitHubAppNotConfigured)
+			}
+			input["callbacks_confirmed"] = []string{"http://localhost:4000/api/auth/github/callback"}
+			require.Equal(t, 400, post(input, "/api/install/setup/app").Code)
+			input["callbacks_confirmed"] = []string{"http://lan-a:4000/api/auth/github/callback"}
+			require.Equal(t, 400, post(input, "/api/install/setup/app").Code)
+			input["callbacks_confirmed"] = []string{"http://localhost:4000/api/auth/github/callback", "http://lan-a:4000/api/auth/github/callback"}
+			input["slug"] = "foreign-app"
+			require.Equal(t, 400, post(input, "/api/install/setup/app").Code)
+			input["slug"] = "manual-app"
+			require.Equal(t, 404, post(input, "/api/install/setup/github_app").Code)
+			w := post(input, "/api/install/setup/app")
+			require.Equal(t, 200, w.Code, w.Body.String())
+			restarted := services.NewGitHubAppCredentialStore(pool, codec)
+			c, err := restarted.Load(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, "manual-app", c.Slug)
+			require.EqualValues(t, 42, c.ID)
+			for _, key := range []string{"setup.step.app_manifest", "setup.projection.app_manifest"} {
+				row, err := q.GetInstallSetting(t.Context(), key)
+				require.NoError(t, err)
+				require.JSONEq(t, `{"status":"done"}`, string(row.Value))
+			}
+			require.Equal(t, 409, post(input, "/api/install/setup/app").Code)
+		})
+	}
+}
+
+func TestPlueEnvAppCompositionValidatesAtFirstTokenCaller(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	privateKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	fake, err := githubfake.New(githubfake.Config{AppID: 42, Slug: "canonical-plue", OwnerLogin: "acme", OwnerKind: "org", PrivateKeyPEM: privateKey, Installations: []githubfake.Installation{{ID: 914401, Repositories: []githubfake.Repository{{ID: 1001, FullName: "acme/app"}}}}})
+	require.NoError(t, err)
+	t.Cleanup(fake.Close)
+	var identities atomic.Int32
+	status := http.StatusServiceUnavailable
+	identityOverride := ""
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app" {
+			identities.Add(1)
+			if status != 200 {
+				w.WriteHeader(status)
+				return
+			}
+			if identityOverride != "" {
+				_, _ = w.Write([]byte(identityOverride))
+				return
+			}
+		}
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, fake.URL+r.URL.RequestURI(), r.Body)
+		require.NoError(t, err)
+		req.Header = r.Header.Clone()
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		w.WriteHeader(response.StatusCode)
+		_, _ = io.Copy(w, response.Body)
+	}))
+	t.Cleanup(proxy.Close)
+	t.Setenv("SMITHERS_GITHUB_APP_ID", "42")
+	t.Setenv("SMITHERS_GITHUB_APP_PRIVATE_KEY", privateKey)
+	t.Setenv("SMITHERS_GITHUB_APP_SLUG", "poisoned")
+	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", proxy.URL)
+	source, err := selectGitHubAppCredentials(false, true, nil)
+	require.NoError(t, err)
+	caller := services.NewRepoConnectionService(nil, source)
+	require.Zero(t, identities.Load(), "Plue composition must boot with GitHub unavailable")
+	scope := services.GitHubTokenScope{RepositoryIDs: []int64{1001}, Permissions: map[string]string{"contents": "read"}}
+	_, err = caller.CreateGitHubInstallationToken(t.Context(), 914401, scope)
+	require.Error(t, err)
+	require.Empty(t, fake.Writes())
+	status = 200
+	for _, invalid := range []string{`{"id":99,"slug":"canonical-plue","owner":{"login":"acme","type":"Organization"}}`, `{"id":42,"owner":{"login":"acme","type":"Organization"}}`} {
+		identityOverride = invalid
+		_, err = caller.CreateGitHubInstallationToken(t.Context(), 914401, scope)
+		require.Error(t, err)
+		require.Empty(t, fake.Writes())
+	}
+	identityOverride = ""
+	token, err := caller.CreateGitHubInstallationToken(t.Context(), 914401, scope)
+	require.NoError(t, err)
+	require.NotEmpty(t, token.Token)
+	slug, err := source.Slug(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "canonical-plue", slug)
+	_, err = caller.CreateGitHubInstallationToken(t.Context(), 914401, scope)
+	require.NoError(t, err)
+	require.EqualValues(t, 4, identities.Load())
+	restarted, err := selectGitHubAppCredentials(false, true, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 4, identities.Load())
+	_, err = services.NewRepoConnectionService(nil, restarted).CreateGitHubInstallationToken(t.Context(), 914401, scope)
+	require.NoError(t, err)
+	require.EqualValues(t, 5, identities.Load())
+}

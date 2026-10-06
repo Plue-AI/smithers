@@ -8,8 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -133,7 +131,7 @@ func BuildGitHubAppManifest(ownerLogin, ownerKind string, origins []string, stat
 	var hook *GitHubAppHookAttributes
 	for _, origin := range callbacks {
 		if publicHTTPSOrigin(origin) {
-			hook = &GitHubAppHookAttributes{URL: origin + "/webhooks/github", Active: true}
+			hook = &GitHubAppHookAttributes{URL: origin + "/webhooks/github", Active: false}
 			break
 		}
 	}
@@ -260,7 +258,7 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 		if !gitHubAppComponent.MatchString(req.OwnerLogin) {
 			return GitHubAppManifestStart{}, pkgerrors.BadRequest("invalid GitHub owner")
 		}
-		if err := s.request(ctx, http.MethodGet, "/users/"+url.PathEscape(req.OwnerLogin), "", &account); err != nil {
+		if err := requestGitHubApp(ctx, s.client, s.apiBaseURL, "", http.MethodGet, "/users/"+url.PathEscape(req.OwnerLogin), &account); err != nil {
 			return GitHubAppManifestStart{}, err
 		}
 		switch account.Type {
@@ -458,7 +456,7 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 			Type  string `json:"type"`
 		} `json:"owner"`
 	}
-	if err = s.request(ctx, http.MethodPost, "/app-manifests/"+url.PathEscape(code)+"/conversions", "", &converted); err != nil {
+	if err = requestGitHubApp(ctx, s.client, s.apiBaseURL, "", http.MethodPost, "/app-manifests/"+url.PathEscape(code)+"/conversions", &converted); err != nil {
 		return "", err
 	}
 	var kind string
@@ -521,41 +519,6 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	}
 	store.q = db.New(conn)
 	return store.InstallURL(ctx)
-}
-
-func (s *GitHubAppManifestService) request(ctx context.Context, method, path, token string, output any) error {
-	req, err := http.NewRequestWithContext(ctx, method, s.apiBaseURL+path, nil)
-	if err != nil {
-		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub App request failed")
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub App request failed")
-	}
-	defer resp.Body.Close()
-	if limited := GitHubRateLimitError(resp.StatusCode, resp.Header, setupNow(s.Now)); limited != nil {
-		return limited
-	}
-
-	if resp.StatusCode == http.StatusNotFound && method == http.MethodGet && strings.HasPrefix(path, "/users/") {
-		return pkgerrors.BadRequest("GitHub owner not found")
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, fmt.Sprintf("GitHub App request failed (%d)", resp.StatusCode))
-	}
-	response, err := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
-	if err != nil || len(response) > 4<<20 {
-		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "invalid GitHub App response")
-	}
-	if err = json.Unmarshal(response, output); err != nil {
-		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "invalid GitHub App response")
-	}
-	return nil
 }
 
 // ResumeInstallation never extends or replays conversion state. The repository
