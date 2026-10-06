@@ -1,5 +1,7 @@
 # Spec UI coverage
 
+T-APP-10 wave 2 contract coverage: [Branch live](../branch-live.spec.ts) exercises the production `/branch T2` door with captured sleeping facts, durable burst and changed-file wire payloads, Files tab selection without mutation, missing optional streams, and the authorized Fork binding. [Branch tree](../branch-navigation.spec.ts) exercises live presence from `branch:<machine-id>` and persisted navigation. These are test-only HTTP/WebSocket contracts; C-J3-01/C-J3-03/C-J3-09/C-J7-03/C-J10-04 and the legacy renderer cutover remain pending their composed providers and reference-host receipts.
+
 These hermetic UI scenarios do not replace reference-host qualification or check receipts.
 Fixmes await the seeded DesignWorld and complete journey controls; standalone card components are insufficient.
 

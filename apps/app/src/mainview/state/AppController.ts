@@ -1223,7 +1223,7 @@ export const createAppController = (
     withToast
   }))
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))
-  const bookmarksSeam = actors.pair(seamCtx, (context) => createBranchNavigationSeam(context, design))
+  const bookmarksSeam = actors.pair(seamCtx, (context) => createBranchNavigationSeam(context, design, { live: services.live, onDispose: ctx.onDispose }))
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
   const branchFileOptions = services.branchOptions ?? (installHost ? {
     ready: () => true,

@@ -8,11 +8,18 @@ test("/branches mounts the served tree inline and preserves its view on reload",
     { name: "retry", kind: "scratch", state: "awake", machine: { id: "b1" }, forked_from: { ref: "main" } },
     { name: "nested", kind: "scratch", state: "asleep", machine: { id: "b2" }, forked_from: { ref: "retry" } }
   ] }))
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub" || frame.topic !== "branch:b1") return
+    socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data: { presence: [{ actor: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 } }] } }))
+  }))
   await page.goto("/")
   await say(page, "/branches")
   const tree = page.getByRole("navigation", { name: "Branches", exact: true })
   await expect(tree).toBeVisible()
   await expect(tree.getByRole("button", { name: "Open retry", exact: true })).toBeVisible()
+  await expect(tree.locator('[data-node="retry"]').getByRole("img", { name: "Ben", exact: true })).toBeVisible()
   await expect(tree.locator('[data-node="nested"]').locator("..")).toHaveAttribute("data-depth", "2")
   await expect(page.locator('.smithers-card[data-kind="branches"]')).toHaveCount(0)
   await tree.locator('[data-node="earlier"]').press("Enter")
