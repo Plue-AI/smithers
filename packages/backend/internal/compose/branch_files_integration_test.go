@@ -34,10 +34,37 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	if !r.setupSource() {
 		return
 	}
+	// An authenticated install member still needs repository read authority.
+	ben, err := r.member("ben", 8, "write")
+	require.NoError(t, err)
+	_, err = r.expectAs(ben, "GET", "/api/branches/main/files/JOURNEY.md", "", 200)
+	require.NoError(t, err)
+	_, err = r.expect("DELETE", "/api/members/ben", "", 204)
+	require.NoError(t, err)
+	denied, err := r.expectAs(ben, "GET", "/api/branches/main/files/JOURNEY.md", "", 401)
+	require.NoError(t, err)
+	require.NotContains(t, string(denied), "Add a greeting")
 	creates, live := len(r.compute.Creates()), len(r.compute.Live())
 	var before, queuedBefore int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM workspaces`).Scan(&before))
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&queuedBefore))
+	// The app-agent door must produce the same mirrored File card while no
+	// machine exists, not merely expose bytes at an otherwise unused route.
+	answer, frames, terminal, err := r.ask("", "What is in JOURNEY.md? Show the file.")
+	require.NoError(t, err)
+	require.True(t, terminal)
+	require.Contains(t, answer, "Add a greeting to JOURNEY.md")
+	fileRead, fileCard := false, false
+	for _, frame := range frames {
+		fileRead = fileRead || frame.Type == "call.settled" && frame.Name == "files.read"
+		if frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" {
+			require.Equal(t, "Add a greeting to JOURNEY.md\n", frame.Card.Payload.Content)
+			require.Equal(t, r.mainCommit, frame.Card.Payload.ReadAt.CommitID)
+			fileCard = true
+		}
+	}
+	require.True(t, fileRead, "the registered files.read flow must settle")
+	require.True(t, fileCard, "the answer must include a mirrored File card")
 	for _, item := range []struct{ path, text string }{
 		{"JOURNEY.md", "Add a greeting to JOURNEY.md\n"},
 		{".smithers/machine.json", machine},
@@ -74,6 +101,16 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	empty, err := cookiejar.New(nil)
 	require.NoError(t, err)
 	_, err = r.expectAs(empty, "GET", "/api/branches/main/files/JOURNEY.md", "", 401)
+	require.NoError(t, err)
+	// Retained mirror bytes alone are insufficient when Source ready is lost.
+	var sourceStep []byte
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT value FROM install_settings WHERE key = 'setup.step.source'`).Scan(&sourceStep))
+	_, err = r.pool.Exec(r.ctx, `DELETE FROM install_settings WHERE key = 'setup.step.source'`)
+	require.NoError(t, err)
+	body, err = r.expect("GET", "/api/branches/main/files/JOURNEY.md", "", 503)
+	require.NoError(t, err)
+	require.NotContains(t, string(body), "Add a greeting")
+	_, err = r.pool.Exec(r.ctx, `INSERT INTO install_settings (key, value) VALUES ('setup.step.source', $1)`, sourceStep)
 	require.NoError(t, err)
 	// With source authority removed, a previously readable path gives no bytes.
 	_, err = r.pool.Exec(r.ctx, `DELETE FROM install_settings WHERE key = 'setup.source.repository'`)
