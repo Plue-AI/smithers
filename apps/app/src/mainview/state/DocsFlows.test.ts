@@ -26,7 +26,6 @@ const setup = async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, {
     fetchImpl: async () => new Response("{}", { status: 200 }),
-    docsCatalogAvailable: () => true,
     docs: () => DOCS
   })
   return { store, controller }
@@ -68,7 +67,7 @@ describe("docs", () => {
 
   test("an anchor survives slash and typed button dispatch", async () => {
     const { store, controller } = await setup()
-    await controller.runCommandForResult("docs", "quickstart#open-the-command-list")
+    await controller.runCommandForResult("docs", "#open-the-command-list")
     expect(store.collections.cards.get("docs-quickstart")?.payload).toMatchObject({ anchor: "open-the-command-list" })
     await controller.commands.submit({ name: "docs", payload: { page: "flows#find-a-command" }, actor: "user" })
     expect(store.collections.cards.get("docs-flows")?.payload).toMatchObject({ anchor: "find-a-command" })
@@ -76,7 +75,7 @@ describe("docs", () => {
 
   test("the absent catalog hides and refuses every door", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const controller = createAppController(store, silentAgent, { docs: () => DOCS })
+    const controller = createAppController(store, silentAgent, { docs: () => DOCS, docsCatalogAvailable: () => false })
     expect(visible(controller.commands.all()).map(row => row.name)).not.toContain("docs")
     expect((await controller.runCommandForResult("docs")).status).toBe("failed")
     expect((await controller.commands.runForAgent("docs.read", "quickstart")).status).toBe("failed")
@@ -95,6 +94,17 @@ describe("docs.read", () => {
       summary: last.summary,
       markdown: last.markdown
     })
+    expect(store.collections.cards.size).toBe(0)
+  })
+
+  test("slash and typed button reads return the same Markdown as the agent", async () => {
+    const { store, controller } = await setup()
+    const slash = await controller.commands.run("docs.read", first.slug)
+    const button = await controller.commands.submit({ name: "docs.read", payload: { page: first.slug }, actor: "user" })
+    const agent = await controller.commands.runForAgent("docs.read", first.slug)
+    for (const result of [slash, button, agent]) {
+      expect(result).toMatchObject({ status: "executed", value: JSON.stringify({ title: first.title, summary: first.summary, markdown: first.markdown }) })
+    }
     expect(store.collections.cards.size).toBe(0)
   })
 
@@ -118,6 +128,7 @@ describe("the docs doors", () => {
     expect(listed).not.toContain("docs.read")
     for (const name of ["docs", "docs.read"]) {
       const entry = controller.commands.entries().find((candidate) => candidate.declaredName === name)!
+      expect(entry.metadata).toMatchObject({ visibility: name === "docs" ? "core" : "hidden", minimumRole: "member", agent: "run" })
       expect({ name, invocable: modelInvocable(entry), disclosed: disclosedToAgent(entry.metadata) })
         .toEqual({ name, invocable: true, disclosed: true })
     }
@@ -125,9 +136,9 @@ describe("the docs doors", () => {
   })
 })
 
-test("HTTPS docs target refuses missing content and anchor", async () => {
+test("HTTPS docs target resolves the shipped heading and refuses missing pages", async () => {
   const { controller } = await setup()
-  expect(controller.docsTargetAvailable("quickstart#put-https-in-front")).toBe(false)
+  expect(controller.docsTargetAvailable("quickstart#put-https-in-front")).toBe(true)
   expect(controller.docsTargetAvailable("quickstart#open-the-command-list")).toBe(true)
   expect(controller.docsTargetAvailable("missing")).toBe(false)
 })

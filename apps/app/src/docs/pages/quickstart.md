@@ -18,3 +18,9 @@ See the [install page](https://smithers.sh/docs/installation/).
 ## Open the wiki in Obsidian
 
 In Settings, set **Obsidian folder** to a folder on the install’s Mac, then open that folder in Obsidian. Folder edits become wiki revisions; wiki edits return to the folder.
+
+## Put HTTPS in front
+
+Set the install’s address in Settings to its HTTPS address. On the install’s Mac, `tailscale serve http://localhost:4000` can serve Smithers over HTTPS to your team on your tailnet. Use the HTTPS address it prints.
+
+Open that address in your browser. Browser notifications need HTTPS.

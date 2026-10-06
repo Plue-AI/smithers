@@ -25,6 +25,10 @@ const lastUserMessage = (request: StartAgentTurnRequest): string => {
 }
 
 export const stubReply = (request: StartAgentTurnRequest): string => {
+  if (/^how do i put https in front\?$/i.test(lastUserMessage(request).trim())) {
+    const output = request.messages.find(message => "type" in message && message.type === "function_call_output")
+    if (output && "output" in output) return `docs.read quickstart: ${output.output}`
+  }
   return `stub: ${lastUserMessage(request)}`
 }
 
@@ -37,7 +41,8 @@ const STUB_TOOL = /^stub-tool (\S+)(?: ([\s\S]+))?$/
 
 const toolCall = (request: StartAgentTurnRequest): AgentTurnFrame | undefined => {
   if (request.messages.some((message) => "type" in message && message.type === "function_call_output")) return undefined
-  const match = STUB_TOOL.exec(lastUserMessage(request).trim())
+  const text = lastUserMessage(request).trim()
+  const match = STUB_TOOL.exec(/^how do i put https in front\?$/i.test(text) ? "stub-tool docs.read quickstart" : text)
   if (match === null) return undefined
   const [, name, args] = match
   return { runId: request.runId, type: "tool_call", call_id: `stub-call-${request.runId}`, name: "commands",

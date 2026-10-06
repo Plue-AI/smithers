@@ -90,7 +90,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts) | fixme-before-implementation | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
-| C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts) | fixme-before-implementation | T-APP-20 |
+| C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts) | passing Chromium: bundled pages, anchors, links, fallback/reload, deterministic agent docs.read | T-APP-20 |
 | C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | fixme-before-implementation | T-APP-21 |
 | C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
 
@@ -222,7 +222,7 @@ Transport, memory, signing, co-editing and remote-session qualification require 
 | --- | --- | --- | --- |
 | A-CMD-K | [A-CMD-K.spec.ts](A-CMD-K.spec.ts) | passing | T-APP-02 |
 | A-HELP | [A-HELP.spec.ts](A-HELP.spec.ts) | passing | T-CAT-01 |
-| A-DOCS | [A-DOCS.spec.ts](A-DOCS.spec.ts) | fixme-before-implementation | T-APP-20 |
+| A-DOCS | [A-DOCS.spec.ts](A-DOCS.spec.ts) | passing Chromium: /docs and keyboard toc navigation | T-APP-20 |
 | A-STOP | [A-STOP.spec.ts](A-STOP.spec.ts) | passing | T-APP-02 |
 | A-SEARCH | [A-SEARCH.spec.ts](A-SEARCH.spec.ts) | passing | T-APP-02 |
 | A-STACK | [A-STACK.spec.ts](A-STACK.spec.ts) | fixme-before-implementation | T-APP-01 |

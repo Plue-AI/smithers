@@ -15,7 +15,8 @@ export const docsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({
     name: "docs",
     summary: "Read the docs in the app",
-    args: "[page]",
+    args: "[page][#anchor]",
+    visibility: "core", group: "chat", actors: ["person", "app_agent"], minimumRole: "member", agent: "run",
     hidden: !actions.docsAvailable(),
     input: Schema.Struct({ page: Schema.optional(Schema.String) }),
     handler: ({ page }) => actions.openDocsPage(page)
@@ -24,6 +25,7 @@ export const docsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     name: "docs.read",
     summary: "Read a docs page's title, summary and Markdown",
     args: "<page>",
+    visibility: "hidden", group: "chat", actors: ["person", "app_agent"], minimumRole: "member", agent: "run",
     hidden: true,
     discloseToAgent: actions.docsAvailable(),
     input: Schema.Struct({ page: Schema.String }),

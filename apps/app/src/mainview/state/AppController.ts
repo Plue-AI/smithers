@@ -739,7 +739,7 @@ export interface AppServices {
    * files read from disk (src/docs/DiskPages.ts).
    */
   readonly docs?: () => Docs
-  /** T-CAT-01 composition gate. No production provider exists yet. */
+  /** Optional host override; bundled docs are available without a backend provider. */
   readonly docsCatalogAvailable?: () => boolean
   readonly debugApiGates?: () => DebugApiGates
   readonly openApi?: () => Promise<OpenApiDocument>
@@ -1278,7 +1278,7 @@ export const createAppController = (
     return { value: "Requested" }
   }
   const { docsTargetAvailable, docsAvailable, openDocsPage, readDocsPage } = actors.pair(ctx, (context) =>
-    createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => false) }))
+    createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => true) }))
 
   const { askWorldDelete } = actors.pair(ctx, (_context, select) => ({
     askWorldDelete: (id: string): string | void => {
