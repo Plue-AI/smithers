@@ -11,3 +11,7 @@ similar = "=2.7.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "=1.1.4", features = ["fs", "process", "rand"] }
+
+[dev-dependencies]
+base64 = "0.22"
+serde_json = "1"

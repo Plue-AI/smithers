@@ -1,4 +1,4 @@
-use smithers_document_component::{
+use smithers_machined::doc::{
     authors, core,
     disk::{Disk, Displaced, Recovery},
     gone::Gone,
@@ -777,7 +777,7 @@ fn insertions_at_replacement_edges_merge_but_inside_deleted_lines_conflict() {
 
 #[test]
 fn ordinary_and_sticky_permissions_are_preserved_and_set_id_modes_refuse() {
-    use smithers_document_component::disk::saved_mode;
+    use smithers_machined::doc::disk::saved_mode;
     assert_eq!(saved_mode(0o100664), Ok(0o664));
     assert_eq!(saved_mode(0o101644), Ok(0o1644));
     for mode in [0o104644, 0o102644, 0o106644] {

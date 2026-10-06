@@ -808,6 +808,9 @@ jobs:
           "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
           "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
+      - name: "Daemon document component tests"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "cargo test --locked -p smithers-machined --test documents && cargo build --locked -p smithers-machined --example document_interop && YJS_MODULE=../../../node_modules/.pnpm/yjs@13.6.32/node_modules/yjs DOCUMENT_INTEROP_BIN=target/debug/examples/document_interop node crates/smithers-machined/tests/yjs-interop.ts"
       - name: "Upload smthrs results"
         if: always()
         uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"

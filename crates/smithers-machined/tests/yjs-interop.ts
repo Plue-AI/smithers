@@ -1,6 +1,6 @@
 // Module interop only while the production dispatcher/envelope codec is absent.
 // YJS_MODULE=node_modules/.pnpm/yjs@13.6.32/node_modules/yjs
-// DOCUMENT_INTEROP_BIN=tests/document-component/target/debug/examples/interop
+// DOCUMENT_INTEROP_BIN=../../target/debug/examples/document_interop
 import { strict as assert } from "node:assert"
 import { createRequire } from "node:module"
 import { spawnSync } from "node:child_process"

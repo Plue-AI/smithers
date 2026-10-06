@@ -1,6 +1,6 @@
 //! Test-only JSON process harness, not a daemon wire format or runtime entry point.
 use base64::prelude::{Engine as _, BASE64_STANDARD as B64};
-use smithers_document_component::{authors, core};
+use smithers_machined::doc::{authors, core};
 use std::io::{self, Read};
 use yrs::updates::encoder::Encode;
 use yrs::{GetString, Map, ReadTxn, Text, Transact};
