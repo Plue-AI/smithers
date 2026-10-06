@@ -132,3 +132,12 @@ test("outside versions keep their burst digest independently of current file byt
   const file = { ...text(), digest: "current-3", outside: { version: "versions-17", at: "now", post_digest: "burst-2" } }
   expect(FileCardSchema.parse(file).outside).toEqual({ version: "versions-17", at: "now", post_digest: "burst-2" })
 })
+
+test("branch file rows preserve other files and clear a superseded outside flag", () => {
+  const before = [{ path: "retry.ts", digest: "one", outside_change: { version: "old" } }, { path: "other.ts", digest: "two" }]
+  const projected = projectBranchFiles(before, { path: "retry.ts", outside_change: { version: "new" } })
+  expect(projected).toEqual({ rows: [{ path: "retry.ts", digest: "one", outside_change: { version: "new" } }, before[1]] })
+  expect(projectBranchFiles(projected, { path: "retry.ts" })).toEqual({ rows: [{ path: "retry.ts", digest: "one" }, before[1]] })
+  expect(projectBranchFiles([], { path: "added.ts", digest: "three" })).toEqual({ rows: [{ path: "added.ts", digest: "three" }] })
+  expect(() => projectBranchFiles(before, {})).toThrow("Invalid file delta")
+})

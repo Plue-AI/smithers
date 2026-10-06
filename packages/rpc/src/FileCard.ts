@@ -126,5 +126,16 @@ export const branchFileRows = (value: unknown): unknown =>
   value !== null && typeof value === "object" && "rows" in value ? value.rows : value
 
 /** Keep the latest hint beside the row projection, without appending an event log. */
-export const projectBranchFiles = (previous: unknown, delta: unknown): unknown =>
-  Array.isArray(delta) ? { rows: delta } : { rows: branchFileRows(previous), written: FileWrittenSchema.parse(delta) }
+export const projectBranchFiles = (previous: unknown, delta: unknown): unknown => {
+  if (Array.isArray(delta)) return { rows: delta }
+  if (delta !== null && typeof delta === "object" && "kind" in delta) {
+    return { rows: branchFileRows(previous), written: FileWrittenSchema.parse(delta) }
+  }
+  if (!delta || typeof delta !== "object" || !("path" in delta) || typeof delta.path !== "string") throw new Error("Invalid file delta")
+  const data = branchFileRows(previous)
+  const rows = Array.isArray(data) ? data : []
+  const index = rows.findIndex(row => row?.path === delta.path)
+  const { outside: _outside, outside_change: _outsideChange, ...fields } = index < 0 ? {} : rows[index]
+  const next = { ...fields, ...delta }
+  return { rows: index < 0 ? [...rows, next] : rows.map((row, i) => i === index ? next : row) }
+}

@@ -1,23 +1,12 @@
 import { z } from "zod"
 import type { FileCard } from "@smthrs/rpc/FileCard"
-import { FileCardSchema } from "@smthrs/rpc/FileCard"
+import { FileCardSchema, branchFileRows, projectBranchFiles } from "@smthrs/rpc/FileCard"
 import { fileDocument, type FileDocumentBinding } from "../cards/liveDoc"
 import { LiveDocProvider, type DocumentPrerequisites } from "./LiveDocProvider"
 import type { LiveChannel } from "./LiveChannel"
 import type { BranchFileOperations } from "../state/seams/FilesSeam"
 
 const Outside = z.object({ version: z.string(), at: z.string().optional() })
-/** Replace only the matching path; an explicit missing outside_change clears the flag. */
-export const projectDocumentFiles = (previous: unknown, delta: unknown): unknown => {
-  if (Array.isArray(delta)) return delta
-  if (!delta || typeof delta !== "object" || !("path" in delta) || typeof delta.path !== "string") throw new Error("Invalid file delta")
-  const rows = Array.isArray(previous) ? previous : []
-  const previousRow = rows.find(row => row?.path === delta.path)
-  const { outside: _outside, outside_change: _outsideChange, ...fields } = previousRow ?? {}
-  const next = { ...fields, ...delta }
-  return previousRow ? rows.map(row => row === previousRow ? next : row) : [...rows, next]
-}
-
 /** Host-owned document resources. The fake relay is never a production fallback. */
 export class FileDocuments {
   private readonly documents = new Map<string, FileDocumentBinding & { dispose(): void }>()
@@ -34,11 +23,12 @@ export class FileDocuments {
       this.documents.set(key, resource)
       if (initial) provider.setFile(initial)
       const topic = `branch:${branch}:files`
-      this.channel.registerProjection(topic, projectDocumentFiles)
+      this.channel.registerProjection(topic, projectBranchFiles)
       const update = () => {
         const snapshot = this.channel.getSnapshot(topic)
         if (snapshot?.error) { provider.revoke(); return }
-        const rows = Array.isArray(snapshot?.data) ? snapshot.data : []
+        const data = branchFileRows(snapshot?.data)
+        const rows = Array.isArray(data) ? data : []
         const row = rows.find(row => row?.path === path)
         if (row && typeof row === "object" && "branch" in row && row.branch !== branch) return
         const outside = Outside.safeParse(row?.outside_change)
