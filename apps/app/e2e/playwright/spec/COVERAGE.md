@@ -40,7 +40,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
 | C-J3-09 | [C-J3-09.spec.ts](C-J3-09.spec.ts) | fixme-before-implementation | T-COL-05 |
 | C-J3-10 | [C-J3-10.spec.ts](C-J3-10.spec.ts) | fixme-before-implementation | T-TRM-05, T-REL-02 |
-| C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts), [install versions](../flow-card-install.spec.ts) | proposal-to-Draft and install selection/reload/state projection pass; joint merge/Active pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
+| C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts), [install versions](../flow-card-install.spec.ts) | proposal-to-Draft, install selection/reload and live Proposed → syncing → Active/failed-load projection pass; joint real merge/load/pinning pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
 | C-J5-02 | [C-J5-02.spec.ts](C-J5-02.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-11 |
 | C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | fixme-before-implementation | T-TRM-02, T-APP-09, T-REL-02 |

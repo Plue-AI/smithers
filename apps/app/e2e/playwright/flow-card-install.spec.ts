@@ -115,3 +115,65 @@ test("proposed built-in edit displays literal diff before one ordinary TODO appe
   expect(writes).toHaveLength(1)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
+
+// This proves live card projection, independently of real merge/load/pinning receipts.
+test("install Flow card follows live activation and preserves Active on a failed load without another command", async ({ page }) => {
+  await owner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
+  } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  let state: "proposed" | "merged-syncing" | "active" | "merged-failed" = "proposed"
+  let reads = 0
+  await page.route("**/api/flows", route => {
+    reads++
+    return route.fulfill({ json: [{ name: "todo", source: { path: "flows/todo/flow.ts" }, system: false, versions: [
+      { id: "d1", state: state === "active" ? "previous" : "active", steps: [{ id: "implement", label: "Implement" }] },
+      { id: "d2", state, todo: 42, ...(state === "merged-failed" ? { error: "Unknown reviewer" } : {}),
+        steps: [{ id: "implement", label: "Implement" }, { id: "check", label: "Run pnpm test" }] }
+    ] }] })
+  })
+  let notify: (() => void) | undefined
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub") return
+    if (frame.topic !== "flows") { socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" })); return }
+    let cursor = 1
+    notify = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: cursor++, data: {} }))
+    notify()
+  }))
+  await page.goto("/")
+  await say(page, "/flow todo")
+  const flow = page.locator(".flow-view").last()
+  await expect(flow.locator('.flow-version[data-state="active"]')).toHaveAttribute("aria-pressed", "true")
+  await expect.poll(() => notify !== undefined).toBe(true)
+  await flow.locator('.flow-version[data-state="proposed"]').press("Enter")
+  await expect(flow.locator('[data-added="true"]')).toHaveText(/Run pnpm test/)
+  const refresh = async (next: typeof state) => {
+    const before = reads
+    state = next
+    notify!()
+    await expect.poll(() => reads).toBeGreaterThan(before)
+  }
+  await refresh("merged-syncing")
+  await expect(flow.locator('.flow-version[data-state="merged-syncing"]')).toHaveAttribute("aria-pressed", "true")
+  await expect(flow.getByText("Merged · active after sync", { exact: true })).toBeVisible()
+  await refresh("active")
+  await expect(flow.locator('.flow-version[data-state="active"]')).toHaveCount(1)
+  await expect(flow.locator('.flow-version[data-state="active"]')).toHaveAttribute("data-version", "d2")
+  await expect(flow.locator('.flow-version[data-state="active"]')).toHaveAttribute("aria-pressed", "true")
+  await expect(flow.locator('[data-added="true"]')).toHaveCount(0)
+  await expect(flow.locator(".flow-steps")).toContainText("Run pnpm test")
+  // Independent failed-load projection: the server keeps d1 Active.
+  await refresh("merged-failed")
+  await flow.locator('.flow-version[data-state="active"]').press("Enter")
+  await expect(flow.locator('.flow-version[aria-pressed="true"]')).toHaveAttribute("data-version", "d1")
+  await expect(flow.locator(".flow-steps")).not.toContainText("Run pnpm test")
+  await flow.locator('.flow-version[data-state="merged-failed"]').press("Enter")
+  await expect(flow.getByText("Load failed", { exact: true })).toBeVisible()
+  await flow.locator(".flow-failure summary").press("Enter")
+  await expect(flow.getByRole("region", { name: "Failure details", exact: true })).toHaveText("Unknown reviewer")
+  await expect(flow.getByText("Unknown reviewer", { exact: true })).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})
