@@ -192,6 +192,11 @@ The ordered fetched-event consumer invokes the existing label door through a
 savepoint inside the delivery transaction, so its TODO and acknowledgement
 commit together. Text provenance is verified separately from cached text.
 
+The same consumer handles `automerge` label additions and removals on TODO
+issues. Only an authenticated event from an eligible linked person grants
+standing approval; removal cancels the label grant, and older event replays
+cannot restore it. A label's presence alone grants no authority.
+
 The existing TODO follow loop selects a 45-second pull-state interval on installs;
 hosted workers retain five minutes. Install reads use the shared conditional
 transport, scoped token minter and fetched-state qualification. Missing providers

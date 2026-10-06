@@ -3,7 +3,7 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "88f824c7b728474d7dc892b5bb9062e0893a9f65b9885400a75f6a7dfb1ad092"
+    "digest": "680d354eba941fcf26beb859b1579a3bac4220c3cfb590c4fd8d5f502fa9d526"
   },
   "closure": "955f824b43eb9a16e5c3a272b5e1cc0937876c3cac21d9d19025b475976e6dfd",
   "inputs": [
