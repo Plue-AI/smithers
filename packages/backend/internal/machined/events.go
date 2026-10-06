@@ -3,10 +3,12 @@ package machined
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
+	"reflect"
 	"strings"
 
 	"github.com/google/uuid"
@@ -38,7 +40,8 @@ func validBurstPath(p string) bool {
 }
 
 // Apply is called by the W3 event pump; it returns an ack only after commit
-// and ref retention. A failed ack transport is repaired by outbox replay.
+// and ref retention for complete bursts, or durable staging for split parts.
+// A failed ack transport is repaired by outbox replay.
 func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope jobs.Scope, event Event) (Acknowledgement, error) {
 	ack := Acknowledgement{Seq: event.Seq}
 	if s == nil || s.Pool == nil || s.Objects == nil || s.ResolveActor == nil || connection == nil {
@@ -54,10 +57,8 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	if b.ID == ([16]byte{}) || len(b.Files) == 0 {
 		return ack, wire.BadValue
 	}
-	// Split bursts require a complete object/event assembly from the transport.
-	// Never acknowledge a partial entry as the full burst.
-	if b.Part != 0 || b.Parts != 0 {
-		return ack, ErrNotReady
+	if (b.Part == 0) != (b.Parts == 0) || b.Part > b.Parts || b.Parts == 1 || b.Parts > 4096 {
+		return ack, wire.BadValue
 	}
 	seen := map[string]bool{}
 	for _, f := range b.Files {
@@ -80,14 +81,6 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	if !json.Valid(actor) {
 		return ack, ErrUnauthorized
 	}
-	missing, err := s.Objects.VerifyBurst(ctx, branch, b)
-	if err != nil {
-		return ack, err
-	}
-	if len(missing) != 0 {
-		ack.Outcome, ack.OIDs = AckMissingObjects, missing
-		return ack, nil
-	}
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ack, err
@@ -102,12 +95,51 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	if scope.TenantID != fmt.Sprint(repository) || scope.PrincipalID != "branch:"+branch {
 		return ack, ErrUnauthorized
 	}
+	multipart := b.Parts != 0
+	if multipart {
+		complete, assembled, stageErr := stageBurst(ctx, tx, branch, event, b, actor)
+		if stageErr != nil {
+			return ack, stageErr
+		}
+		if !complete {
+			if err = tx.Commit(ctx); err != nil {
+				return ack, err
+			}
+			// Applied acknowledges durable staging, not a projected activity entry.
+			// The outbox can advance to the next part after a host restart.
+			ack.Outcome = AckApplied
+			return ack, nil
+		}
+		b = assembled
+		seen = map[string]bool{}
+		for _, f := range b.Files {
+			if seen[f.Path] {
+				return ack, wire.BadValue
+			}
+			seen[f.Path] = true
+		}
+	}
+	missing, err := s.Objects.VerifyBurst(ctx, branch, b)
+	if err != nil {
+		return ack, err
+	}
+	if len(missing) != 0 {
+		ack.Outcome, ack.OIDs = AckMissingObjects, missing
+		return ack, nil
+	}
 	id := uuid.UUID(event.EventID).String()
 	burstID := uuid.UUID(b.ID).String()
 	// Serialize this branch on its authoritative workspace row. Receipts
 	// retain the transport event ID and the logical burst identity even when
 	// activity retention has pruned the original event.
-	outcome := fmt.Sprintf("applied:%s:%x", burstID, sha256.Sum256(event.Payload))
+	canonical := event.Payload
+	if multipart {
+		canonical, err = json.Marshal(b)
+		if err != nil {
+			return ack, err
+		}
+	}
+	outcome := fmt.Sprintf("applied:%s:%x", burstID, sha256.Sum256(canonical))
 	var previous string
 	err = tx.QueryRow(ctx, `SELECT outcome FROM machine_event_receipts WHERE workspace_id=$1 AND (event_id=$2 OR outcome LIKE $3) LIMIT 1`, branch, id, "applied:"+burstID+":%").Scan(&previous)
 	duplicate := err == nil
@@ -169,4 +201,104 @@ func (s *BurstIngest) DispatchBurst(ctx context.Context, link *Link, scope jobs.
 		return err
 	}
 	return link.Ack(ctx, link.boot.branch, ack)
+}
+
+// stageBurst uses the existing durable receipt store. Intermediate receipts
+// contain the exact codec payload; no partial activity or files are published.
+// The workspace row lock serializes assembly across connections and restarts.
+func stageBurst(ctx context.Context, tx pgx.Tx, branch string, event Event, incoming wire.Burst, actor json.RawMessage) (bool, wire.Burst, error) {
+	prefix := "staged:" + uuid.UUID(incoming.ID).String() + ":"
+	rows, err := tx.Query(ctx, `SELECT event_id::text,outcome FROM machine_event_receipts WHERE workspace_id=$1 AND outcome LIKE $2`, branch, prefix+"%")
+	if err != nil {
+		return false, incoming, err
+	}
+	parts := map[uint16]wire.Burst{}
+	total := 0
+	for rows.Next() {
+		var id, outcome string
+		if err = rows.Scan(&id, &outcome); err != nil {
+			rows.Close()
+			return false, incoming, err
+		}
+		stored, decodeErr := base64.StdEncoding.DecodeString(strings.TrimPrefix(outcome, prefix))
+		if decodeErr != nil {
+			rows.Close()
+			return false, incoming, wire.BadValue
+		}
+		var stage struct {
+			Payload []byte
+			Actor   json.RawMessage
+		}
+		if json.Unmarshal(stored, &stage) != nil {
+			rows.Close()
+			return false, incoming, wire.BadValue
+		}
+		var oldActor, newActor any
+		if json.Unmarshal(stage.Actor, &oldActor) != nil || json.Unmarshal(actor, &newActor) != nil || !reflect.DeepEqual(oldActor, newActor) {
+			rows.Close()
+			return false, incoming, ErrUnauthorized
+		}
+		payload := stage.Payload
+		part, decodeErr := wire.DecodeBurst(payload)
+		if decodeErr != nil || part.ID != incoming.ID || part.Parts != incoming.Parts || part.Versions != incoming.Versions || !reflect.DeepEqual(part.Actor, incoming.Actor) || part.Part == 0 || part.Part > part.Parts {
+			rows.Close()
+			return false, incoming, wire.BadValue
+		}
+		if old, exists := parts[part.Part]; exists && !reflect.DeepEqual(old, part) {
+			rows.Close()
+			return false, incoming, wire.BadValue
+		}
+		parts[part.Part] = part
+		total += len(payload)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return false, incoming, err
+	}
+	if old, exists := parts[incoming.Part]; exists && !reflect.DeepEqual(old, incoming) {
+		return false, incoming, wire.BadValue
+	}
+	parts[incoming.Part] = incoming
+	total += len(event.Payload)
+	if total > 32<<20 {
+		return false, incoming, wire.BadValue
+	}
+	id := uuid.UUID(event.EventID).String()
+	stored, err := json.Marshal(struct {
+		Payload []byte
+		Actor   json.RawMessage
+	}{event.Payload, actor})
+	if err != nil {
+		return false, incoming, err
+	}
+	outcome := prefix + base64.StdEncoding.EncodeToString(stored)
+	var previous string
+	err = tx.QueryRow(ctx, `SELECT outcome FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2`, branch, id).Scan(&previous)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, incoming, err
+	}
+	if err == nil && previous != outcome && !strings.HasPrefix(previous, "applied:"+uuid.UUID(incoming.ID).String()+":") {
+		return false, incoming, wire.BadValue
+	}
+	if len(parts) != int(incoming.Parts) {
+		if err == nil && strings.HasPrefix(previous, "applied:") {
+			return false, incoming, wire.BadValue
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO machine_event_receipts(workspace_id,event_id,outcome) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, branch, id, outcome)
+		return false, incoming, err
+	}
+	assembled := incoming
+	assembled.Part, assembled.Parts = 0, 0
+	assembled.Files = nil
+	for i := uint16(1); i <= incoming.Parts; i++ {
+		assembled.Files = append(assembled.Files, parts[i].Files...)
+		if len(assembled.Files) > 65535 {
+			return false, incoming, wire.BadValue
+		}
+	}
+	// Replace only this transport event's staging receipt with the atomic final
+	// receipt below; earlier parts remain available for replay assembly.
+	_, err = tx.Exec(ctx, `DELETE FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2 AND outcome=$3`, branch, id, outcome)
+	return true, assembled, err
 }
