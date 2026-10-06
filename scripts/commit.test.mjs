@@ -1,3 +1,4 @@
+import { installMigrationFixture } from './migration-fixture.mjs'
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -7,7 +8,8 @@ import { test } from "node:test"
 
 const script = resolve(import.meta.dirname, "commit.mjs")
 const copyHygiene = (directory) => {
-  mkdirSync(join(directory, "scripts"))
+  installMigrationFixture(directory)
+  mkdirSync(join(directory, "scripts"), { recursive: true })
   copyFileSync(resolve(import.meta.dirname, "check-tracked-hygiene.mjs"), join(directory, "scripts/check-tracked-hygiene.mjs"))
 }
 const command = (cwd, bin, args) => spawnSync(bin, args, { cwd, encoding: "utf8" })
