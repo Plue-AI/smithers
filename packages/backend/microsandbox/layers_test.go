@@ -398,6 +398,7 @@ func TestDetectedDependencyPreparationRequestsAgentIdentity(t *testing.T) {
 			binary := filepath.Join(root, "msb")
 			script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
+  "list --format json") echo '[]' ;;
   remove\ *) echo "$*" >> %s ;;
   *run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
   *run\ exec\ *) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
@@ -452,6 +453,7 @@ func TestLayerEnsureReturnsSnapshotBeforeWorkspaceReferencesIt(t *testing.T) {
 	require.NoError(t, err)
 	script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
+  "list --format json") echo '[]' ;;
   remove\ *) echo "$*" >> %s ;;
   "snapshot list --format json") if [ -e %s ]; then printf '%%s' %s; else echo '[]'; fi ;;
   "snapshot create "*) touch %s ;;
@@ -1206,6 +1208,7 @@ func TestToolchainIndexIgnoresAttackerBranch(t *testing.T) {
 	// Unit transport records requests; real VM authority is checked separately.
 	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!/bin/sh
 case "$*" in
+  "list --format json") echo '[]' ;;
  *run\ exec\ *) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
  *run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
  "snapshot list --format json") echo '[]' ;;
@@ -1236,6 +1239,7 @@ func TestBranchDependencyInputsOnlyReachAgentWithScriptsDisabled(t *testing.T) {
 	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!/bin/sh
 printf '%%s\n' "$*" >> %s
 case "$*" in
+  "list --format json") echo '[]' ;;
  *run\ exec\ *) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
  *run\ root-recipe*) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
  *) cat >/dev/null ;;
@@ -1324,6 +1328,7 @@ func TestLayerCompletedBuildSurvivesCapacityRefusal(t *testing.T) {
 request=""
 case "$*" in *run\ exec*) request=$(cat); printf '\000SMITHERS-EXIT 0\000' >&2 ;; esac
 case "$* $request" in
+  "list --format json ") echo '[]' ;;
   remove\ *) echo "$*" >> %s ;;
   "snapshot list --format json ") if [ -e %s ]; then printf '%%s' %s; else echo '[]'; fi ;;
   "snapshot create "*) touch %s ;;
@@ -1458,6 +1463,7 @@ func TestLayerWarmParentIsMainBuilt(t *testing.T) {
 			require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!/bin/sh
 printf '%%s\n' "$*" >> %s
 case "$*" in
+  "list --format json") echo '[]' ;;
   "snapshot list --format json") printf '%%s' %s ;;
   *smthrs-vfy-*run\ exec\ *) cat >/dev/null; printf '%%s' %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
   *run\ exec\ *|*run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
