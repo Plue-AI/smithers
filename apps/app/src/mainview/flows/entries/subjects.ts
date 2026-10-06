@@ -70,6 +70,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       grammar: positional("path"), agent: "run", input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number), revision: Schema.optional(Schema.String) }),
       handler: ({ path, branch, line, revision }) => {
         if (revision !== undefined) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, revision)
+        if (install() && !actions.branchFiles.available()) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, branch)
         if (realFiles()) return actions.branchFiles.open(path, branch, line)
         const world = design.world()
         if (path === "") return open(fileListCard(repo(), findBranch(world, branch ?? "")?.id ?? "main"))
@@ -78,7 +79,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       } }),
     flow({ name: "files",   slash: "/files", cli: ["files"], journey: ["J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Browse a branch's files", args: "[branch]", discloseToAgent: true,
       grammar: positional("branch"), agent: "run", input: Schema.Struct({ branch: Schema.optional(Schema.String) }),
-      handler: ({ branch }) => realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(repo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
+      handler: ({ branch }) => install() ? actions.listFiles("", branch) : realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(repo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
     flow({ name: "diff",   slash: "/diff", cli: ["diff"], journey: ["J2","J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
       grammar: positional("subject"),
       agent: "run", input: Schema.Struct({ subject: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), path: Schema.optional(Schema.String), entry: Schema.optional(Schema.String) }),

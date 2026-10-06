@@ -799,3 +799,78 @@ test("install history read keeps its immutable revision through the same mirror 
     expect(urls).toContain(`/api/branches/main/files/src/a.ts?at=${commit}`)
   } finally { await controller.dispose() }
 })
+
+test.each(["main", "scratch/maya/retry", "b12"])("/file reads the authorized %s snapshot while live providers are unavailable", async branch => {
+  const requests: string[] = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    branchOptions: { ready: () => false, scope: () => ({ branch, member: "will", revision: 1, sleeping: true, capturedHead: "a".repeat(40) }) },
+    fetchImpl: async input => {
+      const url = String(input); requests.push(url)
+      if (url === "/api/members") return json(200, INSTALL_MEMBERS)
+      if (url === `/api/branches/${encodeURIComponent(branch)}/files/src/retry.ts`) return new Response(JSON.stringify({
+        path: "src/retry.ts", branch, language: "typescript", digest: "sha256:snapshot",
+        content: { kind: "text", text: "export const retry = 3\n" }, mode: "read_only", diagnostics: [], authors: [], editors: []
+      }), { headers: { "content-type": "application/json", "X-Contents-Commit": "a".repeat(40) } })
+      return json(404, { message: "not found" })
+    }
+  })
+  try {
+    await ready(store)
+    expect((await controller.commands.submit({ name: "file", payload: { path: "src/retry.ts", branch, line: 2 }, actor: "user" })).status).toBe("executed")
+    const card = [...store.collections.cards.values()].find(card => card.kind === "file")
+    expect(card?.payload).toMatchObject({ content: "export const retry = 3\n", ref: branch,
+      file: { branch, mode: "read_only", digest: "sha256:snapshot", reveal: { line: 2 } } })
+    expect(requests.filter(url => url.includes("retry.ts"))).toEqual([`/api/branches/${encodeURIComponent(branch)}/files/src/retry.ts`])
+    expect(requests.some(url => /sessions|wake/.test(url))).toBe(false)
+    expect(await controller.branchFiles.restoreVersion("src/retry.ts", branch, "burst-7", "sha256:snapshot")).toBe("Branch files are unavailable.")
+  } finally { await controller.dispose() }
+})
+
+test.each([200, 403, 503])("installed /files uses the branch directory route (%s)", async status => {
+  const requests: string[] = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async input => {
+      const url = String(input); requests.push(url)
+      if (url === "/api/members") return json(200, INSTALL_MEMBERS)
+      if (url === "/api/branches/scratch%2Fmaya%2Fretry/files") return json(status, status === 200
+        ? [{ name: "src", type: "dir" }, { name: "README.md", type: "file" }]
+        : { code: status === 403 ? "permission" : "service_unavailable", message: "Unavailable" })
+      if (url === "/api/branches/scratch%2Fmaya%2Fretry/files?path=src") return json(200, [{ name: "retry.ts", type: "file" }])
+      return json(404, { message: "not found" })
+    }
+  })
+  try {
+    await ready(store)
+    await controller.commands.run("files", "scratch/maya/retry")
+    const cards = [...store.collections.cards.values()].filter(card => card.kind === "file-list")
+    expect(requests).toContain("/api/branches/scratch%2Fmaya%2Fretry/files")
+    if (status === 200) {
+      expect(cards).toHaveLength(1)
+      expect(cards[0]?.payload).toMatchObject({ repo: "scratch/maya/retry", path: "", entries: [{ name: "src", kind: "dir" }, { name: "README.md", kind: "file" }] })
+      expect(cards[0]?.id).toBe("files-branch-scratch/maya/retry-/")
+      expect((await controller.commands.run("files.list", "src scratch/maya/retry")).status).toBe("executed")
+      expect(requests).toContain("/api/branches/scratch%2Fmaya%2Fretry/files?path=src")
+      expect([...store.collections.cards.values()].find(card => card.kind === "file-list" && card.payload.path === "src")?.payload).toMatchObject({ repo: "scratch/maya/retry", entries: [{ name: "retry.ts", kind: "file" }] })
+    } else expect(cards).toHaveLength(0)
+    expect(requests.some(url => /sessions|wake/.test(url))).toBe(false)
+  } finally { await controller.dispose() }
+})
+
+test.each([ ["files", "../other"], ["files.list", "../secret b12"] ] as const)("installed %s refuses an escaping directory address", async (name, args) => {
+  const requests: string[] = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async input => { requests.push(String(input)); return String(input) === "/api/members" ? json(200, INSTALL_MEMBERS) : json(404, {}) }
+  })
+  try {
+    await ready(store)
+    expect((await controller.commands.run(name, args)).status).toBe("failed")
+    expect(requests.some(url => url.includes("/api/branches/"))).toBe(false)
+    expect([...store.collections.cards.values()].some(card => card.kind === "file-list")).toBe(false)
+  } finally { await controller.dispose() }
+})

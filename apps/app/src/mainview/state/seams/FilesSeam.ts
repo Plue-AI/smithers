@@ -203,16 +203,23 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
 
   const readers: { listFiles: (path: string, repo?: string) => Promise<ViewResult>; readFile: (path: string, repo?: string, anchor?: FileAnchor, ref?: string) => Promise<ViewResult> } = {
     listFiles: async (pathArg, explicitRepoArg) => {
-      const target = resolveFileTarget(ctx.store, pathArg, explicitRepoArg)
+      const target = install
+        ? unsafePath(pathArg) ? { error: "File paths must stay inside the repository." }
+          : { repo: explicitRepoArg ?? branchOptions?.scope()?.branch ?? "main", path: normalizePath(pathArg) }
+        : resolveFileTarget(ctx.store, pathArg, explicitRepoArg)
       if ("error" in target) return target.error
       const { repo, path: normalized } = target
       const label = normalized === "" ? "/" : normalized
+      const branch = explicitRepoArg ?? branchOptions?.scope()?.branch ?? "main"
+      if (install && (!branch || unsafePath(branch) || branch.startsWith("/") || branch.endsWith("/"))) return "Choose a branch"
 
       let body: unknown
       {
         let response: Response
         try {
-          const answer = await readContentsPages(ctx.http, contentsUrl(repo, normalized))
+          const answer = await readContentsPages(ctx.http, install
+            ? `${ctx.baseUrl}/api/branches/${encodeURIComponent(branch)}/files${normalized ? `?path=${encodeURIComponent(normalized)}` : ""}`
+            : contentsUrl(repo, normalized))
           if (answer.kind === "error") return answer.error
           response = answer.response
           body = answer.body
@@ -238,11 +245,12 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
         return parsed === null ? [] : [parsed]
       })
       const { readAt } = cloudAddressing(ctx.store, repo, normalized)
-      return fileListCard(
-        { repo, path: normalized, entries, ...(readAt === undefined ? {} : { readAt }) },
+      const result = fileListCard(
+        { repo: install ? branch : repo, path: normalized, entries, ...(install || readAt === undefined ? {} : { readAt }) },
         ctx.nextOrdinal(),
         Date.now()
       )
+      return install ? { ...result, card: { ...result.card, id: `files-branch-${branch}-${normalized || "/"}` } } : result
     },
 
     readFile: async (pathArg, explicitRepoArg, anchor, ref) => {
@@ -343,7 +351,10 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
     }
   }
   const plan = (kind: "file" | "files", path: string, repo?: string, anchor?: FileAnchor, ref?: string) => {
-    const target = resolveFileTarget(ctx.store, path, repo)
+    const target = install && kind === "files"
+      ? unsafePath(path) ? { error: "File paths must stay inside the repository." }
+        : { repo: repo ?? branchOptions?.scope()?.branch ?? "main", path: normalizePath(path) }
+      : resolveFileTarget(ctx.store, path, repo)
     if ("error" in target) return target.error
     if (kind === "file" && !target.path) return "files.read needs a file path"
     const repoId = target.repo
@@ -358,7 +369,8 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
       : undefined
     const pane = owner === repoId ? maximized : undefined
     /* The revision is part of the address: one path at two revisions is two files. */
-    const id = `${kind}-${repoId}-${target.path || "/"}${ref === undefined ? "" : `@${ref}`}`
+    const id = install && kind === "files" ? `files-branch-${repo ?? branchOptions?.scope()?.branch ?? "main"}-${target.path || "/"}`
+      : `${kind}-${repoId}-${target.path || "/"}${ref === undefined ? "" : `@${ref}`}`
     return { id, title: `${kind === "file" ? "File" : "Files"} · ${label} · ${target.path || "/"}`, key: JSON.stringify([id, anchor]), target: pane,
       read: () => kind === "file" ? readers.readFile(path, repo, anchor, ref) : readers.listFiles(path, repo),
     }

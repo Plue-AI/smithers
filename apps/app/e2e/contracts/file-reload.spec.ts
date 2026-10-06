@@ -172,6 +172,14 @@ test("/files and /diff use branch routes and preserve literal item-prefix and sc
   expect(diff.payload.branchFiles).toEqual([item])
   const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
   try {
+    const listing = store.collections.cards.get("files-branch-b12-/")
+    if (listing?.kind !== "file-list") throw new Error("Missing branch listing")
+    const actions: Array<[string, string | undefined]> = []
+    flushSync(() => root.render(renderCardBody(listing, { ...noActions, onRunCommand: (name, args) => { actions.push([name, args]) } })))
+    const row = [...host.querySelectorAll("button")].find(button => button.textContent?.includes("retry.ts"))
+    expect(row).toBeDefined()
+    row!.click()
+    expect(actions).toEqual([["file", '{"path":"retry.ts","branch":"b12"}']])
     flushSync(() => root.render(renderCardBody(diff, noActions)))
     expect(host.querySelector('[data-against="item_base"]')?.textContent).toBe("candidate-11")
     sleeping = true
@@ -259,10 +267,10 @@ test.each(["read_only", "live", "large"] as const)("install files.read retains a
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/flows", org: "will", ownerKind: "user", name: "flows", head: { bookmark: "main", changeId: "change123", commitId: "commit123" } }] }).isPersisted.promise
-    expect((await app.commands.run("files.read", "retry.ts:1:2")).status).toBe("executed")
+    expect((await app.commands.submit({ name: "file", payload: { path: "retry.ts", line: 1 }, actor: "user" })).status).toBe("executed")
     const card = [...store.collections.cards.values()].find(card => card.kind === "file")
     if (card?.kind !== "file") throw new Error("Missing install File card")
-    expect(card.payload.file).toEqual({ ...model, mode: "read_only", reveal: { line: 1, col: 1 } })
+    expect(card.payload.file).toEqual({ ...model, mode: "read_only", reveal: { line: 1 } })
     expect(card.payload.digest).toBe("one")
     expect(card.payload.content).toBe(text)
     expect(card.payload.truncated).toBe(false)
