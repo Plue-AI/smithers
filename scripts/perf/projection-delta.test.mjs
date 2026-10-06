@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { acceptMove, configuration } from './projection-delta.mjs'
+import { acceptMove, configuration, stableSnapshot } from './projection-delta.mjs'
 
 test('source move receipt preserves cursor and independently names the mutation', () => {
   const frame = { t: 'delta', cursor: 7, data: { Type: 'todo.moved', Data: { n: 12, direction: 'up' } } }
@@ -13,4 +13,9 @@ test('reference workload requires remote origin, member storage and CSRF authori
   for (const key of Object.keys(env)) assert.throws(() => configuration({ ...env, [key]: undefined }))
   assert.throws(() => configuration({ ...env, SMITHERS_PERF_ORIGIN: 'http://127.0.0.1:4000' }))
   assert.throws(() => configuration({ ...env, SMITHERS_PERF_OWNER_COOKIE: 'smithers_session=session' }))
+})
+
+test('a metadata refresh cannot substitute for a missed source position', () => {
+ assert.equal(stableSnapshot({ t: 'snap', cursor: 7, data: {} }, 7), true)
+ for (const frame of [{ t: 'snap', cursor: 8, data: {} }, { t: 'snap', cursor: 6, data: {} }, { t: 'snap', cursor: 7 }, { t: 'delta', cursor: 7, data: {} }, { t: 'gap' }]) assert.equal(stableSnapshot(frame, 7), false)
 })

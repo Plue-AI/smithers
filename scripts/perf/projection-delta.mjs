@@ -27,6 +27,12 @@ export function acceptMove(frame, previous, n, direction) {
   return frame.cursor
 }
 
+// Independent providers may refresh metadata without advancing the TODO source.
+// A snapshot that advances it cannot stand in for a missed move delta.
+export function stableSnapshot(frame, cursor) {
+ return frame.t === 'snap' && Number.isSafeInteger(frame.cursor) && frame.cursor === cursor && Object.hasOwn(frame, 'data')
+}
+
 export async function run(env = process.env) {
   const timestamp = new Date().toISOString().replaceAll(':', '-').replace('.', '-')
   const result = { timestamp, check: 'C-PERF-02', status: 'failed', samples: [], clock: 'second Mac Node process: performance.now()' }
@@ -67,6 +73,7 @@ export async function run(env = process.env) {
           if (frame.t === 'snap' && stream.cursor === undefined && Number.isSafeInteger(frame.cursor)) {
             stream.cursor = frame.cursor; clearTimeout(timeout); resolveStream(stream); return
           }
+          if (stableSnapshot(frame, stream.cursor)) return
           if (!stream.pending) throw new Error(`${topic}: unsolicited frame`)
           const cursor = acceptMove(frame, stream.cursor, config.n, stream.pending.direction)
           const at = performance.now()
