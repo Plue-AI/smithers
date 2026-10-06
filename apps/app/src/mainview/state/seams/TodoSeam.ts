@@ -567,7 +567,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const prior = match?.kind === "draft" ? match : undefined
     const id = prior?.id ?? `draft:${randomUuid()}`
     if (!prior) {
-      const card = draftCard({ id, author: owner()!, title: `Add ${name} to machine image`, text: "", options: [], idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now())
+      const card = draftCard({ id, author: owner()!, title: `Add ${name} to the machine image`, text: "", options: [], idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now())
       await write({ ...card, payload: { ...card.payload, seed: { files: [MACHINE_JSON_PATH] }, imagePreparation: { name, repo: target.repo, state: "requested" } } })
     } else if (prior.payload.imagePreparation?.state === "failed") {
       await write({ ...prior, payload: { ...prior.payload, imagePreparation: { name, repo: target.repo, state: "requested" } } })

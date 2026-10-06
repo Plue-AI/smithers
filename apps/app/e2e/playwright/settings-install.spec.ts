@@ -67,7 +67,7 @@ test("Settings Add to machine image opens the shared read-only Draft", async ({ 
   await form.getByRole("button", { name: "Add to machine image", exact: true }).press("Enter")
   const draft = page.getByRole("region", { name: "Draft", exact: true })
   await expect(draft).toBeVisible()
-  await expect(draft.getByLabel("Title", { exact: true })).toHaveValue("Add figlet to machine image")
+  await expect(draft.getByLabel("Title", { exact: true })).toHaveValue("Add figlet to the machine image")
   await expect(draft.locator(".draft-seed pre")).toContainText('"jq"')
   await expect(draft.locator(".draft-seed pre")).toContainText('"figlet"')
   await expect(draft.locator(".draft-seed code")).toHaveText(".smithers/machine.json")
@@ -106,4 +106,50 @@ test("recorded Account and Environment doors open the Settings card", async ({ p
     await expect(page.getByTestId("card-settings")).toBeVisible()
     await expect(page.locator('[data-kind="account"], [data-kind="env"], [data-kind="provider-accounts"]')).toHaveCount(0)
   }
+})
+
+test("Settings keeps its saved daily allowance when an older install read arrives during the save", async ({ page }) => {
+  await owner(page)
+  let holdRead = false
+  let readStarted!: () => void, releaseRead!: () => void, saveStarted!: () => void, releaseSave!: () => void
+  const reading = new Promise<void>(resolve => { readStarted = resolve })
+  const oldRead = new Promise<void>(resolve => { releaseRead = resolve })
+  const saving = new Promise<void>(resolve => { saveStarted = resolve })
+  const saved = new Promise<void>(resolve => { releaseSave = resolve })
+  let allowance = 12
+  const writes: unknown[] = []
+  await page.route("**/api/install", async route => {
+    if (route.request().method() === "PUT") {
+      writes.push(route.request().postDataJSON())
+      saveStarted()
+      await saved
+      allowance = 13
+    } else if (holdRead) {
+      holdRead = false
+      readStarted()
+      await oldRead
+      return route.fulfill({ json: { ...installFixture(), todo_daily_admissions: 12 } })
+    }
+    await route.fulfill({ json: { ...installFixture(), todo_daily_admissions: allowance } })
+  })
+  await page.goto("/")
+  await say(page, "/settings")
+  const form = page.getByTestId("card-settings").locator('form[data-flow="settings.daily-admissions"]')
+  await expect(form.locator("output")).toHaveText("12")
+  holdRead = true
+  await say(page, "/settings")
+  await reading
+  await form.getByRole("button", { name: "More TODOs per day", exact: true }).press("Enter")
+  await saving
+  expect(writes).toEqual([{ todo_daily_admissions: 13 }])
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  const staleResponse = page.waitForResponse(response => response.url().endsWith("/api/install") && response.request().method() === "GET")
+  releaseRead()
+  await staleResponse
+  releaseSave()
+  await expect(form.locator("output")).toHaveText("13")
+  await page.reload()
+  await say(page, "/settings")
+  await expect(form.locator("output")).toHaveText("13")
+  expect(writes).toHaveLength(1)
 })
