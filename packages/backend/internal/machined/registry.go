@@ -29,6 +29,8 @@ type boot struct {
 	branch, machine string
 	id              [16]byte
 	credential      [32]byte
+	secret          [32]byte
+	link            *Link
 	connection      *Connection
 }
 

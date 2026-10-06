@@ -57,3 +57,37 @@ func MalformedResponse(id uint32, code ProtocolError) (Frame, error) {
 	f := Frame{Kind: Control, Payload: Union(2, Field(1, U32(id)), Field(2, Union(255, Field(1, []byte{byte(Malformed)}), Field(6, []byte{byte(code)}))))}
 	return f, nil
 }
+
+// Fields decodes a named ADR structure using the same schema as frame validation.
+// Values retain their canonical primitive encoding and borrow data until the
+// caller releases the frame. Unknown schemas and trailing bytes are refused.
+func Fields(name string, data []byte) (map[byte][]byte, error) {
+	schema, ok := structures[name]
+	if !ok {
+		return nil, BadValue
+	}
+	check := cursor{data}
+	if err := check.value(name); err != nil {
+		return nil, err
+	}
+	if len(check.b) != 0 {
+		return nil, TrailingBytes
+	}
+	body := cursor{data[4:]}
+	result := make(map[byte][]byte, len(schema))
+	for len(body.b) > 0 {
+		tag := body.b[0]
+		body.b = body.b[1:]
+		for _, field := range schema {
+			if field.tag == tag {
+				before := body.b
+				if err := body.value(field.typ); err != nil {
+					return nil, err
+				}
+				result[tag] = before[:len(before)-len(body.b)]
+				break
+			}
+		}
+	}
+	return result, nil
+}
