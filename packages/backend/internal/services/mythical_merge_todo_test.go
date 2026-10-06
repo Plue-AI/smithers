@@ -134,7 +134,7 @@ func (h *mergeHarness) first(title string) (int64, string, int64) {
 // pass makes the item due against the service clock, including tests with a
 // fixed clock. PostgreSQL NOW() may be ahead of that clock after publication.
 func (h *mergeHarness) pass() {
-	h.exec(`UPDATE mythical_items SET next_attempt_at = NULL WHERE repository_id = $1`, h.repoID)
+	h.exec(`UPDATE mythical_items SET next_attempt_at = $2 WHERE repository_id = $1`, h.repoID, h.service.now().Add(-time.Second))
 	h.service.MainMoved(context.Background(), h.repoID)
 	require.NoError(h.t, h.service.PollOnce(context.Background()))
 }
@@ -2082,7 +2082,7 @@ func TestMythicalStandingPreapprovalUsesGuardedMerge(t *testing.T) {
 	require.Equal(t, approval, *mythicalChecksOf(h.item(n)).Preapproval)
 	require.Nil(t, h.land(n))
 	require.Equal(t, "landed", h.item(n).State)
-	h.unfenced(n)
+	require.Empty(t, h.item(n).PendingOp)
 }
 
 func TestMythicalStandingPreapprovalRemovalAndRevocation(t *testing.T) {
@@ -2116,10 +2116,12 @@ func TestMythicalStandingPreapprovalRemovalBeforeSend(t *testing.T) {
 	h := newMergeHarness(t)
 	n, _, _ := h.first("Cancel unsent")
 	h.freezeClock()
+	var logs bytes.Buffer
+	h.service.logger = slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
 	require.NoError(t, err)
 	h.pass() // Persist the ready intent; only the next recovery pass may send.
-	require.Equal(t, "merge", h.operation(n).Kind)
+	require.Equal(t, "merge", h.operation(n).Kind, logs.String())
 	require.Empty(t, h.merges())
 	_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, false)
 	require.NoError(t, err)

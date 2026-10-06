@@ -181,7 +181,7 @@ func (s *MythicalService) currentMembership(ctx context.Context, item db.Mythica
 
 // mythicalCommandAuthorization: the system publishes a TODO's own change and
 // closes its pull request; it never merges. A merge is authorized only by a
-// person's browser session, or a Land that session recorded (M-05, M-39).
+// person's browser session or its attributed approval (M-05, M-39).
 func mythicalCommandAuthorization(ctx context.Context, item db.MythicalItem, kind string) error {
 	switch kind {
 	case "push", "open", "body", "draft":
@@ -197,10 +197,10 @@ func mythicalCommandAuthorization(ctx context.Context, item db.MythicalItem, kin
 		if mergeSession(middleware.AuthInfoFromContext(ctx)) {
 			return nil
 		}
-		if land := mythicalChecksOf(item).Land; land != nil && land.Session != "" {
+		if approval := mythicalMergeApproval(item); approval != nil && (approval.Session != "" || approval.StandingUser != 0) {
 			return nil
 		}
-		return errors.New("a person merges a TODO; Smithers never merges on its own")
+		return &TodoControlError{Status: 403, Code: "permission", Class: "permission", Message: "a person merges a TODO; Smithers never merges on its own"}
 	}
 	return fmt.Errorf("GitHub operation %q is not authorized", kind)
 }

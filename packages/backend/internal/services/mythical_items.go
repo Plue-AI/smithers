@@ -1781,7 +1781,15 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// and nothing gates on what GitHub did not say.
 			return next, false, nil
 		}
-		if err != nil || next == nil || next.State != "proposed" {
+		// Unchanged GitHub facts need no row update, but a newly granted
+		// standing approval still has to evaluate this ready TODO.
+		if err == nil && next == nil && mythicalChecksOf(item).Preapproval != nil {
+			next = &item
+		}
+		if err == nil && next != nil && next.State == "proposed" && mythicalChecksOf(*next).Preapproval != nil {
+			return st.merge(ctx, *next), false, nil
+		}
+		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -4178,6 +4186,7 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 
 // merge prepares a standing person's approval through the same fenced outbound path.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
+	st.s.logger.Debug("mythical.preapproval_evaluate", "item", uuidString(item.ID), "version", item.Version)
 	// A person may already have merged on GitHub. Preserve the existing read
 	// recovery, which settles only when main contains the commit and sends no PUT.
 	if st.s.github == nil || st.gh == nil {
@@ -4205,10 +4214,12 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 	op := MythicalOutboundOp{Kind: "merge", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Desired: item.PRHead, Precondition: "preapproved", State: "intended"}
 	candidate := item
 	candidate.PendingOp, _ = json.Marshal(op)
-	if st.s.mergeDispatchReady(ctx, candidate) != nil {
+	if err := st.s.mergeDispatchReady(ctx, candidate); err != nil {
+		st.s.logger.Debug("mythical.preapproval_block", "item", uuidString(item.ID), "error", err)
 		return &item
 	}
 	if _, err := st.s.MergeDecision(ctx, candidate, op); err != nil {
+		st.s.logger.Debug("mythical.preapproval_block", "item", uuidString(item.ID), "error", err)
 		return &item
 	}
 	candidate.NextAttemptAt = pgtype.Timestamptz{}

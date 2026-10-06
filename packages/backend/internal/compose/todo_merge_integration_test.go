@@ -527,9 +527,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 					if first == nil {
 						first = envelope
 					}
-					if tc.name != "the owner's personal access token" {
-						require.Equal(t, first, envelope, "%s %s: the same refusal through every door", door.name, target)
-					}
+					require.Equal(t, first, envelope, "%s %s: the same refusal through every door", door.name, target)
 				}
 			}
 			unchanged(t)
