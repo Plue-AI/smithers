@@ -24,8 +24,9 @@ import (
 // loader, member boundary and memberCommands on real PostgreSQL: the owner,
 // Ben (Maintainer) and Alice (Member) reach every route a member's J1 8, J2
 // and J4 paths call; Alice is refused merge and member management by role;
-// a person off the roster, a suspended member and a member's token reach
-// none of them; and a route outside the member table stays the owner's.
+// off-roster and suspended people are refused. Member tokens reach only
+// scoped reads and questions; person-only commands stay refused, and
+// a route outside the member table stays the owner's.
 func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
@@ -130,6 +131,8 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			want := http.StatusOK
 			switch {
 			case who == "owner":
+			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/issues" || key == "GET /api/issues/2" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/agent/turn/cancel" || key == "POST /api/agent/turn/replay" || key == "POST /api/agent/turn/retire"):
+				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
 				want = http.StatusForbidden
 			case who == "member" && maintainerOnly[key]:
@@ -151,11 +154,11 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 				if middleware.InstallMemberCommand(route.method, route.path) == "members.write" {
 					message = "Only a maintainer can do this"
 				}
-				if key == "GET /api/members" {
+				if key == "GET /api/members" || key == "GET /api/install" || key == "GET /api/github/sync" || key == "POST /api/github/sync" || key == "GET /api/live" {
 					message = "Only a person can do this"
 				}
-				if key == "POST /api/todos/1/merge" {
-					message = "Merge requires an owner or maintainer browser session"
+				if key == "POST /api/todos" || key == "POST /api/todos/1" || key == "POST /api/todos/1/answer" || key == "POST /api/todos/1/merge" {
+					message = "Insufficient credential scope"
 				}
 				require.Equal(t, message, envelope["message"], key)
 			}
@@ -165,6 +168,9 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	status, envelope := call("GET", "/api/todos", "", ownerToken)
 	require.Equal(t, http.StatusForbidden, status)
 	require.Equal(t, "permission", envelope["class"])
+	// Give the owner token explicit repository scope before repository reads.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:user,read:repository' WHERE user_id=$1`, owner.ID)
+	require.NoError(t, err)
 	// Scoped owner questions reach the chat host, which gates capabilities.
 	status, _ = call("POST", "/api/agent/turn", "", ownerToken)
 	require.Equal(t, http.StatusOK, status)
