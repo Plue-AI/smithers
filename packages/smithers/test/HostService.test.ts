@@ -204,3 +204,27 @@ it("refuses invalid serving flags before host service effects", () => {
  expect(() => Host.validateAddress({bind:"0.0.0.0",origins:["http://lan-a:4000", "https://box.example"]})).not.toThrow();
  expect(() => Host.validateAddress({bind:"[::]:4000"})).not.toThrow();
 })
+
+
+describe("install telemetry over HTTP", () => {
+  it.each([200, 401, 404, 503])("probes GET /api/install with HTTP %s and omits unavailable telemetry", async (code) => {
+    const server = createServer((req, res) => {
+      expect(req.method).toBe("GET"); expect(req.url).toBe("/api/install"); expect(req.headers.authorization).toBe("Bearer fixture-person")
+      res.writeHead(code, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ capacity: 2, this_mac: { memory_gb: 32, perf_cores: 10, capacity: 3, limit: { fix: "private" } }, github_app: { configured: true, installed: false, install_url: "secret" }, setup_urls: ["secret"] }))
+    })
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done))
+    try {
+      const address = server.address() as { port: number }
+      expect(await Host.installTelemetry(`http://127.0.0.1:${address.port}/api/install`, "fixture-person")).toEqual(code === 200 ? {
+        capacity: 2, this_mac: { memory_gb: 32, perf_cores: 10, capacity: 3 }, github_app: { configured: true, installed: false }
+      } : undefined)
+    } finally { await new Promise<void>((done) => server.close(() => done())) }
+  })
+  it("omits malformed and unreachable telemetry", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("invalid"))
+    expect(await Host.installTelemetry()).toBeUndefined()
+    vi.mocked(fetch).mockRejectedValue(new Error("offline"))
+    expect(await Host.installTelemetry()).toBeUndefined()
+  })
+})

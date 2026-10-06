@@ -241,7 +241,8 @@ export const status = async () => {
   const verified = verifyBundle(bundle)
   if (!loaded(system) || await ready() !== true) throw new Error(`Host unhealthy: ${bundle}`)
   doctor(bundle, stateDirectory())
-  return { state: "ready", bundle, version: verified.version, launchd: "running", readiness: "ready", doctor: "ready" }
+  const install = await installTelemetry(undefined, process.env.SMITHERS_TOKEN?.trim())
+  return { state: "ready", bundle, version: verified.version, launchd: "running", readiness: "ready", doctor: "ready", ...(install ? { install } : {}) }
 }
 
 /** Read-only bundled diagnostics need the same state root as the running service; the backend runs only its own bundle's msb. */
@@ -268,4 +269,33 @@ export function validateAddress(address: { readonly bind?: string; readonly orig
   if (!/^(http|https):$/.test(url.protocol) || !url.host || url.username || url.password || url.pathname !== "/" || url.search || url.hash || origin.endsWith("/") || hosts.has(url.host)) throw new Error("Invalid public origin");
   hosts.add(url.host);
  }
+}
+
+/** Optional install telemetry. Never copy setup URLs, credentials or diagnostic text into status. */
+export const installTelemetry = async (endpoint = "http://127.0.0.1:4000/api/install", credential?: string) => {
+  try {
+    const response = await fetch(endpoint, { signal: AbortSignal.timeout(1000), redirect: "error",
+      ...(credential ? { headers: { Authorization: `Bearer ${credential}` } } : {}) })
+    if (!response.ok) return undefined
+    const body = await response.json() as Record<string, unknown>
+    if (!body || typeof body !== "object" || Array.isArray(body)) return undefined
+    const result: Record<string, unknown> = {}
+    if (typeof body.capacity === "number" && Number.isFinite(body.capacity) && body.capacity >= 0) result.capacity = body.capacity
+    if (body.this_mac && typeof body.this_mac === "object") {
+      const mac = body.this_mac as Record<string, unknown>
+      const values: Record<string, number> = {}
+      for (const key of ["memory_gb", "perf_cores", "capacity"]) {
+        const value = mac[key]
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) values[key] = value
+      }
+      if (Object.keys(values).length) result.this_mac = values
+    }
+    if (body.github_app && typeof body.github_app === "object") {
+      const app = body.github_app as Record<string, unknown>
+      const values: Record<string, boolean> = {}
+      for (const key of ["configured", "installed"]) if (typeof app[key] === "boolean") values[key] = app[key]
+      if (Object.keys(values).length) result.github_app = values
+    }
+    return Object.keys(result).length ? result : undefined
+  } catch { return undefined }
 }
