@@ -3,6 +3,7 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -21,7 +22,8 @@ import (
 // composition plus a changelog step. Ben merges B; flow-load runs on every
 // main move (spec §11.3.1) and makes B's flow Active; a broken flow merged on
 // GitHub leaves it Active. A resumes its original D1 while new C executes
-// the changelog requirement from D2; ordinary Retry remains pending.
+// the changelog requirement from D2. A failed TODO retries on D1, then
+// explicitly retries with the current flow on D2, retaining earlier evidence.
 func TestJ5Rehearsal(t *testing.T) {
 	// The install loads its flows after every main move.
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
@@ -145,6 +147,32 @@ func TestJ5Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("200 %v; todo built in, system false, Active D1 %s… with %d steps and the merge wait", names, active[0][:12], len(steps)-1)
 		return nil
 	})
+	var retryTodo int64
+	var failedRetry rehearsalTodo
+	if !r.step("4b A failed TODO predates activation", "POST /api/todos [FAIL]; GET /api/todos/{R}", "R fails repository checks on D1 before B merges", "T-FLW-11", func() error {
+		var err error
+		retryTodo, err = r.file("R retries across activation", "[FAIL] [FILE retry.md] Add a greeting to retry.md")
+		if err != nil {
+			return err
+		}
+		failedRetry, err = r.waitTodoWithin(retryTodo, 8*time.Minute, "failed")
+		if err != nil {
+			return err
+		}
+		if failedRetry.Run == nil || failedRetry.FlowVersion == nil || failedRetry.FlowVersion.Digest != d1 || failedRetry.FlowVersion.SourceCommit != r.mainCommit {
+			return fmt.Errorf("R failed with run %+v and pin %+v, want D1 at original main", failedRetry.Run, failedRetry.FlowVersion)
+		}
+		var reason string
+		if err := r.pool.QueryRow(r.ctx, `SELECT reason FROM mythical_items WHERE number=$1`, retryTodo).Scan(&reason); err != nil {
+			return err
+		}
+		if !strings.Contains(reason, "failed: coding/Error/fast_gate") {
+			return fmt.Errorf("R failed for %q, want its repository check gate", reason)
+		}
+		return nil
+	}) {
+		return
+	}
 	r.pending("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", "flow-agent-edit")
 	r.pending("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", "flow-agent-edit")
 	r.pending("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "'Merge flow is built in'", "T-FLW-05", "flow-agent-edit")
@@ -300,8 +328,21 @@ func TestJ5Rehearsal(t *testing.T) {
 		if v.FlowVersion == nil || v.FlowVersion.Digest != digest || v.FlowVersion.SourceCommit != source {
 			return fmt.Errorf("T%d pin %+v, want %s at %s", number, v.FlowVersion, digest, source)
 		}
-		if len(v.Evidence) != 1 || v.Evidence[0].FlowDigest != digest || v.Evidence[0].SourceCommit != source {
-			return fmt.Errorf("T%d evidence does not retain its one admitted pin: %+v", number, v.Evidence)
+		if v.Run == nil {
+			return fmt.Errorf("T%d has no admitted run", number)
+		}
+		current := 0
+		for _, evidence := range v.Evidence {
+			if int(evidence.Attempt) != v.Run.Attempt {
+				continue
+			}
+			current++
+			if evidence.FlowDigest != digest || evidence.SourceCommit != source {
+				return fmt.Errorf("T%d attempt %d evidence pin %+v, want %s at %s", number, v.Run.Attempt, evidence, digest, source)
+			}
+		}
+		if current != 1 {
+			return fmt.Errorf("T%d has %d evidence entries for current attempt %d", number, current, v.Run.Attempt)
 		}
 		return nil
 	}
@@ -383,7 +424,106 @@ func TestJ5Rehearsal(t *testing.T) {
 		}
 		return nil
 	})
-	r.pending("16 Retry keeps the pin", "POST /api/todos/{A} {op: retry}", "the retry attempt pins D1", "T-FLW-11, T-STK-05", "pinned-todo-flow")
+	// Compare the public evidence, including each attempt's source and digest.
+	// Model-access availability is a live card projection, not recorded evidence.
+	checkEarlier := func(before, after rehearsalTodo) error {
+		if len(before.Evidence) == 0 {
+			return fmt.Errorf("R has no earlier evidence to retain")
+		}
+		for _, old := range before.Evidence {
+			found := false
+			for _, kept := range after.Evidence {
+				if kept.Attempt != old.Attempt {
+					continue
+				}
+				found = true
+				if kept.FlowDigest != old.FlowDigest || kept.SourceCommit != old.SourceCommit || !reflect.DeepEqual(recordedEvidence(kept.Items), recordedEvidence(old.Items)) {
+					return fmt.Errorf("R attempt %d evidence changed: before %+v, after %+v", old.Attempt, old, kept)
+				}
+			}
+			if !found {
+				return fmt.Errorf("R lost attempt %d evidence", old.Attempt)
+			}
+		}
+		return nil
+	}
+	var ordinaryRetry rehearsalTodo
+	if !r.step("16 Retry keeps the pin", "POST /api/todos/{R} {op: retry}; GET /api/todos/{R}", "a new attempt executes D1 after D2 activation; the failure and earlier evidence remain readable", "T-FLW-11, T-STK-05", func() error {
+		if failedRetry.Run == nil || d2 == "" {
+			return fmt.Errorf("blocked by failed D1 attempt or D2 activation")
+		}
+		code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", retryTodo), `{"op":"retry"}`, r.keyPrefix+"retry-original")
+		if err != nil || code != 202 {
+			return fmt.Errorf("ordinary retry: HTTP %d %s: %v", code, data, err)
+		}
+		var accepted struct {
+			Attempt int `json:"attempt"`
+		}
+		if err := json.Unmarshal(data, &accepted); err != nil || accepted.Attempt != failedRetry.Run.Attempt+1 {
+			return fmt.Errorf("ordinary retry receipt %s, want attempt %d", data, failedRetry.Run.Attempt+1)
+		}
+		// The repository still fails. Its bounded automatic replans may spend
+		// more than one attempt, and every one must retain D1.
+		ordinaryRetry, err = r.waitTodoWithin(retryTodo, 8*time.Minute, "failed")
+		if err != nil {
+			return err
+		}
+		if ordinaryRetry.Run == nil || ordinaryRetry.Run.Attempt < accepted.Attempt {
+			return fmt.Errorf("ordinary retry run %+v, want attempt at least %d", ordinaryRetry.Run, accepted.Attempt)
+		}
+		for _, evidence := range ordinaryRetry.Evidence {
+			if evidence.FlowDigest != d1 || evidence.SourceCommit != r.mainCommit {
+				return fmt.Errorf("ordinary retry changed an attempt's original pin: %+v", evidence)
+			}
+		}
+		if err = checkPin(retryTodo, d1, r.mainCommit); err != nil {
+			return err
+		}
+		return checkEarlier(failedRetry, ordinaryRetry)
+	}) {
+		return
+	}
+	r.step("17 Retry current flow adopts D2", "POST /api/todos/{R} {op: retry-current-flow, steer: '[FIXED] …'}; PR diff against A", "a new D2 attempt adds retry.md and CHANGELOG.md over its unmerged predecessor; earlier D1 attempts stay readable", "T-FLW-11, T-STK-05", func() error {
+		body := `{"op":"retry-current-flow","steer":"[FIXED] Keep JOURNEY.md as it is and add the greeting to retry.md"}`
+		code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", retryTodo), body, r.keyPrefix+"retry-current")
+		if err != nil || code != 202 {
+			return fmt.Errorf("retry current flow: HTTP %d %s: %v", code, data, err)
+		}
+		v, err := r.waitTodoWithin(retryTodo, 3*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		if v.Run == nil || v.Run.Attempt != ordinaryRetry.Run.Attempt+1 {
+			return fmt.Errorf("current flow retry run %+v, want new run after %+v", v.Run, ordinaryRetry.Run)
+		}
+		if err = checkPin(retryTodo, d2, squash); err != nil {
+			return err
+		}
+		if err = checkEarlier(ordinaryRetry, v); err != nil {
+			return err
+		}
+		if _, err := r.checkPull(v.PR.Number, v.PR.Head); err != nil {
+			return err
+		}
+		// A precedes R and has not merged: GitHub's diff against main
+		// includes A too. Measure R's own contribution against that prefix.
+		predecessor, err := r.todo(a)
+		if err != nil {
+			return err
+		}
+		if len(predecessor.PR.Head) != 40 {
+			return fmt.Errorf("A has no reviewed predecessor head")
+		}
+		diff, err := r.githubGit("diff", "--name-only", predecessor.PR.Head, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		files := strings.Fields(diff)
+		if !slices.Equal(files, []string{"CHANGELOG.md", "retry.md"}) {
+			return fmt.Errorf("R changes %v, want exactly CHANGELOG.md and retry.md", files)
+		}
+		return nil
+	})
 }
 
 // rehearsalFlowCard is what the flow rows read of one GET /api/flows card.

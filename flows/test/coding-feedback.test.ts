@@ -115,16 +115,11 @@ for (const mode of ["fast-infra", "slow-infra", "real-red"] as const) {
         Effect.provide(runtime)
       )
     )
-    if (mode === "real-red") {
-      assert.ok(Exit.isSuccess(result))
-      assert.equal(result.value.status, "blocked")
-      assert.match(result.value.blocked?.message ?? "", /did not pass/)
-    } else {
-      assert.ok(Exit.isFailure(result))
-      const reason = result.cause.reasons.find(Cause.isFailReason)
-      assert.ok(reason?.error instanceof CodingError, Cause.pretty(result.cause))
-      assert.equal(reason.error.code, "check_infra")
-    }
+    assert.ok(Exit.isFailure(result), "a failed check must retain its typed fault through the TODO composition")
+    const reason = result.cause.reasons.find(Cause.isFailReason)
+    assert.ok(reason?.error instanceof CodingError, Cause.pretty(result.cause))
+    assert.equal(reason.error.code, mode === "real-red" ? "fast_gate" : "check_infra")
+    if (mode === "real-red") assert.match(reason.error.message, /did not pass/)
   })
 }
 

@@ -1716,6 +1716,18 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 // after the item is saved: an activity entry the launch records.
 func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem, phase, flowID string, payload json.RawMessage, also func(pgx.Tx, db.MythicalItem) error) (db.MythicalItem, error) {
 	s, r := st.s, st.r
+	// Every fresh machine must import the attempt's immutable flow source,
+	// including review and rebase verification machines. Retaining only the
+	// work base or candidate strands their host before it can accept a run.
+	// Keep this idempotent transport before the admission transaction: a
+	// failed retention must never leave an admitted launch or updated item.
+	if pin, pinned := mythicalPinOf(item); pinned {
+		if _, err := s.retainMainFor(ctx, r, item.WorkspaceID, pin.SourceCommit); err != nil {
+			return db.MythicalItem{}, fmt.Errorf("retain the pinned flow source: %w", err)
+		}
+	} else if item.FlowDigest.Valid || flowdispatch.IsTodoFlow(flowID) {
+		return db.MythicalItem{}, errors.New("the TODO attempt's pin is incomplete")
+	}
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
 		return db.MythicalItem{}, err
@@ -2379,14 +2391,6 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	ref, err := s.retainFor(ctx, r, workspaceID, base)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
-	}
-	// The flow's source is independent of the work base (especially after
-	// Retry and main advances). The new machine imports this immutable pin
-	// before starting its host; retaining only base strands that startup.
-	if pin.SourceCommit != base {
-		if _, err := s.retainMainFor(ctx, r, workspaceID, pin.SourceCommit); err != nil {
-			return mythicalInfraOutage(item, "launch", "the pinned flow source could not reach the lane: "+err.Error(), st.now), false, nil
-		}
 	}
 	request := map[string]any{"prompt": todoPrompt(item), "maxRounds": 3,
 		"base": map[string]string{"commitId": base, "ref": ref}}

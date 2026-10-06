@@ -643,6 +643,10 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	require.Equal(t, landed, authorization["flowSource"])
 	require.EqualValues(t, 1, authorization["attempt"])
 	launch := reviews[0]["launch"].(map[string]any)
+	// A rejected review can already have released the item's current lane;
+	// inspect the immutable launch target, not that asynchronous projection.
+	reviewWorkspace := launch["target"].(map[string]any)["WorkspaceID"].(string)
+	require.Equal(t, landed, o.hostRef(repohost.WorkspaceSourceRef(reviewWorkspace, landed)), "the fresh review machine can import the attempt's original flow source")
 	require.Equal(t, pin, launch["pin"])
 	projection := launch["projection"].(map[string]any)
 	require.Equal(t, "review", projection["phase"])
