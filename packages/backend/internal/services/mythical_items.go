@@ -3604,6 +3604,10 @@ func (st *mythicalItemStep) bindPull(ctx context.Context, item db.MythicalItem, 
 		next.PendingOp, _ = json.Marshal(op)
 		// Return to proposal after settlement so placement promotion runs next.
 		next.State = "proposing"
+		// The rebuilt PR is not fully published until its metadata settles.
+		// Retain the rebase receipt so the card stays In review and merge waits.
+		checks.Rebase = mythicalChecksOf(item).Rebase
+		next.Checks = checks.encode()
 		return next, nil
 	}
 	if shape.DraftsAvailable && checks.PRFirst != nil && *checks.PRFirst != shape.First {
@@ -3615,6 +3619,8 @@ func (st *mythicalItemStep) bindPull(ctx context.Context, item db.MythicalItem, 
 			op := MythicalOutboundOp{Kind: "draft", Target: strconv.FormatInt(pull.Number, 10), Desired: strconv.FormatBool(desired), Precondition: strconv.FormatBool(pull.Draft), State: "intended"}
 			next.PendingOp, _ = json.Marshal(op)
 			next.State = "proposing"
+			checks.Rebase = mythicalChecksOf(item).Rebase
+			next.Checks = checks.encode()
 			return next, nil
 		}
 		first := shape.First
