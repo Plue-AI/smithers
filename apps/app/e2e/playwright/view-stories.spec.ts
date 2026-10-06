@@ -979,5 +979,29 @@ test("Proposal keyboard actions and receipt navigation use supplied callbacks", 
     expect(await page.evaluate(() => (window as unknown as { proposalCalls: unknown[] }).proposalCalls)).toEqual([
       { kind: "action", value: { tag: "wiki.page", args: { name: "Retry policy" } } },
     ])
+    await page.goto(`/view-stories.html?story=ProposalView/Accepted%20TODO%20link&theme=${theme}`)
+    await expect(page.locator('.proposal-status')).toHaveText("Accepted")
+    const todo = page.getByRole("button", { name: "T14 · Keep completion receipts in toasts", exact: true })
+    await todo.focus()
+    await expect(todo).toBeFocused()
+    await todo.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as { proposalCalls: unknown[] }).proposalCalls)).toEqual([
+      { kind: "action", value: { tag: "todo", args: { n: "14" } } },
+    ])
+    for (const [story, state] of [["Dismissed", "Dismissed"], ["Read-only proposal", "Suggested"]]) {
+      await page.goto(`/view-stories.html?story=${encodeURIComponent(`ProposalView/${story}`)}&theme=${theme}`)
+      await expect(page.locator('.proposal-status')).toHaveText(state!)
+      await expect(page.locator('.proposal-actions button')).toHaveCount(0)
+    }
+    await page.goto(`/view-stories.html?story=ProposalView/Hostile%20proposal&theme=${theme}`)
+    await expect(page.locator('.proposal-evidence')).toContainText('<script>alert("evidence")</script>')
+    await expect(page.locator('.proposal-ref')).toHaveText("Unsafe ref")
+    await expect(page.locator('.proposal-ref a, .proposal-view script')).toHaveCount(0)
+    for (const [story, count] of [["No lessons", null], ["One lesson", "1 lesson"], ["Lessons from T12", "2 lessons"]]) {
+      await page.goto(`/view-stories.html?story=${encodeURIComponent(`ProposalView/${story}`)}&theme=${theme}`)
+      if (count === null) await expect(page.locator('.proposal-lessons')).toHaveCount(0)
+      else await expect(page.locator('.proposal-lessons')).toContainText(count!)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
   }
 })
