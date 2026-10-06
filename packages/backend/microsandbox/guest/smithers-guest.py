@@ -410,13 +410,17 @@ def writer_admission():
         yield
 
 
-def run_managed_child(exec_id, action):
+def run_managed_child(exec_id, action, *, privileged=False):
     """Admit every workspace-writing child before it consumes branch operands.
 
     The parent remains outside the command tree for cancellation and collection.
     This admission is necessary for guest-wide exclusion; it does not itself
     freeze writers, drain outstanding kernel I/O, or qualify compare-and-write.
     """
+    # Only validated, install-pinned metadata operations use this private flag.
+    # No command/request envelope can select it.
+    if privileged and os.geteuid() != 0:
+        fail(125, "root metadata requires root")
     if not valid_id(exec_id):
         fail(125, "invalid exec identity")
     group = os.path.join(CGROUP_ROOT, exec_id)
@@ -438,8 +442,8 @@ def run_managed_child(exec_id, action):
             with os.fdopen(fd, "w") as handle:
                 handle.write(str(os.getpid()))
             os.close(group_fd)
-            entry = drop_to("agent")
-            os.umask(0o002)
+            entry = None if privileged else drop_to("agent")
+            os.umask(0o022 if privileged else 0o002)
             action(entry)
         except SystemExit as error:
             code = 0 if error.code is None else error.code if type(error.code) is int and 0 <= error.code <= 255 else 125
@@ -588,13 +592,18 @@ def run_root_recipe(digest, request):
         fail(125, "root recipe requires root")
     import subprocess
     # Never merge the agent-writable env.json or request environment.
-    with writer_admission():
+    def execute(_entry):
         result = subprocess.run(argv, cwd="/", env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
             "HOME": "/root", "TMPDIR": "/var/tmp", "DEBIAN_FRONTEND": "noninteractive",
             "PYTHONPATH": ""})
+        sys.exit(128 - result.returncode if result.returncode < 0 else result.returncode)
+
+    # Root descendants must remain in the writer tree even if this supervisor
+    # dies. A userspace lock held only by the supervisor cannot guarantee that.
+    code = run_managed_child("recipe-" + secrets.token_hex(16), execute, privileged=True)
     sys.stdout.flush()
-    os.write(2, EXIT_TRAILER % result.returncode)
-    return result.returncode
+    os.write(2, EXIT_TRAILER % code)
+    return code
 
 
 def resolve_inside(root, requested, allow_missing_leaf):
@@ -1564,11 +1573,13 @@ def main(args):
     if command == "setup" and len(args) >= 3:
         if args[1] != "agent":
             fail(3, "member provisioning requires approved roster and broker")
-        # Protect the fixed root metadata phase, then close its descriptors.
-        # Home initialization gets its own admission and joins the writer tree;
-        # an intervening transaction either holds it frozen or refuses recovery.
-        with writer_admission():
-            setup(args[1], int(args[2]), args[3:])
+        # Both phases join the writer tree; only the bounded metadata operation
+        # retains root. Home/cache operands are consumed after a separate drop.
+        code = run_managed_child("setup-root-" + secrets.token_hex(16),
+                                 lambda _entry: setup(args[1], int(args[2]), args[3:]),
+                                 privileged=True)
+        if code:
+            sys.exit(code)
         sys.exit(run_managed_child("setup-" + secrets.token_hex(16), home_defaults))
     fail(125, "unknown subcommand %r" % command)
 

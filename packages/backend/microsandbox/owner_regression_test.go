@@ -127,6 +127,12 @@ def run(argv,**kwargs):
  calls.append(argv)
  return types.SimpleNamespace(returncode=0)
 subprocess.run=run
+# Envelope validation only; the root process lifecycle has separate tests.
+def managed(identity,action,*,privileged=False):
+ assert privileged and identity.startswith('recipe-')
+ try:action(None)
+ except SystemExit as result:return result.code
+g.run_managed_child=managed
 request={'script':script}
 assert g.run_root_recipe(digest,request)==0
 assert len(calls)==2
@@ -218,6 +224,12 @@ def run(argv,**kwargs):
  calls.append(argv)
  return types.SimpleNamespace(returncode=0)
 subprocess.run=run
+# Envelope validation only; the root process lifecycle has separate tests.
+def managed(identity,action,*,privileged=False):
+ assert privileged and identity.startswith('recipe-')
+ try:action(None)
+ except SystemExit as result:return result.code
+g.run_managed_child=managed
 assert g.run_root_recipe(digest,request)==0
 assert len(calls)==1
 bad=[]

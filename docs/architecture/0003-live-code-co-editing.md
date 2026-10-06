@@ -73,8 +73,8 @@ A lock used only by Smithers file tools cannot establish that exclusion. The exi
 protocol in §9.4.2 is a candidate to extend, subject to qualification:
 
 - Every unprivileged working-copy writer must enter the managed process tree
-  before accessing repository bytes. Guest `exec`, privileged `fs` dispatch and
-  setup's unprivileged home initialization now share that admission path.
+  before accessing repository bytes. Guest `exec`, privileged `fs` dispatch,
+  approved root recipes and both phases of setup now share that admission path.
   Direct unprivileged `fs` stays in its caller's command cgroup. Host-initiated
   helpers must serialize with the same transaction, and concurrent launches
   must remain stopped until it finishes.
@@ -95,17 +95,23 @@ protocol in §9.4.2 is a candidate to extend, subject to qualification:
   actual guest kernel and working-copy filesystem.
 
 The guest now has a fixed, protected coordinator lock in
-`/var/lib/smithers/writer-coordinator`. Root admission takes the shared lock;
-setup's fixed metadata phase and approved root recipes hold it while executing.
+`/var/lib/smithers/writer-coordinator`. Root admission takes the shared lock
+while creating the managed group, then closes its protected descriptors before
+forking. Setup's metadata phase and approved root recipes execute in that tree
+without dropping credentials; only their validated helper call sites can choose
+this private mode. Ordinary commands and home initialization still drop first.
+The supervisor collects recipe descendants on normal completion or cancellation.
+If the supervisor dies, its descendants remain subject to the aggregate freeze
+and existing cgroup recovery, even after detaching their process sessions.
 A future transaction or recovery supervisor must take the exclusive lock.
 Any `pending` entry refuses admission without opening or decoding journal
-bytes. Admission closes protected descriptors before forking unprivileged
-workers. This is a prerequisite, not a transaction implementation: production
+bytes. This is a prerequisite, not a transaction implementation: production
 does not yet create or settle that recovery fence, freeze writers, or recover
-a patch. Root recipe descendants surviving their supervisor also need lifecycle
-coordination before this can establish exclusion. Tests use actual file locks
-and process death with an ordinary-user protected-directory fixture; they are
-not privileged guest receipts.
+a patch. Tests use actual file locks and process death with an ordinary-user
+protected-directory fixture. The Linux lifecycle probe also exercises the real
+recipe subprocess path with an instrumented root identity and test recipe pin.
+These are not privileged guest receipts, nor proof that services started through
+external IPC or already executing kernel I/O cannot write during exclusion.
 
 The supplemental probe in
 `packages/backend/microsandbox/testdata/compare_write_freezer/` checks queued

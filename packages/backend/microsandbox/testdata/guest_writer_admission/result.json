@@ -1,6 +1,7 @@
 {
   "uid": 1000,
   "kernel": "7.0.0-38-generic",
+  "helper_sha256": "06c13f1fd721545c0b081070fdf213952f3f493b3860550271a19d5149758e94",
   "results": [
     {
       "case": "filesystem",
@@ -13,11 +14,32 @@
       "finished_after_thaw": true
     },
     {
+      "case": "root-metadata",
+      "held_before_thaw": true,
+      "finished_after_thaw": true
+    },
+    {
       "case": "cancellation",
       "detached_writer_stopped": true,
       "exit_code": 143
+    },
+    {
+      "case": "cancel-recipe",
+      "detached_writer_collected": true,
+      "exit_code": 143,
+      "orphan_held_by_freeze": false
+    },
+    {
+      "case": "orphan-recipe",
+      "detached_writer_collected": true,
+      "exit_code": -9,
+      "orphan_held_by_freeze": true
+    },
+    {
+      "case": "finished-recipe",
+      "detached_writer_collected": true,
+      "exit_code": 7,
+      "orphan_held_by_freeze": false
     }
-  ],
-  "helper_sha256": "e63d2009e318d1d367603af02c23e163778e2363003d84d0918d61d4973259a1",
-  "qualification": "supplemental delegated-user cgroup lifecycle only; privileged guest and atomic mutation remain unqualified"
+  ]
 }
