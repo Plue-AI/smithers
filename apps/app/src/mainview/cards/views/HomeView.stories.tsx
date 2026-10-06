@@ -1,7 +1,14 @@
+import { useState } from "react"
+import type { HomeViewProps } from "@smthrs/rpc/HomeCard"
 import { fixtures } from "@smthrs/rpc/fixtures/Home"
 import type { Action } from "@smthrs/rpc/CardAction"
 import { HomeView } from "./HomeView"
 import type { ViewStory, StoryAction, StoryInteraction } from "./stories"
+
+export function StoryHome(props: HomeViewProps) {
+  const [view, setView] = useState(props.view)
+  return <HomeView {...props} view={view} onView={patch => { props.onView(patch); if ("menu" in patch) setView(current => ({ ...current, menu: patch.menu })) }} />
+}
 
 // Literal oracles: ui-components T-UI-06 / spec §14.3 Home, committed RPC Home fixtures.
 const active: StoryAction[] = [
@@ -43,18 +50,18 @@ export const stories: ViewStory[] = (Object.keys(fixtures) as (keyof typeof fixt
       { selector: '[data-filter="queued"]', patch: key.startsWith("active") ? { filter: "queued" } : undefined },
       { selector: '[data-filter="in_review"]', patch: key.startsWith("active") ? { filter: "in_review" } : undefined },
       ...(key.startsWith("active") ? [ ["Persist merge requests", "8"], ["Card model contracts", "12"], ["Wire Home", "15"], ["Retry webhook delivery", "16"] ].flatMap(([title, n]): StoryInteraction[] => [
-        { selector: `button[aria-label="Order ${title}"]` },
+        { selector: `button[aria-label="Order ${title}"]`, patch: { menu: Number(n) } },
         { selector: '.menu .home-action:nth-child(1) button', action: { tag: "stack.move", args: { n: n!, direction: "up" } } },
         { selector: '.menu .home-action:nth-child(2) button', action: { tag: "stack.move", args: { n: n!, direction: "down" } } },
         { selector: '.menu .home-action:nth-child(3) button', action: { tag: "todo.drop", args: { n: n! } } },
-        { selector: `button[aria-label="Order ${title}"]`, event: "keydown" as const, key: "Escape" },
+        { selector: `button[aria-label="Order ${title}"]`, event: "keydown" as const, key: "Escape", patch: { menu: undefined } },
       ]) : []),
     ],
     render: (callbacks, allowed = oracles[key]) => {
       // Only remove the explicitly omitted oracle action; unknown fixture additions stay visible.
       const removed = oracles[key].filter(expected => !allowed.includes(expected))
       const keep = (action: Action) => !removed.some(expected => expected.tag === action.tag && JSON.stringify(expected.args ?? {}) === JSON.stringify(action.args ?? {}))
-      return <HomeView {...fixture} {...callbacks} actions={fixture.actions.filter(keep)} model={{ ...fixture.model,
+      return <StoryHome {...fixture} {...callbacks} actions={fixture.actions.filter(keep)} model={{ ...fixture.model,
         attention: fixture.model.attention.map(row => ({ ...row, actions: row.actions.filter(keep) })),
         items: fixture.model.items.map(row => ({ ...row, actions: row.actions.filter(keep) })),
         background_runs: fixture.model.background_runs.map(row => ({ ...row, actions: row.actions.filter(keep) })),
@@ -75,7 +82,7 @@ stories.push({
     { selector: '[data-filter="queued"]', patch: { filter: "queued" } },
     { selector: '[data-filter="in_review"]', patch: { filter: "in_review" } },
   ],
-  render: callbacks => <HomeView {...fixtures.fresh} {...callbacks} actions={[]} model={{ ...fixtures.fresh.model,
+  render: callbacks => <StoryHome {...fixtures.fresh} {...callbacks} actions={[]} model={{ ...fixtures.fresh.model,
     machines: { in_use: 0, capacity: 0, slots: [] },
     counts: { queued: 1, starting: 1, working: 1, needs_you: 1, paused: 1, failed: 1, in_review: 1, merged: 1, dropped: 1 },
     items: boundaryStates.map((state, index) => ({ ...fixtures.active.model.items[0]!, n: index + 20, place: index + 1, state,
@@ -93,7 +100,7 @@ stories.push({
   expect: ["Not in review yet", "Merges after T8", "Needs you", "Merging", "Checks running", "Pending work", "Rebase pending", "Checks unit", "Review required", "GitHub denied"],
   actions: [],
   interactions: ["needs_you", "working", "queued", "in_review"].map(state => ({ selector: `[data-filter="${state}"]` })),
-  render: callbacks => <HomeView {...fixtures.fresh} {...callbacks} actions={[]} model={{ ...fixtures.fresh.model,
+  render: callbacks => <StoryHome {...fixtures.fresh} {...callbacks} actions={[]} model={{ ...fixtures.fresh.model,
     items: mergeReasons.map((reason, index) => ({ ...fixtures.active.model.items[0]!, n: 40 + index, title: `Merge reason ${reason}`, place: index + 1,
       state: "in_review", present: [], actions: [], approval_cleared: false,
       merge: { state: "blocked", reason, detail: reason === "order" ? "T8" : reason === "checks" ? "unit" : reason === "github" ? "denied" : undefined, on_github: false },
@@ -107,7 +114,7 @@ const hostileAction: Action = { tag: "todo.new", label: hostile }
 stories.push({
   name: "home-hostile", expect: [hostile], actions: [hostileAction],
   interactions: ["needs_you", "working", "queued", "in_review"].map(state => ({ selector: `[data-filter="${state}"]` })),
-  render: (callbacks, actions = [hostileAction]) => <HomeView {...fixtures.fresh} {...callbacks} actions={[hostileAction].filter(action => actions.includes(action))} model={{ ...fixtures.fresh.model,
+  render: (callbacks, actions = [hostileAction]) => <StoryHome {...fixtures.fresh} {...callbacks} actions={[hostileAction].filter(action => actions.includes(action))} model={{ ...fixtures.fresh.model,
     repository: hostile, main: { ...fixtures.fresh.model.main, title: hostile, health: "refused", cause: hostile },
     attention: [{ kind: "force_push", text: hostile, actions: [] }],
     items: [{ ...fixtures.active.model.items[0]!, title: hostile, present: [], actions: [], amendments: 0 }],
@@ -126,7 +133,7 @@ stories.push({
   interactions: ["needs_you", "working", "queued", "in_review"].map(state => ({ selector: `[data-filter="${state}"]` })),
   render: (callbacks, allowed = unavailable) => {
     const keep = (action: StoryAction) => allowed.includes(action)
-    return <HomeView {...fixtures.fresh} {...callbacks} actions={unavailable.slice(0, 1).filter(keep)} model={{ ...fixtures.fresh.model,
+    return <StoryHome {...fixtures.fresh} {...callbacks} actions={unavailable.slice(0, 1).filter(keep)} model={{ ...fixtures.fresh.model,
       attention: [{ kind: "order", text: "Order changed", actions: unavailable.slice(1, 2).filter(keep) }],
       items: [{ ...fixtures.active.model.items[0]!, title: "Unavailable TODO", present: [], actions: unavailable.slice(2, 4).filter(keep) }],
       background_runs: [{ id: "failed", title: "Refresh wiki", state: "failed", actions: unavailable.slice(4).filter(keep) }],
