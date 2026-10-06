@@ -23,6 +23,23 @@ var (
 	invalidCommit = flowruntime.Pin{Flow: TodoFlow, SourceCommit: strings.Repeat("C", 40), ExecutionDigest: strings.Repeat("d", 64)}
 )
 
+type delayedPinCancellation struct {
+	*recordingRuntime
+	observations      atomic.Int32
+	failedObservation bool
+}
+
+func (r *delayedPinCancellation) Observe(ctx context.Context, runID, cursor string, limit int) (flowruntime.Observation, error) {
+	observation := r.observations.Add(1)
+	if observation == 1 {
+		return flowruntime.Observation{Run: flowruntime.Run{RunID: runID, FlowID: "todo", Status: "running"}}, nil
+	}
+	if observation == 2 && r.failedObservation {
+		return flowruntime.Observation{}, errors.New("temporary observation outage")
+	}
+	return r.recordingRuntime.Observe(ctx, runID, cursor, limit)
+}
+
 func stackLaunch(requestID, flowID string, pin *flowruntime.Pin) LaunchRequest {
 	return LaunchRequest{Scope: stackScope, RequestID: requestID, Target: stackTarget, FlowID: flowID,
 		Payload: json.RawMessage(`{"prompt":"x"}`), Projection: json.RawMessage(`{"kind":"mythical-item"}`), ApprovalPolicy: ApprovalAuto, Pin: pin}
@@ -187,11 +204,13 @@ func TestPinnedReconnectValidatesDigestBeforeResolution(t *testing.T) {
 func TestPinnedLaunchRunsOnlyThePinnedCode(t *testing.T) {
 	pin := todoPin
 	for _, test := range []struct {
-		name, flowID, digest string
-		parked, runs         bool
+		name, flowID, digest                     string
+		parked, runs, delayed, failedObservation bool
 	}{
 		{name: "pinned digest runs", flowID: "todo", digest: pin.ExecutionDigest, runs: true},
 		{name: "another digest is cancelled", flowID: "todo", digest: otherDigest},
+		{name: "another digest cancellation completes after reconnect", flowID: "todo", digest: otherDigest, delayed: true},
+		{name: "another digest stays refused through observation outage", flowID: "todo", digest: otherDigest, delayed: true, failedObservation: true},
 		{name: "no digest is cancelled", flowID: "todo", digest: ""},
 		{name: "parked plan of another digest is denied", flowID: "todo", digest: otherDigest, parked: true},
 		{name: "engine launch with its own identity runs", flowID: "review/change", digest: otherDigest, runs: true},
@@ -202,9 +221,13 @@ func TestPinnedLaunchRunsOnlyThePinnedCode(t *testing.T) {
 			runtime := newRecordingRuntime()
 			runtime.executionDigest = test.digest
 			runtime.requireApproval = test.parked
+			var host flowruntime.Runtime = runtime
+			if test.delayed {
+				host = &delayedPinCancellation{recordingRuntime: runtime, failedObservation: test.failedObservation}
+			}
 			projector := &recordingProjector{}
 			service, err := New(Config{Store: store, Projector: projector, ObservationDelay: 2 * time.Millisecond, MaxObservationDelay: 5 * time.Millisecond,
-				Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return runtime, nil })})
+				Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return host, nil })})
 			require.NoError(t, err)
 			receipt, err := service.Admit(context.Background(), stackLaunch("pinned", test.flowID, &pin))
 			require.NoError(t, err)
@@ -236,8 +259,12 @@ func TestPinnedLaunchRunsOnlyThePinnedCode(t *testing.T) {
 				require.Equal(t, "cancelled", settled.Run.Status, "settled only after the run ended")
 			}
 			projector.mu.Lock()
-			last := projector.updates[len(projector.updates)-1]
+			updates := append([]ProjectionUpdate(nil), projector.updates...)
 			projector.mu.Unlock()
+			last := updates[len(updates)-1]
+			for _, update := range updates {
+				require.True(t, update.Checkpoint.PinRefused, "neither reconnect nor a transport failure may credit this run")
+			}
 			require.Equal(t, jobs.StateFailed, last.State)
 			require.Equal(t, "pin_mismatch", last.Checkpoint.FailureCode)
 			if test.flowID == pin.Flow {

@@ -148,14 +148,17 @@ type SteerAuthorizer interface {
 }
 
 type RuntimeCheckpoint struct {
-	Version             int                             `json:"version"`
-	Target              flowruntime.FlowRuntimeTarget   `json:"target"`
-	FlowID              string                          `json:"flowId"`
-	Projection          json.RawMessage                 `json:"projection"`
-	Identity            flowruntime.FlowRuntimeIdentity `json:"identity"`
-	PlanID              string                          `json:"planId,omitempty"`
-	PlanDigest          string                          `json:"planDigest,omitempty"`
-	ExecutionDigest     string                          `json:"executionDigest,omitempty"`
+	Version         int                             `json:"version"`
+	Target          flowruntime.FlowRuntimeTarget   `json:"target"`
+	FlowID          string                          `json:"flowId"`
+	Projection      json.RawMessage                 `json:"projection"`
+	Identity        flowruntime.FlowRuntimeIdentity `json:"identity"`
+	PlanID          string                          `json:"planId,omitempty"`
+	PlanDigest      string                          `json:"planDigest,omitempty"`
+	ExecutionDigest string                          `json:"executionDigest,omitempty"`
+	// PinRefused survives transient runtime errors while a mismatched guest
+	// is being cancelled. ExecutionDigest remains the admitted identity.
+	PinRefused          bool                            `json:"pinRefused,omitempty"`
 	Envelope            json.RawMessage                 `json:"envelope,omitempty"`
 	Approval            json.RawMessage                 `json:"approval,omitempty"`
 	ApprovalOperationID string                          `json:"approvalOperationId,omitempty"`

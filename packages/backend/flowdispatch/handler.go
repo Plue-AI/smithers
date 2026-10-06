@@ -77,6 +77,9 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if claim.CancellationRequested && len(claim.ExternalReceipt) == 0 {
 		return service.settleBeforeLaunchCancellation(ctx, lease, checkpoint)
 	}
+	// Retained refusal checkpoints used only FailureCode. Keep that fact
+	// separately from transport errors and the immutable admitted digest.
+	checkpoint.PinRefused = checkpoint.PinRefused || checkpoint.FailureCode == pinMismatch
 	runtime, identity, err := service.resolve(ctx, checkpoint.Target, checkpoint.Identity)
 	if err != nil {
 		return service.runtimeError(lease, err, checkpoint)
@@ -99,7 +102,7 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	// A durable run id means launch acceptance already happened. Reconnect only
 	// through Observe; never infer progress from product rows or host readiness.
 	if checkpoint.RunID != "" {
-		if !payload.Pin.Admits(payload.FlowID, checkpoint.ExecutionDigest) {
+		if checkpoint.PinRefused || !payload.Pin.Admits(payload.FlowID, checkpoint.ExecutionDigest) {
 			return service.refusePin(ctx, runtime, lease, checkpoint)
 		}
 		if claim.CancellationRequested {
@@ -245,6 +248,7 @@ func (service *Service) refusePin(
 	lease *jobs.Lease,
 	checkpoint RuntimeCheckpoint,
 ) error {
+	checkpoint.PinRefused = true
 	checkpoint.FailureCode = pinMismatch
 	switch {
 	case checkpoint.RunID != "":

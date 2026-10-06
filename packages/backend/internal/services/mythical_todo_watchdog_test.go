@@ -102,6 +102,106 @@ func TestTodoWatchdogAndAccounting(t *testing.T) {
 	}
 }
 
+func TestTodoWatchdogSurvivesSameAttemptRecovery(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	now := time.Now().UTC()
+	o.service.now = func() time.Time { return now }
+	item := o.fileTodo(session, "watchdog-outage")
+	id := uuidString(item.ID)
+	now = now.Add(time.Minute)
+	o.wake()
+	require.Equal(t, "running", o.byID(id).State)
+	launch := o.launcher.last("todo")
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
+		Projection: launch.Projection, FlowID: "todo", RunID: "before-outage", ExecutionDigest: todoPinOne,
+		Run: &flowruntime.Run{RunID: "before-outage", Status: "running"}}, Events: []flowruntime.Event{watchdogStep(1)}}
+	require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
+	now = now.Add(time.Minute)
+	update.State, update.Checkpoint.Run.Status = jobs.StateFailed, "failed"
+	update.Checkpoint.FailureCode = "runtime_connection_lost"
+	require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
+	require.NotNil(t, mythicalChecksOf(o.byID(id)).Watchdog)
+	spent := *mythicalChecksOf(o.byID(id)).Watchdog
+	require.Equal(t, time.Minute.Milliseconds(), spent.ActiveMillis)
+	require.Zero(t, spent.ActiveSince)
+	require.Len(t, spent.Steps, 1)
+	o.wake()
+	retrying := o.byID(id)
+	require.Equal(t, "retrying", retrying.State)
+	require.Zero(t, retrying.Attempt, "the existing outage policy does not spend an attempt")
+
+	// A delayed recovery still owns the first attempt's already-spent budget.
+	now = now.Add(3 * time.Minute)
+	o.wake()
+	recovered := o.byID(id)
+	require.EqualValues(t, 1, recovered.Attempt)
+	require.Equal(t, "running", recovered.State, recovered.Reason)
+	require.Equal(t, &spent, mythicalChecksOf(recovered).Watchdog, "same-attempt admission must not reset the allowance or charge backoff")
+	require.Equal(t, mythicalChecksOf(retrying).AdmissionDay, mythicalChecksOf(recovered).AdmissionDay)
+	require.EqualValues(t, 2, mythicalChecksOf(recovered).Launches)
+
+	launch = o.launcher.last("todo")
+	update.Checkpoint.Projection = launch.Projection
+	update.State, update.Checkpoint.Run.Status = jobs.StateWaiting, "running"
+	update.Checkpoint.RunID, update.Checkpoint.Run.RunID = "after-outage", "after-outage"
+	update.Checkpoint.FailureCode = ""
+	update.Events = []flowruntime.Event{watchdogStep(1), watchdogStep(2)}
+	require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
+	w := mythicalChecksOf(o.byID(id)).Watchdog
+	require.Len(t, w.Steps, 2, "replayed completions remain deduplicated after admission")
+	require.Equal(t, time.Minute.Milliseconds(), w.ActiveMillis)
+	require.Equal(t, now.UnixMilli(), w.ActiveSince)
+
+	// A factory failure spends the attempt: the next attempt gets a new
+	// allowance, while daily admission is still charged only once.
+	update.State, update.Checkpoint.Run.Status = jobs.StateCompleted, "completed"
+	require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
+	o.wake()
+	o.wake()
+	fresh := o.byID(id)
+	require.EqualValues(t, 2, fresh.Attempt)
+	require.Nil(t, mythicalChecksOf(fresh).Watchdog)
+	require.Equal(t, mythicalChecksOf(recovered).AdmissionDay, mythicalChecksOf(fresh).AdmissionDay)
+}
+
+func TestTodoWatchdogExhaustedVeryHardContinuationDoesNotLaunch(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	id := uuidString(o.fileTodo(session, "watchdog-very-hard").ID)
+	for attempt := 1; attempt <= mythicalAttempts; attempt++ {
+		o.wake()
+		item := o.byID(id)
+		require.EqualValues(t, attempt, item.Attempt)
+		launch := o.launcher.last("todo")
+		runID := fmt.Sprintf("attempt-%d", attempt)
+		if attempt < mythicalAttempts {
+			o.projectTodo(launch, jobs.StateCompleted, runID, todoPinOne, `{}`)
+		} else {
+			update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
+				Projection: launch.Projection, FlowID: "todo", RunID: runID, ExecutionDigest: todoPinOne,
+				Run: &flowruntime.Run{RunID: runID, Status: "running"}}}
+			for i := range 1024 {
+				update.Events = append(update.Events, watchdogStep(i))
+			}
+			require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
+		}
+		o.wake()
+		require.Equal(t, "retrying", o.byID(id).State)
+	}
+	item := o.byID(id)
+	require.True(t, mythicalChecksOf(item).VeryHard)
+	require.EqualValues(t, mythicalAttempts-1, item.Attempt, "the final continuation reuses the last logical attempt")
+	o.wake()
+	item = o.byID(id)
+	require.Equal(t, "blocked", item.State, item.Reason)
+	require.EqualValues(t, mythicalAttempts, item.Attempt)
+	require.Len(t, o.launcher.byFlow("todo"), mythicalAttempts, "an exhausted attempt cannot launch a fresh guest")
+	require.EqualValues(t, mythicalAttempts, mythicalChecksOf(item).Launches)
+	require.Len(t, mythicalChecksOf(item).Watchdog.Steps, 1024)
+	require.Contains(t, item.Reason, "no_proposal")
+}
+
 func TestTodoRetainsPinnedSourceAlongsideEditingBase(t *testing.T) {
 	o, session := newTodoAdmission(t)
 	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })

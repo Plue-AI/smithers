@@ -554,7 +554,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if projection.Phase == "todo" {
 				flowID = flowdispatch.TodoFlow
 			}
-			if pinned && runID != "" && !pin.Admits(flowID, update.Checkpoint.ExecutionDigest) {
+			if pinned && runID != "" && (update.Checkpoint.PinRefused || update.Checkpoint.FailureCode == mythicalPinMismatch || !pin.Admits(flowID, update.Checkpoint.ExecutionDigest)) {
 				// Another flow, or one that names no identity, ran under this
 				// pin: the dispatcher cancels it, and it is never the attempt's
 				// run. Once it ended, its phase settles as an outage and runs
@@ -2328,10 +2328,27 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	if item.Source != "todo" || s == nil || r == nil || s.todoFlow == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
 		return todoAdmissionUnavailable(item, "", st.now), false, nil
 	}
-	if w := mythicalChecksOf(item).Watchdog; w != nil && item.WorkspaceID != "" &&
+	// Outage recovery and the very-hard continuation decrement Attempt before
+	// admission restores it. Every pinned admission already retained its
+	// attempt record, so that record distinguishes recovery from a new attempt.
+	recovering := slices.ContainsFunc(mythicalChecksOf(item).Attempts, func(prior todoAttemptEvidence) bool {
+		return prior.Attempt == item.Attempt+1
+	})
+	if w := mythicalChecksOf(item).Watchdog; w != nil && !w.Accepted &&
 		(w.elapsed(st.now) >= (4*time.Hour).Milliseconds() || len(w.Steps) >= 1024) {
-		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
-			return mythicalInfraOutage(item, "launch", "the exhausted TODO machine could not be retired", st.now), false, nil
+		if item.WorkspaceID != "" {
+			if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
+				return mythicalInfraOutage(item, "launch", "the exhausted TODO machine could not be retired", st.now), false, nil
+			}
+		}
+		if recovering {
+			// The allowance belongs to the logical attempt, not its machine.
+			// Restore the attempt number for the existing failure policy without
+			// admitting another guest or charging another launch.
+			next := item
+			next.Attempt++
+			next.RequestOutcome = "failed: no_proposal"
+			return mythicalFailure(next, "the TODO allowance ended", mythicalFailPlan, next.RequestOutcome, st.now), false, nil
 		}
 	}
 	if item.Attempt == 0 && mythicalChecksOf(item).AdmissionDay == "" {
@@ -2394,7 +2411,9 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	checks := mythicalChecksOf(next)
 	checks.Placement = &placement
-	checks.Watchdog = nil
+	if !recovering {
+		checks.Watchdog = nil
+	}
 	checks.RunLaunched, checks.RunAttached, checks.Rebase = true, false, nil
 	checks.FlowSource = pin.SourceCommit
 	next.Checks = checks.encode()
