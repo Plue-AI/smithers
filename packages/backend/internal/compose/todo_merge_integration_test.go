@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -186,7 +187,8 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 	cfg.Auth.Mode = "selfhost"
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
-	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: mythical})
+	issuer := &outboundProxyIssuer{}
+	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: mythical}, &routes.GitHubProxyHandler{Service: services.NewGitHubProxyService(issuer)})
 	server.Start()
 	t.Cleanup(server.Close)
 
@@ -456,12 +458,83 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 	for _, write := range fake.Writes() {
 		require.False(t, write.Method == http.MethodPut && strings.HasSuffix(write.Path, "/merge"), "the press never merges")
 	}
+
+	t.Run("Drop retains an uncertain body through the install door", func(t *testing.T) {
+		// The earlier approval is definitively not sent. This fixture supplies
+		// a separate outstanding body write; Drop must preserve its exact slot.
+		slot := []byte(`{"kind":"body","target":"1","desired":"new-body","precondition":"old-body","state":"unknown"}`)
+		_, err := pool.Exec(ctx, `UPDATE mythical_items SET pending_op=$2, checks=checks-'land' WHERE id=$1`, before.ID, slot)
+		require.NoError(t, err)
+		control := func() int {
+			r, err := http.NewRequest(http.MethodPost, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10), strings.NewReader(`{"op":"drop"}`))
+			require.NoError(t, err)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Origin", origin)
+			browser("owner-browser-session", true, "drop-uncertain")(r)
+			response, err := http.DefaultClient.Do(r)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			raw, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusAccepted, response.StatusCode, string(raw))
+			return response.StatusCode
+		}
+		control()
+		dropped := item()
+		require.Equal(t, "cancelled", dropped.State)
+		require.JSONEq(t, string(slot), string(dropped.PendingOp))
+		control()
+		require.Equal(t, dropped.Version, item().Version, "replayed Drop creates no second effect")
+	})
+	t.Run("machine proxy mutations mint no token", func(t *testing.T) {
+		seed := sha256.Sum256([]byte("outbound-machine-token"))
+		machine := "smithers_" + hex.EncodeToString(seed[:])[:40]
+		digest := sha256.Sum256([]byte(machine))
+		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "outbound-machine", TokenHash: hex.EncodeToString(digest[:]), TokenLastEight: hex.EncodeToString(digest[:])[56:], Scopes: "all,repo:" + strconv.FormatInt(repo.ID, 10), SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		writes := len(fake.Writes())
+		var pendingBefore int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE pending_op IS NOT NULL`).Scan(&pendingBefore))
+		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+			for _, target := range []string{"pulls", "git/refs/heads/main", "check-runs"} {
+				payload, _ := json.Marshal(map[string]any{"method": method, "path": "/repos/merge-owner/app/" + target, "body": map[string]string{"head": "hostile", "state": "closed"}})
+				r, err := http.NewRequest(http.MethodPost, origin+"/api/repos/merge-owner/app/github-proxy", bytes.NewReader(payload))
+				require.NoError(t, err)
+				r.Header.Set("Content-Type", "application/json")
+				r.Header.Set("Origin", origin)
+				r.Header.Set("Authorization", "Bearer "+machine)
+				response, err := http.DefaultClient.Do(r)
+				require.NoError(t, err)
+				raw, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+				require.Equal(t, http.StatusForbidden, response.StatusCode, string(raw))
+			}
+		}
+		require.Zero(t, issuer.calls)
+		require.Len(t, fake.Writes(), writes)
+		var pendingAfter int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE pending_op IS NOT NULL`).Scan(&pendingAfter))
+		require.Equal(t, pendingBefore, pendingAfter)
+	})
+
+}
+
+type outboundProxyIssuer struct{ calls int }
+
+func (i *outboundProxyIssuer) CreateGitHubInstallationTokenForUserRepo(context.Context, int64, string, string, map[string]string) (services.GitHubInstallationToken, error) {
+	i.calls++
+	return services.GitHubInstallationToken{}, fmt.Errorf("unexpected token issuance")
 }
 
 // todoMergeComposeRouter is the production router with the mythical
 // handler mounted, which mounts /api/todos in single-owner mode. The other
 // handlers are unused by these requests.
-func todoMergeComposeRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Pool, mythical *routes.MythicalHandler) http.Handler {
+func todoMergeComposeRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Pool, mythical *routes.MythicalHandler, proxy ...*routes.GitHubProxyHandler) http.Handler {
+	var proxyHandler *routes.GitHubProxyHandler
+	if len(proxy) > 0 {
+		proxyHandler = proxy[0]
+	}
 	return buildRouterCompat(
 		cfg, q, pool,
 		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
@@ -470,7 +543,7 @@ func todoMergeComposeRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Poo
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil,
 		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
-		routerExtras{Mythical: mythical},
+		routerExtras{Mythical: mythical}, proxyHandler,
 	)
 }
 

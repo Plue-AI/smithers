@@ -682,6 +682,52 @@ func (g *mythicalGitHubAPI) labelHistory(ctx context.Context, gh mythicalGitHubR
 	return applier, nil
 }
 
+// AppliedClose proves this Drop's close using the canonical App's event.
+// A person's subsequent reopen must not authorize another close. Read every
+// page: a truncated history is not proof that an uncertain write was absent.
+func (g *mythicalGitHubAPI) AppliedClose(ctx context.Context, gh mythicalGitHubRepo, number int64, since time.Time) (bool, error) {
+	credentials, err := loadGitHubAppCredentials(ctx, g.credentials)
+	if err != nil {
+		return false, err
+	}
+	if credentials.ID <= 0 {
+		return false, ErrGitHubAppNotConfigured
+	}
+	if since.IsZero() {
+		return false, errors.New("close reconciliation has no Drop timestamp")
+	}
+	for page := 1; ; page++ {
+		var events []struct {
+			Event     string      `json:"event"`
+			CreatedAt time.Time   `json:"created_at"`
+			Actor     gitHubActor `json:"actor"`
+			App       *struct {
+				ID int64 `json:"id"`
+			} `json:"performed_via_github_app"`
+		}
+		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/events?per_page=100&page=" + strconv.Itoa(page)
+		status, err := g.api.request(ctx, gh.Token, http.MethodGet, path, nil, &events)
+		if err != nil {
+			return false, err
+		}
+		if status != http.StatusOK {
+			return false, landingGitHubStatusError(status, gh.Owner, gh.Name, "read pull request close events")
+		}
+		if events == nil {
+			return false, errors.New("GitHub returned incomplete close history")
+		}
+		for _, event := range events {
+			// GitHub timestamps have second precision; compare at that precision.
+			if event.Event == "closed" && event.App != nil && event.App.ID == credentials.ID && event.Actor.Type == "Bot" && !event.CreatedAt.Before(since.Truncate(time.Second)) {
+				return true, nil
+			}
+		}
+		if len(events) < 100 {
+			return false, nil
+		}
+	}
+}
+
 // mythicalCommentMarker is the hidden mark a keyed comment carries, so a
 // retry finds it.
 func mythicalCommentMarker(key string) string {

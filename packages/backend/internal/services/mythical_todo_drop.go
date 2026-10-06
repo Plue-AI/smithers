@@ -91,7 +91,13 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 				return err
 			}
 			if len(item.PendingOp) > 0 {
-				return todoControlConflict("A GitHub write on this TODO is settling; drop it again in a moment")
+				op, err := decodeMythicalOutbound(item.PendingOp)
+				if err != nil {
+					return err
+				}
+				if op.Kind == "merge" || op.State == "intended" {
+					return todoControlConflict("A GitHub write on this TODO is settling; drop it again in a moment")
+				}
 			}
 			if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
 				return err
@@ -155,7 +161,7 @@ func mythicalDropped(item db.MythicalItem, drop todoDrop) db.MythicalItem {
 	next.Checks = checks.encode()
 	next.State, next.Reason = "cancelled", "dropped"
 	next.PausedAt, next.NextAttemptAt = pgtype.Timestamptz{}, pgtype.Timestamptz{}
-	if item.PRNumber.Valid && item.PRState != "closed" {
+	if len(item.PendingOp) == 0 && item.PRNumber.Valid && item.PRState != "closed" {
 		next.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Desired: "closed", Precondition: "open", State: "intended"})
 	}
 	return next

@@ -164,6 +164,8 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		// Drop retains uncertain effects for lookup, but never authorizes another
 		// proposal. Its owner must settle the terminal close obligation first.
 		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body") {
+			// An in-flight request may still apply after this read. Retain
+			// the uncertain slot; Drop never authorizes a proposal repeat.
 			return nil, errors.New("dropped proposal cannot be repeated")
 		}
 		if err := st.s.outboundReady(ctx, item, op.Kind); err != nil {
@@ -278,6 +280,9 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 		}
 	}
 	next.PendingOp = nil
+	if op.Kind != "close" {
+		next = mythicalDropObligation(next)
+	}
 	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 	return &saved, err
 }
@@ -292,6 +297,16 @@ func (st *mythicalItemStep) yieldBody(ctx context.Context, item db.MythicalItem)
 		checks.Review.Posted = true
 	}
 	next.Checks = checks.encode()
+	next = mythicalDropObligation(next)
 	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 	return &saved, err
+}
+
+// Queue Drop's close only after the previous slot is settled; a late-opened
+// PR is bound before this runs. No operation is ever overwritten.
+func mythicalDropObligation(item db.MythicalItem) db.MythicalItem {
+	if len(item.PendingOp) == 0 && (item.State == "cancelled" || item.State == "dropped") && mythicalChecksOf(item).Dropped != nil && item.PRNumber.Valid && item.PRState == "open" {
+		item.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: fmt.Sprint(item.PRNumber.Int64), Desired: "closed", Precondition: "open", State: "intended"})
+	}
+	return item
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
@@ -546,12 +547,23 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 		if err != nil {
 			return "", false, fmt.Errorf("invalid pull request number %q", op.Target)
 		}
+		reader, ok := st.s.github.(interface {
+			AppliedClose(context.Context, mythicalGitHubRepo, int64, time.Time) (bool, error)
+		})
+		drop := mythicalChecksOf(item).Dropped
+		if !ok || drop == nil {
+			return "", false, errors.New("Waiting for canonical App close-event reconciliation")
+		}
+		applied, err := reader.AppliedClose(ctx, gh, number, drop.At)
+		if err != nil {
+			return "", false, err
+		}
 		pull, err := st.s.github.Pull(ctx, gh, number)
 		if err != nil {
 			return "", false, err
 		}
-		// GitHub answers a merged pull request closed too.
-		return pull.State, false, nil
+		// Preserve current state separately from proof of the earlier close.
+		return pull.State, applied, nil
 	}
 	return "", false, fmt.Errorf("GitHub %s reconciliation is not composed", op.Kind)
 }
@@ -664,9 +676,18 @@ func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem,
 		return next, nil
 	}
 	if op.Kind == "close" {
-		// Lookup found the dropped TODO's pull request closed.
+		// The close may have applied before a person reopened it. Project
+		// GitHub's current state without sending another close.
+		gh, err := st.publicationGitHub(ctx)
+		if err != nil {
+			return item, err
+		}
+		pull, err := st.s.github.Pull(ctx, gh, item.PRNumber.Int64)
+		if err != nil {
+			return item, err
+		}
 		next := item
-		next.PRState = "closed"
+		next.PRState = pull.State
 		return next, nil
 	}
 	if op.Kind != "open" && op.Kind != "merge" {

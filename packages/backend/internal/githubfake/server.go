@@ -1313,6 +1313,13 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				if *input.State != "open" && *input.State != "closed" {
 					return failure(422, "invalid pull state")
 				}
+				if p.State != *input.State {
+					kind := "reopened"
+					if *input.State == "closed" {
+						kind = "closed"
+					}
+					s.event(key, kind, "", true, "")
+				}
 				p.State = *input.State
 			}
 			p.UpdatedAt = time.Now().UTC()

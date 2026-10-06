@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -219,4 +220,71 @@ func TestTodoDropSettlesItsCloseWithinSeconds(t *testing.T) {
 	}, 20*time.Second, 100*time.Millisecond, "the dropped TODO's close settles without a sweep")
 	require.Equal(t, "closed", h.pull(pr).State)
 	require.Len(t, h.comments(pr), 1)
+}
+
+// A lost close response followed by a person's reopen settles the original
+// Drop from the App event. Recovery never sends a second close.
+func TestTodoDropRecoveryPreservesPersonsReopen(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, pr := h.first("Reopened change")
+	_, err := h.drop(n, "drop-reopen")
+	require.NoError(t, err)
+	h.fake.LoseNextResponses(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), 1)
+	h.pass()
+	require.Equal(t, "unknown", h.operation(n).State)
+	require.Equal(t, "closed", h.pull(pr).State)
+	h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.State = "open" })
+	h.pass()
+	require.Empty(t, h.item(n).PendingOp)
+	require.Equal(t, "open", h.pull(pr).State)
+	closes := 0
+	for _, write := range h.fake.Writes() {
+		if write.Method == http.MethodPatch && write.Path == fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr) && strings.Contains(string(write.Body), `"state":"closed"`) {
+			closes++
+		}
+	}
+	require.Equal(t, 1, closes)
+}
+
+func TestTodoDropRetainsUncertainBodyThenCloses(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, pr := h.first("Uncertain body")
+	item := h.item(n)
+	op := MythicalOutboundOp{Kind: "body", Target: strconv.FormatInt(pr, 10), Desired: mythicalBodyDigest(h.pull(pr).Body), Precondition: "old-digest", State: "unknown"}
+	raw, err := json.Marshal(op)
+	require.NoError(t, err)
+	h.exec(`UPDATE mythical_items SET pending_op=$2 WHERE id=$1`, item.ID, raw)
+	_, err = h.drop(n, "drop-body")
+	require.NoError(t, err)
+	require.Equal(t, op, h.operation(n), "Drop cannot replace the uncertain slot")
+	h.fake.LoseNextResponses(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), 1)
+	h.pass()
+	h.pass()
+	h.pass()
+	require.Empty(t, h.item(n).PendingOp)
+	require.Equal(t, "closed", h.pull(pr).State)
+	require.Len(t, h.comments(pr), 1)
+}
+
+func TestTodoDropClosesLateDiscoveredPull(t *testing.T) {
+	h := newMergeHarness(t)
+	item := h.todo("Late pull", "Create late pull", h.main, "late.md", "late\n")
+	h.fake.LoseNextResponses("/repos/rehearsal-owner/app/pulls", 1)
+	h.wake()
+	pending := h.item(item.Number.Int64)
+	require.Equal(t, "open", h.operation(item.Number.Int64).Kind)
+	require.False(t, pending.PRNumber.Valid, "lost CreatePull response has not bound a PR")
+	_, err := h.drop(item.Number.Int64, "drop-late")
+	require.NoError(t, err)
+	require.Equal(t, "open", h.operation(item.Number.Int64).Kind)
+	h.wake()
+	h.wake()
+	h.wake()
+	dropped := h.item(item.Number.Int64)
+	require.True(t, dropped.PRNumber.Valid)
+	require.Empty(t, dropped.PendingOp)
+	require.Equal(t, "cancelled", dropped.State)
+	require.Equal(t, "closed", h.pull(dropped.PRNumber.Int64).State)
+	require.Len(t, h.pullCreates(), 1)
+	require.Len(t, h.comments(dropped.PRNumber.Int64), 1)
 }
