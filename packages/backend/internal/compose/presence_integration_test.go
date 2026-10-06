@@ -324,3 +324,28 @@ func TestPresenceVisitAudit(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT metadata FROM audit_log WHERE event_type='presence' AND action='visit'`).Scan(&metadata))
 	require.JSONEq(t, fmt.Sprintf(`{"branch":%q,"member":%d,"via":"app","start":"2026-10-05T13:00:00Z","end":"2026-10-05T13:02:00Z"}`, f.row.ID, f.user.ID), string(metadata))
 }
+
+// Machine state and branch names change under an already mounted card. These
+// facts are read over the composed install socket, with no wake request.
+func TestPresenceBranchRefreshMachineNameAndOrigin(t *testing.T) {
+	f := presenceInstall(t)
+	origin := "https://factory.example:8443"
+	f.p.publicOrigin = func() string { return origin }
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	first := readPresenceFrame(t, conn)
+	require.Equal(t, "snap", first.T)
+	require.Contains(t, string(first.Data), `"state":"awake"`)
+	require.Contains(t, string(first.Data), `"ssh_line":"ssh -p 2222 scratch/presence-owner/presence@factory.example"`)
+	_, err := f.pool.Exec(t.Context(), `UPDATE workspaces SET status='suspended', target_bookmark='scratch/presence-owner/renamed' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	second := readPresenceFrame(t, conn)
+	require.Equal(t, "snap", second.T)
+	require.Contains(t, string(second.Data), `"state":"asleep"`)
+	require.Contains(t, string(second.Data), `"name":"scratch/presence-owner/renamed"`)
+	require.Contains(t, string(second.Data), `"ssh_line":"ssh -p 2222 scratch/presence-owner/renamed@factory.example"`)
+	require.Contains(t, string(second.Data), `"id":"`+f.row.ID+`"`)
+	var status string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&status))
+	require.Equal(t, "suspended", status, "subscription never wakes a branch")
+}

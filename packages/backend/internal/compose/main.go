@@ -1694,7 +1694,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 		visits := &presenceVisits{audit: auditService, now: time.Now}
 		go visits.run(ctx)
-		presence := &branchPresence{visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
+		presence := &branchPresence{publicOrigin: installAddress.Public, visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
 		if flow != nil {
 			presence.dispatcher = flow.dispatcher
 		}

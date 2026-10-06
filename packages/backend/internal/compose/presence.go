@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,11 +20,12 @@ import (
 )
 
 type branchPresence struct {
-	queries    *db.Queries
-	branches   *services.WorkspaceService
-	dispatcher browserFlowDispatcher
-	members    *services.Members
-	visits     *presenceVisits
+	queries      *db.Queries
+	branches     *services.WorkspaceService
+	dispatcher   browserFlowDispatcher
+	members      *services.Members
+	visits       *presenceVisits
+	publicOrigin func() string
 }
 
 type leaseParticipant struct {
@@ -166,7 +168,13 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		return live.Source{}, live.Forbidden
 	}
 	return live.Source{Key: "branch:" + row.ID, Every: 250 * time.Millisecond, MinInterval: 250 * time.Millisecond, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
-		raw, err := p.call(ctx, row, slug, "Branch.Roster", map[string]any{})
+		// Refresh by stable identity: a rename or machine transition must update
+		// the same mounted card, and removed access must stop the projection.
+		current, err := p.branches.PresenceBranch(ctx, row.ID, repository, member)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := p.call(ctx, current, slug, "Branch.Roster", map[string]any{})
 		if err != nil {
 			return nil, err
 		}
@@ -223,15 +231,31 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			}
 			presence = append(presence, map[string]any{"actor": actor, "where": location})
 		}
-		machine := map[string]any{"state": "asleep"}
-		if row.Status == "running" {
-			machine["state"] = "awake"
-		} else if row.Status == "starting" || row.Status == "pending" {
-			machine["state"] = "waking"
-		} else if row.Status == "failed" {
-			machine["state"] = "failed"
-			machine["error"] = map[string]any{"class": "infra", "code": "machine_failed", "message": "Machine failed"}
+		origin := ""
+		if p.publicOrigin != nil {
+			origin = p.publicOrigin()
 		}
-		return json.Marshal(map[string]any{"id": branch, "name": row.TargetBookmark, "machine": machine, "presence": presence, "terminals": []any{}, "ssh_line": ""})
+		return json.Marshal(branchPresenceModel(current, presence, origin))
 	}}, ""
+}
+
+// The projection uses the persisted machine, never a wake or admission request.
+func branchPresenceModel(row db.Workspace, presence []any, origin string) map[string]any {
+	machine := map[string]any{"state": "closed"}
+	switch row.Status {
+	case "suspended", "stopped":
+		machine["state"] = "asleep"
+	case "running":
+		machine["state"] = "awake"
+	case "starting", "pending":
+		machine["state"] = "waking"
+	case "failed":
+		machine["state"] = "failed"
+		machine["error"] = map[string]any{"class": "infra", "code": "machine_failed", "message": "Machine failed"}
+	}
+	host := "localhost"
+	if address, err := url.Parse(origin); err == nil && address.Hostname() != "" {
+		host = address.Hostname()
+	}
+	return map[string]any{"id": row.ID, "name": row.TargetBookmark, "machine": machine, "presence": presence, "terminals": []any{}, "ssh_line": "ssh -p 2222 " + row.TargetBookmark + "@" + host}
 }
