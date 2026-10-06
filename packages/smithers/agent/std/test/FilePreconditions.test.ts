@@ -104,7 +104,7 @@ it("refuses write and add before creating parent directories", async () => {
   }
 })
 
-it("revalidates edits under their lock and releases that lock on a stale refusal", async () => {
+it("refuses a stale preparation before any filesystem mutation", async () => {
   const root = await mkdtemp(join(tmpdir(), "std-edit-policy-"))
   try {
     const target = join(root, "a.txt")
@@ -120,10 +120,12 @@ it("revalidates edits under their lock and releases that lock on a stale refusal
             validate: () =>
               Effect.gen(function*() {
                 checks++
-                const locks = (yield* fs.readDirectory(root).pipe(Effect.orDie)).filter((name) => name.endsWith(".lock"))
-                expect(locks).toHaveLength(checks === 1 ? 0 : 1)
-                if (checks === 2) return yield* Effect.fail(stale(target))
-              })
+                const locks = (yield* fs.readDirectory(root).pipe(Effect.orDie)).filter((name) =>
+                  name.endsWith(".lock")
+                )
+                expect(locks).toHaveLength(0)
+              }),
+            prepare: () => Effect.fail(stale(target))
           }
         }
         const failure = yield* Effect.flip(
@@ -132,7 +134,7 @@ it("revalidates edits under their lock and releases that lock on a stale refusal
           )
         )
         expect(failure.code).toBe("stale_read")
-        expect(checks).toBe(2)
+        expect(checks).toBe(1)
       }).pipe(Effect.provide(NodeServices.layer))
     )
     expect(await readFile(target, "utf8")).toBe(original)

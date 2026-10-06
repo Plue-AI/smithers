@@ -794,3 +794,87 @@ describe("ApplyPatch.paths", () => {
     expect(ApplyPatch.paths("not a patch")).toBeUndefined()
   })
 })
+
+describe("ApplyPatch parent creation refusal", () => {
+  it.each(
+    [
+      { reason: "PermissionDenied", code: "permission_denied" },
+      { reason: "Unknown", code: "command_failed" }
+    ] as const
+  )("preserves $reason and writes no files", async ({ reason, code }) => {
+    const host = FileSystem.makeNoop({
+      realPath: (path) => Effect.succeed(path),
+      makeDirectory: () =>
+        Effect.fail(PlatformError.systemError({
+          _tag: reason,
+          module: "FileSystem",
+          method: "makeDirectory"
+        })),
+      writeFile: () => Effect.die("parent refusal must precede mutation")
+    })
+    const failure = await execute(Effect.provide(
+      Effect.flip(
+        ApplyPatch.run({ input: wrap("*** Add File: /nested/new.txt\n+new") }).pipe(
+          Effect.provideService(FileSystem.FileSystem, host)
+        )
+      ),
+      layer()
+    ))
+    expect(failure).toMatchObject({ code, path: "/nested/new.txt" })
+  })
+})
+
+it("refuses an inaccessible parent while resolving an absent patch destination", async () => {
+  const host = FileSystem.makeNoop({
+    realPath: (path) =>
+      Effect.fail(PlatformError.systemError({
+        _tag: path === "/nested/new.txt" ? "NotFound" : "PermissionDenied",
+        module: "FileSystem",
+        method: "realPath"
+      })),
+    makeDirectory: () => Effect.die("preflight refusal must not create parents")
+  })
+  const failure = await execute(Effect.provide(
+    Effect.flip(
+      ApplyPatch.run({ input: wrap("*** Add File: /nested/new.txt\n+new") }).pipe(
+        Effect.provideService(FileSystem.FileSystem, host)
+      )
+    ),
+    layer()
+  ))
+  expect(failure).toMatchObject({ code: "permission_denied", path: "/nested/new.txt" })
+})
+
+it("retains the original when patch replacement cannot preserve its mode", async () => {
+  let staged = false
+  let removed = false
+  const host = FileSystem.makeNoop({
+    realPath: (path) => Effect.succeed(path),
+    makeDirectory: () => Effect.void,
+    stat: (path) => Effect.succeed(fileInfo({ mode: path === "/a" ? 0o644 : 0o755 })),
+    readFile: () => Effect.succeed(new TextEncoder().encode("original\n")),
+    writeFile: () =>
+      Effect.sync(() => {
+        staged = true
+      }),
+    chmod: () => Effect.fail(PlatformError.systemError({ _tag: "Unknown", module: "FileSystem", method: "chmod" })),
+    rename: () => Effect.die("mode failure must not replace the original"),
+    remove: () =>
+      Effect.sync(() => {
+        removed = true
+      })
+  })
+  const failure = await execute(Effect.provide(
+    Effect.flip(
+      ApplyPatch.run({ input: wrap("*** Update File: /a\n@@\n-original\n+new") }).pipe(
+        Effect.provideService(FileSystem.FileSystem, host)
+      )
+    ),
+    layer()
+  ))
+  expect(failure).toMatchObject({ code: "command_failed", path: "/a" })
+  expect(failure.message).toContain("Could not preserve the mode")
+  expect(failure.message).toContain("added=[], modified=[], deleted=[]")
+  expect(staged).toBe(true)
+  expect(removed).toBe(true)
+})

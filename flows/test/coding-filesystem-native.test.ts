@@ -10,7 +10,7 @@ import * as Write from "@smthrs/std/Write"
 import { Context, Effect, FileSystem, Option } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -32,7 +32,8 @@ test("coding std tools retain full-file read bases and refuse stale and unavaila
   await Effect.runPromise(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const make = () => CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root)
+    const canonicalRoot = yield* Effect.promise(() => realpath(root))
+    const make = () => CodingFileSystem.make({ repositoryPath: root }, fs, spawner, canonicalRoot)
     const coding = make()
     const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       effect.pipe(Effect.provideService(FileSystem.FileSystem, coding), Effect.provideService(Read.ReadSession, "run-a"))
@@ -145,7 +146,8 @@ test("standard flow dispatcher reports stale bases and separates authenticated s
   await Effect.runPromise(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root)
+    const canonicalRoot = yield* Effect.promise(() => realpath(root))
+    const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, canonicalRoot)
     const services = Context.add(yield* Effect.context<FileSystem.FileSystem | Path.Path>(), FileSystem.FileSystem, coding)
     const bindings = yield* StandardFlows.filesystem(services).bindings()
     const call = (flowName: string, input: unknown, session: string) => bindings.find((b) => b.descriptor.name === flowName)!.run({

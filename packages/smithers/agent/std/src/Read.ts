@@ -340,7 +340,8 @@ export const run = Effect.fn("Read.run")(function*(
   const whole = rendered.truncated
     ? rendered.text.slice(0, Math.max(0, rendered.text.lastIndexOf("\n")))
     : rendered.text
-  const shown = rendered.truncated ? (whole === "" ? 0 : whole.split("\n").length) : lines.length
+  // Each clipped line fits the byte budget, so a truncated page retains at least one whole line.
+  const shown = rendered.truncated ? whole.split("\n").length : lines.length
   const endLine = page.startLine + shown - 1
   const truncated = longLinesTruncated || rendered.truncated || page.endLine < page.totalLines
   const clipped = longLinesTruncated

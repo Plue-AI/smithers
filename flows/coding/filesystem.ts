@@ -67,7 +67,12 @@ export const make = (
         return yield* Effect.fail(new StdError({
           code: "provider_unavailable", message: "Authenticated atomic file mutation provider unavailable"
         }))
-      })
+      }),
+      // The std tools submit one batch, including every moved source. No guest
+      // transaction is qualified yet; validation and preparation both stay closed.
+      prepare: () => Effect.fail(new StdError({
+        code: "provider_unavailable", message: "Authenticated atomic file mutation provider unavailable"
+      }))
     },
     makeDirectory: (path, options) => Effect.gen(function*() {
       // A write's existing parent needs no mutation. Do not create user directories
