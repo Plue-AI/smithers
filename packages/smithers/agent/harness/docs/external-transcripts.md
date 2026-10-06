@@ -87,6 +87,7 @@ Callers must not guess a newer profile or discard an error and advance a receipt
 | Claude system `compact_boundary`                                                                              | Retained boundary data in transcript                                                             |
 | Claude `queue-operation`, `file-history-snapshot`, `progress`                                                 | Explicit bookkeeping skip                                                                        |
 | Codex `response_item.message` user / assistant text                                                           | Prompt / assistant part                                                                          |
+| Codex message encrypted body                                                                                  | One placeholder replaces the entire body, including adjacent plaintext/images                    |
 | Codex message image                                                                                           | Attachment                                                                                       |
 | Codex developer / system messages                                                                             | Model instruction skip; never owner prompts                                                      |
 | Codex reasoning summary / content                                                                             | Thinking parts                                                                                   |
@@ -99,6 +100,10 @@ Callers must not guess a newer profile or discard an error and advance a receipt
 | Codex task start/completion, token_count, item_completed, user_message, agent_message, agent_reasoning events | Explicit notification skip; canonical bodies are response_item records                           |
 | Codex session_meta, turn_context, world_state, token_usage_record                                             | Explicit context/usage skip                                                                      |
 | Any other semantic type                                                                                       | Tagged rejection; no silent fallback                                                             |
+
+Encrypted message and agent-message bodies are validated before one placeholder
+is emitted. Unknown or malformed adjacent parts still reject the record;
+plaintext and images adjacent to ciphertext are not emitted separately.
 
 Tool-result failure text patterns are `Process exited with code [1-9]`, `Error:`
 and `Failed to`; these describe source reports, never inferred file changes or

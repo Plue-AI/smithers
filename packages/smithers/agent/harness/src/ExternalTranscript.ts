@@ -259,15 +259,20 @@ const decode = (
             case "message": {
               const role = string(p.role)
               if (!["user", "assistant", "developer", "system"].includes(role)) unsupported(`Codex role: ${role}`)
-              for (const value of array(p.content)) {
-                const body = record(value)
-                if (role === "developer" || role === "system") continue // model instructions, not owner prompts
+              const content = array(p.content).map(record)
+              if (role === "developer" || role === "system") break // model instructions, not owner prompts
+              const encrypted = content.some((body) => body.type === "encrypted_content")
+              for (const body of content) {
                 if (body.type === "input_text" || body.type === "output_text") {
-                  emit(role === "user" ? "prompt" : "assistant", string(body.text))
-                } else if (body.type === "input_image") emit("attachment", string(body.image_url))
-                else if (body.type === "encrypted_content") emit("assistant", "Encrypted by Codex")
+                  const text = string(body.text)
+                  if (!encrypted) emit(role === "user" ? "prompt" : "assistant", text)
+                } else if (body.type === "input_image") {
+                  const url = string(body.image_url)
+                  if (!encrypted) emit("attachment", url)
+                } else if (body.type === "encrypted_content") string(body.encrypted_content)
                 else unsupported(`Codex content: ${String(body.type)}`)
               }
+              if (encrypted) emit(role === "user" ? "prompt" : "assistant", "Encrypted by Codex")
               break
             }
             case "reasoning":

@@ -210,7 +210,15 @@ it("maps Codex parts and explicit metadata skip rules", () => {
       })
     ).entries[0]?.kind
   ).toBe("attachment")
-  expect(ok(decodeX({ type: "message", role: "assistant", content: [{ type: "encrypted_content" }] })).entries[0]?.body)
+  expect(
+    ok(
+      decodeX({
+        type: "message",
+        role: "assistant",
+        content: [{ type: "encrypted_content", encrypted_content: "cipher" }]
+      })
+    ).entries[0]?.body
+  )
     .toBe("Encrypted by Codex")
   expect(
     ok(
@@ -329,4 +337,57 @@ it("validates nested tool bodies and retains reported edit details", () => {
     kind: "edit",
     failed: true
   })
+})
+
+for (const role of ["user", "assistant"]) {
+  it(`retains one encrypted ${role} message body with caller identity across replay`, () => {
+    const input = codex({
+      type: "message",
+      id: "encrypted-message",
+      role,
+      content: [
+        { type: "output_text", text: "private plaintext" },
+        { type: "encrypted_content", encrypted_content: "cipher-one" },
+        { type: "input_image", image_url: "private image" },
+        { type: "encrypted_content", encrypted_content: "cipher-two" }
+      ]
+    })
+    const entries = ok(External.decodeCodex("codex/0.160.0", context, input)).entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      source_id: "encrypted-message",
+      source_offset: 0,
+      body: "Encrypted by Codex",
+      kind: role === "user" ? "prompt" : "assistant",
+      author_id: role === "user" ? context.owner_id : context.participant_id,
+      origin: "external",
+      read_only: true
+    })
+    for (let split = 0; split <= input.length; split++) {
+      const first = ok(External.decodeCodex("codex/0.160.0", context, input.slice(0, split)))
+      const second = ok(External.decodeCodex("codex/0.160.0", context, input.slice(split), first.state))
+      expect([...first.entries, ...second.entries]).toEqual(entries)
+    }
+  })
+}
+it.each([
+  [{ type: "encrypted_content" }],
+  [{ type: "encrypted_content", encrypted_content: 1 }],
+  [{ type: "encrypted_content", encrypted_content: "cipher" }, { type: "output_text", text: 1 }],
+  [{ type: "encrypted_content", encrypted_content: "cipher" }, { type: "input_image", image_url: 1 }]
+].map((content) => ({ content })))(
+  "rejects malformed encrypted message bodies without returning partial drafts",
+  ({ content }) => {
+    error(decodeX({ type: "message", role: "assistant", content }))
+  }
+)
+it("rejects unknown content even alongside encrypted message bodies", () => {
+  error(
+    decodeX({
+      type: "message",
+      role: "assistant",
+      content: [{ type: "encrypted_content", encrypted_content: "cipher" }, { type: "future" }]
+    }),
+    "UnsupportedRecord"
+  )
 })
