@@ -14,12 +14,15 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/repository"
@@ -52,24 +55,34 @@ func TestInstallSyncMissingReadersStillFastForwardsNativeMirror(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, base.TargetCommitID)
 
-	// Give GitHub a separate object store, seeded from the install's initial
-	// commit. Fixture authorship uses jj; the worker uses its shipped transport.
+	// Fixture authorship uses Git only; the worker still uses the native mirror.
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	jj := func(args ...string) string {
+	git := func(args ...string) string {
 		t.Helper()
-		out, err := exec.CommandContext(ctx, "jj", args...).CombinedOutput()
+		out, err := exec.CommandContext(ctx, "git", args...).CombinedOutput()
 		require.NoError(t, err, "%s", out)
 		return strings.TrimSpace(string(out))
 	}
 	source := filepath.Join(t.TempDir(), "github")
-	jj("git", "clone", "--colocate", filepath.Join(storage, user.Username, "app", ".jj", "repo", "store", "git"), source)
-	jj("-R", source, "new", base.TargetCommitID, "-m", "Merged on GitHub")
+	git("clone", filepath.Join(storage, user.Username, "app", ".jj", "repo", "store", "git"), source)
+	git("-C", source, "checkout", "-B", "main", base.TargetCommitID)
 	require.NoError(t, os.WriteFile(filepath.Join(source, "merged.txt"), []byte("merged on GitHub\n"), 0600))
-	jj("-R", source, "describe", "-m", "Merged on GitHub")
-	jj("-R", source, "bookmark", "set", "main", "-r", "@")
-	head := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	git("-C", source, "add", "merged.txt")
+	git("-C", source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Merged on GitHub")
+	head := git("-C", source, "rev-parse", "HEAD")
 	require.NotEqual(t, base.TargetCommitID, head)
+	require.NotZero(t, os.Geteuid(), "native polling must run as the installing user")
+	marker := filepath.Join(t.TempDir(), "executed")
+	hooks := filepath.Join(source, ".git", "hooks")
+	require.NoError(t, os.WriteFile(filepath.Join(hooks, "reference-transaction"), []byte("#!/bin/sh\ntouch "+marker+"\n"), 0700))
+	git("-C", source, "config", "credential.helper", "!touch "+marker)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	require.NoError(t, os.WriteFile(global, []byte("[core]\n hooksPath = "+hooks+"\n[credential]\n helper = !touch "+marker+"\n"), 0600))
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "credential.helper")
+	t.Setenv("GIT_CONFIG_VALUE_0", "!touch "+marker)
 	gitRoot := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(gitRoot, "acme"), 0700))
 	require.NoError(t, os.Symlink(filepath.Join(source, ".git"), filepath.Join(gitRoot, "acme", "app.git")))
@@ -108,6 +121,26 @@ func TestInstallSyncMissingReadersStillFastForwardsNativeMirror(t *testing.T) {
 	main := services.NewGitHubMainPullService(q, local.Client(), assembled.connections, assembled.connections)
 	main.UseInstallPolicy()
 	composeGitHubTodoPolling(services.NewMythicalService(pool, local.Client()), main, assembled.synced, topology{})
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, user.ID)
+	require.NoError(t, err)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Server.PublicURL = "http://localhost:4000"
+	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: main})
+	requestSync := func(method string, expected int) string {
+		t.Helper()
+		r := httptest.NewRequest(method, cfg.Server.PublicURL+"/api/github/sync", nil)
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("Origin", cfg.Server.PublicURL)
+		r.Header.Set("X-CSRF-Token", "native-csrf")
+		r.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "native-csrf"})
+		r = r.WithContext(middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: &user, SessionHash: "native-session"}))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		require.Equal(t, expected, w.Code, w.Body.String())
+		return w.Body.String()
+	}
 	before := requests.Load()
 	composeGitHubInstallAuthority(assembled.synced, credentials, false)
 	require.Error(t, main.RetrySync(ctx), "an unqualified runtime cannot queue reads")
@@ -117,7 +150,7 @@ func TestInstallSyncMissingReadersStillFastForwardsNativeMirror(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM github_main_pulls WHERE repository_id=$1`, repo.ID).Scan(&queued))
 	require.Zero(t, queued)
 	composeGitHubInstallAuthority(assembled.synced, credentials, true)
-	require.NoError(t, main.RetrySync(ctx))
+	requestSync(http.MethodPost, http.StatusAccepted)
 	require.NoError(t, main.PollOnce(ctx))
 	observed, err := q.GetGithubMainPull(ctx, repo.ID)
 	require.NoError(t, err)
@@ -142,6 +175,30 @@ func TestInstallSyncMissingReadersStillFastForwardsNativeMirror(t *testing.T) {
 	}
 	require.True(t, transferred, "real Git objects crossed the GitHub transport")
 
+	require.Contains(t, requestSync(http.MethodGet, http.StatusOK), `"state":"stale"`)
+	// The production stale-row sweep leaves refs alone before 30 seconds.
+	main.Sweep(ctx)
+	require.NoError(t, main.PollOnce(ctx))
+	unchanged, err := q.GetGithubMainPull(ctx, repo.ID)
+	require.NoError(t, err)
+	require.Equal(t, observed.LastCheckedAt, unchanged.LastCheckedAt)
+	remaining := time.Until(observed.LastCheckedAt.Time.Add(30 * time.Second))
+	if remaining > 0 {
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(remaining + 100*time.Millisecond):
+		}
+	}
+	main.Sweep(ctx)
+	require.NoError(t, main.PollOnce(ctx))
+	next, err := q.GetGithubMainPull(ctx, repo.ID)
+	require.NoError(t, err)
+	require.True(t, next.LastCheckedAt.Time.After(observed.LastCheckedAt.Time))
+	require.Equal(t, head, next.SmithersHead)
+	_, markerErr := os.Stat(marker)
+	require.True(t, os.IsNotExist(markerErr), "repository hooks and helpers remain data")
+
 	// A changed sealed installation must revoke admission before queuing or
 	// contacting GitHub, while preserving the last successful observation.
 	require.NoError(t, credentials.SetInstallation(ctx, 92))
@@ -151,5 +208,5 @@ func TestInstallSyncMissingReadersStillFastForwardsNativeMirror(t *testing.T) {
 	require.Equal(t, before, requests.Load())
 	after, err := q.GetGithubMainPull(ctx, repo.ID)
 	require.NoError(t, err)
-	require.Equal(t, observed, after)
+	require.Equal(t, next, after)
 }
