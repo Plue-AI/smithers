@@ -19410,6 +19410,26 @@
     }
   },
   {
+    "label": "//packages/smithers/build/infra:docsFiles",
+    "package": "packages/smithers/build/infra",
+    "name": "docsFiles",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/infra/**/*.md",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/build/infra/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/smithers/build/infra:fmt",
     "package": "packages/smithers/build/infra",
     "name": "fmt",
@@ -20776,9 +20796,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/build/infra/**/*.md",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/build/infra/README.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/infra/CACHE-TRUST.md"
       },
       {
         "kind": "file",
@@ -20835,6 +20858,7 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers/build/infra:docsFiles",
       "//packages/smithers/build:lib"
     ],
     "source": {

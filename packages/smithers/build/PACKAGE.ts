@@ -14,6 +14,7 @@ import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
  * - `newPackage` is the `run` target that creates such a directory.
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as infraPackage } from "./infra/PACKAGE.ts"
 
 const standard = BuildAndCheckTypeScriptPackage({ cwd: "packages/smithers/build" })
 
@@ -74,8 +75,8 @@ const lint = Smithers.EsLint({
  *
  * A glob stops at a package boundary, so the sibling packages' sources are
  * named file by file with workspace-rooted paths. `Docs.test.ts` also walks
- * the sibling packages' Markdown for one recipe check; those files belong to
- * the siblings' own `docsFiles` targets and are outside this declaration.
+ * the sibling packages' Markdown for one recipe check; the infrastructure
+ * Markdown enters through its owning `docsFiles` dependency.
  */
 const test = Smithers.Vitest({
   tests: [Smithers.glob("test/**/*.test.ts")],
@@ -88,7 +89,8 @@ const test = Smithers.Vitest({
     Smithers.file("API-REVIEW.md"),
     Smithers.file("CHANGELOG.md"),
     Smithers.glob("docs/**/*.md"),
-    Smithers.glob("infra/**/*.md"),
+    Smithers.file("infra/README.md"),
+    Smithers.file("infra/CACHE-TRUST.md"),
     Smithers.file("infra/alchemy.run.ts"),
     Smithers.file("infra/deployment.ts"),
     Smithers.file("infra/package.json"),
@@ -102,7 +104,7 @@ const test = Smithers.Vitest({
     Smithers.file("//packages/smithers/build/targets/src/ExecSandbox.ts"),
     Smithers.file("//packages/smithers/build/targets/src/Target.ts")
   ],
-  deps: [lib],
+  deps: [lib, infraPackage.docsFiles],
   config: Smithers.file("vitest.config.ts"),
   environment: "node",
   passWithNoTests: false,
