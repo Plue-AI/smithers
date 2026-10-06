@@ -82,7 +82,13 @@ func (r *Registry) ReadFile(ctx context.Context, branch, path, at string) (File,
 	if err != nil {
 		return File{}, err
 	}
-	return File{Content: append([]byte(nil), fields[1][4:]...), Digest: hex.EncodeToString(fields[2]), Mode: binary.BigEndian.Uint32(fields[3])}, nil
+	content := fields[1][4:]
+	digest := sha256.Sum256(content)
+	if !bytes.Equal(digest[:], fields[2]) {
+		_ = l.Close()
+		return File{}, wire.BadValue
+	}
+	return File{Content: append([]byte(nil), content...), Digest: hex.EncodeToString(fields[2]), Mode: binary.BigEndian.Uint32(fields[3])}, nil
 }
 func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, changes []FileChange) (WriteResult, error) {
 	var result WriteResult
@@ -167,10 +173,12 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 		post := "absent"
 		if changes[i].Content == nil {
 			if !bytes.Equal(receipt[1], wire.Union(2)) {
+				_ = l.Close()
 				return result, wire.BadValue
 			}
 		} else {
 			if !bytes.Equal(receipt[1], wire.Union(1, wire.Field(1, expected[:]))) {
+				_ = l.Close()
 				return result, wire.BadValue
 			}
 			post = hex.EncodeToString(expected[:])
