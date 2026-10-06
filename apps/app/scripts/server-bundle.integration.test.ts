@@ -67,12 +67,15 @@ test.skipIf(!required)("required bundled-server qualification has an assembled i
   expect(existsSync(join(bundle!, "bin/smithers-server"))).toBe(true)
 })
 const boundary = bundle === undefined ? test.skip : test
-boundary("bundled server refuses missing msb despite hostile runtime overrides", () => {
+for (const fault of [
+  { path: "bin/msb", refusal: "Bundled microVM runtime is unavailable" },
+  { path: "lib/libkrunfw.5.dylib", refusal: "libkrunfw.5.dylib" }
+]) boundary(`bundled server refuses missing ${fault.path} despite hostile runtime overrides`, () => {
   const temporary = mkdtempSync(join(tmpdir(), "smithers-server-boundary-"))
   try {
     const copy = join(temporary, "bundle")
     cpSync(bundle!, copy, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE })
-    rmSync(join(copy, "bin/msb"))
+    rmSync(join(copy, fault.path))
     const home = join(temporary, "home")
     mkdirSync(home)
     const result = spawnSync(join(copy, "bin", "smithers-server"), [], {
@@ -91,7 +94,7 @@ boundary("bundled server refuses missing msb despite hostile runtime overrides",
     })
     expect(result.error).toBeUndefined()
     expect(result.status).not.toBe(0)
-    expect(result.stderr).toContain("Bundled microVM runtime is unavailable")
+    expect(result.stderr).toContain(fault.refusal)
     expect(result.stdout).not.toContain('"setup_urls"')
     expect(result.stdout).not.toContain("SMITHERS_LOCAL_ORIGIN=")
     // Observe the actual process boundary, including descendants reparented

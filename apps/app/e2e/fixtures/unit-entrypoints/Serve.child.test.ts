@@ -54,7 +54,7 @@ test('headless serve entrypoint handles its lifecycle', async () => {
     const entry = import('../../../src/bun/serve')
     const line = await within(started.promise)
     expect(line).toBe('SMITHERS_LOCAL_ORIGIN=http://127.0.0.1:4185')
-    expect(calls).toEqual([{ stateDir: '/state' }])
+    expect(calls).toEqual([{ stateDir: '/state', publicOrigins: [] }])
     expect(stopCalls).toBe(0)
 
     if (scenario === 'signal') {
