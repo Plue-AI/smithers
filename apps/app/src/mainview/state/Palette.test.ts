@@ -96,7 +96,8 @@ describe("the retained Paper palette", () => {
       expect(document.documentElement.dataset.theme).toBe(mode)
       expect(store.session().palette).toBe("paper")
     }
-    for (const name of ["wiki", "history.show", "browser.open", "code.hover", "chat.send"]) {
+    expect(controller.commands.find("code.hover")).toBeUndefined()
+    for (const name of ["wiki", "history.show", "browser.open", "chat.send"]) {
       expect(controller.commands.find(name)).toBeDefined()
     }
   })
