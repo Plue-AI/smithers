@@ -388,3 +388,65 @@ func TestAccountHistoryRunReferenceBoundIsExplicitAndVerified(t *testing.T) {
 		})
 	}
 }
+
+func TestCutCardAccountHistoryRealJournalEarlier(t *testing.T) {
+	store := needStore(t)
+	ctx := context.Background()
+	ben, alice := testScope(), testScope()
+	ben.Owner, alice.Owner = "ben", "alice"
+	root, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "apps/app/src/mainview/state/testdata/cut-history.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Replay struct {
+			Page struct {
+				Batches []Batch `json:"batches"`
+			} `json:"page"`
+		} `json:"replay"`
+	}
+	if err = json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	admitted, err := store.Admit(ctx, AdmitInput{Scope: ben, RunID: "legacy-turn", Journal: JournalRequest{Version: 1, LegID: "legacy-leg", Token: strings.Repeat("a", 48)}, Request: json.RawMessage(`{"conversationId":"legacy-journal","messages":[{"role":"user","content":"Old prompt"}]}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := store.Claim(ctx, ben, admitted.TurnID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Commit(ctx, CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: fixture.Replay.Page.Batches[0].Frames}); err != nil {
+		t.Fatal(err)
+	}
+	handler := &Handler{Store: store}
+	benRoutes := authenticatedRoutes(handler, ben.UserID, ben.Owner)
+	aliceRoutes := authenticatedRoutes(handler, alice.UserID, alice.Owner)
+	// Only the authentication identity is a fixture; archive routes, PostgreSQL,
+	// signed batches, browser store, production loader and Earlier are real.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Header.Get("Authorization") {
+		case "Bearer ben":
+			benRoutes.ServeHTTP(w, r)
+		case "Bearer alice":
+			aliceRoutes.ServeHTTP(w, r)
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer server.Close()
+	browserCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	browser := exec.CommandContext(browserCtx, "bun", "test", "--isolate", "apps/app/src/mainview/state/BranchNavigationApp.test.tsx", "--test-name-pattern", "Earlier verifies seven historical")
+	browser.Dir = root
+	browser.Env = append(os.Environ(), "SMITHERS_CUT_HISTORY_ORIGIN="+server.URL, "SMITHERS_CUT_HISTORY_BEN=ben", "SMITHERS_CUT_HISTORY_ALICE=alice")
+	output, err := browser.CombinedOutput()
+	t.Logf("real journal Earlier: %s", output)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
