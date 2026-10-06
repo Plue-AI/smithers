@@ -30,6 +30,14 @@ export function verifySample(text, expected, hint, member) {
   if (hint.actor?.member_id !== member || hint.actor.via !== 'ssh') throw new Error('outside write is not attributed to the SSH member')
   return digest
 }
+// Activity is a log topic: both snapshots and deltas carry entry arrays.
+export function activityEntries(frames) {
+  if (frames.some(frame => frame.t === 'err' || frame.t === 'gap')) throw new Error('live subscription failed during measurement')
+  return frames.filter(frame => frame.id === 802 && ['snap', 'delta'].includes(frame.t)).flatMap(frame => {
+    if (!Array.isArray(frame.data)) throw new Error('activity frame must be an entry array')
+    return frame.data
+  })
+}
 export function verifyActivity(entries, baseline, member) {
   const added = entries.filter(entry => !baseline.has(entry.id))
   if (added.length !== 200 || new Set(added.map(entry => entry.id)).size !== 200) throw new Error('requires 200 distinct new activity entries')
@@ -83,8 +91,8 @@ export async function run(env = process.env) {
       })
     }, config)
     const initial = await page.evaluate(() => window.__diskFrames)
-    const activity = initial.find(frame => frame.id === 802 && frame.t === 'snap')?.data
-    if (!Array.isArray(activity)) throw new Error('activity snapshot must be an entry array')
+    if (!initial.some(frame => frame.id === 802 && frame.t === 'snap')) throw new Error('activity snapshot required')
+    const activity = activityEntries(initial)
     const baseline = new Set(activity.map(entry => entry.id))
     directory = await mkdtemp(join(tmpdir(), 'smthrs-disk-'))
     const control = join(directory, 'ssh')
@@ -131,8 +139,7 @@ export async function run(env = process.env) {
       await page.waitForTimeout(Math.max(0, 3000 - (performance.now() - t0)))
     }
     const frames = await page.evaluate(() => window.__diskFrames)
-    if (frames.some(frame => frame.t === 'err' || frame.t === 'gap')) throw new Error('live subscription failed during measurement')
-    const entries = [...activity, ...frames.filter(frame => frame.id === 802 && frame.t === 'delta').map(frame => frame.data)]
+    const entries = activityEntries(frames)
     result.activity = verifyActivity(entries, baseline, env.SMITHERS_PERF_SSH_MEMBER)
     result.summary = summarize(result.samples, ['arrival_ms'], 200)
     if (result.summary.arrival_ms.p95 >= 1000) throw new Error('p95 is not below 1000 ms')
