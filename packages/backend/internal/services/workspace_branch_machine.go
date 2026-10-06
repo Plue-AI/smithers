@@ -57,6 +57,18 @@ func (s *WorkspaceService) requireBranchMachineProviders() error {
 	return nil
 }
 
+// The machine-service identity skips member grants, not runtime qualification.
+// Keep this gate common to member admission and internal lifecycle mutations.
+func (s *WorkspaceService) requireBranchMachineRuntime(ctx context.Context) error {
+	if err := s.requireBranchMachineProviders(); err != nil {
+		return err
+	}
+	if err := s.branchMachineProviders.MicroVM(ctx); err != nil {
+		return err
+	}
+	return s.branchMachineProviders.SessionIdentity(ctx)
+}
+
 var errBranchMachineAdmission = errors.New("branch machine admission refused")
 
 func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64, branch, workspaceID string) (retErr error) {
@@ -97,10 +109,7 @@ func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx
 	if err := p.LaneBinding(ctx, tx, repositoryID, branch, workspaceID); err != nil {
 		return err
 	}
-	if err := p.MicroVM(ctx); err != nil {
-		return err
-	}
-	return p.SessionIdentity(ctx)
+	return s.requireBranchMachineRuntime(ctx)
 }
 
 // Every creation source uses this transaction, including fork, snapshot and
@@ -264,6 +273,10 @@ func (s *WorkspaceService) branchMachineOwned(ctx context.Context, ownerID int64
 		}
 		return false, nil
 	}
+	return branchMachineOwnerMatches(ctx, store, ownerID)
+}
+
+func branchMachineOwnerMatches(ctx context.Context, store branchMachineOwnerStore, ownerID int64) (bool, error) {
 	owner, err := store.GetBranchMachineOwner(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -297,6 +310,9 @@ func (s *WorkspaceService) withBranchMachineMutation(ctx context.Context, row db
 	if owned, err := s.branchMachineOwned(ctx, actorID); err != nil {
 		return fmt.Errorf("%w: %w", errBranchMachineAdmission, err)
 	} else if owned && actorID == row.UserID {
+		if err := s.requireBranchMachineRuntime(ctx); err != nil {
+			return fmt.Errorf("%w: %w", errBranchMachineAdmission, err)
+		}
 		return fn(ctx)
 	}
 	tx, err := s.transactions.Begin(ctx)

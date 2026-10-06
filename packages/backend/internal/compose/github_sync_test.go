@@ -392,7 +392,7 @@ func TestInstallSyncCompositionDoesNotActivatePartialStreamOwners(t *testing.T) 
 	require.Zero(t, count)
 }
 
-func TestInstallMainRetryWithMissingCheckReviewOwners(t *testing.T) {
+func TestInstallMainRetryQueuesWithMissingCheckReviewOwners(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -420,12 +420,14 @@ func TestInstallMainRetryWithMissingCheckReviewOwners(t *testing.T) {
 	require.NoError(t, err)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
-	cfg.Server.PublicURL = "http://example.com"
-	cfg.Server.AllowedOrigins = []string{"http://example.com"}
+	const origin = "http://localhost:4000"
+	cfg.Server.PublicURL = origin
+	cfg.Server.AllowedOrigins = []string{origin}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: main})
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
-		request := httptest.NewRequest(method, "/api/github/sync", nil)
-		request.Header.Set("Origin", "http://example.com")
+		request := httptest.NewRequest(method, origin+"/api/github/sync", nil)
+		request.RemoteAddr = "127.0.0.1:1234"
+		request.Header.Set("Origin", origin)
 		request.Header.Set("X-CSRF-Token", "poll-csrf")
 		request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "poll-csrf"})
 		request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &user, SessionHash: "poll-session"}))
@@ -445,6 +447,12 @@ func TestInstallMainRetryWithMissingCheckReviewOwners(t *testing.T) {
 	require.Equal(t, 1, count)
 	main.Sweep(t.Context())
 	require.NoError(t, main.PollOnce(t.Context()), "missing owners cannot reject the independently admitted main worker")
+	// This admission-only fixture has no token provider or repository engine.
+	// PollOnce records that failure; the native integration test proves sync.
+	observed, err := q.GetGithubMainPull(t.Context(), repo.ID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", observed.State)
+	require.False(t, observed.LastSyncedAt.Valid)
 }
 
 func TestInstallSyncRefHealthAndPauseSurviveRestart(t *testing.T) {

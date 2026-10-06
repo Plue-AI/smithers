@@ -183,3 +183,57 @@ func TestTodoReopenedAttemptEvidenceKeepsEndedRun(t *testing.T) {
 	item.Attempt = 2
 	require.Empty(t, currentTodoEvidence(item).RunID)
 }
+
+func TestTodoEvidenceRetainsPreviousRevisionWithinAttempt(t *testing.T) {
+	item := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "old", Checks: mythicalChecks{
+		Receipts: &mythicalReceipts{Checks: []mythicalReceipt{{Check: "unit", Commit: "old", Status: "passed", LogDigest: "old-log"}}},
+	}.encode()}
+	item.Number = pgtype.Int8{Int64: 7, Valid: true}
+	item = retainTodoAttemptEvidence(item)
+	item.CandidateHead = "new"
+	// Before another checkpoint arrives, old checks are already Previous,
+	// never evidence for the new candidate and never silently discarded.
+	assertPrevious := func(item db.MythicalItem, currentItems string) {
+		t.Helper()
+		raw, err := json.Marshal(todoEvidence(item))
+		require.NoError(t, err)
+		require.JSONEq(t, `[{"attempt":1,"revision":"new","items":`+currentItems+`,"previous":{"revision":"old","items":[{"kind":"check","name":"unit","state":"passed","log_digest":"old-log","log_url":"/api/todos/7/attempts/1/logs/old-log"}]}}]`, string(raw))
+	}
+	assertPrevious(item, `[]`)
+	item = retainTodoAttemptEvidence(item)
+	assertPrevious(item, `[]`)
+	checks := mythicalChecksOf(item)
+	checks.Receipts = &mythicalReceipts{Checks: []mythicalReceipt{{Check: "unit", Commit: "new", Status: "failed"}}}
+	item.Checks = checks.encode()
+	item = retainTodoAttemptEvidence(item)
+	assertPrevious(item, `[{"kind":"check","name":"unit","state":"failed"}]`)
+	require.Equal(t, item, retainTodoAttemptEvidence(item), "replayed checkpoints preserve both revisions")
+	retained, err := json.Marshal(mythicalChecksOf(item).Attempts[0])
+	require.NoError(t, err)
+	item.Attempt = 2
+	item = retainTodoAttemptEvidence(item)
+	replayed, err := json.Marshal(todoEvidence(item)[0])
+	require.NoError(t, err)
+	require.JSONEq(t, string(retained), string(replayed), "later attempts retain the earlier revision history")
+}
+
+func TestTodoEvidenceKeepsMeasuredPreviousAcrossEmptyCandidate(t *testing.T) {
+	item := db.MythicalItem{Source: "todo", Attempt: 1, FlowDigest: pgtype.Text{String: "pin", Valid: true}}
+	item = retainTodoAttemptEvidence(item)
+	item.CandidateHead = "old"
+	item = retainTodoAttemptEvidence(item)
+	require.Nil(t, todoEvidence(item)[0].Previous, "a flow pin before the first candidate is not a reviewed revision")
+	checks := mythicalChecksOf(item)
+	checks.Receipts = &mythicalReceipts{Checks: []mythicalReceipt{{Check: "unit", Commit: "old", Status: "passed"}}}
+	item.Checks = checks.encode()
+	item = retainTodoAttemptEvidence(item)
+	item.CandidateHead = ""
+	item = retainTodoAttemptEvidence(item)
+	previous := todoEvidence(item)[0].Previous
+	require.NotNil(t, previous)
+	require.Equal(t, "old", previous.Revision)
+	require.Equal(t, "unit", previous.Items[0]["name"])
+	item.CandidateHead = "new"
+	item = retainTodoAttemptEvidence(item)
+	require.Equal(t, previous, todoEvidence(item)[0].Previous, "an intermediate empty candidate must not replace retained check evidence")
+}

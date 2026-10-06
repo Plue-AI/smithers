@@ -68,6 +68,14 @@ func (s *MythicalService) TodoLog(ctx context.Context, repository, number int64,
 		return nil, err
 	}
 	allowed := false
+	references := func(items []map[string]any) bool {
+		for _, entry := range items {
+			if entry["log_digest"] == digest {
+				return true
+			}
+		}
+		return false
+	}
 	// Authorization uses retained source references, including a current
 	// attempt snapshot whose candidate has since changed.
 	attempts := append(mythicalChecksOf(item).Attempts, currentTodoEvidence(item))
@@ -75,10 +83,9 @@ func (s *MythicalService) TodoLog(ctx context.Context, repository, number int64,
 		if evidence.Attempt != attempt {
 			continue
 		}
-		for _, entry := range evidence.Items {
-			if entry["log_digest"] == digest {
-				allowed = true
-			}
+		if references(evidence.Items) || evidence.Previous != nil && references(evidence.Previous.Items) {
+			allowed = true
+			break
 		}
 	}
 	if !allowed {

@@ -335,18 +335,34 @@ func modelAccessLabel(access []db.ModelAccess) string {
 // ingestion refreshes live snapshots; settlement freezes the domain outcome and
 // binding. Older attempts are never recomputed from the current candidate.
 type todoAttemptEvidence struct {
-	RunID        string           `json:"run_id,omitempty"`
-	FlowDigest   string           `json:"flow_digest,omitempty"`
-	SourceCommit string           `json:"source_commit,omitempty"`
-	Generation   int64            `json:"generation,omitempty"`
-	Outcome      string           `json:"outcome,omitempty"`
-	Attempt      int32            `json:"attempt"`
-	Revision     string           `json:"revision"`
-	Items        []map[string]any `json:"items"`
+	RunID        string                `json:"run_id,omitempty"`
+	FlowDigest   string                `json:"flow_digest,omitempty"`
+	SourceCommit string                `json:"source_commit,omitempty"`
+	Generation   int64                 `json:"generation,omitempty"`
+	Outcome      string                `json:"outcome,omitempty"`
+	Attempt      int32                 `json:"attempt"`
+	Revision     string                `json:"revision"`
+	Items        []map[string]any      `json:"items"`
+	Previous     *todoRevisionEvidence `json:"previous,omitempty"`
+}
+
+type todoRevisionEvidence struct {
+	Revision string           `json:"revision"`
+	Items    []map[string]any `json:"items"`
 }
 
 var wikiCitationPageID = regexp.MustCompile(`^[1-9][0-9]*$`)
 var wikiCitationDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// A new candidate cannot inherit the old candidate's checks. Retain those
+// checks under the existing Previous contract, including their attempt logs.
+func todoEvidenceWithPrevious(current, stored todoAttemptEvidence) todoAttemptEvidence {
+	current.Previous = stored.Previous
+	if stored.Revision != "" && current.Revision != stored.Revision && len(stored.Items) > 0 {
+		current.Previous = &todoRevisionEvidence{Revision: stored.Revision, Items: stored.Items}
+	}
+	return current
+}
 
 func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 	checks := mythicalChecksOf(item)
@@ -419,7 +435,7 @@ func retainTodoAttemptEvidence(item db.MythicalItem) db.MythicalItem {
 	current := currentTodoEvidence(item)
 	for i, evidence := range checks.Attempts {
 		if evidence.Attempt == item.Attempt {
-			checks.Attempts[i] = current
+			checks.Attempts[i] = todoEvidenceWithPrevious(current, evidence)
 			item.Checks = checks.encode()
 			return item
 		}
@@ -431,12 +447,15 @@ func retainTodoAttemptEvidence(item db.MythicalItem) db.MythicalItem {
 
 func todoEvidence(item db.MythicalItem) []todoAttemptEvidence {
 	evidence := []todoAttemptEvidence{}
+	current := currentTodoEvidence(item)
 	for _, stored := range mythicalChecksOf(item).Attempts {
-		if stored.Attempt != item.Attempt && len(stored.Items) > 0 {
+		if stored.Attempt == item.Attempt {
+			current = todoEvidenceWithPrevious(current, stored)
+		} else if len(stored.Items) > 0 || stored.Previous != nil {
 			evidence = append(evidence, stored)
 		}
 	}
-	if current := currentTodoEvidence(item); current.Attempt > 0 && len(current.Items) > 0 {
+	if current.Attempt > 0 && (len(current.Items) > 0 || current.Previous != nil) {
 		evidence = append(evidence, current)
 	}
 	return evidence

@@ -276,9 +276,11 @@ func (s *Server) connCallback(ctx ssh.Context, conn net.Conn) net.Conn {
 		idleTimeout: s.idleTimeout(),
 		maxDeadline: s.workspaceMaxDeadline(time.Now()),
 	}
+	removeConnection := liveSessions.addConnection(conn, ctx)
 
 	go func() {
 		<-ctx.Done()
+		removeConnection()
 
 		if s.Metrics != nil {
 			s.Metrics.ActiveConns.Dec()
@@ -355,6 +357,9 @@ func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	remoteIP := remoteAddrIP(ctx.RemoteAddr())
 	hash := sha256.Sum256(key.Marshal())
 	fingerprint := "SHA256:" + base64.RawStdEncoding.EncodeToString(hash[:])
+	// Identify the attempted credential before its lookup can race removal.
+	// This value only permits revocation to close the transport, never access.
+	ctx.SetValue(authFingerprintKey, fingerprint)
 	credential := "key:" + fingerprint
 	if !s.admitAuthAttempt(remoteIP, credential) {
 		return false

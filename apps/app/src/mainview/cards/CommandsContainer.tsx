@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react"
+import { useLiveQuery } from "@tanstack/react-db"
 import { CommandsCardSchema, type CommandsCard, type CommandsViewProps } from "@smthrs/rpc/CommandsCard"
 import { cardActions, type CardCommandDispatch } from "../flows/cardActions"
 import { NAMESPACES, namespace, type CatalogItem } from "../flows/registry"
@@ -37,6 +38,14 @@ const CommandsBody = ({ presentation }: { readonly presentation: CardActions["pr
   const controller = useController()
   const roster = controller.membersRoster
   useSyncExternalStore(roster.subscribe, roster.get, roster.get)
+  // The registry derives its catalog and admission from these collections.
+  // Keep an already-open card current when identity, target or flows change.
+  const { collections } = controller.store
+  useLiveQuery(collections.identitySessions)
+  useLiveQuery(collections.sessions)
+  useLiveQuery(collections.repositories)
+  useLiveQuery(collections.repositoryFlows)
+  useLiveQuery(collections.connectors)
   return <CommandsContainer catalog={controller.commands.viewerCatalog()} view={{ maximized: presentation === "maximized" }} onView={() => {}}
     dispatch={(tag, input) => controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })} />
 }

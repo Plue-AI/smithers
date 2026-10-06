@@ -76,6 +76,15 @@ type directTCPIPData struct {
 	OriginPort  uint32
 }
 
+// Revocation cancels both pumps, including a pending guest connection and an
+// SSH read still waiting for input after the guest has sent EOF.
+type forwardCancel struct{ cancel context.CancelFunc }
+
+func (c *forwardCancel) Close() error {
+	c.cancel()
+	return nil
+}
+
 func (s *Server) directTCPIPHandler(_ *gliderssh.Server, _ *gossh.ServerConn, channel gossh.NewChannel, ctx gliderssh.Context) {
 	var data directTCPIPData
 	if err := gossh.Unmarshal(channel.ExtraData(), &data); err != nil ||
@@ -111,37 +120,47 @@ func (s *Server) directTCPIPHandler(_ *gliderssh.Server, _ *gossh.ServerConn, ch
 		return
 	}
 	defer s.releaseSessionSlot(ctx.SessionID())
-	guest, err := bridge.ConnectTCP(ctx, access, uint16(data.Port))
+	forwardCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	remove := liveSessions.addChannel(&forwardCancel{cancel}, contextPrincipal(ctx))
+	defer remove()
+	guest, err := bridge.ConnectTCP(forwardCtx, access, uint16(data.Port))
 	if err != nil {
 		_ = channel.Reject(gossh.ConnectionFailed, "guest connection unavailable")
 		return
 	}
 	defer guest.Close()
-	remove := liveSessions.addChannel(guest, contextPrincipal(ctx))
-	defer remove()
+	stopGuest := context.AfterFunc(forwardCtx, func() { _ = guest.Close() })
+	defer stopGuest()
+	if forwardCtx.Err() != nil {
+		_ = channel.Reject(gossh.Prohibited, "workspace access revoked")
+		return
+	}
 	stream, requests, err := channel.Accept()
 	if err != nil {
 		return
 	}
 	defer stream.Close()
 	go gossh.DiscardRequests(requests)
-	stop := context.AfterFunc(ctx, func() { _ = guest.Close(); _ = stream.Close() })
-	defer stop()
+	stopStream := context.AfterFunc(forwardCtx, func() { _ = stream.Close() })
+	defer stopStream()
 	inputDone := make(chan struct{})
 	go func() {
 		defer close(inputDone)
 		_, copyErr := io.Copy(guest, stream)
 		if copyErr != nil {
-			_ = guest.Close()
+			cancel()
 			return
 		}
 		if err := guest.CloseWrite(); err != nil {
-			_ = guest.Close()
+			cancel()
 		}
 	}()
-	_, _ = io.Copy(stream, guest)
-	_ = stream.CloseWrite()
-	_ = stream.Close()
-	_ = guest.Close()
+	if _, err := io.Copy(stream, guest); err != nil {
+		cancel()
+	} else if err := stream.CloseWrite(); err != nil {
+		cancel()
+	}
+	// A clean EOF ends only this direction. The client may still send input.
 	<-inputDone
 }

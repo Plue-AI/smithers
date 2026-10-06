@@ -18,9 +18,10 @@ import (
 // These real gateway handshakes exercise channel policy. The loopback fixture
 // below is supplemental mapping evidence, not a microVM acceptance receipt.
 type tcpFixtureBridge struct {
-	calls   atomic.Int32
-	port    atomic.Uint32
-	refused atomic.Bool
+	calls    atomic.Int32
+	port     atomic.Uint32
+	refused  atomic.Bool
+	serveTCP func(*net.TCPConn)
 }
 
 func (b *tcpFixtureBridge) Validate(context.Context, WorkspaceAccess) error {
@@ -47,6 +48,10 @@ func (b *tcpFixtureBridge) ConnectTCP(_ context.Context, _ WorkspaceAccess, port
 			return
 		}
 		defer c.Close()
+		if b.serveTCP != nil {
+			b.serveTCP(c.(*net.TCPConn))
+			return
+		}
 		data, _ := io.ReadAll(c)
 		_, _ = c.Write(append([]byte("reply:"), data...))
 	}()
@@ -57,12 +62,15 @@ func (b *tcpFixtureBridge) ConnectTCP(_ context.Context, _ WorkspaceAccess, port
 	return conn.(*net.TCPConn), nil
 }
 
-func gatewayFixture(t *testing.T, bridge WorkspaceBridge) (*Server, *gossh.Client) {
+func gatewayFixture(t *testing.T, bridge WorkspaceBridge, configure ...func(*Server, *gossh.ClientConfig)) (*Server, *gossh.Client) {
 	t.Helper()
 	server := &Server{Addr: freePort(t), HostKeyDir: t.TempDir(), WorkspaceBridge: bridge}
+	config := &gossh.ClientConfig{User: "msb_test+alice", Auth: []gossh.AuthMethod{gossh.Password(strings.Repeat("a", 32))}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: time.Second}
+	for _, apply := range configure {
+		apply(server, config)
+	}
 	done := make(chan error, 1)
 	go func() { done <- server.ListenAndServe() }()
-	config := &gossh.ClientConfig{User: "msb_test+alice", Auth: []gossh.AuthMethod{gossh.Password(strings.Repeat("a", 32))}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: time.Second}
 	var client *gossh.Client
 	require.Eventually(t, func() bool { var err error; client, err = gossh.Dial("tcp", server.Addr, config); return err == nil }, 5*time.Second, 50*time.Millisecond)
 	t.Cleanup(func() {
@@ -140,6 +148,137 @@ func TestGatewayTCPUnavailableFailsClosed(t *testing.T) {
 	_, client := gatewayFixture(t, &recordingBridge{served: make(chan struct{})})
 	_, _, err := client.OpenChannel("direct-tcpip", gossh.Marshal(directTCPIPData{Destination: "localhost", Port: 3000}))
 	require.Error(t, err)
+}
+
+func TestGatewayTCPGuestEOFStillAcceptsClientData(t *testing.T) {
+	type result struct {
+		body string
+		err  error
+	}
+	received := make(chan result, 1)
+	bridge := &tcpFixtureBridge{serveTCP: func(guest *net.TCPConn) {
+		if _, err := io.WriteString(guest, "ready"); err != nil {
+			received <- result{err: err}
+			return
+		}
+		if err := guest.CloseWrite(); err != nil {
+			received <- result{err: err}
+			return
+		}
+		body, err := io.ReadAll(guest)
+		received <- result{body: string(body), err: err}
+	}}
+	_, client := gatewayFixture(t, bridge)
+	channel, requests, err := client.OpenChannel("direct-tcpip", gossh.Marshal(directTCPIPData{Destination: "localhost", Port: 3000}))
+	require.NoError(t, err)
+	defer channel.Close()
+	go gossh.DiscardRequests(requests)
+	// Deliberately send nothing until guest EOF has traversed the SSH gateway.
+	// EOF ends the guest's output, not the client's independent input stream.
+	header, err := io.ReadAll(channel)
+	require.NoError(t, err)
+	require.Equal(t, "ready", string(header))
+	payload := strings.Repeat("client-after-guest-eof", 65536)
+	_, err = io.WriteString(channel, payload)
+	require.NoError(t, err)
+	require.NoError(t, channel.CloseWrite())
+	select {
+	case got := <-received:
+		require.NoError(t, got.err)
+		require.Equal(t, payload, got.body)
+	case <-time.After(5 * time.Second):
+		t.Fatal("guest did not receive client input after sending EOF")
+	}
+}
+
+func TestGatewayTCPGuestEOFCleanup(t *testing.T) {
+	for _, end := range []string{"channel-close", "disconnect", "revocation"} {
+		t.Run(end, func(t *testing.T) {
+			guestDone := make(chan error, 1)
+			bridge := &tcpFixtureBridge{serveTCP: func(guest *net.TCPConn) {
+				if err := guest.CloseWrite(); err != nil {
+					guestDone <- err
+					return
+				}
+				_, err := io.Copy(io.Discard, guest)
+				guestDone <- err
+			}}
+			server, client := gatewayFixture(t, bridge)
+			channel, requests, err := client.OpenChannel("direct-tcpip", gossh.Marshal(directTCPIPData{Destination: "localhost", Port: 3000}))
+			require.NoError(t, err)
+			defer channel.Close()
+			go gossh.DiscardRequests(requests)
+			body, err := io.ReadAll(channel)
+			require.NoError(t, err)
+			require.Empty(t, body)
+			active := func() int {
+				server.connMu.Lock()
+				defer server.connMu.Unlock()
+				total := 0
+				for _, n := range server.activeSessionsPerConn {
+					total += n
+				}
+				return total
+			}
+			require.Equal(t, 1, active(), "guest EOF alone must not release the live input channel")
+			switch end {
+			case "channel-close":
+				require.NoError(t, channel.Close())
+			case "disconnect":
+				require.NoError(t, client.Close())
+			case "revocation":
+				liveSessions.handle(revocation.Event{Kind: revocation.KindWorkspaceShareRemoved, SandboxIDs: []string{"msb_test"}})
+			}
+			require.Eventually(t, func() bool { return active() == 0 }, 5*time.Second, 10*time.Millisecond)
+			select {
+			case err := <-guestDone:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("guest input pump survived channel termination")
+			}
+		})
+	}
+}
+
+type pendingTCPBridge struct {
+	tcpFixtureBridge
+	started chan struct{}
+}
+
+func (b *pendingTCPBridge) ConnectTCP(ctx context.Context, _ WorkspaceAccess, _ uint16) (WorkspaceTCPConnection, error) {
+	close(b.started)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestGatewayTCPRevocationCancelsPendingGuestConnect(t *testing.T) {
+	bridge := &pendingTCPBridge{started: make(chan struct{})}
+	server, client := gatewayFixture(t, bridge)
+	opened := make(chan error, 1)
+	go func() {
+		channel, _, err := client.OpenChannel("direct-tcpip", gossh.Marshal(directTCPIPData{Destination: "localhost", Port: 3000}))
+		if channel != nil {
+			_ = channel.Close()
+		}
+		opened <- err
+	}()
+	select {
+	case <-bridge.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("gateway did not request the guest connection")
+	}
+	liveSessions.handle(revocation.Event{Kind: revocation.KindWorkspaceShareRemoved, SandboxIDs: []string{"msb_test"}})
+	select {
+	case err := <-opened:
+		require.Error(t, err, "a revoked pending connection must not accept a channel")
+	case <-time.After(5 * time.Second):
+		t.Fatal("revocation did not cancel the pending guest connection")
+	}
+	require.Eventually(t, func() bool {
+		server.connMu.Lock()
+		defer server.connMu.Unlock()
+		return len(server.activeSessionsPerConn) == 0
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestForwardChannelRevocation(t *testing.T) {
