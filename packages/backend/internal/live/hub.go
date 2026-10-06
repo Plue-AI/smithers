@@ -15,8 +15,11 @@ import (
 // subscriber of a topic reads the same committed facts, so one Build serves
 // them all at one cursor.
 type Source struct {
-	Log      *LogSource
-	Document *DocumentSource
+	// RefreshSnapshot retains committed non-journal provider updates at the source cursor.
+	RefreshSnapshot func(json.RawMessage) json.RawMessage
+	RefreshEvery    time.Duration
+	Log             *LogSource
+	Document        *DocumentSource
 	// Key names the topic's stream. Subscribers with one key share its
 	// cursor and its snapshots byte for byte.
 	Key string

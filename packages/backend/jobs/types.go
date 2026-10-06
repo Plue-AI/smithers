@@ -133,14 +133,15 @@ func (claim Claim) DeliveryAttempt() int {
 }
 
 type Event struct {
-	Scope       Scope
-	Sequence    int64
-	EventID     string
-	OperationID string
-	Type        string
-	State       State
-	Data        json.RawMessage
-	RecordedAt  time.Time
+	RepositorySequence int64 `json:",omitempty"`
+	Scope              Scope
+	Sequence           int64
+	EventID            string
+	OperationID        string
+	Type               string
+	State              State
+	Data               json.RawMessage
+	RecordedAt         time.Time
 }
 
 type ReplayPage struct {
