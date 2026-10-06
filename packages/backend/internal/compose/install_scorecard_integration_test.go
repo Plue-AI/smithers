@@ -319,4 +319,32 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 	malformedStart := readState()
 	require.Equal(t, "source_missing", malformedStart.Measures["install_start"].Verdict)
 	require.Equal(t, mergedCard.Measures["merged"], malformedStart.Measures["merged"])
+	// Independently missing providers must not abort the read-only snapshot
+	// or erase unrelated receipts through the production HTTP boundary.
+	for _, tc := range []struct {
+		table, measure, ticket, preserved string
+	}{
+		{"product_job_events", "accepted", "T-STK-01", "first_answer"},
+		{"mythical_items", "accepted", "T-STK-01", "first_answer"},
+		{"chat_turns", "first_answer", "T-APP-16", "merged"},
+		{"chat_turn_batches", "first_answer", "T-APP-16", "merged"},
+		{"audit_log", "multiplayer", "T-COL-06", "merged"},
+	} {
+		t.Run("missing "+tc.table, func(t *testing.T) {
+			// Names are fixed test literals, never request or repository data.
+			_, err := pool.Exec(ctx, "ALTER TABLE "+tc.table+" RENAME TO scorecard_omitted_provider")
+			require.NoError(t, err)
+			defer func() {
+				_, err := pool.Exec(ctx, "ALTER TABLE scorecard_omitted_provider RENAME TO "+tc.table)
+				require.NoError(t, err)
+			}()
+			card := readState()
+			require.Nil(t, card.Measures[tc.measure].Value)
+			require.Equal(t, "source_missing", card.Measures[tc.measure].Verdict)
+			require.Equal(t, []string{tc.ticket}, card.Measures[tc.measure].MissingTickets)
+			require.Equal(t, malformedStart.Measures[tc.preserved], card.Measures[tc.preserved])
+			require.Equal(t, services.ScorecardPersonMinutes{Source: "sampled_alpha_sessions", Verdict: "manual"}, card.PersonMinutes)
+		})
+	}
+
 }
