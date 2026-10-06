@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -281,15 +282,11 @@ func TestGitHubAppManifestFailedAttemptCannotBindSuccessfulAppPostgres(t *testin
 	_, err = service.Convert(ctx, "manifest-code", failed.State, failed.State)
 	require.Error(t, err, "failed code exchange permanently consumes state")
 	require.Len(t, server.Writes(), 1)
-	successful, err := service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
-	require.NoError(t, err)
-	_, err = service.Convert(ctx, "manifest-code", successful.State, successful.State)
-	require.NoError(t, err)
-	writes := len(server.Writes())
-	require.Error(t, service.ValidateCallbackOrigin(ctx, failed.State, "http://localhost:4000"), "failed attempt cannot choose the successful App repository")
-	require.Equal(t, writes, len(server.Writes()))
-	require.NoError(t, service.ResumeInstallation(ctx), "untrusted redirect cannot override server-derived repository installation")
-	require.NoError(t, service.ResumeInstallation(ctx), "installation fallback must find selected repository")
+	_, err = service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
+	require.ErrorContains(t, err, "Recover the existing GitHub App credentials")
+	require.Len(t, server.Writes(), 1, "consumed exchange cannot create a replacement App")
+	_, err = db.New(pool).GetInstallSetting(ctx, "github.repository")
+	require.ErrorIs(t, err, pgx.ErrNoRows, "failed attempt must not bind any repository")
 }
 
 func TestGitHubAppCredentialOperatorKeyRotationPostgres(t *testing.T) {
@@ -476,12 +473,17 @@ func TestGitHubAppManifestCanceledExchangeConsumesStateAndReleasesLockPostgres(t
 	_, err = service.Convert(ctx, "manifest-code", start.State, start.State)
 	require.Error(t, err)
 	require.Empty(t, fake.Writes())
-	fresh, err := service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
+	_, err = service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
+	require.ErrorContains(t, err, "Recover the existing GitHub App credentials")
+	require.Empty(t, fake.Writes(), "cancellation leaves an uncertain effect, never a safe retry")
+	conn, err := pool.Acquire(ctx)
 	require.NoError(t, err)
-	bounded, stop := context.WithTimeout(ctx, 5*time.Second)
-	defer stop()
-	_, err = service.Convert(bounded, "manifest-code", fresh.State, fresh.State)
-	require.NoError(t, err, "cancellation must release the database advisory lock")
+	defer conn.Release()
+	var acquired bool
+	require.NoError(t, conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", gitHubAppConversionLock).Scan(&acquired))
+	require.True(t, acquired, "cancellation must release the database advisory lock")
+	_, err = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", gitHubAppConversionLock)
+	require.NoError(t, err)
 }
 
 func TestGitHubAppManifestUnknownOwnerTypeIsRefusedPostgres(t *testing.T) {

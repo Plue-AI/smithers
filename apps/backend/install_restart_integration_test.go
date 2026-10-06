@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
 	"net"
@@ -31,7 +32,7 @@ import (
 // Uses the existing compiled test-backend entry and real production composition.
 // The process runtime is tests-only; this never qualifies VM recipe isolation.
 func TestInstallSetupCompiledHostRestart(t *testing.T) {
-	for _, boundary := range []string{"running admission", "address effect", "owner claim", "owner claim configured origins", "owner claim sealed Gateway"} {
+	for _, boundary := range []string{"running admission", "address effect", "owner claim", "owner claim configured origins", "owner claim sealed Gateway", "app conversion consumed"} {
 		t.Run(boundary, func(t *testing.T) { testInstallSetupCompiledHostRestart(t, boundary) })
 	}
 }
@@ -76,6 +77,18 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		"SMITHERS_MODEL_HOST_BUNDLE":  filepath.Join(root, "model-host"), "SMITHERS_NODE_BINARY": nodeFixture,
 		"SMITHERS_FEATURE_FLAGS_WORKFLOWS": "false", "SMITHERS_FEATURE_FLAGS_SANDBOXES": "true",
 		"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": filepath.Join(filepath.Dir(os.Getenv("SMITHERS_FFI_LIBRARY_PATH")), "smithers-jj-export"),
+	}
+	if boundary == "app conversion consumed" {
+		github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/users/acme" {
+				_, _ = w.Write([]byte(`{"type":"Organization"}`))
+				return
+			}
+			t.Errorf("unexpected GitHub request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(500)
+		}))
+		t.Cleanup(github.Close)
+		environment["SMITHERS_GITHUB_APP_API_BASE_URL"] = github.URL
 	}
 	var gatewayCalls atomic.Int32
 	if boundary == "owner claim sealed Gateway" {
@@ -387,6 +400,55 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	response.Body.Close()
 	// Hold the selected crash boundary using a test-owned PostgreSQL lock.
 	// Running admission commits before either worker claim or completion.
+	if boundary == "app conversion consumed" {
+		_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('setup.step.address','{"status":"done"}') ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
+		require.NoError(t, err)
+		postApp := func() *http.Response {
+			request, err := http.NewRequest("POST", origin+"/api/install/setup/app", strings.NewReader(`{"owner":"acme"}`))
+			require.NoError(t, err)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", origin)
+			for _, cookie := range jar.Cookies(request.URL) {
+				if cookie.Name == "__csrf" {
+					request.Header.Set("X-CSRF-Token", cookie.Value)
+				}
+			}
+			response, err := client.Do(request)
+			require.NoError(t, err)
+			return response
+		}
+		response := postApp()
+		require.Equal(t, 200, response.StatusCode)
+		var attempt struct {
+			State string `json:"state"`
+		}
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&attempt))
+		response.Body.Close()
+		// Fixture the durable boundary after the single-use exchange starts;
+		// no remote success or credential recovery is asserted by this case.
+		_, err = pool.Exec(ctx, `UPDATE github_app_manifest_states SET used_at=now() WHERE digest=$1`, fmt.Sprintf("%x", sha256.Sum256([]byte(attempt.State))))
+		require.NoError(t, err)
+		require.NoError(t, command.Process.Kill())
+		require.Error(t, command.Wait())
+		_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb(now()-interval '1 second')) WHERE key='setup.step.app_manifest'`)
+		require.NoError(t, err)
+		start()
+		response, err = client.Get(origin + "/api/install")
+		require.NoError(t, err)
+		require.Equal(t, 200, response.StatusCode)
+		payload, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		response.Body.Close()
+		require.Contains(t, string(payload), `"id":"app_manifest","state":"failed"`)
+		require.Contains(t, string(payload), `"code":"outcome_unknown"`)
+		response = postApp()
+		require.Equal(t, 409, response.StatusCode)
+		response.Body.Close()
+		var attempts int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM github_app_manifest_states`).Scan(&attempts))
+		require.Equal(t, 1, attempts)
+		return
+	}
 	lock, err := pool.Acquire(ctx)
 	require.NoError(t, err)
 	defer lock.Release()

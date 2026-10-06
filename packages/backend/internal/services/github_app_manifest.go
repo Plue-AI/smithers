@@ -297,6 +297,9 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}
+	if step.Error != nil && step.Error.Code == "outcome_unknown" {
+		return GitHubAppManifestStart{}, pkgerrors.Conflict("Recover the existing GitHub App credentials")
+	}
 	if !installStepCanStart(step, setupNow(s.Now)) {
 		return GitHubAppManifestStart{}, pkgerrors.Conflict("GitHub App setup is already running or complete")
 	}
@@ -436,7 +439,7 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _ = conn.Exec(cleanup, `UPDATE install_settings SET value='{"status":"failed"}' WHERE key='setup.step.app_manifest' AND value->>'status'='running' AND value->>'digest'=$1`, GitHubAppStateDigest(state))
+		_, _ = conn.Exec(cleanup, `UPDATE install_settings SET value=jsonb_set(value,'{status}','"failed"') WHERE key='setup.step.app_manifest' AND value->>'status'='running' AND value->>'digest'=$1`, GitHubAppStateDigest(state))
 	}()
 	var callbackURLs []string
 	if json.Unmarshal(attempt.CallbackUrls, &callbackURLs) != nil || len(callbackURLs) == 0 {

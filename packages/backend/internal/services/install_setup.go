@@ -265,6 +265,26 @@ func (s *InstallSetupService) readStep(ctx context.Context, q *db.Queries, id st
 		return step, err
 	}
 	step.ID = id
+	// A consumed manifest code may have created an App remotely. Expiring its
+	// browser lease cannot make that irreversible exchange safe to repeat.
+	if id == "app_manifest" && step.Status != InstallReady {
+		var attempt struct {
+			Digest string `json:"digest"`
+		}
+		if err := json.Unmarshal(row.Value, &attempt); err != nil {
+			return step, err
+		}
+		if attempt.Digest != "" {
+			state, err := q.GetGithubAppManifestState(ctx, attempt.Digest)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return step, err
+			}
+			if err == nil && state.UsedAt.Valid {
+				step.Status = InstallFailed
+				step.Error = &InstallReadinessError{Code: "outcome_unknown", Class: "user", Message: "Recover the existing GitHub App credentials"}
+			}
+		}
+	}
 	// A claimed owner is signed in, whatever an earlier refused attempt recorded.
 	if id == "sign_in" && step.Status != InstallReady {
 		if _, ownerErr := q.GetSelfHostOwner(ctx); ownerErr == nil {
