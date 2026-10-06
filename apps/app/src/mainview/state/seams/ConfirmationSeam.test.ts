@@ -159,3 +159,27 @@ test.each(["todo", "branch", "flow", "agent", "wiki"] as const)("%s press carrie
     expect(body).toEqual({ subject: { kind, ref: "subject", revision: "revision-2" }, revision: "item:2" })
   } finally { h.seam.dispose() }
 })
+
+
+test("retry replaces failure with running progress and keeps a successful admission deduplicated", async () => {
+  const retry = deferred<Response>()
+  let calls = 0
+  const h = await harness(async () => ++calls === 1
+    ? Response.json({ message: "Confirmation unavailable" }, { status: 503 })
+    : retry.promise)
+  try {
+    h.seam.decide(id, "approved")
+    await waitFor(() => h.outcomes.length === 1)
+    expect(h.store.collections.toasts.get(`toast-todo.request.confirmation:${id}`)?.status).toBe("failed")
+    h.seam.decide(id, "approved")
+    await waitFor(() => h.store.collections.toasts.get(`toast-todo.request.confirmation:${id}`)?.status === "running")
+    retry.resolve(Response.json({ id, state: "approved" }))
+    await settle()
+    h.seam.decide(id, "approved")
+    expect(calls).toBe(2)
+    expect(h.outcomes).toHaveLength(1)
+    h.publish({ topic: "confirmations:17", data: [{ ...pending, state: "approved", payload: { ...pending.payload, effect: { todo: 12, request: `confirmation:${id}` } } }] })
+    await waitFor(() => h.observed.length === 1)
+    expect(h.outcomes).toHaveLength(1)
+  } finally { h.seam.dispose() }
+})

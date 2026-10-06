@@ -103,3 +103,27 @@ test("C-UI-13 Confirm: Review & merge follows role and required checks", async (
   await expect(confirm.getByText("Cancelled", { exact: true })).toBeVisible()
   expect(denials).toBe(1)
 })
+
+test("C-UI-13 Confirm: Retry restores progress until the private decision arrives", async ({ page }) => {
+  test.setTimeout(120_000)
+  let row = privateRow(), calls = 0
+  const publish = await fixture(page, topic => topic === "confirmations:1" ? [row] : topic === "members" ? roster("owner") : undefined)
+  await page.route(`**/api/confirmations/${id}/approve`, async route => {
+    calls++
+    await route.fulfill(calls === 1
+      ? { status: 503, json: { class: "infra", code: "confirmation_unavailable", message: "Confirmation unavailable" } }
+      : { status: 200, json: { id, state: "approved" } })
+  })
+  const confirm = await open(page)
+  await confirm.getByRole("button", { name: "Commit", exact: true }).press("Enter")
+  const toast = page.locator(`[data-notice="toast-todo.request.confirmation:${id}"]`)
+  await expect(toast).toHaveAttribute("data-tone", "failed")
+  await toast.getByRole("button", { name: "Retry", exact: true }).press("Enter")
+  await expect(toast).toHaveAttribute("data-tone", "live")
+  await confirm.getByRole("button", { name: "Commit", exact: true }).press("Enter")
+  expect(calls).toBe(2)
+  row = { ...row, state: "expired", payload: { ...row.payload, card: { ...row.payload.card, receipt: confirms.expired.model.receipt } } }
+  publish("confirmations:1")
+  await expect(toast).toHaveAttribute("data-tone", "failed")
+  await expect(toast).toContainText("Expired")
+})

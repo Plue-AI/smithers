@@ -72,7 +72,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
     const notice = `todo.request.confirmation:${id}`
     const timer = setTimeout(() => {
       timers.delete(id)
-      if (current(mine) && !ctx.store.collections.toasts.has(`toast-${notice}`)) ctx.dispatch({ type: "toast.shown", actor: "system", key: notice, title: row.payload.card.summary })
+      if (current(mine) && ctx.store.collections.toasts.get(`toast-${notice}`)?.status !== "running") ctx.dispatch({ type: "toast.shown", actor: "system", key: notice, title: row.payload.card.summary })
     }, options.debounceMs ?? 300)
     timers.set(id, timer)
     const stopTimer = () => { clearTimeout(timer); if (timers.get(id) === timer) timers.delete(id) }
@@ -105,6 +105,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
         if (!body || typeof body !== "object" || !("id" in body) || body.id !== id || !("state" in body) || body.state !== (decision === "approved" ? "approved" : "rejected")) {
           fail("Confirmation response unavailable"); return
         }
+        admitted = decision === "approved"
         if (decision === "denied") {
           stopTimer()
           ctx.resolveToast?.(notice, { status: "cancelled", detail: "Cancelled" })
