@@ -49,6 +49,7 @@ type InstallIssueLabel struct {
 // InstallIssue is one GitHub issue as the issue cards read it, in GitHub's
 // own field names.
 type InstallIssue struct {
+	ViaApp    *json.RawMessage     `json:"performed_via_github_app,omitempty"`
 	Number    int64                `json:"number"`
 	Title     string               `json:"title"`
 	Body      string               `json:"body"`
@@ -224,7 +225,7 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 		if err != nil {
 			return InstallIssueThread{}, err
 		}
-		issue := mythicalIssue{Number: number, Title: thread.Issue.Title, Body: thread.Issue.Body, URL: thread.Issue.HTMLURL, State: thread.Issue.State}
+		issue := mythicalIssue{Number: number, Title: thread.Issue.Title, Body: thread.Issue.Body, URL: thread.Issue.HTMLURL, State: thread.Issue.State, ViaApp: thread.Issue.ViaApp != nil && string(*thread.Issue.ViaApp) != "null"}
 		team, err := s.todoIssueTeamText(ctx, repositoryID, gh, issue)
 		if err != nil {
 			return InstallIssueThread{}, err
@@ -277,23 +278,25 @@ func (s *MythicalService) todoLabelMember(ctx context.Context, repositoryID int6
 		}
 		actor.ID = account.ID
 	}
-	var role string
-	err := s.store.QueryRow(ctx, `SELECT role FROM (
- SELECT 'owner' AS role FROM self_host_owners o JOIN oauth_accounts a ON a.user_id=o.user_id AND a.provider IN ('github','workos') WHERE a.provider_user_id=$2::text
- UNION ALL SELECT c.permission FROM collaborators c LEFT JOIN users u ON u.id=c.user_id
- WHERE c.repository_id=$1 AND c.suspended_at IS NULL AND c.github_id=$2::bigint
- AND c.permission IN ('admin','write')) roles ORDER BY CASE role WHEN 'owner' THEN 3 WHEN 'admin' THEN 2 ELSE 1 END DESC LIMIT 1`, repositoryID, strconv.FormatInt(actor.ID, 10)).Scan(&role)
+	// Resolve identity only here; InstallRoleOf owns the active-membership predicate.
+	var userID int64
+	err := s.store.QueryRow(ctx, `SELECT user_id FROM oauth_accounts WHERE provider IN ('github','workos') AND provider_user_id=$2::text
+ UNION SELECT user_id FROM collaborators WHERE repository_id=$1 AND github_id=$2::bigint AND user_id IS NOT NULL`, repositoryID, strconv.FormatInt(actor.ID, 10)).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
 	}
+	role, err := InstallRoleOf(ctx, s.queries(), userID)
+	if err != nil || role == "" {
+		return "", err
+	}
 	push, err := s.github.MaintainerNow(ctx, gh, actor)
 	if err != nil || !push {
 		return "", err
 	}
-	return role, nil
+	return string(role), nil
 }
 
 func (s *MythicalService) todoIssueWriter(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, actor gitHubActor) (bool, error) {
@@ -312,6 +315,9 @@ func (s *MythicalService) todoIssueWriter(ctx context.Context, repositoryID int6
 }
 
 func (s *MythicalService) todoIssueTeamText(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
+	if issue.ViaApp {
+		return false, nil
+	}
 	api, ok := s.github.(*mythicalGitHubAPI)
 	if !ok {
 		return s.github.IssueTextByMaintainer(ctx, gh, issue)
