@@ -12,6 +12,8 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	productssh "github.com/smithersai/smithers/packages/backend/ssh"
 	"github.com/stretchr/testify/require"
@@ -43,7 +45,7 @@ func TestProductSSHUsesCanonicalKeyAndRepositoryAuthorization(t *testing.T) {
 	require.NoError(t, err)
 	signer, err := gossh.NewSignerFromKey(private)
 	require.NoError(t, err)
-	_, err = queries.CreateSSHKey(ctx, db.CreateSSHKeyParams{UserID: user.ID, Name: "fixture", PublicKey: string(gossh.MarshalAuthorizedKey(signer.PublicKey())), Fingerprint: gossh.FingerprintSHA256(signer.PublicKey()), KeyType: "ssh-ed25519"})
+	key, err := queries.CreateSSHKey(ctx, db.CreateSSHKeyParams{UserID: user.ID, Name: "fixture", PublicKey: string(gossh.MarshalAuthorizedKey(signer.PublicKey())), Fingerprint: gossh.FingerprintSHA256(signer.PublicKey()), KeyType: "ssh-ed25519"})
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -73,6 +75,27 @@ func TestProductSSHUsesCanonicalKeyAndRepositoryAuthorization(t *testing.T) {
 	output, err := session.CombinedOutput("git-upload-pack 'other/private.git'")
 	require.Error(t, err, "real product repository authorization must reject an inaccessible repository")
 	require.True(t, strings.Contains(strings.ToLower(string(output)), "denied") || strings.Contains(strings.ToLower(string(output)), "not found"), string(output))
+
+	// The production key service persists removal and publishes through the
+	// database; the independently composed SSH listener must close even this
+	// idle authenticated connection, with no active session left to revoke.
+	keys := services.NewSSHKeyService(queries)
+	keys.SetRevocationPublisher(revocation.NewDBPublisher(queries, nil))
+	ended := make(chan error, 1)
+	go func() { ended <- client.Wait() }()
+	require.NoError(t, keys.DeleteKey(ctx, user.ID, key.ID))
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("database key removal did not revoke the authenticated SSH connection")
+	}
+	_, err = client.NewSession()
+	require.Error(t, err, "deleted key cannot reuse its existing connection")
+	reconnected, err := gossh.Dial("tcp", address, &gossh.ClientConfig{User: "git", Auth: []gossh.AuthMethod{gossh.PublicKeys(signer)}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: time.Second})
+	if reconnected != nil {
+		defer reconnected.Close()
+	}
+	require.Error(t, err, "deleted key cannot authenticate again")
 }
 
 // The SSH door takes the install main fact from the repository engine it

@@ -62,12 +62,15 @@ func (b *tcpFixtureBridge) ConnectTCP(_ context.Context, _ WorkspaceAccess, port
 	return conn.(*net.TCPConn), nil
 }
 
-func gatewayFixture(t *testing.T, bridge WorkspaceBridge) (*Server, *gossh.Client) {
+func gatewayFixture(t *testing.T, bridge WorkspaceBridge, configure ...func(*Server, *gossh.ClientConfig)) (*Server, *gossh.Client) {
 	t.Helper()
 	server := &Server{Addr: freePort(t), HostKeyDir: t.TempDir(), WorkspaceBridge: bridge}
+	config := &gossh.ClientConfig{User: "msb_test+alice", Auth: []gossh.AuthMethod{gossh.Password(strings.Repeat("a", 32))}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: time.Second}
+	for _, apply := range configure {
+		apply(server, config)
+	}
 	done := make(chan error, 1)
 	go func() { done <- server.ListenAndServe() }()
-	config := &gossh.ClientConfig{User: "msb_test+alice", Auth: []gossh.AuthMethod{gossh.Password(strings.Repeat("a", 32))}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: time.Second}
 	var client *gossh.Client
 	require.Eventually(t, func() bool { var err error; client, err = gossh.Dial("tcp", server.Addr, config); return err == nil }, 5*time.Second, 50*time.Millisecond)
 	t.Cleanup(func() {
