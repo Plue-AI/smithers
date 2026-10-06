@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -90,6 +92,33 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		t.Cleanup(github.Close)
 		environment["SMITHERS_GITHUB_APP_API_BASE_URL"] = github.URL
 	}
+	var traces setupProcessBuffer
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reader io.Reader = r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			decoded, err := gzip.NewReader(r.Body)
+			if err != nil {
+				t.Error("invalid compressed trace batch")
+				w.WriteHeader(400)
+				return
+			}
+			defer decoded.Close()
+			reader = decoded
+		}
+		payload, err := io.ReadAll(reader)
+		if err != nil {
+			t.Error("trace batch read failed")
+			w.WriteHeader(400)
+			return
+		}
+		traces.Write(payload)
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		w.WriteHeader(200)
+	}))
+	t.Cleanup(collector.Close)
+	environment["SMITHERS_OTEL_EXPORTER"] = "otlp"
+	environment["SMITHERS_OTEL_EXPORTER_OTLP_ENDPOINT"] = collector.URL
+	environment["SMITHERS_TRACE_SAMPLE_RATE"] = "1"
 	var gatewayCalls atomic.Int32
 	if boundary == "owner claim sealed Gateway" {
 		gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,16 +150,20 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	require.NoError(t, err)
 	// This is a recovery fixture, not a latency check; the shared host may
 	// be compiling other lanes while PostgreSQL resolves the status model.
-	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
+	var responses setupProcessBuffer
+	client := &http.Client{Jar: jar, Timeout: 15 * time.Second, Transport: setupTraceTransport{captured: &responses}}
 	var captures []*setupProcessCapture
 	secrets := []string{}
 	t.Cleanup(func() {
+		for _, secret := range secrets {
+			require.False(t, strings.Contains(responses.String()+traces.String(), secret) || strings.Contains(responses.String()+traces.String(), url.QueryEscape(secret)), "credential leaked in HTTP response or exported trace")
+		}
 		for _, capture := range captures {
+			require.False(t, capture.invalidMint.Load(), "invalid or duplicate setup mint line")
 			// The only permitted plaintext copy is the complete mint line.
 			for _, output := range []string{capture.logs.String(), capture.ordinary.String()} {
 				for _, secret := range secrets {
-					require.NotContains(t, output, secret, "credential leaked outside the mint line")
-					require.NotContains(t, output, url.QueryEscape(secret))
+					require.False(t, strings.Contains(output, secret) || strings.Contains(output, url.QueryEscape(secret)), "credential leaked outside the mint line")
 				}
 			}
 		}
@@ -149,31 +182,54 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		command.Stderr = &capture.logs
 		bootFailure := make(chan string, 1)
 		minted := make(chan []string, 1)
+		drained := make(chan struct{})
 		require.NoError(t, command.Start())
 		go func() {
-			scanner := bufio.NewScanner(stdout)
-			for scanner.Scan() {
-				if strings.Contains(scanner.Text(), "test_backend_test.go:") {
-					bootFailure <- scanner.Text()
+			defer close(drained)
+			reader := bufio.NewReader(stdout)
+			mintCount := 0
+			for {
+				lineBytes, readErr := reader.ReadBytes('\n')
+				if len(lineBytes) == 0 {
+					return
+				}
+				lineText := string(lineBytes)
+				if strings.Contains(lineText, "test_backend_test.go:") {
+					bootFailure <- lineText
 				}
 				var line struct {
 					URLs []string `json:"setup_urls"`
 				}
-				if json.Unmarshal(scanner.Bytes(), &line) == nil && len(line.URLs) > 0 {
+				if json.Unmarshal(lineBytes, &line) == nil && len(line.URLs) > 0 {
+					mintCount++
+					if mintCount != 1 || !bytes.HasSuffix(lineBytes, []byte("\n")) {
+						capture.invalidMint.Store(true)
+					}
 					var fields map[string]json.RawMessage
-					if json.Unmarshal(scanner.Bytes(), &fields) != nil || len(fields) != 1 {
-						bootFailure <- "mint line must have the sole key setup_urls"
+					if json.Unmarshal(lineBytes, &fields) != nil || len(fields) != 1 {
+						capture.invalidMint.Store(true)
 					}
 					select {
 					case minted <- line.URLs:
 					default:
 					}
 				} else {
-					_, _ = capture.ordinary.Write(append(scanner.Bytes(), '\n'))
+					_, _ = capture.ordinary.Write(lineBytes)
+				}
+				if readErr != nil {
+					return
 				}
 			}
 		}()
-		t.Cleanup(func() { _ = command.Process.Kill(); _ = command.Wait() })
+		t.Cleanup(func() {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+			select {
+			case <-drained:
+			case <-time.After(5 * time.Second):
+				t.Error("stdout capture did not drain")
+			}
+		})
 		require.Eventually(t, func() bool {
 			select {
 			case failure := <-bootFailure:
@@ -221,9 +277,9 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 				require.NoError(t, err)
 				if i == 0 {
 					token = parsed.Query().Get("token")
-					require.Len(t, token, 64)
+					require.True(t, len(token) == 64, "setup token must have 64 bytes")
 				}
-				require.Equal(t, token, parsed.Query().Get("token"))
+				require.True(t, token == parsed.Query().Get("token"), "setup origins must share one token")
 			}
 			sum := sha256.Sum256([]byte(token))
 			var stored string
@@ -238,7 +294,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		command, minted = start()
 		token := tokenOf(readMint(minted))
 		secrets = append(secrets, token)
-		require.NotEqual(t, oldToken, token)
+		require.False(t, oldToken == token, "restart must rotate the token")
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 		get := func(path string, status int) *http.Response {
 			t.Helper()
@@ -260,11 +316,20 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		}
 		get("/setup?token="+oldToken, 401).Body.Close()
 		get("/api/auth/github", 401).Body.Close()
-		get("/setup?token="+token, 303).Body.Close()
+		exchanged := get("/setup?token="+token, 303)
+		for _, cookie := range exchanged.Cookies() {
+			if cookie.Name == "smithers_setup_session" {
+				secrets = append(secrets, cookie.Value)
+			}
+		}
+		exchanged.Body.Close()
+		get("/api/install", 200).Body.Close()
+		get("/api/status", 403).Body.Close()
+		get("/setup/github/callback", 403).Body.Close()
 		started := get("/api/auth/github", 302)
 		target := started.Header.Get("Location")
 		started.Body.Close()
-		require.NotContains(t, target, token)
+		require.False(t, strings.Contains(target, token), "OAuth state must not contain the setup token")
 		response, err := http.Get(target)
 		require.NoError(t, err)
 		page, err := io.ReadAll(response.Body)
@@ -281,6 +346,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		// Crash before repository verification: the owner remains provisional,
 		// their real browser session and setup projection survive restart.
 		before := get("/api/install", 200)
+		require.Eventually(t, func() bool { return strings.Contains(traces.String(), "/api/auth/github/callback") }, 15*time.Second, 50*time.Millisecond, "trace capture must contain exported spans")
 		beforeBody, err := io.ReadAll(before.Body)
 		before.Body.Close()
 		require.NoError(t, err)
@@ -306,6 +372,30 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		require.NoError(t, err)
 		require.JSONEq(t, `{"class":"permission","code":"owner_unverified","fault":"user","message":"owner_unverified"}`, string(body))
 		get("/api/members", 403).Body.Close()
+		get("/api/status", 200).Body.Close()
+		// Every mounted setup mutation refuses a malformed request before
+		// admitting work. Capture each error surface without external effects.
+		for _, step := range []string{"address", "app", "sign_in", "repository", "models", "source", "machine", "settings"} {
+			method, path := "POST", "/api/install/setup/"+step
+			if step == "settings" {
+				method, path = "PUT", "/api/install"
+			}
+			request, err := http.NewRequest(method, origin+path, strings.NewReader("{"))
+			require.NoError(t, err)
+			request.Header.Set("X-Forwarded-Host", "localhost:4000")
+			request.Header.Set("Origin", "http://localhost:4000")
+			request.Header.Set("Content-Type", "application/json")
+			for _, cookie := range jar.Cookies(request.URL) {
+				if cookie.Name == "__csrf" {
+					request.Header.Set("X-CSRF-Token", cookie.Value)
+				}
+			}
+			response, err := client.Do(request)
+			require.NoError(t, err)
+			response.Body.Close()
+			require.Equal(t, 400, response.StatusCode, step)
+		}
+		require.Eventually(t, func() bool { return strings.Contains(traces.String(), "/api/install/setup/machine") }, 15*time.Second, 50*time.Millisecond, "setup mutation trace batch must be captured before another crash")
 		post, err := http.NewRequest("POST", origin+"/api/todos", strings.NewReader(`{"title":"must not exist"}`))
 		require.NoError(t, err)
 		post.Header.Set("X-Forwarded-Host", "localhost:4000")
@@ -324,6 +414,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		require.Equal(t, 403, refusedPost.StatusCode)
 		require.JSONEq(t, `{"class":"permission","code":"owner_unverified","fault":"user","message":"owner_unverified"}`, string(postBody))
 		get("/setup?token="+token, 401).Body.Close()
+		get("/setup/github/installed?installation_id=999999", 303).Body.Close()
 		for _, route := range []string{"status", "bootstrap", "login", "token", "password"} {
 			get("/api/auth/local/"+route, 404).Body.Close()
 		}
@@ -352,7 +443,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 				}
 				require.Equal(t, status, response.StatusCode, "route %s: %s", path, diagnostic)
 				for _, secret := range secrets {
-					require.NotContains(t, string(payload), secret)
+					require.False(t, strings.Contains(string(payload), secret), "credential leaked in response")
 				}
 				return payload
 			}
@@ -377,7 +468,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM credit_events`).Scan(&creditEvents))
 			require.NoError(t, command.Process.Kill())
 			require.Error(t, command.Wait())
-			start()
+			command, _ = start()
 			call("/api/commands/select", `{"message":"hello","commands":[{"name":"help","summary":"Help"}]}`, 200)
 			require.Equal(t, int32(1), gatewayCalls.Load())
 			var afterCreditEvents int
@@ -390,6 +481,11 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 			require.Contains(t, string(payload), "credential_missing")
 			require.Equal(t, int32(1), gatewayCalls.Load())
 		}
+		// Flush the final process's trace batch before scanning the captures.
+		// The earlier process deaths remain abrupt crash-recovery checks.
+		require.NoError(t, command.Process.Signal(syscall.SIGTERM))
+		require.NoError(t, command.Wait())
+		require.True(t, strings.Contains(traces.String(), "/api/install/setup/machine"), "mounted setup routes must export traces")
 		return
 	}
 	// Exchange once, then use only the setup-session cookie, including after restart.
@@ -576,7 +672,10 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 
 // Captures are read while the restarted process is serving. Synchronize writes
 // rather than making credential scans race with ordinary request logging.
-type setupProcessCapture struct{ logs, ordinary setupProcessBuffer }
+type setupProcessCapture struct {
+	logs, ordinary setupProcessBuffer
+	invalidMint    atomic.Bool
+}
 type setupProcessBuffer struct {
 	mu sync.Mutex
 	bytes.Buffer
@@ -591,4 +690,32 @@ func (b *setupProcessBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.Buffer.String()
+}
+
+// Capture actual responses before callers consume them. Set-Cookie is the
+// intentional credential delivery surface; bodies and navigation headers must
+// never carry the setup token or setup-session credential.
+type setupTraceTransport struct{ captured *setupProcessBuffer }
+
+func (transport setupTraceTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := http.DefaultTransport.RoundTrip(request)
+	if err != nil {
+		return nil, err
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	transport.captured.Write(body)
+	for name, values := range response.Header {
+		if strings.EqualFold(name, "Set-Cookie") {
+			continue
+		}
+		for _, value := range values {
+			transport.captured.Write([]byte(name + ": " + value + "\n"))
+		}
+	}
+	return response, nil
 }
