@@ -420,6 +420,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/confirmations(?:/[^/]+/(?:approve|deny))?$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/auth/logout$`)},
+	{http.MethodPost, "self.read", regexp.MustCompile(`^/api/(auth/sse-ticket|v1/sse/ticket)$`)},
 	// The app's reads on an install, as a member's browser makes them on
 	// J1 8, J2 and J4: setup state, the person's own organizations and
 	// workspaces, the repository and its stack, the GitHub sync, the live
@@ -510,6 +511,15 @@ func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo
 	if boundary == nil || authInfo == nil || authInfo.User == nil {
 		return true
 	}
+	if err := boundary.AuthorizeMember(installationAuthorizationContext(r), authInfo.User.ID); err != nil {
+		errors.WriteError(w, err)
+		return false
+	}
+	return true
+}
+
+// installationAuthorizationContext applies the same route admission to cookies and SSE tickets.
+func installationAuthorizationContext(r *http.Request) context.Context {
 	ctx := r.Context()
 	// GitHub returns the browser to /setup/github/* before the repository step
 	// verifies the owner, so those returns are setup routes too.
@@ -519,11 +529,7 @@ func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo
 	if InstallMemberCommand(r.Method, r.URL.EscapedPath()) != "" {
 		ctx = identity.WithMemberRoute(ctx)
 	}
-	if err := boundary.AuthorizeMember(ctx, authInfo.User.ID); err != nil {
-		errors.WriteError(w, err)
-		return false
-	}
-	return true
+	return ctx
 }
 
 // loadSessionAuth resolves a session cookie. It returns (nil, nil, nil) when

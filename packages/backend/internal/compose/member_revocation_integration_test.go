@@ -2,9 +2,11 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -161,10 +163,20 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 			socket := open(cookie)
 			streamCtx, cancelStream := context.WithTimeout(ctx, 10*time.Second)
 			defer cancelStream()
-			req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, origin+streamPath, nil)
+			mintTicket := func() string {
+				status, body := request("POST", "/api/auth/sse-ticket", "", cookie)
+				require.Equal(t, http.StatusOK, status, body)
+				var issued struct {
+					Ticket string `json:"ticket"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(body), &issued))
+				require.NotEmpty(t, issued.Ticket)
+				return issued.Ticket
+			}
+			ticket, unusedTicket := mintTicket(), mintTicket()
+			req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, origin+streamPath+"?ticket="+url.QueryEscape(ticket), nil)
 			require.NoError(t, err)
 			req.Header.Set("Accept", "text/event-stream")
-			req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
 			response, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer response.Body.Close()
@@ -214,6 +226,8 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 			response.Body.Close()
 			status, body = request("GET", streamPath, "", cookie)
 			require.Equal(t, http.StatusUnauthorized, status, body)
+			status, body = request("GET", streamPath+"?ticket="+url.QueryEscape(unusedTicket), "", "")
+			require.Equal(t, http.StatusUnauthorized, status, body, "an unused ticket cannot outlive its revoked browser session")
 			elapsed := time.Since(started)
 			cancel()
 			socket.CloseNow()
