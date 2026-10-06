@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -93,6 +95,13 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 		return id
 	}
 	id := seed("one_click", "todo.drop", false)
+	for _, decision := range []string{"approve", "deny"} {
+		// Authentication precedes both body/key validation and subject lookup.
+		anonymous := call("POST", "/api/confirmations/"+id+"/"+decision, "", "", "")
+		require.Equal(t, 401, anonymous.Code, anonymous.Body.String())
+		delegated := call("POST", "/api/confirmations/"+id+"/"+decision, "", token, "")
+		require.Equal(t, 403, delegated.Code, delegated.Body.String())
+	}
 	expired := seed("review_merge", "merge", true)
 	// Listing another member's confirmations must not settle the owner's rows.
 	w := call("GET", "/api/confirmations", otherCookie, "", "")
@@ -196,7 +205,7 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	// An elapsed row cannot acquire a rejection or consume a press key.
 	for _, kind := range []string{"one_click", "review_merge"} {
 		elapsed := seed(kind, "todo.drop", true)
-		changed, err := q.DenyMemberConfirmation(ctx, elapsed, owner.ID, "deadline-session", "deadline-"+kind)
+		changed, err := q.DecideMemberConfirmation(ctx, elapsed, owner.ID, "deadline-session", "deadline-"+kind, "rejected")
 		require.NoError(t, err)
 		require.False(t, changed)
 		var decisionKey *string
@@ -231,8 +240,9 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	_, status = topics.resolve(ctx, fmt.Sprintf("confirmations:%d:extra", owner.ID), repo.ID, "maya/demo", owner.ID)
 	require.Equal(t, live.Forbidden, status)
 	for _, kind := range []string{"one_click", "review_merge"} {
-		// Hold the subject row until both identical browser retries have read
-		// pending and reached the CAS. The loser must return the same receipt.
+		// Hold the subject row while both browser retries wait: the first
+		// for the approval row, the second for the repository transaction.
+		// Both must return the same receipt after that transaction commits.
 		concurrent := seed(kind, "todo.drop", false)
 		lock, err := pool.Begin(ctx)
 		require.NoError(t, err)
@@ -247,7 +257,7 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 		}
 		require.Eventually(t, func() bool {
 			var waiting int
-			err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'UPDATE approvals SET state=''rejected''%'`).Scan(&waiting)
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE 'SELECT command,state,subject,revision,payload,expires_at FROM approvals%' OR query='SELECT pg_advisory_xact_lock($1)')`).Scan(&waiting)
 			return err == nil && waiting == 2
 		}, 5*time.Second, 10*time.Millisecond)
 		require.NoError(t, lock.Commit(ctx))
@@ -293,4 +303,67 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.NoError(t, err)
 	w = call("POST", "/api/confirmations", "", token, "create", `{"command":"todo.new"}`)
 	require.Equal(t, 401, w.Code, w.Body.String())
+	// A qualified consumer uses the same production auth, dispatcher, service
+	// and SQL transaction. Normal install composition remains dark until the
+	// private browser View is wired; this is HTTP acceptance, not browser proof.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()+interval '1 hour' WHERE token_hash=$1`, hash)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
+	todos := services.NewMythicalService(pool, nil)
+	approvals := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
+	router = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: approvals})
+	w = call("POST", "/api/todos", "", token, "implicit-new", `{"prompt":"Keep this exact prompt"}`)
+	require.Equal(t, 202, w.Code, w.Body.String())
+	var created map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	require.Len(t, created, 2)
+	require.Equal(t, "pending", created["state"])
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
+	require.Zero(t, count)
+	requested := created["confirmation"]
+	require.NotEmpty(t, requested)
+	w = call("POST", "/api/confirmations/"+requested+"/approve", otherCookie, "", "wrong-member")
+	require.Equal(t, 403, w.Code, w.Body.String())
+	w = call("POST", "/api/confirmations/"+requested+"/approve", ownerCookie, "", "approve-new")
+	require.Equal(t, 200, w.Code, w.Body.String())
+	w = call("POST", "/api/confirmations/"+requested+"/approve", ownerCookie, "", "approve-new")
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var number int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT number FROM mythical_items`).Scan(&number))
+	w = call("POST", fmt.Sprintf("/api/todos/%d", number), "", token, "implicit-drop", `{"op":"drop"}`)
+	require.Equal(t, 202, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	require.Len(t, created, 2)
+	drop := created["confirmation"]
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM mythical_items WHERE number=$1`, number).Scan(&state))
+	require.Equal(t, "queued", state)
+	// Private list and live projection contain the exact request only for its member.
+	w = call("GET", "/api/confirmations", ownerCookie, "", "")
+	require.Equal(t, 200, w.Code)
+	require.Contains(t, w.Body.String(), "Keep this exact prompt")
+	w = call("GET", "/api/confirmations", "", token, "")
+	require.Equal(t, 200, w.Code)
+	require.NotContains(t, w.Body.String(), "Keep this exact prompt")
+	require.NotContains(t, w.Body.String(), "asked_by")
+	w = call("GET", "/api/confirmations", otherCookie, "", "")
+	require.JSONEq(t, `[]`, w.Body.String())
+	w = call("POST", "/api/confirmations/"+drop+"/approve", ownerCookie, "", "approve-drop")
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM mythical_items WHERE number=$1`, number).Scan(&state))
+	require.Equal(t, "cancelled", state)
+	w = call("POST", fmt.Sprintf("/api/todos/%d", number), "", token, "implicit-drop", `{"op":"drop"}`)
+	require.Equal(t, 202, w.Code, w.Body.String())
+	require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"approved"}`, drop), w.Body.String())
+	// Explicit creation reaches the same consumer and canonical request binding.
+	w = call("POST", "/api/confirmations", "", token, "explicit", `{"command":"todo.new","payload":{"title":"Explicit","prompt":"Explicit text"}}`)
+	require.Equal(t, 202, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	w = call("POST", "/api/confirmations/"+created["confirmation"]+"/deny", ownerCookie, "", "deny-explicit")
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
+	require.Equal(t, 1, count)
+
 }

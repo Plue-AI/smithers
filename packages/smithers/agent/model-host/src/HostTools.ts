@@ -494,13 +494,16 @@ const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
         return { refusal: JSON.stringify({ status: answer.status, body: answer.body }) }
       }
       if (row.agent === "confirm") {
-        const pending = z.object({ confirmation: z.string().min(1), state: z.literal("pending") }).safeParse(
+        const confirmation = z.object({
+          confirmation: z.string().min(1),
+          state: z.enum(["pending", "approved", "rejected", "expired"])
+        }).safeParse(
           answer.body
         )
-        if (answer.status === 202 && pending.success) {
+        if (answer.status === 202 && confirmation.success) {
           // The backend publishes the full Confirm only to its author. Shared
           // frames carry the command's status, never its private payload/card.
-          return { cards: [], value: JSON.stringify(pending.data) }
+          return { cards: [], value: JSON.stringify(confirmation.data) }
         }
         return { refusal: "Invalid confirmation response" }
       }

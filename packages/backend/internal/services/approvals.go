@@ -159,9 +159,11 @@ type ApprovalPushNotifier interface {
 // ApprovalsService owns the approvals lifecycle. Construct via
 // NewApprovalsService.
 type ApprovalsService struct {
-	q            ApprovalsQuerier
-	audit        ApprovalsAuditor
-	pushNotifier ApprovalPushNotifier
+	confirmationStore MythicalStore
+	confirmationTodos *MythicalService
+	q                 ApprovalsQuerier
+	audit             ApprovalsAuditor
+	pushNotifier      ApprovalPushNotifier
 }
 
 type ApprovalsServiceOption func(*ApprovalsService)

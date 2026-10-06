@@ -1190,11 +1190,27 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     expect(toolOutputs(provider)).toEqual(["{\"status\":200,\"body\":{\"name\":\"check/types\"}}"])
   })
 
+  test("confirmation replay returns its current state without exposing private payload", async () => {
+    for (const state of ["approved", "rejected", "expired"] as const) {
+      const journal = producer((path) => file(path, JOURNEY), () =>
+        Response.json({
+          confirmation: "confirm-replay",
+          state,
+          payload: { secret: "PRIVATE" }
+        }, { status: 202 }))
+      const provider = model([execute("todo.drop", "T12")])
+      await run(install, provider, journal)
+      expect(toolOutputs(provider)).toEqual([JSON.stringify({ confirmation: "confirm-replay", state })])
+      expect(JSON.stringify(journal.frames)).not.toContain("PRIVATE")
+      expect(JSON.stringify(provider.requests)).not.toContain("PRIVATE")
+    }
+  })
+
   test("malformed confirmation acknowledgments expose no private payload or false success", async () => {
     for (
       const [status, body] of [
         [202, { confirmation: "", state: "pending", secret: "PRIVATE" }],
-        [202, { confirmation: "confirm-1", state: "approved", secret: "PRIVATE" }],
+        [202, { confirmation: "confirm-1", state: "executed", secret: "PRIVATE" }],
         [200, { confirmation: "confirm-1", state: "pending", secret: "PRIVATE" }]
       ] as const
     ) {

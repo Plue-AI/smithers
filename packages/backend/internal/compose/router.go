@@ -39,6 +39,8 @@ func apiBodyLimit(r *http.Request) int64 {
 }
 
 type routerExtras struct {
+	// Confirmations requires the private browser View and qualified consumers.
+	Confirmations       *services.ApprovalsService
 	Members             *routes.MembersHandler
 	InstallScorecard    *routes.InstallScorecardHandler
 	GitHubAppSetup      *routes.GitHubAppSetupHandler
@@ -140,6 +142,16 @@ func buildRouter(
 		switch value := option.(type) {
 		case routerExtras:
 			extras = value
+		}
+	}
+	confirmations := extras.Confirmations
+	if confirmations == nil && approvalsHandler != nil {
+		confirmations, _ = approvalsHandler.Service.(*services.ApprovalsService)
+	}
+	if config.IsSingleOwner(cfg.Auth) && confirmations == nil {
+		confirmations = services.NewApprovalsService(queries)
+		if pool != nil {
+			confirmations = services.NewApprovalsService(queries, services.WithConfirmationTodos(pool, nil))
 		}
 	}
 	if extras.Catalog == nil {
@@ -949,7 +961,7 @@ func buildRouter(
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
 		if config.IsSingleOwner(cfg.Auth) {
-			r.Use(memberCommands(queries))
+			r.Use(memberCommands(queries, extras.Confirmations))
 		}
 		if queries != nil {
 			r.Use(delegatedAttribution(services.NewAuditService(queries)))
@@ -985,7 +997,7 @@ func buildRouter(
 			r.Post("/reviews", reviews.Request)
 		}
 		if config.IsSingleOwner(cfg.Auth) {
-			routes.RegisterConfirmationRoutes(r, &routes.ConfirmationsHandler{Queries: queries})
+			routes.RegisterConfirmationRoutes(r, &routes.ConfirmationsHandler{Queries: queries, Service: confirmations})
 		}
 		if config.IsSingleOwner(cfg.Auth) && secretHandler != nil {
 			boundSecret := installSecretRepository(queries)

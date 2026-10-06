@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -255,30 +256,9 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
 		return
 	}
-	var body struct {
-		Op        string  `json:"op"`
-		Steer     *string `json:"steer,omitempty"`
-		Text      *string `json:"text,omitempty"`
-		Direction string  `json:"direction,omitempty"`
-	}
-	invalid := &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Invalid TODO control"}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	decoder.DisallowUnknownFields()
-	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
-		todoRouteError(w, invalid)
-		return
-	}
-	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer, Direction: body.Direction}
-	switch {
-	case body.Op == "steer" && body.Steer == nil:
-		input = services.TodoControlInput{Steer: body.Text, Direction: body.Direction}
-	case body.Text != nil || body.Op == "steer":
-		todoRouteError(w, invalid)
-		return
-	}
-	command, known := todoControlCommands[input.Op]
-	if !known {
-		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Unknown TODO control"})
+	input, command, err := DecodeTodoControl(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err != nil {
+		todoRouteError(w, err)
 		return
 	}
 	if r.Header.Get("Idempotency-Key") == "" {
@@ -423,4 +403,33 @@ func (h *TodoHandler) Log(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(payload)
+}
+
+// DecodeTodoControl is the common body resolver for delegated dispatch and the
+// ordinary TODO handler. It grants no authority; callers authorize its command.
+func DecodeTodoControl(reader io.Reader) (services.TodoControlInput, string, error) {
+	var body struct {
+		Op        string  `json:"op"`
+		Steer     *string `json:"steer,omitempty"`
+		Text      *string `json:"text,omitempty"`
+		Direction string  `json:"direction,omitempty"`
+	}
+	invalid := &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Invalid TODO control"}
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
+		return services.TodoControlInput{}, "", invalid
+	}
+	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer, Direction: body.Direction}
+	switch {
+	case body.Op == "steer" && body.Steer == nil:
+		input = services.TodoControlInput{Steer: body.Text, Direction: body.Direction}
+	case body.Text != nil || body.Op == "steer":
+		return services.TodoControlInput{}, "", invalid
+	}
+	command, known := todoControlCommands[input.Op]
+	if !known {
+		return services.TodoControlInput{}, "", &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Unknown TODO control"}
+	}
+	return input, command, nil
 }

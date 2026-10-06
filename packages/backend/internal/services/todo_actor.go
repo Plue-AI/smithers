@@ -35,7 +35,7 @@ func todoActor(ctx context.Context, person db.User) json.RawMessage {
 		// An agent acting for the person: Claude Code, Codex, or another the
 		// credential names. Its id is the terminal session's when it has one.
 		agent, id := via, "agent-"+via+"-"+person.Username
-		if agent != "claude-code" && agent != "codex" {
+		if agent != "claude-code" && agent != "codex" && agent != "smithers" {
 			agent = "external"
 		}
 		if delegation.Session != "" {

@@ -2,21 +2,21 @@ package routes
 
 import (
 	"encoding/json"
-	"errors"
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
-	"net/http"
-	"time"
 )
 
 // ConfirmationsHandler adapts the existing approvals store for the install.
 // Approval execution remains refused until the production dispatch consumer
 // supplies the subject transaction; never turn a row into authority by itself.
-type ConfirmationsHandler struct{ Queries *db.Queries }
+type ConfirmationsHandler struct {
+	Queries *db.Queries
+	Service *services.ApprovalsService
+}
 
 func confirmationError(w http.ResponseWriter, status int, class, code, message string) {
 	todoRouteError(w, &services.AccessError{Status: status, Class: class, Code: code, Message: message})
@@ -67,144 +67,52 @@ func (h *ConfirmationsHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ConfirmationsHandler) Create(w http.ResponseWriter, r *http.Request) {
-	// Explicit creation is never a session action. It must be resolved and
-	// authorized once against a catalog command by the delegated dispatcher.
 	info := middleware.AuthInfoFromContext(r.Context())
 	if info == nil || info.User == nil {
 		confirmationError(w, 401, "permission", "unauthenticated", "Sign in")
 		return
 	}
-	if !info.IsTokenAuth || (info.CredentialKind() != middleware.CredentialDelegated && info.CredentialKind() != middleware.CredentialPerson) || !info.Scopes.Has(middleware.ScopeWriteRepository) {
+	if info.CredentialKind() != middleware.CredentialDelegated || !info.Scopes.Has(middleware.ScopeWriteRepository) {
 		confirmationError(w, 403, "permission", "permission", "A delegated command is required")
 		return
 	}
-	if key := r.Header.Get("Idempotency-Key"); len(key) == 0 || len(key) > 256 {
+	if key := r.Header.Get("Idempotency-Key"); key == "" || len(key) > 256 {
 		confirmationError(w, 400, "user", "idempotency_key_required", "Idempotency-Key is required")
 		return
 	}
-	if _, ok := info.TerminalDelegation(); ok {
-		confirmationError(w, 403, "permission", "permission", "Not available for this credential")
-		return
-	}
-	var input struct {
-		Command string `json:"command"`
-	}
+	var input services.ConfirmationInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	decoder.DisallowUnknownFields()
 	if err := decodeSingleJSONDocument(decoder, &input); err != nil || input.Command == "" {
-		confirmationError(w, 400, "user", "invalid_confirmation", "A command is required")
+		confirmationError(w, 400, "user", "invalid_confirmation", "Invalid confirmation request")
 		return
 	}
-	// Resolve authority for the requested action once. Reading confirmations
-	// is not authority to request a merge or a person-only write. In
-	// particular, a missing consumer must not hide permission/never refusals.
-	if _, err := services.Authorize(r.Context(), h.Queries, input.Command); err != nil {
-		var access *services.AccessError
-		if !errors.As(err, &access) || access.Code != "confirm_in_app" {
-			todoRouteError(w, err)
-			return
-		}
-		// Eligible TODO creation still requires the private dispatch consumer.
-	} else {
-		// An immediately runnable command has no confirmation to create.
-		// Keep this classification tied to the existing authorization decision;
-		// explicit create must not introduce a second command-policy table.
-		confirmationError(w, 403, "permission", "permission", "This command does not request confirmation")
+	input.Key = r.Header.Get("Idempotency-Key")
+	receipt, err := h.Service.RequestConfirmation(r.Context(), input)
+	if err != nil {
+		todoRouteError(w, err)
 		return
 	}
-	confirmationError(w, 503, "infra", "confirmation_unavailable", "Confirmation dispatch unavailable")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(receipt)
 }
 
 func (h *ConfirmationsHandler) decide(w http.ResponseWriter, r *http.Request, decision string) {
-	if h == nil || h.Queries == nil {
-		confirmationError(w, 503, "infra", "confirmation_unavailable", "Confirmation store unavailable")
+	if _, ok := h.member(w, r, true); !ok {
 		return
 	}
-	member, ok := h.member(w, r, true)
-	if !ok {
-		return
-	}
-	if key := r.Header.Get("Idempotency-Key"); len(key) == 0 || len(key) > 256 {
+	if key := r.Header.Get("Idempotency-Key"); key == "" || len(key) > 256 {
 		confirmationError(w, 400, "user", "idempotency_key_required", "Idempotency-Key is required")
 		return
 	}
-	row, err := h.Queries.GetMemberConfirmation(r.Context(), chi.URLParam(r, "id"), member)
-	if errors.Is(err, pgx.ErrNoRows) {
-		confirmationError(w, 403, "permission", "permission", "Not your confirmation")
-		return
-	}
+	receipt, err := h.Service.DecideConfirmation(r.Context(), chi.URLParam(r, "id"), decision, r.Header.Get("Idempotency-Key"))
 	if err != nil {
 		todoRouteError(w, err)
 		return
-	}
-	// The decision is for the bound command, never a generic permission to
-	// approve. A role downgrade takes effect before row/effect disclosure.
-	if _, err = services.Authorize(r.Context(), h.Queries, row.Command); err != nil {
-		todoRouteError(w, err)
-		return
-	}
-	credential := middleware.AuthInfoFromContext(r.Context()).SessionHash
-	key := r.Header.Get("Idempotency-Key")
-	previous, pressErr := h.Queries.ConfirmationPress(r.Context(), credential, key)
-	if pressErr != nil && !errors.Is(pressErr, pgx.ErrNoRows) {
-		todoRouteError(w, pressErr)
-		return
-	}
-	if previous != "" && (previous != row.ID || decision != "deny") {
-		confirmationError(w, 409, "conflict", "idempotency_mismatch", "Idempotency-Key was already used for a different request")
-		return
-	}
-	if previous == row.ID && row.State == "rejected" {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": row.ID, "state": "rejected"})
-		return
-	}
-	if row.State == "pending" && !row.ExpiresAt.After(time.Now()) {
-		_, err = h.Queries.SettleMemberConfirmation(r.Context(), row.ID, member, "expired")
-		if err != nil {
-			todoRouteError(w, err)
-			return
-		}
-		row.State = "expired"
-	}
-	if row.State != "pending" {
-		confirmationError(w, 409, "conflict", "confirmation_resolved", "Confirmation is "+row.State)
-		return
-	}
-	if decision != "deny" {
-		confirmationError(w, 503, "infra", "confirmation_unavailable", "Confirmation execution unavailable")
-		return
-	}
-	changed, err := h.Queries.DenyMemberConfirmation(r.Context(), row.ID, member, credential, key)
-	var duplicate *pgconn.PgError
-	if errors.As(err, &duplicate) && duplicate.Code == "23505" {
-		confirmationError(w, 409, "conflict", "idempotency_mismatch", "Idempotency-Key was already used for a different request")
-		return
-	}
-	if err != nil {
-		todoRouteError(w, err)
-		return
-	}
-	if !changed {
-		// A concurrent retry may have read pending before the identical
-		// press won the CAS. Only its immutable credential/key binding may
-		// replay the receipt; a different press still conflicts.
-		previous, err := h.Queries.ConfirmationPress(r.Context(), credential, key)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			todoRouteError(w, err)
-			return
-		}
-		current, err := h.Queries.GetMemberConfirmation(r.Context(), row.ID, member)
-		if err != nil {
-			todoRouteError(w, err)
-			return
-		}
-		if previous != row.ID || current.State != "rejected" {
-			confirmationError(w, 409, "conflict", "confirmation_resolved", "Confirmation changed")
-			return
-		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"id": row.ID, "state": "rejected"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"id": receipt.ID, "state": receipt.State})
 }
 
 func RegisterConfirmationRoutes(r chi.Router, h *ConfirmationsHandler) {

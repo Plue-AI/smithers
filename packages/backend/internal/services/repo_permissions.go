@@ -478,7 +478,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 			}
 			if role.rank() >= need.role.rank() {
 				if command == "todo.new" {
-					return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
+					return InstallAuthorization{}, requireConfirmation(info, command, InstallAuthorization{UserID: info.User.ID, Role: role}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"})
 				}
 				return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 			}
@@ -540,14 +540,14 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 			return InstallAuthorization{}, &AccessError{Status: 403, Class: "never", Code: "never", Message: "Only a person can do this"}
 		}
 	}
-	// Outside-push decisions are in-card confirmations, never delegated writes.
-	// Check membership and the Discard maintainer role above before admitting
-	// a confirmation request; execution still requires a person's press.
-	if fullDelegated && (command == "branch.bring-in" || command == "branch.discard-foreign") {
-		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
-	}
-	if fullDelegated && (command == "todo.amend" || command == "merge" || command == "todo.drop" || command == "review") {
-		return InstallAuthorization{}, &AccessError{Status: 503, Class: "infra", Code: "confirmation_unavailable", Message: "Confirmation unavailable"}
+	// The generated descriptor owns confirmation policy; the existing role,
+	// scope and actor checks above still decide whether it may be requested.
+	if policy, ok := OperationPolicy(command); fullDelegated && ok && policy.Agent == "confirm" {
+		fallback := &AccessError{Status: 503, Class: "infra", Code: "confirmation_unavailable", Message: "Confirmation unavailable"}
+		if command == "todo.new" || command == "branch.bring-in" || command == "branch.discard-foreign" {
+			fallback = &AccessError{Status: 403, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
+		}
+		return InstallAuthorization{}, requireConfirmation(info, command, InstallAuthorization{UserID: info.User.ID, Role: role}, fallback)
 	}
 	if terminal && command == "todo.amend" {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "confirmation_unavailable", Message: "Amendment confirmation is unavailable"}
@@ -555,7 +555,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if (terminal || fullDelegated) && command == "todo.new" {
 		// A delegated TODO waits for its person's Confirm in the app, which
 		// stage 1 does not serve yet: nothing is filed (T-APP-04).
-		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
+		return InstallAuthorization{}, requireConfirmation(info, command, InstallAuthorization{UserID: info.User.ID, Role: role}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"})
 	}
 	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 }

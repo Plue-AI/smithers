@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	stdErrors "errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -99,4 +100,30 @@ func (a *AuthInfo) ReadsRepositoriesForTurn() bool {
 		delegation.Branch == "" && delegation.Profile == "" &&
 		a.Scopes.Has(ScopeReadRepository) && a.RepositoryRestriction() == 0 &&
 		len(ParseTokenPathRestrictions(a.RawScopes)) == 0 && a.WorkspaceRestriction() == ""
+}
+
+// BindInstallCredential derives legacy install PATs' delegated CLI identity.
+// Call after each store reload as well as HTTP authentication; stored scopes,
+// never the prior request's role or scopes, determine the fresh authority.
+func BindInstallCredential(info *AuthInfo) bool {
+	if info == nil || info.User == nil {
+		return false
+	}
+	if !info.IsTokenAuth || info.TokenSystemIssued || IsAgentAccount(info.User.UserType) {
+		return true
+	}
+	entries := []string{}
+	for _, entry := range tokenScopeEntries(info.RawScopes) {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		if strings.HasPrefix(entry, "credential:") || strings.HasPrefix(entry, workspaceRestrictionScopePrefix) || strings.HasPrefix(entry, landingWorkspaceScopePrefix) {
+			return false
+		}
+		if strings.HasPrefix(entry, delegationViaScopePrefix) || strings.HasPrefix(entry, delegationProfileScopePrefix) || strings.HasPrefix(entry, delegationBranchScopePrefix) || strings.HasPrefix(entry, delegationSessionScopePrefix) {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	info.TokenSystemIssued = true
+	info.RawScopes = strings.Join(append(entries, "via:cli"), ",")
+	return true
 }

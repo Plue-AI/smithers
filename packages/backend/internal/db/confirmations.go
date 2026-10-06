@@ -71,7 +71,9 @@ func (q *Queries) ConfirmationPress(ctx context.Context, credential, key string)
 	return id, err
 }
 
-func (q *Queries) DenyMemberConfirmation(ctx context.Context, id string, member int64, credential, key string) (bool, error) {
-	tag, err := q.db.Exec(ctx, `UPDATE approvals SET state='rejected', decided_at=now(),decided_by=$2,decision_credential=$3,decision_key=$4 WHERE id=$1 AND member_id=$2 AND state='pending' AND expires_at > clock_timestamp()`, id, member, credential, key)
+// DecideMemberConfirmation binds the pending-row CAS to the immutable press.
+// The caller supplies the subject transaction; expiry or a lost CAS changes no row.
+func (q *Queries) DecideMemberConfirmation(ctx context.Context, id string, member int64, credential, key, state string) (bool, error) {
+	tag, err := q.db.Exec(ctx, `UPDATE approvals SET state=$5, decided_at=clock_timestamp(),decided_by=$2,decision_credential=$3,decision_key=$4 WHERE id=$1 AND member_id=$2 AND state='pending' AND expires_at > clock_timestamp() AND $5 IN ('approved','rejected')`, id, member, credential, key, state)
 	return tag.RowsAffected() == 1, err
 }

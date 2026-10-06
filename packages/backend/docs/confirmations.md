@@ -22,9 +22,30 @@ Idempotency-Key bind a denial receipt; a retry returns the receipt, and reuse
 for another confirmation or action returns `409 idempotency_mismatch`.
 An elapsed expiry settles pending to expired before a decision.
 
-Creation and approval execution currently refuse with
-`503 infra/confirmation_unavailable`: the shared catalog dispatcher and
-subject-transaction consumer are not composed. No successful creation response
-is fabricated, and an unavailable consumer leaves the confirmation pending.
-This storage/audience increment does not establish C-ACC-02 dispatch or merge
-acceptance. The existing person's TODO Merge path remains unchanged.
+`ApprovalsService` also implements delegated creation and session approval for
+appending a TODO and dropping an unmerged TODO. The command policy is generated
+from the same Operation descriptors as the CLI and model host. Explicit creation
+and eligible command dispatch share this service; the TODO control route shares
+its body resolver with the dispatcher.
+
+Creation stores the exact canonical input and subject revision without changing
+the TODO. Its identity combines the install repository, immutable requesting
+credential and Idempotency-Key. An identical retry returns the current state;
+reusing the key for another request conflicts. The model host accepts all four
+confirmation states but retains only the confirmation ID and state.
+
+Approval reloads the person's session and membership after acquiring the
+repository, credential and subject locks. It runs the existing TODO service in
+a savepoint inside the approval transaction, then commits the pending-row CAS
+and TODO effect together. A failed CAS rolls back the TODO, its scheduling and
+its durable events. Revision changes expire the confirmation. A finished agent
+turn does not prevent its person from approving later with a fresh session.
+Cancellation needs no action consumer and grants no execution authority.
+
+Production creation and approval remain unavailable until the private browser
+Confirm container is connected. The composed HTTP tests supply the real TODO
+consumer and exercise request, private projection, approval, denial and replay;
+they do not establish browser delivery or C-ACC-02's complete acceptance.
+Missing consumers return `503 infra/confirmation_unavailable` and leave pending
+rows unchanged. Issue-derived TODOs, non-append placement and other commands,
+including Review & merge, still require their qualified consumers.

@@ -93,31 +93,9 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	if err != nil {
 		return MythicalItemView{}, err
 	}
-	input.Title = strings.TrimSpace(input.Title)
-	if input.Title == "" || strings.TrimSpace(input.Prompt) == "" || len(input.Title) > 256 || len(input.Prompt) > 64<<10 || input.Request == "" || len(input.Request) > 256 {
-		return MythicalItemView{}, &TodoControlError{400, "invalid_todo", "user", "Title, prompt and Idempotency-Key are required"}
-	}
-	switch place := input.Place; {
-	case place.Mode == "amend":
-		return MythicalItemView{}, invalidTodoPlace("Amend arrives with T-STK-06")
-	case place.Mode == "before" && (place.N == nil || *place.N <= 0):
-		return MythicalItemView{}, invalidTodoPlace("Before needs the TODO it goes before")
-	case place.Mode == "before":
-	case place.N != nil || place.Mode != "" && place.Mode != "append":
-		return MythicalItemView{}, invalidTodoPlace("place must be {mode, n?}")
-	default:
-		input.Place = MythicalTodoPlace{Mode: "append"}
-	}
-	if input.Acceptance == nil {
-		input.Acceptance = []string{}
-	}
-	if input.Issue == nil && (input.IssueDigest != "" || input.Fixes != nil) ||
-		input.Issue != nil && (*input.Issue <= 0 || !mythicalDigestPattern.MatchString(input.IssueDigest)) {
-		return MythicalItemView{}, &TodoControlError{400, "invalid_todo", "user", "issue, issue_digest and fixes go together"}
-	}
-	if input.Issue != nil && input.Fixes == nil {
-		fixes := true
-		input.Fixes = &fixes
+	input, err = normalizeMythicalTodoInput(input)
+	if err != nil {
+		return MythicalItemView{}, err
 	}
 	canonical, _ := json.Marshal(input)
 	// Make TODO reads the issue once, before the transaction and only for a
@@ -398,4 +376,36 @@ func (g *mythicalGitHubAPI) CreateIssue(ctx context.Context, gh mythicalGitHubRe
 	// The answer is the App's own write: it names no maintainer text.
 	created.TextByMaintainer = false
 	return created.issue(), nil
+}
+
+// normalizeMythicalTodoInput is shared by direct filing and the private
+// confirmation preview; both validate exactly the input the person will file.
+func normalizeMythicalTodoInput(input MythicalTodoInput) (MythicalTodoInput, error) {
+	input.Title = strings.TrimSpace(input.Title)
+	if input.Title == "" || strings.TrimSpace(input.Prompt) == "" || len(input.Title) > 256 || len(input.Prompt) > 64<<10 || input.Request == "" || len(input.Request) > 256 {
+		return input, &TodoControlError{400, "invalid_todo", "user", "Title, prompt and Idempotency-Key are required"}
+	}
+	switch place := input.Place; {
+	case place.Mode == "amend":
+		return input, invalidTodoPlace("Amend arrives with T-STK-06")
+	case place.Mode == "before" && (place.N == nil || *place.N <= 0):
+		return input, invalidTodoPlace("Before needs the TODO it goes before")
+	case place.Mode == "before":
+	case place.N != nil || place.Mode != "" && place.Mode != "append":
+		return input, invalidTodoPlace("place must be {mode, n?}")
+	default:
+		input.Place = MythicalTodoPlace{Mode: "append"}
+	}
+	if input.Acceptance == nil {
+		input.Acceptance = []string{}
+	}
+	if input.Issue == nil && (input.IssueDigest != "" || input.Fixes != nil) ||
+		input.Issue != nil && (*input.Issue <= 0 || !mythicalDigestPattern.MatchString(input.IssueDigest)) {
+		return input, &TodoControlError{400, "invalid_todo", "user", "issue, issue_digest and fixes go together"}
+	}
+	if input.Issue != nil && input.Fixes == nil {
+		fixes := true
+		input.Fixes = &fixes
+	}
+	return input, nil
 }
