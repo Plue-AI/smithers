@@ -89,30 +89,28 @@ pub fn serve_one(
     let frame = Frame::read_envelope(reader)?;
     let response = match frame.validate(false) {
         Ok(()) => dispatch(&frame, cx)?,
-        Err(e)
-            if (5..=12).contains(&(e as u8))
-                && frame.kind == 1
-                && frame.payload.len() >= 10
-                && frame.payload[0] == 1
-                && frame.payload[5] == 1 =>
-        {
-            let id = u32::from_be_bytes(frame.payload[6..10].try_into().unwrap());
-            Frame {
-                kind: 1,
-                stream: 0,
-                payload: conn::tagged(
-                    2,
-                    &[
-                        conn::field(1, id.to_be_bytes()),
-                        conn::field(
-                            2,
-                            conn::tagged(255, &[conn::field(1, [1]), conn::field(6, [e as u8])]),
-                        ),
-                    ],
-                ),
-            }
-        }
-        Err(e) => return Err(e),
+        Err(e) => malformed_response(&frame, e)?,
     };
     response.write(writer).map_err(|_| ProtocolError::Truncated)
+}
+/// Return a correlated refusal only when the request id was safely decoded.
+pub fn malformed_response(frame: &Frame, e: ProtocolError) -> Result<Frame, ProtocolError> {
+    if (5..=12).contains(&(e as u8))
+        && frame.kind == 1
+        && frame.payload.len() >= 10
+        && frame.payload[0] == 1
+        && frame.payload[5] == 1
+    {
+        let id = u32::from_be_bytes(frame.payload[6..10].try_into().unwrap());
+        Ok(crate::daemon::refused(
+            id,
+            crate::hooks::Error {
+                code: 1,
+                protocol: Some(e),
+                ..crate::hooks::Error::unsupported()
+            },
+        ))
+    } else {
+        Err(e)
+    }
 }

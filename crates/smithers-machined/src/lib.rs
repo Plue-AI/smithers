@@ -30,4 +30,16 @@ pub mod objects;
 pub mod oplog;
 pub mod outbox;
 pub mod reconcile;
+pub mod boot;
+#[cfg(target_os = "linux")]
+pub mod confine;
+pub mod link;
+
+pub mod client;
+pub mod daemon;
+#[cfg(target_os = "linux")]
+pub mod files;
+#[cfg(target_os = "linux")]
+pub mod local;
+
 pub mod wiring;

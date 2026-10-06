@@ -1,6 +1,9 @@
 // ADR 0004 schema. Fields are (tag, required, value type).
 fn structure(name: &str) -> Option<&'static [(u8,bool,&'static str)]> { Some(match name {
 "empty" => &[],
+"broker_freeze" => &[(1,true,"u32")],
+"broker_frozen" => &[(1,true,"bool"),(2,false,"u32")],
+"broker_killed" => &[(1,true,"u16")],
 "principal" => &[(1,true,"bytes1024")],
 "session_actor" => &[(1,true,"u32")],
 "run_actor" => &[(1,true,"str")],

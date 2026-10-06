@@ -2,3 +2,8 @@
 #[cfg(target_os = "linux")]
 pub mod cgroups;
 pub mod sessions;
+
+pub mod control;
+pub mod lifecycle;
+#[cfg(target_os = "linux")]
+pub mod process;

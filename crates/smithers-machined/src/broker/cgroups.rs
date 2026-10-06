@@ -233,3 +233,51 @@ impl Controls for Cgroups {
         Ok(())
     }
 }
+
+impl super::control::Controls for Cgroups {
+    fn freeze(&mut self, timeout: Duration) -> io::Result<Option<u32>> {
+        if timeout.is_zero() || timeout > Duration::from_secs(1) {
+            return Err(invalid("invalid freeze timeout"));
+        }
+        let deadline = Instant::now() + timeout;
+        let result = (|| {
+            leaf(&self.parent, "cgroup.freeze", true)?.write_all(b"1")?;
+            loop {
+                let mut events = String::new();
+                leaf(&self.parent, "cgroup.events", false)?
+                    .take(4097)
+                    .read_to_string(&mut events)?;
+                if events.len() > 4096 {
+                    return Err(invalid("oversized cgroup events"));
+                }
+                let values: Vec<_> = events
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("frozen "))
+                    .collect();
+                match values.as_slice() {
+                    ["1"] => return Ok(None),
+                    ["0"] => (),
+                    _ => return Err(invalid("invalid frozen state")),
+                }
+                if Instant::now() >= deadline {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "freeze timeout"));
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        })();
+        if result.is_err() {
+            // Cleanup failure takes precedence; never report a safe timeout if
+            // the kernel did not accept thaw.
+            super::control::Controls::thaw(self)?;
+        }
+        result
+    }
+    fn thaw(&mut self) -> io::Result<()> {
+        leaf(&self.parent, "cgroup.freeze", true)?.write_all(b"0")
+    }
+    fn kill(&mut self) -> io::Result<u16> {
+        let count = u16::try_from(self.groups.len()).map_err(|_| invalid("too many sessions"))?;
+        self.recover(Instant::now() + Duration::from_secs(5))?;
+        Ok(count)
+    }
+}
