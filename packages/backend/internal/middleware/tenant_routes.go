@@ -31,15 +31,17 @@ func RejectTenantProvisioning(next http.Handler) http.Handler {
 	})
 }
 
-// RejectDeferredTriggerManagement runs before credential lookup: an absent
+// RejectDeferredRepositoryRoutes keeps trigger management and cloud session
+// audit doors absent before credential lookup: an absent
 // install route is a 404 for every caller, including workers and anonymous users.
-func RejectDeferredTriggerManagement(next http.Handler) http.Handler {
+func RejectDeferredRepositoryRoutes(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		repoJobs := len(parts) >= 5 && parts[0] == "api" && parts[1] == "repos" && parts[4] == "repository-jobs"
 		gatewayJobs := len(parts) >= 5 && parts[0] == "api" && parts[1] == "gateways" && parts[3] == "repository-jobs" &&
 			(len(parts) == 5 || (len(parts) >= 6 && (parts[5] == "manual" || parts[5] == "trials" || parts[5] == "check-receipts")))
-		if repoJobs || gatewayJobs {
+		cloudSessionAudit := len(parts) == 7 && parts[0] == "api" && parts[1] == "repos" && parts[4] == "agent-sessions" && parts[6] == "egress"
+		if repoJobs || gatewayJobs || cloudSessionAudit {
 			pkgerrors.WriteError(w, pkgerrors.NotFound("not found"))
 			return
 		}

@@ -34,9 +34,9 @@ func TestRejectDeferredBoundariesBeforeEffects(t *testing.T) {
 		gate             func(http.Handler) http.Handler
 		absent, retained []string
 	}{
-		{"triggers", RejectDeferredTriggerManagement,
-			[]string{"/api/repos/will/app/repository-jobs", "/api/repos/will/app/repository-jobs/ci/resume", "/api/gateways/host/repository-jobs/ci", "/api/gateways/host/repository-jobs/ci/manual/request", "/api/gateways/host/repository-jobs/ci/trials/request", "/api/gateways/host/repository-jobs/ci/check-receipts/request"},
-			[]string{"/api/repos/will/app/repository-source", "/healthz"}},
+		{"repository routes", RejectDeferredRepositoryRoutes,
+			[]string{"/api/repos/will/app/agent-sessions/old/egress", "/api/repos/will/app/agent-sessions/old/egress/", "/api/repos/will/app/repository-jobs", "/api/repos/will/app/repository-jobs/ci/resume", "/api/gateways/host/repository-jobs/ci", "/api/gateways/host/repository-jobs/ci/manual/request", "/api/gateways/host/repository-jobs/ci/trials/request", "/api/gateways/host/repository-jobs/ci/check-receipts/request"},
+			[]string{"/api/repos/will/app/agent/sessions", "/api/repos/will/app/agent-sessions/old/egress-extra", "/api/repos/will/app/agent-sessions/old", "/api/repos/will/app/repository-source", "/healthz"}},
 		{"commerce", RejectDeferredCommerce, []string{"/api/billing", "/api/billing/", "/api/billing/webhook", "/api/billing/plans"}, []string{"/api/billing-other", "/api/install", "/healthz"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestRejectDeferredBoundariesBeforeEffects(t *testing.T) {
 
 func TestRejectUnboundRepositoryJobCallbacks(t *testing.T) {
 	effects := 0
-	handler := RejectDeferredTriggerManagement(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { effects++ }))
+	handler := RejectDeferredRepositoryRoutes(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { effects++ }))
 	for _, path := range []string{
 		"/api/gateways/host/repository-jobs/ci/comments/step",
 	} {

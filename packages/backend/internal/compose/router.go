@@ -193,7 +193,7 @@ func buildRouter(
 		}
 	}
 	if !config.IsMultitenant(cfg.Auth) {
-		r.Use(middleware.RejectDeferredTriggerManagement)
+		r.Use(middleware.RejectDeferredRepositoryRoutes)
 	}
 	var ownerBoundary identity.MemberAuthorizer
 	if config.IsSingleOwner(cfg.Auth) {

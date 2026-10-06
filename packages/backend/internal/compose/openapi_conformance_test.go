@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -532,10 +533,15 @@ func TestCutBackendCompositionRoutes(t *testing.T) {
 			} else {
 				require.Equal(t, 404, response.Code)
 			}
+			_, egress := served["get /api/repos/{owner}/{repo}/agent-sessions/{id}/egress"]
+			require.Equal(t, hosted, egress)
+			if !hosted {
+				egressResponse := httptest.NewRecorder()
+				openAPIConformanceRouter(cfg).ServeHTTP(egressResponse, httptest.NewRequest("GET", "/api/repos/owner/repo/agent-sessions/old/egress", nil))
+				require.Equal(t, http.StatusNotFound, egressResponse.Code)
+			}
 			_, split := served["post /api/repos/{owner}/{repo}/changes/{change_id}/split"]
 			require.False(t, split)
-			_, sessionEgress := served["get /api/repos/{owner}/{repo}/agent-sessions/{id}/egress"]
-			require.Equal(t, hosted, sessionEgress)
 			admins := 0
 			for _, route := range served {
 				require.NotContains(t, route.path, "/api/repository-setup/")
@@ -585,22 +591,47 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 			dispatcher := &browserFlowRecordingDispatcher{}
 			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
 			mountBrowserFlow(router, cfg, q, &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher})
+			server := httptest.NewServer(router)
+			t.Cleanup(server.Close)
+			request := func(method, path, body string) (int, string) {
+				t.Helper()
+				req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
+				require.NoError(t, err)
+				req.Host = "example.com"
+				if mode == config.AuthModeSelfHosted && path != "/api/workflow/rpc" {
+					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+					req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "cuts-csrf"})
+					req.Header.Set("Origin", config.PublicOrigin(cfg))
+					req.Header.Set("X-CSRF-Token", "cuts-csrf")
+				} else {
+					req.Header.Set("Authorization", "token "+token)
+				}
+				req.Header.Set("Content-Type", "application/json")
+				response, err := server.Client().Do(req)
+				require.NoError(t, err)
+				defer response.Body.Close()
+				data, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				return response.StatusCode, string(data)
+			}
 			for _, body := range []string{
 				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Registration.Report","payload":{}}`,
 				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Registration.Reviews","payload":{}}`,
 				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Signal","payload":{"signal":{"name":"register-repository/review#old"}}}`,
 				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Approval.Submit","payload":{"target":{"requestId":"register-repository/decline-note#old"}}}`,
 			} {
-				req := httptest.NewRequest("POST", config.PublicOrigin(cfg)+"/api/workflow/rpc", strings.NewReader(body))
-				req.Header.Set("Authorization", "token "+token)
-				req.Header.Set("Content-Type", "application/json")
-				rec := httptest.NewRecorder()
-				router.ServeHTTP(rec, req)
-				require.Equal(t, 404, rec.Code, rec.Body.String())
-				require.JSONEq(t, `{"code":"registration_retired","class":"user","message":"Registration is unavailable."}`, rec.Body.String())
+				status, result := request("POST", "/api/workflow/rpc", body)
+				require.Equal(t, 404, status, result)
+				require.JSONEq(t, `{"code":"registration_retired","class":"user","message":"Registration is unavailable."}`, result)
 				require.Empty(t, dispatcher.calls)
 				require.Empty(t, deps.lookups)
 			}
+
+			status, result := request("POST", "/api/workflow/rpc", `{"repo":"cutowner/repo","workspaceId":"`+browserBoxID+`","procedure":"List","payload":{}}`)
+			require.Equal(t, 200, status, result)
+			require.JSONEq(t, `{"ok":true,"relayed":true}`, result)
+			require.Len(t, dispatcher.calls, 1)
+			require.Equal(t, "List", dispatcher.calls[0].procedure)
 
 			for _, tc := range []struct {
 				method, path  string
@@ -616,33 +647,25 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				{"POST", "/api/repository-setup/old", 404, 404},
 				{"PUT", "/api/gateways/host/repository-jobs/ci/trials/request", 404, 503},
 				{"PUT", "/api/gateways/host/repository-jobs/ci/check-receipts/request", 404, 503},
+				{"GET", "/api/repos/cutowner/repo/agent-sessions/old/egress", 404, 500},
 				{"GET", "/api/admin/users", 404, 403},
 				{"GET", "/api/admin/system/health", 403, 403},
 				{"POST", "/api/recommend", 404, 404},
 				{"POST", "/api/recommend/outcome", 404, 404},
 				{"POST", "/api/repos/cutowner/repo/changes/change/split", 404, 404},
-				{"GET", "/api/repos/cutowner/repo/agent-sessions/session/egress", 404, 500},
 				{"GET", "/api/health", 200, 200},
 			} {
-				req := httptest.NewRequest(tc.method, config.PublicOrigin(cfg)+tc.path, strings.NewReader(`{}`))
-				if mode == config.AuthModeSelfHosted {
-					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
-					req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "cuts-csrf"})
-					req.Header.Set("Origin", config.PublicOrigin(cfg))
-					req.Header.Set("X-CSRF-Token", "cuts-csrf")
-				} else {
-					req.Header.Set("Authorization", "token "+token)
-				}
-				req.Header.Set("Content-Type", "application/json")
-				rec := httptest.NewRecorder()
-				router.ServeHTTP(rec, req)
+				status, result := request(tc.method, tc.path, `{}`)
 				want := tc.install
 				if mode == config.AuthModeMultitenant {
 					want = tc.plue
 				}
-				require.Equal(t, want, rec.Code, "%s %s: %s", tc.method, tc.path, rec.Body.String())
+				require.Equal(t, want, status, "%s %s: %s", tc.method, tc.path, result)
+				if tc.path == "/api/repos/cutowner/repo/agent-sessions/old/egress" && mode == config.AuthModeMultitenant {
+					require.Contains(t, result, "agent service unavailable", "the retained handler, rather than a middleware panic, must answer")
+				}
 				if tc.path == "/api/health" {
-					require.Equal(t, "ok", rec.Body.String())
+					require.Equal(t, "ok", result)
 				}
 			}
 		})
