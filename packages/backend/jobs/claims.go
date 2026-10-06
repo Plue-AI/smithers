@@ -140,6 +140,14 @@ func normalizeOperationFilter(operations []string) ([]string, error) {
 	return result, nil
 }
 
+// FenceInTx holds the current worker's lease fence until the caller's product
+// transaction commits. Progress writes need the same fence as completion:
+// operation identity alone survives recovery and cannot identify a live worker.
+func (store *Store) FenceInTx(ctx context.Context, tx pgx.Tx, claim Claim) error {
+	_, err := lockClaim(ctx, tx, claim)
+	return err
+}
+
 func lockClaim(ctx context.Context, tx pgx.Tx, claim Claim) (claimRecord, error) {
 	var record claimRecord
 	err := tx.QueryRow(ctx, `
