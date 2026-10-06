@@ -24,19 +24,25 @@ export const catalogCommands = catalogDescriptors.filter((row) =>
     (row.visibility === "core" || row.visibility === "advanced")))
 )
 
+// Effect's empty Struct is JSON Schema's non-null value. Zod cannot import
+// `not`, so retain that exact predicate instead of refusing no-argument doors.
+const payloadSchema = (schema: Record<string, any>): z.ZodType =>
+  schema.not?.type === "null" && Object.keys(schema).every(key => key === "not" || key === "$defs")
+    ? z.unknown().refine(value => value !== null, "Expected a non-null value")
+    : z.fromJSONSchema(schema)
+
 const valueSchema = (schema: Record<string, any>): z.ZodType => {
-  const decoded = z.fromJSONSchema(schema)
-  if (["object", "array"].includes(schema.type)) {
-    return z.preprocess((value) => {
-      if (typeof value !== "string") return value
-      try {
-        return JSON.parse(value)
-      } catch {
-        return value
-      }
-    }, decoded)
-  }
-  return decoded
+  const decoded = payloadSchema(schema)
+  // Nullable objects, arrays and numbers are unions, not top-level types.
+  // Preserve literal strings first, then validate parsed JSON with the same schema.
+  return z.preprocess((value) => {
+    if (typeof value !== "string" || decoded.safeParse(value).success) return value
+    try {
+      return JSON.parse(value)
+    } catch {
+      return value
+    }
+  }, decoded)
 }
 
 /**
@@ -56,7 +62,8 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
       let entry = parent.get(word)
       if (!entry || !("_group" in entry)) {
         const group = Cli.create(word, { description: row.group })
-        entry = Cli.toCommands.get(Cli.create("root").command(group))!.get(word)!
+        const mounted = Cli.toCommands.get(Cli.create("root").command(group))!.get(word)!
+        entry = entry && "run" in entry ? { ...mounted, root: entry } : mounted
         parent.set(word, entry)
       }
       if (!("_group" in entry)) throw new Error(`Cannot mount catalog group ${word}`)
@@ -100,7 +107,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
           const input = Object.fromEntries(
             Object.keys(fields).filter((key) => supplied[key] !== undefined).map((key) => [key, supplied[key]])
           )
-          const payload = z.fromJSONSchema({ ...row.payload.schema, $defs: row.payload.definitions } as any).parse(
+          const payload = payloadSchema({ ...row.payload.schema, $defs: row.payload.definitions }).parse(
             input
           ) as Record<string, unknown>
           let request: ReturnType<typeof catalogRequest>

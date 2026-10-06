@@ -424,7 +424,8 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
   discoveryTree.clear()
   // Appendix B.6 is an explicit discovery allowlist. Other public library
   // commands remain callable, but do not enter install help, skills or MCP.
-  const doors = [...catalogCommands.map(row => row.cli!.join(" ")),
+  const doors = [...catalogCommands.filter(row => row.actors.includes("external_agent") && row.agent !== "never" &&
+    (row.visibility === "core" || row.visibility === "advanced")).map(row => row.cli!.join(" ")),
     "login", "ssh-key add", "ssh-key delete", "ssh-key list", "workspace ssh", "shell", "exec", "cp", "api",
     "host start", "host stop", "host status", "host upgrade", "host backup", "host restore"]
   const project = (source: Map<string, any>, target: Map<string, any>, prefix: string[] = []) => {

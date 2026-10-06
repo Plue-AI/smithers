@@ -46,10 +46,14 @@ it("skills add installs and refreshes the packaged authoring skill from an unrel
     expect(directories).toContain("smithers")
     const generated = directories.filter(name => name.startsWith("smthrs"))
     expect(generated.length).toBeGreaterThan(0)
+    const installedCommands: string[] = []
     for (const directory of generated) {
       const text = readFileSync(join(home, ".claude/skills", directory, "SKILL.md"), "utf8")
+      installedCommands.push(...[...text.matchAll(/^# smthrs (.+)$/gm)].map(match => match[1]!))
       for (const group of fixture.excluded) expect(text).not.toMatch(new RegExp(`^#+ smthrs ${group}(?: |$)`, "m"))
     }
+    expect(installedCommands.sort()).toEqual([...fixture.commands.map(row => row.path), ...fixture.b6].sort())
+    expect(directories.sort()).toEqual(["smithers", ...new Set(installedCommands.map(path => `smthrs-${path.split(" ")[0]}`))].sort())
     writeFileSync(installed, "stale installed content")
     const refreshed = install()
     expect(refreshed.status, refreshed.stdout + refreshed.stderr).toBe(0)

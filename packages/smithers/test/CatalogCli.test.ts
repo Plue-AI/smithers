@@ -6,38 +6,10 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { makeCli } from "../src/Cli.ts"
 
-// Literal requests are independent of descriptors and generated artifacts.
-const cases = [
-  {
-    argv: ["todo", "steer", "T1", "Use backoff"],
-    method: "POST",
-    path: "/api/todos/1",
-    body: { steer: "Use backoff" }
-  },
-  { argv: ["todo", "stop", "T1"], method: "POST", path: "/api/todos/1", body: { op: "stop" } },
-  { argv: ["todo", "resume", "T1"], method: "POST", path: "/api/todos/1", body: { op: "resume" } },
-  { argv: ["todo", "show", "T1"], method: "GET", path: "/api/todos/1", body: undefined },
-  {
-    argv: ["todo", "new", "--text", "Add retry", "--title", "Retry"],
-    method: "POST",
-    path: "/api/todos",
-    body: { prompt: "Add retry", title: "Retry", place: { mode: "append" } }
-  },
-  {
-    argv: ["merge", "T1", "--reviewed_head_sha", "a".repeat(40)],
-    method: "POST",
-    path: "/api/todos/1/merge",
-    body: { reviewed_head_sha: "a".repeat(40) }
-  },
-  {
-    argv: ["search", "--query", "retry webhook"],
-    method: "GET",
-    path: "/api/search/code?q=retry+webhook",
-    body: undefined
-  },
-  { argv: ["stack", "move", "T1", "up"], method: "POST", path: "/api/todos/1", body: { direction: "up", op: "move" } },
-  { argv: ["github"], method: "GET", path: "/api/github/sync", body: undefined }
-]
+import fixtureCases from "./CatalogCli.fixture.json" with { type: "json" }
+
+// Reviewed literal argv and HTTP expectations; never generated from descriptors.
+const cases = fixtureCases.requests
 
 async function fixture(status = 200, response: unknown = { state: "accepted" }) {
   const seen: unknown[] = [], home = await mkdtemp(join(tmpdir(), "fr-t-cat-01-"))
@@ -100,6 +72,24 @@ async function fixture(status = 200, response: unknown = { state: "accepted" }) 
 }
 
 describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
+  it("every external-agent command has a literal request or unavailable-provider case", () => {
+    const argv = [...cases.map(row => row.argv), ...fixtureCases.unavailable]
+    for (const command of fixtureCases.commands) {
+      const words = command.path.split(" ")
+      expect(argv.filter(args => words.every((word, index) => args[index] === word)), command.path).not.toHaveLength(0)
+    }
+  })
+  it.each(fixtureCases.unavailable)("refuses unavailable providers without transport: %s", async (...argv) => {
+    const f = await fixture()
+    try {
+      const result = await f.invoke(argv)
+      expect(result.exitCode, result.stdout).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ code: "not_available" })
+      expect(f.seen).toEqual([])
+    } finally {
+      await f.close()
+    }
+  })
   it.each([[], ["--operationId", "get_api_todos"], ["--intent", "send"], [
     "--intent",
     "confirm",
@@ -136,7 +126,9 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       await f.close()
     }
   })
-  it.each([["stack", "move", "T1", "sideways"], ["stack", "move", "T1"], ["todo", "steer", "T1"]])(
+  it.each([["stack", "move", "T1", "sideways"], ["stack", "move", "T1"], ["todo", "steer", "T1"],
+    ["issue", "show", "twelve"], ["flow", "run", "lint-fix", "--input", "not-json"],
+    ["flow", "run", "lint-fix", "--input", "[]"], ["todo", "new", "--acceptance", "[1]"]])(
     "rejects invalid enum or missing required fields: %s",
     async (...argv) => {
       const f = await fixture()
