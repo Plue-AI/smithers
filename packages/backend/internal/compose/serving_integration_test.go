@@ -1,12 +1,15 @@
 package compose
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"github.com/coder/websocket"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/repository"
 	"io"
 	"net"
 	"net/http"
@@ -68,10 +71,43 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 	require.NoError(t, err)
 	_, err = q.CreateAuthSession(t.Context(), db.CreateAuthSessionParams{SessionKey: "serving-owner-session", UserID: user.ID, Username: user.Username, ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
+	// Use the production gateway with ephemeral lane-owned ports. The owner
+	// route must update both listeners, while preserving the loopback door.
+	sshConfig := &config.Config{SSH: config.SSHConfig{Addr: "127.0.0.1:0", HostKeyDir: t.TempDir()}, Auth: config.AuthConfig{LFSSigningSecret: "serving-test-secret"}}
+	gateway, sshPort, stopSSH, err := startInstallSSH(t.Context(), sshConfig, pool, repository.NewRemoteClient(nil, "test"), nil, nil, "http://localhost:4000")
+	require.NoError(t, err)
+	defer stopSSH()
+	interfaces, err := net.InterfaceAddrs()
+	require.NoError(t, err)
+	bindHost := ""
+	for _, address := range interfaces {
+		if ip, ok := address.(*net.IPNet); ok && ip.IP.To4() != nil && !ip.IP.IsLoopback() && !ip.IP.IsLinkLocalUnicast() {
+			bindHost = ip.IP.String()
+			break
+		}
+	}
+	require.NotEmpty(t, bindHost)
+	sshNetwork := net.JoinHostPort(bindHost, sshPort)
+	sshLoopback := net.JoinHostPort("127.0.0.1", sshPort)
+	probeSSH := func(target string) {
+		conn, err := net.DialTimeout("tcp", target, time.Second)
+		require.NoError(t, err)
+		defer conn.Close()
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(time.Second)))
+		banner, err := bufio.NewReader(conn).ReadString('\n')
+		require.NoError(t, err)
+		require.True(t, strings.HasPrefix(banner, "SSH-2.0-"), banner)
+	}
+	probeSSH(sshLoopback)
+	before, err := net.DialTimeout("tcp", sshNetwork, time.Second)
+	if before != nil {
+		before.Close()
+	}
+	require.Error(t, err, "network SSH is closed before the owner sets a bind")
 	var binds []string
 	var opened []net.Listener
 	server := httptest.NewUnstartedServer(nil)
-	network := &networkListener{serve: server.Config.Serve, listen: func(kind, target string) (net.Listener, error) {
+	network := &networkListener{serve: server.Config.Serve, sshServe: gateway.Serve, sshPort: sshPort, listen: func(kind, target string) (net.Listener, error) {
 		ln, err := net.Listen(kind, target)
 		if err == nil {
 			opened = append(opened, ln)
@@ -82,7 +118,7 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 		binds = append(binds, bind)
 		// Each lane owns ephemeral ports; the route's literal setting still uses 4000.
 		if bind != "" {
-			return network.Listen("127.0.0.1:0")
+			return network.Listen(net.JoinHostPort(bindHost, "0"))
 		}
 		return network.Listen("")
 	}}
@@ -144,7 +180,9 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &status))
 	require.JSONEq(t, `{"listen":"network","bind":"0.0.0.0:4000","origins":["http://lan-a:4000","https://box.example","http://plain.example","https://secure.example"]}`, string(status["address"]))
 	require.JSONEq(t, `"ssh -p 2222 <branch>@lan-a"`, string(status["ssh_line"]))
-	require.Len(t, opened, 1)
+	require.Len(t, opened, 2)
+	probeSSH(sshNetwork)
+	probeSSH(sshLoopback)
 	probe := func(target, host string) int {
 		req, err := http.NewRequest("GET", "http://"+target+"/health", nil)
 		require.NoError(t, err)
@@ -221,6 +259,12 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 	require.JSONEq(t, `{"listen":"mac","bind":"","origins":["https://box.example"]}`, string(status["address"]))
 	_, dialErr := net.DialTimeout("tcp", first, time.Second)
 	require.Error(t, dialErr)
+	closedSSH, err := net.DialTimeout("tcp", sshNetwork, time.Second)
+	if closedSSH != nil {
+		closedSSH.Close()
+	}
+	require.Error(t, err, "removing the bind closes network SSH")
+	probeSSH(sshLoopback)
 	require.Equal(t, 200, probe(server.Listener.Addr().String(), "localhost:4000"))
 	require.Equal(t, 421, probe(server.Listener.Addr().String(), "lan-a:4000"))
 	restored := &services.InstallAddress{}
