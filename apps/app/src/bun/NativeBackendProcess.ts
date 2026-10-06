@@ -319,7 +319,12 @@ export const startNativeBackend = async (
     throw new Error(`Owned backend FFI library is unavailable: ${ffi}`)
   }
 
-  const origin = "http://127.0.0.1:4000"
+  // A full bind address selects the install port; host-only binds keep
+  // the ordinary defaults. Readiness still reaches the loopback listener.
+  const explicitPort = options.bind?.match(/^(?:\[[^\]]+\]|[^:]+):(\d+)$/)?.[1]
+  const port = explicitPort === undefined ? 4000 : Number(explicitPort)
+  if (!Number.isInteger(port) || port < 1 || port > 65533) throw new Error("Install bind port must be between 1 and 65533.")
+  const origin = `http://127.0.0.1:${port}`
   const environment: Record<string, string> = Object.fromEntries(
     LAUNCHER_PASSTHROUGH.flatMap((name) => {
       const value = env[name]
@@ -341,8 +346,8 @@ export const startNativeBackend = async (
   environment.SMITHERS_SERVER_ADDR = new URL(origin).host
   environment.SMITHERS_FLOW_HOST_MANIFEST = hosts.manifest
   environment.SMITHERS_WORKSPACE_ISOLATION = "microvm"
-  environment.SMITHERS_EGRESS_RELAY_PORT = "4001"
-  environment.SMITHERS_SSH_ADDR = "127.0.0.1:2222"
+  environment.SMITHERS_EGRESS_RELAY_PORT = String(port + 1)
+  environment.SMITHERS_SSH_ADDR = `127.0.0.1:${port === 4000 ? 2222 : port + 2}`
   environment.SMITHERS_MODEL_HOST_BUNDLE = modelHost
   environment.SMITHERS_NODE_BINARY = resolve(binaryRoot, "node")
   environment.GIT_EXEC_PATH = gitExecPath
