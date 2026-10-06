@@ -80,10 +80,15 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 	defer cancel()
 	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
+	// Match the install's fail-closed live upgrade and durable revocation source.
 	bus := revocation.NewBus(pool, q)
-	require.NoError(t, bus.Start(ctx))
+	busCtx, stopBus := context.WithCancel(context.Background())
+	require.NoError(t, bus.Start(busCtx))
 	routes.SetRevocationSource(bus)
-	defer routes.SetRevocationSource(nil)
+	t.Cleanup(func() {
+		routes.SetRevocationSource(nil)
+		stopRevocationListener(stopBus, bus, revocationBusStopTimeout)
+	})
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "wiki-owner", LowerUsername: "wiki-owner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, owner.ID)
