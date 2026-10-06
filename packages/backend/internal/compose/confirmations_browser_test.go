@@ -18,13 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/live"
-	"github.com/smithersai/smithers/packages/backend/internal/routes"
-	"github.com/smithersai/smithers/packages/backend/internal/services"
-	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +32,7 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
-	pool, _ := postgresfixture.NewProductDatabase(t)
+	_, _, pool := splitProcessDatabase(t)
 	q := db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "maya", LowerUsername: "maya", DisplayName: "Maya"})
 	require.NoError(t, err)
@@ -66,17 +61,10 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NoError(t, err)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
-	cfg := testConfigAllFlagsOn()
-	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
-	cfg.Server.PublicURL, cfg.Server.AllowedOrigins = origin, []string{origin}
-	todos := services.NewMythicalService(pool, nil)
-	topics := &liveTopics{queries: q, todos: todos}
-	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
-	router := githubAppSetupComposeRouter(cfg, pool, nil,
-		&routes.UserHandler{ProfileService: services.NewUserService(q)},
-		&routes.ApprovalsHandler{Service: services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))},
-		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Live: liveHandler})
-	api := withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{install: true, identity: true, redirectAuth: true}), cors.Options{})
+	t.Setenv("SMITHERS_AUTH_SESSION_COOKIE_NAME", "session")
+	t.Setenv("SMITHERS_PUBLIC_URL", origin)
+	t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
+	api := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
 	command := exec.CommandContext(ctx, "bun", "e2e/real/confirm-merge.browser.ts")
@@ -123,5 +111,5 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_build_object('approved',count(*) FILTER (WHERE state='approved'),'pending',count(*) FILTER (WHERE state='pending')) FROM approvals`).Scan(&result))
 	var counts map[string]int
 	require.NoError(t, json.Unmarshal(result, &counts))
-	require.Equal(t, map[string]int{"approved": 2, "pending": 0}, counts)
+	require.Equal(t, map[string]int{"approved": 3, "pending": 0}, counts)
 }

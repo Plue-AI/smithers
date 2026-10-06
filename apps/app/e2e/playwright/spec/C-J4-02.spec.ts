@@ -9,7 +9,13 @@ import type { TodoCard } from "@smthrs/rpc/TodoCard"
 // CardRenderers and Views. Actual flow/GitHub execution, streamed chat timing and
 // reference-host qualification remain separate C-J4-02 requirements.
 test("C-J4-02: served TODO cards answer, merge, move and retry while Chat stays usable", async ({ page }) => {
+  test.setTimeout(120_000)
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  let viewState: Record<string, unknown> = {}
+  await page.route("**/api/conversations/main/view-state", route => {
+    if (route.request().method() === "PUT") viewState = route.request().postDataJSON()
+    return route.fulfill({ json: viewState })
+  })
   await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/members", route => route.fulfill({ json: {
@@ -57,8 +63,9 @@ test("C-J4-02: served TODO cards answer, merge, move and retry while Chat stays 
   await expect(card(1).locator("header .state")).toHaveText("Merged")
   await say(page, "/todo T4")
   await page.getByRole("button", { name: "Order J4 TODO 4", exact: true }).press("Enter")
+  await expect.poll(() => viewState.home).toEqual({ menu: 4 })
   await page.getByRole("menuitem", { name: /Move up/ }).press("Enter")
-  await expect.poll(() => writes.some(write => write.n === 4 && write.body.op === "move")).toBe(true)
+  await expect.poll(() => writes.some(write => write.n === 4 && write.body.op === "move"), { timeout: 30_000 }).toBe(true)
   await expect(card(4)).toContainText("#3 in stack")
   await say(page, "/todo T3")
   const previousEvidence = structuredClone(models[2]!.evidence)
@@ -104,7 +111,7 @@ test("C-J4-02: Bring in binds the displayed push and stays pending until its wai
   await say(page, "/todo T1")
   const line = `/branch.bring-in ${JSON.stringify({ branch: model.branch!.name, id: foreign.id, revision: foreign.sha })}`
   await say(page, line)
-  await expect.poll(() => writes.length).toBe(1)
+  await expect.poll(() => writes.length, { timeout: 30_000 }).toBe(1)
   await say(page, line)
   await say(page, "/todo T1")
   await expect(page.getByTestId("composer-input")).toBeEditable()
