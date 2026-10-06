@@ -59,6 +59,15 @@ impl<A: Eq + Clone, V: Clone> Bursts<A, V> {
         self.now_ms = now_ms;
         Ok(())
     }
+    pub fn retain_paths(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        for b in &mut self.open {
+            b.files.retain(|p, _| keep(p));
+            if !b.files.contains_key(&b.last_path) {
+                b.last_path = b.files.keys().next_back().cloned().unwrap_or_default();
+            }
+        }
+        self.open.retain(|b| !b.files.is_empty());
+    }
     pub fn pending(&self) -> &[Burst<A, V>] {
         &self.open
     }

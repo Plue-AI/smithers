@@ -500,9 +500,12 @@ func TestInstallReadinessStepsRefuseAnotherOperationPostgres(t *testing.T) {
 	ctx := t.Context()
 	receipt, err := f.svc.Admit(ctx, "machine", "machine-1", json.RawMessage(`{}`))
 	require.NoError(t, err)
+	claim, err := f.store.ClaimForOperations(ctx, "readiness-worker", time.Minute, []string{"install.setup.machine"})
+	require.NoError(t, err)
+	require.Equal(t, receipt.OperationID, claim.OperationID)
 	before := []InstallStep{f.step(t, "source"), f.step(t, "machine")}
 	called := false
-	_, err = installReadinessSteps{setup: f.svc, operation: "superseded-operation"}.Update(ctx, "ignored", func(current InstallReadiness) (InstallReadiness, error) {
+	_, err = installReadinessSteps{setup: f.svc, claim: jobs.Claim{OperationID: "superseded-operation"}}.Update(ctx, "ignored", func(current InstallReadiness) (InstallReadiness, error) {
 		called = true
 		current.Machine = InstallReadinessStep{State: InstallReady, Pct: 100}
 		return current, nil
@@ -511,7 +514,7 @@ func TestInstallReadinessStepsRefuseAnotherOperationPostgres(t *testing.T) {
 	require.False(t, called)
 	require.Equal(t, before, []InstallStep{f.step(t, "source"), f.step(t, "machine")})
 
-	next, err := installReadinessSteps{setup: f.svc, operation: receipt.OperationID}.Update(ctx, "ignored", func(current InstallReadiness) (InstallReadiness, error) {
+	next, err := installReadinessSteps{setup: f.svc, claim: claim}.Update(ctx, "ignored", func(current InstallReadiness) (InstallReadiness, error) {
 		require.Equal(t, InstallReady, current.Source.State)
 		require.Equal(t, InstallRunning, current.Machine.State)
 		current.Attempt++
@@ -591,4 +594,50 @@ func TestInstallMachineUnboundAnswersUnavailablePostgres(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests`).Scan(&jobsAdmitted))
 	require.Zero(t, jobsAdmitted)
 	require.Equal(t, InstallPending, f.step(t, "machine").Status)
+}
+
+// Recovery keeps operation identity, but every progress/completion mutation must
+// still be fenced by the current job generation, token, worker and expiry.
+func TestInstallReadinessStepsFenceRecoveredWorkerPostgres(t *testing.T) {
+	f, _ := newMachineFixture(t, machineSources{})
+	ctx := t.Context()
+	receipt, err := f.svc.Admit(ctx, "machine", "machine-fence", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	old, err := f.store.ClaimForOperations(ctx, "old-machine-worker", time.Minute, []string{"install.setup.machine"})
+	require.NoError(t, err)
+	_, err = f.store.BeginExternal(ctx, old, json.RawMessage(`{"phase":"setup"}`))
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE product_job_dispatches SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE operation_id=$1`, receipt.OperationID)
+	require.NoError(t, err)
+	before := []InstallStep{f.step(t, "source"), f.step(t, "machine")}
+	called := false
+	mutate := func(current InstallReadiness) (InstallReadiness, error) {
+		called = true
+		current.Machine = InstallReadinessStep{State: InstallReady, Pct: 100}
+		current.LayerKey = "stale-layer"
+		return current, nil
+	}
+	// Expiry alone fences progress, even before another worker claims it.
+	_, err = (installReadinessSteps{setup: f.svc, claim: old}).Update(ctx, "ignored", mutate)
+	require.ErrorIs(t, err, jobs.ErrClaimLost)
+	require.False(t, called)
+	require.Equal(t, before, []InstallStep{f.step(t, "source"), f.step(t, "machine")})
+	recovered, err := f.store.RecoverExpiredForOperations(ctx, []string{"install.setup.machine"}, 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, recovered)
+	fresh, err := f.store.ClaimForOperations(ctx, "new-machine-worker", time.Minute, []string{"install.setup.machine"})
+	require.NoError(t, err)
+	require.Equal(t, old.OperationID, fresh.OperationID)
+	require.Greater(t, fresh.Generation, old.Generation)
+	_, err = (installReadinessSteps{setup: f.svc, claim: fresh}).Update(ctx, "ignored", func(current InstallReadiness) (InstallReadiness, error) {
+		current.Machine = InstallReadinessStep{State: InstallRunning, Pct: 35}
+		current.LayerKey = "current-layer"
+		return current, nil
+	})
+	require.NoError(t, err)
+	before = []InstallStep{f.step(t, "source"), f.step(t, "machine")}
+	_, err = (installReadinessSteps{setup: f.svc, claim: old}).Update(ctx, "ignored", mutate)
+	require.ErrorIs(t, err, jobs.ErrClaimLost)
+	require.False(t, called)
+	require.Equal(t, before, []InstallStep{f.step(t, "source"), f.step(t, "machine")})
 }

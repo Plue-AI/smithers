@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,33 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	digest, err := services.ActiveFlowDigest(ctx, q, repository, "todo")
 	require.NoError(t, err)
 	require.Equal(t, digest, flows[0]["versions"].([]any)[0].(map[string]any)["id"])
+	// Guest-measured metadata reaches the same authenticated route. A failed
+	// merged version remains visible beside the last successfully loaded one.
+	loadedDigest, failedDigest := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("1", 40), loadedDigest, "loaded", "", json.RawMessage(`{"steps":[]}`))
+	require.NoError(t, err)
+	_, err = q.ActivateFlowVersion(ctx, repository, "todo", loadedDigest)
+	require.NoError(t, err)
+	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("2", 40), failedDigest, "failed", "flows/todo/flow.ts:12: invalid type", json.RawMessage(`{"steps":[]}`))
+	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repository, owner.ID, 100, false)
+	require.NoError(t, err)
+	load, err := q.EnsureFlowLoad(ctx, repository)
+	require.NoError(t, err)
+	load.CommitID, load.LoadedCommit = strings.Repeat("2", 40), strings.Repeat("2", 40)
+	load.Versions = json.RawMessage(`[{"name":"todo","path":"flows/todo/flow.ts","digest":"` + failedDigest + `","status":"failed","error":"flows/todo/flow.ts:12: invalid type"}]`)
+	_, err = q.SaveFlowLoad(ctx, load)
+	require.NoError(t, err)
+	status, _, flows = read(ownerSession, owner.ID, "/api/flows")
+	require.Equal(t, http.StatusOK, status)
+	versions := flows[0]["versions"].([]any)
+	require.Len(t, versions, 3)
+	require.Equal(t, "active", versions[0].(map[string]any)["state"])
+	require.Equal(t, loadedDigest, versions[0].(map[string]any)["id"])
+	require.Equal(t, "merged-failed", versions[1].(map[string]any)["state"])
+	require.Equal(t, "flows/todo/flow.ts:12: invalid type", versions[1].(map[string]any)["error"])
+	require.Equal(t, "previous", versions[2].(map[string]any)["state"])
+
 	status, refusal, _ := read(ownerSession, owner.ID, "/api/todos/2")
 	require.Equal(t, http.StatusNotFound, status)
 	require.Equal(t, "todo_not_found", refusal["code"])

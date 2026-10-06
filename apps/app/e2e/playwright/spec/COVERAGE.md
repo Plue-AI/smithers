@@ -40,7 +40,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
 | C-J3-09 | [C-J3-09.spec.ts](C-J3-09.spec.ts) | fixme-before-implementation | T-COL-05 |
 | C-J3-10 | [C-J3-10.spec.ts](C-J3-10.spec.ts) | fixme-before-implementation | T-TRM-05, T-REL-02 |
-| C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
+| C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts) | proposal-to-Draft passes; joint merge/Active pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
 | C-J5-02 | [C-J5-02.spec.ts](C-J5-02.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-11 |
 | C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | fixme-before-implementation | T-TRM-02, T-APP-09, T-REL-02 |
@@ -140,7 +140,7 @@ Machine-kill recovery and retry version pinning remain fixme.
 | C-MCH-01 | [C-MCH-01.spec.ts](C-MCH-01.spec.ts) | fixme-before-implementation | T-MCH-04 |
 | C-MCH-02 | [C-MCH-02.spec.ts](C-MCH-02.spec.ts) | fixme-before-implementation | T-MCH-06 |
 | C-MCH-03 | [C-MCH-03.spec.ts](C-MCH-03.spec.ts) | fixme-before-implementation | T-MCH-07 |
-| C-MCH-04 | [C-MCH-04.spec.ts](C-MCH-04.spec.ts) | fixme-before-implementation | T-MCH-01 |
+| C-MCH-04 | [C-MCH-04.spec.ts](C-MCH-04.spec.ts) | HTTP projection fixture; bundle/router/live-home qualification pending | T-MCH-01 |
 | C-MCH-05 | [C-MCH-05.spec.ts](C-MCH-05.spec.ts) | fixme-before-implementation | T-MCH-09 |
 | C-MCH-06 | [C-MCH-06.spec.ts](C-MCH-06.spec.ts) | fixme-before-implementation | T-MCH-11 |
 | C-MCH-07 | [C-MCH-07.spec.ts](C-MCH-07.spec.ts) | fixme-before-implementation | T-MCH-12 |
@@ -296,12 +296,12 @@ Cycle 30: issue reads, creation and comments await live GitHub qualification; wi
 | --- | --- | --- | --- |
 | A-FLOWS | [A-FLOWS.spec.ts](A-FLOWS.spec.ts) | fixme-before-implementation | T-FLW-03, T-APP-05 |
 | A-FLOW | [A-FLOW.spec.ts](A-FLOW.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-APP-05 |
-| A-FLOW-EDIT | [A-FLOW-EDIT.spec.ts](A-FLOW-EDIT.spec.ts) | fixme-before-implementation | T-FLW-05, T-FLW-03, T-FLW-04 |
+| A-FLOW-EDIT | [A-FLOW-EDIT.spec.ts](A-FLOW-EDIT.spec.ts) | mounted edit and prefill pass; joint merge/Active pending | T-FLW-05, T-FLW-03, T-FLW-04 |
 | A-FLOW-RUN | [A-FLOW-RUN.spec.ts](A-FLOW-RUN.spec.ts) | fixme-before-implementation | T-FLW-01, T-INS-02, T-CAT-01 |
 | A-FLOW-NEW | [A-FLOW-NEW.spec.ts](A-FLOW-NEW.spec.ts) | fixme-before-implementation | T-CAT-01, T-FLW-03 |
 | A-RUNS | [A-RUNS.spec.ts](A-RUNS.spec.ts) | fixme-before-implementation | T-FLW-07, T-COL-02 |
 
-Cycle 31: repository flow listing, failed activation, edit-to-merge, typed execution, creation and durable attention retain full pending scenarios. Five mounted tests cover seeded lists, version selection, slash edit drafts, missing-input run forms and active run cards. `/flow.new` is absent. The Edit button loses its flow-name prefill; its regression remains a fixme under T-FLW-05 and T-APP-05. Seeded projections do not qualify live activation or durable providers.
+Cycle 31: repository flow listing, failed activation, edit-to-merge, typed execution, creation and durable attention retain full pending scenarios. Five mounted tests cover seeded lists, version selection, slash edit drafts, missing-input run forms and active run cards. `/flow.new` is absent. The Edit button preserves its flow-name prefill while the form asks only for Request; its regression passes under T-FLW-05. Seeded projections do not qualify live activation or durable providers.
 
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
@@ -310,7 +310,7 @@ Cycle 31: repository flow listing, failed activation, edit-to-merge, typed execu
 | A-MONITOR | [A-MONITOR.spec.ts](A-MONITOR.spec.ts) | fixme-before-implementation | T-FLW-07 |
 | A-DEBUG-API | [A-DEBUG-API.spec.ts](A-DEBUG-API.spec.ts) | fixme-before-implementation | T-APP-21 |
 | A-RUN-INSPECT | [A-RUN-INSPECT.spec.ts](A-RUN-INSPECT.spec.ts) | fixme-before-implementation | T-FLW-07 |
-| A-FLOW-SOURCE | [A-FLOW-SOURCE.spec.ts](A-FLOW-SOURCE.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05 |
+| A-FLOW-SOURCE | [A-FLOW-SOURCE.spec.ts](A-FLOW-SOURCE.spec.ts) | mounted source passes; S2/S3 editing pending | T-APP-05, T-FLW-04, T-FLW-05 |
 
 Cycle 32: live run recovery, GitHub stale/refused sync, the full monitor,
 API playground and collaborative flow-source editing retain complete pending

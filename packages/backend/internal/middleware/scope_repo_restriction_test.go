@@ -160,3 +160,28 @@ func TestRequireTokenScope_AnonymousUnaffected(t *testing.T) {
 	})
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
+
+func TestRepositoryBoundBranchReadsReachTheirBindingAuthorizer(t *testing.T) {
+	for _, tc := range []struct {
+		name, method, path, delegation string
+		want                           int
+	}{
+		{"branch file", "GET", "/api/branches/b/files/src/retry.ts", "via:cli,branch:b", 204},
+		{"branch diff", "GET", "/api/branches/b/diff", "via:cli,branch:b", 204},
+		{"branch head", "GET", "/api/branches/b", "via:cli,branch:b", 204},
+		{"no branch", "GET", "/api/branches/b/files/src/retry.ts", "via:cli", 403},
+		{"write", "POST", "/api/branches/b/files/src/retry.ts", "via:cli,branch:b", 403},
+		{"global", "GET", "/api/user/repos", "via:cli,branch:b", 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := repoBoundAuthInfo(99)
+			info.TokenSystemIssued = true
+			info.RawScopes += "," + tc.delegation
+			info.Scopes = ParseTokenScopes(info.RawScopes)
+			response := serveScoped(t, info, tc.method, tc.path, func(r chi.Router, next http.HandlerFunc) {
+				r.With(RequireScope(ScopeReadRepository)).Method(tc.method, tc.path, next)
+			})
+			require.Equal(t, tc.want, response.Code, response.Body.String())
+		})
+	}
+}

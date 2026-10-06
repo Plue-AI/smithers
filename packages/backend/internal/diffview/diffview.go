@@ -286,12 +286,25 @@ func patchLabels(fileDiff repohost.FileDiff) (oldLabel, newLabel string) {
 	return oldLabel, newLabel
 }
 
+// The library's SplitLines adds a synthetic blank line to empty or newline-
+// terminated inputs. Those lines are not in the captured blob.
+func patchLines(content string) []string {
+	if content == "" {
+		return nil
+	}
+	lines := difflib.SplitLines(content)
+	if strings.HasSuffix(content, "\n") {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
 func buildUnifiedPatch(fileDiff repohost.FileDiff, oldContent, newContent string) (string, int, int, error) {
 	oldLabel, newLabel := patchLabels(fileDiff)
 
 	patch, err := diffviewGetUnifiedDiffString(difflib.UnifiedDiff{
-		A:        difflib.SplitLines(oldContent),
-		B:        difflib.SplitLines(newContent),
+		A:        patchLines(oldContent),
+		B:        patchLines(newContent),
 		FromFile: oldLabel,
 		ToFile:   newLabel,
 		Context:  3,
@@ -331,8 +344,8 @@ func buildUnifiedPatch(fileDiff repohost.FileDiff, oldContent, newContent string
 // whitespace show as new-side context, not as changes. It returns an empty
 // patch when every difference is whitespace.
 func buildIgnoreWhitespacePatch(fileDiff repohost.FileDiff, oldContent, newContent string) (string, int, int) {
-	oldLines := difflib.SplitLines(oldContent)
-	newLines := difflib.SplitLines(newContent)
+	oldLines := patchLines(oldContent)
+	newLines := patchLines(newContent)
 	matcher := difflib.NewMatcher(collapseEach(oldLines), collapseEach(newLines))
 	groups := matcher.GetGroupedOpCodes(3)
 	if len(groups) == 0 {

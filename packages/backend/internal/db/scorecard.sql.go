@@ -38,6 +38,32 @@ func (q *Queries) ScorecardFirstAnswer(ctx context.Context) (ScorecardFirstAnswe
 	return i, err
 }
 
+const scorecardMergeCoverage = `-- name: ScorecardMergeCoverage :one
+SELECT (count(*) > 0 AND bool_and(COALESCE(
+  receipt.event_type = 'todo.github_merged' AND receipt.data->>'source' = 'github', false)))::boolean AS covered
+FROM mythical_items i
+LEFT JOIN LATERAL (
+  SELECT transition.event_type, transition.data
+  FROM (SELECT event_type, data, state, sequence,
+          lag(state) OVER (ORDER BY sequence) AS previous
+        FROM product_job_events WHERE tenant_id = i.repository_id::text
+          AND principal_id = 'todo:' || i.id::text AND event_type LIKE 'todo.%') AS transition
+  WHERE transition.state = 'merged' AND transition.previous IS DISTINCT FROM transition.state
+  ORDER BY transition.sequence DESC LIMIT 1
+) AS receipt ON true
+WHERE i.state = 'landed' AND (i.source = 'todo' OR i.checks->>'todo' = 'true')
+`
+
+// Merge settlement is covered independently from the missing main-commit
+// inventory. Both app merges and direct GitHub merges settle through this
+// existing synced-store writer; repeated delivery is not another merge.
+func (q *Queries) ScorecardMergeCoverage(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, scorecardMergeCoverage)
+	var covered bool
+	err := row.Scan(&covered)
+	return covered, err
+}
+
 const scorecardSourceRelations = `-- name: ScorecardSourceRelations :many
 SELECT source.name::text AS name,
        (to_regclass('public.' || source.name) IS NOT NULL
@@ -83,25 +109,33 @@ func (q *Queries) ScorecardSourceRelations(ctx context.Context) ([]ScorecardSour
 
 const scorecardTODOs = `-- name: ScorecardTODOs :many
 SELECT i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
-       i.state::text AS state, i.updated_at AS state_at, i.checks, i.paused_at,
+       i.state::text AS state, i.checks, i.paused_at,
+       (SELECT COALESCE(jsonb_object_agg(receipt.state, receipt.since), '{}'::jsonb)
+        FROM (SELECT DISTINCT ON (transition.state) transition.state, transition.recorded_at AS since
+          FROM (SELECT state, recorded_at, sequence, lag(state) OVER (ORDER BY sequence) AS previous
+            FROM product_job_events WHERE tenant_id = i.repository_id::text
+              AND principal_id = 'todo:' || i.id::text AND event_type LIKE 'todo.%') AS transition
+          WHERE transition.previous IS DISTINCT FROM transition.state
+          ORDER BY transition.state, transition.sequence DESC) AS receipt)::jsonb AS state_times,
        COALESCE(min(e.recorded_at), 'epoch'::timestamptz)::timestamptz AS accepted,
        (count(e.event_id) > 0)::boolean AS covered
 FROM mythical_items i
-LEFT JOIN product_job_events e ON e.principal_id = 'todo:' || i.id::text
+LEFT JOIN product_job_events e ON e.tenant_id = i.repository_id::text
+ AND e.principal_id = 'todo:' || i.id::text
  AND e.event_type = 'todo.created' AND e.data->>'item' = i.id::text
 WHERE i.source = 'todo' OR i.checks->>'todo' = 'true'
 GROUP BY i.id
 `
 
 type ScorecardTODOsRow struct {
-	ID       string             `json:"id"`
-	Owner    int64              `json:"owner"`
-	State    string             `json:"state"`
-	StateAt  pgtype.Timestamptz `json:"state_at"`
-	Checks   json.RawMessage    `json:"checks"`
-	PausedAt pgtype.Timestamptz `json:"paused_at"`
-	Accepted time.Time          `json:"accepted"`
-	Covered  bool               `json:"covered"`
+	ID         string             `json:"id"`
+	Owner      int64              `json:"owner"`
+	State      string             `json:"state"`
+	Checks     json.RawMessage    `json:"checks"`
+	PausedAt   pgtype.Timestamptz `json:"paused_at"`
+	StateTimes json.RawMessage    `json:"state_times"`
+	Accepted   time.Time          `json:"accepted"`
+	Covered    bool               `json:"covered"`
 }
 
 // Creation receipts, not row creation times, establish stack acceptance.
@@ -119,9 +153,9 @@ func (q *Queries) ScorecardTODOs(ctx context.Context) ([]ScorecardTODOsRow, erro
 			&i.ID,
 			&i.Owner,
 			&i.State,
-			&i.StateAt,
 			&i.Checks,
 			&i.PausedAt,
+			&i.StateTimes,
 			&i.Accepted,
 			&i.Covered,
 		); err != nil {

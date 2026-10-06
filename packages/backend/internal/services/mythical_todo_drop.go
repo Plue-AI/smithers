@@ -102,6 +102,10 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
 				return err
 			}
+			order, err := q.LockMythicalStackOrder(ctx, input.Repository)
+			if err != nil {
+				return err
+			}
 			next := mythicalDropped(item, todoDrop{Request: input.Request, Credential: credential, By: person.Username, At: s.now().UTC()})
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -109,6 +113,13 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			}
 			if err != nil {
 				return err
+			}
+			changed, err := s.removeTodoPlace(ctx, q, stack, saved, order)
+			if err != nil {
+				return err
+			}
+			for _, successor := range changed {
+				s.itemChanged(ctx, q, stack, successor.ID)
 			}
 			receipt = TodoControlReceipt{State: "accepted"}
 			if err := recordTodoControl(ctx, tx, saved, input, credential, "todo.dropped", receipt, map[string]any{

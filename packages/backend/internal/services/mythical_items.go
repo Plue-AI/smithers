@@ -103,7 +103,7 @@ type mythicalLauncher interface {
 type mythicalLanes interface {
 	// Create records the workspace on the placement's machine, calls bind
 	// with its ID, and provisions it only after bind succeeds; a failed bind
-	// deletes the record.
+	// retains the branch record for retry.
 	Create(ctx context.Context, repository db.Repository, owner string, actorUserID int64, name string, placement MythicalPlacement, bind func(workspaceID string) error) (string, error)
 	// Offer is the machine a lane boots on (mythical_placement.go).
 	Offer(ctx context.Context, repositoryID int64) (mythicalMachineOffer, error)
@@ -877,13 +877,21 @@ func mythicalRoute(update flowdispatch.ProjectionUpdate) string {
 
 // mythicalPlanSummary projects the request's plan placement for the UI and
 // keeps its checks for coding/verify.
+type planWikiCitation struct {
+	Slug     string `json:"slug"`
+	PageID   string `json:"pageID"`
+	Revision int64  `json:"revision"`
+	Digest   string `json:"digest"`
+}
+
 func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 	if update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
 		return nil
 	}
 	var result struct {
 		Plan struct {
-			Changes []struct {
+			WikiCitations []planWikiCitation `json:"wikiCitations,omitempty"`
+			Changes       []struct {
 				Title string `json:"title"`
 				Atoms []struct {
 					ChangeID *string `json:"changeId"`
@@ -901,15 +909,16 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 		Title string `json:"title"`
 	}
 	summary := struct {
-		Title   string            `json:"title"`
-		Amends  []string          `json:"amends"`
-		Inserts []insert          `json:"inserts"`
-		Appends int               `json:"appends"`
-		Checks  []json.RawMessage `json:"checks"`
+		WikiCitations []planWikiCitation `json:"wikiCitations,omitempty"`
+		Title         string             `json:"title"`
+		Amends        []string           `json:"amends"`
+		Inserts       []insert           `json:"inserts"`
+		Appends       int                `json:"appends"`
+		Checks        []json.RawMessage  `json:"checks"`
 		// Steps are the plan's atoms in order, so a continuation can pick up
 		// the plan it continues.
 		Steps []string `json:"steps"`
-	}{Title: result.Plan.Changes[0].Title, Amends: []string{}, Inserts: []insert{}, Steps: []string{}}
+	}{WikiCitations: result.Plan.WikiCitations, Title: result.Plan.Changes[0].Title, Amends: []string{}, Inserts: []insert{}, Steps: []string{}}
 	seen := map[string]bool{}
 	var atoms []struct {
 		ChangeID *string
@@ -2000,6 +2009,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
+	next.Plan = nil
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
@@ -2154,6 +2164,7 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
+	next.Plan = nil
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
@@ -3793,11 +3804,8 @@ func (l *workspaceMythicalLanes) Create(ctx context.Context, repository db.Repos
 		return "", err
 	}
 	if err := bind(workspace.ID); err != nil {
-		// A claimant that bound this same lane first keeps it. An unbound
-		// machine was never provisioned: the machine service deletes it.
-		if !l.bound(context.WithoutCancel(ctx), workspace.ID) {
-			_ = l.workspaces.DeleteWorkspace(context.WithoutCancel(ctx), workspace.ID, repository.ID, workspace.UserID)
-		}
+		// Cleanup requires settled work and verified capture (MVP §6.7).
+		// A failed binding never starts this machine; its record remains for retry.
 		return "", err
 	}
 	l.workspaces.provisionWorkspaceAsync(ctx, workspace, CreateWorkspaceSessionInput{RepositoryID: repository.ID, UserID: actorUserID,
@@ -3838,19 +3846,6 @@ func (l *workspaceMythicalLanes) Owned(ctx context.Context, repositoryID, userID
 		return false, nil
 	}
 	return store.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: workspace.ID, UserID: userID})
-}
-
-// bound reports whether the stack bound workspaceID as a lane that is not
-// retired.
-func (l *workspaceMythicalLanes) bound(ctx context.Context, workspaceID string) bool {
-	store, ok := l.workspaces.q.(interface {
-		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
-	})
-	if !ok {
-		return false
-	}
-	lane, err := store.GetMythicalLane(ctx, workspaceID)
-	return err == nil && !lane.RetiredAt.Valid
 }
 
 // Delete retires a lane's machine (T-MCH-06, T-MCH-07): every retirement

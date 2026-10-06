@@ -155,6 +155,12 @@ impl Objects for Fixture {
     }
 }
 impl Provider<String> for Fixture {
+    fn activate(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn actor_session(&mut self, _: &String) -> io::Result<Option<u32>> {
+        Ok(None)
+    }
     fn samples(&mut self) -> io::Result<Vec<Sample<String>>> {
         Ok(self
             .cpu
@@ -169,11 +175,41 @@ impl Provider<String> for Fixture {
             .collect())
     }
     fn read(&mut self, path: &str) -> io::Result<Option<(Vec<u8>, u32)>> {
-        match fs::read(self.root.join(path)) {
-            Ok(b) => Ok(Some((b, 0o100644))),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e),
+        use std::io::Read;
+        use std::os::unix::fs::PermissionsExt;
+        if !smithers_machined::doc::disk::valid_path(path) {
+            return Err(io::ErrorKind::InvalidInput.into());
         }
+        let root = File::open(&self.root)?;
+        let fd = match rustix::fs::openat2(
+            &root,
+            path,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK
+                | rustix::fs::OFlags::NOFOLLOW,
+            rustix::fs::Mode::empty(),
+            rustix::fs::ResolveFlags::BENEATH
+                | rustix::fs::ResolveFlags::NO_SYMLINKS
+                | rustix::fs::ResolveFlags::NO_XDEV,
+        ) {
+            Ok(fd) => fd,
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        let mut f = File::from(fd);
+        let meta = f.metadata()?;
+        if !meta.is_file() {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let mode = if meta.permissions().mode() & 0o111 != 0 {
+            0o100755
+        } else {
+            0o100644
+        };
+        let mut bytes = vec![];
+        f.read_to_end(&mut bytes)?;
+        Ok(Some((bytes, mode)))
     }
     fn checkpoint(&mut self, s: &State) -> io::Result<()> {
         self.checkpoint = Some(s.clone());
@@ -538,11 +574,26 @@ fn fault_child() {
     // both hooks, so this is an acknowledged external disk write.
     w.resync(&mut f, 0).unwrap();
     w.changes.sample(&mut f).unwrap();
-    f.write("a", b"acknowledged after restart");
+    use sha2::Digest as _;
+    let hash = sha2::Sha256::digest(b"acknowledged after restart");
+    let digest = hash.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let mut log = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(f.state.join("writer.log"))
+        .unwrap();
+    for i in 0..20 {
+        let path = if i == 0 { "a".into() } else { format!("f{i}") };
+        f.write(&path, b"acknowledged after restart");
+        writeln!(log, "{} {} {}", i + 1, path, digest).unwrap();
+        log.sync_all().unwrap();
+    }
+    drop(log);
+    File::open(&f.state).unwrap().sync_all().unwrap();
     f.cpu[0] = 100;
     let point = std::env::var("MACHINED_WATCH_FAULT_POINT").unwrap();
     std::env::set_var("SMITHERS_MACHINED_KILL_AT", &point);
-    w.drain(&mut f, 100).unwrap();
+    poll_until(&mut f, &mut w, 100, |_, w| w.changes.state.bursts.is_open());
     w.changes.close_all(&mut f).unwrap();
     panic!("fault did not fire");
 }
@@ -550,9 +601,14 @@ fn fault_child() {
 #[test]
 fn k1_k2_process_exit_recovery_ten_runs_each() {
     for point in ["K1", "K2"] {
-        for _ in 0..10 {
+        for run in 1..=10 {
             let mut f = Fixture::new();
-            f.seed("a", b"literal before");
+            let paths = (0..20)
+                .map(|i| if i == 0 { "a".into() } else { format!("f{i}") })
+                .collect::<Vec<String>>();
+            for path in &paths {
+                f.seed(path, b"literal before");
+            }
             save_checkpoint(&f.state, f.checkpoint.as_ref().unwrap()).unwrap();
             let status = Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", "fault_child", "--nocapture"])
@@ -566,6 +622,7 @@ fn k1_k2_process_exit_recovery_ten_runs_each() {
                 fs::read(f.root.join("a")).unwrap(),
                 b"acknowledged after restart"
             );
+            let interrupted = fs::read(f.state.join("checkpoint")).unwrap();
             let state = load_checkpoint(&f.state);
             assert!(state.bursts.is_open());
             f.checkpoint = Some(state);
@@ -576,7 +633,18 @@ fn k1_k2_process_exit_recovery_ten_runs_each() {
             let mut w = WatchLoop::new(watch, Changes::new(f.checkpoint.clone().unwrap()));
             w.resync(&mut f, 101).unwrap();
             assert_eq!(f.events.len(), 1);
+            assert_eq!(f.events[0].files.len(), 20);
+            for path in &paths {
+                assert_eq!(
+                    fs::read(f.root.join(path)).unwrap(),
+                    b"acknowledged after restart"
+                );
+            }
             let file = &f.events[0].files["a"];
+            for recorded in f.events[0].files.values() {
+                assert_eq!(recorded, file);
+            }
+
             assert_eq!(
                 f.bytes(&file.before.as_ref().unwrap().blob),
                 b"literal before"
@@ -586,6 +654,20 @@ fn k1_k2_process_exit_recovery_ten_runs_each() {
                 b"acknowledged after restart"
             );
             let commit = &f.events[0].versions_commit;
+            let tree = f
+                .git(&["ls-tree", "-r", "--name-only", commit], None)
+                .unwrap();
+            let expected: std::collections::BTreeSet<_> = paths
+                .iter()
+                .flat_map(|p| [format!("a/{p}"), format!("b/{p}")])
+                .collect();
+            assert_eq!(
+                tree.lines()
+                    .map(String::from)
+                    .collect::<std::collections::BTreeSet<_>>(),
+                expected
+            );
+
             assert_eq!(
                 f.git(&["show", &format!("{commit}:a/a")], None).unwrap(),
                 "literal before"
@@ -595,6 +677,72 @@ fn k1_k2_process_exit_recovery_ten_runs_each() {
                 "acknowledged after restart"
             );
             assert!(!load_checkpoint(&f.state).bursts.is_open());
+            #[cfg(feature = "testing")]
+            wire_boundary::fault_delivery(&f.events[0], &f.state);
+            if let Some(evidence) = std::env::var_os("MACHINED_WATCH_EVIDENCE") {
+                let dir = PathBuf::from(evidence)
+                    .join(point)
+                    .join(format!("run-{run:02}"));
+                fs::create_dir_all(&dir).unwrap();
+                fs::copy(f.state.join("writer.log"), dir.join("writer.log")).unwrap();
+                fs::write(dir.join("checkpoint-at-kill.json"), &interrupted).unwrap();
+                fs::copy(
+                    f.state.join("checkpoint"),
+                    dir.join("checkpoint-after-recovery.json"),
+                )
+                .unwrap();
+                fs::copy(f.root.join("a"), dir.join("working-copy-a")).unwrap();
+                let hashes: BTreeMap<_, _> = paths
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.clone(),
+                            f.events[0].files[p]
+                                .after
+                                .as_ref()
+                                .unwrap()
+                                .post_digest
+                                .to_vec(),
+                        )
+                    })
+                    .collect();
+                fs::write(
+                    dir.join("working-copy-hashes.json"),
+                    serde_json::to_vec_pretty(&hashes).unwrap(),
+                )
+                .unwrap();
+                for name in [
+                    "outbox-durable.bin",
+                    "host-ack.bin",
+                    "outbox-after-ack.json",
+                ] {
+                    if f.state.join(name).exists() {
+                        fs::copy(f.state.join(name), dir.join(name)).unwrap();
+                    }
+                }
+                let event = &f.events[0];
+                let files:Vec<_>=event.files.iter().map(|(p,v)|serde_json::json!({"path":p,"before":v_json(&v.before),"after":v_json(&v.after)})).collect();
+                fs::write(dir.join("event.json"),serde_json::to_vec_pretty(&serde_json::json!({"burst_id":event.burst_id.to_vec(),"actor":event.actor,"files":files,"versions_commit":commit,"component_fixture":true})).unwrap()).unwrap();
+                f.git(
+                    &[
+                        "bundle",
+                        "create",
+                        dir.join("versions.bundle").to_str().unwrap(),
+                        "refs/smithers/fixture/versions",
+                    ],
+                    None,
+                )
+                .unwrap();
+                f.git(
+                    &[
+                        "bundle",
+                        "verify",
+                        dir.join("versions.bundle").to_str().unwrap(),
+                    ],
+                    None,
+                )
+                .unwrap();
+            }
         }
     }
 }
@@ -672,3 +820,44 @@ fn all_hints_carry_literal_sha256_post_digest() {
 #[cfg(feature = "testing")]
 #[path = "watcher_rpc/mod.rs"]
 mod wire_boundary;
+
+#[test]
+fn changed_ignore_rules_also_filter_overflow_recorded_paths() {
+    let mut f = Fixture::new();
+    f.seed("now-ignored", b"original");
+    let mut w = f.watcher();
+    f.write(".gitignore", b"now-ignored\n");
+    f.write("now-ignored", b"must not appear");
+    w.resync(&mut f, 100).unwrap();
+    assert!(!w.changes.state.recorded.contains_key("now-ignored"));
+    assert!(!f.events.iter().any(|e| e.files.contains_key("now-ignored")));
+    assert!(!f.hints.iter().any(|(p, _, _)| p == "now-ignored"));
+}
+
+#[test]
+fn recovery_resets_monotonic_clock_before_admitting_new_bursts() {
+    let mut f = Fixture::new();
+    f.seed("a", b"before restart");
+    let mut w = f.watcher();
+    f.write("a", b"at restart");
+    f.cpu[0] = 100;
+    poll_until(&mut f, &mut w, 10_000_000, |_, w| {
+        w.changes.state.bursts.is_open()
+    });
+    w.changes = Changes::new(load_checkpoint(&f.state));
+    w.resync(&mut f, 0).unwrap();
+    assert_eq!(f.events.len(), 1);
+    f.write("a", b"new process clock");
+    f.cpu[0] = 150;
+    poll_until(&mut f, &mut w, 10, |_, w| w.changes.state.bursts.is_open());
+    w.drain(&mut f, 1510).unwrap();
+    assert_eq!(f.events.len(), 2);
+    assert_eq!(
+        f.bytes(&f.events[1].files["a"].before.as_ref().unwrap().blob),
+        b"at restart"
+    );
+    assert_eq!(
+        f.bytes(&f.events[1].files["a"].after.as_ref().unwrap().blob),
+        b"new process clock"
+    );
+}

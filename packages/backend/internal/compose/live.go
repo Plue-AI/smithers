@@ -31,11 +31,12 @@ type liveSync interface {
 // person: home, todo:<n>, flows and members. Every topic serves shared facts only,
 // so one stream serves every member byte for byte.
 type liveTopics struct {
-	queries *db.Queries
-	todos   liveTodos
-	sync    liveSync
-	install *services.InstallSetupService
-	members *services.Members
+	queries   *db.Queries
+	todos     liveTodos
+	sync      liveSync
+	install   *services.InstallSetupService
+	members   *services.Members
+	documents *live.DocRelay
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -129,7 +130,9 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			}
 			return json.Marshal(status)
 		}}, ""
-	case "branch", "conversation", "doc", "secrets", "proposals", "run":
+	case "doc":
+		return t.documents.Resolve(ctx, topic, repository, member)
+	case "branch", "conversation", "secrets", "proposals", "run":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
@@ -161,7 +164,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}, ""
 	case topic == "flows":
 		return live.Source{Key: topic, Hints: hints, Every: 5 * time.Second, Build: func(ctx context.Context) (json.RawMessage, error) {
-			cards, err := services.RepositoryFlowCatalog(ctx, t.queries, repository)
+			cards, err := services.RepositoryFlowCatalog(ctx, t.queries, repository, flowProposalReader(t.todos))
 			if err != nil {
 				return nil, err
 			}
@@ -305,4 +308,9 @@ func homeModel(repository string, todos []map[string]any, sync *services.GitHubS
 		"merged_since_last_look": []any{}, "machines": map[string]any{"in_use": len(slots), "capacity": 0, "slots": slots},
 		"background_runs": []any{},
 	}
+}
+
+func flowProposalReader(provider any) services.FlowProposalReader {
+	reader, _ := provider.(services.FlowProposalReader)
+	return reader
 }

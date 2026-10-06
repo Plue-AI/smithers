@@ -36,6 +36,7 @@ type FlowFormCard = Extract<Card, { kind: "flow-form" }>
 
 export interface FormRenderRequest {
   /** Edit this property of the registered flow's payload using its declared schema. */
+  readonly payload?: Readonly<Record<string, unknown>>
   readonly payloadField?: string
   readonly cardId?: string
   readonly title?: string
@@ -352,7 +353,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     if (fields.length === 0) return undefined
     /* A line the grammar parses whole prefills exactly; a line it refuses prefills what it can. */
     const grammar = (entry ?? ctx.commands.find(request.name))?.metadata.grammar
-    const parsed = payloadFor(request.name, request.args, grammar, knownRepositories(ctx.store))
+    const parsed = request.payload === undefined ? payloadFor(request.name, request.args, grammar, knownRepositories(ctx.store)) : { payload: request.payload }
     const read = "payload" in parsed
       ? { payload: parsed.payload, skipped: [] as ReadonlyArray<string> }
       : positionalRead(fields, hints, request.args)

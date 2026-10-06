@@ -21,6 +21,11 @@ func TestFrameRejectsHostileGuestEnvelopes(t *testing.T) {
 		`{"type":"data","stream":1,"bytes":[256]}`, `{"type":"data","stream":1,"bytes":[]}`,
 		`{"type":"data","stream":3,"bytes":[1]}`, `{"type":"close","uid":0}`,
 		`{"type":"exit"}`, `{"type":"exit_signal","name":"STOP","core":false}`,
+		`{"type":"exit","code":0,"code":7}`,
+		`{"type":"close","type":"exit","code":7}`,
+		`{"type":"data","stream":0,"stream":1,"bytes":[1]}`,
+		`{"type":"window","bytes":0,"bytes":1}`,
+		`{"type":"close"} {"type":"close"}`, `null`, `[]`,
 		`{"type":"signal","name":"TERM"}`, `{"type":"eof","stream":null}`,
 	} {
 		var wire bytes.Buffer
@@ -164,5 +169,190 @@ func TestSSHChannelExecHalfCloseAndExit(t *testing.T) {
 	}
 	if err := <-results; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSSHDispatchPTYSettingsAndUnavailableAuthority(t *testing.T) {
+	for _, unavailable := range []bool{false, true} {
+		t.Run(map[bool]string{false: "pty", true: "unavailable"}[unavailable], func(t *testing.T) {
+			_, private, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			signer, err := ssh.NewSignerFromKey(private)
+			if err != nil {
+				t.Fatal(err)
+			}
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			config := &ssh.ServerConfig{NoClientAuth: true}
+			config.AddHostKey(signer)
+			opened := make(chan *open, 1)
+			finished := make(chan error, 1)
+			go func() {
+				conn, err := listener.Accept()
+				if err != nil {
+					finished <- err
+					return
+				}
+				conn.SetDeadline(time.Now().Add(5 * time.Second))
+				server, channels, requests, err := ssh.NewServerConn(conn, config)
+				if err != nil {
+					conn.Close()
+					finished <- err
+					return
+				}
+				defer server.Close()
+				var opener sessionOpener
+				if !unavailable {
+					opener = func(spec *open) (io.ReadWriteCloser, error) {
+						opened <- spec
+						return nil, io.ErrClosedPipe
+					}
+				}
+				serveChannels(channels, requests, opener)
+				finished <- nil
+			}()
+			client, err := ssh.Dial("tcp", listener.Addr().String(), &ssh.ClientConfig{User: "ben", HostKeyCallback: ssh.FixedHostKey(signer.PublicKey()), Timeout: 5 * time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			if unavailable {
+				if ch, _, err := client.OpenChannel("session", nil); err == nil {
+					ch.Close()
+					t.Fatal("session admitted without authority")
+				}
+				payload := ssh.Marshal(struct {
+					Host       string
+					Port       uint32
+					Origin     string
+					OriginPort uint32
+				}{"localhost", 3000, "127.0.0.1", 40000})
+				if ch, _, err := client.OpenChannel("direct-tcpip", payload); err == nil {
+					ch.Close()
+					t.Fatal("TCP admitted without authority")
+				}
+			} else {
+				session, err := client.NewSession()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer session.Close()
+				if err := session.RequestPty("xterm-256color", 24, 80, ssh.TerminalModes{ssh.ECHO: 0, 128: 38400}); err != nil {
+					t.Fatal(err)
+				}
+				if err := session.Shell(); err == nil {
+					t.Fatal("failed guest open reported success")
+				}
+				select {
+				case spec := <-opened:
+					if spec.Kind != "pty" || spec.Term != "xterm-256color" || spec.Cols != 80 || spec.Rows != 24 {
+						t.Fatalf("lost PTY settings: %+v", spec)
+					}
+					modes := map[byte]uint32{}
+					raw := spec.Modes
+					for len(raw) >= 5 && raw[0] != 0 {
+						modes[raw[0]] = binary.BigEndian.Uint32(raw[1:5])
+						raw = raw[5:]
+					}
+					echo, present := modes[53]
+					if !present || echo != 0 || modes[128] != 38400 || !bytes.Equal(raw, []byte{0}) {
+						t.Fatalf("lost modes: %v / %x", modes, raw)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("guest opener not called")
+				}
+			}
+			client.Close()
+			select {
+			case err := <-finished:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("dispatch did not stop")
+			}
+		})
+	}
+}
+
+func TestSSHDispatchRefusesDuplicateGuestExit(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	config := &ssh.ServerConfig{NoClientAuth: true}
+	config.AddHostKey(signer)
+	result := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			result <- err
+			return
+		}
+		defer conn.Close()
+		conn.SetDeadline(time.Now().Add(5 * time.Second))
+		server, channels, requests, err := ssh.NewServerConn(conn, config)
+		if err != nil {
+			result <- err
+			return
+		}
+		defer server.Close()
+		go ssh.DiscardRequests(requests)
+		incoming := <-channels
+		ch, reqs, err := incoming.Accept()
+		if err != nil {
+			result <- err
+			return
+		}
+		result <- serveSession(ch, reqs, func(*open) (io.ReadWriteCloser, error) {
+			host, guest := net.Pipe()
+			go func() {
+				defer guest.Close()
+				// Literal hostile peer bytes; no shared encoder or payload process.
+				body := []byte(`{"type":"exit","code":0,"code":7}`)
+				binary.Write(guest, binary.BigEndian, uint32(len(body)))
+				guest.Write(body)
+			}()
+			return host, nil
+		})
+	}()
+	client, err := ssh.Dial("tcp", listener.Addr().String(), &ssh.ClientConfig{User: "ben", HostKeyCallback: ssh.FixedHostKey(signer.PublicKey()), Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	// An ambiguous guest exit must close the channel without reporting success
+	// or laundering the last value into a legitimate SSH exit-status.
+	if err := session.Run("exit 7"); err == nil {
+		t.Fatal("ambiguous exit reported success")
+	} else if _, ok := err.(*ssh.ExitMissingError); !ok {
+		t.Fatalf("ambiguous exit reported an exit status: %T: %v", err, err)
+	}
+	select {
+	case err := <-result:
+		if err == nil || err.Error() != "duplicate frame field" {
+			t.Fatalf("dispatch result: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatch did not refuse")
 	}
 }

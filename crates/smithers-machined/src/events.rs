@@ -97,6 +97,12 @@ impl<A: Clone + Eq, B: Clone> Default for Checkpoint<A, B> {
 /// must supply authenticated actors/session samples, confined reads, the real
 /// checkpoint/object provider, and durable outbox. There are no no-op defaults.
 pub trait Provider<A>: Objects {
+    /// Verify authenticated host/actor/session and daemon identity, codec and
+    /// shared lock attachment, and durable checkpoint/outbox/ref/capture and
+    /// moved-off providers. This is required even for an empty working copy.
+    fn activate(&mut self) -> io::Result<()>;
+    /// Only an authenticated, unambiguous binding updates session presence.
+    fn actor_session(&mut self, actor: &A) -> io::Result<Option<u32>>;
     fn samples(&mut self) -> io::Result<Vec<Sample<A>>>;
     fn read(&mut self, path: &str) -> io::Result<Option<(Vec<u8>, u32)>>;
     /// Pins all checkpoint blobs and syncs the checkpoint atomically before
@@ -199,7 +205,7 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
             .clone();
         let mut files = b.files.clone();
         let (actor, session) = match &b.key {
-            Key::Smithers(a) => (Some(a.clone()), None),
+            Key::Smithers(a) => (Some(a.clone()), p.actor_session(a)?),
             Key::Outside => match window.and_then(|w| w.actor()) {
                 Some((s, a)) => (Some(a), Some(s)),
                 None => (None, None),
@@ -335,7 +341,8 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
         after: Option<Version<B>>,
     ) -> io::Result<()> {
         self.close_due(p, now, Some((&key, path)), false)?;
-        if !self.state.identities.iter().any(|(k, _, _)| k == &key) {
+        let opened = !self.state.identities.iter().any(|(k, _, _)| k == &key);
+        if opened {
             let mut id = [0; 16];
             #[cfg(target_os = "linux")]
             {
@@ -379,7 +386,12 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
                 }
             }
         }
-        self.save(p)?;
+        // Outside recovery compares the complete scan with recorded versions;
+        // only its stable open-burst identity needs an eager checkpoint. Own
+        // writes update recorded versions immediately and persist every touch.
+        if opened || matches!(key, Key::Smithers(_)) {
+            self.save(p)?;
+        }
         #[cfg(all(feature = "killpoints", debug_assertions))]
         killpoint("K1");
         Ok(())
@@ -499,6 +511,17 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
         self.blocked = false;
         Ok(())
     }
+    pub fn retain_paths(&mut self, paths: &std::collections::BTreeSet<String>) {
+        self.state.recorded.retain(|p, _| paths.contains(p));
+        self.state.bursts.retain_paths(|p| paths.contains(p));
+        self.state
+            .identities
+            .retain(|(key, _, _)| self.state.bursts.pending().iter().any(|b| &b.key == key));
+        self.state
+            .renames
+            .retain(|from, to| paths.contains(from) && paths.contains(to));
+        self.own.retain(|p, _| paths.contains(p));
+    }
     pub fn begin_resync(&mut self) {
         self.blocked = true;
         self.resync_required = true;
@@ -519,19 +542,19 @@ fn killpoint(point: &str) {
 
 /// Encodes the internal close record through the sole ADR 0004 codec. The
 /// shared EventSink allocates seq/event_id and owns pinning, syncfs and delivery.
-pub fn wire_event(
+pub fn wire_events(
     event: &Closed<crate::hooks::Actor, crate::hooks::Oid, crate::hooks::Oid>,
-) -> Result<Vec<u8>, crate::conn::ProtocolError> {
+) -> Result<Vec<Vec<u8>>, crate::conn::ProtocolError> {
     use crate::conn::{actor_bytes, field, structure_bytes, tagged, Frame, ProtocolError};
     let text = |s: &str| {
         let mut b = (s.len() as u16).to_be_bytes().to_vec();
         b.extend(s.as_bytes());
         b
     };
-    let mut files = u16::try_from(event.files.len())
-        .map_err(|_| ProtocolError::BadValue)?
-        .to_be_bytes()
-        .to_vec();
+    // Leave room for the largest actor envelope, seq/id and part metadata.
+    const BUDGET: usize = 4 * 1024 * 1024 - 2048;
+    let mut groups: Vec<Vec<Vec<u8>>> = vec![vec![]];
+    let mut size = 0;
     for (path, file) in &event.files {
         let renamed = event.renamed_to.get(path);
         let change = if renamed.is_some() {
@@ -554,33 +577,52 @@ pub fn wire_event(
             fields.push(field(5, v.blob));
             fields.push(field(6, v.post_digest));
         }
-        files.extend(structure_bytes(&fields));
+        let encoded = structure_bytes(&fields);
+        if size + encoded.len() > BUDGET || groups.last().unwrap().len() == u16::MAX as usize {
+            groups.push(vec![]);
+            size = 0;
+        }
+        size += encoded.len();
+        groups.last_mut().unwrap().push(encoded);
     }
+    let parts = u16::try_from(groups.len()).map_err(|_| ProtocolError::BadValue)?;
     let actor = event
         .actor
         .as_ref()
         .unwrap_or(&crate::hooks::Actor::Outside);
-    let event = tagged(
-        1,
-        &[
-            field(1, event.burst_id),
-            field(2, actor_bytes(actor)),
-            field(3, files),
-            field(4, event.versions_commit),
-        ],
-    );
-    Frame {
-        kind: 2,
-        stream: 0,
-        payload: tagged(
-            1,
-            &[
-                field(1, 1u64.to_be_bytes()),
-                field(2, [0; 16]),
-                field(3, &event),
-            ],
-        ),
-    }
-    .encode()?;
-    Ok(event)
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(i, group)| {
+            let mut files = (group.len() as u16).to_be_bytes().to_vec();
+            for f in group {
+                files.extend(f);
+            }
+            let mut fields = vec![
+                field(1, event.burst_id),
+                field(2, actor_bytes(actor)),
+                field(3, files),
+                field(4, event.versions_commit),
+            ];
+            if parts > 1 {
+                fields.push(field(5, (i as u16 + 1).to_be_bytes()));
+                fields.push(field(6, parts.to_be_bytes()));
+            }
+            let event = tagged(1, &fields);
+            Frame {
+                kind: 2,
+                stream: 0,
+                payload: tagged(
+                    1,
+                    &[
+                        field(1, 1u64.to_be_bytes()),
+                        field(2, [0; 16]),
+                        field(3, &event),
+                    ],
+                ),
+            }
+            .encode()?;
+            Ok(event)
+        })
+        .collect()
 }

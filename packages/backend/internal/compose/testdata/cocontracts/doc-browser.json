@@ -43,6 +43,8 @@
     ],
     " {\"t\":\"saved\",\"id\":7,\"sv\":\"ASoB\",\"at\":\"2026-10-03T12:00:00Z\"}",
     "{\"t\":\"gap\",\"id\":7}",
-    "{\"t\":\"err\",\"id\":7,\"code\":\"unsupported\"}"
+    "{\"t\":\"err\",\"id\":7,\"code\":\"unsupported\"}",
+    "{\"t\":\"gone\",\"id\":7,\"data\":{\"deleted\":true,\"by\":\"Ben\"}}",
+    "{\"t\":\"err\",\"id\":7,\"code\":\"forbidden\"}"
   ]
 }

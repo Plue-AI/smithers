@@ -165,3 +165,19 @@ func (s *WorkspaceService) listWorkspaceSnapshot(ctx context.Context, row db.Wor
 	s.touchWorkspaceEntryRecency(ctx, row.ID, "files")
 	return entries, nil
 }
+
+// CapturedHead gives the existing stack diff reader the same verified head as
+// File and Branch cards, through the production lane adapter.
+func (l *workspaceMythicalLanes) CapturedHead(ctx context.Context, id string, repositoryID, userID int64) (string, error) {
+	if l == nil || l.workspaces == nil {
+		return "", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "verified branch snapshot unavailable")
+	}
+	_, _, _, head, asleep, err := l.workspaces.workspaceSnapshotTarget(ctx, id, repositoryID, userID)
+	if err != nil {
+		return "", err
+	}
+	if !asleep {
+		return "", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch state changed")
+	}
+	return head, nil
+}

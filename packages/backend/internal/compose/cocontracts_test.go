@@ -5,8 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/testfake"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -201,5 +204,181 @@ func TestMachinedSkeletonDisabled(t *testing.T) {
 	cmd.Dir = root
 	if out, e := cmd.CombinedOutput(); e != nil {
 		t.Fatalf("Rust codec/dispatcher: %v\n%s", e, out)
+	}
+}
+
+// replayFake crosses a real duplex byte stream in both directions. The oracle
+// is exclusively the committed binary/JSON corpus, never newly encoded bytes.
+func replayFake(t *testing.T, names []string, receive func(string) bool) {
+	t.Helper()
+	steps := make([]testfake.Step, len(names))
+	for i, name := range names {
+		f, err := wire.Decode(wireBytes(t, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var literal struct {
+			Kind    byte
+			Stream  uint32
+			Payload string
+		}
+		b, err := os.ReadFile("testdata/cocontracts/" + name + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = json.Unmarshal(b, &literal); err != nil {
+			t.Fatal(err)
+		}
+		payload, err := hex.DecodeString(literal.Payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.Kind != literal.Kind || f.Stream != literal.Stream || !bytes.Equal(f.Payload, payload) {
+			t.Fatal(name, "decoded fields")
+		}
+		steps[i] = testfake.Step{Receive: receive(name), Frame: f}
+	}
+	host, peer := net.Pipe()
+	defer host.Close()
+	defer peer.Close()
+	host.SetDeadline(time.Now().Add(5 * time.Second))
+	peer.SetDeadline(time.Now().Add(5 * time.Second))
+	done := make(chan error, 1)
+	go func() { done <- testfake.Serve(peer, steps); peer.Close() }()
+	var got, want []byte
+	for i, name := range names {
+		expected := wireBytes(t, name)
+		want = append(want, expected...)
+		if steps[i].Receive {
+			// Exercise the production host encoder, recording exactly what it writes.
+			var encoded bytes.Buffer
+			if err := wire.Write(&encoded, steps[i].Frame); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := host.Write(encoded.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, encoded.Bytes()...)
+		} else {
+			actual := make([]byte, len(expected))
+			if _, err := io.ReadFull(host, actual); err != nil {
+				t.Fatal(err)
+			}
+			f, err := wire.Read(bytes.NewReader(actual))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.Kind != steps[i].Frame.Kind || f.Stream != steps[i].Frame.Stream || !bytes.Equal(f.Payload, steps[i].Frame.Payload) {
+				t.Fatal(name, "host decoded fields")
+			}
+			got = append(got, actual...)
+		}
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("literal transcript mismatch")
+	}
+	host.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMachinedFakeGoldenReplay(t *testing.T) {
+	for _, fixture := range wireFixtures(t).Frames {
+		if fixture.Expected != "ok" || fixture.Local {
+			continue
+		}
+		for _, receive := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/receive=%t", fixture.Name, receive), func(t *testing.T) {
+				replayFake(t, []string{fixture.Name}, func(string) bool { return receive })
+			})
+		}
+	}
+}
+
+func TestMachinedFakeFaultReplay(t *testing.T) {
+	m := wireFixtures(t)
+	for _, name := range []string{"seq_handshake", "seq_write_stale", "seq_capture", "seq_missing_objects", "seq_duplicate_receipt", "seq_reconnect_replay", "seq_reserved_doc_s2", "seq_newer_boot", "seq_wake_objects"} {
+		t.Run(name, func(t *testing.T) {
+			seq, ok := m.Sequences[name]
+			if !ok || len(seq) == 0 {
+				t.Fatal("missing contract sequence", name)
+			}
+			replayFake(t, seq, func(n string) bool {
+				return n == "hello_host_proof" || n == "hello_welcome" || n == "goodbye_superseded" || n == "doc_reserved_sync" || n == "obj_host_data" || n == "obj_host_eof" || n == "obj_host_close" || len(n) >= 4 && (n[:4] == "req_" || n[:4] == "ack_")
+			})
+		})
+	}
+	t.Run("credential_refusal", func(t *testing.T) {
+		replayFake(t, []string{"req_read_file", "err_unauthorized"}, func(n string) bool { return n == "req_read_file" })
+	})
+	t.Run("handshake_credential_refusal", func(t *testing.T) {
+		replayFake(t, []string{"hello_challenge", "hello_host_proof", "goodbye_auth_failed"}, func(n string) bool { return n == "hello_host_proof" || n == "goodbye_auth_failed" })
+	})
+	t.Run("lost_ack_reconnect", func(t *testing.T) {
+		// End the first transport without an ack, then replay the committed
+		// reconnect ordering and accept the committed duplicate receipt.
+		replayFake(t, []string{"ev_burst"}, func(string) bool { return false })
+		replayFake(t, m.Sequences["seq_reconnect_replay"], func(n string) bool { return n == "hello_host_proof" || n == "hello_welcome" })
+		replayFake(t, m.Sequences["seq_duplicate_receipt"], func(n string) bool { return n == "ack_duplicate" })
+	})
+	for _, pair := range [][2]string{{"req_status", "res_status"}, {"req_read_file", "res_read_file"}, {"req_write_file", "res_write_file"}, {"req_capture", "res_capture"}, {"req_wake_reconcile", "res_wake_moved"}, {"req_open_doc", "res_unsupported_open_doc"}, {"req_close_doc", "res_unsupported_close_doc"}} {
+		t.Run(pair[0], func(t *testing.T) { replayFake(t, pair[:], func(n string) bool { return n == pair[0] }) })
+	}
+}
+
+func TestMachinedFakeUnscriptedRefusal(t *testing.T) {
+	t.Run("invalid_script_no_io", func(t *testing.T) {
+		var stream bytes.Buffer
+		valid, err := wire.Decode(wireBytes(t, "res_status"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = testfake.Serve(&stream, []testfake.Step{{Frame: valid}, {Frame: wire.Frame{Kind: 255}}})
+		if !errors.Is(err, wire.UnknownKind) || stream.Len() != 0 {
+			t.Fatal("script touched stream before validation", err)
+		}
+	})
+	t.Run("truncated_input", func(t *testing.T) {
+		f, err := wire.Decode(wireBytes(t, "req_status"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stream := bytes.NewBuffer(wireBytes(t, "req_status")[:8])
+		if err := testfake.Serve(stream, []testfake.Step{{Receive: true, Frame: f}}); !errors.Is(err, wire.Truncated) {
+			t.Fatal(err)
+		}
+	})
+	for _, empty := range []bool{true, false} {
+		t.Run(fmt.Sprint(empty), func(t *testing.T) {
+			host, peer := net.Pipe()
+			defer host.Close()
+			defer peer.Close()
+			host.SetDeadline(time.Now().Add(5 * time.Second))
+			peer.SetDeadline(time.Now().Add(5 * time.Second))
+			var steps []testfake.Step
+			if !empty {
+				f, err := wire.Decode(wireBytes(t, "req_status"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				steps = []testfake.Step{{Receive: true, Frame: f}}
+			}
+			done := make(chan error, 1)
+			go func() { done <- testfake.Serve(peer, steps); peer.Close() }()
+			f, err := wire.Decode(wireBytes(t, "req_capture"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// An exhausted script refuses on the first byte and closes the stream.
+			_ = wire.Write(host, f)
+			if err := <-done; !errors.Is(err, testfake.ErrUnscripted) {
+				t.Fatal(err)
+			}
+			var b [1]byte
+			if n, err := host.Read(b[:]); n != 0 || err != io.EOF {
+				t.Fatal("unscripted response", n, err)
+			}
+		})
 	}
 }

@@ -47,6 +47,7 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
     if (at === undefined) {
       const response = await realApi(page, request, "GET", "/api/bootstrap")
       expect(response.status()).toBe(200)
+      expect((await response.json()).buildSha, "installed candidate changed during activation").toBe(input.install.commit)
       const date = response.headers().date
       if (!date || !Number.isFinite(Date.parse(date))) throw new J1PreconditionError("host_timestamp_missing", "production host response must carry an HTTP Date timestamp")
       at = new Date(Date.parse(date)).toISOString()
@@ -56,6 +57,16 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   }
   await info.attach("preconditions", { body: JSON.stringify(publicInput), contentType: "application/json" })
   await page.goto(input.setupURL)
+  // Verify the installed candidate before the operator enters any credentials.
+  // Self-hosted installs classify as local; that must not skip build pinning.
+  const bootstrapResponse = await realApi(page, request, "GET", "/api/bootstrap")
+  expect(bootstrapResponse.status()).toBe(200)
+  const bootstrap = await bootstrapResponse.json()
+  const observedHost = realHost(bootstrap)
+  expect(observedHost).toBe(process.env.SMITHERS_REAL_E2E_HOST)
+  expect(bootstrap.buildSha).toBe(input.install.commit)
+  info.annotations.push({ type: "real-host-verified", description: observedHost })
+  info.annotations.push({ type: "real-build-sha", description: bootstrap.buildSha })
   await record("setup session opened")
   const setup = page.getByRole("region", { name: "Set up Smithers", exact: true })
   await expect(setup).toBeVisible()
@@ -70,17 +81,6 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   // Machine readiness is a distinct row, not an alias for source readiness.
   await expect(setup.locator('[data-step="machine"]')).toHaveCount(1)
   await expect(setup.locator('[data-step="source"]')).toHaveCount(1)
-
-  const bootstrapResponse = await realApi(page, request, "GET", "/api/bootstrap")
-  expect(bootstrapResponse.status()).toBe(200)
-  const bootstrap = await bootstrapResponse.json()
-  const observedHost = realHost(bootstrap)
-  expect(observedHost).toBe(process.env.SMITHERS_REAL_E2E_HOST)
-  info.annotations.push({ type: "real-host-verified", description: observedHost })
-  if (observedHost === "production") {
-    expect(bootstrap.buildSha).toBe(input.install.commit)
-    info.annotations.push({ type: "real-build-sha", description: bootstrap.buildSha })
-  }
 
   // Read independent GitHub state; expectations remain checked-in literals.
   const github = async (path: string) => {

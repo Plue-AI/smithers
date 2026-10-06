@@ -271,7 +271,7 @@ export function validateAddress(address: { readonly bind?: string; readonly orig
  }
 }
 
-/** Optional install telemetry. Never copy setup URLs, credentials or diagnostic text into status. */
+/** Optional install telemetry. Never copy setup URLs or credentials into status. */
 export const installTelemetry = async (endpoint = "http://127.0.0.1:4000/api/install", credential?: string) => {
   try {
     const response = await fetch(endpoint, { signal: AbortSignal.timeout(1000), redirect: "error",
@@ -283,10 +283,15 @@ export const installTelemetry = async (endpoint = "http://127.0.0.1:4000/api/ins
     if (typeof body.capacity === "number" && Number.isFinite(body.capacity) && body.capacity >= 0) result.capacity = body.capacity
     if (body.this_mac && typeof body.this_mac === "object") {
       const mac = body.this_mac as Record<string, unknown>
-      const values: Record<string, number> = {}
+      const values: Record<string, unknown> = {}
       for (const key of ["memory_gb", "perf_cores", "capacity"]) {
         const value = mac[key]
         if (typeof value === "number" && Number.isFinite(value) && value >= 0) values[key] = value
+      }
+      // Capacity-zero guidance is part of the public install model (§8.2.1a).
+      const limit = mac.limit as Record<string, unknown> | null | undefined
+      if (mac.capacity === 0 && limit && ["memory", "cores", "disk"].includes(String(limit.term)) && typeof limit.fix === "string" && limit.fix.trim()) {
+        values.limit = { term: limit.term, fix: limit.fix }
       }
       if (Object.keys(values).length) result.this_mac = values
     }

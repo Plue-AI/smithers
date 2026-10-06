@@ -281,3 +281,20 @@ func TestLooksBinary(t *testing.T) {
 	assert.True(t, looksBinary("blob.bin", "abc\x00def"))
 	assert.True(t, looksBinary("image.png"))
 }
+
+func TestCapturedBlobDiffHasNoSyntheticBlankLines(t *testing.T) {
+	for _, tc := range []struct{ name, kind, before, after, expected string }{
+		{"added", "added", "", "export const backoff = 100;\n", "--- /dev/null\n+++ b/src/backoff.ts\n@@ -0,0 +1 @@\n+export const backoff = 100;\n"},
+		{"modified", "modified", "export const backoff = 2;\n", "export const backoff = 100;\n", "--- a/src/backoff.ts\n+++ b/src/backoff.ts\n@@ -1 +1 @@\n-export const backoff = 2;\n+export const backoff = 100;\n"},
+		{"deleted", "deleted", "export const backoff = 100;\n", "", "--- a/src/backoff.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-export const backoff = 100;\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			file := repohost.FileDiff{Path: "src/backoff.ts", ChangeType: tc.kind}
+			patch, _, _, err := buildUnifiedPatch(file, tc.before, tc.after)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, patch)
+			patch, _, _ = buildIgnoreWhitespacePatch(file, tc.before, tc.after)
+			require.Equal(t, tc.expected, patch)
+		})
+	}
+}

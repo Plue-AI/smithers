@@ -447,6 +447,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/agents:
     get:
+      x-composition: install
       summary: Read factory agents
       operationId: get_api_agents
       tags:
@@ -466,6 +467,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/agents/{role}/model:
     put:
+      x-composition: install
       summary: Assign a factory agent model
       description: Only the install owner's browser session may write. Members and run or machine credentials are refused; eligible delegated owners receive never.
       operationId: put_api_agents_role_model

@@ -86,11 +86,25 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var events <-chan revocation.Event
 	if source := currentRevocationSource(); source != nil {
 		principal := requestPrincipal(r, revocation.Principal{RepositoryID: repository})
-		if checker, ok := source.(revocation.Checker); ok && (checker.IsUserDisabled(principal.UserID) || (principal.TokenHash != "" && checker.IsTokenRevoked(principal.TokenHash))) {
-			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again") // a revoked credential is dead (§5.2.1a)
-			return
+		if checker, ok := source.(revocation.Checker); ok {
+			if _, denied := revocation.Revoked(checker, principal); denied {
+				liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again") // a revoked credential is dead (§5.2.1a)
+				return
+			}
 		}
 		events = source.Watch(ctx, principal)
+		// Register before a fresh roster read; ignore the middleware cached decision.
+		role, err := services.InstallRoleOf(ctx, h.Queries, info.User.ID)
+		if err != nil || role == "" {
+			liveRefusal(w, http.StatusForbidden, "permission", "forbidden", "Not a member")
+			return
+		}
+		if checker, ok := source.(revocation.Checker); ok {
+			if _, denied := revocation.Revoked(checker, principal); denied {
+				liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again")
+				return
+			}
+		}
 	}
 	// The Origin was checked against the effective origin above, which a
 	// loopback proxy's X-Forwarded-Host may name instead of Host.

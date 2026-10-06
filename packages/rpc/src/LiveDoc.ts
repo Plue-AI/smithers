@@ -63,6 +63,10 @@ export const LiveDocReply = z.discriminatedUnion("t", [
   }),
   z.strictObject({ t: z.literal("saved"), id: LiveDocId, sv: base64, at: z.iso.datetime() }),
   z.strictObject({ t: z.literal("gap"), id: LiveDocId }),
+  z.strictObject({ t: z.literal("gone"), id: LiveDocId, data: z.union([
+    z.strictObject({ deleted: z.literal(true), by: z.string() }),
+    z.strictObject({ renamed: z.literal(true), to: path, by: z.string() })
+  ]) }),
   z.strictObject({ t: z.literal("err"), id: LiveDocId, code: z.enum(["unknown_topic", "forbidden", "unsupported"]) })
 ])
 /**

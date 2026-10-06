@@ -78,6 +78,8 @@ struct Shared {
     f: Mutex<Fixture>,
     sessions: Mutex<Sessions<Control>>,
     sink: Arc<Sink>,
+    unavailable: Mutex<Option<&'static str>>,
+    moved_error: Mutex<Option<u8>>,
 }
 struct Ports(Arc<Shared>);
 impl Objects for Ports {
@@ -95,6 +97,27 @@ impl Objects for Ports {
     }
 }
 impl Provider<Actor> for Ports {
+    fn activate(&mut self) -> io::Result<()> {
+        if let Some(name) = *self.0.unavailable.lock().unwrap() {
+            Err(io::Error::new(io::ErrorKind::Unsupported, name))
+        } else {
+            Ok(())
+        }
+    }
+    fn actor_session(&mut self, actor: &Actor) -> io::Result<Option<u32>> {
+        let sessions = self.0.sessions.lock().unwrap();
+        let ids = sessions
+            .entries()
+            .filter(|e| match actor {
+                Actor::Session(id) => e.id == *id,
+                Actor::Run(run) => e.run.as_ref() == Some(run),
+                Actor::Principal(p) => p.as_slice() == e.user.login.as_bytes(),
+                Actor::Outside => false,
+            })
+            .map(|e| e.id)
+            .collect::<Vec<_>>();
+        Ok(if ids.len() == 1 { Some(ids[0]) } else { None })
+    }
     fn samples(&mut self) -> io::Result<Vec<Sample<Actor>>> {
         let f = self.0.f.lock().unwrap();
         let sessions = self.0.sessions.lock().unwrap();
@@ -117,11 +140,12 @@ impl Provider<Actor> for Ports {
         Ok(())
     } // missing shared core is a fixture
     fn append(&mut self, e: &Closed<Actor, [u8; 20], [u8; 20]>) -> io::Result<()> {
-        let event = smithers_machined::events::wire_event(e).map_err(io::Error::other)?;
-        self.0
-            .sink
-            .append(&event, Some(e.versions_commit))
-            .map_err(|_| io::Error::other("outbox"))?;
+        for event in smithers_machined::events::wire_events(e).map_err(io::Error::other)? {
+            self.0
+                .sink
+                .append(&event, Some(e.versions_commit))
+                .map_err(|_| io::Error::other("outbox"))?;
+        }
         Ok(())
     }
     fn hint(&mut self, p: &str, a: Option<&Actor>, d: Option<[u8; 32]>) -> io::Result<()> {
@@ -132,6 +156,11 @@ impl Provider<Actor> for Ports {
         self.0.f.lock().unwrap().where_file(s, p)
     }
     fn moved_off(&mut self) -> io::Result<()> {
+        if let Some(code) = *self.0.moved_error.lock().unwrap() {
+            let mut e = hooks::Error::unsupported();
+            e.code = code;
+            return Err(smithers_machined::watch::provider_error(e));
+        }
         self.0.f.lock().unwrap().moved_off()
     }
     fn snapshot(&mut self) -> io::Result<()> {
@@ -155,25 +184,50 @@ impl Core for CoreFixture {
         }
         let watcher = cx.hooks.watcher.clone();
         watcher.before_write(cx, &req.path, &req.actor)?;
-        // Shared core is the authorized fixture. Kernel-confined create is
-        // enough for this absent-base boundary; no product write path is added.
-        if req.base != Base::Absent {
-            return Err(hooks::Error::unsupported());
+        // The unavailable shared core is a fixture, with real confined IO.
+        // Writers are sequential here; atomic stale-write races remain the
+        // dependency-owned core gate, not watcher component evidence.
+        use sha2::Digest as _;
+        let old = self
+            .0
+            .f
+            .lock()
+            .unwrap()
+            .read(&req.path)
+            .map_err(|_| fail())?;
+        let current: Option<[u8; 32]> = old.as_ref().map(|(b, _)| sha2::Sha256::digest(b).into());
+        let matches = match &req.base {
+            Base::Absent => old.is_none(),
+            Base::Digest(d) => current.as_ref() == Some(d),
+        };
+        if !matches {
+            let mut e = hooks::Error::unsupported();
+            e.code = 4;
+            e.current_digest = current;
+            return Err(e);
         }
-        let (root, before) = {
-            let f = self.0.f.lock().unwrap();
-            (File::open(&f.root).unwrap(), None)
+        let before = old
+            .as_ref()
+            .map(|(b, _)| Ports(self.0.clone()).blob(b).unwrap());
+        let root = File::open(&self.0.f.lock().unwrap().root).unwrap();
+        let flags = if old.is_none() {
+            rustix::fs::OFlags::CREATE | rustix::fs::OFlags::EXCL
+        } else {
+            rustix::fs::OFlags::TRUNC
         };
         let fd = rustix::fs::openat2(
             &root,
             &req.path,
             rustix::fs::OFlags::WRONLY
-                | rustix::fs::OFlags::CREATE
-                | rustix::fs::OFlags::EXCL
+                | flags
                 | rustix::fs::OFlags::CLOEXEC
                 | rustix::fs::OFlags::NOFOLLOW
                 | rustix::fs::OFlags::NONBLOCK,
-            rustix::fs::Mode::from_raw_mode(0o644),
+            if old.is_none() {
+                rustix::fs::Mode::from_raw_mode(0o644)
+            } else {
+                rustix::fs::Mode::empty()
+            },
             rustix::fs::ResolveFlags::BENEATH
                 | rustix::fs::ResolveFlags::NO_SYMLINKS
                 | rustix::fs::ResolveFlags::NO_XDEV,
@@ -267,7 +321,7 @@ fn setup() -> (Arc<Shared>, Executor) {
         .unwrap();
     let watch = Inotify::new(
         File::open(&f.root).unwrap(),
-        GitIgnore::new(f.root.clone(), "/usr/bin/git".into(), vec![]).unwrap(),
+        GitIgnore::new(f.root.clone(), "/usr/bin/git".into(), vec!["target".into()]).unwrap(),
     )
     .unwrap()
     .0;
@@ -275,6 +329,8 @@ fn setup() -> (Arc<Shared>, Executor) {
         f: Mutex::new(f),
         sessions: Mutex::new(sessions),
         sink: sink.clone(),
+        unavailable: Mutex::new(None),
+        moved_error: Mutex::new(None),
     });
     let mut cx = LockCx::new(Hooks {
         events: sink,
@@ -478,5 +534,428 @@ fn rpc_refuses_escape_symlink_nonregular_and_forged_run_without_writes() {
     assert_eq!(fs::read(outside).unwrap(), b"unchanged outside");
     assert!(!root.join("forged").exists());
     assert!(shared.sink.frames.lock().unwrap().is_empty());
+    executor.shutdown().unwrap();
+}
+
+#[test]
+fn failed_overflow_moved_off_check_keeps_dispatcher_writes_refused() {
+    let (shared, executor) = setup();
+    shared.f.lock().unwrap().moved_ok = false;
+    assert!(executor
+        .lock
+        .run_blocking("overflow", |cx| {
+            let w = cx.hooks.watcher.clone();
+            w.resync(cx)
+        })
+        .unwrap()
+        .is_err());
+    let response=request(&executor,hex("0000003601000000000100000031010000002a02030000002601000161020200000000030000000361626304010000000e01000000097072696e636970616c"));
+    assert_eq!(Frame::decode(&response).unwrap().payload[17], 3);
+    assert!(!shared.f.lock().unwrap().root.join("a").exists());
+    assert!(shared.sink.frames.lock().unwrap().is_empty());
+    executor.shutdown().unwrap();
+}
+#[test]
+fn large_bursts_split_before_frame_or_file_count_bounds() {
+    let v = Version {
+        blob: [0x22; 20],
+        post_digest: [0x33; 32],
+        mode: 0o100644,
+    };
+    let files = (0..66_000)
+        .map(|i| {
+            (
+                format!("p/{i:05}"),
+                BurstFile {
+                    before: None,
+                    after: Some(v.clone()),
+                },
+            )
+        })
+        .collect();
+    let event = Closed {
+        burst_id: [0x11; 16],
+        actor: Some(Actor::Outside),
+        session: None,
+        files,
+        versions_commit: [0x44; 20],
+        renamed_to: BTreeMap::new(),
+        last_path: "p/65999".into(),
+    };
+    let parts = smithers_machined::events::wire_events(&event).unwrap();
+    assert!(parts.len() > 1);
+    let mut total = 0;
+    for (i, event) in parts.iter().enumerate() {
+        // Literal field offsets: union+len (5), burst id (17), outside actor
+        // (6), files tag (1), list count (2). Stable ADR 0004 values.
+        total += u16::from_be_bytes(event[29..31].try_into().unwrap()) as usize;
+        assert_eq!(
+            &event[event.len() - 6..],
+            &[5, 0, (i + 1) as u8, 6, 0, parts.len() as u8]
+        );
+        let frame = Frame {
+            kind: 2,
+            stream: 0,
+            payload: conn::tagged(
+                1,
+                &[
+                    conn::field(1, 1u64.to_be_bytes()),
+                    conn::field(2, [0; 16]),
+                    conn::field(3, event),
+                ],
+            ),
+        };
+        let bytes = frame.encode().unwrap();
+        assert!(bytes.len() <= 4 * 1024 * 1024 + 9);
+        Frame::decode(&bytes).unwrap();
+    }
+    assert_eq!(total, 66_000);
+}
+
+#[test]
+fn activation_checks_every_required_provider_even_on_empty_workspace() {
+    let (shared, executor) = setup();
+    shared.f.lock().unwrap().order.clear();
+    for missing in [
+        "codec",
+        "lock",
+        "checkpoint",
+        "durable outbox",
+        "versions refs",
+        "authenticated host",
+        "session registry",
+        "daemon identity",
+        "moved-off",
+    ] {
+        *shared.unavailable.lock().unwrap() = Some(missing);
+        let root = shared.f.lock().unwrap().root.clone();
+        let watch = Inotify::new(
+            File::open(&root).unwrap(),
+            GitIgnore::new(root, "/usr/bin/git".into(), vec![]).unwrap(),
+        )
+        .unwrap()
+        .0;
+        let s = shared.clone();
+        let result = executor
+            .lock
+            .run_blocking("activate", move |cx| {
+                InotifyWatcher::fixture(watch, Ports(s), Checkpoint::default(), cx).map(|_| ())
+            })
+            .unwrap();
+        assert_eq!(result.unwrap_err().code, 2, "{missing}");
+        assert!(shared.sink.frames.lock().unwrap().is_empty());
+        assert!(shared.f.lock().unwrap().order.is_empty());
+    }
+    executor.shutdown().unwrap();
+}
+
+#[test]
+fn encoded_own_write_to_ignored_path_produces_no_hint_or_burst() {
+    let (shared, executor) = setup();
+    fs::create_dir(shared.f.lock().unwrap().root.join("target")).unwrap();
+    let path = b"target/a";
+    let mut text = (path.len() as u16).to_be_bytes().to_vec();
+    text.extend(path);
+    let req = Frame {
+        kind: 1,
+        stream: 0,
+        payload: conn::tagged(
+            1,
+            &[
+                conn::field(1, 42u32.to_be_bytes()),
+                conn::field(
+                    2,
+                    conn::tagged(
+                        3,
+                        &[
+                            conn::field(1, text),
+                            conn::field(2, conn::tagged(2, &[])),
+                            conn::field(3, [0, 0, 0, 3, b'a', b'b', b'c']),
+                            conn::field(
+                                4,
+                                conn::actor_bytes(&Actor::Principal(b"principal".to_vec())),
+                            ),
+                        ],
+                    ),
+                ),
+            ],
+        ),
+    };
+    let response = request(&executor, req.encode().unwrap());
+    assert_eq!(response,hex("000000310100000000020000002c010000002a02030000002101ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    executor
+        .lock
+        .run_blocking("close", |cx| {
+            let w = cx.hooks.watcher.clone();
+            w.close_bursts(cx)
+        })
+        .unwrap()
+        .unwrap();
+    assert!(shared.sink.frames.lock().unwrap().is_empty());
+    assert!(shared
+        .sink
+        .store
+        .lock()
+        .unwrap()
+        .sequences()
+        .next()
+        .is_none());
+    assert_eq!(
+        fs::read(shared.f.lock().unwrap().root.join("target/a")).unwrap(),
+        b"abc"
+    );
+    executor.shutdown().unwrap();
+}
+
+pub(super) fn fault_delivery(event: &super::Event, state: &std::path::Path) {
+    fs::set_permissions(state, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::create_dir(state.join("outbox")).unwrap();
+    fs::set_permissions(state.join("outbox"), fs::Permissions::from_mode(0o700)).unwrap();
+    let owner = fs::metadata(state).unwrap().uid();
+    let store = smithers_machined::outbox_store::Store::open(&state.join("outbox"), owner).unwrap();
+    let sink = Sink {
+        store: Mutex::new(store),
+        frames: Mutex::new(vec![]),
+    };
+    let version = |v: &Option<Version<String>>| {
+        v.as_ref().map(|v| Version {
+            blob: oid(&v.blob),
+            post_digest: v.post_digest,
+            mode: v.mode,
+        })
+    };
+    let files = event
+        .files
+        .iter()
+        .map(|(p, v)| {
+            (
+                p.clone(),
+                BurstFile {
+                    before: version(&v.before),
+                    after: version(&v.after),
+                },
+            )
+        })
+        .collect();
+    let record = Closed {
+        burst_id: event.burst_id,
+        actor: None,
+        session: None,
+        files,
+        versions_commit: oid(&event.versions_commit),
+        renamed_to: event.renamed_to.clone(),
+        last_path: event.last_path.clone(),
+    };
+    let events = smithers_machined::events::wire_events(&record).unwrap();
+    assert_eq!(events.len(), 1);
+    sink.append(&events[0], Some(record.versions_commit))
+        .unwrap();
+    let durable = sink.store.lock().unwrap().read(1, owner).unwrap();
+    Frame::decode(&durable).unwrap();
+    fs::write(state.join("outbox-durable.bin"), durable).unwrap();
+    // Fixture host ACK uses independent ADR literal bytes. Production core owns
+    // transport and receipt matching; Store supplies the durable FIFO removal.
+    let bytes = hex("000000100200000000030000000b0100000000000000010201");
+    let ack = Frame::decode(&bytes).unwrap();
+    assert_eq!(ack.payload[15], 1);
+    let seq = u64::from_be_bytes(ack.payload[6..14].try_into().unwrap());
+    sink.store.lock().unwrap().remove(seq, false).unwrap();
+    assert!(sink.store.lock().unwrap().sequences().next().is_none());
+    fs::write(state.join("host-ack.bin"), bytes).unwrap();
+    fs::write(state.join("outbox-after-ack.json"), b"[]\n").unwrap();
+}
+
+#[test]
+fn known_moved_off_keeps_shared_typed_error_at_rpc_boundary() {
+    let (shared, executor) = setup();
+    *shared.moved_error.lock().unwrap() = Some(10);
+    assert_eq!(
+        executor
+            .lock
+            .run_blocking("overflow", |cx| {
+                let w = cx.hooks.watcher.clone();
+                w.resync(cx)
+            })
+            .unwrap()
+            .unwrap_err()
+            .code,
+        10
+    );
+    let response=request(&executor,hex("0000003601000000000100000031010000002a02030000002601000161020200000000030000000361626304010000000e01000000097072696e636970616c"));
+    assert_eq!(
+        response,
+        hex("000000120100000000020000000d010000002a02ff00000002010a")
+    );
+    assert!(!shared.f.lock().unwrap().root.join("a").exists());
+    executor.shutdown().unwrap();
+}
+
+fn write_request(path: &str, base: Option<[u8; 32]>, content: &[u8], principal: &[u8]) -> Vec<u8> {
+    let mut text = (path.len() as u16).to_be_bytes().to_vec();
+    text.extend(path.as_bytes());
+    let mut bytes = (content.len() as u32).to_be_bytes().to_vec();
+    bytes.extend(content);
+    let base = match base {
+        Some(d) => conn::tagged(1, &[conn::field(1, d)]),
+        None => conn::tagged(2, &[]),
+    };
+    Frame {
+        kind: 1,
+        stream: 0,
+        payload: conn::tagged(
+            1,
+            &[
+                conn::field(1, 42u32.to_be_bytes()),
+                conn::field(
+                    2,
+                    conn::tagged(
+                        3,
+                        &[
+                            conn::field(1, text),
+                            conn::field(2, base),
+                            conn::field(3, bytes),
+                            conn::field(4, conn::actor_bytes(&Actor::Principal(principal.into()))),
+                        ],
+                    ),
+                ),
+            ],
+        ),
+    }
+    .encode()
+    .unwrap()
+}
+fn close(executor: &Executor) {
+    executor
+        .lock
+        .run_blocking("close", |cx| {
+            let w = cx.hooks.watcher.clone();
+            w.close_bursts(cx)
+        })
+        .unwrap()
+        .unwrap();
+}
+fn burst_commits(shared: &Shared) -> Vec<(String, Vec<u8>)> {
+    shared
+        .sink
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|f| f.payload[0] == 1)
+        .map(|f| {
+            (
+                hex_oid(&f.payload[f.payload.len() - 20..].try_into().unwrap()),
+                f.payload.clone(),
+            )
+        })
+        .collect()
+}
+#[test]
+fn encoded_actor_switch_and_overlapping_files_keep_exact_before_after_bytes() {
+    for same_file in [true, false] {
+        let (shared, executor) = setup();
+        shared.f.lock().unwrap().cpu = [100, 100, 100];
+        let abc: [u8; 32] = hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+            .try_into()
+            .unwrap();
+        let first = request(&executor, write_request("a", None, b"abc", b"maya"));
+        assert_eq!(Frame::decode(&first).unwrap().payload[11], 3);
+        let path = if same_file { "a" } else { "b" };
+        let second = request(
+            &executor,
+            write_request(
+                path,
+                if same_file { Some(abc) } else { None },
+                b"def",
+                b"ben",
+            ),
+        );
+        assert_eq!(
+            Frame::decode(&second).unwrap().payload[17..49],
+            hex("cb8379ac2098aa165029e3938a51da0bcecfc008fd6795f401178647f96c5b34")
+        );
+        close(&executor);
+        let commits = burst_commits(&shared);
+        assert_eq!(commits.len(), 2);
+        assert!(commits[0].1.windows(4).any(|b| b == b"maya"));
+        assert!(commits[1].1.windows(3).any(|b| b == b"ben"));
+        let f = shared.f.lock().unwrap();
+        assert_eq!(f.where_file, vec![(3, "a".into()), (2, path.into())]);
+        assert_eq!(
+            f.git(&["show", &format!("{}:b/a", commits[0].0)], None)
+                .unwrap(),
+            "abc"
+        );
+        assert_eq!(
+            f.git(&["show", &format!("{}:b/{path}", commits[1].0)], None)
+                .unwrap(),
+            "def"
+        );
+        if same_file {
+            assert_eq!(
+                f.git(&["show", &format!("{}:a/a", commits[1].0)], None)
+                    .unwrap(),
+                "abc"
+            );
+        }
+        drop(f);
+        executor.shutdown().unwrap();
+    }
+}
+#[test]
+fn pending_external_close_is_durable_before_encoded_rpc_write() {
+    let (shared, executor) = setup();
+    {
+        let mut f = shared.f.lock().unwrap();
+        f.write("a", b"abc");
+        f.cpu[1] = 100;
+    }
+    let abc = hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        .try_into()
+        .unwrap();
+    let response = request(&executor, write_request("a", Some(abc), b"def", b"maya"));
+    assert_eq!(Frame::decode(&response).unwrap().payload[11], 3);
+    close(&executor);
+    let commits = burst_commits(&shared);
+    assert_eq!(commits.len(), 2);
+    let f = shared.f.lock().unwrap();
+    assert_eq!(
+        f.git(&["show", &format!("{}:b/a", commits[0].0)], None)
+            .unwrap(),
+        "abc"
+    );
+    assert_eq!(
+        f.git(&["show", &format!("{}:a/a", commits[1].0)], None)
+            .unwrap(),
+        "abc"
+    );
+    assert_eq!(
+        f.git(&["show", &format!("{}:b/a", commits[1].0)], None)
+            .unwrap(),
+        "def"
+    );
+    drop(f);
+    executor.shutdown().unwrap();
+}
+#[test]
+fn registered_run_external_write_uses_run_actor_and_presence_hook() {
+    let (shared, executor) = setup();
+    request(
+        &executor,
+        fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../packages/backend/internal/compose/testdata/cocontracts/req_register_run.bin",
+        ))
+        .unwrap(),
+    );
+    {
+        let mut f = shared.f.lock().unwrap();
+        f.write("a", b"run bytes");
+        f.cpu[0] = 100;
+    }
+    close(&executor);
+    let commits = burst_commits(&shared);
+    assert_eq!(commits.len(), 1);
+    assert!(commits[0].1.windows(5).any(|b| b == b"run-1"));
+    assert_eq!(shared.f.lock().unwrap().where_file, vec![(1, "a".into())]);
     executor.shutdown().unwrap();
 }

@@ -5,7 +5,7 @@ import { Effect, Exit, Schema } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { findPlanningWikiReview } from "../coding/planning-wiki.ts"
-import { PlanningContext } from "../coding/planning.ts"
+import { finalize, PlanningContext } from "../coding/planning.ts"
 import { Receipt, WikiError } from "../wiki/schema.ts"
 
 const config = {
@@ -184,4 +184,17 @@ test("parked planning context without citations still decodes with captured memo
   const decoded = Schema.decodeUnknownSync(PlanningContext)(context)
   assert.deepEqual(decoded, context)
   assert.equal(decoded.wikiCitations, undefined)
+})
+
+test("finalized plans retain captured wiki revisions and legacy plans omit citations", () => {
+  const head = { changeId: "change", commitId: "commit", treeId: "tree", operationId: "op", parentCommitIds: ["parent"], description: "Existing code" }
+  const context = { head, history: [head], memory: [], memoryRevision: "memory", implementation: "coding/implementation", implementationDigest: "a".repeat(64),
+    checks: [{ id: "test", target: "flows", flow: "checks/test", flowDigest: "b".repeat(64), tier: "fast" as const, required: true }] }
+  const proposed = { rationale: "Follow the decision", baseChangeId: "change", changes: [{ id: "retry", title: "Retry deliveries", intent: "Follow the decision", checks: ["test"],
+    atoms: [{ changeId: null, message: "Retry deliveries", intent: "Retry deliveries", reads: [], writes: ["deliver.ts"] }] }] }
+  const citations = [{ slug: "retry-policy", pageID: "42", revision: 3,
+    digest: "0590d40eefc0d1d5a9a5c8d407e4acfcb1cae6de15729033c56dc64ddb9abe47" }]
+  const input = { prompt: "Retry failed webhook deliveries", feedback: "" }
+  assert.deepEqual(finalize(input, { ...context, wikiCitations: citations }, proposed).wikiCitations, citations)
+  assert.equal(Object.hasOwn(finalize(input, context, proposed), "wikiCitations"), false)
 })

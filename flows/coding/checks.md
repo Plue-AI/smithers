@@ -106,10 +106,17 @@ missing executables, timeouts and unavailable cleanup fail execution instead of
 inventing validation evidence. Output is drained and a bounded prefix is stored
 in the existing receipt, with truncation disclosed.
 
+Command checks compare the exported tracked files before and after execution,
+including executable modes and symlink targets. A write, deletion or replacement
+fails with `check_modified_tree`, even on exit zero. Generated build outputs do
+not change the candidate. The changed export is retained under
+`.jj/smithers-checks/modified-*/source`; formatting must happen before capture.
+This failure stops correction rather than starting a repair or reproposal cycle.
+
 ## Close scratch after contained processes
 
 The export directory and contained processes use Effect scopes. The recipe relies
-on the injected runtime's scoped cleanup contract on success, failure and cancellation. It is a source snapshot, not a security
+on the injected runtime's scoped cleanup contract on success, ordinary failure and cancellation. Tree-writing failures move their output outside the scoped directory before cleanup. It is a source snapshot, not a security
 sandbox: the host must provide its existing process confinement when running
 untrusted project commands. FileSystem, Path and ChildProcessSpawner are Effect
 dependencies; the recipe does not select Node or Bun.

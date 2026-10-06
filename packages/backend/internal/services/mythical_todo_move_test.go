@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -292,15 +293,32 @@ func TestTodoMoveConcurrentPressesSerialize(t *testing.T) {
 		require.Equal(t, TodoControlReceipt{State: "accepted", Place: 2}, receipt)
 	}
 	require.Equal(t, []int64{n[0], n[2], n[1]}, o.stackOrder())
+	// Hold the common placement lock until both presses have read the old
+	// revision. Exactly one may change that revision.
+	tx, err := o.pool.Begin(session)
+	require.NoError(t, err)
+	_, err = tx.Exec(session, `SELECT pg_advisory_xact_lock($1)`, o.repoID)
+	require.NoError(t, err)
 	errs = make(chan error, 2)
 	for _, request := range []string{"a", "b"} {
-		go func() {
-			_, err := o.move(session, n[1], "up", request)
-			errs <- err
-		}()
+		go func() { _, err := o.move(session, n[1], "up", request); errs <- err }()
 	}
+	require.Eventually(t, func() bool {
+		var waiting int
+		err := o.pool.QueryRow(session, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory'`).Scan(&waiting)
+		return err == nil && waiting == 2
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, tx.Commit(session))
+	wins, conflicts := 0, 0
 	for range 2 {
-		require.NoError(t, <-errs)
+		if err := <-errs; err == nil {
+			wins++
+		} else {
+			requireTodoRefusal(t, err, http.StatusConflict, "conflict", "TODO moved; try again")
+			conflicts++
+		}
 	}
-	require.Equal(t, []int64{n[1], n[0], n[2]}, o.stackOrder(), "two whole swaps, one after the other")
+	require.Equal(t, 1, wins)
+	require.Equal(t, 1, conflicts)
+	require.Equal(t, []int64{n[0], n[1], n[2]}, o.stackOrder())
 }

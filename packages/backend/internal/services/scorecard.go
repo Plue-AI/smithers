@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -80,7 +81,7 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 	for _, relation := range relations {
 		present[relation.Name] = relation.Present
 	}
-	facts := scorecardFacts{Coverage: make(map[string]bool)}
+	facts := scorecardFacts{Coverage: make(map[string]bool), IncompleteStates: make(map[string]bool)}
 	if present["mythical_items"] && present["product_job_events"] {
 		rows, err := queries.ScorecardTODOs(ctx)
 		if err != nil {
@@ -95,9 +96,27 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 				continue
 			}
 			state := todoState(db.MythicalItem{State: row.State, Checks: row.Checks, PausedAt: row.PausedAt})
-			facts.TODOs = append(facts.TODOs, scorecardTODO{ID: row.ID, Owner: fmt.Sprint(row.Owner), Accepted: row.Accepted, State: state, StateAt: row.StateAt.Time})
+			// A later title/control update must not move a terminal outcome
+			// into another window. Use the last entry into this state.
+			stateTimes := make(map[string]time.Time)
+			decodeErr := json.Unmarshal(row.StateTimes, &stateTimes)
+			stateAt := stateTimes[state]
+			if (state == "merged" || state == "dropped" || state == "failed") && (decodeErr != nil || stateAt.IsZero()) {
+				facts.IncompleteStates[state] = true
+			}
+			facts.TODOs = append(facts.TODOs, scorecardTODO{ID: row.ID, Owner: fmt.Sprint(row.Owner), Accepted: row.Accepted, State: state, StateAt: stateAt})
 		}
 		facts.Coverage["T-STK-01"] = complete
+		mergedCoverage, err := queries.ScorecardMergeCoverage(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		facts.Coverage["T-STK-04"] = mergedCoverage
+		// A covered merge stream does not prove the separate main-commit
+		// inventory needed by outside work and dogfood.
+		for _, name := range []string{"merged", "first_merge", "activation", "no_hand_written_code"} {
+			facts.Coverage[name+":T-GH-02"] = mergedCoverage
+		}
 	}
 	if present["chat_turns"] && present["chat_turn_batches"] {
 		answer, err := queries.ScorecardFirstAnswer(ctx)

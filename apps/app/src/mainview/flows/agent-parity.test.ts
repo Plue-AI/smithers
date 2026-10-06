@@ -33,6 +33,14 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "agent.model": "Only the owner’s browser session changes models",
+  "settings.model.set": "Only the owner’s browser session changes models",
+  "model.assign": "Only the owner’s browser session configures models",
+  "model.edit": "Only the owner’s browser session configures models",
+  "model.new": "Only the owner’s browser session configures models",
+  "model.remove": "Only the owner’s browser session configures models",
+  "model.save": "Only the owner’s browser session configures models",
+  "model.test": "Only the owner’s browser session configures models",
   "todo.takeover": "TODO ownership belongs to a person; agents never take over",
   "notifications.allow": "browser permission requires the person’s in-card gesture",
   "debug.api": "raw API bypasses flow typing and approvals; agents use flows",
@@ -369,7 +377,7 @@ describe("the three-door law", () => {
     }
     // And listed: the slash menu and the prompt's catalog show them.
     const disclosed = new Set(controller.commands.disclosed().map((descriptor) => descriptor.name))
-    for (const name of ["flow.create", "agent.list"]) {
+    for (const name of ["flow.create", "agents"]) {
       expect(disclosed.has(name)).toBe(true)
     }
     expect(disclosed.has("cloud.prompt")).toBe(false)
@@ -387,21 +395,36 @@ test("versioned flow doors register on the design seam; a person's flow.edit dra
   expect(entries.map(nameOf)).toEqual(["flow", "flow.edit", "flow.source", "flows"])
   expect(entries.every(modelInvocable)).toBe(true)
   const edit = entries[1]!
-  expect(edit.metadata.confirm).toBe("change this flow")
+  const confirm = edit.metadata.confirm
+  if (typeof confirm !== "function") throw new Error("Expected proposal-aware confirmation")
+  expect(confirm({ name: "todo", request: "Add review" })).toBe("change this flow")
+  expect(confirm({ name: "todo", request: "Add review", diff: "+review" })).toBeUndefined()
   expect(edit.metadata.grammar?.("todo")).toEqual({ payload: { name: "todo" } })
   expect(edit.metadata.grammar?.("todo Add review")).toEqual({ payload: { name: "todo", request: "Add review" } })
+  expect(edit.metadata.grammar?.("todo Keep  spaces\nand lines ")).toEqual({ payload: { name: "todo", request: "Keep  spaces\nand lines " } })
   expect(edit.metadata.form?.args?.({ name: "todo", request: "Add review" })).toBe("todo Add review")
   // Install hosts use repository flows; this case exercises the retained design seed.
   const { store, controller } = await boot({ ...EVERYTHING, capabilities: EVERYTHING.capabilities.filter(capability => capability !== "install") })
   for (const name of ["flow", "flow.source", "flow.edit", "flows"]) expect(controller.commands.find(name)).toBeDefined()
   expect((await controller.commands.run("flow", "todo")).status).toBe("executed")
   expect([...store.collections.cards.values()].some(card => card.kind === "flow" && card.payload.name === "todo")).toBe(true)
+  const form = await controller.commands.submit({ name: "flow.edit", payload: { name: "todo" }, actor: "user" })
+  expect(form.status).toBe("form")
+  if (form.status !== "form") throw new Error("Expected edit request form")
+  expect(store.collections.cards.get(form.cardId)).toMatchObject({ payload: { given: { name: "todo" }, fields: [{ name: "request" }] } })
+  await controller.setFormField(form.cardId, "request", "Keep the typed name")
+  await controller.submitForm(form.cardId)
+  expect([...store.collections.cards.values()].some(card => card.kind === "draft" && card.title === "Change the TODO flow: Keep the typed name")).toBe(true)
   // Spec §11.5.1 and the three-door law: a person's edit is a Draft now; an agent's invocation confirms first.
   expect((await controller.commands.run("flow.edit", "todo Add review")).status).toBe("executed")
   expect(confirmationFor(store, "flow.edit")).toBeUndefined()
   expect([...store.collections.cards.values()].some(card => card.kind === "draft")).toBe(true)
   await execute(controller, "flow.edit", "todo Add lint")
   expect(confirmationFor(store, "flow.edit")).toBeDefined()
+  const confirmations = [...store.collections.messages.values()].filter(message => message.action?.flow === "flow.edit").length
+  await execute(controller, "flow.edit", JSON.stringify({ name: "todo", request: "Add tests", diff: "+pnpm test" }))
+  expect([...store.collections.messages.values()].filter(message => message.action?.flow === "flow.edit")).toHaveLength(confirmations)
+  expect(store.collections.cards.get("flow:todo")).toMatchObject({ payload: { proposal: { request: "Add tests", diff: "+pnpm test" } } })
 })
 
 test("Members doors are a person's: the slash and card commands exist, and the agent has none", async () => {

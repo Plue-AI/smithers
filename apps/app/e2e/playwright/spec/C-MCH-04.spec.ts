@@ -1,23 +1,45 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
 
-// UI projection of .specs/engineering/checks/C-MCH-04.md; not a qualification receipt.
-// Written before implementation: mvp.md §6.7, M-06; lands with T-MCH-01
+// Exercises the real InstallSeam and Settings Container with a persisted HTTP
+// projection fixture. Production router, bundle and two-host calibration receipts
+// are separate; this browser test alone is not a C-MCH-04 qualification receipt.
 test("C-MCH-04: Owner capacity persists below the detected maximum", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.7, M-06; lands with T-MCH-01")
   await owner(page)
+  const model = installFixture()
+  model.this_mac = { memory_gb: 32, perf_cores: 10, disk_free_gb: 400, capacity: 3 }
+  model.capacity = 3
+  const writes: number[] = []
+  await page.route("**/api/install", async route => {
+    if (route.request().method() === "PUT") {
+      const { capacity } = route.request().postDataJSON() as { capacity: number }
+      expect(capacity).toBeGreaterThanOrEqual(1)
+      expect(capacity).toBeLessThanOrEqual(3)
+      writes.push(capacity)
+      model.capacity = capacity
+    }
+    await route.fulfill({ json: model })
+  })
   await page.goto("/")
-  // Seed detected 32 GiB / 10 performance cores / 400 GiB free: maximum 3.
-  // 24/8/200 => 2 and 64/12/1024 => 6 are separate host-detector fixtures.
-  // Zero-capacity memory, disk and core fixes need a real install-settings seam.
   await say(page, "/settings")
-  const machines = page.getByRole("spinbutton", { name: "Machines", exact: true }).last()
-  await expect(machines).toHaveValue("3")
-  await page.getByRole("button", { name: "Fewer machines", exact: true }).last().press("Enter")
-  await expect(machines).toHaveValue("2")
+  const settings = page.getByRole("region", { name: "Settings", exact: true }).last()
+  const machines = settings.locator('[data-flow="settings.capacity"] output')
+  await expect(settings).toContainText("32 GB · 400 GB free")
+  await expect(machines).toHaveText("3")
+  await expect(settings.getByRole("button", { name: "More Machines", exact: true })).toBeDisabled()
+  await settings.getByRole("button", { name: "Fewer Machines", exact: true }).press("Enter")
+  await expect(machines).toHaveText("2")
+  await settings.getByRole("button", { name: "Fewer Machines", exact: true }).press("Enter")
+  await expect(machines).toHaveText("1")
+  await expect(settings.getByRole("button", { name: "Fewer Machines", exact: true })).toBeDisabled()
   await page.reload()
-  await expect(machines).toHaveValue("2")
-  await page.getByRole("button", { name: "More machines", exact: true }).last().press("Enter")
-  await expect(machines).toHaveValue("3")
-  await expect(page.getByRole("button", { name: "More machines", exact: true }).last()).toBeDisabled()
+  await say(page, "/settings")
+  await expect(machines).toHaveText("1")
+  await settings.getByRole("button", { name: "More Machines", exact: true }).press("Enter")
+  await expect(machines).toHaveText("2")
+  await settings.getByRole("button", { name: "More Machines", exact: true }).press("Enter")
+  await expect(machines).toHaveText("3")
+  await expect(settings.getByRole("button", { name: "More Machines", exact: true })).toBeDisabled()
+  expect(writes).toEqual([2, 1, 2, 3])
 })

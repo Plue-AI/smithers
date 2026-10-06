@@ -392,3 +392,20 @@ test("image.add opens a private machine.json-only Draft through the production f
   expect(await h.controller.submitCommand({ name: "image.add", payload: { name: "Fig Let" }, actor: "user" })).toMatchObject({ status: "failed" })
  } finally { h.controller.dispose() }
 })
+
+test("install flow edit refuses an unavailable catalog before creating context", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const writes: string[] = []
+  const controller = createAppController(store, unavailable, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    fetchImpl: async (input, init) => {
+      if (init?.method === "POST") writes.push(String(input))
+      return Response.json({ class: "infra", code: "unavailable" }, { status: 503 })
+    }
+  })
+  try {
+    expect(await controller.commands.submit({ name: "flow.edit", actor: "user", payload: { name: "todo", request: "Run tests", diff: "+test" } })).toMatchObject({ status: "failed" })
+    expect([...store.collections.cards.values()].filter(card => card.kind === "draft" || card.kind === "flow")).toHaveLength(0)
+    expect(writes).toEqual([])
+  } finally { await controller.dispose() }
+})

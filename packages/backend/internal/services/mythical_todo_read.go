@@ -2,8 +2,11 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -214,6 +217,29 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			}
 		}
 	}
+	// Resolve only the repository route; page identity stays the captured ID.
+	for i := range evidence {
+		for j, entry := range evidence[i].Items {
+			if entry["kind"] != "wiki" {
+				continue
+			}
+			repository, readErr := s.queries().GetRepoByID(ctx, item.RepositoryID)
+			if readErr != nil {
+				return nil, readErr
+			}
+			repoOwner, readErr := mythicalRepositoryOwner(ctx, s.queries(), repository)
+			if readErr != nil {
+				return nil, readErr
+			}
+			captured := map[string]any{}
+			for key, value := range entry {
+				captured[key] = value
+			}
+			captured["url"] = fmt.Sprintf("/api/repos/%s/%s/wiki/history/%s/%v/content?visibility=public",
+				url.PathEscape(repoOwner), url.PathEscape(repository.Name), entry["pageID"], entry["revision"])
+			evidence[i].Items[j] = captured
+		}
+	}
 	card["evidence"] = evidence
 	return card, nil
 }
@@ -284,6 +310,9 @@ type todoAttemptEvidence struct {
 	Items    []map[string]any `json:"items"`
 }
 
+var wikiCitationPageID = regexp.MustCompile(`^[1-9][0-9]*$`)
+var wikiCitationDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 	evidence := todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{}}
 	for _, receipt := range mythicalReceiptsView(item) {
@@ -299,6 +328,18 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 			check["took_s"] = float64(*receipt.DurationMs) / 1000
 		}
 		evidence.Items = append(evidence.Items, check)
+	}
+	var plan struct {
+		WikiCitations []planWikiCitation `json:"wikiCitations"`
+	}
+	if json.Unmarshal(item.Plan, &plan) == nil {
+		for _, citation := range plan.WikiCitations {
+			if citation.Slug == "" || citation.Revision < 1 || !wikiCitationPageID.MatchString(citation.PageID) || !wikiCitationDigest.MatchString(citation.Digest) {
+				continue
+			}
+			evidence.Items = append(evidence.Items, map[string]any{"kind": "wiki", "slug": citation.Slug,
+				"pageID": citation.PageID, "revision": citation.Revision, "digest": citation.Digest})
+		}
 	}
 	checks := mythicalChecksOf(item)
 	// The review is of the pull request head that published this candidate

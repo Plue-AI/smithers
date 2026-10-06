@@ -14,6 +14,7 @@ import (
 // subscriber of a topic reads the same committed facts, so one Build serves
 // them all at one cursor.
 type Source struct {
+	Document *DocumentSource
 	// Key names the topic's stream. Subscribers with one key share its
 	// cursor and its snapshots byte for byte.
 	Key string

@@ -171,7 +171,7 @@ describe("T-APP-03 install seam", () => {
   })
   test("limits reject invalid values before transport and allow both boundaries", async () => {
     const h = await harness(() => Response.json(installFixture())); await h.seam.readInstall()
-    for (const n of [-1, 3.5, NaN, Infinity, 4]) expect(typeof h.seam.setInstallCapacity(n)).toBe("string")
+    for (const n of [0, -1, 3.5, NaN, Infinity, 4]) expect(typeof h.seam.setInstallCapacity(n)).toBe("string")
     for (const n of [0, -1, 2.5, NaN, Infinity, 9]) expect(typeof h.seam.setInstallParallel(n)).toBe("string")
     expect(h.requests).toHaveLength(1)
     h.seam.setInstallCapacity(3); await h.idle()

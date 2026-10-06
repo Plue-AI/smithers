@@ -15,6 +15,7 @@ import type { CardCallbacks, CardProps } from "./CardAction.ts"
  */
 export const FlowCardSchema = z.object({
   name: z.string(),
+  proposal: z.object({ request: z.string(), diff: z.string() }).optional(),
   source: z.union([z.object({ builtin: z.literal(true) }), z.object({ path: z.string() })]),
   system: z.boolean(),
   versions: z.array(z.object({
@@ -60,4 +61,4 @@ export type FlowViewProps = CardProps<FlowCard>
  * @since 1.0.0
  * @category models
  */
-export type FlowCardCallbacks = CardCallbacks<"flow.source" | "flow.plan" | "flow.run" | "flow.edit">
+export type FlowCardCallbacks = CardCallbacks<"flow.source" | "flow.plan" | "flow.run" | "flow.edit" | "todo.new">

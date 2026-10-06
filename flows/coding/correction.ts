@@ -556,7 +556,7 @@ export const correctionLayers = Layer.mergeAll(
           for (const reason of cause.reasons) {
             if (
               Cause.isFailReason(reason) && reason.error instanceof CodingError &&
-              reason.error.code === "check_infra"
+              (reason.error.code === "check_infra" || reason.error.code === "check_modified_tree")
             ) return Effect.fail(reason.error)
           }
           const early = cause.reasons.find((reason) =>

@@ -52,8 +52,8 @@ type flowLoadProjection struct {
 	Generation   int64  `json:"generation"`
 }
 
-// advanceFlowLoad moves the repository's flow-load one step. The stack is
-// current (its landed main is main's tip) when this runs.
+// advanceFlowLoad uses the main observed by the GitHub poll independently
+// of stack folding. The stack claim serializes admission and settlement.
 func (s *MythicalService) advanceFlowLoad(ctx context.Context, r *mythicalRun) {
 	if !s.flowLoad || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid || !flowCommitPattern.MatchString(r.row.LandedMain) {
 		return
@@ -105,7 +105,7 @@ func (s *MythicalService) stepFlowLoad(ctx context.Context, r *mythicalRun) erro
 func (s *MythicalService) launchFlowLoad(ctx context.Context, r *mythicalRun, row db.FlowLoad, attempt int32, now time.Time) error {
 	q := s.queries()
 	main := r.row.LandedMain
-	tree, syncing, err := s.flowLoadTree(ctx, r, main, row.Tree)
+	tree, syncing, err := s.flowLoadTree(ctx, r, main, row.Tree, row.Versions)
 	if err != nil {
 		return err
 	}
@@ -170,18 +170,18 @@ func (s *MythicalService) launchFlowLoad(ctx context.Context, r *mythicalRun, ro
 
 // flowLoadTree reads the flow files at commit (path to blob) and names the
 // flows whose files differ from the last load's tree.
-func (s *MythicalService) flowLoadTree(ctx context.Context, r *mythicalRun, commit string, loaded json.RawMessage) (map[string]string, json.RawMessage, error) {
+func (s *MythicalService) flowLoadTree(ctx context.Context, r *mythicalRun, commit string, loaded, versions json.RawMessage) (map[string]string, json.RawMessage, error) {
 	if !r.g.has(ctx, commit) {
 		if err := r.g.fetch(ctx, r.bridge.URL(), 1, 0, "refs/heads/"+r.branch); err != nil {
 			return nil, nil, fmt.Errorf("fetch main: %s", sanitizeMirrorError(err, r.bridge.URL()))
 		}
 	}
-	listing, err := r.g.git(ctx, "ls-tree", "-r", commit, "--", "flows/")
+	listing, err := r.g.git(ctx, "ls-tree", "-r", "-z", commit)
 	if err != nil {
 		return nil, nil, err
 	}
 	tree := map[string]string{}
-	for _, line := range strings.Split(listing, "\n") {
+	for _, line := range strings.Split(listing, "\x00") {
 		meta, path, ok := strings.Cut(line, "\t")
 		if fields := strings.Fields(meta); ok && len(fields) == 3 && fields[1] == "blob" {
 			tree[path] = fields[2]
@@ -204,10 +204,31 @@ func (s *MythicalService) flowLoadTree(ctx context.Context, r *mythicalRun, comm
 			entries[name] = path
 		}
 	}
+	var measured []FlowLoadVersion
+	_ = json.Unmarshal(versions, &measured)
+	dependencies := map[string][]string{}
+	for _, flow := range measured {
+		for _, path := range flow.Dependencies {
+			dependencies[path] = append(dependencies[path], flow.Name)
+		}
+	}
+	locks := map[string]bool{"pnpm-lock.yaml": true, "package-lock.json": true, "yarn.lock": true, "bun.lock": true, "bun.lockb": true}
 	changed := map[string]bool{}
 	for path := range unionKeys(before, tree) {
 		if before[path] == tree[path] {
 			continue
+		}
+		if locks[path] {
+			for name := range entries {
+				if Overridable(name) {
+					changed[name] = true
+				}
+			}
+		}
+		for _, name := range dependencies[path] {
+			if Overridable(name) {
+				changed[name] = true
+			}
 		}
 		owner, longest := "", 0
 		for dir, name := range dirs {
@@ -352,7 +373,18 @@ func (s *MythicalService) persistFlowLoad(ctx context.Context, r *mythicalRun, r
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	q := db.New(tx)
-	moved, err := persistFlowVersions(ctx, q, r.row.RepositoryID, row.CommitID, result.Flows)
+	current := row.CommitID == r.row.LandedMain
+	// Fence activation against the poll receipt in the same transaction:
+	// main may have moved since this worker read the mirrored bookmark.
+	var syncedHead string
+	readErr := tx.QueryRow(ctx, `SELECT smithers_head FROM github_main_pulls WHERE repository_id=$1 FOR SHARE`, r.row.RepositoryID).Scan(&syncedHead)
+	if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+		return readErr
+	}
+	if readErr == nil && syncedHead != "" {
+		current = current && syncedHead == row.CommitID
+	}
+	moved, err := persistFlowVersions(ctx, q, r.row.RepositoryID, row.CommitID, result.Flows, current)
 	if err != nil {
 		return err
 	}

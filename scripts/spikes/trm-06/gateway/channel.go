@@ -40,9 +40,37 @@ func readFrame(r io.Reader) (frame, error) {
 	if _, err := io.ReadFull(r, body); err != nil {
 		return f, err
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(body, &fields); err != nil {
+	// Decode keys individually: encoding/json's map decoding silently keeps
+	// the last duplicate, unlike the Rust tagged-frame decoder.
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return f, errors.New("invalid frame object")
+	}
+	fields := make(map[string]json.RawMessage)
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return f, err
+		}
+		key, ok := token.(string)
+		if !ok {
+			return f, errors.New("invalid frame key")
+		}
+		if _, duplicate := fields[key]; duplicate {
+			return f, errors.New("duplicate frame field")
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return f, err
+		}
+		fields[key] = value
+	}
+	if _, err := decoder.Token(); err != nil {
 		return f, err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return f, errors.New("trailing frame data")
 	}
 	if err := json.Unmarshal(fields["type"], &f.Type); err != nil {
 		return f, err
@@ -322,6 +350,10 @@ func serveChannels(channels <-chan ssh.NewChannel, requests <-chan *ssh.Request,
 		}
 	}()
 	for incoming := range channels {
+		if openGuest == nil {
+			incoming.Reject(ssh.ConnectionFailed, "guest unavailable")
+			continue
+		}
 		switch incoming.ChannelType() {
 		case "session":
 			if len(incoming.ExtraData()) != 0 {

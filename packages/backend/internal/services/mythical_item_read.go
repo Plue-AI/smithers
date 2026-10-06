@@ -40,7 +40,12 @@ func (s *MythicalService) Item(ctx context.Context, repositoryID int64, ref stri
 	if err != nil {
 		return MythicalItemView{}, err
 	}
+	earlier, err := q.ListMythicalPredecessors(ctx, repositoryID, item.StackPosition.Int64)
+	if err != nil {
+		return MythicalItemView{}, err
+	}
 	view := mythicalItemView(item)
+	view.DependsOn = mythicalDependsOn(item, earlier)
 	view.CostNanos = costs[item.ID.Bytes]
 	return view, nil
 }

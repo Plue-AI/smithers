@@ -1,12 +1,28 @@
 // @ts-check
 import { createHash } from "node:crypto"
-import { readFile, writeFile, mkdir } from "node:fs/promises"
+import { readFile, writeFile, mkdir, rename, readdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { execFileSync } from "node:child_process"
 import { archiveName } from "./installer-release.mjs"
 import { isMain } from "./workspace-packages.mjs"
 
 const hash = bytes => createHash("sha256").update(bytes).digest("hex")
+// Homebrew writes name--version locally but fetches name-version from root_url.
+export const normalizeBottle = async directory => {
+  const metadata = (await readdir(directory)).filter(name => name.endsWith(".bottle.json"))
+  if (metadata.length !== 1) throw new Error("Exactly one bottle metadata file required")
+  const data = JSON.parse(await readFile(join(directory, metadata[0]), "utf8"))
+  const entries = Object.entries(data)
+  if (entries.length !== 1) throw new Error("Exactly one bottle formula required")
+  const tags = Object.entries(entries[0][1].bottle.tags)
+  if (tags.length !== 1 || !/^arm64_/.test(tags[0][0])) throw new Error("Exactly one macOS arm64 bottle required")
+  const { filename, local_filename: local, sha256 } = tags[0][1]
+  for (const name of [filename, local]) {
+    if (typeof name !== "string" || !/^smithers-[A-Za-z0-9_.-]+\.bottle\.tar\.gz$/.test(name)) throw new Error("Unsafe bottle filename")
+  }
+  if (hash(await readFile(join(directory, local))) !== sha256) throw new Error("Bottle metadata checksum mismatch")
+  if (filename !== local) await rename(join(directory, local), join(directory, filename))
+}
 export const formula = ({ tag, cliHash, bundleHash, sumsHash, root }) => {
   archiveName(tag, "darwin", "arm64") // validate before emitting Ruby or URLs
   for (const value of [cliHash, bundleHash, sumsHash]) if (!/^[a-f0-9]{64}$/.test(value)) throw new Error("Invalid asset digest")
@@ -110,12 +126,13 @@ export const requireQualification = async ({ sha, tag, appID, token, request = f
   }
 }
 
-if (isMain(import.meta.url)) {
+if (isMain(import.meta)) {
   const [command, directory, tag, root] = process.argv.slice(2)
   if (command === "prepare") await prepare(directory, tag, root)
+  else if (command === "normalize-bottle") await normalizeBottle(directory)
   else if (command === "qualify") {
     const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()
     execFileSync("git", ["merge-base", "--is-ancestor", sha, "origin/main"])
     await requireQualification({ sha, tag, appID: process.env.RELEASE_QUALIFICATION_APP_ID, token: process.env.GITHUB_TOKEN })
-  } else throw new Error("Usage: homebrew-release.mjs prepare|qualify <directory> <tag> [file-root]")
+  } else throw new Error("Usage: homebrew-release.mjs prepare|qualify|normalize-bottle <directory> <tag> [file-root]")
 }

@@ -112,6 +112,7 @@ var terminalProfileRoutes = []struct {
 	{http.MethodGet, wikiReadPath},
 	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/files(/.*)?$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 }
 
@@ -446,6 +447,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},

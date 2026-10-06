@@ -412,6 +412,30 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: middleware.UnauthenticatedMessage(ctx)}
 	}
+	if command == "branch.read" && info.IsTokenAuth {
+		refused := func() (InstallAuthorization, error) {
+			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Credential cannot read this branch"}
+		}
+		if !info.Scopes.Has(middleware.ScopeReadRepository) || len(middleware.ParseTokenPathRestrictions(info.RawScopes)) != 0 {
+			return refused()
+		}
+		if restricted := info.RepositoryRestriction(); restricted != 0 {
+			repository, err := InstallRepositoryID(ctx, q)
+			if err != nil {
+				return InstallAuthorization{}, err
+			}
+			if restricted != repository {
+				return refused()
+			}
+		}
+		if restricted := info.WorkspaceRestriction(); restricted != "" {
+			delegation, delegated := info.Delegation()
+			if !delegated || delegation.Branch != restricted {
+				return refused()
+			}
+		}
+	}
+
 	if command == "confirmations.read" && info.IsTokenAuth && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) && info.Scopes.Has(middleware.ScopeReadRepository) && info.RepositoryRestriction() == 0 && info.WorkspaceRestriction() == "" && len(middleware.ParseTokenPathRestrictions(info.RawScopes)) == 0 {
 		role, err := InstallRoleOf(ctx, q, info.User.ID)
 		if err != nil {
