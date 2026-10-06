@@ -10,6 +10,11 @@
       "name": "C_UI_10_ROLE_SECRET",
       "value": "c-ui-10-literal-value",
       "main_only": false
+    },
+    "denied": {
+      "class": "permission",
+      "code": "permission",
+      "message": "Only a maintainer can do this"
     }
   },
   "signout": {
