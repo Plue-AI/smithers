@@ -2,7 +2,7 @@ import type { Action } from "@smthrs/rpc/CardAction";
 import { useState } from "react";
 import { Loader } from "lucide-react";
 import type { EvidenceItem } from "@smthrs/rpc/CardPrimitives";
-import type { TodoViewProps } from "@smthrs/rpc/TodoCard";
+import type { TodoViewProps } from "../TodoCard";
 
 import { ActorChip, actorName } from "./ActorChip";
 import { LessonsCount } from "./ProposalView";
@@ -48,7 +48,7 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
       return <span>{item.label}</span>;
   }
 }
-export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
+export function TodoView({ model: todo, actions, onAction, conflictTerminal }: TodoViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const mergeAction = actions.find((action) => action.tag === "merge");
   const mergeReason =
@@ -159,7 +159,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
         </p>
       ))}
       {todo.waits.map((wait) => (
-        <section className="todo-wait" key={wait.id} data-wait-id={wait.id}>
+        <section className="todo-wait" key={wait.id} data-wait-id={wait.id} data-wait-kind={wait.kind}>
           <div className="todo-authored">
             {wait.by && <><ActorChip size="s" actor={wait.by} /><span>{actorName(wait.by)}</span></>}
             <b>{wait.prompt}</b>
@@ -169,6 +169,9 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
           ))}
           {wait.ssh_line && <code>{wait.ssh_line}</code>}
           {wait.sha && <code>{wait.sha}</code>}
+          {wait.kind === "conflict" && wait.id === todo.waits.find(row => row.kind === "conflict")?.id && conflictTerminal && (
+            <div className="todo-conflict-terminal">{conflictTerminal}</div>
+          )}
           <div className="todo-actions">
             {wait.actions.map((action, index) => (
               <TodoActionView

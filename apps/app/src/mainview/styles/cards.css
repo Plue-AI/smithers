@@ -2342,6 +2342,23 @@
 }
 .todo-wait code {
   display: block;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.todo-conflict-terminal {
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 12px;
+}
+@media (max-width: 480px) {
+  .todo-wait[data-wait-kind="conflict"] .todo-actions,
+  .todo-wait[data-wait-kind="conflict"] .todo-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .todo-wait[data-wait-kind="conflict"] .todo-form label {
+    min-width: 0;
+  }
 }
 .todo-actions,
 .todo-form {

@@ -14,7 +14,7 @@ import type { AppController } from "../state/AppController"
 import { BEN, createDesignWorld } from "../state/seams/DesignWorld"
 import { createRoot } from "./views/testDom"
 
-const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maintainer", answerDraft?: string) => {
+const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maintainer", answerDraft?: string, availableActions?: readonly CatalogTag[]) => {
   let props!: TodoViewProps
   const dispatches: { tag: CatalogTag; input: unknown }[] = []
   const patches: unknown[] = []
@@ -22,7 +22,7 @@ const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maint
     payload: { n: model.n, model, requests: [], answerDraft, answeredBy: answerDraft ? "maya" : undefined } }
   const View = (value: TodoViewProps) => { props = value; return null }
   renderToStaticMarkup(<TodoContainer card={card} role={role} View={View} view={{ maximized: true, tab: "evidence" }}
-    onView={patch => patches.push(patch)} dispatch={(tag, input) => { dispatches.push({ tag, input }) }} />)
+    onView={patch => patches.push(patch)} availableActions={availableActions} dispatch={(tag, input) => { dispatches.push({ tag, input }) }} />)
   return { props, dispatches, patches }
 }
 describe("TODO Container", () => {
@@ -35,7 +35,10 @@ describe("TODO Container", () => {
   test("maps every schema fixture, including past attempts and repairs, without owning presentation", () => {
     for (const model of Object.values(fixtures).map(story => story.model)) {
       const h = mount(model)
-      expect(h.props.model).toEqual(TodoCardSchema.parse(model))
+      const expected = TodoCardSchema.parse(model)
+      expect({ ...h.props.model, waits: [] }).toEqual({ ...expected, waits: [] })
+      expect(h.props.model.waits.map(({ actions: _, ...wait }) => wait)).toEqual(expected.waits.map(({ actions: _, ...wait }) => wait))
+      for (const wait of h.props.model.waits) for (const action of wait.actions) expect(action.args?.wait).toBe(wait.id)
       expect(h.props.view).toEqual({ maximized: true, tab: "evidence" })
       h.props.onView({ tab: "prompt", maximized: false })
       expect(h.patches).toEqual([{ tab: "prompt", maximized: false }])
@@ -150,6 +153,53 @@ test("independent answer waits dispatch their own IDs even after another answer"
   const late = mount(model, "member", "Late text")
   for (const action of actions) late.props.onAction(action.tag, { ...action.args, answer: "Yes" })
   expect(late.dispatches.map(each => each.tag)).toEqual(["todo.answer", "todo.answer"])
+})
+test("unavailable card and wait actions are absent and cannot dispatch", () => {
+  const model: TodoCard = { ...fixtures.foreign_push.model, waits: [...fixtures.foreign_push.model.waits, ...fixtures.needs_you.model.waits] }
+  const h = mount(model, "member", undefined, ["todo.answer", "todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.actions.map(action => action.tag)).toEqual(["todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.model.waits[0]!.actions).toEqual([])
+  expect(h.props.model.waits[1]!.actions[0]!.args?.wait).toBe("wait-question-1")
+  for (const tag of ["branch", "branch.bring-in", "branch.discard-foreign", "todo.stop", "todo.resume"] as const) h.props.onAction(tag)
+  expect(h.dispatches).toEqual([])
+  const markup = renderToStaticMarkup(<TodoView {...h.props} />)
+  expect(markup).not.toMatch(/>Bring in<|>Discard<|>Open branch<|>Stop<|>Resume</)
+  expect(markup).toContain("Answer")
+})
+test("REST waits with no action args gain independent bindings at the actual View boundary", async () => {
+  const first = { ...fixtures.needs_you.model.waits[0]!, id: "first", actions: [{ tag: "todo.answer" as const, label: "Answer", input: [{ name: "answer", label: "Answer", kind: "text" as const, required: true, multiline: true }] }] }
+  const second = { ...first, id: "second", prompt: "Second question" }
+  const model = { ...fixtures.needs_you.model, waits: [first, second] }
+  const h = mount(model)
+  const host = document.body.appendChild(document.createElement("div")), root = createRoot(host)
+  try {
+    await act(async () => root.render(<TodoView {...h.props} />))
+    for (const [index, field] of [...host.querySelectorAll<HTMLTextAreaElement>("textarea")].entries()) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, index === 0 ? "First answer" : "Second answer")
+        field.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      await act(async () => field.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+    }
+    expect(h.dispatches).toEqual([
+      { tag: "todo.answer", input: { n: 12, wait: "first", answer: "First answer" } },
+      { tag: "todo.answer", input: { n: 12, wait: "second", answer: "Second answer" } },
+    ])
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+test("a supplied conflict terminal and Done retain their wait through the Container and View", async () => {
+  const model = { ...fixtures.conflict.model, waits: [{ ...fixtures.conflict.model.waits[0]!, actions: [
+    { tag: "todo.answer" as const, label: "Done", args: { answer: "done" } },
+  ] }] }
+  const card: TodoEntry = { id: "todo:12", kind: "todo", title: "Repair", status: "active", createdAt: 1, ordinal: 1, payload: { n: 12, model, requests: [] } }
+  const host = document.body.appendChild(document.createElement("div")), root = createRoot(host), calls: unknown[] = []
+  try {
+    await act(async () => root.render(<TodoContainer card={card} role="member" dispatch={(tag, input) => calls.push([tag, input])}
+      View={TodoView} view={{ maximized: false }} onView={() => {}} conflictTerminal={<textarea aria-label="Supplied terminal" />} />))
+    expect(host.querySelectorAll('[aria-label="Supplied terminal"]')).toHaveLength(1)
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-flow="todo.answer"]')!.click())
+    expect(calls).toEqual([["todo.answer", { n: 12, wait: "wait-conflict-1", answer: "done" }]])
+  } finally { await act(async () => root.unmount()); host.remove() }
 })
 test("one actions row: Open branch, Inspect, Steer and Amend as plain buttons, Drop; the only form is the wait's Answer", () => {
   const model = { ...fixtures.needs_you.model, first_answer: undefined }

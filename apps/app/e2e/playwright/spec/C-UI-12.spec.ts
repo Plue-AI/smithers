@@ -1,6 +1,78 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 
+test("C-UI-12 TODO: supplied Fork and Add to stack have keyboard paths", async ({ page }) => {
+  await page.goto("/view-stories.html?story=TodoView/fork_and_add")
+  await page.evaluate(() => window.addEventListener("story-callback", event => {
+    const detail = (event as CustomEvent).detail
+    if (detail.kind === "action") document.body.dataset.action = JSON.stringify(detail.value)
+  }))
+  await page.getByRole("button", { name: "Fork", exact: true }).press("Enter")
+  await expect(page.locator("body")).toHaveAttribute("data-action", JSON.stringify({ tag: "branch.fork", args: { from: "T12" } }))
+  await page.getByRole("textbox", { name: "TODO", exact: true }).fill("Keep retry")
+  await page.keyboard.press("Tab")
+  await expect(page.getByRole("button", { name: "Add to stack", exact: true })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.locator("body")).toHaveAttribute("data-action", JSON.stringify({ tag: "branch.add-to-stack", args: { branch: "scratch/retry", text: "Keep retry" } }))
+})
+
+test("C-UI-12 TODO conflict: 390 px layout and keyboard order", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/view-stories.html?story=TodoView/conflict_with_terminal")
+  const wait = page.locator('[data-wait-id="wait-conflict-1"]')
+  await expect(wait).toContainText("packages/rpc/src/TodoCard.ts")
+  await expect(wait).toContainText("ssh todo-12@mac-mini.local")
+  const terminal = wait.getByRole("textbox", { name: "Conflict terminal", exact: true })
+  await expect(terminal).toHaveCount(1)
+  await expect(wait.locator(".todo-actions")).toHaveCSS("flex-direction", "column")
+  const resolve = wait.getByRole("button", { name: "Resolve", exact: true })
+  const done = wait.getByRole("button", { name: "Done", exact: true })
+  const terminalBox = (await terminal.boundingBox())!, resolveBox = (await resolve.boundingBox())!, doneBox = (await done.boundingBox())!
+  expect(terminalBox.y + terminalBox.height).toBeLessThanOrEqual(resolveBox.y)
+  expect(resolveBox.y + resolveBox.height).toBeLessThanOrEqual(doneBox.y)
+  expect(await wait.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+  await page.evaluate(() => window.addEventListener("story-callback", event => {
+    const detail = (event as CustomEvent).detail
+    if (detail.kind === "action") document.body.dataset.action = JSON.stringify(detail.value)
+  }))
+  await terminal.focus()
+  await page.keyboard.press("Tab")
+  await expect(resolve).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.locator("body")).toHaveAttribute("data-action", JSON.stringify({ tag: "branch", args: { name: "todo/12", wait: "wait-conflict-1" } }))
+  await page.keyboard.press("Tab")
+  await expect(done).toBeFocused()
+  await page.keyboard.press("Space")
+  await expect(page.locator("body")).toHaveAttribute("data-action", JSON.stringify({ tag: "todo.answer", args: { n: "12", wait: "wait-conflict-1", answer: "done" } }))
+})
+
+test("C-UI-12 TODO: a REST-served question answers through the mounted card and real seam", async ({ page }) => {
+  await owner(page)
+  const model = {
+    n: 24, title: "Retry from the install", state: "needs_you",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [], merge: { state: "waiting", reason: "attention", on_github: false },
+    waits: [{ id: "question-24", kind: "question", prompt: "Keep retry?", since: "2026-10-05T10:00:00Z",
+      actions: [{ tag: "todo.answer", label: "Answer", input: [{ name: "answer", label: "Answer", kind: "text", required: true, multiline: true }] }] }],
+  }
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model }))
+  const answers: unknown[] = []
+  await page.route("**/api/todos/24/answer", async route => {
+    answers.push(route.request().postDataJSON())
+    await route.fulfill({ status: 202, json: { state: "accepted" } })
+  })
+  await page.goto("/")
+  await say(page, "/todo T24")
+  const card = page.getByRole("article", { name: "TODO T24", exact: true })
+  await expect(card).toContainText("Retry from the install")
+  await expect(card.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0)
+  await expect(card.getByRole("button", { name: "Open branch", exact: true })).toHaveCount(0)
+  await card.getByRole("textbox", { name: "Answer", exact: true }).fill("Keep retry\nverbatim")
+  await card.getByRole("button", { name: "Answer", exact: true }).press("Enter")
+  await expect.poll(() => answers).toEqual([{ answer: "Keep retry\nverbatim", wait: "question-24" }])
+})
+
 // UI projection of C-UI-12; its unit/CLI acceptance evidence remains separate.
 // Written before implementation: mvp.md §6, §9; lands with T-UI-01..T-UI-14
 test("C-UI-12: Every card fixture renders inline and maximized", async ({ page }) => {

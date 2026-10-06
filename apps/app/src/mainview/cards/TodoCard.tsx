@@ -1,11 +1,11 @@
-import { useSyncExternalStore, type ComponentType } from "react"
+import { useSyncExternalStore, type ComponentType, type ReactNode } from "react"
 import { MembersCardSchema } from "@smthrs/rpc/MembersCard"
 import { useTopic } from "../state/useTopic"
 import { useLiveQuery } from "@tanstack/react-db"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import type { ConfirmCard } from "@smthrs/rpc/ConfirmCard"
 import type { PersonRef } from "@smthrs/rpc/CardPrimitives"
-import type { CardProps } from "@smthrs/rpc/CardAction"
+import type { CardProps, CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { TodoEntry } from "../state/seams/TodoSeam"
 import { useController } from "../ControllerContext"
@@ -15,6 +15,8 @@ import { TodoView } from "./views/TodoView"
 
 export interface TodoViewProps extends CardProps<TodoCard> {
   readonly answer?: { readonly text: string; readonly answered_by: string }
+  /** Card-owned terminal for the first (selected) conflict wait. Never serialized. */
+  readonly conflictTerminal?: ReactNode
 }
 export interface TodoContainerProps {
   /** The subscribed todo:<n> collection entry, populated by TodoSeam. */
@@ -24,6 +26,9 @@ export interface TodoContainerProps {
   readonly View: ComponentType<TodoViewProps>
   readonly view: CardProps<TodoCard>["view"]
   readonly onView: CardProps<TodoCard>["onView"]
+  /** Composed providers only; the design seed retains its supplied controls. */
+  readonly availableActions?: readonly CatalogTag[]
+  readonly conflictTerminal?: ReactNode
 }
 const mergeLabel = (model: TodoCard) => {
   if (model.merge.reason === "order") return `Merges after ${model.merge.detail ?? "the previous TODO"}`
@@ -43,7 +48,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
       switch (action.tag) {
         case "todo.answer":
           if (!lateAnswer || (lateWait ? wait.id !== lateWait : model.waits.length > 1)) definitions.push({ ...action, tag: "todo.answer", args: { ...action.args, wait: wait.id },
-            command_input: { n, wait: wait.id, answer: "" },
+            command_input: { n, wait: wait.id, answer: action.args?.answer ?? "" },
             resolve_input: input => ({ n, wait: wait.id, answer: input.answer ?? "" }) })
           break
         case "branch":
@@ -114,13 +119,20 @@ export const useTodoRole = (): TodoContainerProps["role"] => {
   const role = roster.success ? roster.data.members.find(member => member.login === identity?.login)?.role : undefined
   return role ?? (install.model?.github.signed_in && install.model.github.owner === identity?.login ? "owner" : "member")
 }
-export const TodoContainer =({ card, role, dispatch, View, view, onView }: TodoContainerProps) => {
+export const TodoContainer =({ card, role, dispatch, View, view, onView, availableActions, conflictTerminal }: TodoContainerProps) => {
   if (!card.payload.model) return null
   const model = TodoCardSchema.parse(card.payload.model)
   const lateWait = [...card.payload.requests].reverse().find(request => request.operation === "answer" && request.state === "failed")?.body.wait
-  const bindings = cardActions(dispatch, todoActionDefinitions(model, role, card.payload.answeredBy ? card.payload.answerDraft : undefined,
-    typeof lateWait === "string" ? lateWait : undefined))
-  return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView}
+  const definitions = todoActionDefinitions(model, role, card.payload.answeredBy ? card.payload.answerDraft : undefined,
+    typeof lateWait === "string" ? lateWait : undefined).filter(action => availableActions === undefined || availableActions.includes(action.tag))
+  const bindings = cardActions(dispatch, definitions)
+  // Render exactly the wait controls the adapter bound, including their stable wait args.
+  // A provider refusal cannot leave an unbound button visible in a mounted wait.
+  const projected = { ...model, waits: model.waits.map(wait => ({ ...wait, actions: definitions
+    .filter(action => action.gesture !== undefined && action.args?.wait === wait.id)
+    .map(action => bindings.gestures[action.gesture!]!) })) }
+  return <View model={projected} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView}
+    conflictTerminal={conflictTerminal}
     answer={card.payload.answeredBy ? { text: card.payload.answerDraft ?? "", answered_by: card.payload.answeredBy } : undefined} />
 }
 
@@ -140,8 +152,11 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
   }
   const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }
   return <TodoContainer card={entry} role={seeded?.role ?? role} dispatch={dispatch} View={TodoView}
-    view={{ maximized }} onView={() => {}} />
+    view={{ maximized }} onView={() => {}} availableActions={seeded ? undefined : servedTodoActions} />
 }
+// POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
+// Stop/Resume/current-flow retry and branch repair/terminal providers are not yet composed.
+const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "merge"]
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }
 }

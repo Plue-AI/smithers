@@ -414,6 +414,179 @@ test("hostile command text stays exact, inert text", () => {
 })
 import { TodoView } from "./TodoView";
 import { todoStories } from "./TodoView.stories";
+import { cardActions, type CardActionDefinition } from "../../flows/cardActions";
+import type { TodoViewProps } from "../TodoCard";
+import type { TodoCard, TodoWait } from "@smthrs/rpc/TodoCard";
+
+// Test-owned inputs and literal expectations exercise the production command adapter.
+const repairTodo: TodoCard = {
+  n: 24, title: "Repair retry", state: "needs_you",
+  owner: { login: "ben", name: "Ben", avatar_url: "https://example.test/ben.png" },
+  prompt_revisions: [], steps: [], waits: [], steers: [], evidence: [], present: [],
+  merge: { state: "waiting", reason: "attention", on_github: false },
+};
+const conflictWait: TodoWait = {
+  id: "conflict-24", kind: "conflict", prompt: "Resolve retry conflict", since: "2026-10-05T10:00:00Z",
+  paths: ["src/retry.ts", "src/backoff.ts"], ssh_line: "ssh todo-24@mac-mini.local", actions: [],
+};
+function boundTodo(model: TodoCard, definitions: CardActionDefinition[], slot?: TodoViewProps["conflictTerminal"]) {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host), calls: unknown[] = [];
+  const render = (next: TodoCard, controls = definitions, terminal = slot) => {
+    const bindings = cardActions((tag, input) => calls.push([tag, input]), controls);
+    act(() => root.render(<TodoView model={next} {...bindings} view={{ maximized: false }} onView={() => {}} conflictTerminal={terminal} />));
+  };
+  render(model);
+  return { host, calls, render, close: () => { act(() => root.unmount()); host.remove(); } };
+}
+function typeTodoInput(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  act(() => {
+    const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+test("conflict paths, SSH and a single supplied terminal precede Resolve and Done; both bind the wait once", () => {
+  const resolve: CardActionDefinition = { tag: "branch", label: "Resolve", args: { wait: "conflict-24" },
+    gesture: "resolve", command_input: { name: "todo/24" } };
+  const done: CardActionDefinition = { tag: "todo.answer", label: "Done", args: { wait: "conflict-24" },
+    gesture: "done", command_input: { n: 24, wait: "conflict-24", answer: "done" } };
+  const model = { ...repairTodo, waits: [{ ...conflictWait, actions: [resolve, done] }, { ...conflictWait, id: "conflict-25" }] };
+  const view = boundTodo(model, [resolve, done], <textarea aria-label="Conflict terminal" />);
+  try {
+    expect([...view.host.querySelectorAll("code")].slice(0, 3).map(node => node.textContent)).toEqual([
+      "src/retry.ts", "src/backoff.ts", "ssh todo-24@mac-mini.local",
+    ]);
+    expect(view.host.querySelectorAll(".todo-conflict-terminal")).toHaveLength(1);
+    expect(view.host.querySelector('[data-wait-id="conflict-24"] .todo-conflict-terminal')).not.toBeNull();
+    expect([...view.host.querySelectorAll("textarea,button")].map(node => node.getAttribute("aria-label") ?? node.textContent))
+      .toEqual(["Conflict terminal", "Resolve", "Done"]);
+    for (const button of view.host.querySelectorAll<HTMLButtonElement>("button")) act(() => button.click());
+    expect(view.calls).toEqual([["branch", { name: "todo/24" }], ["todo.answer", { n: 24, wait: "conflict-24", answer: "done" }]]);
+    view.render({ ...repairTodo, waits: [conflictWait] }, [], undefined);
+    expect(view.host.querySelector("button")).toBeNull();
+    view.render({ ...repairTodo, waits: [] }, [], <textarea aria-label="Unused terminal" />);
+    expect(view.host.querySelector("textarea")).toBeNull();
+  } finally { view.close(); }
+});
+test("Fork and Add to stack dispatch literal supplied commands once through cardActions", () => {
+  const view = boundTodo(repairTodo, [
+    { tag: "branch.fork", label: "Fork", command_input: { from: "T24" } },
+    { tag: "branch.add-to-stack", label: "Add to stack", command_input: { text: "Keep retry" } },
+  ]);
+  try {
+    for (const button of view.host.querySelectorAll<HTMLButtonElement>("button")) act(() => button.click());
+    expect(view.calls).toEqual([["branch.fork", { from: "T24" }], ["branch.add-to-stack", { text: "Keep retry" }]]);
+    view.render(repairTodo, []);
+    expect(view.host.querySelector("button")).toBeNull();
+  } finally { view.close(); }
+});
+test("moved_off and foreign_push preserve supplied order, actor and SHA; missing Discard removes its control", () => {
+  const resolve: CardActionDefinition = { tag: "branch", label: "Resolve", args: { wait: "moved-24" }, gesture: "moved", command_input: { name: "todo/24" } };
+  const bring: CardActionDefinition = { tag: "branch.bring-in", label: "Bring in", args: { wait: "foreign-24" }, gesture: "bring",
+    command_input: { branch: "todo/24", id: "foreign-24", revision: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea" } };
+  const discard: CardActionDefinition = { ...bring, tag: "branch.discard-foreign", label: "Discard", gesture: "discard" };
+  const moved: TodoWait = { id: "moved-24", kind: "moved_off", prompt: "Moved off T24", since: "now", actions: [resolve] };
+  const foreign: TodoWait = { id: "foreign-24", kind: "foreign_push", prompt: "Alice pushed", since: "now",
+    by: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.test/alice.png", color_index: 1 },
+    sha: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea", actions: [bring, discard] };
+  const view = boundTodo({ ...repairTodo, waits: [moved, foreign] }, [resolve, bring, discard]);
+  try {
+    expect([...view.host.querySelectorAll("[data-wait-id]")].map(row => row.getAttribute("data-wait-id"))).toEqual(["moved-24", "foreign-24"]);
+    expect(view.host.textContent).toContain("Alice");
+    expect(view.host.querySelector("code")!.textContent).toBe("4bc79aef91d66ea28c90b706d584d3b9b48e14ea");
+    for (const button of view.host.querySelectorAll<HTMLButtonElement>("button")) act(() => button.click());
+    expect(view.calls).toEqual([
+      ["branch", { name: "todo/24" }],
+      ["branch.bring-in", { branch: "todo/24", id: "foreign-24", revision: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea" }],
+      ["branch.discard-foreign", { branch: "todo/24", id: "foreign-24", revision: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea" }],
+    ]);
+    view.render({ ...repairTodo, waits: [moved, { ...foreign, actions: [bring] }] }, [resolve, bring]);
+    expect(view.host.querySelector('[data-flow="branch.discard-foreign"]')).toBeNull();
+  } finally { view.close(); }
+});
+test("hostile conflict paths, SSH, commit and actor remain inert text", () => {
+  const hostile = '<script>alert("repair")</script>$(touch /tmp/repair)';
+  const view = boundTodo({ ...repairTodo, waits: [{ ...conflictWait, paths: [hostile], ssh_line: hostile, sha: hostile,
+    by: { kind: "person", login: "alice", name: hostile, avatar_url: "https://example.test/alice.png", color_index: 1 } }] }, []);
+  try {
+    expect([...view.host.querySelectorAll("code")].map(node => node.textContent)).toEqual([hostile, hostile, hostile]);
+    expect(view.host.textContent).toContain(hostile);
+    expect(view.host.querySelector("script")).toBeNull();
+    expect(view.calls).toEqual([]);
+  } finally { view.close(); }
+});
+test("question and approval forms dispatch their own literal wait inputs through cardActions", () => {
+  const question: CardActionDefinition = { tag: "todo.answer", label: "Answer", args: { wait: "question-24" }, gesture: "question",
+    input: [{ name: "answer", label: "Answer", kind: "text", required: true, multiline: true }],
+    command_input: { n: 24, wait: "question-24", answer: "" }, resolve_input: input => ({ n: 24, wait: "question-24", answer: input.answer! }) };
+  const approval: CardActionDefinition = { tag: "todo.answer", label: "Approve", args: { wait: "approval-24" }, gesture: "approval",
+    input: [{ name: "answer", label: "Approval", kind: "choice", choices: ["Approve", "Deny"], required: true }],
+    command_input: { n: 24, wait: "approval-24", answer: "" }, resolve_input: input => ({ n: 24, wait: "approval-24", answer: input.answer! }) };
+  const view = boundTodo({ ...repairTodo, waits: [
+    { id: "question-24", kind: "question", prompt: "Keep retry?", since: "now", actions: [question] },
+    { id: "approval-24", kind: "approval", prompt: "Approve retry?", since: "now", actions: [approval] },
+  ] }, [question, approval]);
+  try {
+    typeTodoInput(view.host.querySelector("textarea")!, "Keep retry\nverbatim");
+    act(() => { const select = view.host.querySelector("select")!; select.value = "Approve"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    for (const form of view.host.querySelectorAll("form")) act(() => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(view.calls).toEqual([
+      ["todo.answer", { n: 24, wait: "question-24", answer: "Keep retry\nverbatim" }],
+      ["todo.answer", { n: 24, wait: "approval-24", answer: "Approve" }],
+    ]);
+  } finally { view.close(); }
+});
+test("Retry, Take over, Edit and Merge use the production adapter; disabled Merge stays text", () => {
+  const mergeInput = { n: 24, reviewed_head_sha: "verified-head" };
+  const controls: CardActionDefinition[] = [
+    { tag: "todo.retry", label: "Retry", command_input: { n: 24 } },
+    { tag: "todo.takeover", label: "Take over", command_input: { n: 24 } },
+    { tag: "todo.amend", label: "Edit", command_input: { n: 24, text: "" },
+      input: [{ name: "text", label: "Prompt", kind: "text", required: true }], resolve_input: input => ({ n: 24, text: input.text! }) },
+    { tag: "merge", label: "Merge", command_input: mergeInput },
+  ];
+  const model: TodoCard = { ...repairTodo, state: "in_review", merge: { state: "ready", on_github: false } };
+  const view = boundTodo(model, controls);
+  try {
+    typeTodoInput(view.host.querySelector("input")!, "Keep authored prompt");
+    for (const button of view.host.querySelectorAll<HTMLButtonElement>('button[type="button"]')) act(() => button.click());
+    act(() => view.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(view.calls).toEqual([
+      ["todo.retry", { n: 24 }], ["todo.takeover", { n: 24 }], ["merge", { n: 24, reviewed_head_sha: "verified-head" }],
+      ["todo.amend", { n: 24, text: "Keep authored prompt" }],
+    ]);
+    view.render({ ...model, merge: { state: "blocked", reason: "checks", on_github: false } },
+      [{ tag: "merge", label: "Merge", disabled: { reason: "Checks failed" }, command_input: { n: 24 } }]);
+    expect(view.host.querySelector("button")).toBeNull();
+    expect(view.host.textContent).toContain("Checks failed");
+  } finally { view.close(); }
+});
+for (const [state, word] of [["queued", "Queued"], ["starting", "Starting"], ["working", "Working"], ["needs_you", "Needs you"],
+  ["paused", "Paused"], ["failed", "Failed"], ["in_review", "In review"], ["merged", "Merged"], ["dropped", "Dropped"]] as const) {
+  test(`TODO literal ${state} state`, () => {
+    const view = boundTodo({ ...repairTodo, state }, []);
+    try { expect(view.host.querySelector("header [data-state]")!.textContent).toBe(word); expect(view.calls).toEqual([]); }
+    finally { view.close(); }
+  });
+}
+test("late answer remains Send as steer through the production adapter", () => {
+  const answer: CardActionDefinition = { tag: "todo.answer", label: "Answer", args: { wait: "question-24" }, gesture: "answer",
+    input: [{ name: "answer", label: "Answer", kind: "text", required: true, multiline: true }],
+    command_input: { n: 24, wait: "question-24", answer: "" }, resolve_input: input => ({ n: 24, wait: "question-24", answer: input.answer! }) };
+  const steer: CardActionDefinition = { tag: "todo.steer", label: "Send as steer", command_input: { n: 24, text: "" },
+    input: [{ name: "text", label: "Steer", kind: "text", required: true, multiline: true }], resolve_input: input => ({ n: 24, text: input.text! }) };
+  const view = boundTodo({ ...repairTodo, waits: [{ id: "question-24", kind: "question", prompt: "Keep retry?", since: "now", actions: [answer] }] }, [answer]);
+  try {
+    typeTodoInput(view.host.querySelector("textarea")!, "Keep my answer\nverbatim");
+    view.render({ ...repairTodo, waits: [], first_answer: { text: "Yes", at: "now",
+      by: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://example.test/ben.png", color_index: 1 } } }, [steer]);
+    expect(view.host.textContent).toContain("Ben answered");
+    expect(view.host.querySelector("textarea")!.value).toBe("Keep my answer\nverbatim");
+    act(() => view.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(view.calls).toEqual([["todo.steer", { n: 24, text: "Keep my answer\nverbatim" }]]);
+  } finally { view.close(); }
+});
 function mount(story = todoStories.needs_you) {
   const element = document.createElement("div");
   document.body.append(element);
