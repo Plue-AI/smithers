@@ -55,7 +55,8 @@ test("C-ACC-04: roster admission defaults roles and explains missing GitHub acce
 // proves the browser sign-in door reaches and displays that refusal.
 for (const refusal of [
   { code: "not_a_member", class: "permission", message: "Not a member" },
-  { code: "needs_github_access", class: "permission", message: "Needs access on GitHub ↗" }
+  { code: "needs_github_access", class: "permission", message: "Needs access on GitHub ↗",
+    fix: "https://github.com/smithers-mvp-canary/node/settings/access" }
 ]) test(`C-ACC-04: sign-in displays ${refusal.code} without admitting the visitor`, async ({ page }) => {
   await signedOutVisitor(page)
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {

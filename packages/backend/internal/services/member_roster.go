@@ -172,7 +172,7 @@ func (m *Members) AdmitGitHub(ctx context.Context, id int64, login string) error
 		return err
 	}
 	if role == "" {
-		return memberError(http.StatusForbidden, "permission", "needs_github_access", "Needs access on GitHub ↗")
+		return &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "needs_github_access", Message: "Needs access on GitHub ↗", Fix: repo.accessURL()}
 	}
 	return nil
 }
