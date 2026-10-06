@@ -140,3 +140,35 @@ test("Make TODO refuses a missing card and current server denials before draftin
   expect(drafts).toBe(0)
   await store.dispose?.()
 })
+
+for (const change of ["scope", "revision", "server"] as const) test(`Make TODO refuses ${change} changes during persistence`, async () => {
+  const {store,ctx,serverIssue} = await setup()
+  await store.dispatch({type:"card.upsert",actor:"system",card:{id:"race-issue",kind:"issue",title:"Issue",status:"active",createdAt:1,ordinal:1,payload:{number:7,repo:REPO,title:"Issue",state:"open",author:"ben",issueBody:"Body",labels:[],comments:[],source:"github"}}}).isPersisted.promise
+  let scope = "session:0"
+  let drafts = 0
+  let pending = false
+  let release!: () => void
+  let gate: Promise<void>
+  const guarded: SeamContext = {...ctx, issueAuthorizationScope: () => scope, dispatch: event => {
+    const result = ctx.dispatch(event)
+    if (event.type !== "card.upsert") return result
+    pending = true
+    const isPersisted = {...result.isPersisted, promise: result.isPersisted.promise.then(async value => { await gate; return value })}
+    return new Proxy(result, {get: (transaction, key, receiver) => key === "isPersisted" ? isPersisted : Reflect.get(transaction, key, receiver)})
+  }}
+  const controller = createIssueFlowsController(guarded, {requireBox: () => undefined, listWorkspaceWorkflows: async () => "", runWorkflow: async () => ""}, {draftFromIssue: async () => { drafts++; return {value:"Drafted"} }})
+  for (const door of ["confirmation", "draft"] as const) {
+    scope = "session:0"
+    serverIssue.make_todo_allowed = true
+    pending = false
+    gate = new Promise<void>(resolve => { release = resolve })
+    const result = door === "confirmation" ? controller.issueTodoRefusal(7,REPO) : controller.runIssueImplementation(7,REPO)
+    while (!pending) await new Promise(resolve => setTimeout(resolve, 0))
+    if (change === "server") serverIssue.make_todo_allowed = false
+    else scope = change === "scope" ? "other:0" : "session:1"
+    release()
+    expect(await result).toBeDefined()
+  }
+  expect(drafts).toBe(0)
+  await store.dispose?.()
+})

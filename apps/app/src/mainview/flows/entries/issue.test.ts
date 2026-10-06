@@ -70,3 +70,39 @@ test("Make TODO on a GitHub issue card opens its author's Draft and files nothin
     expect(writes).toEqual([])
   } finally { await controller.dispose() }
 })
+
+test("persistence identity changes refuse the agent confirmation and human Draft", async () => {
+  const store = await createAppStore({kind:"localStorage",storage:memoryStorage()})
+  let release!: () => void
+  let pending = false
+  let gate: Promise<void>
+  const guarded = {...store, dispatch: (event: Parameters<typeof store.dispatch>[0]) => {
+    const result = store.dispatch(event)
+    if (event.type !== "card.upsert" || event.card.kind !== "issue") return result
+    pending = true
+    const isPersisted = {...result.isPersisted,promise:result.isPersisted.promise.then(async value => {await gate; return value})}
+    return new Proxy(result, {get: (transaction,key,receiver) => key === "isPersisted" ? isPersisted : Reflect.get(transaction,key,receiver)})
+  }}
+  const controller = createAppController(guarded, {available:false,startTurn:async () => ({status:"error",message:"unavailable"}),cancelTurn:async () => {},subscribe:() => () => {}}, {
+    fetchImpl: signupProfileFetch(async input => String(input).includes("/api/issues/7")
+      ? Response.json({make_todo_allowed:true,issue_digest:"a".repeat(64),issue:{number:7,title:"Issue",state:"open",user:{login:"ben"}},comments:[]})
+      : Response.json([])).fetchImpl
+  })
+  try {
+    await store.dispatch({type:"card.upsert",actor:"system",card:{id:"race",kind:"issue",title:"Issue",status:"active",createdAt:1,ordinal:1,payload:{number:7,repo:"owner/repo",source:"github",title:"Issue",state:"open",author:"ben",issueBody:"",comments:[],labels:[]}}}).isPersisted.promise
+    for (const door of ["agent", "user"] as const) {
+      pending = false
+      gate = new Promise<void>(resolve => { release = resolve })
+      const result = door === "agent"
+        ? controller.commands.executeForAgent({name:"commands",arguments:JSON.stringify({action:"execute",name:"todo.from-issue",args:"7 owner/repo"})})
+        : controller.runCommandForResult("todo.from-issue","7 owner/repo")
+      while (!pending) await new Promise(resolve => setTimeout(resolve,0))
+      await store.dispatch({type:"identity.session.loaded",actor:"system",state:"signed-in",login:door,admin:false,scopesPlain:null}).isPersisted.promise
+      release()
+      const response = await result
+      if (typeof response === "string") expect(response).not.toContain("asked the user to confirm")
+      else expect(response).toMatchObject({status:"failed"})
+      expect([...store.collections.cards.values()].some(card => card.kind === "confirm" || card.kind === "draft")).toBe(false)
+    }
+  } finally {await controller.dispose()}
+})

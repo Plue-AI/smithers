@@ -67,15 +67,28 @@ export const createIssueFlowsController = (
     if (issue?.kind !== "issue") return "Open the issue again to check permission to make a TODO."
     const scope = issueAuthorizationScope(ctx)
     const selection = ctx.store.session().activeRepoKey
+    const validate = (payload: IssuePayload, digest?: string): string | undefined => {
+      if (scope !== issueAuthorizationScope(ctx) || selection !== ctx.store.session().activeRepoKey) return "Open the issue again to check permission to make a TODO."
+      if (payload.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
+      if (!authorized(payload) || (digest !== undefined && payload.issueDigest !== digest)) return "Open the issue again to check permission to make a TODO."
+      if (payload.state === "closed") return `Issue #${number} is closed.`
+      return undefined
+    }
     let fresh
     try { fresh = await createIssuesSeam(ctx).readInstallIssue(resolved.repo, number) }
     catch { return "Open the issue again to check permission to make a TODO." }
-    if (typeof fresh === "string" || fresh.card.kind !== "issue" || scope !== issueAuthorizationScope(ctx) || selection !== ctx.store.session().activeRepoKey) return "Open the issue again to check permission to make a TODO."
-    if (fresh.card.payload.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
-    if (!authorized(fresh.card.payload)) return "Open the issue again to check permission to make a TODO."
-    if (fresh.card.payload.state === "closed") return `Issue #${number} is closed.`
+    if (typeof fresh === "string" || fresh.card.kind !== "issue") return "Open the issue again to check permission to make a TODO."
+    const refusal = validate(fresh.card.payload)
+    if (refusal !== undefined) return refusal
     await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: { ...issue, payload: fresh.card.payload } }).isPersisted.promise
-    return undefined
+    const persistedRefusal = validate(fresh.card.payload)
+    if (persistedRefusal !== undefined) return persistedRefusal
+    // Browser reads cannot be atomic with server changes; admission at POST /api/todos remains authoritative.
+    let latest
+    try { latest = await createIssuesSeam(ctx).readInstallIssue(resolved.repo, number) }
+    catch { return "Open the issue again to check permission to make a TODO." }
+    if (typeof latest === "string" || latest.card.kind !== "issue") return "Open the issue again to check permission to make a TODO."
+    return validate(latest.card.payload, fresh.card.payload.issueDigest)
   }
   return {
     issueTodoRefusal,
