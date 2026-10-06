@@ -48,6 +48,7 @@ import type { InputMode } from "./InputMode"
 import { cardAvailable } from "./CardAvailability"
 import { disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
 import type { KnownRepositories } from "./RepoContext"
+import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { activeCatalogRepositoryId,activeRepositoryId,knownRepositories,resolveTargetRepo } from "./RepoContext"
 import type { StorageRecoveryAction,StorageRecoveryHost } from "./StorageRecoveryAction"
 import type { AccountController } from "./controller/account"
@@ -510,6 +511,7 @@ export interface AppController extends IssueFlowsController {
   /** MOCK SEAM: run a Tn flow on the seed or on this host's /api/todos, never waiting for the answer (DesignWorld/todo.ts). */
   readonly todoRoute: TodoRoute
   readonly showTodo: TodoSeam["showTodo"]
+  readonly readFlowSource: (n: number, path: string) => ReturnType<FilesSeam["readFile"]>
   readonly dismissTodoDraft: TodoSeam["dismissTodoDraft"]
   readonly answerTodo: TodoSeam["answerTodo"]
   readonly steerTodo: TodoSeam["steerTodo"]
@@ -1042,6 +1044,18 @@ export const createAppController = (
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBookmarksSeam(context))
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
   const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
+  const readFlowSource: AppController["readFlowSource"] = actors.pair(seamCtx, (context, select) => ({
+    read: async (n: number, path: string) => {
+      const read = select(filesSeam.readFile)
+      try {
+        const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/todos/${n}`, { credentials: "include" })
+        if (!response.ok) return "Could not open the TODO."
+        const model = TodoCardSchema.safeParse(await response.json())
+        if (!model.success || model.data.n !== n || model.data.branch === undefined) return "Branch files are unavailable."
+        return read(path, undefined, undefined, model.data.branch.id)
+      } catch { return "Branch files are unavailable." }
+    }
+  })).read
   const scratchDiffReader = installHost ? createScratchDiffReader(ctx).readScratchDiff : undefined
   const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles, scratchDiffReader))
   const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles) : undefined
@@ -1958,6 +1972,7 @@ export const createAppController = (
     retryStackItem: stackSeam.retryStackItem,
     newTodo: todoSeam.newTodo,
     showTodo: todoSeam.showTodo,
+    readFlowSource,
     mergeTodo: todoSeam.mergeTodo,
     reviewTodoMerge: todoSeam.reviewMerge,
     todoRoute: todoSeam.todoRoute,

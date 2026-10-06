@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod"
+import type { TodoNewInputSchema as TodoCommandNewInputSchema } from "./TodoCommands.ts"
 import { ModelIdSchema } from "./AgentRoles.ts"
 import { type ModelRoleId, ModelRoleIdSchema, type NeedsYouKind, type TodoState } from "./CardPrimitives.ts"
 import { type CatalogTag, CatalogTagSchema } from "./catalog/index.ts"
@@ -182,7 +183,7 @@ export interface CardCommandInput {
   readonly "stop": undefined
   readonly "search": { readonly query?: string }
   readonly "stack": undefined
-  readonly "todo.new": z.infer<typeof TodoNewInputSchema>
+  readonly "todo.new": z.infer<typeof TodoCommandNewInputSchema>
   readonly "todo.from-issue": { readonly number: number }
   readonly "todo": { readonly n: number }
   readonly "todo.answer": { readonly n: number; readonly answer: string; readonly wait?: string }

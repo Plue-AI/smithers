@@ -115,3 +115,12 @@ test("the card forwards each member's view and callback without sharing selectio
   expect(props.view).toBe(right)
   expect(left).toEqual({ maximized: false, tab: "active" })
 })
+
+test("a built-in proposal quotes its diff through the ordinary TODO action", () => {
+  const h = mount({ name: "todo", source: { builtin: true }, system: false, versions: [], proposal: { request: "Run tests", diff: "+pnpm test\n" } }, new Set(["flow.edit"]))
+  expect(h.props.actions.map(action => action.label)).toEqual(["Edit", "Make TODO"])
+  h.props.onAction("todo.new")
+  expect(h.calls).toEqual([{ tag: "todo.new", input: {
+    title: "Change the TODO flow: Run tests", text: "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +pnpm test\n> "
+  } }])
+})

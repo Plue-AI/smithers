@@ -30,6 +30,7 @@ export function FlowView({ model, actions, onAction }: FlowViewProps) {
         {step.detail === undefined ? null : <span className="flow-detail">{step.detail}</span>}
       </li>)}</ol>
       {selected?.state === "merged-failed" ? <div className="flow-failure"><TriangleAlert size={14} aria-hidden="true" /><b>Load failed</b><FailureDetails detail={failureDetail(selected.error ?? "")} /></div> : null}
+      {model.proposal === undefined ? null : <div className="flow-proposal"><pre>{model.proposal.diff}</pre></div>}
       <div className="flow-actions">{actions.map((action, index) => <FlowActionView key={index} action={action} onAction={onAction} />)}</div>
     </div>
   </section>

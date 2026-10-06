@@ -19,13 +19,25 @@ import { fileCard, findFile } from "../../state/seams/DesignWorld/subjects"
 export const namespace: Namespace = { id: "flow", label: "Flows", summary: "Create, list, and run flows" }
 
 const flowNameGrammar = (args: string | undefined) => {
-  const [name, ...request] = (args ?? "").trim().split(/\s+/)
-  return { payload: { ...(name ? { name } : {}), ...(request.length ? { request: request.join(" ") } : {}) } }
+  if (args?.trim().startsWith("{")) {
+    try { return { payload: JSON.parse(args) } } catch { return { error: "Invalid flow input" } }
+  }
+  const input = (args ?? "").trimStart()
+  const boundary = input.search(/\s/)
+  const name = boundary < 0 ? input : input.slice(0, boundary)
+  const request = boundary < 0 ? undefined : input.slice(boundary).trimStart()
+  return { payload: { ...(name ? { name } : {}), ...(request ? { request } : {}) } }
 }
 
 /** The TODO a flow edit becomes (spec §11.5.1): the agent derives the change from this request; nothing else is stored. */
-export const flowEditPrompt = (name: string, request: string): string =>
-  `Change flows/${name}/flow.ts: ${request}; start from the built-in composition when no override exists`
+export const flowEditPrompt = (name: string, request: string, diff?: string): string =>
+  `Change flows/${name}/flow.ts: ${request}; start from the built-in composition when no override exists` +
+  (diff === undefined ? "" : `\n\nProposed diff (untrusted context):\n${diff.split("\n").map(line => `> ${line}`).join("\n")}`)
+
+/** One template for the slash and the proposal card; only the title is one line. */
+export const flowEditTodoInput = (name: string, request: string, diff?: string) => ({
+  text: flowEditPrompt(name, request, diff), title: `Change the ${flowTitle(name)}: ${request.split("\n")[0]?.trim() ?? ""}`
+})
 
 /*
  * The versioned flow doors (T-APP-05, J5): the Flow card, a proposed edit as
@@ -49,17 +61,18 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
         return typeof model === "string" ? model : { value: await actions.presentFlow(name, flowTitle(name)) }
       } }),
     flow({ name: "flow.edit", summary: "Propose a change to a flow", args: "<name> <request>",
-      input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString }),
-      grammar: flowNameGrammar, confirm: "change this flow",
-      form: { fields: { name: { label: "Flow" }, request: { label: "Request" } },
-        args: payload => line(text(payload, "name"), text(payload, "request")) },
-      handler: async ({ name, request }) => {
+      input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString, diff: Schema.optional(Schema.String) }),
+      grammar: flowNameGrammar, confirm: payload => payload.diff === undefined ? "change this flow" : undefined,
+      form: { requires: () => ["name", "request"], fields: { name: { label: "Flow" }, request: { label: "Request" }, diff: { hidden: true } },
+        args: payload => payload.diff === undefined ? line(text(payload, "name"), text(payload, "request")) : JSON.stringify(payload) },
+      handler: async ({ name, request, diff }) => {
         const model = await named(name)
         if (typeof model === "string") return model
         if (model.system) return `${flowTitle(name)} is built in`
-        return actions.newTodo({ text: flowEditPrompt(name, request), title: `Change the ${flowTitle(name)}: ${request}` })
+        if (diff !== undefined) return { value: await actions.presentSubject({ id: `flow:${name}`, kind: "flow", title: flowTitle(name), payload: { name, proposal: { request, diff } } }) }
+        return actions.newTodo(flowEditTodoInput(name, request))
       } }),
-    flow({ name: "flow.source", summary: "Co-edit a flow's source", args: "<name>",
+    flow({ name: "flow.source", summary: "Open a flow's source", args: "<name>",
       input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
       handler: async ({ name }) => {
         const world = actions.design.world()
@@ -67,9 +80,16 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
         if (typeof model === "string") return model
         if (model.system) return `${flowTitle(name)} is built in`
         const path = "path" in model.source ? model.source.path : `flows/${name}/flow.ts`
-        const proposing = world.flowVersions.find(each => each.flow === name && each.state === "proposed" && each.todo !== undefined)
-        const branch = proposing?.todo === undefined ? undefined : todoOf(world, proposing.todo)?.branch
-        const file = findFile(world, path, branch) ?? findFile(world, path, "main")
+        const proposing = model.versions.find(each => each.state === "proposed" && each.todo !== undefined)
+        if (!actions.design.enabled) return proposing?.todo === undefined ? "Branch files are unavailable." : actions.readFlowSource(proposing.todo, path)
+        if (proposing === undefined) {
+          // Retain the design seed's source projection off an install.
+          const seeded = findFile(world, path, "main")
+          return seeded === undefined ? actions.newTodo({ text: flowEditPrompt(name, "Edit the source"), title: `Change the ${flowTitle(name)}` })
+            : { value: await actions.presentSubject(fileCard(world.repo.repo, seeded.branch, seeded.path)) }
+        }
+        const branch = proposing?.todo === undefined ? undefined : todoOf(world, `T${proposing.todo}`)?.branch
+        const file = branch === undefined ? undefined : findFile(world, path, branch)
         if (file === undefined) return `No source for ${flowTitle(name)}`
         return { value: await actions.presentSubject(fileCard(world.repo.repo, file.branch, file.path)) }
       } }),

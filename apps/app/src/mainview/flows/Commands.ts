@@ -722,6 +722,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       const rendered = acting.renderFlowForm({
         name: nameOf(target),
         args,
+        ...(named === undefined ? {} : { payload: named }),
         via: invoker === "agent" ? "agent" : "user",
         invocation: invocation === undefined ? undefined : { ...invocation, authorized: undefined, signal: undefined },
         input: target.input,
