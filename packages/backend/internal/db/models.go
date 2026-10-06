@@ -356,6 +356,17 @@ type BuildCacheRepositoryUsage struct {
 	SizeBytes    int64 `json:"size_bytes"`
 }
 
+type BurstFile struct {
+	BranchID    string      `json:"branch_id"`
+	BurstID     string      `json:"burst_id"`
+	Path        string      `json:"path"`
+	Change      string      `json:"change"`
+	RenamedTo   pgtype.Text `json:"renamed_to"`
+	BeforeBlob  pgtype.Text `json:"before_blob"`
+	AfterBlob   pgtype.Text `json:"after_blob"`
+	AfterDigest pgtype.Text `json:"after_digest"`
+}
+
 type CanonicalImportReceipt struct {
 	SourceKind  string          `json:"source_kind"`
 	SourceID    string          `json:"source_id"`
@@ -1481,6 +1492,13 @@ type MemoryNote struct {
 	CreatedAtMs    int64       `json:"created_at_ms"`
 	StatusAtMs     pgtype.Int8 `json:"status_at_ms"`
 	AcceptedTodo   pgtype.Text `json:"accepted_todo"`
+}
+
+type MachineEventReceipt struct {
+	BranchID    string    `json:"branch_id"`
+	EventID     string    `json:"event_id"`
+	Seq         int64     `json:"seq"`
+	CommittedAt time.Time `json:"committed_at"`
 }
 
 type Mention struct {

@@ -35,12 +35,36 @@ main-pinned packaged binary and T-MCH-11's trusted guest identities/no-sudo
 image. There is no activation entry point in this increment.
 
 No root step is added. No boot file or credential is written to a guest.
-The proposed `machine_event_receipts,product,planned:T-COL-03 owner:smithers-3f`
-reservation awaits T-PRC-02's planned-row support and owner acceptance; the
-current ownership checker treats it as an absent installed table. There is no
-migration or transaction/ack implementation yet. Unit tests cover registry
-leases, revocation, reconnect admission and concurrent replacement; they are
-not C-COL-01, C-COL-04 or C-DUR-04 acceptance receipts.
+The product migration now installs `machine_event_receipts` and `burst_files`.
+`Events.Ingest` consumes the shared wire codec on an authenticated, reconciled
+connection. It refuses missing image isolation, actor resolution or host objects.
+In one transaction it records the receipt, the existing product job fact and
+per-file versions. Burst identity is branch-scoped; replay adds no change entry.
+Both branch projection notifications are delivered by PostgreSQL after commit,
+through the existing LISTEN broker. The dispatcher receives a success ack only
+after commit. A missing object returns `missing_objects` without a receipt.
+The shared decoder retains bounded-part metadata; ingest refuses multi-part
+bursts until the dispatcher assembles the whole change, rather than committing
+a partial activity entry.
+
+The host store checks every blob and the parentless versions commit, exact tree
+membership, and each after-content digest before ingest. Bundle admission must
+verify the object stream before calling ingest. Only the host chooses the
+branch-scoped retained ref. Rename versions use `a/<original path>` and
+`b/<original path>`, with the destination in `renamed_to`.
+
+The Rust watcher owns recursive watches, ignores, overflow resync and burst
+closure (1.5 seconds idle, 10 seconds maximum). It drains outside events before
+Smithers writes and closes another actor's burst before a shared-path write.
+Invalid UTF-8 paths produce no hints or activity; capture must retain them.
+Outside attribution uses registered session cgroups with CPU growth during the
+burst, not an idle shell. No host code guesses a member from an unregistered id.
+
+These components remain unmounted: the executable currently exits with core not
+composed, the host has no object-stream dispatcher, and branch live topics are
+unsupported. Restore awaits the production digest-guarded daemon writer and
+catalog binding; the unguarded S1 workspace write is not a fallback. Component
+PostgreSQL/Git-store tests are not C-COL-05 journey or C-DUR-04 K1–K6 receipts.
 
 The shared reporter, public head route and helper file commands must be removed
 in the same change that migrates every supported provisioning caller to real
