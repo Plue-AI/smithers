@@ -1625,6 +1625,19 @@ type GetAPIBranchFileParams struct {
 	At *string
 }
 
+// GetAPIBranchesBFilesParams is the query of GET /api/branches/{b}/files.
+type GetAPIBranchesBFilesParams struct {
+	Path *string
+}
+
+// GetAPIBranchesBFilesResponseItem is generated from docs/api/openapi.yaml.
+type GetAPIBranchesBFilesResponseItem struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Type string `json:"type"`
+	Size *int64 `json:"size,omitempty"`
+}
+
 // GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
 type GetAPIGithubSyncResponse struct {
 	State         string     `json:"state"`
@@ -2620,6 +2633,17 @@ func (c *Client) GetAPIBranchFile(ctx context.Context, b string, pathParam strin
 	}
 	var out BranchFileCard
 	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files/"+url.PathEscape(pathParam), query, nil, &out)
+	return out, err
+}
+
+// GetAPIBranchesBFiles calls GET /api/branches/{b}/files.
+func (c *Client) GetAPIBranchesBFiles(ctx context.Context, b string, params GetAPIBranchesBFilesParams) ([]GetAPIBranchesBFilesResponseItem, error) {
+	query := url.Values{}
+	if params.Path != nil {
+		query.Set("path", *params.Path)
+	}
+	var out []GetAPIBranchesBFilesResponseItem
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files", query, nil, &out)
 	return out, err
 }
 
