@@ -178,10 +178,12 @@ type Binding struct {
 // return the resulting private connection; callers never provide an endpoint
 // or bearer in Flow payloads.
 type HostLaunch struct {
-	Binding    Binding
-	Authority  Authority
-	Catalog    Catalog
-	Credential string
+	// ProjectConfig is trusted install/pinned-main data, transported to the agent guest.
+	ProjectConfig []byte
+	Binding       Binding
+	Authority     Authority
+	Catalog       Catalog
+	Credential    string
 	// Environment is the per-start environment a launcher decorator adds
 	// (the box's landing credential). It is minted for each start, so it is
 	// not part of the host's service identity, and it never replaces a
@@ -213,6 +215,12 @@ type Connection struct {
 type Launcher interface {
 	InspectFlowHost(context.Context, HostLaunch) (Connection, error)
 	StartFlowHost(context.Context, HostLaunch) (Connection, error)
+}
+
+// LaunchConfigurer supplies trusted per-attempt data before inspection and
+// checkpointing, so the retained service identity names the actual process.
+type LaunchConfigurer interface {
+	ConfigureFlowHost(context.Context, HostLaunch) (HostLaunch, error)
 }
 
 // IsolationLauncher reports the execution guarantee of a launcher. Missing or

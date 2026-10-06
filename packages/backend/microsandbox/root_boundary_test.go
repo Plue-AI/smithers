@@ -277,10 +277,15 @@ with tempfile.TemporaryDirectory() as directory:
   def read(self,*args):
    assert identity[0]==19999, 'root read branch IPC bytes'
    return super().read(*args)
- g.sys.stdin=types.SimpleNamespace(buffer=Branch(b'branch payload'))
+ canary=directory+'/must-not-execute'
+ merged='{"checks":[{"id":"$(touch '+canary+')"}],"wikiOutput":"/root/hostile"}'
+ payload=g.json.dumps({'argv':['/usr/bin/true'],'env':{'SMITHERS_CODING_PROJECT_JSON':merged},'cwd':'/workspace'}).encode()
+ g.sys.stdin=types.SimpleNamespace(buffer=Branch(payload))
  g.main(['put-request','host-id'])
  assert identity==[0],identity
- assert open(directory+'/host-id.json','rb').read()==b'branch payload'
+ assert open(directory+'/host-id.json','rb').read()==payload
+ assert not os.path.exists(canary), 'merged config was executed'
+
  assert os.stat(directory+'/host-id.json').st_mode & 0o777 == 0o600
  g.sys.stdin=types.SimpleNamespace(buffer=Branch(b'x'*1048577))
  try: g.main(['put-request','oversized'])

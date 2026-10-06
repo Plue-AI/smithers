@@ -100,8 +100,15 @@ export const checkLayers = (options: CheckHostOptions) => {
           try: () => JSON.parse(invocation.prompt.trimStart().split(/\r?\n/, 1)[0] ?? "") as unknown,
           catch: () => invalid("The registered check body must be a JSON command declaration")
         }).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Command)),
-          Effect.mapError(() => invalid("The registered check body needs argv, relative cwd and a bounded timeoutMs"))
+          Effect.flatMap((value) => {
+            if (typeof value === "object" && value !== null && "argv" in value && Array.isArray(value.argv) && value.argv.length === 0) {
+              return Effect.fail(new CodingError({ code: "check_configuration", message: "no checks detected: configure an executable build command" }))
+            }
+            return Schema.decodeUnknownEffect(Command)(value).pipe(
+              Effect.mapError(() => invalid("The registered check body needs argv, relative cwd and a bounded timeoutMs"))
+            )
+          }),
+          Effect.mapError((error) => error instanceof CodingError ? error : invalid("The registered check body needs argv, relative cwd and a bounded timeoutMs"))
         )
         const fs = options.fs, path = yield* Path.Path
         if (!path.isAbsolute(command.argv[0]) && options.environment?.PATH === undefined) {

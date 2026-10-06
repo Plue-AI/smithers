@@ -27,7 +27,8 @@ var (
 )
 
 var reservedEnvironment = map[string]struct{}{
-	SystemFlowsEnv:     {},
+	SystemFlowsEnv:                 {},
+	"SMITHERS_CODING_PROJECT_JSON": {}, "SMITHERS_CODING_PROJECT": {},
 	"SMITHERS_API_KEY": {}, "SMITHERS_GATEWAY_ID": {},
 	"SMITHERS_OWNER_GENERATION": {}, "SMITHERS_FLOW_ARTIFACT_SHA256": {},
 	"SMITHERS_SOURCE_REVISION": {}, "SMITHERS_REPO": {},
@@ -291,6 +292,36 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 			return nil, refuse(ctx, "runtime_journal_unavailable", err, binding)
 		}
 	}
+	if configured, ok := resolver.launcher.(LaunchConfigurer); ok {
+		launch, err = configured.ConfigureFlowHost(ctx, launch)
+		if err != nil {
+			return nil, refuse(ctx, "runtime_configuration_unavailable", err, binding)
+		}
+	}
+	// A later attempt may require new checks/pages on this same machine. An
+	// active run keeps its process and snapshot; never change it under that run.
+	if len(launch.ProjectConfig) > 0 && binding.ServiceIdentity != "" && binding.ServiceIdentity != hostServiceIdentity(launch) {
+		if existingOnly {
+			return nil, failure{code: "runtime_upgrade_required", retryable: true}
+		}
+		if resolver.activeRuns == nil {
+			return nil, failure{code: "runtime_activity_unavailable", retryable: true}
+		}
+		active, activityErr := resolver.activeRuns.ActiveFlowRuns(ctx, binding)
+		if activityErr != nil {
+			return nil, refuse(ctx, "runtime_activity_unavailable", activityErr, binding)
+		}
+		if active {
+			return nil, failure{code: "runtime_upgrade_pending", retryable: true}
+		}
+		stopper, ok := resolver.launcher.(RetirementStopper)
+		if !ok {
+			return nil, failure{code: "runtime_upgrade_unsupported"}
+		}
+		if err = stopper.StopFlowHost(ctx, binding); err != nil {
+			return nil, refuse(ctx, "runtime_upgrade_stop_failed", err, binding)
+		}
+	}
 	connection, inspectErr := resolver.launcher.InspectFlowHost(ctx, launch)
 	if inspectErr == nil {
 		client, err := resolver.verifiedClient(ctx, connection, lease.Credential(), binding)
@@ -323,6 +354,12 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 		// The workspace's database and role exist before its host opens them.
 		if launch.Journal, err = resolver.journals.Provision(ctx, binding.WorkspaceID); err != nil {
 			return nil, startFailed(ctx, lease, binding, refuse(ctx, "runtime_journal_unavailable", err, binding))
+		}
+	}
+	if configured, ok := resolver.launcher.(LaunchConfigurer); ok {
+		launch, err = configured.ConfigureFlowHost(ctx, launch)
+		if err != nil {
+			return nil, startFailed(ctx, lease, binding, refuse(ctx, "runtime_configuration_unavailable", err, binding))
 		}
 	}
 	connection, err = resolver.launcher.StartFlowHost(ctx, launch)

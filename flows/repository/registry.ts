@@ -175,7 +175,7 @@ const checkBody = (check: BuiltinCheck) =>
     "---",
     `description: ${JSON.stringify(`Run the detected command ${check.argv.join(" ")}.`)}`,
     "flows: [coding/CommandCheck]",
-    `capabilities: ${JSON.stringify(["fs:read:**", `proc:spawn:${check.argv.join(" ")}`])}`,
+    `capabilities: ${JSON.stringify(["fs:read:**", ...(check.argv.length === 0 ? [] : [`proc:spawn:${check.argv.join(" ")}`])])}`,
     "---",
     JSON.stringify({ argv: check.argv, cwd: ".", timeoutMs: check.timeoutMs }),
     ""
@@ -192,7 +192,7 @@ export const provisionBuiltins = (
     const root = path.join(stateRoot, "builtin-flows", policy)
     for (const check of checks) {
       if (
-        !builtinCheckName.test(check.flow) || check.argv.length === 0 ||
+        !builtinCheckName.test(check.flow) || (check.argv.length === 0 && check.flow !== "checks/build-only") ||
         check.argv.some((part) => part === "" || /[\0\r\n]/.test(part))
       ) {
         return yield* Effect.die(

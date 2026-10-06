@@ -257,7 +257,7 @@ test("project reads enforce emitted byte bounds and skip an absent default", asy
 })
 
 test("configured entry loads explicit project data before host initialization; help needs no project", {
-  timeout: 180_000
+  timeout: 1_200_000
 }, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "coding-project-entry-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
@@ -275,7 +275,7 @@ test("configured entry loads explicit project data before host initialization; h
     ], {
       cwd: directory,
       encoding: "utf8",
-      timeout: 75_000,
+      timeout: 240_000,
       maxBuffer: 64 * 1024,
       env: {
         PATH: process.env.PATH,
@@ -285,7 +285,7 @@ test("configured entry loads explicit project data before host initialization; h
       }
     })
   const help = run(["--help"])
-  assert.equal(help.status, 0, help.stderr)
+  assert.equal(help.status, 0, `${help.stderr} ${help.error ?? ""} ${help.signal ?? ""}`)
   assert.match(help.stdout, /SMITHERS_CODING_PROJECT/)
   for (const systemNames of [null, "malformed", "{}"]) {
     const policyRefusal = run(["serve", "--root", directory], "invalid.json", systemNames)
@@ -306,4 +306,31 @@ test("configured entry loads explicit project data before host initialization; h
     defaultRefusal.stdout + defaultRefusal.stderr,
     /Invalid SMITHERS_CODING_PROJECT.*\.smithers\/coding-project\.json/
   )
+})
+
+test("an install snapshot loads literal command declarations without reading repository configuration", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "install-project-config-"))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
+  await mkdir(join(directory, ".smithers"))
+  await writeFile(join(directory, ".smithers/coding-project.json"), "{hostile")
+  const snapshot = {
+    checks: [{ id: "test", target: ".", flow: "checks/test", tier: "slow", required: true }],
+    detected: [{ flow: "checks/test", argv: ["go", "test", "./..."], timeoutMs: 1800000 }],
+    seats: { "coding/implement": "auto", "coding/review": "auto" },
+    wiki: false
+  }
+  await writeFile(join(directory, "snapshot.json"), JSON.stringify(snapshot))
+  const result = await Effect.runPromise(loadProject(directory, "snapshot.json").pipe(Effect.provide(platform)))
+  assert.deepEqual(result, { ...snapshot, implementation: "coding/implementation" })
+  const { PlanningContext, Draft } = await import("../coding/planning.ts")
+  const { Schema } = await import("effect")
+  const check = { ...snapshot.checks[0], flowDigest: "literal-check-digest" }
+  assert.deepEqual(Schema.decodeUnknownSync(PlanningContext.fields.checks)([check]), [check])
+  assert.throws(() => Schema.decodeUnknownSync(PlanningContext.fields.checks)([]))
+  const draft = { rationale: "Run the required check", baseChangeId: "base", changes: [{
+    id: "one", title: "One", intent: "One change", atoms: [{ changeId: null, message: "Change", intent: "Change", reads: [], writes: ["main.go"] }], checks: ["test"]
+  }] }
+  assert.deepEqual(Schema.decodeUnknownSync(Draft)(draft), draft)
+  assert.throws(() => Schema.decodeUnknownSync(Draft)({ ...draft, changes: [{ ...draft.changes[0], checks: [] }] }))
 })

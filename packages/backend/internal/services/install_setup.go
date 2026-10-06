@@ -132,6 +132,7 @@ func installStepCanStart(step InstallStep, now time.Time) bool {
 }
 
 type InstallSetupService struct {
+	CodingDefaults   func(context.Context, string) error
 	Now              func() time.Time
 	Pool             *pgxpool.Pool
 	Jobs             *jobs.Store

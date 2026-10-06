@@ -1,16 +1,19 @@
 # Configuring the workspace coding host
 
-This is private deployment configuration for `smithers-coding-host`, the separate
-workspace executable. The ordinary Smithers CLI keeps its existing commands.
-The host uses the same Effect composition and durable engine on Node and Bun.
+The self-hosted install stores default checks, wiki pages and model seats in
+`install_settings` when Source becomes ready. It reads only pinned-main data;
+it never commits generated configuration to the repository.
 
-The host loads `<root>/.smithers/coding-project.json` when it exists and
-`SMITHERS_CODING_PROJECT` is unset. Set that variable to an explicit UTF-8 JSON
-file to override the default. An absent default uses the built-in
-configuration below; an empty, missing, malformed or invalid explicit file refuses
-startup. An invalid default also refuses startup and names its path. The file
-is read once before host construction through the injected Effect filesystem.
-Restart the host to adopt a changed configuration or catalog.
+At host admission, fields from `main:.smithers/coding-project.json` replace
+stored fields. `seats` merges by role. The merged snapshot is retained for the
+TODO attempt and transported as data to the unprivileged guest, which writes
+an exclusive private JSON file and loads it through `SMITHERS_CODING_PROJECT`.
+Restart recovery keeps that snapshot; a new attempt takes the current main
+configuration. No repository-selected path participates in the write.
+
+A standalone host loads `<root>/.smithers/coding-project.json`, or the explicit
+`SMITHERS_CODING_PROJECT` file. Missing, malformed and unknown fields in an
+explicit file refuse startup. Configuration is read once before construction.
 
 Both the config filename and optional `wikiOutput` resolve relative to `--root`; absolute
 paths are accepted. The output may point at the separate wiki repository. JSON
@@ -35,14 +38,12 @@ source path admission, publication and semantic verification.
 }
 ```
 
-Wiki is off by default. Source files, existing project documents and resolved
-native JJ history provide planning context without generated artifacts. To
-enable Wiki, add `"wiki": true`, an external `wikiOutput`, a `reviewer` identity,
-and the non-empty `pages` inventory using the Wiki `PageSpec`. Supplied optional
-metadata is still validated while the feature is off. This flag leaves native
-history, source identity and validation invariants intact. An explicitly required
-`checks/wiki` refuses while Wiki is off; update that operator policy deliberately.
-Optional generated-Wiki checks are omitted while the feature is off.
+The install enables Wiki with an overview, architecture and up to eight
+package pages, published in the guest-owned `/var/tmp/smithers/wiki`. Install-generated `PageSpec` entries use `sourceDirectory`;
+the guest expands public source files at each refresh and renders source-linked
+exports through the existing review and publication pipeline. Symlinked
+directories, private inputs and inventories over 256 entries refuse. Explicit
+repository pages retain their existing document and input semantics.
 
 The example names must identify real registered implementation/check flows in
 that repository. This file does not define shell commands or accept claimed
@@ -56,28 +57,21 @@ fails the existing planning/validation policy; the loader invents none.
 
 ## Built-in configuration
 
-A repository with no Smithers declarations still serves coding requests
-(mvp.md J1.4). With no file, and for each of `implementation` and `checks` a
-file omits, the host uses:
+The install consumes the machine detector's package manager and file evidence.
+It stores package scripts `test`, `lint`, `typecheck`, `build`, then the first
+language test (`go test ./...`, `cargo test`, or `pytest`). A pnpm repository's
+scripts run as `pnpm test` and `pnpm lint`. Each becomes a required built-in
+check body `{argv, cwd: ".", timeoutMs: 1800000}`. Planning requires one check.
 
-- `implementation`: `coding/implementation`.
-- `checks`: one required check per command the repository-registration
-  detector (`checkCommands`, `flows/register-repository/tree.ts`) finds, in its
-  order.
-- `wiki`: `false`.
+Without a detected command the install registers `checks/build-only`. An
+absent executable build command fails with `check_configuration` and
+"no checks detected"; it cannot record a pass. The configured check is part
+of every candidate's checks, including rebased candidates.
 
-Detection reads only `package.json`, `Makefile`, `Cargo.toml`, `go.mod`,
-`pyproject.toml`, `setup.py`, `pytest.ini` and the package-manager lockfiles at
-`--root`, and runs nothing. Each detected command becomes the check `<kind>`
-(`test`, `lint`, `typecheck` or `build`) on the built-in flow `checks/<kind>`,
-which the host writes beside its other built-ins with the body
-`{"argv": [...], "cwd": ".", "timeoutMs": 1800000}`. Lint, typecheck and build
-are fast checks; test is the slow check. A Go repository gets `go test ./...`,
-`go vet ./...` and `go build ./...`; a pnpm repository with `test` and `lint`
-scripts gets `pnpm run test` and `pnpm run lint`. A field the file declares,
-including an empty `checks`, always wins. Planning takes any number of checks:
-a repository with only a `test` script plans with that one slow check, and one
-with no detected command plans with none (mvp.md J1.4).
+Every built-in model role starts at `auto`. Owner model access remains in
+`agent:<role>` settings. Repository role keys replace stored seat keys without
+replacing the remaining roles. The install does not inject
+`SMITHERS_CODING_SEATS`.
 
 ## Landing
 

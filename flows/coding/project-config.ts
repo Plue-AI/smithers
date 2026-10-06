@@ -1,4 +1,4 @@
-/** Private operator input, loaded once before the configured host is constructed. */
+/** Install and repository data, loaded once before the configured host is constructed. */
 import { TokenWeights } from "@smthrs/agent/Budget"
 import * as Seat from "@smthrs/agent/Seat"
 import { Effect, FileSystem, Option, Path, Schema, Stream } from "effect"
@@ -21,6 +21,10 @@ export const ProjectLimits = Schema.Struct({
   weights: Schema.optionalKey(Schema.Record(Schema.NonEmptyString, TokenWeights))
 })
 const Project = Schema.Struct({
+  detected: Schema.optionalKey(Schema.Array(Schema.Struct({
+    flow: text, argv: Schema.Array(text), timeoutMs: positiveMs
+  }))),
+  conflictAttempts: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(8))),
   limits: Schema.optionalKey(ProjectLimits),
   wiki: Schema.optionalKey(Schema.Boolean),
   wikiOutput: Schema.optionalKey(text),
@@ -49,6 +53,7 @@ export interface DetectedCheck {
   readonly timeoutMs: number
 }
 export type ProjectConfig = Omit<MemoryOptions, "repositoryPath"> & {
+  readonly conflictAttempts?: number
   readonly limits?: typeof ProjectLimits.Type
   readonly reviewer?: string
   readonly seats?: Readonly<Record<string, string>>

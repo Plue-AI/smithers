@@ -12,7 +12,7 @@ import (
 )
 
 // DetectorVersion is part of every detected layer's content identity.
-const DetectorVersion = "smithers.toolchain-detect/v2"
+const DetectorVersion = "smithers.toolchain-detect/v3"
 
 // RecipeError is an actionable machine preparation or command failure.
 type MissingTool struct {
@@ -48,7 +48,13 @@ type DetectedInstall struct {
 
 // Recipe contains data only. Detection never runs repository code or fetches
 // the network. Tool artifacts resolve against the shipped pinned manifest.
+type DetectedCheck struct {
+	ID   string   `json:"id"`
+	Argv []string `json:"argv"`
+}
+
 type Recipe struct {
+	Checks          []DetectedCheck         `json:"checks,omitempty"`
 	DetectorVersion string                  `json:"detectorVersion"`
 	Tools           map[string]DetectedTool `json:"tools"`
 	PackageManager  string                  `json:"packageManager,omitempty"`
@@ -57,7 +63,7 @@ type Recipe struct {
 
 var detectionFiles = []string{
 	".node-version", ".nvmrc", "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb",
-	"go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements.txt", "requirements*.txt",
+	"go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements.txt", "requirements*.txt", "setup.py", "pytest.ini",
 }
 
 var goDirective = regexp.MustCompile(`(?m)^\s*(go|toolchain)\s+(\S+)\s*(?://[^\n]*)?$`)
@@ -131,7 +137,8 @@ func DetectRecipe(read func(string) ([]byte, bool, error)) (Recipe, error) {
 		Engines struct {
 			Node string `json:"node"`
 		} `json:"engines"`
-		PackageManager string `json:"packageManager"`
+		PackageManager string            `json:"packageManager"`
+		Scripts        map[string]string `json:"scripts"`
 	}
 	if data, ok := files["package.json"]; ok {
 		if err := json.Unmarshal(data, &manifest); err != nil {
@@ -320,7 +327,9 @@ func DetectRecipe(read func(string) ([]byte, bool, error)) (Recipe, error) {
 	_, hasProject := files["pyproject.toml"]
 	_, hasPython := files[".python-version"]
 	_, hasUV := files["uv.lock"]
-	if hasProject || hasPython || hasUV || len(requirements) > 0 {
+	_, hasSetup := files["setup.py"]
+	_, hasPytest := files["pytest.ini"]
+	if hasProject || hasPython || hasUV || hasSetup || hasPytest || len(requirements) > 0 {
 		version, file := project.Project.RequiresPython, "pyproject.toml"
 		if hasPython {
 			version, file = strings.TrimSpace(string(files[".python-version"])), ".python-version"
@@ -331,6 +340,10 @@ func DetectRecipe(read func(string) ([]byte, bool, error)) (Recipe, error) {
 				file = "uv.lock"
 			} else if len(requirements) > 0 {
 				file = requirements[0]
+			} else if hasSetup {
+				file = "setup.py"
+			} else if hasPytest {
+				file = "pytest.ini"
 			}
 		}
 		if err := tool("python", version, file); err != nil {
@@ -355,6 +368,33 @@ func DetectRecipe(read func(string) ([]byte, bool, error)) (Recipe, error) {
 			}
 			install(command, offline, requirements, []string{"pypi.org", "files.pythonhosted.org"})
 		}
+	}
+	// Reuse the same file evidence and resolved package manager as image preparation.
+	for _, name := range []string{"test", "lint", "typecheck", "build"} {
+		if script := manifest.Scripts[name]; strings.TrimSpace(script) != "" && !strings.Contains(script, "no test specified") {
+			argv := []string{r.PackageManager, name}
+			if r.PackageManager == "npm" {
+				argv = []string{"npm", "run", name}
+			}
+			r.Checks = append(r.Checks, DetectedCheck{ID: name, Argv: argv})
+		}
+	}
+	addTest := func(argv []string) {
+		for _, check := range r.Checks {
+			if check.ID == "test" {
+				return
+			}
+		}
+		r.Checks = append(r.Checks, DetectedCheck{ID: "test", Argv: argv})
+	}
+	if _, ok := files["go.mod"]; ok {
+		addTest([]string{"go", "test", "./..."})
+	}
+	if _, ok := files["Cargo.toml"]; ok {
+		addTest([]string{"cargo", "test"})
+	}
+	if hasProject || hasSetup || hasPytest {
+		addTest([]string{"pytest"})
 	}
 	return r, nil
 }

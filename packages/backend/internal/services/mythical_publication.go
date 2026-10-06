@@ -310,6 +310,19 @@ func mythicalTodoEvidenceText(item db.MythicalItem) (string, string) {
 	if mythicalPlanNamesNoChecks(item) {
 		lines = append(lines, "- No checks found")
 	}
+	var recordedPlan struct {
+		Checks []struct {
+			ID string `json:"id"`
+		} `json:"checks"`
+	}
+	if json.Unmarshal(item.Plan, &recordedPlan) == nil {
+		for _, check := range recordedPlan.Checks {
+			if check.ID == "build-only" {
+				lines = append(lines, "- no checks detected")
+				break
+			}
+		}
+	}
 	review := ""
 	for _, entry := range currentTodoEvidence(item).Items {
 		switch entry["kind"] {

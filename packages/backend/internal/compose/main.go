@@ -1312,6 +1312,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	} else {
 		return errors.New("workflow run service cannot cancel invoked Flow runs")
 	}
+	options.Repository = repoHostClient
 	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, repositorySetupService)
 	if err != nil {
 		return err
@@ -1569,6 +1570,26 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var gitHubAppSetup *routes.GitHubAppSetupHandler
 	if config.IsSingleOwner(cfg.Auth) {
 		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs}
+		installSetup.CodingDefaults = func(ctx context.Context, slug string) error {
+			owner, name, err := splitRepositorySlug(slug)
+			if err != nil {
+				return err
+			}
+			sources := repositorySourceFiles{client: repoHostClient}
+			revision, err := sources.ResolveSourceRevision(ctx, slug, "main")
+			if err != nil {
+				return err
+			}
+			files, err := repoHostClient.ListFilesAtChange(ctx, owner, name, revision, "")
+			if err != nil {
+				return err
+			}
+			paths := []string{}
+			for _, file := range files {
+				paths = append(paths, file.Path)
+			}
+			return services.PersistInstallCodingProject(ctx, pool, sources, workspace.WorkspaceSource{Repository: slug, Revision: revision}, paths)
+		}
 		installSetup.RepositoryAccess = gitHubUserReposService
 		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, repoConnectionService, gitHubImportService, authService.Members, mythicalService)
 		if machineImages != nil {

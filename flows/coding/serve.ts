@@ -15,6 +15,7 @@ import { layer, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
 import { loadProject } from "./project-config.ts"
+import { consumeInstallProject } from "./install-project.ts"
 import { resolveRuntimeBridgeIdentity } from "./runtime-bridge.ts"
 import * as CodingState from "./state.ts"
 
@@ -155,9 +156,14 @@ if (parsed.values.version) {
   }
   // The reserved repository credential leaves process.env here, before the
   // host, model seats or any approved shell tool can inherit it.
+  // The managed runtime launches this packaged entry as agent. No root helper
+  // parses the repository JSON or selects its destination.
+  const snapshot = consumeInstallProject(process.env)
   const run = (platform: NativeControl.Platform, http: Layer.Layer<HttpClient.HttpClient>) =>
     Effect.all([
-      loadProject(root, process.env.SMITHERS_CODING_PROJECT),
+      loadProject(root, process.env.SMITHERS_CODING_PROJECT).pipe(
+        Effect.mapError((error) => snapshot === undefined ? error : new Error(`Invalid install defaults or main:.smithers/coding-project.json: ${error.message}`))
+      ),
       // A guest's binding is root-owned /etc/smithers; a trusted-process
       // test runtime names its own (the landing credential stays env-only).
       loadLanding(root, process.env, process.env.SMITHERS_WORKSPACE_CODING_CONFIG),

@@ -136,6 +136,9 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		return nil, errors.New("Flow workspace launcher cannot resolve sources or stop hosts")
 	}
 	boxLauncher := newBoxHostLauncher(workspaceHosts, boxes, invoked)
+	if config.IsSingleOwner(cfg.Auth) && options.Repository != nil {
+		boxLauncher.codingProject = installCodingProject(pool, repositorySourceFiles{client: options.Repository})
+	}
 	if _, ownerPaid := options.proxyKeys(); ownerPaid {
 		// An install pins no coding model: its hosts run the coding role
 		// Model access wrote, on the owner's key through the proxy.

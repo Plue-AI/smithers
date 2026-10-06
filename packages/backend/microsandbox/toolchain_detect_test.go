@@ -405,7 +405,7 @@ func TestDetectRecipeReadsOnlySpecifiedFilesAndEmptyRepositoryIsBaseOnly(t *test
 	// This independent whitelist comes from spec §8.6.2 and T-MCH-10 Changes;
 	// T-MCH-10 Tests require a base-only recipe when no listed file exists.
 	allowed := map[string]bool{}
-	for _, file := range []string{".node-version", ".nvmrc", "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb", "go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements.txt", "requirements*.txt"} {
+	for _, file := range []string{".node-version", ".nvmrc", "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb", "go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements.txt", "requirements*.txt", "setup.py", "pytest.ini"} {
 		allowed[file] = true
 	}
 	var reads []string
@@ -554,6 +554,30 @@ func TestDetectRecipeDeterministicAcrossRepeatedReads(t *testing.T) {
 		}
 		if !reflect.DeepEqual(first, next) {
 			t.Fatalf("same evidence produces different recipe: %#v vs %#v", first, next)
+		}
+	}
+}
+
+func TestDetectRecipeLiteralCheckInventory(t *testing.T) {
+	fixtures := []struct {
+		files map[string]string
+		want  []DetectedCheck
+	}{
+		{map[string]string{"package.json": `{"packageManager":"pnpm@9.15.4","scripts":{"test":"vitest","lint":"eslint .","typecheck":"tsc","build":"tsc -b"}}`}, []DetectedCheck{{ID: "test", Argv: []string{"pnpm", "test"}}, {ID: "lint", Argv: []string{"pnpm", "lint"}}, {ID: "typecheck", Argv: []string{"pnpm", "typecheck"}}, {ID: "build", Argv: []string{"pnpm", "build"}}}},
+		{map[string]string{"go.mod": "module example.test/app\n\ngo 1.23\n"}, []DetectedCheck{{ID: "test", Argv: []string{"go", "test", "./..."}}}},
+		{map[string]string{"Cargo.toml": "[package]\nname='app'\nversion='0.1.0'\n"}, []DetectedCheck{{ID: "test", Argv: []string{"cargo", "test"}}}},
+		{map[string]string{"pyproject.toml": "[project]\nname='app'\n"}, []DetectedCheck{{ID: "test", Argv: []string{"pytest"}}}},
+		{map[string]string{"setup.py": "from setuptools import setup\n"}, []DetectedCheck{{ID: "test", Argv: []string{"pytest"}}}},
+		{map[string]string{"pytest.ini": "[pytest]\n"}, []DetectedCheck{{ID: "test", Argv: []string{"pytest"}}}},
+		{map[string]string{}, nil},
+	}
+	for _, fixture := range fixtures {
+		recipe, err := DetectRecipe(detectedFixture(fixture.files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(fixture.want, recipe.Checks) {
+			t.Fatalf("checks=%v want=%v", recipe.Checks, fixture.want)
 		}
 	}
 }

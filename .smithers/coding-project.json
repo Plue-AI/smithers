@@ -23,7 +23,7 @@
       "kind": "current",
       "document": "factory/wiki/pages/start-here.md",
       "inputs": [
-        "apps/site/src/content/docs/docs/learn/run-a-flow.mdx",
+        "packages/smithers/flows/flow/docs/README.md",
         "packages/smithers/flows/src/NodeRuntime.ts",
         "packages/smithers/agent/docs/concepts/agent-loop.md",
         "packages/smithers/build/targets/docs/README.md"
@@ -140,7 +140,15 @@
         "cloud-wiki",
         "coding-host",
         "build-graph"
-      ]
+      ],
+      "excerpts": {
+        "factory/wiki/README.md": [
+          {
+            "start": 1,
+            "end": 70
+          }
+        ]
+      }
     },
     {
       "id": "coding-direction",
@@ -175,7 +183,15 @@
         "coding-checks",
         "runtime",
         "wiki-generation"
-      ]
+      ],
+      "excerpts": {
+        "flows/coding/host.md": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ]
+      }
     },
     {
       "id": "coding-request",
@@ -296,7 +312,21 @@
         "coding-correction",
         "coding-host",
         "build-graph"
-      ]
+      ],
+      "excerpts": {
+        "flows/coding/checks.ts": [
+          {
+            "start": 60,
+            "end": 180
+          }
+        ],
+        "flows/coding/checks.md": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ]
+      }
     },
     {
       "id": "coding-finalization",
@@ -312,7 +342,15 @@
         "coding-progression",
         "coding-checks",
         "coding-ui"
-      ]
+      ],
+      "excerpts": {
+        "flows/coding/finalization.md": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ]
+      }
     },
     {
       "id": "coding-ui",
@@ -321,7 +359,7 @@
       "kind": "current",
       "document": "factory/wiki/pages/coding-ui.md",
       "inputs": [
-        "apps/app/docs/workbench-lanes/coding-plans.md"
+        "flows/coding/planning.md"
       ],
       "related": [
         "product-ui",
@@ -338,7 +376,7 @@
       "kind": "intent",
       "document": "factory/wiki/pages/coding-experience.md",
       "inputs": [
-        "apps/app/docs/workbench-lanes/runs.md",
+        "apps/app/docs/http-turn-recovery.md",
         "factory/wiki/pages/coding-direction.md"
       ],
       "related": [
@@ -356,7 +394,7 @@
       "document": "factory/wiki/pages/product-ui.md",
       "inputs": [
         "apps/app/README.md",
-        "apps/app/docs/workbench-lanes/runs.md"
+        "apps/app/docs/http-turn-recovery.md"
       ],
       "related": [
         "app",
@@ -416,7 +454,7 @@
       "kind": "current",
       "document": "factory/wiki/pages/native-engine-evidence.md",
       "inputs": [
-        "apps/app/docs/workbench-lanes/native-engine-evidence.md",
+        "packages/smithers/flows/docs/concepts/runtime-portability.md",
         "packages/smithers/ENGINE-JOURNAL-PROJECTION.md",
         "apps/app/src/mainview/cards/EngineTrace.ts"
       ],
@@ -425,7 +463,15 @@
         "coding-ui",
         "storage",
         "product-ui"
-      ]
+      ],
+      "excerpts": {
+        "packages/smithers/ENGINE-JOURNAL-PROJECTION.md": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ]
+      }
     },
     {
       "id": "packages",

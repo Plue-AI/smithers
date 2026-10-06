@@ -204,6 +204,7 @@ export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error
     "invalid_request",
     "fast_gate",
     "check_infra",
+    "check_configuration",
     "stale_revision",
     "invalid_receipt",
     "unavailable",
@@ -240,6 +241,7 @@ Fault.register(
     // that died under the plan. None is the plan's, so none spends a replan.
     invalid_receipt: "infra",
     check_infra: "infra",
+    check_configuration: "user",
     execution: "infra",
     unavailable: "dependency",
     isolation_required: "dependency",

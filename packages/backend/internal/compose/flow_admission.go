@@ -55,6 +55,13 @@ func newAdmittedFlowLauncher(launcher flowhost.Launcher, queries *db.Queries, po
 	return &admittedFlowLauncher{Launcher: launcher, SourceResolver: source, RetirementStopper: stopper, queries: queries, policy: policy}, nil
 }
 
+func (l *admittedFlowLauncher) ConfigureFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.HostLaunch, error) {
+	if configured, ok := l.Launcher.(flowhost.LaunchConfigurer); ok {
+		return configured.ConfigureFlowHost(ctx, launch)
+	}
+	return launch, nil
+}
+
 func (l *admittedFlowLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	workspace, err := l.queries.GetWorkspace(ctx, launch.Authority.WorkspaceID)
 	if err != nil {
@@ -111,13 +118,21 @@ type boxHostLauncher struct {
 	targets flowHostEnvironment
 	// codingModel is the install's coding seat (ownerCodingSeat), used when
 	// the catalog pins no implementation model; nil keeps the catalog's.
-	codingModel func(context.Context) (string, error)
+	codingModel   func(context.Context) (string, error)
+	codingProject func(context.Context, flowhost.HostLaunch) ([]byte, error)
 }
 
 // withCodingModel gives a catalog that pins no implementation model the
 // install's own. Start and Inspect both apply it, so the host's service
 // identity follows the seat and a changed coding model starts a new host.
-func (l *boxHostLauncher) withCodingModel(ctx context.Context, launch flowhost.HostLaunch) (flowhost.HostLaunch, error) {
+func (l *boxHostLauncher) ConfigureFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.HostLaunch, error) {
+	if l.codingProject != nil {
+		config, err := l.codingProject(ctx, launch)
+		if err != nil {
+			return launch, err
+		}
+		launch.ProjectConfig = config
+	}
 	if l.codingModel == nil || launch.Catalog.ImplementationModel != "" {
 		return launch, nil
 	}
@@ -182,7 +197,7 @@ func newBoxHostLauncher(launcher boxHostBase, boxes boxHostPreparer, targets flo
 // A box the runtime lost outright is replaced the same way when its journals
 // live outside it (#1868).
 func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
-	launch, err := l.withCodingModel(ctx, launch)
+	launch, err := l.ConfigureFlowHost(ctx, launch)
 	if err != nil {
 		return flowhost.Connection{}, err
 	}
@@ -217,7 +232,7 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 			return flowhost.Connection{}, staleRoleSource{}
 		}
 	}
-	launch, err := l.withCodingModel(ctx, launch)
+	launch, err := l.ConfigureFlowHost(ctx, launch)
 	if err != nil {
 		return flowhost.Connection{}, err
 	}

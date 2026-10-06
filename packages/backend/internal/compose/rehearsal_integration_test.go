@@ -178,7 +178,23 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 		makefile = "test:\n\tgrep -q . JOURNEY.md\n"
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte(makefile), 0600))
-	git("-C", seed, "add", "JOURNEY.md", "Makefile")
+	switch os.Getenv("REHEARSAL_CONFIG_FIXTURE") {
+
+	case "":
+		scripts := map[string]string{"build": "make build", "test": "make test"}
+		if os.Getenv("REHEARSAL_TEST_ONLY_REPOSITORY") == "1" {
+			delete(scripts, "build")
+		}
+		manifest, err := json.Marshal(map[string]any{"scripts": scripts})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), manifest, 0600))
+	case "node":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"vitest run","lint":"eslint ."}}`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0600))
+	case "go":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "go.mod"), []byte("module example.test/app\n\ngo 1.23\n"), 0600))
+	}
+	git("-C", seed, "add", ".")
 	git("-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary")
 	seedHead, err := exec.Command("/usr/bin/git", "-C", seed, "rev-parse", "HEAD").Output()
 	require.NoError(t, err)
@@ -188,7 +204,11 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	// trunk-app's default branch is not main: the repository step refuses it.
-	r.fake, err = githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
+	installationID := int64(91)
+	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "go" {
+		installationID = 92
+	}
+	r.fake, err = githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: installationID, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(r.fake.Close)
 	server := httptest.NewUnstartedServer(nil)

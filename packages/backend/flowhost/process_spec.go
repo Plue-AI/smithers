@@ -79,6 +79,12 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	for name, value := range journal {
 		environment[name] = value
 	}
+	if len(launch.ProjectConfig) > 0 {
+		if len(launch.ProjectConfig) > 256*1024 || !json.Valid(launch.ProjectConfig) {
+			return ProcessSpec{}, errors.New("invalid install coding configuration")
+		}
+		environment["SMITHERS_CODING_PROJECT_JSON"] = string(launch.ProjectConfig)
+	}
 	environment["SMITHERS_API_KEY"] = launch.Credential
 	environment["SMITHERS_GATEWAY_ID"] = launch.Binding.ID
 	environment["SMITHERS_OWNER_GENERATION"] = strconv.FormatInt(launch.Binding.OwnerGeneration, 10)
@@ -123,8 +129,9 @@ func hostServiceIdentity(launch HostLaunch) string {
 		Catalog                                    Catalog
 		Repository                                 string
 		// Omitted when empty, so SQLite hosts keep their existing identity.
-		Journal string `json:",omitempty"`
-	}{launch.Binding.ID, launch.Binding.WorkspaceID, launch.Binding.RuntimeArtifactDigest, launch.Binding.SourceRevision, launch.Binding.OwnerGeneration, launch.Catalog, launch.Authority.Repository, launch.Journal.identity()}
+		Journal       string `json:",omitempty"`
+		ProjectConfig string `json:",omitempty"`
+	}{launch.Binding.ID, launch.Binding.WorkspaceID, launch.Binding.RuntimeArtifactDigest, launch.Binding.SourceRevision, launch.Binding.OwnerGeneration, launch.Catalog, launch.Authority.Repository, launch.Journal.identity(), string(launch.ProjectConfig)}
 	data, _ := json.Marshal(identity)
 	digest := sha256.Sum256(data)
 	return "flow-host:" + hex.EncodeToString(digest[:])

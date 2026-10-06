@@ -175,6 +175,11 @@ func (s *InstallSetupService) prepareSource(ctx context.Context, lease *jobs.Lea
 	if err = members.BindRepository(ctx, owner, o, n, repo.ID); err != nil {
 		return err
 	}
+	if s.CodingDefaults != nil {
+		if err = s.CodingDefaults(ctx, job.RepoOwner+"/"+job.RepoName); err != nil {
+			return err
+		}
+	}
 	// Import's selected local slug can differ from the GitHub slug. Pin it for
 	// machine preparation rather than guessing a repository-host identity.
 	raw, _ := json.Marshal(job.RepoOwner + "/" + job.RepoName)

@@ -9,6 +9,8 @@ export const PageSpec = Schema.Struct({
   purpose: Schema.String,
   kind: Schema.Literals(["current", "intent"]),
   document: Schema.String,
+  /** Install-generated source inventory, expanded afresh at each immutable revision. */
+  sourceDirectory: Schema.optionalKey(Schema.String),
   inputs: Schema.Array(Schema.String),
   related: Schema.Array(Schema.String),
   excerpts: Schema.optional(

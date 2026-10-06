@@ -329,3 +329,25 @@ func TestCatalogRefusesProviderCredentials(t *testing.T) {
 		assert.NotContains(t, err.Error(), "sk-operator-secret")
 	}
 }
+
+func TestBuildProcessSpecTransportsInstallProjectAsData(t *testing.T) {
+	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: "session-1"}
+	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host"}
+	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: authority.SourceRevision, OwnerGeneration: 1, State: "starting"}
+	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer", ProjectConfig: []byte(`{"checks":[{"id":"test"}],"seats":{"coding/implement":"auto"}}`)}
+	paths := WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}
+	spec, err := BuildProcessSpec(launch, paths, 4317)
+	require.NoError(t, err)
+	require.JSONEq(t, string(launch.ProjectConfig), spec.Environment["SMITHERS_CODING_PROJECT_JSON"])
+	require.NotContains(t, spec.Environment, "SMITHERS_CODING_SEATS")
+	launch.Environment = map[string]string{"SMITHERS_CODING_PROJECT_JSON": `{"checks":[]}`}
+	_, err = BuildProcessSpec(launch, paths, 4317)
+	require.Error(t, err)
+	launch.Environment = nil
+	for _, raw := range []string{"{", strings.Repeat(" ", 256*1024+1)} {
+		launch.ProjectConfig = []byte(raw)
+		_, err = BuildProcessSpec(launch, paths, 4317)
+		require.ErrorContains(t, err, "install coding configuration")
+	}
+}
