@@ -138,10 +138,9 @@ func TestJ1Rehearsal(t *testing.T) {
 	if number > 0 {
 		todoPath = fmt.Sprintf("/api/todos/%d", number)
 	}
-	// The app agent reads the stack and one TODO with the TODO cards the
-	// person's /todo shows, and writes a TODO only as the person's private
-	// Draft, as the owner's browser session; every other command, and every
-	// token, runs none of them.
+	// The app agent uses catalog commands with delegated authority. Creation
+	// asks its person through a private Confirm; the shared turn carries only
+	// its id/state and cannot create a TODO before a session press.
 	appAgentTodos := func() error {
 		if number <= 0 {
 			return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
@@ -173,21 +172,36 @@ func TestJ1Rehearsal(t *testing.T) {
 			"- /files.list [path] [owner/repo] — List a repository directory",
 			"- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository",
 		}, "\n")
-		owned := strings.Join([]string{
-			files,
-			"- /stack — Show the stack and background runs",
-			"- /todo <Tn> — Open a TODO",
-			"- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)",
-		}, "\n")
-		// The instructions list exactly the commands the host runs for the owner's session.
+		// The catalog may add commands; require the walking-skeleton doors and
+		// refuse person-only authority rather than freezing a five-command list.
 		answer, _, terminal, err := r.ask("", "What can you run? (instructions)")
 		if err != nil {
 			return err
 		}
-		if !terminal || answer != owned {
-			return fmt.Errorf("the owner's instructions list %q, want %q", answer, owned)
+		if !terminal {
+			return fmt.Errorf("the owner's command listing did not finish")
 		}
-		// /stack: each open TODO as its TODO card; the model reads the rows.
+		commands := map[string]string{}
+		for _, line := range strings.Split(answer, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && fields[0] == "-" {
+				commands[strings.TrimPrefix(fields[1], "/")] = line
+			}
+		}
+		for _, name := range []string{"files.list", "files.read", "stack", "todo", "todo.new"} {
+			if commands[name] == "" {
+				return fmt.Errorf("the owner's instructions omit %s: %q", name, answer)
+			}
+		}
+		if !strings.Contains(commands["todo.new"], "asks the person") {
+			return fmt.Errorf("todo.new lacks its confirmation instruction: %q", commands["todo.new"])
+		}
+		for _, name := range []string{"secrets.set", "approval.approve", "approval.deny", "todo.erase"} {
+			if commands[name] != "" {
+				return fmt.Errorf("the agent was offered forbidden command %s", name)
+			}
+		}
+		// /stack supplies the Home model; /todo supplies the individual TODO card.
 		todoCard := func(frames []rehearsalTurnFrame, command string) bool {
 			card, settled := false, false
 			for _, frame := range frames {
@@ -201,8 +215,24 @@ func TestJ1Rehearsal(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if !terminal || !todoCard(frames, "stack") || !strings.Contains(answer, fmt.Sprintf(`{"n":%d,"title":"First TODO"`, number)) {
-			return fmt.Errorf("/stack answered no TODO card for T%d: answer=%q", number, answer)
+		var stack struct {
+			Items []struct {
+				N     int64  `json:"n"`
+				Title string `json:"title"`
+			} `json:"items"`
+		}
+		stackRead, found := false, false
+		for _, frame := range frames {
+			stackRead = stackRead || (frame.Type == "call.settled" && frame.Name == "stack")
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(answer, "From the source: ")), &stack); err != nil {
+			return fmt.Errorf("/stack answered an invalid Home model: %w: %q", err, answer)
+		}
+		for _, item := range stack.Items {
+			found = found || item.N == number && item.Title == "First TODO"
+		}
+		if !terminal || !stackRead || !found {
+			return fmt.Errorf("/stack omitted T%d: answer=%q", number, answer)
 		}
 		answer, frames, terminal, err = r.ask("", fmt.Sprintf("Open it. Run /todo T%d", number))
 		if err != nil {
@@ -211,22 +241,42 @@ func TestJ1Rehearsal(t *testing.T) {
 		if !terminal || !todoCard(frames, "todo") || !strings.Contains(answer, `"title":"First TODO"`) {
 			return fmt.Errorf("/todo T%d answered no TODO card: answer=%q", number, answer)
 		}
-		// /todo.new asks the person: a private Draft for the owner, and no TODO.
+		// The shared turn receives only the confirmation id/state. The private
+		// person endpoint owns the exact prompt, and no TODO exists yet.
 		answer, frames, terminal, err = r.ask("", "Run /todo.new Add a farewell to JOURNEY.md")
 		if err != nil {
 			return err
 		}
-		drafted := false
+		var receipt map[string]string
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(answer, "From the source: ")), &receipt); err != nil || !terminal || len(receipt) != 2 || receipt["confirmation"] == "" || receipt["state"] != "pending" {
+			return fmt.Errorf("/todo.new answered no private confirmation receipt: %q", answer)
+		}
 		for _, frame := range frames {
-			drafted = drafted || (frame.Type == "card" && frame.Card.Kind == "draft" && frame.Card.Audience != nil && *frame.Card.Audience == "rehearsal-owner" &&
-				frame.Card.Payload.Private && frame.Card.Payload.Prompt == "Add a farewell to JOURNEY.md")
+			if frame.Type == "card" {
+				return fmt.Errorf("/todo.new leaked a %s card into shared frames", frame.Card.Kind)
+			}
 		}
-		if !terminal || !drafted || !strings.Contains(answer, "Nothing is filed until they press Commit") {
-			return fmt.Errorf("/todo.new showed no private Draft: answer=%q", answer)
+		private, err := r.expect("GET", "/api/confirmations", "", 200)
+		if err != nil {
+			return err
 		}
-		// Merge asks the person and is not the host's; secrets are never the
-		// agent's; an unknown command does not exist. None runs anything.
-		for _, name := range []string{"merge", "secrets.set", "todo.erase"} {
+		var confirmations []struct {
+			ID      string          `json:"id"`
+			State   string          `json:"state"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal(private, &confirmations); err != nil {
+			return err
+		}
+		found = false
+		for _, row := range confirmations {
+			found = found || row.ID == receipt["confirmation"] && row.State == "pending" && strings.Contains(string(row.Payload), "Add a farewell to JOURNEY.md")
+		}
+		if !found {
+			return fmt.Errorf("the owner's private confirmation omits the requested text")
+		}
+		// Person decisions, secrets, and unknown commands are never offered.
+		for _, name := range []string{"approval.approve", "approval.deny", "secrets.set", "todo.erase"} {
 			answer, frames, terminal, err = r.ask("", fmt.Sprintf("Run /%s T%d", name, number))
 			if err != nil {
 				return err
@@ -291,7 +341,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	}
 	// After the state polls: in_review holds until the merge, so the agent's
 	// turns sit inside no transient state's poll window.
-	if !r.step("App agent lists TODOs", "POST "+chat.TurnPath, "200; /stack and /todo answer TODO cards; /todo.new a private Draft and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
+	if !r.step("App agent lists TODOs", "POST "+chat.TurnPath, "200; /stack Home and /todo card; /todo.new private Confirm id/state and no TODO; person-only commands and scoped tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
 		return
 	}
 	if !r.step("PR", "GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "head smithers/<slug>; base main; reviewed head", "T-STK-01", func() error {
