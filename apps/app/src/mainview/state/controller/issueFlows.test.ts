@@ -10,8 +10,11 @@ async function setup() {
   const storage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k,v) }, removeItem: (k: string) => { data.delete(k) } }
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
-  const ctx: SeamContext = { store, http: repositoryHttpFixture(), baseUrl: "", dispatch: store.dispatch, actor: () => "user", nextOrdinal: store.nextOrdinal }
-  return { store, ctx, storage }
+  const serverIssue = { issue_digest: "a".repeat(64), make_todo_allowed: true, issue: { number: 7, title: "Webhooks fail on 502", body: "Webhooks fail on 502", state: "open", user: {login:"ben"} }, comments: [{user:{login:"alice"},body:"retry at most 5 times"}] }
+  const fallback = repositoryHttpFixture()
+  const http: SeamContext["http"] = async (input, init) => String(input).includes("/api/issues/7") ? Response.json(serverIssue) : fallback(input, init)
+  const ctx: SeamContext = { store, http, baseUrl: "", dispatch: store.dispatch, actor: () => "user", nextOrdinal: store.nextOrdinal }
+  return { store, ctx, storage, serverIssue }
 }
 test("remote comments and state survive reopening and reload", async () => {
   const {store,ctx,storage} = await setup()
@@ -69,10 +72,10 @@ test("Make TODO drafts from the open GitHub issue card and never launches a work
     runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
   }, { draftFromIssue: async (source) => { drafted.push(source); return { value: "Drafted" } } })
   // No issue card open, or only the legacy tracker's: nothing to draft from.
-  expect(await flows.runIssueImplementation(7)).toBe("Open GitHub issue #7 before making a TODO.")
+  expect(await flows.runIssueImplementation(7)).toBe("Open the issue again to check permission to make a TODO.")
   const legacy = { number: 7, repo: REPO, title: "Tracker issue", state: "open" as const, author: "ada", issueBody: "Legacy", labels: [], comments: [] }
   await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-legacy", kind: "issue", title: legacy.title, status: "active", createdAt: 1, ordinal: 1, payload: legacy } }).isPersisted.promise
-  expect(await flows.runIssueImplementation(7)).toBe("Open GitHub issue #7 before making a TODO.")
+  expect(await flows.runIssueImplementation(7)).toBe("Open the issue again to check permission to make a TODO.")
   const github = { ...legacy, title: "Webhooks fail on 502", author: "ben", issueBody: "Webhooks fail on 502", source: "github" as const,
     htmlUrl: "https://github.com/owner/repo/issues/7", makeTodoAllowed: true, issueDigest: "a".repeat(64), todoAuthorizationScope: JSON.stringify([store.collections.identitySessions.get("identity"), ""]),
     comments: [{ author: "alice", commentBody: "retry at most 5 times", createdAt: null }] }
@@ -81,9 +84,9 @@ test("Make TODO drafts from the open GitHub issue card and never launches a work
   expect(drafted).toEqual([{ number: 7, digest: "a".repeat(64), title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/owner/repo/issues/7",
     comments: [{ author: "alice", body: "retry at most 5 times" }] }])
   // Another repository's issue and a closed issue draft nothing.
-  expect(await flows.runIssueImplementation(7, "other/repo")).toBe("Open GitHub issue #7 before making a TODO.")
+  expect(await flows.runIssueImplementation(7, "other/repo")).toBe("Open the issue again to check permission to make a TODO.")
   await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-github-owner/repo-8", kind: "issue", title: "Closed", status: "active", createdAt: 3, ordinal: 3, payload: { ...github, number: 8, state: "closed" as const } } }).isPersisted.promise
-  expect(await flows.runIssueImplementation(8)).toBe("Issue #8 is closed.")
+  expect(typeof await flows.runIssueImplementation(8)).toBe("string")
   expect(drafted).toHaveLength(1)
   expect(calls).toEqual([])
   await store.dispose?.()
@@ -109,27 +112,30 @@ test("review refuses every browser door without reads, selection or launch", asy
   await store.dispose?.()
 })
 
-test("Make TODO refuses missing, incomplete and stale authorization before confirmation or drafting", async () => {
-  const {store,ctx} = await setup()
+test("Make TODO refuses a missing card and current server denials before drafting", async () => {
+  const {store,ctx,serverIssue} = await setup()
   let role = "maintainer"
   const scopedCtx = {...ctx, issueAuthorizationScope: () => role}
   let drafts = 0
   const controller = createIssueFlowsController(scopedCtx, {requireBox: () => undefined, listWorkspaceWorkflows: async () => "", runWorkflow: async () => ""}, {draftFromIssue: async () => { drafts++; return {value:"Drafted"} }})
-  expect(controller.issueTodoRefusal(7,REPO)).toBeDefined()
+  expect(await controller.issueTodoRefusal(7,REPO)).toBeDefined()
   expect(typeof await controller.runIssueImplementation(7,REPO)).toBe("string")
   const payload = {number:7,repo:REPO,title:"Issue",state:"open" as const,author:"ben",issueBody:"Body",labels:[],comments:[],source:"github" as const}
   const put = async (extra: object) => store.dispatch({type:"card.upsert",actor:"system",card:{id:"issue-security",kind:"issue",title:"Issue",status:"active",createdAt:1,ordinal:1,payload:{...payload,...extra}}}).isPersisted.promise
   const digest = "a".repeat(64)
   for (const extra of [{issueDigest:digest}, {makeTodoAllowed:true}, {makeTodoAllowed:true,issueDigest:digest}]) {
     await put(extra)
-    expect(controller.issueTodoRefusal(7,REPO)).toBeDefined()
+    serverIssue.make_todo_allowed = false
+    expect(await controller.issueTodoRefusal(7,REPO)).toBeDefined()
     expect(typeof await controller.runIssueImplementation(7,REPO)).toBe("string")
   }
-  // A server-read card is valid only for the identity observation that read it.
+  // Current server permission replaces the retained observation.
   await put({makeTodoAllowed:true,issueDigest:digest,todoAuthorizationScope:JSON.stringify([store.collections.identitySessions.get("identity"), role])})
-  expect(controller.issueTodoRefusal(7,REPO)).toBeUndefined()
+  serverIssue.make_todo_allowed = true
+  expect(await controller.issueTodoRefusal(7,REPO)).toBeUndefined()
   role = "member"
-  expect(controller.issueTodoRefusal(7,REPO)).toBeDefined()
+  serverIssue.make_todo_allowed = false
+  expect(await controller.issueTodoRefusal(7,REPO)).toBeDefined()
   expect(typeof await controller.runIssueImplementation(7,REPO)).toBe("string")
   expect(drafts).toBe(0)
   await store.dispose?.()

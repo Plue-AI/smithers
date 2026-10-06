@@ -42,6 +42,8 @@ test("Make TODO on a GitHub issue card opens its author's Draft and files nothin
     cancelTurn: async () => {}, subscribe: () => () => {}
   }, { fetchImpl: signupProfileFetch(async (input, init) => {
     if ((init?.method ?? "GET") !== "GET") writes.push(String(input))
+    if (String(input).includes("/api/issues/8")) return Response.json({make_todo_allowed:false,issue_digest:"a".repeat(64),issue:{number:8,title:"Outsider",state:"open"},comments:[]})
+    if (String(input).includes("/api/issues/7")) return Response.json({ issue_digest: "a".repeat(64), make_todo_allowed: true, issue: {number:7,title:"Webhooks fail on 502",body:"Webhooks fail on 502",state:"open",user:{login:"ben"}}, comments:[{user:{login:"alice"},body:"retry at most 5 times"}] })
     return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } })
   }).fetchImpl })
   try {

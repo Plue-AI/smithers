@@ -26,13 +26,16 @@ const installApp = async ({ loaded = true, allowed = true, channel = undefined a
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   if (loaded) await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "local-owner", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
   const install = { ...installFixture(), repository: { owner: "local-owner", name: "demo" }, repositories: [REPO] }
+  let readFailure = false
+  let digest = "a".repeat(64)
   const calls: string[] = []
   const posts: Array<{ path: string; body: unknown }> = []
   const listeners = new Map<string, Set<() => void>>()
   const answer = (path: string, search: string): Response => {
     if (path === "/api/issues") return Response.json(new URLSearchParams(search).get("state") === "closed" ? []
       : [githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", "ben"), githubIssue(1, "Retry webhooks", "They drop on 502.", "ben")])
-    if (path === "/api/issues/2") return Response.json({ issue_digest: "a".repeat(64), make_todo_allowed: allowed, issue: githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", outsider ? "carol" : "ben"),
+    if (path === "/api/issues/2" && readFailure) return new Response("", {status:503})
+    if (path === "/api/issues/2") return Response.json({ issue_digest: digest, make_todo_allowed: allowed, issue: githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", outsider ? "carol" : "ben"),
       comments: [{ id: 5, body: "Keep it short.", user: { login: "carol" }, created_at: "2026-10-05T11:00:00Z" }] })
     if (path === "/api/issues/9") return Response.json({ code: "not_found", class: "user", message: "Issue #9 was not found" }, { status: 404 })
     if (path === "/api/todos") return Response.json({ state: "accepted", n: 4, rev: 1 }, { status: 202 })
@@ -50,7 +53,7 @@ const installApp = async ({ loaded = true, allowed = true, channel = undefined a
       return answer(url.pathname, url.search)
     }).fetchImpl
   })
-  return { store, controller, calls, posts, setAllowed: (value: boolean) => { allowed = value }, roleChanged: () => { for (const receive of listeners.get("members") ?? []) receive() } }
+  return { store, controller, calls, posts, setAllowed: (value: boolean) => { allowed = value }, setReadFailure: (value: boolean) => { readFailure = value }, setDigest: (value: string) => { digest = value } }
 }
 
 const cardOf = <K extends Card["kind"]>(cards: Iterable<Card>, id: string, kind: K): Extract<Card, { kind: K }> => {
@@ -133,20 +136,21 @@ test("an install refuses a Member draft from outsider text before writing any Dr
   } finally { await controller.dispose() }
 })
 
-test("a roster role change invalidates an allowed issue before the agent confirmation and private Draft", async () => {
- const {store,controller,roleChanged,posts} = await installApp()
+test("a server demotion after reading refuses confirmation and Draft without any live event", async () => {
+ const {store,controller,setAllowed,posts} = await installApp()
  try {
   expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({status:"executed"})
   const issue = cardOf(store.collections.cards.values(), `issue-github-${REPO}-2`, "issue")
   expect(issue.payload.makeTodoAllowed).toBe(true)
-  roleChanged()
+  setAllowed(false)
   const agent = await controller.commands.executeForAgent({name:"commands",arguments:JSON.stringify({action:"execute",name:"todo.from-issue",args:`2 ${REPO}`})})
   expect(agent).not.toContain("asked the user to confirm")
-  expect(agent).toContain("check permission")
+  expect(agent).toContain("Only a maintainer")
   expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({status:"failed"})
   expect([...store.collections.cards.values()].some(card => card.kind === "draft" || card.kind === "confirm")).toBe(false)
   expect(posts).toEqual([])
-  // A fresh authorized read permits drafting again.
+  // Restoring server permission permits drafting again.
+  setAllowed(true)
   expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({status:"executed"})
   expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({status:"executed",value:"Drafted"})
  } finally {await controller.dispose()}
@@ -183,4 +187,24 @@ for (const loss of ["disconnect", "gap", "other-topic gap"] as const) test(`live
     await controller.runCommandForResult("issue", "#2")
     expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "executed", value: "Drafted" })
   } finally { await controller.dispose(); channel.dispose() }
+})
+
+for (const command of ["todo.from-issue", "issue.implement"]) test(`${command} refuses a failed preflight read and uses the current digest on recovery`, async () => {
+  const {store,controller,posts,setReadFailure,setDigest} = await installApp()
+  try {
+    await controller.runCommandForResult("issue", "#2")
+    setReadFailure(true)
+    const agent = await controller.commands.executeForAgent({name:"commands",arguments:JSON.stringify({action:"execute",name:command,args:`2 ${REPO}`})})
+    expect(agent).not.toContain("asked the user to confirm")
+    expect(await controller.runCommandForResult(command, `2 ${REPO}`)).toMatchObject({status:"failed"})
+    expect([...store.collections.cards.values()].some(card => card.kind === "draft" || card.kind === "confirm")).toBe(false)
+    setReadFailure(false)
+    setDigest("b".repeat(64))
+    expect(await controller.runCommandForResult(command, `2 ${REPO}`)).toMatchObject({status:"executed",value:"Drafted"})
+    const draft = [...store.collections.cards.values()].find(card => card.kind === "draft")
+    if (!draft) throw Error("no Draft")
+    await controller.runCommandForResult("todo.new", JSON.stringify({cardId:draft.id}))
+    await waitFor(() => posts.some(post => post.path === "/api/todos"))
+    expect(posts.find(post => post.path === "/api/todos")?.body).toMatchObject({issue_digest:"b".repeat(64)})
+  } finally {await controller.dispose()}
 })

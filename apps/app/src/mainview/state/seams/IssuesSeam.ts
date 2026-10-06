@@ -20,6 +20,7 @@ export type IssueKindFilter = "all" | "conversation" | "issue"
 export type IssueState = "open" | "fixed" | "verified" | "closed"
 
 export interface IssuesSeam {
+  readonly readInstallIssue: (repo: string, number: number) => Promise<ViewResult>
   readonly submitConversation: (text: string, turnId: string, repo: string, owner: string) => Promise<boolean>
 
   readonly draftIssueComment: (cardId: string, text: string) => Promise<string | void>
@@ -969,6 +970,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
   }
 
   return {
+    readInstallIssue,
     submitConversation: async (text, turnId, repo, owner) => {
       if (!text.trim() || !owner || signedInOwner() !== owner || ctx.isDisposed?.()) return false
       const branchId = ctx.store.session().activeBranchId ?? "branch-main"

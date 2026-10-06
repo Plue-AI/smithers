@@ -1,3 +1,4 @@
+import { createIssuesSeam } from "../seams/IssuesSeam"
 import type { Card } from "../AppState"
 
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
@@ -9,7 +10,7 @@ import type { TodoSeam } from "../seams/TodoSeam"
 import { flowArgs } from "../../flows/FlowArgs"
 
 export interface IssueFlowsController {
-  readonly issueTodoRefusal: (number: number, repo?: string) => string | undefined
+  readonly issueTodoRefusal: (number: number, repo?: string) => Promise<string | undefined>
   readonly inspectIssueFlows: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | { readonly value: string }>
   readonly runIssueFlow: (name: "repro" | "poc", number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   readonly runIssueImplementation: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
@@ -59,21 +60,34 @@ export const createIssueFlowsController = (
     await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: catalog }).isPersisted.promise
     return readResult(catalog.payload.workflows.map(flow => `${flow.key}: ${flow.description ?? ""}${flow.prompt ? `\n${flow.prompt}` : ""}`).join("\n") || "No issue flows are installed on this workspace.")
   }
+  const issueTodoRefusal: IssueFlowsController["issueTodoRefusal"] = async (number, explicit) => {
+    const resolved = resolveTargetRepo(ctx.store, explicit)
+    if ("error" in resolved) return resolved.error
+    const issue = cards().find(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
+    if (issue?.kind !== "issue") return "Open the issue again to check permission to make a TODO."
+    const scope = issueAuthorizationScope(ctx)
+    const selection = ctx.store.session().activeRepoKey
+    let fresh
+    try { fresh = await createIssuesSeam(ctx).readInstallIssue(resolved.repo, number) }
+    catch { return "Open the issue again to check permission to make a TODO." }
+    if (typeof fresh === "string" || fresh.card.kind !== "issue" || scope !== issueAuthorizationScope(ctx) || selection !== ctx.store.session().activeRepoKey) return "Open the issue again to check permission to make a TODO."
+    if (fresh.card.payload.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
+    if (!authorized(fresh.card.payload)) return "Open the issue again to check permission to make a TODO."
+    if (fresh.card.payload.state === "closed") return `Issue #${number} is closed.`
+    await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: { ...issue, payload: fresh.card.payload } }).isPersisted.promise
+    return undefined
+  }
   return {
-    issueTodoRefusal: (number, explicit) => {
-      const resolved = resolveTargetRepo(ctx.store, explicit)
-      if ("error" in resolved) return resolved.error
-      const issue = cards().find(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
-      if (issue?.kind === "issue" && issue.payload.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
-      return issue?.kind === "issue" && authorized(issue.payload) ? undefined : "Open the issue again to check permission to make a TODO."
-    },
+    issueTodoRefusal,
     inspectIssueFlows,
     // Make TODO: a private Draft of the GitHub issue the card shows, its text
-    // and discussion, committed through POST /api/todos like any Draft. It
+    // and discussion after a current authorized read, committed through POST /api/todos like any Draft. It
     // never launches a workspace flow.
     runIssueImplementation: async (number, explicit) => {
       const resolved = resolveTargetRepo(ctx.store, explicit)
       if ("error" in resolved) return resolved.error
+      const refusal = await issueTodoRefusal(number, explicit)
+      if (refusal !== undefined) return refusal
       const issue = cards().find((card): card is Extract<Card, { kind: "issue" }> => card.kind === "issue" && card.payload.source === "github"
         && card.payload.repo === resolved.repo && card.payload.number === number)?.payload
       if (issue === undefined) return `Open GitHub issue #${number} before making a TODO.`
