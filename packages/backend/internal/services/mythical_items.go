@@ -2203,7 +2203,7 @@ func (s *MythicalService) activeTodoPin(ctx context.Context, q *db.Queries, repo
 	}
 	pin := flowruntime.Pin{Flow: flowdispatch.TodoFlow, SourceCommit: source, ExecutionDigest: digest}
 	if !pin.Valid() {
-		return pin, todoControlUnavailable()
+		return pin, errors.New("the pinned todo flow is invalid")
 	}
 	return pin, nil
 }

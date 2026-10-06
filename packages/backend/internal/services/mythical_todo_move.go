@@ -32,8 +32,11 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 	if s == nil || s.store == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
 	}
-	if err := middleware.RequirePerson(ctx, "move a TODO"); err != nil {
+	if err := middleware.RequirePerson(ctx, "move a TODO"); err != nil && middleware.AuthInfoFromContext(ctx).CredentialKind() != middleware.CredentialDelegated {
 		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person moves a TODO"}
+	}
+	if _, err := Authorize(ctx, s.queries(), "stack.move"); err != nil {
+		return TodoControlReceipt{}, err
 	}
 	// Read the requested revision before waiting for the placement lock. A
 	// competing move may win, but this press must not move a different pair.
