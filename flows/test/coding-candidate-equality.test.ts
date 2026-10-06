@@ -31,6 +31,10 @@ for (
     "delete",
     "chmod",
     "symlink",
+    "symlink-identical",
+    "directory-symlink",
+    "directory-symlink-outside",
+    "multiple-writes",
     "nonzero-write",
     "remove-root",
     "timeout-write"
@@ -55,17 +59,24 @@ for (
       exporterPath,
       `#!/bin/sh
 mkdir "$3/tree"
+mkdir "$3/tree/tracked"
 printf 'candidate bytes' > "$3/tree/source.txt"
-printf '{"commitId":"${revision.commitId}","changeId":"${revision.changeId}","treeId":"${revision.treeId}","path":"%s/tree","fileCount":1}' "$3"
+printf 'nested bytes' > "$3/tree/tracked/nested.txt"
+ln -s source.txt "$3/tree/alias.txt"
+printf '{"commitId":"${revision.commitId}","changeId":"${revision.changeId}","treeId":"${revision.treeId}","path":"%s/tree","fileCount":3}' "$3"
 `
     )
     await chmod(exporterPath, 0o755)
     const commands = {
-      read: "cat source.txt; printf build > generated.txt",
+      read: "cat alias.txt; printf build > generated.txt",
       write: "printf formatted > source.txt",
       delete: "rm source.txt",
       chmod: "chmod +x source.txt",
       symlink: `rm source.txt; ln -s '${outside}' source.txt`,
+      "symlink-identical": "cp source.txt generated.txt; rm alias.txt; ln -s generated.txt alias.txt",
+      "directory-symlink": "mv tracked generated; ln -s generated tracked",
+      "directory-symlink-outside": `rm -rf tracked; ln -s '${temporary}' tracked`,
+      "multiple-writes": "printf nested-edit > tracked/nested.txt; printf formatted > source.txt",
       "nonzero-write": "printf formatted > source.txt; exit 7",
       "remove-root": "rm -rf ../tree",
       "timeout-write": "printf formatted > source.txt; sleep 30"
@@ -130,9 +141,30 @@ printf '{"commitId":"${revision.commitId}","changeId":"${revision.changeId}","tr
       const retained = outcome.failure.message.split("output retained at ")[1]!
       assert.ok(retained.startsWith(join(cache, "modified-")))
       assert.equal((await readdir(cache)).length, 1, "only the retained output survives scoped cleanup")
+      const evidence = JSON.parse(await readFile(join(retained, "..", "failure.json"), "utf8"))
+      assert.equal(evidence.code, "check_modified_tree")
+      assert.equal(evidence.checkId, "literal")
+      assert.deepEqual(
+        evidence.changedPaths,
+        mode === "remove-root" || mode === "multiple-writes"
+          ? mode === "remove-root"
+            ? ["alias.txt", "source.txt", "tracked/nested.txt"]
+            : ["source.txt", "tracked/nested.txt"]
+          : mode.startsWith("directory-symlink")
+          ? ["tracked/nested.txt"]
+          : mode === "symlink-identical"
+          ? ["alias.txt"]
+          : ["source.txt"]
+      )
       if (mode === "remove-root") assert.deepEqual(await readdir(retained), [])
-      if (mode === "write" || mode === "nonzero-write" || mode === "timeout-write") {
+      if (mode === "write" || mode === "nonzero-write" || mode === "timeout-write" || mode === "multiple-writes") {
         assert.equal(await readFile(join(retained, "source.txt"), "utf8"), "formatted")
+      }
+      if (mode === "directory-symlink") {
+        assert.equal(await readFile(join(retained, "generated", "nested.txt"), "utf8"), "nested bytes")
+      }
+      if (mode === "multiple-writes") {
+        assert.equal(await readFile(join(retained, "tracked", "nested.txt"), "utf8"), "nested-edit")
       }
     }
     assert.equal(await readFile(outside, "utf8"), "outside canary")

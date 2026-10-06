@@ -3,12 +3,12 @@ import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import { Clock, Effect, Layer, Path, Schema, Semaphore } from "effect"
 import {
+  changedSourceFiles,
   contained,
   type ImmutableSourceOptions,
   outputTailBytes,
   runSourceProcess,
   sourceFileIdentities,
-  sourceFilesChanged,
   withImmutableSource
 } from "./immutable-source.ts"
 import { Check, checkInputDigest, CodingError, type Finding, Implementation, Receipt } from "./schema.ts"
@@ -151,7 +151,8 @@ export const checkLayers = (options: CheckHostOptions) => {
             const startedAt = yield* Clock.currentTimeMillis
             const execution = yield* runSourceProcess({ ...options, environment }, command.argv, cwd, command.timeoutMs)
               .pipe(Effect.result)
-            if (yield* sourceFilesChanged(fs, root, originalFiles)) {
+            const changedPaths = yield* changedSourceFiles(fs, root, originalFiles)
+            if (changedPaths.length > 0) {
               // Move the failed export out of the scoped temporary directory.
               // Never restore tracked bytes or hand this failure to repair/replan.
               const retained = yield* fs.makeTempDirectory({
@@ -167,6 +168,7 @@ export const checkLayers = (options: CheckHostOptions) => {
                 JSON.stringify({
                   code: "check_modified_tree",
                   checkId: check.id,
+                  changedPaths,
                   sourceRemoved: !exists
                 })
               )

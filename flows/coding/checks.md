@@ -107,12 +107,15 @@ inventing validation evidence. Output is drained and a bounded prefix is stored
 in the existing receipt, with truncation disclosed.
 
 Command checks compare the exported tracked files before and after execution,
-including executable modes and symlink targets. A write, deletion or replacement
+including executable modes, symlink targets and replaced parent directories.
+A directory replaced with a link fails even when the link reads identical bytes.
+A write, deletion or replacement
 fails with `check_modified_tree`, even on exit zero. The stack stops for a
 person's Retry even if a retained runtime labels this failure as a factory
 fault or reports only its checkpoint code. Generated build outputs do
 not change the candidate. The changed export is retained under
 `.jj/smithers-checks/modified-*/source`; formatting must happen before capture.
+The adjacent `failure.json` records the sorted changed tracked paths.
 This failure stops correction rather than starting a repair or reproposal cycle.
 
 The stack rechecks outsider protected-path policy from current trusted `main`

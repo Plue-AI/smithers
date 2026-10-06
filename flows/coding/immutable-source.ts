@@ -2,7 +2,7 @@
 import * as Digest from "@smthrs/core/Digest"
 import { Effect, type FileSystem, Option, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import { NativeCoding, SourceImport, requestIdFor } from "./native.ts"
+import { NativeCoding, requestIdFor, SourceImport } from "./native.ts"
 import { CodingError, type Revision } from "./schema.ts"
 
 export const ExportedTree = Schema.Struct({
@@ -164,24 +164,34 @@ export const sourceFileIdentities = (fs: FileSystem.FileSystem, root: string) =>
     return identities
   })
 
-/** Do not follow a path a check replaced with a symlink outside the export. */
-export const sourceFilesChanged = (fs: FileSystem.FileSystem, root: string, before: ReadonlyMap<string, string>) =>
+/** List changed tracked paths without following check-created directory links. */
+export const changedSourceFiles = (fs: FileSystem.FileSystem, root: string, before: ReadonlyMap<string, string>) =>
   Effect.gen(function*() {
     const path = yield* Path.Path
+    const changed: string[] = []
     for (const [relative, identity] of before) {
       const entry = path.join(root, relative)
       const current = yield* Effect.gen(function*() {
-        const resolved = yield* fs.realPath(entry)
-        if (!contained(root, resolved, path)) return "outside"
+        // Git stores a replaced directory as a symlink, even when following
+        // that link would read the original bytes. Check every ancestor before
+        // resolving or reading the leaf; never follow a check-created alias.
+        let parent = root
+        for (const component of ["", ...path.relative(root, path.dirname(entry)).split(path.sep)]) {
+          if (component !== "" && component !== ".") parent = path.join(parent, component)
+          if (Option.isSome(yield* fs.readLink(parent).pipe(Effect.option))) return "replaced"
+          if ((yield* fs.stat(parent)).type !== "Directory") return "replaced"
+        }
         const link = yield* fs.readLink(entry).pipe(Effect.option)
         if (Option.isSome(link)) return `link:${link.value}`
+        const resolved = yield* fs.realPath(entry)
+        if (!contained(root, resolved, path)) return "outside"
         const info = yield* fs.stat(entry)
         if (info.type !== "File") return "replaced"
         return `${info.mode & 0o111}:${Digest.digest(yield* fs.readFile(entry))}`
       }).pipe(Effect.orElseSucceed(() => "missing"))
-      if (current !== identity) return true
+      if (current !== identity) changed.push(relative)
     }
-    return false
+    return changed.sort()
   })
 
 export const runSourceProcess = (
