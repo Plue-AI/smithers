@@ -10046,6 +10046,14 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-build-only.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-install-project.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-builtin-routes.test.ts"
       },
       {
@@ -10464,6 +10472,10 @@
         "kind": "glob",
         "pattern": "flows/checks/**/flow.mdx",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/flow/test/MemoryFlowRuntime.ts"
       }
     ],
     "outputs": [],

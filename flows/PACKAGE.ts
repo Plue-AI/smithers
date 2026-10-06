@@ -248,6 +248,8 @@ const codingPolicy = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/coding-host.test.ts"),
+    Smithers.file("//flows/test/coding-build-only.test.ts"),
+    Smithers.file("//flows/test/coding-install-project.test.ts"),
     Smithers.file("//flows/test/coding-builtin-routes.test.ts"),
     Smithers.file("//flows/test/coding-flow-load.test.ts"),
     Smithers.file("//flows/test/coding-runtime-bridge.test.ts"),
@@ -256,7 +258,7 @@ const codingPolicy = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-planning-wiki-prior.test.ts")
   ]),
   // `coding-host.test.ts` and `coding-builtin-routes.test.ts` load the checked-in project configuration.
-  srcs: [...codingSources, ...codingProjectInputs],
+  srcs: [...codingSources, ...codingProjectInputs, Smithers.file("//packages/smithers/flows/flow/test/MemoryFlowRuntime.ts")],
   deps: codingDependencies,
   cwd,
   cache: true
