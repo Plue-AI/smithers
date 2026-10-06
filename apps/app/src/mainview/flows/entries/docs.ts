@@ -26,7 +26,7 @@ export const docsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     name: "docs.read",
     summary: "Read a docs page's title, summary and Markdown",
     args: "<page>",
-    visibility: "hidden", group: "chat", actors: ["person", "app_agent"], minimumRole: "member", agent: "run",
+    visibility: available ? "in-card" : "hidden", group: "chat", actors: ["person", "app_agent"], minimumRole: "member", agent: "run",
     hidden: true,
     discloseToAgent: available,
     input: Schema.Struct({ page: Schema.String }),
