@@ -270,3 +270,76 @@ test.each(["contract", "actor", "file", "recovery", "catalog", "machine"] as con
   expect(host.querySelector(".code-author, .code-name-flag, .code-saved, .code-avatar-stack, button[data-flow]")).toBeNull()
   expect(host.querySelector(".cm-content")?.getAttribute("aria-readonly")).toBe("true")
 })
+
+test("a closed authorized socket disables the registered File editor and retains pending text", async () => {
+  const { LiveChannel } = await import("../runtime/LiveChannel")
+  const { LiveDocProvider } = await import("../runtime/LiveDocProvider")
+  const { LiveFileContext, fileDocument } = await import("./liveDoc")
+  const { EditorView } = await import("@codemirror/view")
+  const Y = await import("yjs")
+  const sync = await import("y-protocols/sync")
+  const encoding = await import("lib0/encoding")
+  const { encodeLiveDocBinary } = await import("@smthrs/rpc/LiveDoc")
+  const sockets: import("../runtime/LiveChannel").LiveSocket[] = []
+  const timers: Array<() => void> = []
+  const sent: Array<string | Uint8Array> = []
+  const channel = new LiveChannel({ documentFrames: true, socket: () => {
+    const socket: import("../runtime/LiveChannel").LiveSocket = {
+      readyState: 0, onopen: null, onclose: null, onmessage: null,
+      send: frame => { sent.push(frame) }, close() {}
+    }
+    sockets.push(socket); return socket
+  }, schedule: run => { timers.push(run); return run }, cancel() {} })
+  const provider = new LiveDocProvider("doc:code:T12:retry.ts", channel,
+    { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true })
+  const documentBinding = fileDocument(provider)
+  const server = new Y.Doc()
+  server.getText("content").insert(0, "const retry = 1")
+  const socket = sockets[0]!
+  socket.readyState = 1; socket.onopen!()
+  const assignment = { t: "snap", id: 1, cursor: 1, data: { epoch: "00000000000000000000000000000001", client_id: 7 } }
+  socket.onmessage!({ data: JSON.stringify(assignment) })
+  const encoder = encoding.createEncoder(); sync.writeSyncStep2(encoder, server)
+  socket.onmessage!({ data: encodeLiveDocBinary({ kind: 1, id: 1, payload: encoding.toUint8Array(encoder) }) })
+  const card = fileCard("retry.ts", "const retry = 1", { ref: "T12" })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  mounted.push({ root, host, dispose: async () => { documentBinding.dispose(); channel.dispose(); server.destroy() } })
+  const actions: CardActions = {
+    onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {},
+    onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {},
+    worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {}
+  }
+  const paint = () => flushSync(() => root.render(<LiveFileContext value={{ resolve: () => documentBinding }}>{renderCardBody(card, actions)}</LiveFileContext>))
+  paint(); await loaded(host)
+  expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
+  const editor = EditorView.findFromDOM(host.querySelector(".cm-editor")!)!
+  flushSync(() => editor.dispatch({ changes: { from: 15, insert: "!" } }))
+  expect(provider.doc.getText("content").toString()).toBe("const retry = 1!")
+  socket.readyState = 3; socket.onclose!()
+  paint()
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  expect(host.querySelector('.cm-content[contenteditable="true"]')).toBeNull()
+  expect(provider.unsaved).toEqual({ count: 1, text: "const retry = 1!" })
+  expect(host.textContent).toContain("const retry = 1!")
+  expect(host.textContent).not.toContain("Saved to the machine")
+  const writes = sent.length
+  flushSync(() => editor.dispatch({ changes: { from: 0, insert: "forged" } }))
+  expect(provider.doc.getText("content").toString()).toBe("const retry = 1!")
+  expect(sent.length).toBe(writes)
+  timers[0]!()
+  const reconnected = sockets[1]!
+  reconnected.readyState = 1; reconnected.onopen!()
+  // A frame from the old socket cannot restore authority.
+  socket.onmessage!({ data: JSON.stringify(assignment) })
+  expect(provider.editable).toBe(false)
+  reconnected.onmessage!({ data: JSON.stringify(assignment) })
+  reconnected.onmessage!({ data: encodeLiveDocBinary({ kind: 1, id: 1, payload: encoding.toUint8Array(encoder) }) })
+  expect(provider.unsaved?.text).toBe("const retry = 1!")
+  reconnected.onmessage!({ data: JSON.stringify({ t: "saved", id: 1, at: "2026-10-06T00:00:00Z", sv: btoa(String.fromCharCode(...Y.encodeStateVector(provider.doc))) }) })
+  paint()
+  expect(provider.unsaved).toBeUndefined()
+  expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
+  expect(host.querySelector(".cm-content")?.textContent).toBe("const retry = 1!")
+  expect(host.querySelector(".code-saved")?.textContent).toBe("Saved to the machine")
+})
