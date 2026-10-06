@@ -48,7 +48,7 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	switch {
-	case r.URL.Path == "/repos/acme/app/installation":
+	case r.URL.Path == "/repos/owner/app/installation":
 		if g.installationStatus != 0 {
 			w.WriteHeader(g.installationStatus)
 			return
@@ -57,7 +57,7 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/app/installations/91/access_tokens":
 		w.WriteHeader(201)
 		fmt.Fprint(w, `{"token":"installation-token","expires_at":"2099-01-01T00:00:00Z"}`)
-	case strings.HasPrefix(r.URL.Path, "/repos/acme/app/collaborators/"):
+	case strings.HasPrefix(r.URL.Path, "/repos/owner/app/collaborators/"):
 		login := strings.Split(r.URL.Path, "/")[5]
 		role, ok := g.roles[login]
 		if !ok {
@@ -119,7 +119,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.NoError(t, err)
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
 	require.NoError(t, err)
-	binding := fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d}`, repo.ID)
+	binding := fmt.Sprintf(`{"owner_login":"owner","repository_name":"app","repository_id":%d}`, repo.ID)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(strings.TrimSuffix(binding, "}") + `,"last_access_check_at":"2026-10-04T22:00:00Z"}`)}))
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,github_id,github_login) VALUES($1,$2,'admin',101,'owner')`, repo.ID, owner.ID)
