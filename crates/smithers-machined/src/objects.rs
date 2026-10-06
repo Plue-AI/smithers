@@ -5,6 +5,127 @@ use crate::{
 };
 use std::io::{self, Read};
 
+/// The unprivileged repository owner exports the pinned event's objects. The
+/// link allocates ids from its shared stream counter, never a private counter.
+pub trait Bundles {
+    type Source: Read;
+    fn export(
+        &mut self,
+        event: &crate::conn::Durable,
+        haves: &[crate::hooks::Oid],
+    ) -> io::Result<Self::Source>;
+}
+
+enum Sending<R> {
+    Idle,
+    Bundle(u64, BundleSender<R>),
+    Receipt,
+}
+
+/// One event in flight. The authenticated link multiplexes other kinds itself
+/// and gives this pump only object windows/close and durable acknowledgements.
+/// No event is released until the peer confirms successful bundle import.
+pub struct Delivery<B: Bundles> {
+    bundles: B,
+    sending: Sending<B::Source>,
+}
+impl<B: Bundles> Delivery<B> {
+    pub fn new(bundles: B) -> Self {
+        Self {
+            bundles,
+            sending: Sending::Idle,
+        }
+    }
+    pub fn begin<R: crate::outbox::Refs>(
+        &mut self,
+        outbox: &crate::outbox::Outbox<R>,
+        stream: u32,
+    ) -> io::Result<bool> {
+        if !matches!(self.sending, Sending::Idle) || stream == 0 || stream > 0x7fff_ffff {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let Some(event) = outbox.front()? else {
+            return Ok(false);
+        };
+        let source = self.bundles.export(&event, outbox.haves())?;
+        self.sending = Sending::Bundle(event.seq, BundleSender::new(stream, source)?);
+        Ok(true)
+    }
+    pub fn next_frame(&mut self) -> io::Result<Option<Frame>> {
+        match &mut self.sending {
+            Sending::Bundle(_, sender) => sender.next_frame(),
+            _ => Ok(None),
+        }
+    }
+    pub fn receive<R: crate::outbox::Refs>(
+        &mut self,
+        outbox: &mut crate::outbox::Outbox<R>,
+        frame: &Frame,
+    ) -> io::Result<Option<Frame>> {
+        match &mut self.sending {
+            Sending::Bundle(seq, sender) => {
+                sender.receive(frame)?;
+                if !sender.verified() {
+                    return Ok(None);
+                }
+                let event = outbox.after_bundle(*seq)?;
+                self.sending = Sending::Receipt;
+                Ok(Some(event))
+            }
+            Sending::Receipt => {
+                outbox.acknowledge(frame)?;
+                self.sending = Sending::Idle;
+                Ok(None)
+            }
+            Sending::Idle => Err(io::ErrorKind::InvalidData.into()),
+        }
+    }
+    /// A Welcome starts replay from disk and invalidates the previous stream.
+    pub fn reconnect<R: crate::outbox::Refs>(&mut self, outbox: &mut crate::outbox::Outbox<R>) {
+        self.sending = Sending::Idle;
+        outbox.reconnect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn refused_bundle_stops_reading_and_cannot_certify_import() {
+        let mut sender = BundleSender::new(1, Cursor::new(vec![1; 300_000])).unwrap();
+        sender.next_frame().unwrap().unwrap();
+        assert_eq!(
+            sender
+                .receive(&Frame {
+                    kind: 6,
+                    stream: 1,
+                    payload: {
+                        let mut bytes = vec![255];
+                        bytes.extend(crate::conn::structure_bytes(&[crate::conn::field(1, [2])]));
+                        bytes
+                    },
+                })
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(!sender.verified());
+        assert_eq!(
+            sender.next_frame().unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert!(sender
+            .receive(&Frame {
+                kind: 6,
+                stream: 1,
+                payload: vec![7]
+            })
+            .is_err());
+    }
+}
+
 pub struct BundleSender<R> {
     source: R,
     credit: Sender,
