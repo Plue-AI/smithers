@@ -78,6 +78,19 @@ func flowVersionConfig(name string) json.RawMessage {
 	return config
 }
 
+// storedFlowSteps reads only the metadata persisted with this version. Older
+// definitions without steps retain the built-in display; an explicit empty
+// array describes a flow with no published steps.
+func storedFlowSteps(config json.RawMessage, fallback []FlowStep) []FlowStep {
+	var metadata struct {
+		Steps []FlowStep `json:"steps"`
+	}
+	if json.Unmarshal(config, &metadata) != nil || metadata.Steps == nil {
+		return fallback
+	}
+	return metadata.Steps
+}
+
 // persistFlowVersions writes one load's versions at commit and moves Active
 // (§11.3.1, §11.3.2), in the caller's transaction. A digest that already has
 // a row writes nothing; a loaded version becomes Active; a failed one leaves
@@ -222,7 +235,7 @@ func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int6
 		switch {
 		case active != nil:
 			card.Source = FlowSource{Path: active.Path}
-			card.Versions = append(card.Versions, FlowVersion{ID: active.Digest.String, State: "active", Steps: steps})
+			card.Versions = append(card.Versions, FlowVersion{ID: active.Digest.String, State: "active", Steps: storedFlowSteps(active.Config, steps)})
 		case hasBuiltin:
 			card.Source = FlowSource{Builtin: true}
 			card.Versions = append(card.Versions, FlowVersion{ID: builtin, State: "active", Steps: steps})
@@ -243,6 +256,7 @@ func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int6
 			for _, row := range rows {
 				if row.Name == name && row.Digest.String == version.Digest && row.LoadError != "" {
 					failure.Error = row.LoadError
+					failure.Steps = storedFlowSteps(row.Config, steps)
 				}
 			}
 			card.Versions = append(card.Versions, failure)
@@ -253,16 +267,18 @@ func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int6
 		// previous: the loaded version Active replaced, else the built-in.
 		if active != nil {
 			previous := ""
+			previousSteps := steps
 			for _, row := range rows {
 				if row.Name == name && row.ID < active.ID && row.Status.String == "loaded" && row.Digest.String != active.Digest.String {
 					previous = row.Digest.String
+					previousSteps = storedFlowSteps(row.Config, steps)
 				}
 			}
 			if previous == "" && hasBuiltin && builtin != active.Digest.String {
 				previous = builtin
 			}
 			if previous != "" {
-				card.Versions = append(card.Versions, FlowVersion{ID: previous, State: "previous", Steps: steps})
+				card.Versions = append(card.Versions, FlowVersion{ID: previous, State: "previous", Steps: previousSteps})
 			}
 		}
 		card.Versions = append(card.Versions, proposals[name]...)
