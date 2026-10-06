@@ -194,7 +194,7 @@ qualification remains pending. C-PRC-01/02 are engineering-only checks folded
 into their implementing tickets; terminal projections require isolated live
 fixtures and do not qualify gate correctness or publication refusal.
 
-| C-PRC-03 | [C-PRC-03.spec.ts](C-PRC-03.spec.ts) | fixme-before-implementation | T-PRC-03 |
+| C-PRC-03 | [C-PRC-03.spec.ts](C-PRC-03.spec.ts) | implemented (engineering CLI; isolated GitHub transport) | T-PRC-03 |
 | C-REL-01 | [C-REL-01.spec.ts](C-REL-01.spec.ts) | passing UI projection including LAN startup and positional laptop login; reference-host qualification pending | T-DOC-01 |
 | C-REL-02 | [C-REL-02.spec.ts](C-REL-02.spec.ts) | fixme-before-implementation | T-INS-05, T-INS-08 |
 | C-REL-03 | [C-REL-03.spec.ts](C-REL-03.spec.ts) | fixme-before-implementation | T-INS-07 |
