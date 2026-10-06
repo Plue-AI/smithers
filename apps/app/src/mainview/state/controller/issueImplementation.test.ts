@@ -6,7 +6,7 @@ import type { SeamContext } from "../seams/SeamContext"
 test("Make TODO drafts only from a GitHub issue card and never launches, even with a running workspace", async () => {
   const values = new Map<string, string>()
   const store = await createAppStore({ kind: "localStorage", storage: { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value) }, removeItem: key => { values.delete(key) } } })
-  const ctx: SeamContext = { store, http: async () => { throw Error("Must not use the tutorial service") }, baseUrl: "", dispatch: store.dispatch, actor: () => "user", nextOrdinal: store.nextOrdinal }
+  const ctx: SeamContext = { store, http: async input => { expect(String(input)).toBe("/api/issues/9"); return Response.json({ issue_digest: "a".repeat(64), make_todo_allowed: true, issue: { number: 9, title: "Real bug", state: "open", user: { login: "ada" }, body: "Reproduction evidence" }, comments: [] }) }, baseUrl: "", dispatch: store.dispatch, actor: () => "user", nextOrdinal: store.nextOrdinal }
   const repo = "owner/repo", workspaceId = "11111111-1111-4111-8111-111111111111"
   const issue = { repo, number: 9, title: "Real bug", state: "open" as const, author: "ada", issueBody: "Reproduction evidence", labels: [], comments: [] }
   await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: repo, workspaces: [] }).isPersisted.promise
@@ -22,7 +22,7 @@ test("Make TODO drafts only from a GitHub issue card and never launches, even wi
     runWorkflow: async (...args) => { calls.push(args); return { value: "started" } }
   }, { draftFromIssue: async source => { drafted.push(source.number); return { value: "Drafted" } } })
   // Before any GitHub issue card is open there is nothing to draft from.
-  expect(await flows.runIssueImplementation(9, repo)).toBe("Open GitHub issue #9 before making a TODO.")
+  expect(await flows.runIssueImplementation(9, repo)).toBe("Open the issue again to check permission to make a TODO.")
   // A same-number GitHub card must not satisfy the Cloud command; it is Make TODO's source.
   await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "github-issue", kind: "issue", title: "GitHub issue", status: "active", createdAt: 1, ordinal: 1, payload: { ...issue, source: "github" } } }).isPersisted.promise
   expect(await flows.runIssueFlow("repro", 9, repo)).toContain("Open Smithers Cloud issue #9")

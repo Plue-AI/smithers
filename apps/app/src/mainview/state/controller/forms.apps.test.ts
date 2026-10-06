@@ -66,25 +66,25 @@ const fixture = (options: { readonly issues?: boolean; readonly sourceIssues?: b
   return { forms, card, field, ask }
 }
 
-describe("the Fix an issue app", () => {
-  test("issue.implement opened bare asks for one thing, the issue, and offers the repository's open issues", () => {
+describe("the retained Make TODO alias", () => {
+  test("issue.implement opened bare derives its input without the retired Fix picker", () => {
     const app = fixture()
     const { cardId, missing } = app.ask("issue.implement")
     expect(missing).toEqual(["number"])
-    expect(app.card(cardId).payload.submitLabel).toBe("Fix")
-    expect(app.card(cardId).payload.fields.map((field) => [field.name, field.label, field.kind, field.required])).toEqual([["number", "Issue", "number", true]])
-    expect(app.field(cardId, "number").options).toEqual([{ value: "42", label: "#42 Footer help link is hard to find" }])
+    expect(app.card(cardId).payload.submitLabel).toBeUndefined()
+    expect(app.card(cardId).payload.fields.map((field) => [field.name, field.label, field.kind, field.required])).toEqual([["number", "Number", "number", true], ["repo", "Repo", "text", false]])
+    expect(app.field(cardId, "number").options).toBeUndefined()
   })
 
-  test("a source-only issue list cannot offer GitHub issues to Fix", () => {
+  test("a source-only issue list does not revive the retired Fix picker", () => {
     const app = fixture({ sourceIssues: true })
     const { cardId } = app.ask("issue.implement")
-    expect(app.field(cardId, "number").options).toEqual([])
+    expect(app.field(cardId, "number").options).toBeUndefined()
   })
 
-  test("with no issues read yet the picker offers nothing rather than a guess", () => {
+  test("with no issues read yet the alias invents no picker", () => {
     const app = fixture({ issues: false })
-    expect(app.field(app.ask("issue.implement").cardId, "number").options).toEqual([])
+    expect(app.field(app.ask("issue.implement").cardId, "number").options).toBeUndefined()
   })
 })
 

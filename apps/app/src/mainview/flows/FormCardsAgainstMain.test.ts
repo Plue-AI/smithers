@@ -376,10 +376,8 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     flow: "runs.trace.view", kind: "sentence", rows: 13,
     because: "The graph IS the third view of a run and the step list the fourth, so the line that refuses a bad one has to name them: main@origin says `runs.trace.view needs turns, timeline or graph` and this branch says `runs.trace.view needs turns, timeline, graph or steps` (SlashPayload.ts). Every swept line whose second token is not a view reads the new sentence; no card moves."
   },
-  {
-    flow: "issue.implement", kind: "card", rows: 36,
-    because: "The Fix an issue app (PRODUCT.md D-18) opens this form: the number field is labeled Issue and offers the repository's open issues, and the repository is the active one rather than a field (entries/issue.ts form hints). Every swept line's card lists one field instead of two, and a line the grammar refuses no longer places its owner/repo token; a line it parses still carries its repository as given. Restoring known-flags:number+repo and the two repo flag cases adds three covered cards: 33 + 3."
-  },
+  // #3457 retires the Fix picker; issue.implement's generic compatibility form
+  // again matches the saved baseline, so it has no remaining card delta.
   {
     flow: "triggers.register", kind: "sentence", rows: 20,
     because: "A limit the LINE names meets the rule the FIELD meets: `--tokens 500000` reached the Tokens field and was told nothing on production, while 500000 typed into that field and prepared is refused with the range before any network call (walk W1 item 4c). The register form routes to TriggersSeam.limitsRefusal, so two rows that used to read the grammar's usage line read the range instead, and four that said nothing now say it. With the one-input form (D-18) a positional line fills its whole card, so twelve more rows keep the grammar's own sentence about a line that parsed into nothing askable (R102d B1d) where main@origin's six-field card still had a field to ask for. Restoring known-flag:tokens and known-flag-number:tokens exercises the same existing limits refusal on two more saved cases: 18 + 2."
@@ -405,9 +403,6 @@ const HISTORICAL_CASES = [
     `triggers.register::known-flag:${field}`,
     `triggers.register::known-flag-number:${field}`
   ]),
-  "issue.implement::known-flags:number+repo",
-  "issue.implement::known-flag:repo",
-  "issue.implement::known-flag-number:repo",
   "issues.list::known-flags:filter+repo"
 ].sort()
 
@@ -554,8 +549,9 @@ describe("the card every slash line opens, against main@origin", () => {
     // retain every saved case, adding these three diagnostic-bearing rows.
     expect({ atMain, here }).toEqual({
       atMain: 1437,
+      // 12: #3457 retires the Fix picker and its alias-only grammar diagnostics.
       // 29: the #3311 `/appearance.dark-mode` sentences counted in 1361 left with the rename to `/theme`.
-      here: 1361 - 29 - cutDiagnostics - removedDeclaredDiagnostics + historicalDiagnostics.length
+      here: 1361 - 29 - 12 - cutDiagnostics - removedDeclaredDiagnostics + historicalDiagnostics.length
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])
