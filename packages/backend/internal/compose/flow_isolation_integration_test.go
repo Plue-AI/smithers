@@ -139,7 +139,7 @@ func TestCSEC02BundledInstallIsolation(t *testing.T) {
 		t.Fatal("prerequisite: environment: PG18: allocated database required")
 	}
 	// psql expands a connection URI passed through -d; PGDATABASE does not.
-	command := exec.CommandContext(ctx, "psql", "-d", database, "-Atqc", "SHOW server_version_num")
+	command := exec.CommandContext(ctx, "psql", "--dbname", database, "-XAtqc", "SHOW server_version_num")
 	version, err = command.CombinedOutput()
 	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(version)), "18") {
 		t.Fatal("prerequisite: environment: PG18: server version 18 required")
