@@ -2033,7 +2033,9 @@ export const createAppController = (
     branchFiles: filesSeam.branchFiles,
     listFiles: installHost ? (_path, branch) => filesSeam.branchFiles.list(branch) : filesSeam.listFiles,
     ...diffFilesSeam,
-    readFile: installHost ? (path, branch, anchor, ref) => ref === undefined ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
+    // Before branch providers are composed, read from the authenticated mirror.
+    // An absent live-branch scope must not disable Source-ready file cards.
+    readFile: installHost && services.branchOptions !== undefined ? (path, branch, anchor, ref) => ref === undefined ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
     codeHover,
     codeDefinition,
     codeDiagnostics,

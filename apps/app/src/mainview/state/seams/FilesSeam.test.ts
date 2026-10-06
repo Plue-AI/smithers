@@ -11,6 +11,13 @@ import type { AppStore } from "../AppStore"
 import { fileOptions } from "./FilesSeam"
 const PAGE_COMMIT = "a".repeat(40)
 
+// The install catalog requires the authenticated roster, independently of
+// source readiness. These are literal member-provider bytes, not seed data.
+const INSTALL_MEMBERS = {
+  members: [{ login: "will", name: "Will", avatar_url: "https://example.com/will.png", color_index: 0, role: "owner", needs_access: false, suspended: false, actions: [] }],
+  access_url: "https://github.com/will/flows/settings/access"
+}
+
 /*
  * The repo files seam (FilesSeam.ts) through the real command path: /files.list
  * reads GET /api/repos/{owner}/{repo}/contents[/path] and surfaces the
@@ -721,6 +728,7 @@ describe("install file cards before Machine ready", () => {
       bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
       fetchImpl: async input => {
         const url = String(input); requests.push(url)
+        if (url === "/api/members") return json(200, INSTALL_MEMBERS)
         if (url === "/api/branches/main/files/src/b.ts") return json(200, {
           path: "src/b.ts", branch: "main", language: "typescript", digest: "sha256:fixture",
           content: { kind: "text", text: '\n\n\n\nadd(1, "2")\n' }, mode: "read_only", diagnostics: [], authors: [], editors: []
@@ -730,6 +738,7 @@ describe("install file cards before Machine ready", () => {
     })
     try {
       await ready(store)
+      await controller.presentCard("commands", "Commands")
       const result = await controller.commands.run("files.read", "src/b.ts:5:3")
       expect(result.status).toBe("executed")
       const cards = [...store.collections.cards.values()].filter(card => card.kind === "file")
@@ -754,11 +763,13 @@ test.each([
     bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
     fetchImpl: async input => {
       const url = String(input); requests.push(url)
+      if (url === "/api/members") return json(200, INSTALL_MEMBERS)
       return url === "/api/branches/main/files/src/b.ts" ? json(status, body) : json(404, { message: "not found" })
     }
   })
   try {
     await ready(store)
+    await controller.presentCard("commands", "Commands")
     await controller.commands.run("files.read", "src/b.ts")
     expect([...store.collections.cards.values()].filter(card => card.kind === "file")).toHaveLength(0)
     expect(requests.filter(url => url.includes("src/b.ts"))).toEqual(["/api/branches/main/files/src/b.ts"])
