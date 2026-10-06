@@ -369,6 +369,9 @@ Commands stories pass keyboard disclosure (Tab, Enter, Space, visible focus),
 muted policy marks, inert metadata, fixture screenshots and edited action input.
 The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets.
 
+T-UI-14 wave 2 (2026-10-06): both C-UI-13 `/help` browser cases passed again,
+including live repository rows, inline/maximized/reload, light/dark and 1440/390 px.
+
 
 | Check subset | Spec | Status | Ticket |
 | --- | --- | --- | --- |
