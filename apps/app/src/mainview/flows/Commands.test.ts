@@ -1,4 +1,4 @@
-import { createDebugApiSeam } from "../state/seams/DebugApiSeam"
+import { stubCommandActions } from "./StubCommandActions"
 /*
  * Commands.ts at the host boundary (docs/web-mode/PLAN.md §1, §3).
  *
@@ -271,9 +271,7 @@ describe("trace argument redaction", () => {
       test(`${invoker} redacts ${name} diagnostics without changing handler input: ${args}`, async () => {
         const records: Parameters<CommandActions["traceFlow"]>[0][] = []
         const received: unknown[][] = []
-        const actions = {
-          docsAvailable: () => false,
-          debugApi: createDebugApiSeam({ document: async () => ({ paths: {} }), gates: () => ({ view: false, catalog: false, authorizer: false }), origin: "http://localhost", fetch: async () => { throw Error("dark") } }),
+        const actions = stubCommandActions({
           repositoryFlows: () => undefined,
           knownRepositories: () => new Set(["owner/repo"]),
           snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false }),
@@ -282,8 +280,8 @@ describe("trace argument redaction", () => {
           setEnvironmentVar: async (...input) => { received.push(input); return `Invalid ${args}` },
           setFormField: async (...input) => { received.push(input); return `Invalid ${args}` },
           submitForm: async (...input) => { received.push(input); return { value: "Saved VALUE=ordinary words" } }
-        } satisfies Partial<CommandActions>
-        const commands = createCommandRegistry(actions as unknown as CommandActions)
+        })
+        const commands = createCommandRegistry(actions)
         await commands[invoker](name!, args)
         expect(received).toHaveLength(1)
         expect(records).toHaveLength(1)
@@ -305,9 +303,7 @@ describe("fulfill-less requirement", () => {
     const records: Parameters<CommandActions["traceFlow"]>[0][] = []
     const deferred: Array<[string, string | null, string]> = []
     const forms: unknown[] = []
-    const actions = {
-      docsAvailable: () => false,
-      debugApi: createDebugApiSeam({ document: async () => ({ paths: {} }), gates: () => ({ view: false, catalog: false, authorizer: false }), origin: "http://localhost", fetch: async () => { throw Error("dark") } }),
+    const actions = stubCommandActions({
       repositoryFlows: () => undefined,
       knownRepositories: () => new Set<string>(),
       snapshot: () => ({
@@ -318,8 +314,8 @@ describe("fulfill-less requirement", () => {
       traceFlow: (record) => { records.push(record) },
       deferCommand: (name: string, args: string | null, requirement: string) => { deferred.push([name, args, requirement]) },
       renderFlowForm: (request: unknown) => { forms.push(request); return undefined }
-    } satisfies Partial<CommandActions>
-    const commands = createCommandRegistry(actions as unknown as CommandActions)
+    })
+    const commands = createCommandRegistry(actions)
     expect(await commands.run("issues.list")).toEqual({ status: "executed", value: "Requested" })
     expect(deferred).toEqual([["issues.list", null, "first-run-target"]])
     // The park is its own trace; the acknowledgment the door returns is the next one.

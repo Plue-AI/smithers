@@ -1,6 +1,6 @@
+import { stubCommandActions } from "../../flows/StubCommandActions"
 import { describe, expect, test } from "bun:test"
 import { createCommandRegistry } from "../../flows/Commands"
-import type { CommandActions } from "../../flows/Flows"
 import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
 import { createFormsController } from "./forms"
@@ -23,14 +23,14 @@ const fixture = (commandActor: "user" | "smithers") => {
       return { isPersisted: { promise: Promise.resolve() } }
     }
   }
-  const actions = {
+  const actions = stubCommandActions({
     repositoryFlows: () => undefined,
     knownRepositories: () => new Set<string>(),
     noteCommandRun: () => {},
     traceFlow: () => {},
     snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false })
-  } satisfies Partial<CommandActions>
-  const commands = createCommandRegistry(actions as unknown as CommandActions)
+  })
+  const commands = createCommandRegistry(actions)
   const context = { store, commands, commandActor } as unknown as ControllerContext
   return { forms: createFormsController(context, { nextOrdinal: () => 1 }), cards }
 }
