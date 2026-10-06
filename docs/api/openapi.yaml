@@ -1369,6 +1369,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/agents:
     get:
+      x-composition: install
       summary: Read factory agents
       operationId: get_api_agents
       tags:
@@ -1388,6 +1389,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/agents/{role}/model:
     put:
+      x-composition: install
       summary: Assign a factory agent model
       description: Only the install owner's browser session may write. Members and run or machine credentials are refused; eligible delegated owners receive never.
       operationId: put_api_agents_role_model
@@ -2657,6 +2659,44 @@ paths:
           description: File or branch not found
         '503':
           description: Source or authority unavailable
+  /api/branches/{b}/files:
+    get:
+      x-composition: install
+      summary: List branch files
+      operationId: get_api_branches_b_files
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: File entries from the branch's current or verified retained snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [name, path, type]
+                  properties:
+                    name: {type: string}
+                    path: {type: string}
+                    type: {type: string}
+                    size: {type: integer, format: int64}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/build-cache/healthz:
     get:
       summary: GET /api/build-cache/healthz
@@ -3533,6 +3573,49 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '429':
           $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/install/metrics:
+    get:
+      x-composition: install
+      summary: Read in-process install metrics
+      operationId: get_api_install_metrics
+      tags:
+        - Install
+      description: Owner browser session only. Cumulative Prometheus metric families are cross-checks, never client benchmark pass values. Missing producers are absent.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Cumulative in-process collector snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [collected_at, clock, metrics]
+                properties:
+                  collected_at:
+                    type: string
+                    format: date-time
+                  clock:
+                    type: string
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  live_connections:
+                    type: integer
+                    minimum: 0
+                  host:
+                    type: object
+                    nullable: true
+                    description: Existing Go host profile and derived limits; null when host profile detection is unavailable.
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalError'
   /api/install/scorecard:

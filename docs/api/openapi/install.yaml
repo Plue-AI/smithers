@@ -1,9 +1,11 @@
 paths:
   /api/install/metrics:
     get:
+      x-composition: install
       summary: Read in-process install metrics
       operationId: get_api_install_metrics
-      tags: [Install]
+      tags:
+        - Install
       description: Owner browser session only. Cumulative Prometheus metric families are cross-checks, never client benchmark pass values. Missing producers are absent.
       security:
         - sessionCookie: []
