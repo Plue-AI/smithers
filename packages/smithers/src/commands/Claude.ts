@@ -3,6 +3,7 @@
  * subscription verbs, as an Effect CLI command group.
  *
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 
 import { Control as ControlService, type ControlSchema } from "@smthrs/control"
@@ -23,6 +24,7 @@ import * as Settlement from "./Settlement.ts"
  * What the command group borrows from the root tree it is composed into.
  * @category models
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export interface Options<E, R> {
   /** The shared pre-handler every verb runs first. */
@@ -51,6 +53,7 @@ const renderJson = (value: unknown) =>
  * The `claude` command group.
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const make = <E, R>({ guard, required }: Options<E, R>) => {
   const tick = Command.make("tick", {

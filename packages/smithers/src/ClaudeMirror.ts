@@ -20,6 +20,7 @@
  * lost upsert.
  *
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 
 import type { ControlSchema } from "@smthrs/control"
@@ -34,6 +35,7 @@ import * as Project from "./Project.ts"
  *
  * @category constants
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const contract = 2
 
@@ -42,6 +44,7 @@ export const contract = 2
  *
  * @category constants
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const subscriptionTtlMs = 24 * 60 * 60 * 1000
 
@@ -50,6 +53,7 @@ export const subscriptionTtlMs = 24 * 60 * 60 * 1000
  *
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const subscriptionsPath = (root: string): string =>
   join(Project.stateDirectory(root), "claude-mirror-subscriptions.json")
@@ -59,6 +63,7 @@ export const subscriptionsPath = (root: string): string =>
  *
  * @category models
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export interface Subscription {
   readonly runId: string
@@ -71,6 +76,7 @@ export interface Subscription {
  *
  * @category getters
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const readSubscriptions = (root: string, now: number = Date.now()): ReadonlyArray<Subscription> => {
   const path = subscriptionsPath(root)
@@ -112,6 +118,7 @@ const writeSubscriptions = (root: string, entries: ReadonlyArray<Subscription>):
  *
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const subscribe = (
   root: string,
@@ -130,6 +137,7 @@ export const subscribe = (
  *
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const unsubscribe = (
   root: string,
@@ -149,6 +157,7 @@ export const unsubscribe = (
  *
  * @category models
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export interface MirrorNode {
   readonly nodeId: string
@@ -163,6 +172,7 @@ export interface MirrorNode {
  *
  * @category models
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export interface Frame {
   readonly contract: number
@@ -182,6 +192,7 @@ export interface Frame {
  *
  * @category constants
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const defaultMaxOutputChars = 2000
 
@@ -214,6 +225,7 @@ const stateOf = (node: NodeOutput.Node): MirrorNode["state"] =>
  *
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const frame = (
   runId: string,
@@ -273,6 +285,7 @@ export const frame = (
  *
  * @category constants
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const terminalStatuses: ReadonlyArray<string> = ["completed", "failed", "cancelled"]
 
@@ -281,6 +294,7 @@ export const terminalStatuses: ReadonlyArray<string> = ["completed", "failed", "
  *
  * @category predicates
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const isTerminal = (status: string): boolean => terminalStatuses.includes(status)
 
@@ -289,6 +303,7 @@ export const isTerminal = (status: string): boolean => terminalStatuses.includes
  *
  * @category models
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export interface Transition {
   readonly runId: string
@@ -305,6 +320,7 @@ export interface Transition {
  *
  * @category constants
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const notableKinds: ReadonlySet<string> = new Set([
   "control.run.accepted",
@@ -325,6 +341,7 @@ export const notableKinds: ReadonlySet<string> = new Set([
  *
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use canonical flow and runs commands through Cli.makeCli; removed in #3634 phase 2.
  */
 export const transition = (event: ControlSchema.ControlEvent): Transition | undefined => {
   if (!notableKinds.has(event.kind)) return undefined

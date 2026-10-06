@@ -14,6 +14,7 @@
  * silently desynchronise the compatibility handlers and the control catalog.
  *
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 
 import { SystemFlows } from "@smthrs/control"
@@ -27,6 +28,7 @@ import { SystemFlows } from "@smthrs/control"
  *
  * @category models
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export interface Verb {
   readonly name: string
@@ -80,6 +82,7 @@ const driver = (name: string, help: string, aliases: ReadonlyArray<string> = [])
  *
  * @category constants
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export const shipped: ReadonlyArray<Verb> = [
   verb("plan", "Render a flow plan and its complete approval payload"),
@@ -120,6 +123,7 @@ export const shipped: ReadonlyArray<Verb> = [
  *
  * @category constants
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export const subcommands: ReadonlyArray<Verb> = shipped.filter((entry) => entry.builtin !== true)
 
@@ -128,6 +132,7 @@ export const subcommands: ReadonlyArray<Verb> = shipped.filter((entry) => entry.
  *
  * @category constants
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export const names: ReadonlyArray<string> = shipped.map((entry) => entry.name)
 
@@ -136,6 +141,7 @@ export const names: ReadonlyArray<string> = shipped.map((entry) => entry.name)
  *
  * @category getters
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export const find = (name: string): Verb | undefined => shipped.find((entry) => entry.name === name)
 
@@ -149,6 +155,7 @@ export const find = (name: string): Verb | undefined => shipped.find((entry) => 
  *
  * @category getters
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export const select = (words: ReadonlyArray<string>): Verb | undefined => {
   const [first, second] = words
@@ -175,5 +182,6 @@ export const select = (words: ReadonlyArray<string>): Verb | undefined => {
  *
  * @category getters
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export const startsRuns = (words: ReadonlyArray<string>): boolean => select(words)?.startsRuns ?? true

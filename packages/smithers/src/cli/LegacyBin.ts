@@ -4,6 +4,7 @@
  * runtime, and maps a failed exit to a process exit code.
  *
  * @since 0.1.0
+ * @deprecated Use cli/Entry.main; removed in #3634 phase 2.
  */
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node"

@@ -201,6 +201,7 @@ const settle = async <A, E>(operation: Effect.Effect<A, E>, runtime: Runtime): P
  * Reuses the tested flow control handlers without starting a second process.
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use query, launch or read with shared command Effects; removed in #3634 phase 2.
  */
 export const invoke = async (
   args: ReadonlyArray<string>,

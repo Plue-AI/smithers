@@ -36,6 +36,7 @@ export * as Bug from "./Bug.ts"
 /**
  * @category protocol
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli canonical flow and runs commands; removed in #3634 phase 2.
  */
 export * as ClaudeMirror from "./ClaudeMirror.ts"
 /**
@@ -60,6 +61,7 @@ export * as CliError from "./CliError.ts"
 /**
  * @category commands
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli and commands/Launch or commands/RunControl; removed in #3634 phase 2.
  */
 export * as Command from "./Command.ts"
 /**
@@ -165,6 +167,7 @@ export * as Update from "./Update.ts"
 /**
  * @category models
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export * as Verb from "./Verb.ts"
 /**

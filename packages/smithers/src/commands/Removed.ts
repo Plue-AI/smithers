@@ -5,6 +5,7 @@
  * every removed flag is a hidden flag whose presence is a refusal.
  *
  * @since 1.0.0
+ * @deprecated Use Unsupported.verbError and canonical Cli.makeCli commands; removed in #3634 phase 2.
  */
 
 import { Effect, Option } from "effect"
@@ -22,6 +23,7 @@ const ownGroupCommands = new Set(["workflow"])
  * One removed verb by name, so a handler cannot cite the wrong entry.
  * @category getters
  * @since 1.0.0
+ * @deprecated Use Unsupported.verbError and canonical Cli.makeCli commands; removed in #3634 phase 2.
  */
 export const verb = (name: string): Unsupported.RemovedVerb =>
   Unsupported.removedVerbs.find((verb) => verb.name === name)!
@@ -30,6 +32,7 @@ export const verb = (name: string): Unsupported.RemovedVerb =>
  * A hidden boolean flag whose presence is a refusal.
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use Unsupported.verbError and canonical Cli.makeCli commands; removed in #3634 phase 2.
  */
 export const flag = (_parent: string, name: string) => Flag.Boolean(name).pipe(Flag.withDefault(false), Flag.withHidden)
 
@@ -37,6 +40,7 @@ export const flag = (_parent: string, name: string) => Flag.Boolean(name).pipe(F
  * A hidden value flag whose presence is a refusal.
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use Unsupported.verbError and canonical Cli.makeCli commands; removed in #3634 phase 2.
  */
 export const valueFlag = (name: string) => Flag.String(name).pipe(Flag.optional, Flag.withHidden)
 
@@ -47,6 +51,7 @@ export const valueFlag = (name: string) => Flag.String(name).pipe(Flag.optional,
  * place: a handler that forgot one would accept a flag the contract removed.
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use Unsupported.verbError and canonical Cli.makeCli commands; removed in #3634 phase 2.
  */
 export const refuse = (
   parent: string,
@@ -67,6 +72,7 @@ export const refuse = (
  * survives as the `ls` alias, and it refuses on its own with the same reason.
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use Unsupported.verbError and canonical Cli.makeCli commands; removed in #3634 phase 2.
  */
 export const commands = Unsupported.removedVerbs
   .filter((verb) => !ownGroupCommands.has(verb.name))

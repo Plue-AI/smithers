@@ -7,6 +7,7 @@
  * exclusively to the Incur tree.
  *
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli and commands/Launch or commands/RunControl; removed in #3634 phase 2.
  */
 
 import { Control as ControlService } from "@smthrs/control"
@@ -152,6 +153,7 @@ const quiet = Effect.map(rootCommand, (globals) => globals.silent || globals.qui
  *
  * @category getters
  * @since 1.0.0-rc.0
+ * @deprecated Use commands/Settlement.latestSequence; removed in #3634 phase 2.
  */
 export const latestSequence = Settlement.latestSequence
 
@@ -304,6 +306,7 @@ const cancel = Command.make("cancel", { runId: requiredArgument("run-id") }, (co
  *
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use commands/RunControl.signalKey; removed in #3634 phase 2.
  */
 export const signalKey = RunControl.signalKey
 
@@ -722,6 +725,7 @@ const gc = Command.make("gc", {
  *
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli; removed in #3634 phase 2.
  */
 export const cli = rootCommand.pipe(
   Command.withDescription("Plan, approve, and run durable flows"),

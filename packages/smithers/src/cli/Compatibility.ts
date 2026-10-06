@@ -1,6 +1,7 @@
 /**
  * Hidden transition aliases; canonical commands are the only advertised surface.
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli canonical commands; removed in #3634 phase 2.
  */
 
 import { removedVerbs } from "../Unsupported.ts"
@@ -33,6 +34,7 @@ const legacy = new Set([
  * Route only unambiguous old spellings, retaining their existing output contracts.
  * @category constructors
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli canonical commands; removed in #3634 phase 2.
  */
 export const legacyArguments = (input: ReadonlyArray<string> | Argv.Globals): Array<string> | undefined => {
   const parsed = Argv.parse(input)
@@ -56,6 +58,7 @@ export const legacyArguments = (input: ReadonlyArray<string> | Argv.Globals): Ar
  * Modern log formatting and pagination use the canonical streaming command.
  * @category parsing
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli canonical commands; removed in #3634 phase 2.
  */
 export const formattedLogArguments = (input: ReadonlyArray<string> | Argv.Globals): Array<string> | undefined => {
   const parsed = Argv.parse(input)
@@ -74,6 +77,7 @@ export const formattedLogArguments = (input: ReadonlyArray<string> | Argv.Global
  * Explicit legacy JSON/quiet/backend contracts and internal protocols stay intact.
  * @category parsing
  * @since 1.0.0
+ * @deprecated Use Cli.makeCli canonical commands; removed in #3634 phase 2.
  */
 export const agentArguments = (input: ReadonlyArray<string> | Argv.Globals): Array<string> | undefined => {
   const parsed = Argv.parse(input)

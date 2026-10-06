@@ -1,6 +1,7 @@
 /**
  * File-free extraction of unambiguous execution targets from transition aliases.
  * @since 1.0.0
+ * @deprecated Use canonical ControlCommands with explicit run IDs; removed in #3634 phase 2.
  */
 
 import { ControlSchema } from "@smthrs/control"
@@ -17,6 +18,7 @@ const switches = new Set(["--resume"])
  * or guesses a target from an unknown flag's value.
  * @since 1.0.0
  * @category getters
+ * @deprecated Use canonical ControlCommands with explicit run IDs; removed in #3634 phase 2.
  */
 export const executionRunId = (args: ReadonlyArray<string> | Argv.Globals): string | undefined => {
   const { rest } = Argv.parse(args)
