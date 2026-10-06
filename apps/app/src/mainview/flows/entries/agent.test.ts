@@ -31,12 +31,14 @@ const harness = async (options: {
 } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: options.storage ?? memoryStorage() })
   const launches: unknown[] = []
+  let stops = 0
   const controller = createAppController(store, unavailableAgent, {
     bootstrap: options.bootstrap ?? LAUNCHER,
     toastDebounceMs: 0,
     fetchImpl: async (input, init) => {
       const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, "http://localhost").pathname
       if (path !== EXTERNAL_LAUNCH_PATH) return Response.json({ error: { code: "not_found", message: "no stub" } }, { status: 404 })
+      if (init?.method === "DELETE") { stops++; return Response.json({ ok: true }) }
       const body: unknown = JSON.parse(String(init?.body))
       launches.push(body)
       return options.launch?.(body) ?? Response.json({ agent: (body as { agent: string }).agent, session: SESSION })
@@ -44,7 +46,7 @@ const harness = async (options: {
   })
   const sessions = () => [...store.collections.cards.values()].filter(card => card.kind === "agent-session")
   const toasts = () => [...store.collections.toasts.values()].map(toast => [toast.title, toast.status, toast.detail])
-  return { store, controller, launches, sessions, toasts }
+  return { store, controller, launches, sessions, toasts, stops: () => stops }
 }
 
 describe("the codex flow", () => {
@@ -208,6 +210,24 @@ describe("the codex flow", () => {
       await until(() => h.launches.length === 3)
     } finally { await h.controller.dispose() }
   })
+
+  for (const change of ["sign-out", "account switch"] as const) {
+    test(`${change} stops launched agents and ignores the old owner's late response (#3736)`, async () => {
+      let answer!: (response: Response) => void
+      const h = await harness({ launch: () => new Promise<Response>(resolve => { answer = resolve }) })
+      try {
+        await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
+        await h.controller.runCommandForResult("agent.codex", "Alice's launch")
+        await until(() => h.launches.length === 1)
+        await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: change === "sign-out" ? "signed-out" : "signed-in", login: change === "sign-out" ? null : "bob", admin: false, scopesPlain: null }).isPersisted.promise
+        await until(() => h.stops() > 0)
+        answer(Response.json({ agent: "codex", session: SESSION }))
+        await until(() => h.stops() === 2)
+        expect(h.sessions()).toEqual([])
+        await until(() => h.toasts().length === 0)
+      } finally { answer?.(Response.json({ agent: "codex", session: SESSION })); await h.controller.dispose() }
+    })
+  }
 
   test("the binding survives a reload", async () => {
     const storage = memoryStorage()

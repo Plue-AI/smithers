@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { tmpdir, userInfo } from "node:os"
 import { join } from "node:path"
 import { Result } from "effect"
 import { claudeStart, codexStart, decodeClaude, decodeCodex, type Entry } from "@smthrs/harness/ExternalTranscript"
 import { EXTERNAL_LAUNCH_PATH, EXTERNAL_SESSIONS_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import {
-  agentLauncher, claudeSessionStart, codexSessionStart, launchArguments, launchedSession, sessionStartsSince, START_SKEW_MS,
+  agentLauncher, claudeSessionStart, codexSessionStart, launchArguments, launchEnvironment, launchedSession, sessionStartsSince, START_SKEW_MS,
   type LaunchAgent, type LaunchedChild, type SessionStart
 } from "./AgentLaunch"
 import { externalSessions } from "./ExternalSessions"
@@ -88,6 +88,19 @@ describe("a session file's start", () => {
     expect(claudeSessionStart("c1", [JSON.stringify({ ...at, sessionId: "c1", timestamp: "soon" })])).toBeUndefined()
     expect(claudeSessionStart("c1", [JSON.stringify({ type: "mode", sessionId: "c1" })])).toBeUndefined()
     expect(claudeSessionStart("c1", [])).toBeUndefined()
+  })
+
+  test("safe own-home configuration survives; foreign and seat homes and injection secrets do not", () => {
+    for (const agent of ["codex", "claude-code"] as const) {
+      const key = agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"
+      const fallback = agent === "codex" ? ".codex" : ".claude"
+      for (const unsafe of ["/another-owner/.codex", "/owner/.smithers/accounts/codex-1", "/owner/../other/.claude"]) {
+        expect(launchEnvironment(agent, "/owner", {}, { [key]: unsafe })[key]).toBe(`/owner/${fallback}`)
+      }
+      const configured = { [key]: "/owner/custom", PATH: "/tools", LANG: "en_US.UTF-8", TERM: "xterm-256color" }
+      const inherited = Object.fromEntries(["GH_TOKEN", "GITHUB_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "SSH_AUTH_SOCK", "AWS_SECRET_ACCESS_KEY", "NODE_OPTIONS", "BUN_OPTIONS", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"].map(key => [key, "secret-exploit"]))
+      expect(launchEnvironment(agent, "/owner", inherited, configured)).toEqual({ HOME: "/owner", ...configured })
+    }
   })
 
   test("each agent preserves configured permissions and keeps an exploit prompt out of argv", () => {
@@ -237,6 +250,22 @@ describe("starting an agent", () => {
     }
   })
 
+  test("inherited HOME cannot redefine the running OS user's home (#3736)", async () => {
+    const original = process.env.HOME
+    const osHome = await realpath(userInfo().homedir)
+    const agentHome = join(osHome, `.b8-launch-nonexistent-${crypto.randomUUID()}`)
+    const seen: Record<string, string | undefined>[] = []
+    process.env.HOME = "/another-owner/.smithers/accounts/codex-1"
+    try {
+      const launcher = agentLauncher({ cwd: scratch, agents: { codex: { command: ["codex"], env: { CODEX_HOME: agentHome }, roots: async () => [] } },
+        spawn: (_argv, options) => { seen.push(options.env); return { exited: Promise.resolve(0), kill: () => {}, stderr: () => "" } } })
+      expect(await launcher.launch("codex", "inherit someone else's HOME")).toMatchObject({ reason: "exited" })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toMatchObject({ HOME: osHome, CODEX_HOME: agentHome })
+      await launcher.dispose()
+    } finally { if (original === undefined) delete process.env.HOME; else process.env.HOME = original }
+  })
+
   test("an agent home symlink cannot grant another account's authority", async () => {
     const home = join(scratch, "linked-home")
     const other = join(scratch, "another-owner")
@@ -250,9 +279,113 @@ describe("starting an agent", () => {
     expect(spawned).toBe(false)
   })
 
+  test("a discovered session holds the active slot until exit and queued launches are bounded (#3736)", async () => {
+    const base = join(scratch, "active-bound")
+    const home = join(base, ".codex")
+    const at = new Date()
+    const day = join(home, "sessions", String(at.getUTCFullYear()), String(at.getUTCMonth() + 1).padStart(2, "0"), String(at.getUTCDate()).padStart(2, "0"))
+    await mkdir(day, { recursive: true })
+    const exits: Array<() => void> = []
+    const launcher = agentLauncher({ cwd: base, home: base, maxPending: 2, pollMs: 5,
+      agents: { codex: { command: ["codex"], env: { CODEX_HOME: home }, roots: async () => [join(home, "sessions")] } },
+      spawn: () => {
+        const id = `active-${exits.length}`
+        let exit!: () => void
+        const exited = new Promise<number>(resolve => { exit = () => resolve(0) })
+        exits.push(exit)
+        void writeFile(join(day, `rollout-${id}.jsonl`), `${JSON.stringify({ type: "session_meta", payload: { id, cwd: base, timestamp: new Date().toISOString() } })}\n`)
+        return { exited, kill: exit, stderr: () => "" }
+      } })
+    try {
+      expect(await launcher.launch("codex", "first")).toMatchObject({ session: "active-0" })
+      const second = launcher.launch("codex", "second")!
+      await Bun.sleep(30)
+      expect(exits.length).toBe(1)
+      expect(await launcher.launch("codex", "flood")).toEqual({ error: "Too many agent launches are pending.", reason: "busy" })
+      exits[0]!()
+      expect(await second).toMatchObject({ session: "active-1" })
+    } finally { await launcher.dispose() }
+  })
+
+  test("stopAll revokes queued requests, refuses races while draining, and permits a fresh launch", async () => {
+    const base = join(scratch, "stop-generation")
+    const home = join(base, ".codex")
+    const now = new Date()
+    const root = join(home, "sessions")
+    const day = join(root, String(now.getUTCFullYear()), String(now.getUTCMonth() + 1).padStart(2, "0"), String(now.getUTCDate()).padStart(2, "0"))
+    await mkdir(day, { recursive: true })
+    let spawned = 0
+    const launcher = agentLauncher({ cwd: base, home: base, pollMs: 5,
+      agents: { codex: { command: ["codex"], env: { CODEX_HOME: home }, roots: async () => [root] } },
+      spawn: () => {
+        const id = `generation-${spawned++}`
+        let exit!: () => void
+        const exited = new Promise<number>(resolve => { exit = () => resolve(143) })
+        void writeFile(join(day, `rollout-${id}.jsonl`), `${JSON.stringify({ type: "session_meta", payload: { id, cwd: base, timestamp: new Date().toISOString() } })}\n`)
+        return { exited, kill: exit, stderr: () => "" }
+      } })
+    try {
+      expect(await launcher.launch("codex", "old active")).toMatchObject({ session: "generation-0" })
+      const queued = launcher.launch("codex", "old queued")!
+      const stopping = launcher.stopAll()
+      expect(await launcher.launch("codex", "race during sign-out")).toMatchObject({ reason: "cancelled" })
+      await stopping
+      expect(await queued).toMatchObject({ reason: "cancelled" })
+      expect(spawned).toBe(1)
+      expect(await launcher.launch("codex", "new owner")).toMatchObject({ session: "generation-1" })
+    } finally { await launcher.dispose() }
+  })
+
+  test("termination escalates after a deadline and awaits actual exit (#3736)", async () => {
+    const signals: string[] = []
+    let exit!: () => void
+    const exited = new Promise<number>(resolve => { exit = () => resolve(137) })
+    const { launcher } = await fixtureLauncher("escalation", { timeoutMs: 20, terminateMs: 20, pollMs: 5,
+      spawn: () => ({ exited, kill: signal => { signals.push(signal ?? "SIGTERM"); if (signal === "SIGKILL") exit() }, stderr: () => "" }) })
+    expect(await launcher.launch("codex", "ignore SIGTERM")).toMatchObject({ reason: "timeout" })
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"])
+    await launcher.dispose()
+  })
+
+  test("stopping kills the real process group, including a SIGTERM-resistant descendant (#3736)", async () => {
+    const base = join(scratch, "process-group")
+    const home = join(base, ".codex")
+    const script = join(base, "resistant.ts")
+    const pids = join(base, "pids.json")
+    await mkdir(base, { recursive: true })
+    await writeFile(script, `
+      import { mkdir, writeFile } from "node:fs/promises";
+      import { join } from "node:path";
+      process.on("SIGTERM", () => {});
+      const descendant = Bun.spawn([process.execPath, "-e", 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+      await writeFile(${JSON.stringify(pids)}, JSON.stringify([process.pid, descendant.pid]));
+      const now = new Date();
+      const day = join(process.env.CODEX_HOME!, "sessions", String(now.getUTCFullYear()), String(now.getUTCMonth()+1).padStart(2,"0"), String(now.getUTCDate()).padStart(2,"0"));
+      await mkdir(day, {recursive:true});
+      await writeFile(join(day,"rollout-resistant.jsonl"), JSON.stringify({type:"session_meta",payload:{id:"resistant",cwd:process.cwd(),timestamp:now.toISOString()}})+"\\n");
+      setInterval(()=>{},1000);
+    `)
+    const launcher = agentLauncher({ cwd: base, home: base, pollMs: 5, terminateMs: 40,
+      agents: { codex: { command: [process.execPath, script], env: { CODEX_HOME: home }, roots: async () => [join(home, "sessions")] } } })
+    try {
+      expect(await launcher.launch("codex", "spawn resistant descendants")).toMatchObject({ session: "resistant" })
+      const ids = await Bun.file(pids).json() as number[]
+      const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
+      expect(ids.every(alive)).toBe(true)
+      await launcher.dispose()
+      for (let n = 0; n < 100 && ids.some(alive); n++) await Bun.sleep(10)
+      expect(ids.filter(alive)).toEqual([])
+    } finally {
+      const ids = await Bun.file(pids).json().catch(() => []) as number[]
+      for (const pid of ids) { try { process.kill(pid, "SIGKILL") } catch {} }
+      await launcher.dispose()
+    }
+  })
+
   test("a CLI that writes no session in time is stopped", async () => {
     let killed = 0
-    const child: LaunchedChild = { exited: new Promise<number>(() => {}), kill: () => { killed += 1 }, stderr: () => "" }
+    let exit!: () => void
+    const child: LaunchedChild = { exited: new Promise<number>(resolve => { exit = () => resolve(143) }), kill: () => { killed += 1; exit() }, stderr: () => "" }
     const { launcher } = await fixtureLauncher("hangs", { spawn: () => child, timeoutMs: 60 })
     expect(await launcher.launch("codex", "hello")).toEqual({ error: "Codex wrote no session in 0 s.", reason: "timeout" })
     expect(killed).toBe(1)
@@ -261,11 +394,14 @@ describe("starting an agent", () => {
   test("stopping the host stops every CLI it started and refuses new launches", async () => {
     let killed = 0
     const { launcher } = await fixtureLauncher("dispose", {
-      spawn: () => ({ exited: new Promise<number>(() => {}), kill: () => { killed += 1 }, stderr: () => "" })
+      spawn: () => {
+        let exit!: () => void
+        return { exited: new Promise<number>(resolve => { exit = () => resolve(143) }), kill: () => { killed += 1; exit() }, stderr: () => "" }
+      }
     })
     const pending = launcher.launch("codex", "hello")
     await Bun.sleep(40)
-    launcher.dispose()
+    await launcher.dispose()
     expect(await pending).toEqual({ error: "Codex stopped: this host is stopping.", reason: "stopping" })
     expect(killed).toBeGreaterThanOrEqual(1)
     expect(await launcher.launch("codex", "again")).toEqual({ error: "Codex cannot start: this host is stopping.", reason: "stopping" })
@@ -339,6 +475,34 @@ describe(`POST ${EXTERNAL_LAUNCH_PATH}`, () => {
     const failed = await post(server, { agent: "codex", prompt: "hi" })
     expect(failed.status).toBe(503)
     expect(await failed.json()).toMatchObject({ error: { code: "agent_unavailable", message: "Codex exited with 1 before it wrote a session.", reason: "exited" } })
+  })
+
+  test("DELETE drains active and queued launches and requires the local capability", async () => {
+    let spawned = 0
+    let killed = 0
+    const { launcher } = await fixtureLauncher("route-stop", { pollMs: 5, spawn: () => {
+      spawned++
+      let exit!: () => void
+      return { exited: new Promise<number>(resolve => { exit = () => resolve(143) }), kill: () => { killed++; exit() }, stderr: () => "" }
+    } })
+    const server = await serve({ launcher })
+    const pending = post(server, { agent: "codex", prompt: "active" })
+    for (let n = 0; n < 100 && spawned === 0; n++) await Bun.sleep(5)
+    expect(spawned).toBe(1)
+    const queued = post(server, { agent: "codex", prompt: "queued" })
+    expect((await fetch(`${server.origin}${EXTERNAL_LAUNCH_PATH}`, { method: "DELETE" })).status).toBe(401)
+    expect(killed).toBe(0)
+    await Bun.sleep(20)
+    const response = await fetch(`${server.origin}${EXTERNAL_LAUNCH_PATH}`, { method: "DELETE", headers: { [LOCAL_SESSION_HEADER]: server.sessionToken } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    for (const request of [pending, queued]) {
+      const result = await request
+      expect(result.status).toBe(503)
+      expect(await result.json()).toMatchObject({ error: { code: "agent_unavailable", reason: "cancelled" } })
+    }
+    expect(killed).toBe(1)
+    expect(spawned).toBe(1)
   })
 
   test("a host without a launcher, or one with Smithers Cloud, has no launch door", async () => {

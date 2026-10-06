@@ -809,6 +809,11 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     return "error" in launched ? jsonError("agent_unavailable", launched.error, { reason: launched.reason }) : json(launched)
   })
 
+  if (launcher !== undefined) router.add("DELETE", EXTERNAL_LAUNCH_PATH, async () => {
+    await launcher.stopAll()
+    return json({ ok: true })
+  })
+
   const modelEnv: ModelCredentialEnv = options.env ?? Bun.env
   const modelCredentials = await createModelCredentials({ env: modelEnv, scope: resolve(options.stateDir ?? nativeStateDirectory()), ...(options.modelKeychain ? { keychain: options.modelKeychain } : {}) })
   /** Offline performs no egress, so a configured model may be reached on loopback only. */
@@ -1038,6 +1043,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
    */
   router.add("POST", CLOUD_AUTH_START_PATH, async () => {
     if (cloudAuth === undefined) return jsonError("not_implemented", "The cloud seam is disabled in this build.")
+    await launcher?.stopAll()
     const started = await cloudAuth.start()
     return "error" in started ? jsonError("cloud_auth_unavailable", started.error) : json(started)
   })
@@ -1063,6 +1069,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   }
   router.add("POST", CLOUD_AUTH_SIGN_OUT_PATH, async () => {
     if (cloudAuth === undefined) return jsonError("not_implemented", "The cloud seam is disabled in this build.")
+    await launcher?.stopAll()
     await cloudAuth.signOut()
     closeCloudBridges(4401, "signed out of Smithers Cloud")
     return json({ ok: true })
@@ -1244,6 +1251,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       }
       if (pathname === "/api/auth/session") return jsonError("not_found", `No route for ${request.method} ${pathname}.`)
       if (pathname.startsWith(AUTH_ROUTE_PREFIX) || pathname.startsWith(IDENTITY_ROUTE_PREFIX)) {
+        if (pathname === "/api/auth/sign-out" || pathname === "/api/auth/sign-in") await launcher?.stopAll()
         return identityUpstream === null ? stubIdentity() : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
       }
       /*

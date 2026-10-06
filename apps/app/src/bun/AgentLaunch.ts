@@ -7,7 +7,8 @@
  * launches in one directory never trade sessions.
  */
 import { lstat, readdir, realpath } from "node:fs/promises"
-import { homedir } from "node:os"
+import { userInfo } from "node:os"
+import { spawn as spawnProcess } from "node:child_process"
 import { readChunk, regularPath } from "./ExternalSessions"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
@@ -86,8 +87,10 @@ const dayDirectories = (root: string, since: number, now: number): string[] => [
 )]
 
 /** Claude Code files a session in one directory per project under `projects`. */
-const projectDirectories = async (root: string): Promise<string[]> =>
-  (await readdir(root).catch(() => [] as string[])).map(name => join(root, name))
+const projectDirectories = async (root: string): Promise<string[]> => {
+  if (!(await regularPath(root, root).catch(() => undefined))?.isDirectory()) return []
+  return (await readdir(root).catch(() => [] as string[])).map(name => join(root, name))
+}
 
 /** The starts of the sessions `agent` wrote since `since`, under every sessions root. */
 export async function sessionStartsSince(agent: LaunchAgent, roots: ReadonlyArray<string>, since: number, now = Date.now()): Promise<SessionStart[]> {
@@ -95,7 +98,10 @@ export async function sessionStartsSince(agent: LaunchAgent, roots: ReadonlyArra
     : (await Promise.all(roots.map(projectDirectories))).flat()
   const starts: SessionStart[] = []
   for (const directory of directories) {
-    const root = roots.find(root => !relative(resolve(root), resolve(directory)).startsWith(".."))
+    const root = roots.find(root => {
+      const below = relative(resolve(root), resolve(directory))
+      return below !== ".." && !below.startsWith(`..${sep}`)
+    })
     if (root === undefined || !(await regularPath(directory, root).catch(() => undefined))?.isDirectory()) continue
     for (const name of await readdir(directory).catch(() => [] as string[])) {
       if (!name.endsWith(".jsonl") || (agent === "codex" && !name.startsWith("rollout-"))) continue
@@ -119,7 +125,9 @@ export const launchArguments = (agent: LaunchAgent, cwd: string, _prompt?: strin
 
 export interface LaunchedChild {
   readonly exited: Promise<number>
-  readonly kill: () => void
+  readonly kill: (signal?: "SIGTERM" | "SIGKILL") => void
+  /** Whether the owned process group still has members, including descendants. */
+  readonly alive?: () => boolean
   /** The last bytes the CLI wrote to stderr: why it stopped, when it stops early. */
   readonly stderr: () => string
 }
@@ -128,17 +136,34 @@ export type Spawn = (argv: ReadonlyArray<string>, options: { readonly cwd: strin
 
 const STDERR_TAIL = 2_000
 
-const bunSpawn: Spawn = (argv, options) => {
-  const child = Bun.spawn([...argv], { cwd: options.cwd, env: options.env, stdin: "pipe", stdout: "ignore", stderr: "pipe" })
-  child.stdin.write(options.stdin)
-  child.stdin.end()
+const processSpawn: Spawn = (argv, options) => {
+  // A new POSIX process group lets shutdown reach descendants too. No shell.
+  const child = spawnProcess(argv[0]!, argv.slice(1), {
+    cwd: options.cwd, env: options.env, detached: true, stdio: ["pipe", "ignore", "pipe"]
+  })
+  const exited = new Promise<number>(resolve => {
+    child.once("exit", code => resolve(code ?? -1))
+    child.once("error", () => resolve(-1))
+  })
+  child.stdin.on("error", () => {}) // An early exit may close stdin before the write.
+  child.stdin.end(options.stdin)
   let tail = ""
-  void (async () => {
-    const reader = child.stderr.getReader()
-    const decoder = new TextDecoder()
-    for (let read = await reader.read(); !read.done; read = await reader.read()) tail = (tail + decoder.decode(read.value, { stream: true })).slice(-STDERR_TAIL)
-  })().catch(() => {})
-  return { exited: child.exited, kill: () => child.kill(), stderr: () => tail }
+  child.stderr.on("data", bytes => { tail = (tail + String(bytes)).slice(-STDERR_TAIL) })
+  const group = child.pid
+  return {
+    exited,
+    kill: (signal = "SIGTERM") => {
+      if (group === undefined) return
+      try { process.kill(-group, signal) } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+      }
+    },
+    alive: () => {
+      if (group === undefined) return false
+      try { process.kill(-group, 0); return true } catch { return false }
+    },
+    stderr: () => tail
+  }
 }
 
 /** Never inherit host credentials, runtime injection flags or another seat's home (#3736). */
@@ -160,9 +185,9 @@ export const launchEnvironment = (agent: LaunchAgent, home: string, inherited: R
 export interface LaunchableCli {
   /** The command before the CLI's arguments: `["codex"]`, or a fixture CLI in tests. */
   readonly command: ReadonlyArray<string>
-  /** Every directory the agent files sessions in, as the session reader reads them. */
+  /** Session roots; discovery accepts only the bound own agent home. */
   readonly roots: () => Promise<readonly string[]>
-  /** Added to this process's environment for the CLI. */
+  /** Host configuration filtered through the environment allowlist. */
   readonly env?: Readonly<Record<string, string>>
 }
 
@@ -177,10 +202,14 @@ export interface AgentLauncherOptions {
   readonly pollMs?: number
   /** How long the CLI has to write its session before the launch fails. */
   readonly timeoutMs?: number
+  /** TERM grace period before KILL, then await the child exit. */
+  readonly terminateMs?: number
+  /** Active plus queued launches; excess requests fail instead of accumulating. */
+  readonly maxPending?: number
 }
 
 /** Why a launch bound no session: the CLI exited first, wrote nothing in time, or the host is stopping. */
-export type LaunchFailure = "exited" | "timeout" | "stopping" | "unsafe_home"
+export type LaunchFailure = "exited" | "timeout" | "stopping" | "unsafe_home" | "busy" | "cancelled"
 
 export type LaunchResult =
   | { readonly agent: LaunchAgent; readonly session: string }
@@ -190,21 +219,53 @@ const AGENT_NAMES: Record<LaunchAgent, string> = { codex: "Codex", "claude-code"
 
 /** Starts agent CLIs one at a time; `dispose` stops every CLI it started. */
 export function agentLauncher(options: AgentLauncherOptions) {
-  const spawn = options.spawn ?? bunSpawn
+  const spawn = options.spawn ?? processSpawn
   const now = options.now ?? Date.now
   const pollMs = options.pollMs ?? 200
   const timeoutMs = options.timeoutMs ?? 20_000
+  const terminateMs = options.terminateMs ?? 2_000
+  const maxPending = options.maxPending ?? 8
+  if (!Number.isInteger(maxPending) || maxPending < 1 || !Number.isFinite(terminateMs) || terminateMs < 0) throw new Error("Invalid launcher limits")
   const claimed = new Set<string>()
   const children = new Set<LaunchedChild>()
   let queue: Promise<unknown> = Promise.resolve()
   let disposed = false
+  let epoch = 0
+  let pending = 0
+  let stopping: Promise<void> | undefined
+  const terminations = new WeakMap<LaunchedChild, Promise<void>>()
+  const stopChild = (child: LaunchedChild): Promise<void> => {
+    const existing = terminations.get(child)
+    if (existing !== undefined) return existing
+    const stopping = (async () => {
+      let exited = false
+      const exit = child.exited.then(() => { exited = true }, () => { exited = true })
+      child.kill("SIGTERM")
+      const deadline = Date.now() + terminateMs
+      while ((!exited || child.alive?.() === true) && Date.now() < deadline) await Bun.sleep(Math.min(10, Math.max(1, deadline - Date.now())))
+      if (!exited || child.alive?.() === true) child.kill("SIGKILL")
+      await exit
+    })().finally(() => children.delete(child))
+    terminations.set(child, stopping)
+    return stopping
+  }
+  const cancelled = (): LaunchResult => ({ error: "The launch was cancelled.", reason: "cancelled" })
 
-  const run = async (agent: LaunchAgent, cli: LaunchableCli, prompt: string): Promise<LaunchResult> => {
+  const stopAll = (): Promise<void> => {
+    if (stopping !== undefined) return stopping
+    epoch++
+    const admitted = queue
+    stopping = Promise.all([...children].map(stopChild)).then(() => admitted).then(() => {}).finally(() => { stopping = undefined })
+    return stopping
+  }
+
+  const run = async (agent: LaunchAgent, cli: LaunchableCli, prompt: string, admitted: number, hold: (completion: Promise<void>) => void): Promise<LaunchResult> => {
     const name = AGENT_NAMES[agent]
     if (disposed) return { error: `${name} cannot start: this host is stopping.`, reason: "stopping" }
+    if (admitted !== epoch) return cancelled()
     const cwd = await realpath(options.cwd)
     const launch: Launch = { cwd, launchedAt: now() }
-    const home = await realpath(options.home ?? homedir())
+    const home = await realpath(options.home ?? userInfo().homedir)
     const env = launchEnvironment(agent, home, process.env, cli.env)
     const agentHome = env[agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"]!
     // Validate the nearest existing ancestor as well as an existing home:
@@ -215,15 +276,22 @@ export function agentLauncher(options: AgentLauncherOptions) {
       return { error: `${name}'s home is unsafe.`, reason: "unsafe_home" }
     }
     const roots = (await cli.roots()).filter(root => resolve(root) === join(agentHome, agent === "codex" ? "sessions" : "projects"))
+    if (disposed || admitted !== epoch) return disposed ? { error: `${name} cannot start: this host is stopping.`, reason: "stopping" } : cancelled()
     const child = spawn([...cli.command, ...launchArguments(agent, cwd)], { cwd, env, stdin: prompt })
     children.add(child)
     let exit: number | undefined
-    void child.exited.then(code => { exit = code; children.delete(child) }, () => { exit = -1; children.delete(child) })
+    const completion = child.exited.then(code => { exit = code }, () => { exit = -1 }).then(() => stopChild(child))
+    hold(completion)
+
     const deadline = launch.launchedAt + timeoutMs
     for (;;) {
       // An exit seen before the read means the read saw everything the CLI wrote.
       const exited = exit
       const session = launchedSession(await sessionStartsSince(agent, roots, launch.launchedAt, now()), launch, claimed)
+      if (disposed || admitted !== epoch) {
+        await stopChild(child)
+        return disposed ? { error: `${name} stopped: this host is stopping.`, reason: "stopping" } : cancelled()
+      }
       if (session !== undefined) {
         claimed.add(session)
         return { agent, session }
@@ -231,8 +299,8 @@ export function agentLauncher(options: AgentLauncherOptions) {
       if (exited !== undefined) {
         return { error: `${name} exited ${exited === 0 ? "" : `with ${exited} `}before it wrote a session.`, reason: "exited" }
       }
-      if (disposed || now() >= deadline) {
-        child.kill()
+      if (now() >= deadline) {
+        await stopChild(child)
         return disposed ? { error: `${name} stopped: this host is stopping.`, reason: "stopping" }
           : { error: `${name} wrote no session in ${Math.round(timeoutMs / 1000)} s.`, reason: "timeout" }
       }
@@ -247,14 +315,30 @@ export function agentLauncher(options: AgentLauncherOptions) {
     launch: (agent: LaunchAgent, prompt: string): Promise<LaunchResult> | undefined => {
       const cli = options.agents[agent]
       if (cli === undefined) return undefined
-      const result = queue.then(() => run(agent, cli, prompt))
-      queue = result.catch(() => undefined)
+      if (disposed) return Promise.resolve({ error: `${AGENT_NAMES[agent]} cannot start: this host is stopping.`, reason: "stopping" })
+      if (stopping !== undefined) return Promise.resolve(cancelled())
+      if (pending >= maxPending) return Promise.resolve({ error: "Too many agent launches are pending.", reason: "busy" })
+      pending++
+      const admitted = epoch
+      let report!: (result: LaunchResult) => void
+      let reject!: (error: unknown) => void
+      const result = new Promise<LaunchResult>((resolve, fail) => { report = resolve; reject = fail })
+      queue = queue.then(async () => {
+        let completion: Promise<void> = Promise.resolve()
+        try {
+          report(await run(agent, cli, prompt, admitted, held => { completion = held }))
+          // A session is the response receipt, never permission to spawn another child.
+          await completion
+        } catch (error) { reject(error); await completion }
+        finally { pending-- }
+      }).catch(() => undefined)
       return result
     },
-    dispose: (): void => {
+    /** Revoke queued requests and await every owned child without closing the host. */
+    stopAll,
+    dispose: (): Promise<void> => {
       disposed = true
-      for (const child of children) child.kill()
-      children.clear()
+      return stopAll()
     }
   }
 }
