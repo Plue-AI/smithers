@@ -73,67 +73,74 @@ transactional captured-event path. It cannot use this registry alone.
 
 `internal/machined/sessions.go` provides host calls for `open_session`,
 `tcp_connect`, `close_session`, `kill_sessions`, `register_run` and
-`attach_session`. It has no installed transport. A nil transport returns the
-ADR 0004 `unsupported` refusal before effects; cancellation returns the context
-error. This seam is unmounted. S1 terminals still use the existing runtime.
+`attach_session`. `Registry.Sessions` encodes these calls through the admitted
+host connection. Wrong-branch, stale and unreconciled connections refuse before
+sending. A nil transport returns `unsupported` without effects.
 
-The transport adapter must use `internal/machined/wire` on an authenticated,
-wake-reconciled connection. The wire codec and daemon dispatcher own decoding
-and their error envelope. The client uses the registry connection lease to refuse wrong-branch, stale
-and unreconciled connections before calling its transport. The adapter must
-bind RPC to that same stream; it must not look up a replacement connection.
-Host validation checks login syntax, non-root uid,
-request kind, argument encoding, sizes, port and stream-id range. It cannot
-verify guest account bindings, local peer credentials or cgroup ownership.
-Those checks belong to the root broker and daemon, before spawning.
+The installed root launcher composes `broker/supervisor.rs` with the Linux
+process owner in `broker/spawn.rs`. Its environment/credential admission
+provider remains unavailable: trusted account provisioning, daemon composition
+and reference-host qualification must land before customer sessions can start.
+S1 terminal ownership remains until that replacement passes its real checks.
 
-### Stream replay
+### Process ownership and stream replay
 
-`crates/smithers-machined/src/stream.rs` wraps the shared `credit.rs` pipe.
-Each sending direction retains at most 262,144 unacknowledged bytes and stops
-reading at zero credit. Windows discard acknowledged bytes. Reattachment
-uses cumulative consumer-delivered offsets, recovers lost windows and returns
-only the remaining bytes without charging credit again. Offsets outside the
-retained range fail without changing the buffer. Closing discards replay and
-refuses further reads and reattachment. This module is not yet wired into a
-running daemon. The separate broker lifetime module owns disconnect deadlines
-and session lifecycle; transport mounting remains pending.
+The supervisor uses the existing registry and `session_stream::Pipe`; it does
+not add another process or credit model. It authorizes the current roster,
+checks account binding and asks the session environment/credential provider
+before creating a cgroup. The Linux process owner binds each child to that
+held cgroup, creates a process group, installs only the team supplementary
+group, permanently drops uid/gid, sets umask 002 and enters `/workspace` before
+executing session argv. Account lookup reads protected passwd/group files;
+it does not load NSS modules in the root process.
+
+PTY allocation uses a held master and kernel-resolved slave. Resize and allowed
+signals target broker-owned descriptors and process groups. SFTP uses the fixed
+image server. TCP uses an unprivileged image relay restricted to a nonzero
+loopback port, with stdin EOF mapped to socket write-half closure.
+
+Each stream direction has 262,144 bytes of credit. Nonblocking descriptor reads
+stop at zero credit. Input receives a window only after bytes reach the kernel;
+blocked input and control frames need no immediate wire reply. Output polling
+rotates between sessions and returns one frame per socketpair exchange. Exit
+follows stdout/stderr EOF. Reattachment validates offsets before clearing the
+grace timer, discards undelivered stdin before replay, and preserves descriptor
+labels and terminal controls. Local streams drain only through their socket's
+scoped polling path, never through host polling.
+
+The root socketpair retains ADR 0004 control encoding. Its private stream
+operations carry one validated frame or bounded registry query per exchange;
+these are not new host wire messages. Agent-local admission uses SO_PEERCRED
+and the kernel cgroup, and atomically inherits the parent session's registered
+run. Only host `register_run` establishes that binding.
 
 ### Activation prerequisites
 
 Admission requires authenticated/reconciled transport (T-COL-03), the wire
 codec (T-COL-03r), measured protocol (T-TRM-06), trusted accounts (T-MCH-11),
 trusted root startup (T-SEC-01), session environment (T-MCH-12) and credentials
-(T-TRM-02). Each unavailable provider must refuse through the production
-root dispatcher. Agent-local admission additionally requires SO_PEERCRED and
-a registered run. A host-interface test cannot prove these properties.
+(T-TRM-02). An unavailable provider refuses before spawning. Test-only kernels
+exercise refusal and stream behavior; they do not qualify real users/cgroups.
 
-The broker must create processes only after privilege drop, retain lingering
-cgroups after close, confirm `populated 0` before kill responses, and clear all
-sessions before daemon restart. The production library now provides the session registry, per-session 30-second
-grace timer, immutable agent-run bindings and restart cleanup ordering in
-`broker/sessions.rs`. Closed and exited entries remain available for watcher
-attribution until confirmed cleanup. Reconnecting the host does not reattach
-omitted sessions. `broker/cgroups.rs` holds protected cgroup-v2 directory
-descriptors, writes `cgroup.kill`, and waits for `populated 0` against one
-five-second deadline before removing each registry entry. Retained cgroups
-are cleaned before restart; invalid retained names refuse startup.
+Closed/exited registry entries remain attributable until confirmed cgroup
+cleanup. PTY close sends HUP; exec/SFTP close drops stdin. Lingering descendants
+are killed by user/run revocation or restart. `cgroup.kill` must reach
+`populated 0` within the shared five-second deadline before removal or reply.
+Failed cleanup retains the registry for retry and fences roster admission.
+Root socketpair ticks enforce the 30-second reconnect grace even without host
+traffic. Startup also cleans retained groups before starting another daemon.
 
-The crate is now a buildable workspace library, including the existing credit,
-replay, document and outbox components. It is not a runnable daemon. Spawn,
-PTY allocation, signals, authenticated RPC/local-socket dispatch and transport
-adaptation remain unavailable. The cgroup implementation has Linux cross-build
-evidence only; no real-root integration acceptance is claimed. Terminal and SSH
-cutover require C-COL-04 and C-J3-06 evidence; no root code from this branch is
-installed or executed.
+C-COL-04, C-J3-06, the terminal cutover and installed root execution remain
+unqualified until their real-host receipts pass. A cross-build or fixture
+kernel is not evidence for privileged execution.
 
 ### Reuse decision (E-04)
 
 A long-lived mode of `microsandbox/guest/smithers-guest.py` would retain its
-single uid 1500, per-exec cleanup and separate JSON control path. Its `relay`
+one-shot managed-child lifecycle and separate JSON control path. Its `relay`
 and `bridge` are transports, not authenticated session dispatchers. Reshaping
 that helper would duplicate the specified daemon supervisor and shared credit
-pipe. Use the Rust broker's lifetime module when its owning core lands, porting
+pipe. Use the Rust broker's lifetime module and shared credit pipe, retaining
 validated descriptor cleanup and privilege-drop ordering from the helper.
 Owner acceptance and root validation receipts remain pending. No helper or
 terminal ownership code is replaced until the actual cutover.

@@ -291,14 +291,19 @@ impl<I: Input> Pipe<I> {
         }
         Ok((self.receiver.received(), frames))
     }
+    /// The registry already closed the descriptor. Discard replay without
+    /// delivering a second HUP or EOF to the process.
+    pub fn closed_by_owner(&mut self) {
+        self.closed = true;
+        self.sender.close();
+        self.receiver.close();
+        self.pending.clear();
+        self.retained_fds.clear();
+    }
     pub fn close(&mut self) -> io::Result<()> {
         if !self.closed {
             self.input.close()?;
-            self.closed = true;
-            self.sender.close();
-            self.receiver.close();
-            self.pending.clear();
-            self.retained_fds.clear();
+            self.closed_by_owner();
         }
         Ok(())
     }

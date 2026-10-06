@@ -4,6 +4,12 @@
 use crate::{conn, hooks::Error};
 use std::{io, time::Duration};
 pub trait Controls {
+    fn tick(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn stream(&mut self, _op: u8, _body: &[u8]) -> io::Result<Vec<u8>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     /// Implementations must bind users to trusted accounts and the synchronized
     /// roster, and drop privileges before resolving any branch argv or home.
     fn session(&mut self, _request: super::request::Request) -> io::Result<Vec<u8>> {
@@ -35,6 +41,17 @@ fn response(id: &[u8], variant: u8, fields: &[Vec<u8>]) -> Vec<u8> {
     bytes
 }
 pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>> {
+    if packet.len() >= 5 && matches!(packet[4], 17..=24) && packet.len() <= 65560 {
+        let mut reply = packet[..5].to_vec();
+        match controls.stream(packet[4], &packet[5..]) {
+            Ok(body) => reply.extend(body),
+            Err(e) => {
+                reply.truncate(4);
+                reply.extend(conn::tagged(255, &map_io(e).fields()));
+            }
+        }
+        return Ok(reply);
+    }
     if packet.len() < 9 || packet.len() > 65536 {
         return Err(io::ErrorKind::InvalidData.into());
     }
@@ -111,16 +128,22 @@ impl SocketpairBroker {
         let mut request = id.to_be_bytes().to_vec();
         request.push(variant);
         request.extend_from_slice(body);
-        if request.len() > 65536 {
+        if request.len()
+            > if matches!(variant, 17..=24) {
+                65560
+            } else {
+                65536
+            }
+        {
             return Err(error(1));
         }
         let exchange = (|| -> io::Result<Vec<u8>> {
             if send(&*fd, &request, SendFlags::NOSIGNAL)? != request.len() {
                 return Err(io::ErrorKind::WriteZero.into());
             }
-            let mut bytes = vec![0; 65537];
+            let mut bytes = vec![0; 65561];
             let (n, _) = recv(&*fd, &mut bytes, RecvFlags::empty())?;
-            if n < 9 || n > 65536 || bytes[..4] != id.to_be_bytes() {
+            if n < 5 || n > 65560 || bytes[..4] != id.to_be_bytes() {
                 return Err(io::ErrorKind::InvalidData.into());
             }
             bytes.truncate(n);
@@ -146,6 +169,9 @@ impl SocketpairBroker {
 }
 #[cfg(target_os = "linux")]
 impl crate::hooks::Broker for SocketpairBroker {
+    fn ready(&self) -> crate::hooks::Result<()> {
+        self.call_body(23, &[]).map(|_| ())
+    }
     fn set_roster(&self, members: &[super::sessions::User]) -> crate::hooks::Result<()> {
         let body = super::request::roster_bytes(members).map_err(map_io)?;
         let result = self.call_body(16, &body)?;
@@ -189,9 +215,19 @@ impl crate::hooks::Broker for SocketpairBroker {
 #[cfg(target_os = "linux")]
 pub fn serve(fd: &std::os::fd::OwnedFd, controls: &mut impl Controls) -> io::Result<()> {
     use rustix::net::{recv, send, RecvFlags, SendFlags};
+    rustix::net::sockopt::set_socket_timeout(
+        fd,
+        rustix::net::sockopt::Timeout::Recv,
+        Some(Duration::from_millis(100)),
+    )?;
     loop {
-        let mut packet = vec![0; 65537];
-        let (n, _) = recv(fd, &mut packet, RecvFlags::empty())?;
+        controls.tick()?;
+        let mut packet = vec![0; 65561];
+        let (n, _) = match recv(fd, &mut packet, RecvFlags::empty()) {
+            Ok(result) => result,
+            Err(rustix::io::Errno::AGAIN) => continue,
+            Err(error) => return Err(error.into()),
+        };
         if n == 0 {
             return Ok(());
         }
@@ -206,6 +242,51 @@ pub fn serve(fd: &std::os::fd::OwnedFd, controls: &mut impl Controls) -> io::Res
 
 #[cfg(target_os = "linux")]
 impl crate::hooks::Sessions for SocketpairBroker {
+    fn ready(&self) -> crate::hooks::Result<()> {
+        self.call_body(23, &[]).map(|_| ())
+    }
+    fn frame(&self, frame: &conn::Frame) -> crate::hooks::Result<Option<conn::Frame>> {
+        if frame.kind != 5 {
+            return Err(error(1));
+        }
+        self.call_body(17, &frame.encode().map_err(|_| error(1))?)?;
+        Ok(None)
+    }
+    fn poll(&self) -> crate::hooks::Result<Vec<conn::Frame>> {
+        self.poll_stream(0)
+    }
+    fn poll_local(&self, id: u32) -> crate::hooks::Result<Vec<conn::Frame>> {
+        if id == 0 {
+            return Err(error(1));
+        }
+        self.poll_stream(id)
+    }
+    fn open_local(&self, path: &str, args: &[u8]) -> crate::hooks::Result<Vec<u8>> {
+        crate::local::validate_open(args)?;
+        let id = path
+            .strip_prefix("/smithers/sessions/")
+            .ok_or_else(|| error(11))?;
+        let id = super::sessions::cgroup_id(id).map_err(map_io)?;
+        self.call_body(19, &[id.to_be_bytes().as_slice(), args].concat())
+    }
+    fn run_of_cgroup(&self, path: &str) -> Option<String> {
+        String::from_utf8(self.call_body(20, path.as_bytes()).ok()?).ok()
+    }
+    fn live(&self) -> Vec<u32> {
+        let Ok(bytes) = self.call_body(21, &[]) else {
+            return vec![];
+        };
+        if bytes.len() % 4 != 0 || bytes.len() > 512 * 4 {
+            return vec![];
+        }
+        bytes
+            .chunks_exact(4)
+            .map(|b| u32::from_be_bytes(b.try_into().unwrap()))
+            .collect()
+    }
+    fn disconnected(&self) -> crate::hooks::Result<()> {
+        self.call_body(22, &[]).map(|_| ())
+    }
     fn call(&self, method: u8, args: &[u8]) -> crate::hooks::Result<Vec<u8>> {
         if !matches!(method, 6..=10 | 15) {
             return Err(error(2));
@@ -214,5 +295,29 @@ impl crate::hooks::Sessions for SocketpairBroker {
         let body = self.call_body(method, args)?;
         conn::fields(&format!("result{method}"), &body).map_err(|_| error(12))?;
         Ok(body)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl SocketpairBroker {
+    /// Shared stream allocator for document/object provider composition.
+    pub fn allocate_stream(&self) -> crate::hooks::Result<u32> {
+        let bytes = self.call_body(24, &[])?;
+        let id = u32::from_be_bytes(bytes.try_into().map_err(|_| error(12))?);
+        if id == 0 || id > 0x7fff_ffff {
+            return Err(error(12));
+        }
+        Ok(id)
+    }
+    fn poll_stream(&self, id: u32) -> crate::hooks::Result<Vec<conn::Frame>> {
+        let bytes = self.call_body(18, &id.to_be_bytes())?;
+        if bytes.is_empty() {
+            return Ok(vec![]);
+        }
+        let frame = conn::Frame::decode(&bytes).map_err(|_| error(12))?;
+        if frame.kind != 5 || (id != 0 && id != frame.stream) {
+            return Err(error(12));
+        }
+        Ok(vec![frame])
     }
 }

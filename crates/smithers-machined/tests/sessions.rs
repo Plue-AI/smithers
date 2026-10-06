@@ -610,11 +610,10 @@ mod descriptor_stream {
     // broker or an install-activation receipt.
     struct Provider(Mutex<Pipe<Stdin>>);
     impl hooks::Sessions for Provider {
-        fn frame(&self, frame: &Frame) -> hooks::Result<Frame> {
+        fn frame(&self, frame: &Frame) -> hooks::Result<Option<Frame>> {
             let mut pipe = self.0.lock().unwrap();
             pipe.accept(frame)
                 .and_then(|()| pipe.flush())
-                .and_then(|receipt| receipt.ok_or(io::ErrorKind::WouldBlock.into()))
                 .map_err(|_| hooks::Error {
                     code: 1,
                     ..hooks::Error::unsupported()

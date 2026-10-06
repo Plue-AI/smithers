@@ -13,16 +13,10 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
             payload: conn::tagged(255, &crate::freeze::pending_error().fields()),
         });
     }
-    if frame.kind == 4 || frame.kind == 5 {
-        let hook = if frame.kind == 4 {
-            // Only authenticated host input messages enter the document provider.
-            // Output, refusal and malformed envelopes must never mutate a document.
-            match crate::document_payload::Document::decode_v2(&frame.payload) {
-                Ok(document) if matches!(document.msg, 1 | 2) => cx.hooks.documents.frame(frame),
-                _ => Err(crate::hooks::Error::unsupported()),
-            }
-        } else {
-            cx.hooks.sessions.frame(frame)
+    if frame.kind == 4 {
+        let hook = match crate::document_payload::Document::decode_v2(&frame.payload) {
+            Ok(document) if matches!(document.msg, 1 | 2) => cx.hooks.documents.frame(frame),
+            _ => Err(crate::hooks::Error::unsupported()),
         };
         return Ok(hook.unwrap_or_else(|e| Frame {
             kind: frame.kind,
@@ -81,6 +75,26 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
         ),
     })
 }
+/// Streaming controls need not produce a receipt. In particular a window must
+/// not be echoed, and blocked stdin earns credit only after kernel delivery.
+pub fn dispatch_input(frame: &Frame, cx: &mut LockCx) -> Result<Option<Frame>, ProtocolError> {
+    if frame.kind != 5 {
+        return dispatch(frame, cx).map(Some);
+    }
+    frame.encode()?;
+    let result = if cx.rewrite_pending {
+        Err(crate::freeze::pending_error())
+    } else {
+        cx.hooks.sessions.frame(frame)
+    };
+    Ok(result.unwrap_or_else(|error| {
+        Some(Frame {
+            kind: 5,
+            stream: frame.stream,
+            payload: conn::tagged(255, &error.fields()),
+        })
+    }))
+}
 pub fn serve_one(
     reader: &mut impl std::io::Read,
     writer: &mut impl std::io::Write,
@@ -88,10 +102,15 @@ pub fn serve_one(
 ) -> Result<(), ProtocolError> {
     let frame = Frame::read_envelope(reader)?;
     let response = match frame.validate(false) {
-        Ok(()) => dispatch(&frame, cx)?,
-        Err(e) => malformed_response(&frame, e)?,
+        Ok(()) => dispatch_input(&frame, cx)?,
+        Err(e) => Some(malformed_response(&frame, e)?),
     };
-    response.write(writer).map_err(|_| ProtocolError::Truncated)
+    if let Some(response) = response {
+        response
+            .write(writer)
+            .map_err(|_| ProtocolError::Truncated)?;
+    }
+    Ok(())
 }
 /// Return a correlated refusal only when the request id was safely decoded.
 pub fn malformed_response(frame: &Frame, e: ProtocolError) -> Result<Frame, ProtocolError> {

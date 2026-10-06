@@ -263,7 +263,7 @@ impl<C: Controls> Sessions<C> {
     }
     /// Call after validating both stream replay offsets. A successful transport
     /// reconnect does not reattach sessions the host omitted.
-    pub fn attach(&mut self, id: u32, now: Instant) -> io::Result<()> {
+    pub fn check_attach(&self, id: u32, now: Instant) -> io::Result<()> {
         let user = &self
             .entries
             .get(&id)
@@ -284,6 +284,10 @@ impl<C: Controls> Sessions<C> {
         if entry.closed {
             return Err(refusal("session closed"));
         }
+        Ok(())
+    }
+    pub fn attach(&mut self, id: u32, now: Instant) -> io::Result<()> {
+        self.check_attach(id, now)?;
         self.detached.remove(&id);
         Ok(())
     }

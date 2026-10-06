@@ -132,6 +132,9 @@ pub trait Documents: Send + Sync {
     }
 }
 pub trait Sessions: Send + Sync {
+    fn disconnected(&self) -> Result<()> {
+        Ok(())
+    }
     /// Drain bounded nonblocking descriptor output on the mutation lock. A
     /// missing supervisor emits nothing and retains unsupported readiness.
     fn poll(&self) -> Result<Vec<Frame>> {
@@ -145,7 +148,7 @@ pub trait Sessions: Send + Sync {
     fn call(&self, _method: u8, _arguments: &[u8]) -> Result<Vec<u8>> {
         Err(Error::unsupported())
     }
-    fn frame(&self, _frame: &Frame) -> Result<Frame> {
+    fn frame(&self, _frame: &Frame) -> Result<Option<Frame>> {
         Err(Error::unsupported())
     }
     /// Drain only this local socket's stream. Never implement this by draining

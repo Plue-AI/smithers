@@ -8,7 +8,7 @@ use crate::{
 };
 use std::{
     io,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
     sync::{Arc, Mutex},
 };
 
@@ -17,6 +17,7 @@ pub struct Daemon {
     hooks: Hooks,
     reconciled: Arc<AtomicBool>,
     roster: Arc<AtomicBool>,
+    generation: Arc<AtomicU64>,
 }
 impl Daemon {
     pub fn new(hooks: Hooks) -> io::Result<Self> {
@@ -25,6 +26,7 @@ impl Daemon {
             hooks,
             reconciled: Arc::new(AtomicBool::new(false)),
             roster: Arc::new(AtomicBool::new(false)),
+            generation: Arc::new(AtomicU64::new(0)),
         })
     }
     pub fn ready(&self) -> bool {
@@ -35,6 +37,7 @@ impl Daemon {
     /// Entry requires a completed mutual handshake. The caller fences replaced
     /// connections before entering here. No network IO occurs on the lock thread.
     pub fn serve(&self, mut connection: crate::link::Authenticated) -> Result<(), ProtocolError> {
+        let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.roster.store(false, Ordering::Release);
         let writer = Arc::new(Mutex::new(
             connection
@@ -52,14 +55,17 @@ impl Daemon {
             loop {
                 match rx.recv_timeout(std::time::Duration::from_millis(25)) {
                     Ok(receipt) => {
-                        let receipt: crate::lock::Receipt<Result<Frame, ProtocolError>> = receipt;
+                        let receipt: crate::lock::Receipt<Result<Option<Frame>, ProtocolError>> =
+                            receipt;
                         let frame = match receipt.wait() {
                             Ok(Ok(frame)) => frame,
                             _ => break,
                         };
-                        let Ok(mut socket) = output.lock() else { break };
-                        if frame.write(&mut *socket).is_err() {
-                            break;
+                        if let Some(frame) = frame {
+                            let Ok(mut socket) = output.lock() else { break };
+                            if frame.write(&mut *socket).is_err() {
+                                break;
+                            }
                         }
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => (),
@@ -113,13 +119,13 @@ impl Daemon {
                 .enqueue("host_rpc", move |cx| {
                     if frame.kind != 1 {
                         if !(state.load(Ordering::Acquire) && roster.load(Ordering::Acquire)) {
-                            return Ok(Frame {
+                            return Ok(Some(Frame {
                                 kind: frame.kind,
                                 stream: frame.stream,
                                 payload: conn::tagged(255, &not_ready().fields()),
-                            });
+                            }));
                         }
-                        return rpc::dispatch(&frame, cx);
+                        return rpc::dispatch_input(&frame, cx);
                     }
                     let (id, method, args) = frame.request()?;
                     if crate::wiring::ready(&cx.hooks).is_err() {
@@ -132,7 +138,7 @@ impl Daemon {
                         let core = cx.hooks.core.clone();
                         let body = match core.call(cx, 1, args) {
                             Ok(body) => body,
-                            Err(error) => return Ok(refused(id, error)),
+                            Err(error) => return Ok(Some(refused(id, error))),
                         };
                         let fields = conn::fields("result1", &body)?;
                         let ready = state.load(Ordering::Acquire)
@@ -148,12 +154,12 @@ impl Daemon {
                                 }
                             })
                             .collect();
-                        return Ok(response(id, 1, conn::structure_bytes(&fields)));
+                        return Ok(Some(response(id, 1, conn::structure_bytes(&fields))));
                     }
                     if !matches!(method, 5 | 16)
                         && !(state.load(Ordering::Acquire) && roster.load(Ordering::Acquire))
                     {
-                        return Ok(refused(id, not_ready()));
+                        return Ok(Some(refused(id, not_ready())));
                     }
                     if method == 16 {
                         // A valid roster update can fail while killing revoked
@@ -177,7 +183,7 @@ impl Daemon {
                             }
                         }
                     }
-                    Ok(result)
+                    Ok(Some(result))
                 })
                 .map_err(|_| ProtocolError::Truncated)?;
             tx.send(receipt).map_err(|_| ProtocolError::Truncated)?;
@@ -185,6 +191,19 @@ impl Daemon {
         drop(tx);
         let _ = connection.stream().shutdown(std::net::Shutdown::Both);
         let _ = responder.join();
+        let current = self.generation.clone();
+        let _ = self
+            .executor
+            .lock
+            .run_blocking("session_disconnect", move |cx| {
+                // A replaced socket must not detach sessions already attached on
+                // its successor. Recheck under the same lock as attach_session.
+                if current.load(Ordering::Acquire) == generation {
+                    cx.hooks.sessions.disconnected()
+                } else {
+                    Ok(())
+                }
+            });
         result
     }
 }

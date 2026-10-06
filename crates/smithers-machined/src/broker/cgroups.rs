@@ -1,13 +1,11 @@
 //! Linux cgroup-v2 controls. Root opens only a fixed protected hierarchy; all
 //! later operations use held directory descriptors and constant filenames.
-use super::sessions::{Controls, Kind};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
-use std::process::ChildStdin;
 use std::time::{Duration, Instant};
 
 const NOFOLLOW: i32 = 0o400000;
@@ -64,10 +62,6 @@ fn read_events(directory: &File) -> io::Result<bool> {
 struct Group {
     name: String,
     directory: File,
-    // PTY closure drops the master, delivering kernel HUP to its foreground
-    // group. Exec/SFTP closure drops stdin. Remaining children stay registered.
-    pty: Option<File>,
-    stdin: Option<ChildStdin>,
 }
 pub struct Cgroups {
     parent: File,
@@ -126,8 +120,6 @@ impl Cgroups {
                 Group {
                     name,
                     directory: fd,
-                    pty: None,
-                    stdin: None,
                 },
             );
             Ok(procs)
@@ -136,24 +128,6 @@ impl Cgroups {
             let _ = fs::remove_dir(path);
         }
         result
-    }
-    /// Descriptors are produced by the broker's spawn, never decoded from RPC.
-    pub fn set_io(
-        &mut self,
-        id: u32,
-        pty: Option<File>,
-        stdin: Option<ChildStdin>,
-    ) -> io::Result<()> {
-        let group = self
-            .groups
-            .get_mut(&id)
-            .ok_or_else(|| invalid("unknown session"))?;
-        if group.pty.is_some() || group.stdin.is_some() || pty.is_some() && stdin.is_some() {
-            return Err(invalid("session io already assigned or ambiguous"));
-        }
-        group.pty = pty;
-        group.stdin = stdin;
-        Ok(())
     }
     /// Clean up retained groups after startup. No daemon may start until this
     /// succeeds. Legacy decimal and current s<id> names are cleaned; aliases fail closed.
@@ -182,8 +156,6 @@ impl Cgroups {
                     Group {
                         name: name.to_owned(),
                         directory: fd,
-                        pty: None,
-                        stdin: None,
                     },
                 );
             }
@@ -195,20 +167,8 @@ impl Cgroups {
         Ok(())
     }
 }
-impl Controls for Cgroups {
-    fn close(&mut self, id: u32, kind: Kind) -> io::Result<()> {
-        let group = self
-            .groups
-            .get_mut(&id)
-            .ok_or_else(|| invalid("unknown session"))?;
-        if kind == Kind::Pty {
-            group.pty.take();
-        } else {
-            group.stdin.take();
-        }
-        Ok(())
-    }
-    fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()> {
+impl Cgroups {
+    pub fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()> {
         let group = self
             .groups
             .get(&id)

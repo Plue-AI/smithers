@@ -9,3 +9,8 @@ pub mod lifecycle;
 pub mod process;
 
 pub mod request;
+
+pub mod supervisor;
+
+#[cfg(target_os = "linux")]
+pub mod spawn;
