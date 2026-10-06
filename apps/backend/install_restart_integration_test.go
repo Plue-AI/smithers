@@ -11,12 +11,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,7 +31,7 @@ import (
 // Uses the existing compiled test-backend entry and real production composition.
 // The process runtime is tests-only; this never qualifies VM recipe isolation.
 func TestInstallSetupCompiledHostRestart(t *testing.T) {
-	for _, boundary := range []string{"running admission", "address effect", "owner claim", "owner claim configured origins"} {
+	for _, boundary := range []string{"running admission", "address effect", "owner claim", "owner claim configured origins", "owner claim sealed Gateway"} {
 		t.Run(boundary, func(t *testing.T) { testInstallSetupCompiledHostRestart(t, boundary) })
 	}
 }
@@ -75,6 +77,21 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		"SMITHERS_FEATURE_FLAGS_WORKFLOWS": "false", "SMITHERS_FEATURE_FLAGS_SANDBOXES": "true",
 		"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": filepath.Join(filepath.Dir(os.Getenv("SMITHERS_FFI_LIBRARY_PATH")), "smithers-jj-export"),
 	}
+	var gatewayCalls atomic.Int32
+	if boundary == "owner claim sealed Gateway" {
+		gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, "Bearer sealed-restart-gateway-key", r.Header.Get("Authorization"))
+			gatewayCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"answers":{"command1":{"type":"choice","choice":"none"}}}`))
+		}))
+		t.Cleanup(gateway.Close)
+		environment["SMITHERS_JEV_ENDPOINT"] = gateway.URL
+		environment["AI_GATEWAY_API_KEY"] = "hostile-env-key"
+		platformFile := filepath.Join(root, "hostile-platform-keys.json")
+		require.NoError(t, os.WriteFile(platformFile, []byte(`{"vercel":"hostile-file-key"}`), 0600))
+		environment["SMITHERS_PLATFORM_MODEL_KEYS_FILE"] = platformFile
+	}
 	ownerClaim := strings.HasPrefix(boundary, "owner claim")
 	if ownerClaim {
 		environment["SMITHERS_PUBLIC_URL"] = "http://localhost:4000"
@@ -89,7 +106,9 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	}
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
-	client := &http.Client{Jar: jar, Timeout: 3 * time.Second}
+	// This is a recovery fixture, not a latency check; the shared host may
+	// be compiling other lanes while PostgreSQL resolves the status model.
+	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
 	var captures []*setupProcessCapture
 	secrets := []string{}
 	t.Cleanup(func() {
@@ -254,7 +273,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		require.NoError(t, err)
 		require.NoError(t, command.Process.Kill())
 		require.Error(t, command.Wait())
-		_, minted = start()
+		command, minted = start()
 		select {
 		case <-minted:
 			t.Fatal("claimed install emitted setup authority")
@@ -294,6 +313,69 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		get("/setup?token="+token, 401).Body.Close()
 		for _, route := range []string{"status", "bootstrap", "login", "token", "password"} {
 			get("/api/auth/local/"+route, 404).Body.Close()
+		}
+		if boundary == "owner claim sealed Gateway" {
+			secrets = append(secrets, "sealed-restart-gateway-key", "hostile-env-key", "hostile-file-key")
+			call := func(path, body string, status int) []byte {
+				t.Helper()
+				request, err := http.NewRequest("POST", origin+path, strings.NewReader(body))
+				require.NoError(t, err)
+				request.Header.Set("X-Forwarded-Host", "localhost:4000")
+				request.Header.Set("Origin", "http://localhost:4000")
+				request.Header.Set("Content-Type", "application/json")
+				for _, cookie := range jar.Cookies(request.URL) {
+					if cookie.Name == "__csrf" {
+						request.Header.Set("X-CSRF-Token", cookie.Value)
+					}
+				}
+				response, err := client.Do(request)
+				require.NoError(t, err)
+				defer response.Body.Close()
+				payload, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				diagnostic := string(payload)
+				for _, secret := range secrets {
+					diagnostic = strings.ReplaceAll(diagnostic, secret, "<redacted>")
+				}
+				require.Equal(t, status, response.StatusCode, "route %s: %s", path, diagnostic)
+				for _, secret := range secrets {
+					require.NotContains(t, string(payload), secret)
+				}
+				return payload
+			}
+			// Seed verified repository authority; sign-in and enrollment use HTTP.
+			var ownerID, repositoryID int64
+			var login string
+			require.NoError(t, pool.QueryRow(ctx, `SELECT o.user_id,u.username FROM self_host_owners o JOIN users u ON u.id=o.user_id`).Scan(&ownerID, &login))
+			require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'gateway','gateway') RETURNING id`, ownerID).Scan(&repositoryID))
+			_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, repositoryID, ownerID)
+			require.NoError(t, err)
+			verified, err := json.Marshal(map[string]any{"owner_login": login, "repository_name": "gateway", "repository_id": repositoryID, "last_access_check_at": time.Now().UTC()})
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('owner.access',$1),('github.repository',$1),('agent:jev','{"protocol":"evaluation","modelId":"typesafe-ai/jev","credential":"AI_GATEWAY_API_KEY"}') ON CONFLICT(key) DO UPDATE SET value=excluded.value`, verified)
+			require.NoError(t, err)
+			payload := call("/api/model/credential", `{"action":"enroll","requestId":"restart-gateway-enroll","name":"AI_GATEWAY_API_KEY","origin":"https://ai-gateway.vercel.sh","value":"sealed-restart-gateway-key"}`, 200)
+			var saved struct {
+				OK bool `json:"ok"`
+			}
+			require.NoError(t, json.Unmarshal(payload, &saved))
+			require.True(t, saved.OK)
+			var creditEvents int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM credit_events`).Scan(&creditEvents))
+			require.NoError(t, command.Process.Kill())
+			require.Error(t, command.Wait())
+			start()
+			call("/api/commands/select", `{"message":"hello","commands":[{"name":"help","summary":"Help"}]}`, 200)
+			require.Equal(t, int32(1), gatewayCalls.Load())
+			var afterCreditEvents int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM credit_events`).Scan(&afterCreditEvents))
+			require.Equal(t, creditEvents, afterCreditEvents)
+			payload = call("/api/model/credential", `{"action":"remove","requestId":"restart-gateway-remove","name":"AI_GATEWAY_API_KEY"}`, 200)
+			require.NoError(t, json.Unmarshal(payload, &saved))
+			require.True(t, saved.OK)
+			payload = call("/api/commands/select", `{"message":"hello","commands":[{"name":"help","summary":"Help"}]}`, 503)
+			require.Contains(t, string(payload), "credential_missing")
+			require.Equal(t, int32(1), gatewayCalls.Load())
 		}
 		return
 	}
