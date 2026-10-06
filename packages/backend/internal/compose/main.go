@@ -1695,6 +1695,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		topics := &liveTopics{capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 
+		if chatService != nil {
+			topics.viewState = chatService.runtime.Handler.Store.ReadMemberViewState
+		}
+
 		topics.documents = options.DocumentRelay
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}
 	}

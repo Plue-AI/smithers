@@ -30,7 +30,7 @@ func (s *Store) RevokeInactiveAuthors(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns t WHERE NOT t.terminal AND t.conversation_id IS NOT NULL AND `+inactiveInstallAuthor+` ORDER BY t.id LIMIT 100 FOR UPDATE OF t SKIP LOCKED`)
+	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns t WHERE NOT t.terminal AND t.conversation_id IS NOT NULL AND `+inactiveInstallAuthor+` ORDER BY (t.state='running') DESC,t.created_at,t.id LIMIT 100 FOR UPDATE OF t SKIP LOCKED`)
 	if err != nil {
 		return err
 	}

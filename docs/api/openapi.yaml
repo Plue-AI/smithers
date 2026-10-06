@@ -1327,12 +1327,17 @@ paths:
         - bearerAuth: []
       responses:
         '200':
-          description: The authenticated member's saved state, or an empty object.
+          description: The authenticated member's conversation state and global toast preference.
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+                required:
+                  - toasts_hidden
+                properties:
+                  toasts_hidden:
+                    type: boolean
         '403':
           $ref: '#/components/responses/Forbidden'
         '503':
@@ -1352,14 +1357,23 @@ paths:
             schema:
               type: object
               additionalProperties: true
+              properties:
+                toasts_hidden:
+                  type: boolean
+                  description: Global for this member; omission preserves the current preference.
       responses:
         '200':
-          description: The authenticated member's saved state.
+          description: The authenticated member's conversation state and global toast preference.
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+                required:
+                  - toasts_hidden
+                properties:
+                  toasts_hidden:
+                    type: boolean
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
