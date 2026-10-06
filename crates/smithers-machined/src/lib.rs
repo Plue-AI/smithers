@@ -5,6 +5,7 @@ pub mod burst;
 pub mod conn;
 pub mod credit;
 pub mod doc;
+pub mod freeze;
 pub mod hooks;
 pub mod lock;
 pub mod msg;

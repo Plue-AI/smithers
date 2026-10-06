@@ -136,6 +136,22 @@ pub trait EventSink: Send + Sync {
     }
 }
 pub trait Core: Send + Sync {
+    /// Refuse before freezing unless the native core is ready and onto is
+    /// retained locally. This check performs no working-copy mutation.
+    fn validate_rebase(&self, _onto: Oid) -> Result<()> {
+        Err(Error::unsupported())
+    }
+
+    /// Snapshot, pin and enqueue locally while holding the mutation lock.
+    /// Unlike capture RPC, this must never wait for host acknowledgement.
+    fn capture_local(&self, _cx: &mut LockCx) -> Result<()> {
+        Err(Error::unsupported())
+    }
+    /// Native jj rewrite only. RPC owns freeze/capture/reconcile/thaw.
+    fn rebase(&self, _cx: &mut LockCx, _onto: Oid) -> Result<Oid> {
+        Err(Error::unsupported())
+    }
+
     fn call(&self, _cx: &mut LockCx, _method: u8, _arguments: &[u8]) -> Result<Vec<u8>> {
         Err(Error::unsupported())
     }

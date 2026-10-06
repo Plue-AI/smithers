@@ -509,3 +509,19 @@ pub fn open_doc_args(bytes: &[u8]) -> Result<(String, Option<Vec<u8>>), Protocol
     };
     Ok((path, actor))
 }
+
+/// Rebase uses the existing ADR 0004 schema; only the onto object and the
+/// authenticated host actor reach unprivileged rewrite code.
+pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor), ProtocolError> {
+    let mut check = Cursor(bytes);
+    check.value("args11")?;
+    if !check.0.is_empty() {
+        return Err(TrailingBytes);
+    }
+    let mut c = Cursor(bytes);
+    c.take(5)?;
+    let onto = c.take(20)?.try_into().unwrap();
+    c.take(7)?;
+    let n = c.number(4)? as usize;
+    Ok((onto, crate::hooks::Actor::Principal(c.take(n)?.to_vec())))
+}
