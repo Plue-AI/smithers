@@ -540,7 +540,7 @@ func TestGitHubAppManualFallbackThroughInstallRouterPostgres(t *testing.T) {
 			key, err := rsa.GenerateKey(rand.Reader, 2048)
 			require.NoError(t, err)
 			privateKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
-			fake, err := githubfake.New(githubfake.Config{AppID: 42, Slug: "manual-app", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: privateKey})
+			fake, err := githubfake.New(githubfake.Config{AppID: 42, Slug: "manual-app", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: privateKey, Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 1001, FullName: "acme/app"}}}}})
 			require.NoError(t, err)
 			t.Cleanup(fake.Close)
 			origins := []string{"http://localhost:4000", "http://lan-a:4000"}
@@ -635,6 +635,7 @@ func TestGitHubAppManualFallbackThroughInstallRouterPostgres(t *testing.T) {
 				require.JSONEq(t, `{"status":"done"}`, string(row.Value))
 			}
 			require.Equal(t, 409, post(input, "/api/install/setup/app").Code)
+			verifyGitHubAppLaunchctlRestart(t, pool.Config().ConnString(), origin, session, fake.URL)
 		})
 	}
 }
