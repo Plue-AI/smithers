@@ -1,4 +1,4 @@
-import { LegacySecretMetadataSchema } from "./SecretsCard.ts"
+import { LegacySecretMetadataSchema, SecretsCardSchema } from "./SecretsCard.ts"
 /**
  * Cards rendered from agent, code-intelligence, and repository events.
  *
@@ -2895,6 +2895,17 @@ export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> &
     if (typeof value !== "object" || value === null) return value
     const row = value as Record<string, unknown>
     const payload = row.payload as Record<string, unknown> | undefined
+    // Shared live Secrets models and old pinned metadata decode through one card kind.
+    if (row.kind === "secrets" && payload && Array.isArray(payload.secrets) &&
+      (payload.scope !== "repository" || payload.secrets.some(secret => typeof secret === "object" && secret !== null && "scope" in secret))) {
+      const live = SecretsCardSchema.safeParse(payload)
+      if (live.success) return { ...row, payload: {
+        repo: typeof payload.repo === "string" ? payload.repo : "",
+        scope: "repository",
+        secrets: live.data.secrets.map(secret => ({ name: secret.name, mainOnly: secret.scope === "main_only",
+          hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null }))
+      } }
+    }
     if (
       typeof row.kind === "string" && (retiredKinds.has(row.kind) ||
         (row.kind === "agents" && payload?.cloud === true) ||

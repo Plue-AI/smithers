@@ -552,3 +552,28 @@ test("an install without the live provider refuses /secrets and write gestures w
     expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_MISSING_PROVIDER")
   } finally { await controller.dispose() }
 })
+
+
+test("outside an install the seed stands in until real metadata serves, then never masks a failed real read", async () => {
+  let available = false
+  const hits: string[] = []
+  const { store, controller, signupReads } = await heldController({
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async input => { hits.push(String(input)); return available ? json(200, []) : json(404, { message: "No provider" }) }
+  })
+  try {
+    await heldReady(store, signupReads)
+    await controller.commands.run("secrets")
+    expect(secretsCard(store)?.payload.secrets.map(row => [row.name, row.mainOnly])).toEqual([["STRIPE_TEST_KEY", false], ["SENTRY_DSN", true]])
+    const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+    expect(await controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "LOCAL_KEY", scope: "main_only" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_SEED" }) })).toMatchObject({ status: "executed", value: "Requested" })
+    expect(secretsCard(store)?.payload.secrets.find(row => row.name === "LOCAL_KEY")?.mainOnly).toBe(true)
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_SEED")
+    available = true
+    await controller.commands.run("secrets")
+    expect(secretsCard(store)?.payload.secrets).toEqual([])
+    available = false
+    expect(await controller.commands.run("secrets")).toMatchObject({ status: "failed", error: "No provider" })
+    expect(hits.every(url => url.endsWith("/secrets"))).toBe(true)
+  } finally { await controller.dispose() }
+})
