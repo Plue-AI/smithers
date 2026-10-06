@@ -149,7 +149,7 @@ func presenceInstall(t *testing.T) presenceInstallFixture {
 	origin := "http://" + server.Listener.Addr().String()
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
-	topics := &liveTopics{queries: q, presence: p, todos: presenceTodoFixture{branch: row.ID}}
+	topics := &liveTopics{changePool: pool, queries: q, presence: p, todos: presenceTodoFixture{branch: row.ID}}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver, Presence: p.session}
 	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Live: handler})
 	server.Start()

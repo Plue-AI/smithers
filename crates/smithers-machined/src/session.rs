@@ -22,9 +22,19 @@ pub fn samples<'a, A>(
         let (usage_usec, populated) = counters
             .remove(&entry.id)
             .ok_or_else(|| io::Error::other("missing session cgroup"))?;
+        // The coding host's exact socket writes already carry its run. Only
+        // agent PTY commands participate in the outside-write CPU heuristic.
+        if entry.user.uid == 19999 && entry.kind != crate::broker::sessions::Kind::Pty {
+            continue;
+        }
         samples.push(Sample {
             session: entry.id,
             actor: actor(entry),
+            participant: if entry.user.uid == 19999 {
+                entry.run.clone().map(crate::attrib::Participant::Run)
+            } else {
+                Some(crate::attrib::Participant::Person(entry.user.uid))
+            },
             usage_usec,
             populated,
         });
@@ -59,6 +69,92 @@ mod tests {
         }
     }
     #[test]
+    fn participant_candidates_exclude_coding_host_but_include_agent_commands() {
+        let mut registry = Sessions::new(Control);
+        registry
+            .set_roster(
+                &[User {
+                    login: "maya".into(),
+                    uid: 20000,
+                }],
+                Instant::now(),
+            )
+            .unwrap();
+        for (id, login, uid, kind) in [
+            (1, "maya", 20000, Kind::Pty),
+            (2, "maya", 20000, Kind::Exec),
+            (3, "agent", 19999, Kind::Exec),
+            (4, "agent", 19999, Kind::Pty),
+        ] {
+            registry
+                .insert(
+                    id,
+                    User {
+                        login: login.into(),
+                        uid,
+                    },
+                    kind,
+                )
+                .unwrap();
+        }
+        registry.register_run(3, "run-1").unwrap();
+        registry.register_run(4, "run-1").unwrap();
+        let baseline = [(1, 0, true), (2, 0, true), (3, 0, true), (4, 0, true)];
+        let initial = samples(registry.entries(), &baseline, actor).unwrap();
+        assert_eq!(initial.len(), 3, "coding host is not an outside candidate");
+        // The wire actor remains a session reference for host resolution;
+        // two different session references still identify one participant.
+        let wire_initial = samples(registry.entries(), &baseline, |entry| {
+            Some(crate::hooks::Actor::Session(entry.id))
+        })
+        .unwrap();
+        let mut wire_window = Window::new(&wire_initial);
+        wire_window.observe(
+            &samples(
+                registry.entries(),
+                &[(1, 10, true), (2, 20, true), (3, 100, true), (4, 0, true)],
+                |entry| Some(crate::hooks::Actor::Session(entry.id)),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            wire_window.actor(),
+            Some((1, crate::hooks::Actor::Session(1)))
+        );
+
+        let mut window = Window::new(&initial);
+        window.observe(
+            &samples(
+                registry.entries(),
+                &[(1, 10, true), (2, 20, true), (3, 100, true), (4, 0, true)],
+                actor,
+            )
+            .unwrap(),
+        );
+        assert_eq!(window.actor(), Some((1, "maya".into())));
+        window.observe(
+            &samples(
+                registry.entries(),
+                &[(1, 10, true), (2, 20, true), (3, 200, true), (4, 10, true)],
+                actor,
+            )
+            .unwrap(),
+        );
+        assert_eq!(window.actor(), None, "person and agent commands overlap");
+        let mut agent_only = Window::new(&initial);
+        agent_only.observe(
+            &samples(
+                registry.entries(),
+                &[(1, 0, true), (2, 0, true), (3, 200, true), (4, 10, true)],
+                actor,
+            )
+            .unwrap(),
+        );
+        assert_eq!(agent_only.actor(), Some((4, "run-1".into())));
+        // Even excluded hosts must have a valid authenticated cgroup counter.
+        assert!(samples(registry.entries(), &baseline[..2], actor).is_err());
+    }
+    #[test]
     fn registered_run_and_closed_surviving_session_use_the_broker_registry() {
         let mut s = Sessions::new(Control);
         s.set_roster(
@@ -84,7 +180,7 @@ mod tests {
                 login: "agent".into(),
                 uid: 19999,
             },
-            Kind::Exec,
+            Kind::Pty,
         )
         .unwrap();
         assert!(s.register_run(9, "run").is_err());

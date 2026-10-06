@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -571,6 +572,8 @@ type WorkspaceService struct {
 	billing               BillingPolicy
 	audit                 *AuditService
 	sourceReader          WorkspaceSourceReader
+	burstPool             *pgxpool.Pool
+	burstVersions         BurstVersionReader
 	refDeleter            WorkspaceRefDeleter
 	userRefs              UserRefHost
 	// branchHeads reads a scratch branch's head (WithBranchHeads).

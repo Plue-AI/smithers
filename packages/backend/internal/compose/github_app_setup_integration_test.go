@@ -43,7 +43,11 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 	options := []any{routerExtras{GitHubAppSetup: h}}
 	options = append(options, extras...)
 	userHandler := &routes.UserHandler{}
+	workspaceHandler := &routes.WorkspaceHandler{}
 	for _, extra := range extras {
+		if workspace, ok := extra.(*routes.WorkspaceHandler); ok {
+			workspaceHandler = workspace
+		}
 		if user, ok := extra.(*routes.UserHandler); ok {
 			userHandler = user
 		}
@@ -55,7 +59,7 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 		nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil,
-		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
+		workspaceHandler, nil, nil, nil, nil, nil, nil,
 		options...,
 	)
 }

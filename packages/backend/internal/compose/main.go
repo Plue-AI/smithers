@@ -900,6 +900,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceSandboxClient(sandboxClient),
 		services.WithWorkspaceEgressAllowDomains(egressPolicyService),
 		services.WithWorkspaceSourceReader(repoHostClient),
+		services.WithWorkspaceBurstVersions(pool, repoHostClient),
 		services.WithWorkspaceRefDeleter(repoHostClient),
 		services.WithWorkspaceUserRefs(repoHostClient),
 		services.WithBranchHeads(repoHostClient),
@@ -1703,7 +1704,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if flow != nil {
 			presence.dispatcher = flow.dispatcher
 		}
-		topics := &liveTopics{secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+		topics := &liveTopics{changePool: pool, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 
 		if chatService != nil {
 			resolveBranch := conversationBranchResolver(workspaceService)

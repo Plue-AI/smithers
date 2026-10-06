@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,6 +35,7 @@ type liveSync interface {
 // person: home, todo:<n>, flows and members. Every topic serves shared facts only,
 // so one stream serves every member byte for byte.
 type liveTopics struct {
+	changePool   *pgxpool.Pool
 	queries      *db.Queries
 	todos        liveTodos
 	sync         liveSync
@@ -98,7 +100,7 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 		}
 		if strings.HasPrefix(topic, "branch:") {
 			if strings.HasSuffix(topic, ":activity") || strings.HasSuffix(topic, ":files") {
-				return live.Source{}, live.Unsupported
+				return t.branchChanges(ctx, topic, repository, member)
 			}
 			source, refusal := t.presence.source(r.Context(), strings.TrimPrefix(topic, "branch:"), repository, member, slug)
 			if refusal != "" || t.todos == nil {

@@ -5,17 +5,23 @@ use std::{
     io,
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Participant {
+    Person(u32),
+    Run(String),
+}
 #[derive(Clone, Debug)]
 pub struct Sample<A> {
     pub session: u32,
     pub actor: Option<A>,
+    pub participant: Option<Participant>,
     pub usage_usec: u64,
     pub populated: bool,
 }
 #[derive(Clone, Debug)]
 pub struct Window<A> {
     baseline: BTreeMap<u32, u64>,
-    active: BTreeMap<u32, Option<A>>,
+    active: BTreeMap<u32, (Option<Participant>, Option<A>)>,
     uncertain: bool,
 }
 impl<A: Clone + Eq> Window<A> {
@@ -35,10 +41,15 @@ impl<A: Clone + Eq> Window<A> {
             match self.baseline.get(&s.session) {
                 Some(old) if s.usage_usec < *old => self.uncertain = true,
                 Some(old) if s.usage_usec > *old => {
-                    if self.active.get(&s.session).is_some_and(|a| a != &s.actor) {
+                    if self
+                        .active
+                        .get(&s.session)
+                        .is_some_and(|(p, a)| p != &s.participant || a != &s.actor)
+                    {
                         self.uncertain = true;
                     }
-                    self.active.insert(s.session, s.actor.clone());
+                    self.active
+                        .insert(s.session, (s.participant.clone(), s.actor.clone()));
                 }
                 None => {
                     self.uncertain = true;
@@ -48,15 +59,21 @@ impl<A: Clone + Eq> Window<A> {
             self.baseline.insert(s.session, s.usage_usec);
         }
     }
-    /// None means outside. Two sessions of the same person remain ambiguous.
+    /// None means outside. Aggregate CPU-active sessions by authenticated
+    /// participant. The first session is retained only as a location hint;
+    /// it is not an attribution or authorization identity.
     pub fn actor(&self) -> Option<(u32, A)> {
-        if self.uncertain || self.active.len() != 1 {
+        if self.uncertain {
             return None;
         }
-        self.active
-            .iter()
-            .next()
-            .and_then(|(id, a)| a.clone().map(|a| (*id, a)))
+        let mut candidates = self.active.iter();
+        let (id, (participant, actor)) = candidates.next()?;
+        let participant = participant.as_ref()?;
+        let actor = actor.as_ref()?;
+        if candidates.any(|(_, (p, a))| p.as_ref() != Some(participant) || a.is_none()) {
+            return None;
+        }
+        Some((*id, actor.clone()))
     }
 }
 /// Parse bounded reads from broker-held cgroup descriptors, including closed
@@ -84,6 +101,7 @@ mod tests {
         Sample {
             session: id,
             actor: Some(if id == 1 { "maya" } else { "ben" }),
+            participant: Some(Participant::Person(if id == 1 { 20000 } else { 20001 })),
             usage_usec: cpu,
             populated: true,
         }
@@ -95,6 +113,33 @@ mod tests {
         w.observe(&[s(1, 12), s(2, 10)]);
         assert_eq!(w.actor(), Some((1, "maya")));
         w.observe(&[s(1, 12), s(2, 11)]);
+        assert_eq!(w.actor(), None);
+    }
+    #[test]
+    fn two_sessions_of_one_person_are_one_candidate() {
+        let mut shell = s(1, 10);
+        let mut editor = s(2, 10);
+        editor.actor = shell.actor;
+        editor.participant = shell.participant.clone();
+        let mut w = Window::new(&[shell.clone(), editor.clone()]);
+        shell.usage_usec = 20;
+        editor.usage_usec = 30;
+        w.observe(&[shell.clone(), editor.clone()]);
+        assert_eq!(w.actor(), Some((1, "maya")));
+        // A later actor switch cannot retroactively credit the earlier bytes.
+        editor.actor = Some("ben");
+        editor.participant = Some(Participant::Person(20001));
+        editor.usage_usec = 40;
+        w.observe(&[shell, editor]);
+        assert_eq!(w.actor(), None);
+    }
+    #[test]
+    fn unknown_active_session_prevents_credit() {
+        let mut unknown = s(2, 0);
+        unknown.actor = None;
+        let mut w = Window::new(&[s(1, 0), unknown.clone()]);
+        unknown.usage_usec = 1;
+        w.observe(&[s(1, 1), unknown]);
         assert_eq!(w.actor(), None);
     }
     #[test]

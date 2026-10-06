@@ -1063,6 +1063,11 @@ func buildRouter(
 				}
 			}
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/branches/{b}/files/*", files.Read)
+			restore := &routes.FileRestoreHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
+			if workspaceHandler != nil {
+				restore.Service, _ = workspaceHandler.Service.(routes.BranchFileRestorer)
+			}
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/branches/{b}/files/*", restore.Restore)
 		}
 		if cfg.Install.QuiesceEnabled {
 			h := &routes.InstallQuiesceHandler{Owners: queries, Service: &services.InstallQuiesce{Gate: quiesce}}

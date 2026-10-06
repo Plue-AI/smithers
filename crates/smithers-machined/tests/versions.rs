@@ -169,6 +169,11 @@ impl Provider<String> for Fixture {
             .map(|(i, cpu)| Sample {
                 session: i as u32 + 1,
                 actor: Some(["maya", "ben", "coding:run-1"][i].into()),
+                participant: Some(if i == 2 {
+                    smithers_machined::attrib::Participant::Run("run-1".into())
+                } else {
+                    smithers_machined::attrib::Participant::Person(20000 + i as u32)
+                }),
                 usage_usec: *cpu,
                 populated: true,
             })
