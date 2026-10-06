@@ -3149,10 +3149,26 @@ paths:
           schema:
             type: string
       responses:
+        '202':
+          description: Private confirmation recorded without executing the command
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [confirmation, state]
+                properties:
+                  confirmation:
+                    type: string
+                    format: uuid
+                  state:
+                    type: string
+                    enum: [pending, approved, rejected, expired]
+        '409':
+          description: Credential-scoped idempotency key names a different request
         '403':
           description: Session, restricted or ineligible credential
         '503':
-          description: Production catalog dispatch unavailable; no row or effect
+          description: Command consumer unavailable; no row or effect
   /api/confirmations/{id}/approve:
     post:
       x-composition: install
@@ -3175,6 +3191,20 @@ paths:
           schema:
             type: string
       responses:
+        '200':
+          description: The bound action and approval committed together
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, state]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  state:
+                    type: string
+                    enum: [approved]
         '400':
           description: Missing Idempotency-Key
         '403':

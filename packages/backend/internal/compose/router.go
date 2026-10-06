@@ -153,7 +153,11 @@ func buildRouter(
 	if config.IsSingleOwner(cfg.Auth) && confirmations == nil {
 		confirmations = services.NewApprovalsService(queries)
 		if pool != nil {
-			confirmations = services.NewApprovalsService(queries, services.WithConfirmationTodos(pool, nil))
+			var todos *services.MythicalService
+			if extras.Mythical != nil {
+				todos, _ = extras.Mythical.Service.(*services.MythicalService)
+			}
+			confirmations = services.NewApprovalsService(queries, services.WithConfirmationTodos(pool, todos))
 		}
 	}
 	if extras.Catalog == nil {

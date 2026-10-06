@@ -42,10 +42,18 @@ its durable events. Revision changes expire the confirmation. A finished agent
 turn does not prevent its person from approving later with a fresh session.
 Cancellation needs no action consumer and grants no execution authority.
 
-Production creation and approval remain unavailable until the private browser
-Confirm container is connected. The composed HTTP tests supply the real TODO
-consumer and exercise request, private projection, approval, denial and replay;
-they do not establish browser delivery or C-ACC-02's complete acceptance.
+The install composes the real TODO consumer for append and drop. Its browser
+reads the caller's private rows into ApprovalCard and the shared ConfirmView.
+Approve and Cancel use the person-only approval flows, persist one key per
+press, and continue in the background. A 202 does not finish the toast; the
+TODO subject's terminal observation does. Reload reconnects admitted progress,
+and changed identities discard late responses. Private card payloads never
+enter the model's recent-card context.
+
+The composed HTTP test exercises request, private projection, approval, denial
+and replay without a test-only confirmation service override. The browser
+journey uses the composed install router, PostgreSQL and private live transport
+without browser API mocks. Merge and real-machine acceptance remain separate.
 Missing consumers return `503 infra/confirmation_unavailable` and leave pending
 rows unchanged. Issue-derived TODOs, non-append placement and other commands,
 including Review & merge, still require their qualified consumers.
