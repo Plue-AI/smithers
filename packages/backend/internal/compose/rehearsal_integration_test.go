@@ -321,6 +321,9 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
 			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
 			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
+			// The process fixture models capacity 3, hence default parallel 2.
+			// Production supplies its measured microVM host profile.
+			HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 			// A label on GitHub is read within seconds, not the product's 120 s.
 			GitHubIssueEventsEvery: 2 * time.Second}, func(h http.Handler) { ready <- h })
 	}()
