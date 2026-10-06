@@ -39,6 +39,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
@@ -161,6 +162,8 @@ func composeBranchMachines(options Options, hosted bool, members identity.Member
 
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
+	// Machined is the shared host link registry, owned by the install runtime.
+	Machined *machined.Registry
 	// DocumentRelay is the authenticated document seam; nil refuses document subscriptions.
 	DocumentRelay *live.DocRelay
 	HostProfile   *microsandbox.HostProfile
@@ -500,6 +503,22 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	revocationPublisher := revocation.NewDBPublisher(queries, revocationBus)
 	routes.SetRevocationSource(revocationBus)
 	revocationChecker = revocationBus
+	// The install runtime owns the registry used by all guest links. Resolve
+	// it from that runtime rather than creating an isolated second registry.
+	if options.Machined == nil {
+		if host, ok := options.Workspace.(interface{ MachinedRegistry() *machined.Registry }); ok {
+			options.Machined = host.MachinedRegistry()
+		}
+	}
+	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
+		roster := &machineRoster{pool: pool, client: options.Machined, branches: options.Machined.ConnectedBranches}
+		options.Machined.BindRosterSync(roster.syncBranch)
+		stopRoster := roster.start(ctx, revocationBus)
+		defer func() {
+			stopRoster()
+			options.Machined.BindRosterSync(func(context.Context, string) error { return machined.ErrNotReady })
+		}()
+	}
 
 	activeStorageSetID := strings.TrimSpace(os.Getenv("ACTIVE_STORAGE_SET"))
 	if activeStorageSetID == "" {

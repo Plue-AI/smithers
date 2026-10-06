@@ -203,7 +203,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	tokenResponse.Body.Close()
 	require.NoError(t, err)
 	require.Equal(t, http.StatusForbidden, tokenResponse.StatusCode, string(tokenBody))
-	require.JSONEq(t, `{"class":"permission","code":"permission","message":"Sign in with a browser session"}`, string(tokenBody))
+	require.JSONEq(t, `{"class":"permission","code":"permission","message":"Insufficient credential scope"}`, string(tokenBody))
 	createSession := func(user db.User, key string) {
 		digest := sha256.Sum256([]byte(key))
 		_, err := q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: user.ID, Username: user.Username, SessionKey: hex.EncodeToString(digest[:]), ExpiresAt: time.Now().Add(time.Hour)})

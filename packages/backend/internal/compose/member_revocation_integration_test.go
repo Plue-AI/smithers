@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/machinedfake"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +43,33 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 		require.NoError(t, err)
 	}
 	grant()
+	// W7's unlanded guest process boundary is represented only by this fake.
+	// Database, DELETE, durable recovery and roster delivery are production code.
+	var guestMu sync.Mutex
+	var partitioned, guestMember, guestChild bool
+	var memberUID uint32
+	require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, writer.ID).Scan(&memberUID))
+	guest := &machinedfake.Client{OnSetRoster: func(ctx context.Context, branch string, members []machined.SessionUser) error {
+		guestMu.Lock()
+		defer guestMu.Unlock()
+		if partitioned {
+			return machined.ErrNotReady
+		}
+		listed := false
+		for _, member := range members {
+			if member.UID == memberUID {
+				listed = true
+			}
+		}
+		guestMember = listed
+		if !listed {
+			guestChild = false
+		}
+		return nil
+	}}
+	roster := &machineRoster{pool: pool, client: guest, branches: func() []string { return []string{workspace} }}
+	stopRoster := roster.start(ctx, bus)
+	defer stopRoster()
 	open := func(cookie string) *websocket.Conn {
 		t.Helper()
 		require.Eventually(t, func() bool { return !bus.IsUserDisabled(writer.ID) }, 3*time.Second, 10*time.Millisecond)
@@ -192,10 +222,35 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 				data, err := io.ReadAll(response.Body)
 				streamDone <- streamResult{string(data), err, time.Now()}
 			}()
+			require.NoError(t, roster.syncBranch(ctx, workspace))
+			guestMu.Lock()
+			require.True(t, guestMember)
+			partitioned, guestChild = true, true
+			guestMu.Unlock()
 			started := time.Now()
 			status, body := request("DELETE", "/api/members/writer", "", "owner-cookie")
 			require.Equal(t, 204, status, body)
 			responseAt := time.Now()
+			guestMu.Lock()
+			require.True(t, guestChild, "partitioned guest retains processes until roster reconciliation")
+			partitioned = false
+			guestMu.Unlock()
+			handshakeAt := time.Now()
+			if run == 20 {
+				require.Eventually(t, func() bool {
+					guestMu.Lock()
+					defer guestMu.Unlock()
+					return !guestMember && !guestChild
+				}, 5*time.Second, 10*time.Millisecond, "one-second recovery must reconcile without an explicit reconnect call")
+			} else {
+				require.NoError(t, roster.syncBranch(ctx, workspace))
+			}
+			guestMu.Lock()
+			require.False(t, guestMember, "reconnect roster excludes revoked allocation")
+			require.False(t, guestChild, "fake broker must remove unlisted session descendants")
+			guestMu.Unlock()
+			require.LessOrEqual(t, time.Since(handshakeAt), 5*time.Second)
+			t.Logf("run=%d boundary=fake-broker reconnect_to_roster_seconds=%.6f", run, time.Since(handshakeAt).Seconds())
 			status, _ = request("GET", "/api/members", "", cookie)
 			require.Equal(t, 401, status, "old cookie refused before physical fanout")
 			closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -253,4 +308,29 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 		status, body := request("POST", "/api/members", `{"login":"writer"}`, "owner-cookie")
 		require.Equal(t, 204, status, body)
 	})
+	stopRoster()
+	t.Run("restoration_cannot_preserve_revoked_guest_descendants", func(t *testing.T) {
+		var eventID int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT max(id) FROM revocation_events WHERE kind='collaborator_removed' AND user_id=$1`, writer.ID).Scan(&eventID))
+		guestMu.Lock()
+		guestChild = true
+		guestMu.Unlock()
+		restored := &machineRoster{pool: pool, client: guest, removed: map[int64]revocation.Event{
+			writer.ID: {ID: eventID, UserID: writer.ID, Kind: revocation.KindCollaboratorRemoved},
+		}}
+		require.NoError(t, restored.syncBranch(ctx, workspace))
+		guestMu.Lock()
+		require.True(t, guestMember, "restoration admits fresh sessions")
+		require.False(t, guestChild, "the original revoked session must first be killed")
+		guestMu.Unlock()
+		// A successful cleanup receipt prevents repeat revocation of new sessions.
+		guestMu.Lock()
+		guestChild = true
+		guestMu.Unlock()
+		require.NoError(t, restored.syncBranch(ctx, workspace))
+		guestMu.Lock()
+		require.True(t, guestChild)
+		guestMu.Unlock()
+	})
+
 }

@@ -3,6 +3,7 @@
 package machined
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -20,9 +21,10 @@ var (
 // cannot authenticate a boot or fence an old connection's reconciliation.
 // The zero value is usable; host restart requires fresh boot registration.
 type Registry struct {
-	mu       sync.Mutex
-	branches map[string]*boot
-	boots    map[[16]byte]*boot
+	mu         sync.Mutex
+	branches   map[string]*boot
+	boots      map[[16]byte]*boot
+	rosterSync func(context.Context, string) error
 }
 
 type boot struct {
@@ -162,4 +164,26 @@ func (c *Connection) PresenceScope(branch string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(c.boot.id[:]), nil
+}
+
+// BindRosterSync installs the host's authoritative roster reconciliation. It
+// runs on every handshake, even when the boot and its processes survived.
+func (r *Registry) BindRosterSync(syncRoster func(context.Context, string) error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rosterSync = syncRoster
+}
+
+// ConnectedBranches includes connections still reconciling. A disconnected
+// branch receives its current roster at its next admission instead.
+func (r *Registry) ConnectedBranches() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	branches := make([]string, 0, len(r.branches))
+	for branch, boot := range r.branches {
+		if boot.connection != nil {
+			branches = append(branches, branch)
+		}
+	}
+	return branches
 }

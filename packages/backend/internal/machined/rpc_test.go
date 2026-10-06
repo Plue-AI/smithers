@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/stretchr/testify/require"
@@ -243,4 +244,56 @@ func TestRegistryDocumentRequiresSequencedLiveProtocol(t *testing.T) {
 	require.NoError(t, link.Reconciled())
 	_, err = r.OpenDocument(t.Context(), "a", "README.md", []byte("actor"))
 	require.ErrorIs(t, err, ErrNotReady)
+}
+
+func TestRegistryReconnectUsesCurrentRosterBeforeReady(t *testing.T) {
+	r := new(Registry)
+	authority, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	current := []SessionUser{{Login: "alice", UID: 20001}}
+	r.BindRosterSync(func(ctx context.Context, branch string) error { return r.SetRoster(ctx, branch, current) })
+	stale := []SessionUser{{Login: "removed", UID: 20002}}
+	for run := 0; run < 20; run++ {
+		started := time.Now()
+		link, peer := connectTest(t, r, "a", authority)
+		require.NoError(t, peer.SetDeadline(started.Add(5*time.Second)))
+		require.Equal(t, []string{"a"}, r.ConnectedBranches())
+		done := make(chan error, 1)
+		go func() { done <- r.AdmitReady(t.Context(), "a", strings.Repeat("a", 40), stale) }()
+		frame, err := wire.Read(peer)
+		require.NoError(t, err)
+		id, method, args, err := frame.Request()
+		require.NoError(t, err)
+		require.Equal(t, byte(wire.SetRoster), method)
+		fields, err := wire.Fields("args16", args)
+		require.NoError(t, err)
+		expected := wire.U16(uint16(len(current)))
+		for _, member := range current {
+			expected = append(expected, wire.Struct(wire.Field(1, wire.String(member.Login)), wire.Field(2, wire.U32(member.UID)))...)
+		}
+		require.Equal(t, expected, fields[1], "stale caller roster must never reach the reconnected broker")
+		require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
+		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.SetRoster))))}))
+		answer(t, peer, wire.WakeReconcile, wire.Field(1, wire.Union(1)))
+		answer(t, peer, wire.Status, wire.Field(1, []byte{3}), wire.Field(2, wire.U16(1)), wire.Field(3, wire.String("guest")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0)))
+		require.NoError(t, <-done)
+		require.NoError(t, link.RequireReady("a"))
+		require.LessOrEqual(t, time.Since(started), 5*time.Second)
+		require.NoError(t, link.Close())
+		require.Empty(t, r.ConnectedBranches())
+		current = nil // member removed while the link is partitioned
+	}
+}
+
+func TestRegistryRosterFailureCannotAdmit(t *testing.T) {
+	r := new(Registry)
+	authority, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, r, "a", authority)
+	failure := errors.New("roster unavailable")
+	r.BindRosterSync(func(context.Context, string) error { return failure })
+	done := make(chan error, 1)
+	go func() { done <- r.AdmitReady(t.Context(), "a", strings.Repeat("a", 40), nil) }()
+	require.ErrorIs(t, <-done, failure)
+	require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
 }
