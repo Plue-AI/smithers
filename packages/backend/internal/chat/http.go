@@ -47,6 +47,7 @@ type RevocationSource interface {
 }
 
 type Handler struct {
+	ContextRepository ContextRepository
 	// ResolveBranch authorizes and resolves branch aliases at the install boundary.
 	ResolveBranch func(context.Context, Scope, string) (string, error)
 	Revocations   RevocationSource
@@ -606,4 +607,5 @@ func (h *Handler) MountProducerCallbacks(router chi.Router) {
 	router.Post(SourceReadPath, h.SourceRead)
 	router.Post(SourceListPath, h.SourceList)
 	router.Post(APICallPath, h.APICall)
+	router.Post(ContextPath, h.Context)
 }

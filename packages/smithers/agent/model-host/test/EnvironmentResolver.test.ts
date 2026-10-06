@@ -30,6 +30,86 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+const contextInput = {
+  prompt: "Where do we retry?",
+  author: "ben",
+  branch: "main",
+  state: "ready",
+  recent: [{ title: "Earlier", text: "Earlier answer" }],
+  candidates: [{
+    item: { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123" },
+    text: "export const retries = 3"
+  }],
+  tokenBudget: 24000,
+  wikiOnly: false
+}
+const sharedGrant = { ...grant, request: { ...grant.request, sharedConversation: true } }
+
+test.each([false, true])("resolves shared context from the authenticated host callback (%s)", async (global) => {
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(contextInput))
+  vi.stubGlobal("fetch", fetchImpl)
+  const resolved = await Effect.runPromise(
+    environmentModelResolver({ binding, env, ...(global ? {} : { fetchImpl }) })(sharedGrant)
+  )
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
+  const [url, init] = fetchImpl.mock.calls[0]!
+  expect(String(url)).toBe("https://callback.test/internal/chat/context")
+  expect(init).toMatchObject({
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/json", authorization: "Bearer fixture-token" },
+    body: "{\"turnId\":\"turn\",\"generation\":1}"
+  })
+  expect(init?.signal).toBeInstanceOf(AbortSignal)
+  expect(resolved.preflight?.input).toEqual(contextInput)
+  expect(resolved.preflight?.model).toBe(resolved.model)
+  expect(resolved.preflight?.options).toEqual({ modelId: "fixture", credential: "fixture-key" })
+})
+
+test.each([
+  () => new Response("private failure", { status: 503 }),
+  () => new Response(null, { status: 403 }),
+  () => new Response(null, { status: 307, headers: { location: "https://attacker.test" } }),
+  () => Response.json({ ...contextInput, candidates: [{ item: { kind: "file", ref: "outside" }, text: "secret" }] }),
+  () => Response.json({ ...contextInput, recent: [{ title: "private", text: "secret", private: true }] }),
+  () => Response.json({ ...contextInput, tokenBudget: -1 }),
+  () => new Response("not json"),
+  () => new Response(null),
+  () => new Response(" ".repeat(2 * 1024 * 1024 + 1)),
+  () => new Response("{}", { headers: { "content-length": "2097153" } })
+])("refuses unavailable, malformed or oversized context before invoking a model", async (response) => {
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response())
+  await expect(Effect.runPromise(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant))).rejects.toThrow(
+    "configured model route is unavailable"
+  )
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
+  expect(String(fetchImpl.mock.calls[0]![0])).toBe("https://callback.test/internal/chat/context")
+})
+
+test("interrupting context resolution aborts its outstanding read", async () => {
+  let observed: AbortSignal | undefined
+  let entered!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation((_url, init) =>
+    new Promise((_resolve, reject) => {
+      observed = init?.signal as AbortSignal
+      observed.addEventListener("abort", () => reject(new Error("interrupted")))
+      entered()
+    })
+  )
+  const abort = new AbortController()
+  const result = Effect.runPromiseExit(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant), {
+    signal: abort.signal
+  })
+  await started
+  abort.abort()
+  expect((await result)._tag).toBe("Failure")
+  expect(observed?.aborted).toBe(true)
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
+})
+
 test.each([false, true])(
   "routes the chosen model using the configured fetch and token budget (%s)",
   async (override) => {
@@ -170,4 +250,20 @@ test("refuses a request model on another credential or origin than the configure
   const resolved = await Effect.runPromise(environmentModelResolver({ binding, env: twoKeys, fetchImpl })(nullModel))
   expect(resolved.options.modelId).toBe("fixture")
   expect(fetchImpl).not.toHaveBeenCalled()
+})
+
+test.each(["declared", "streamed"])("cancels oversized context bodies (%s)", async (mode) => {
+  const cancelled = vi.fn()
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        if (mode === "streamed") controller.enqueue(new Uint8Array(2097153))
+      },
+      cancel: cancelled
+    }),
+    mode === "declared" ? { headers: { "content-length": "2097153" } } : {}
+  )
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response)
+  await expect(Effect.runPromise(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant))).rejects.toThrow()
+  expect(cancelled).toHaveBeenCalledTimes(1)
 })

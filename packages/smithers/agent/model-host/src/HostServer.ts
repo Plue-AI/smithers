@@ -7,12 +7,14 @@
 import type * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import { AgentTurnCursorSchema } from "@smthrs/rpc/AgentTurnJournal"
+import type { ContextPreflightInput } from "@smthrs/rpc/ContextPreflight"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Cause, Effect, Exit, Metric, Option } from "effect"
 import { createHash, timingSafeEqual } from "node:crypto"
 import { z } from "zod"
 import { runDurableChatTurn } from "./DurableChatProducer.ts"
 import type { DurableChatGrant } from "./DurableChatProducer.ts"
+import { boundedJson } from "./internal/BoundedJson.ts"
 import type { ProducerError, ResolveFailed } from "./ModelHostError.ts"
 import { StreamTooLarge } from "./ModelHostError.ts"
 import { runModelTurn } from "./ModelTurnHost.ts"
@@ -71,7 +73,7 @@ export interface ModelTurnResolution {
   readonly options: ModelTurnOptions
   /** Authorized SharedEntries and pinned repository data, resolved on the host. */
   readonly preflight?: {
-    readonly input: import("@smthrs/rpc/ContextPreflight").ContextPreflightInput
+    readonly input: ContextPreflightInput
     readonly model: Model.Model
     readonly options: ModelTurnOptions
   }
@@ -164,44 +166,6 @@ const streamRequest = (value: unknown): StartAgentTurnRequest | undefined => {
   } as StartAgentTurnRequest
 }
 
-const MAX_BODY_BYTES = 2 * 1024 * 1024
-
-/**
- * Reads at most MAX_BODY_BYTES of the body as JSON. The byte count is taken
- * while streaming, so a chunked body with no content-length is cancelled at
- * the limit instead of being buffered whole.
- */
-const boundedJson = async (request: Request): Promise<unknown | undefined> => {
-  const length = Number(request.headers.get("content-length") ?? "0")
-  if (!Number.isFinite(length) || length < 0 || length > MAX_BODY_BYTES) return undefined
-  if (request.body === null) return undefined
-  try {
-    const reader = request.body.getReader()
-    const chunks: Array<Uint8Array> = []
-    let size = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      size += value.byteLength
-      if (size > MAX_BODY_BYTES) {
-        await reader.cancel()
-        return undefined
-      }
-      chunks.push(value)
-    }
-    if (size === 0) return undefined
-    const bytes = new Uint8Array(size)
-    let offset = 0
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown
-  } catch {
-    return undefined
-  }
-}
-
 /** The most NDJSON bytes one sealed stream response holds; the Go reader caps at the same 16 MiB. */
 const MAX_STREAM_BYTES = 16 * 1024 * 1024
 
@@ -239,9 +203,11 @@ interface TurnFailure {
 
 /** The provider refusals a person acts on: wait or add credit, or replace the key. */
 const providerResponse = (code: string): TurnFailure["response"] =>
-  code === "rate_limited" || code === "quota_exceeded" || code === "out_of_credit" ? "provider_quota"
-  : code === "authentication" ? "provider_auth"
-  : "turn_failed"
+  code === "rate_limited" || code === "quota_exceeded" || code === "out_of_credit" ?
+    "provider_quota"
+    : code === "authentication" ?
+    "provider_auth"
+    : "turn_failed"
 
 const classify = (cause: Cause.Cause<ResolveFailed | ProducerError | Model.ModelFailure>): TurnFailure => {
   const error = Option.getOrUndefined(Cause.findErrorOption(cause))
