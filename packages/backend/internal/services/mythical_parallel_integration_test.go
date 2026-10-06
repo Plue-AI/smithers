@@ -2,10 +2,12 @@ package services
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
 
 // The composed HTTP boundary is tested in compose. This supplements it with
@@ -92,15 +94,41 @@ func TestParallelRetainedMachineRelease(t *testing.T) {
 	// A stopped run needs a person; its machine still owns the only TODO slot.
 	first.State, first.PRState = "blocked", ""
 	first.RequestOutcome = "failed"
+	waiting := mythicalChecksOf(first)
+	waiting.Waits = []TodoWait{{ID: "question", Kind: "question", Prompt: "Which file?"}}
+	first.Checks = waiting.encode()
+	require.Equal(t, "needs_you", todoState(first))
 	lanes.held[first.WorkspaceID] = true
 	_, err = db.New(o.pool).SaveMythicalItem(t.Context(), first)
 	require.NoError(t, err)
 	o.wake()
 	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
+	// A later-created TODO placed before T2 wins the next released slot.
+	number := second.Number.Int64
+	earlier, err := o.service.FileTodo(session, o.repoID, o.userID, MythicalTodoInput{Title: "Earlier", Prompt: "Add the earlier line", Request: "before-T2", Place: MythicalTodoPlace{Mode: "before", N: &number}})
+	require.NoError(t, err)
+	o.wake()
+	require.Equal(t, "queued", o.byID(earlier.ID).State)
+	require.NotEmpty(t, o.byID(uuidString(first.ID)).WorkspaceID)
+	require.Empty(t, o.lanes.deleted)
+	// A durable pause has the same retention rule even on an engine-settled row.
+	first = o.byID(uuidString(first.ID))
+	waiting = mythicalChecksOf(first)
+	waiting.Waits = nil
+	first.Checks = waiting.encode()
+	first.PausedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	_, err = db.New(o.pool).SaveMythicalItem(t.Context(), first)
+	require.NoError(t, err)
+	require.Equal(t, "paused", todoState(first))
+	o.wake()
+	require.Equal(t, "queued", o.byID(earlier.ID).State)
+	require.NotEmpty(t, o.byID(uuidString(first.ID)).WorkspaceID)
+	require.Empty(t, o.lanes.deleted)
 	// Only the runtime observation frees capacity; changing the TODO state did not.
 	lanes.held[first.WorkspaceID] = false
 	o.wake()
-	require.Equal(t, "running", o.byID(uuidString(second.ID)).State)
+	require.Equal(t, "running", o.byID(earlier.ID).State)
+	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
 }
 
 func (l *fakeMythicalLanes) MachineHeld(_ context.Context, id string) (bool, error) {

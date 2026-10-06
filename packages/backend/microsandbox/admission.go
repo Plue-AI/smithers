@@ -3,6 +3,7 @@ package microsandbox
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -166,6 +167,54 @@ func (r *Runtime) AdmissionOwnership(holder string) (held, known bool) {
 		}
 	}
 	return false, false
+}
+
+// ReorderTodoAdmission updates existing, ungranted stack demand in place.
+// It creates no demand, changes no grant, and leaves person priority intact.
+func (r *Runtime) ReorderTodoAdmission(holders []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	wanted := []string{}
+	eligible := map[string]bool{}
+	for _, head := range r.rankAdmissionLocked() {
+		if head.Class == "todo" {
+			eligible[head.Holder] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, holder := range holders {
+		if seen[holder] {
+			continue
+		}
+		seen[holder] = true
+		if h := r.admission[holder]; eligible[holder] && h != nil && !h.held {
+			for _, row := range h.rows {
+				if row.Class == "todo" && row.State == "waiting" {
+					wanted = append(wanted, holder)
+					break
+				}
+			}
+		}
+	}
+	current := []string{}
+	for _, row := range r.rankAdmissionLocked() {
+		if slices.Contains(wanted, row.Holder) {
+			current = append(current, row.Holder)
+		}
+	}
+	if slices.Equal(current, wanted) {
+		return
+	}
+	for _, holder := range wanted {
+		r.admissionSequence++
+		for _, row := range r.admission[holder].rows {
+			if row.Class == "todo" && row.State == "waiting" {
+				row.sequence = r.admissionSequence
+			}
+		}
+	}
+	r.rankAdmissionLocked()
+	r.notifyAdmissionLocked()
 }
 
 // AdmissionSnapshot copies rows so callers cannot mutate runtime ownership.

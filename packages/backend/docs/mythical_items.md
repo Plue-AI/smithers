@@ -435,12 +435,24 @@ zero. The old repository config write and `history.parallel` door are removed.
 `PUT /api/install` reads and writes the requested value through the shared
 owner-only person policy. The service refuses writes without that provider.
 The composed engine uses the effective value for its launch limit, and Home
-reports that value to the owner. On an install a fresh TODO attempt
-launches `coding/request` on its own lane (`EnableTodoAdmission`); hosted
-composition refuses it. Ordered runtime demands, holder release accounting and
-live queue positions require the ordering, scheduler and machine-execution
-providers and C-STK-02.
-No admission queue, root operation or host execution fallback is added.
+reports that value to the owner. Install TODO attempts use their bound branch
+machines and the composed launcher; hosted composition refuses fresh work.
+
+The install counts pending launches and runtime-owned machines, including
+cancelled grants awaiting an observed stop. Unknown runtime ownership refuses
+new launches. Publishing for review retains the branch machine; publication
+alone cannot establish safe-idle. The runtime's existing safe-idle lifecycle
+must observe safety, capture and confirm stop before the slot becomes free.
+
+Existing ungranted workspace demands are reordered in the runtime queue by
+stack position, without changing grants or person priority. TODO projections
+preserve scheduler positions, including waiting person requests. Repeated reads
+of unchanged order do not invalidate a concurrent grant. TODOs without a bound
+workspace still use the retained stack-list projection: pre-workspace demand
+and reservation handoff need the scheduler's branch-authority integration.
+Production safe-idle observation providers and the complete C-STK-02 journey
+remain required. No second queue, root operation or host execution fallback is
+added.
 
 ## Placement and order
 

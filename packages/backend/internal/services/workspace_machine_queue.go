@@ -271,3 +271,25 @@ func (l *workspaceMythicalLanes) MachineHeld(ctx context.Context, id string) (bo
 	}
 	return false, nil
 }
+
+func (l *workspaceMythicalLanes) OrderTodoMachines(items []db.MythicalItem) {
+	if l == nil || l.workspaces == nil {
+		return
+	}
+	runtime, ok := l.workspaces.runtime.(interface{ ReorderTodoAdmission([]string) })
+	if !ok {
+		return
+	}
+	holders := []string{}
+	for _, item := range items {
+		if item.Source == "todo" && item.WorkspaceID != "" {
+			holders = append(holders, machineQueueHolder(item.WorkspaceID))
+		}
+	}
+	runtime.ReorderTodoAdmission(holders)
+}
+func (s *MythicalService) orderTodoMachines(items []db.MythicalItem) {
+	if lanes, ok := s.lanes.(interface{ OrderTodoMachines([]db.MythicalItem) }); ok {
+		lanes.OrderTodoMachines(items)
+	}
+}

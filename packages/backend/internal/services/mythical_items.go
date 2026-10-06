@@ -1328,6 +1328,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		return items[i].StackPosition.Int64 < items[j].StackPosition.Int64
 	})
 	step.items = items
+	s.orderTodoMachines(items)
 	defer s.sweepLanes(ctx, r)
 	// An item that waits for a lane may get one when another item moves.
 	waitsForLane, moved := false, false
@@ -1518,8 +1519,11 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
 	// On the install, review is a retained branch machine. Only the runtime's
 	// safe-idle observer may sleep it; publication is not a safety observation.
-	if s.installParallelRequired && !mythicalSettledStates[item.State] {
-		return item
+	if s.installParallelRequired {
+		state := todoState(item)
+		if !mythicalSettledStates[item.State] || state == "paused" || state == "needs_you" || state == "in_review" {
+			return item
+		}
 	}
 	if s.lanes == nil || item.WorkspaceID == "" || !r.row.ActorUserID.Valid {
 		return item

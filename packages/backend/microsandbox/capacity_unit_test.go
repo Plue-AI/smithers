@@ -1336,3 +1336,31 @@ func TestAdmissionHeldUntilObservedStop(t *testing.T) {
 	r.workspaces["recovered"].State = "stopped"
 	require.False(t, r.AdmissionHeld("workspace:recovered"))
 }
+
+func TestAdmissionStackReorderPreservesPersonAndGrants(t *testing.T) {
+	r, p := admissionFixture()
+	for _, holder := range []string{"T2", "T1", "T3"} {
+		_, err := r.Request("todo", holder, holder, "machine")
+		require.NoError(t, err)
+	}
+	_, err := r.Request("person", "Ben", "Ben", "machine")
+	require.NoError(t, err)
+	r.ReorderTodoAdmission([]string{"T1", "T2", "T3", "T1", "absent"})
+	rows := r.AdmissionSnapshot()
+	require.Equal(t, []string{"Ben", "T1", "T2", "T3"}, []string{rows[0].Holder, rows[1].Holder, rows[2].Holder, rows[3].Holder})
+	require.Equal(t, []int{1, 2, 3, 4}, []int{rows[0].Position, rows[1].Position, rows[2].Position, rows[3].Position})
+	before := r.admissionSequence
+	r.ReorderTodoAdmission([]string{"T1", "T2", "T3"})
+	require.Equal(t, before, r.admissionSequence, "reading an unchanged order cannot invalidate an in-flight grant")
+	granted, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "Ben", granted.Holder)
+	r.ReorderTodoAdmission([]string{"T3", "T2", "T1"})
+	require.True(t, r.AdmissionHeld("Ben"), "reordering never preempts a grant")
+	require.Equal(t, 1, r.InUse())
+	require.True(t, r.CancelAdmission("Ben", "Ben", time.Now()))
+	r.ConfirmAdmissionStop("Ben", false)
+	granted, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "T3", granted.Holder)
+}
