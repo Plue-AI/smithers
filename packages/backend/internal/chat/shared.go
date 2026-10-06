@@ -12,12 +12,13 @@ import (
 // SharedTurn is a public projection, not a journal capability. Private request
 // context, writer tokens, approvals and the member's queue never enter it.
 type SharedTurn struct {
-	ID     string            `json:"id"`
-	Author int64             `json:"author"`
-	RunID  string            `json:"runId"`
-	Prompt string            `json:"prompt"`
-	State  State             `json:"state"`
-	Frames []json.RawMessage `json:"frames"`
+	ID      string             `json:"id"`
+	Author  int64              `json:"author"`
+	RunID   string             `json:"runId"`
+	Prompt  string             `json:"prompt"`
+	State   State              `json:"state"`
+	Frames  []json.RawMessage  `json:"frames"`
+	Context *[]json.RawMessage `json:"context,omitempty"`
 }
 type SharedConversation struct {
 	ID      string       `json:"id"`
@@ -80,6 +81,9 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 			}
 			for _, batch := range page.Batches {
 				for _, frame := range batch.Frames {
+					if selected := sharedContext(frame); selected != nil {
+						entry.Context = &selected
+					}
 					if sharedFrame(frame) {
 						entry.Frames = append(entry.Frames, frame)
 					}
@@ -144,4 +148,35 @@ func (h *Handler) Conversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// sharedContext projects only the completed selection. Candidate contents,
+// model inputs and arbitrary producer fields are never shared with the answer.
+// Historical frames without a phase are completed selections too.
+func sharedContext(raw json.RawMessage) []json.RawMessage {
+	var frame struct {
+		Type   string `json:"type"`
+		Phase  string `json:"phase"`
+		Result struct {
+			Context []map[string]json.RawMessage `json:"context"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(raw, &frame) != nil || frame.Type != "context.preflight" || (frame.Phase != "" && frame.Phase != "completed") {
+		return nil
+	}
+	result := make([]json.RawMessage, 0, len(frame.Result.Context))
+	for _, item := range frame.Result.Context {
+		selected := make(map[string]json.RawMessage)
+		for _, key := range []string{"kind", "label", "ref", "revision", "reason"} {
+			if value, ok := item[key]; ok {
+				selected[key] = value
+			}
+		}
+		encoded, err := json.Marshal(selected)
+		if err != nil {
+			return nil
+		}
+		result = append(result, encoded)
+	}
+	return result
 }
