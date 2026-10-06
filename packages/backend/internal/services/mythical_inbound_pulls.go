@@ -147,6 +147,14 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				}
 				next.PausedAt = pgtype.Timestamptz{}
 			case "in_review":
+				if item.State == "cancelled" {
+					if !checks.GitHubDropRead.matches(source) {
+						return nil, gitHubFetchUnavailable()
+					}
+					if fetched.PullObservation < checks.GitHubDropRead.Observation {
+						continue
+					}
+				}
 				// Close reconciliation owns the pending slot, including an unknown
 				// response. Retain this delivery until it settles; never discard the
 				// close or let its later dispatch undo the person's reopen.
@@ -207,7 +215,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				}
 			}
 			if decision.Event != "" {
-				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version})
+				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version, "observation": fetched.PullObservation})
 				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.github_"+decision.Event, todoState(saved), data); err != nil {
 					return nil, err
 				}

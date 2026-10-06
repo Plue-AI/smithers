@@ -84,7 +84,17 @@ func (s *GitHubSyncedRepoService) pollInstallPull(ctx context.Context, row db.Gi
 			if version != validator.objectVersion {
 				return gitHubFetchUnavailable()
 			}
-			return nil
+			// Existing caches can predate numbered observations. Admit that
+			// snapshot once; subsequent 304s reuse the same pending/settled job.
+			var canonical []byte
+			if err := tx.QueryRow(ctx, `SELECT payload::text FROM github_synced_issues WHERE synced_repo_id=$1 AND resource='pulls' AND number=$2`, row.ID, number).Scan(&canonical); err != nil {
+				return err
+			}
+			var header gitHubIssueHeader
+			if err := json.Unmarshal(canonical, &header); err != nil || header.ID <= 0 {
+				return gitHubFetchUnavailable()
+			}
+			return s.admitFetchedObject(ctx, tx, row, GitHubRepoMetadataPulls, header.ID, number, canonical)
 		}
 		var pull mythicalGitHubPull
 		if json.Unmarshal(page.Body, &pull) != nil || pull.Number != number || pull.Head.SHA == "" || (pull.State != "open" && pull.State != "closed") {
@@ -142,4 +152,23 @@ func (s *GitHubSyncedRepoService) cachedPullVersion(ctx context.Context, q db.DB
 func gitHubPullVersion(canonical string) string {
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])
+}
+
+// Caller holds the synced repository row while admitting a new observation.
+// Readers use the same retained jobs ledger, not a second lifecycle queue.
+func latestPullObservation(ctx context.Context, q db.DBTX, row db.GithubSyncedRepo, number int64) (gitHubFetchedObject, error) {
+	var fact gitHubFetchedObject
+	var raw []byte
+	err := q.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE tenant_id=$1 AND principal_id='pulls' AND operation=$2 AND (payload->>'repo')::bigint=$3 AND (payload->>'number')::bigint=$4 ORDER BY COALESCE((payload->>'pull_observation')::bigint,0) DESC,created_at DESC,id DESC LIMIT 1`,
+		"github:"+strconv.FormatInt(row.InstallationID.Int64, 10)+":"+strconv.FormatInt(row.GithubRepositoryID.Int64, 10), githubFetchedOperation, row.ID, number).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fact, nil
+	}
+	if err != nil {
+		return fact, err
+	}
+	if err := json.Unmarshal(raw, &fact); err != nil || fact.PullObservation < 0 {
+		return gitHubFetchedObject{}, gitHubFetchUnavailable()
+	}
+	return fact, nil
 }

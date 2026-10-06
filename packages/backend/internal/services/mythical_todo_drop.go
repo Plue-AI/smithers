@@ -158,6 +158,7 @@ func mythicalDropped(item db.MythicalItem, drop todoDrop) db.MythicalItem {
 		}
 	}
 	checks.Dropped = &drop
+	checks.GitHubDropRead = nil
 	checks.GitHubClosedAt = &drop.At
 	checks.GitHubClosedPosition = item.StackPosition.Int64
 	next.Checks = checks.encode()

@@ -87,15 +87,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 	}
 	pool := f.pool.(*pgxpool.Pool)
 	ctx := context.Background()
-	require.NoError(t, f.credentials.SetInstallation(ctx, f.installation))
-	synced := NewGitHubSyncedRepoService(db.New(pool))
-	require.NoError(t, synced.ConfigureInstallSync(pool))
-	synced.BindInstallAuthority(f.credentials, true)
-	client := NewGitHubUserReposService(db.New(pool), nil)
-	synced.SetConditionalFetcherFactory(client.SyncedRepoConditionalFetcherFactory(f.connections))
-	f.service.UseInstallGitHubPolling(synced)
-	row, err := db.New(pool).EnrollGitHubSyncedRepo(ctx, db.EnrollGitHubSyncedRepoParams{OwnerLogin: "rehearsal-owner", RepoName: "app", InstallationID: pgtype.Int8{Int64: f.installation, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}, SyncMetadata: true, EnrolledVia: GitHubSyncedRepoEnrolledViaInstallation})
-	require.NoError(t, err)
+	synced, row := configureInboundPullPolling(t, f)
 	stop := runFetchedFixture(t, synced)
 	defer stop()
 	token, err := f.connections.CreateGitHubInstallationTokenForRepositoryOwner(ctx, f.userID, 0, "rehearsal-owner", "app", map[string]string{"pull_requests": "write"})
@@ -198,4 +190,53 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 	}
 	require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
+}
+
+func configureInboundPullPolling(t *testing.T, f *publicationFixture) (*GitHubSyncedRepoService, db.GithubSyncedRepo) {
+	t.Helper()
+	ctx := context.Background()
+	pool := f.pool.(*pgxpool.Pool)
+	require.NoError(t, f.credentials.SetInstallation(ctx, f.installation))
+	synced := NewGitHubSyncedRepoService(db.New(pool))
+	require.NoError(t, synced.ConfigureInstallSync(pool))
+	synced.BindInstallAuthority(f.credentials, true)
+	client := NewGitHubUserReposService(db.New(pool), nil)
+	synced.SetConditionalFetcherFactory(client.SyncedRepoConditionalFetcherFactory(f.connections))
+	f.service.UseInstallGitHubPolling(synced)
+	row, err := db.New(pool).EnrollGitHubSyncedRepo(ctx, db.EnrollGitHubSyncedRepoParams{OwnerLogin: "rehearsal-owner", RepoName: "app", InstallationID: pgtype.Int8{Int64: f.installation, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}, SyncMetadata: true, EnrolledVia: GitHubSyncedRepoEnrolledViaInstallation})
+	require.NoError(t, err)
+	return synced, row
+}
+
+func TestGitHubInboundQueuedOpenCannotUndoDrop(t *testing.T) {
+	for _, timing := range []string{"before drop", "after drop before close"} {
+		t.Run(timing, func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, _, pr := h.first("Keep dropped")
+			synced, row := configureInboundPullPolling(t, h.publicationFixture)
+			ctx := context.Background()
+			if timing == "before drop" {
+				require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+			}
+			_, err := h.drop(n, "drop-stale-open")
+			require.NoError(t, err)
+			if timing == "after drop before close" {
+				require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+			}
+			h.pass()
+			h.pass()
+			require.Empty(t, h.item(n).PendingOp)
+			require.Equal(t, "closed", h.pull(pr).State)
+			writes := len(h.writes())
+			defer runFetchedFixture(t, synced)()
+			h.pass() // the first scheduled read after close settlement
+			pool := h.pool.(*pgxpool.Pool)
+			require.Eventually(t, func() bool {
+				return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state<>'completed'`) == 0
+			}, 10*time.Second, 20*time.Millisecond)
+			require.Equal(t, "cancelled", h.item(n).State, "an old open snapshot is not a person's reopen")
+			require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
+			require.Len(t, h.writes(), writes)
+		})
+	}
 }

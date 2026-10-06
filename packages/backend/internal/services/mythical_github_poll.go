@@ -57,8 +57,22 @@ func (st *mythicalItemStep) followInstallPull(ctx context.Context, item db.Mythi
 		return nil, err
 	}
 	next := item
-	if mythicalDroppedPull(item) && mythicalChecksOf(item).GitHubClosedAt == nil {
+	if item.State == "cancelled" && mythicalChecksOf(item).Dropped != nil && len(item.PendingOp) == 0 {
 		checks := mythicalChecksOf(item)
+		if !checks.GitHubDropRead.matches(row) {
+			observation, err := latestPullObservation(ctx, st.s.store, row, item.PRNumber.Int64)
+			if err != nil {
+				return nil, err
+			}
+			if observation.PullObservation <= 0 {
+				return nil, gitHubFetchUnavailable()
+			}
+			checks.GitHubDropRead = &mythicalDropRead{Source: row.ID, Installation: row.InstallationID.Int64, Repository: row.GithubRepositoryID.Int64, Observation: observation.PullObservation}
+			next.Checks = checks.encode()
+		}
+	}
+	if mythicalDroppedPull(item) && mythicalChecksOf(item).GitHubClosedAt == nil {
+		checks := mythicalChecksOf(next)
 		at := mythicalGitHubClosedAt(item)
 		checks.GitHubClosedAt = &at
 		next.Checks = checks.encode()
@@ -67,6 +81,19 @@ func (st *mythicalItemStep) followInstallPull(ctx context.Context, item db.Mythi
 	// The fetched consumer owns PR state, foreign-head and merge effects, with
 	// its receipt in one transaction. A successful fetch cannot run the old gate.
 	return &next, nil
+}
+
+// A fresh read after close settlement bounds the snapshots allowed to reopen
+// this local Drop. Earlier queued open snapshots are never reopen evidence.
+type mythicalDropRead struct {
+	Source       int64 `json:"source"`
+	Installation int64 `json:"installation"`
+	Repository   int64 `json:"repository"`
+	Observation  int64 `json:"observation"`
+}
+
+func (r *mythicalDropRead) matches(source db.GithubSyncedRepo) bool {
+	return r != nil && r.Observation > 0 && r.Source == source.ID && r.Installation == source.InstallationID.Int64 && r.Repository == source.GithubRepositoryID.Int64
 }
 
 // Hints belong to the existing stack worker. They do not change an item's

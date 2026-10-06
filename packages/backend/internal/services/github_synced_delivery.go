@@ -35,6 +35,7 @@ type gitHubFetchedObject struct {
 	EventID          int64           `json:"event_id,omitempty"`
 	RefRepositoryID  int64           `json:"ref_repository_id,omitempty"`
 	RefClaim         int64           `json:"ref_claim,omitempty"`
+	PullObservation  int64           `json:"pull_observation,omitempty"`
 	Object           json.RawMessage `json:"object"`
 }
 
@@ -181,13 +182,27 @@ func (s *GitHubSyncedRepoService) admitFetchedObject(ctx context.Context, tx pgx
 	hash := sha256.Sum256(canonical)
 	version := hex.EncodeToString(hash[:])
 	fact := gitHubFetchedObject{GitHubRepository: row.GithubRepositoryID.Int64, Installation: row.InstallationID.Int64, Repo: row.ID, Resource: resource, Number: number, Version: version, Object: canonical}
+	requestID := strconv.FormatInt(id, 10) + ":" + version
+	if resource == GitHubRepoMetadataPulls {
+		// An unchanged read reuses its receipt, but A -> B -> A is a new
+		// observation even when GitHub's second-precision payload is identical.
+		previous, err := latestPullObservation(ctx, tx, row, number)
+		if err != nil {
+			return err
+		}
+		if previous.PullObservation > 0 && previous.Version == version {
+			return nil
+		}
+		fact.PullObservation = previous.PullObservation + 1
+		requestID = fmt.Sprintf("pull:%d:%d:%d", row.ID, number, fact.PullObservation)
+	}
 	payload, err := json.Marshal(fact)
 	if err != nil {
 		return err
 	}
 	_, err = s.install.jobs.AdmitInTx(ctx, tx, jobs.Admission{
 		Scope:     jobs.Scope{TenantID: "github:" + strconv.FormatInt(row.InstallationID.Int64, 10) + ":" + strconv.FormatInt(row.GithubRepositoryID.Int64, 10), PrincipalID: resource},
-		Operation: githubFetchedOperation, RequestID: strconv.FormatInt(id, 10) + ":" + version,
+		Operation: githubFetchedOperation, RequestID: requestID,
 		Payload: payload, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent,
 	})
 	if err != nil {
@@ -236,6 +251,13 @@ func (s *GitHubSyncedRepoService) consumeFetched(ctx context.Context, lease *job
 			// Poll claims, not transaction start timestamps, order snapshots.
 			// Reverting a branch to a previously seen SHA is a new observation.
 			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests p JOIN product_job_requests current ON current.id=$1 WHERE p.tenant_id=current.tenant_id AND p.principal_id=current.principal_id AND p.operation=current.operation AND (p.payload->>'ref_repository_id')::bigint=$2 AND (p.payload->>'ref_claim')::bigint<$3 AND p.state<>'completed')`, claim.OperationID, fact.RefRepositoryID, fact.RefClaim).Scan(&earlier); err != nil {
+				return err
+			}
+		}
+		if fact.Resource == GitHubRepoMetadataPulls && fact.PullObservation > 0 {
+			// Source-lock admission orders snapshots, independent of transaction
+			// start time. Retained legacy deliveries precede numbered reads.
+			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests p JOIN product_job_requests current ON current.id=$1 WHERE p.tenant_id=current.tenant_id AND p.principal_id=current.principal_id AND p.operation=current.operation AND (p.payload->>'number')::bigint=$2 AND (p.payload->>'repo')::bigint=$4 AND COALESCE((p.payload->>'pull_observation')::bigint,0)<$3 AND p.state NOT IN ('completed','failed','cancelled'))`, claim.OperationID, fact.Number, fact.PullObservation, fact.Repo).Scan(&earlier); err != nil {
 				return err
 			}
 		}

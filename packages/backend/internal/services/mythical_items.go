@@ -4306,6 +4306,7 @@ type mythicalChecks struct {
 	PRBodyDeclined       string                `json:"prBodyDeclined,omitempty"`
 	GitHubClosedPosition int64                 `json:"githubClosedPosition,omitempty"`
 	GitHubClosedAt       *time.Time            `json:"githubClosedAt,omitempty"`
+	GitHubDropRead       *mythicalDropRead     `json:"githubDropRead,omitempty"`
 	Attempts             []todoAttemptEvidence `json:"attempts,omitempty"`
 	// Steers are the TODO's steers in order, each held for an attempt
 	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a
