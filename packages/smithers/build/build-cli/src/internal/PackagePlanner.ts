@@ -2874,7 +2874,8 @@ const visit = async (
   // stale, which is how run 11763 (main 2722d0e5) could fail `checks` on that
   // file alone. A planned write is therefore never cacheable.
   const plannedWrite = mode === "write" && plannedModeRules.has(rule)
-  const cacheable = refusal === undefined && !movingService && !plannedWrite &&
+  const cacheable = attrMember(attrs, "cache") !== false &&
+    refusal === undefined && !movingService && !plannedWrite &&
     (view.cacheable || RulePolicy.cacheable(rule, mode, repositoryState?.dirty))
 
   const spawnEnvironment = Exec.toolEnvironment(
