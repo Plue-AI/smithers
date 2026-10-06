@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { CardSchema, LEGACY_CARD_KINDS } from "../src/Cards.ts"
 
 // T-CUT-01's shared ledger replaces a second cut list in follow-up tickets.
 const manifest = JSON.parse(readFileSync(new URL("../src/catalog/cuts.json", import.meta.url), "utf8")) as {
   version: number
-  deferred: Array<{ id: string; disposition: string; flowNames: string[]; cardKinds: string[]; sourcePaths: string[]; cliGroups?: string[] }>
+  deferred: Array<{ id: string; disposition: string; flowNames: string[]; cardKinds: string[]; legacyCardKinds?: string[]; sourcePaths: string[]; cliGroups?: string[] }>
   rows: Array<{ id: string; disposition: string; flowNames: string[]; cardKinds: string[]; sourcePaths: string[] }>
 }
 const root = new URL("../../../", import.meta.url)
@@ -52,9 +53,23 @@ describe("MVP deferred manifest", () => {
       "issue.repro", "issue.poc", "issue.add-flow", "issue.flows"
     ].sort())
     expect(manifest.deferred.flatMap(row => row.cardKinds).sort()).toEqual([
-      "balance", "billing-plans", "anonymous-ceiling", "repository-choice", "repo-update", "workflow-repo",
+      "balance", "billing-plans", "anonymous-ceiling", "repository-choice", "repo-update",
       "trigger-list", "sync-ops", "environment-images"
     ].sort())
+    const current = CardSchema.options.map(option => option.shape.kind.value)
+    for (const kind of manifest.deferred.flatMap(row => row.cardKinds)) {
+      expect(current).toContain(kind)
+      expect(LEGACY_CARD_KINDS).not.toContain(kind)
+    }
+    expect(manifest.deferred.flatMap(row => row.legacyCardKinds ?? [])).toEqual(["workflow-repo"])
+    for (const kind of manifest.deferred.flatMap(row => row.legacyCardKinds ?? [])) {
+      expect(LEGACY_CARD_KINDS).toContain(kind)
+      expect(current).not.toContain(kind)
+      expect(CardSchema.parse({ id: "saved-picker", title: "Repository", status: "active",
+        createdAt: 1, ordinal: 1, kind, payload: {} })).toMatchObject({
+        kind: "retired", status: "acted", payload: { was: kind }
+      })
+    }
     expect(manifest.deferred.flatMap(row => row.cliGroups ?? []).sort()).toEqual(["org", "triggers", "tui"])
     const cutNames = manifest.rows.flatMap(row => row.flowNames)
     const cutKinds = manifest.rows.flatMap(row => row.cardKinds)
