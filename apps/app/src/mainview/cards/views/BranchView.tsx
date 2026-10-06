@@ -1,3 +1,5 @@
+import { failureDetail } from "@smthrs/rpc/UserFailure"
+import { FailureDetails } from "../../FailureDetails"
 import { useId, type ReactNode } from "react"
 import { copyText } from "@smthrs/ui/copy"
 import { Copy, FileCode2, GitBranch, Moon, Play, SquareTerminal } from "lucide-react"
@@ -52,6 +54,7 @@ function BranchLink({
 }
 
 export function BranchView({ model, actions, gestures, view, onAction, onView }: BranchViewProps) {
+  const { message: machineDiagnostic } = model.machine.state === "failed" ? model.machine.error : { message: "" }
   const id = useId()
   const tab = tabs.find((value) => value === view.tab) ?? "activity"
   return (
@@ -109,7 +112,8 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
         </div>
         {model.machine.state === "failed" ? (
           <div className="branch-notice" data-tone="failed">
-            {model.machine.error.message}
+            <span>Image build failed</span>
+            <FailureDetails detail={failureDetail(machineDiagnostic)} />
           </div>
         ) : null}
         {model.moved_off ? (

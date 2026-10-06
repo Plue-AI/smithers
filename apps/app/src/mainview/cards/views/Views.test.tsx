@@ -685,7 +685,9 @@ test("Failed address keeps the live bind and shows the attempted bind and reason
   expect(row.querySelector<HTMLInputElement>('input[id$="-bind"]')?.value).toBe("0.0.0.0:9090")
   expect(row.querySelector('button[type="submit"]')?.textContent).toBe("Retry")
   expect([...host.querySelectorAll("dt")].map(dt => dt.textContent)).not.toContain("Address")
-  expect(host.querySelector('[role="alert"]')?.textContent).toBe(failed.reason.message)
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(failed.reason.class)
+  expect(host.querySelector(".setup-address-failed details pre")?.textContent).toBe(failed.reason.message)
+  expect(host.querySelector<HTMLDetailsElement>(".setup-address-failed details")?.open).toBe(false)
 })
 
 test("Rejected key retry submits a write-only secret; agent projection has no retry input", () => {
@@ -764,7 +766,9 @@ test("Setup Model access: three named roles, each with its own key control and k
   expect(rows.map(row => row.firstElementChild!.textContent)).toEqual(["Fast model", "Coding model", "Decisions"])
   expect(rows.map(row => row.getAttribute("data-state"))).toEqual(["saved", "validating", "failed"])
   expect(rows.map(row => row.querySelector(".setup-key-state")!.textContent)).toEqual(["Saved", "Validating", "Failed"])
-  expect(rows[2]!.querySelector('[role="alert"]')!.textContent).toBe("401 invalid API key")
+  expect(rows[2]!.querySelector('[role="alert"]')!.textContent).toBe("Key not accepted")
+  expect(rows[2]!.querySelector("details pre")?.textContent).toBe("401 invalid API key")
+  expect(rows[2]!.querySelector<HTMLDetailsElement>("details")?.open).toBe(false)
   expect(rows.map(row => row.querySelector<HTMLInputElement>('input[type="password"]')!.getAttribute("aria-label"))).toEqual(["Cerebras key", "API key", "AI Gateway key"])
   expect(rows[1]!.querySelector<HTMLSelectElement>('select[aria-label="Provider"]')!.value).toBe("OpenAI")
   expect(host.textContent).not.toMatch(/jev|fast|coding/)
@@ -1915,7 +1919,8 @@ describe("DebugApiView", () => {
       expect(label).toBe("infra")
       expect(label).not.toContain(" · ")
       expect(label).not.toMatch(/[0-9]/)
-      expect(rendered.host.querySelector(".debug-failure p")!.textContent).toBe("API request failed")
+      expect(rendered.host.querySelector(".debug-failure details pre")!.textContent).toBe("API request failed")
+      expect(rendered.host.querySelector<HTMLDetailsElement>(".debug-failure details")!.open).toBe(false)
       expect(rendered.host.textContent).not.toContain("Connection refused")
     } finally { await rendered.close() }
   })
@@ -2610,4 +2615,54 @@ test("ContextLine disabled actions show reasons and do not dispatch", async () =
     expect(context.onAction.mock.calls).toEqual([])
     expect(context.onView.mock.calls).toEqual([])
   } finally { await context.close() }
+})
+
+// Diagnostic strings remain available locally, behind a closed disclosure.
+for (const [file, name, expected] of [
+  ["BranchView.stories.tsx", "branch-failed-activity", ["Image build failed"]],
+  ["DebugApiView.stories.tsx", "forbidden", ["Access denied"]],
+  ["DebugApiView.stories.tsx", "network_failure", ["API request failed"]],
+  ["DebugApiView.stories.tsx", "unauthorized", ["Sign in again"]],
+  ["SetupView.stories.tsx", "A rejected AI Gateway key", ["401 from the gateway", "Key rejected"]],
+  ["SetupView.stories.tsx", "The first machine failed to start", ["Free disk space"]],
+  ["SettingsView.stories.tsx", "Address apply failed; the previous bind remains active", ["Address already in use"]],
+  ["SettingsView.stories.tsx", "GitHub sync stale", ["Webhook delayed"]],
+  ["SettingsView.stories.tsx", "GitHub rate limited until a retry time", ["GitHub rate limit"]],
+  ["SettingsView.stories.tsx", "GitHub refused: Repair", ["GitHub App uninstalled"]],
+  ["SettingsView.stories.tsx", "Obsidian folder failing", ["Folder not found"]],
+  ["TodoView.stories.tsx", "failed", ["Home rejected the limited state"]],
+] as const) test(`${file}/${name} failure diagnostics stay collapsed`, async () => {
+  const { stories } = await import(new URL(file, import.meta.url).href) as StoryModule
+  const story = stories.find(story => story.name === name)!
+  expect(story).toBeDefined()
+  const m = await mounted(story)
+  try {
+    const diagnostics = [...m.host.querySelectorAll<HTMLDetailsElement>("details")].filter(details => details.querySelector('[aria-label="Failure details"]'))
+    expect(diagnostics.map(details => details.querySelector("pre")!.textContent)).toEqual([...expected])
+    const visible = m.host.cloneNode(true) as HTMLElement
+    visible.querySelectorAll("details").forEach(node => node.remove())
+    for (const [index, details] of diagnostics.entries()) {
+      expect(details.open).toBe(false)
+      expect(details.querySelector("summary")?.textContent).toBe("Details")
+      // Branch's authored sentence happens to match its fixture diagnostic.
+      if (file !== "BranchView.stories.tsx") expect(visible.textContent).not.toContain(expected[index]!)
+      details.open = true
+      expect(details.querySelector("pre")!.textContent).toBe(expected[index]!)
+    }
+  } finally { await m.close() }
+})
+
+import { ModelAccess } from "./SetupFields"
+test("ModelAccess rejects a key with a fixed label and collapsed diagnostics", () => {
+  const host = render(<ModelAccess model={setup.models_failed.model} />)
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Key not accepted")
+  expect(host.querySelector("details pre")?.textContent).toBe("401 from the gateway")
+  expect(host.querySelector<HTMLDetailsElement>("details")?.open).toBe(false)
+})
+
+test("Settings address step keeps its typed label and collapsed diagnostics", () => {
+  const host = render(<SettingsView {...settings.ready} model={{ ...settings.ready.model, steps: [{ id: "address", state: "failed", error: { class: "address_failed", message: "Socket unavailable" } }] }} onAction={() => {}} onView={() => {}} />)
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("address_failed")
+  expect(host.querySelector("details pre")?.textContent).toBe("Socket unavailable")
+  expect(host.querySelector<HTMLDetailsElement>("details")?.open).toBe(false)
 })

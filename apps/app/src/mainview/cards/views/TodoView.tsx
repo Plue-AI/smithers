@@ -1,3 +1,5 @@
+import { failureDetail } from "@smthrs/rpc/UserFailure"
+import { FailureDetails } from "../../FailureDetails"
 import type { Action } from "@smthrs/rpc/CardAction";
 import { useState } from "react";
 import { Loader } from "lucide-react";
@@ -49,6 +51,7 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
   }
 }
 export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
+  const { message: todoDiagnostic } = todo.failure ?? {};
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const mergeAction = actions.find((action) => action.tag === "merge");
   const mergeReason =
@@ -200,7 +203,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       {todo.failure && (
         <div className="todo-failure">
           <b>{todo.failure.step} failed</b>
-          <span>{todo.failure.message}</span>
+          <FailureDetails detail={failureDetail(todoDiagnostic)} />
           {todo.failure.missing_tool && (
             <code>
               {todo.failure.missing_tool.name} · {todo.failure.missing_tool.file}

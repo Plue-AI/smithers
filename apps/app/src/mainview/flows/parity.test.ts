@@ -798,11 +798,15 @@ describe("View and Container catalog seam (C-UI-08)", () => {
   test("Branch View imports only projection types, primitives and presentation helpers", () => {
     const source = read("../cards/views/BranchView.tsx")
     const tree = ts.createSourceFile("BranchView.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-    const allowed = ["react", "@smthrs/ui/copy", "lucide-react", "./ActorChip", "./StateWord", "./FlowActionView", "./SetupAction"]
+    const allowed = ["react", "@smthrs/ui/copy", "lucide-react", "./ActorChip", "./StateWord", "./FlowActionView", "./SetupAction", "../../FailureDetails"]
     for (const node of tree.statements) {
       if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) continue
       if (node.importClause?.isTypeOnly) continue
-      expect(allowed).toContain(node.moduleSpecifier.text)
+      if (node.moduleSpecifier.text === "@smthrs/rpc/UserFailure") {
+        expect(node.importClause?.name).toBeUndefined()
+        const bindings = node.importClause?.namedBindings
+        expect(bindings && ts.isNamedImports(bindings) ? bindings.elements.map(element => (element.propertyName ?? element.name).text) : []).toEqual(["failureDetail"])
+      } else expect(allowed).toContain(node.moduleSpecifier.text)
     }
     expect(source).not.toMatch(/\b(fetch|WebSocket|EventSource|useEffect)\s*\(/)
     // T-APP-10: the live card subscribes through the shared client; demo data stays separate.
@@ -820,7 +824,11 @@ describe("View and Container catalog seam (C-UI-08)", () => {
       const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
       for (const node of tree.statements) {
         if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier) || node.importClause?.isTypeOnly) continue
-        expect(node.moduleSpecifier.text).not.toMatch(/@smthrs\/rpc|\/flows|\/state/)
+        if (node.moduleSpecifier.text === "@smthrs/rpc/UserFailure") {
+          expect(node.importClause?.name).toBeUndefined()
+          const bindings = node.importClause?.namedBindings
+          expect(bindings && ts.isNamedImports(bindings) ? bindings.elements.map(element => (element.propertyName ?? element.name).text) : []).toEqual(["failureDetail"])
+        } else expect(node.moduleSpecifier.text).not.toMatch(/@smthrs\/rpc|\/flows|\/state/)
       }
     }
     expect(read("../cards/CardRenderers.tsx")).not.toContain("ProposalView")

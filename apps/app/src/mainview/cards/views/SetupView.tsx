@@ -1,3 +1,5 @@
+import { failureDetail } from "@smthrs/rpc/UserFailure"
+import { FailureDetails } from "../../FailureDetails"
 import type { SetupViewProps } from "@smthrs/rpc/SetupCard"
 
 import type { Action, CardProps } from "@smthrs/rpc/CardAction"
@@ -25,7 +27,7 @@ export function ModelRole({ role, chatgpt, action, onAction, omitLabel = false }
     {action ? <SetupAction inline action={action} onAction={onAction} />
       : <input type="password" aria-label={role.role === "jev" ? "AI Gateway key" : `${label} key`} readOnly value={role.key === "saved" || role.key === "validating" ? "••••••••••••" : ""} aria-invalid={role.key === "failed" || undefined} />}
     <span className="setup-key-state" data-tone={role.key === "validating" ? "live" : role.key === "failed" ? "failed" : "quiet"}>{KEY_STATE[role.key]}</span>
-    {role.error && <span className="setup-error" role="alert">{role.error}</span>}
+    {role.error && <><span className="setup-error" role="alert">Key not accepted</span><FailureDetails detail={failureDetail(role.error)} /></>}
   </div>
 }
 
@@ -34,6 +36,7 @@ const titles = { address: "Address", app_manifest: "GitHub App", sign_in: "Sign 
 export function SetupView({ model, actions, onAction }: SetupViewProps) {
   const rows = []
   for (const [index, step] of model.steps.entries()) {
+    const { message: stepDiagnostic } = step.error ?? {}
     const own = actions.filter(action => action.args?.step === step.id && !(step.id === "models" && roleKeyAction(actions, action.args?.role ?? "") === action))
     const controls = <SetupActions actions={own} onAction={onAction} />
     rows.push(<li key={step.id} data-step={step.id} data-state={step.state}>
@@ -46,7 +49,7 @@ export function SetupView({ model, actions, onAction }: SetupViewProps) {
         {step.id === "models" && <div className="setup-models">{model.models.map(role => <ModelRole key={role.role} role={role} chatgpt={model.chatgpt} action={roleKeyAction(actions, role.role)} onAction={onAction} />)}</div>}
         {(step.id === "source" || step.id === "machine") && <><span className="setup-muted">{step.state === "done" ? `${titles[step.id]} ready` : step.state === "pending" ? "Waiting" : step.state === "running" ? `${step.pct ?? 0}%` : null}</span>{step.pct !== undefined && <progress max={100} value={step.pct} aria-label={titles[step.id]} />}</>}
         {step.blocked && <a className="setup-blocked" data-tone="attention" href={step.blocked.fix_url} target="_blank" rel="noreferrer">{step.blocked.line}</a>}
-        {step.error && <span className="setup-error" role="alert">{step.error.message}</span>}
+        {step.error && <><span className="setup-error" role="alert">{step.error.class}</span><FailureDetails detail={failureDetail(stepDiagnostic)} /></>}
         {step.state === "done" && own.length > 0 ? <details className="setup-change"><summary>Change</summary>{controls}</details> : controls}
       </div>
     </li>)
