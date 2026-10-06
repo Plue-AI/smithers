@@ -2,8 +2,8 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
-import type { CardPayload } from "@smthrs/rpc/Cards"
-type RepositoryChoicePayload = CardPayload<"repository-choice">
+import type { CardOf } from "./CardFamily"
+type RepositoryChoicePayload = CardOf<"repository-choice">["payload"]
 import { RepositoryChoiceCard, SEARCH_LIMIT } from "./RepositoryChoiceCard"
 
 GlobalRegistrator.register()

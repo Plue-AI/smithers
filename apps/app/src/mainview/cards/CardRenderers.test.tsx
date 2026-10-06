@@ -328,7 +328,7 @@ test("legacy File and Diff render with live controls dark", async () => {
 
 
 test("deferred repository choices retain their payload without a member renderer", () => {
-  const payload = { cutoff: "2026-10-06T00:00:00Z", partial: false, error: null,
+  const payload: CardOf<"repository-choice">["payload"] = { cutoff: "2026-10-06T00:00:00Z", partial: false, error: null,
     selected: "owner/repo", created: null, repositories: [{ fullName: "owner/repo",
       count: 1, latest: null, coverage: "default-branch", error: null }] }
   const card = CardSchema.parse({ ...base, kind: "repository-choice", status: "active", payload })

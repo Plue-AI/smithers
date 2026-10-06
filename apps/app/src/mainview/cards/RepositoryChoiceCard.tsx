@@ -1,9 +1,8 @@
 import { Button, Input } from "@smthrs/ui"
 import { useState } from "react"
 import { flowAction } from "../flows/FlowAction"
-import type { RunCommand } from "./CardFamily"
-import type { CardPayload } from "@smthrs/rpc/Cards"
-type RepositoryChoicePayload = CardPayload<"repository-choice">
+import type { RunCommand, CardOf } from "./CardFamily"
+type RepositoryChoicePayload = CardOf<"repository-choice">["payload"]
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import "./RepositoryChoiceCard.css"
