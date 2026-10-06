@@ -53,6 +53,28 @@ var todoControls = map[string]func(*MythicalService, context.Context, int64, Tod
 	"takeover":           (*MythicalService).takeoverTodo,
 }
 
+// TodoControlCommand resolves the concrete body operation before authorization.
+func TodoControlCommand(op string) (string, bool) {
+	switch op {
+	case "":
+		return "todo.steer", true
+	case "retry", "retry-current-flow":
+		return "todo.retry", true
+	case "drop":
+		return "todo.drop", true
+	case "move":
+		return "stack.move", true
+	case "takeover":
+		return "todo.takeover", true
+	case "stop":
+		return "todo.stop", true
+	case "resume":
+		return "todo.resume", true
+	default:
+		return "", false
+	}
+}
+
 // TodoControlError uses the install command error envelope (§6.2.3).
 // Legacy repository API errors retain their existing wire format.
 type TodoControlError struct {
@@ -169,6 +191,18 @@ func (s *MythicalService) ControlTodo(ctx context.Context, number int64, input T
 	if err := input.validate(); err != nil {
 		return TodoControlReceipt{}, err
 	}
+	if s == nil || s.store == nil {
+		return TodoControlReceipt{}, todoControlUnavailable()
+	}
+	command, known := TodoControlCommand(input.Op)
+	if !known {
+		return TodoControlReceipt{}, todoControlUnavailable()
+	}
+	decision, err := Authorize(ctx, s.queries(), command)
+	if err != nil {
+		return TodoControlReceipt{}, err
+	}
+	ctx = WithInstallAuthorization(ctx, command, decision)
 	control := todoControls[input.Op]
 	if control == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
@@ -241,9 +275,16 @@ func lockTodoRequest(ctx context.Context, tx pgx.Tx, q *db.Queries, command stri
 	if _, err = tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repository); err != nil {
 		return db.User{}, "", err
 	}
-	if _, err = Authorize(ctx, q, command); err != nil {
+	// The command decision stays bound across an ordinary role change, but
+	// removal or suspension never authorizes disclosure or a write.
+	role, err := InstallRoleOf(ctx, q, auth.UserID)
+	if err != nil {
 		return db.User{}, "", err
 	}
+	if role == "" {
+		return db.User{}, "", &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not a member"}
+	}
+
 	person, err := q.GetUserByID(ctx, auth.UserID)
 	return person, credential, err
 }

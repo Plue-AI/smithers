@@ -249,10 +249,6 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"state": "accepted"})
 }
 
-// todoControlCommands is each TODO control's command (§6.15: members steer,
-// stop, resume, retry, drop and move TODOs). A steer has no op.
-var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop", "resume": "todo.resume", "retry": "todo.retry", "retry-current-flow": "todo.retry", "drop": "todo.drop", "takeover": "todo.takeover", "move": "stack.move"}
-
 // Control is POST /api/todos/{n}: steer the coding agent, or stop, resume,
 // retry (with an optional steer), drop or move (with a direction, up or down)
 // the TODO. The app sends a steer as {"op":"steer","text":...}; the service's
@@ -438,7 +434,7 @@ func DecodeTodoControl(reader io.Reader) (services.TodoControlInput, string, err
 	case body.Text != nil || body.Op == "steer":
 		return services.TodoControlInput{}, "", invalid
 	}
-	command, known := todoControlCommands[input.Op]
+	command, known := services.TodoControlCommand(input.Op)
 	if !known {
 		return services.TodoControlInput{}, "", &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Unknown TODO control"}
 	}

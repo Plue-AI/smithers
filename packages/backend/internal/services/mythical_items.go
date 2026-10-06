@@ -4340,7 +4340,7 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 		}
 		next := item
 		if item.Source == "issue" && mythicalReviewHeld(item) {
-			if err := middleware.RequirePerson(ctx, "retry the review of a TODO"); err != nil {
+			if err := requireTodoRetryAuthority(ctx, "retry the review of a TODO"); err != nil {
 				return MythicalItemView{}, err
 			}
 			next = mythicalRetryReview(item)
@@ -4371,13 +4371,23 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 // decides it. The attempt number keeps counting, so the next launch is a new
 // attempt and every earlier attempt's evidence stays its own (spec §4.1);
 // the attempt bound counts from here (AttemptBase).
+// Install retries consume the already resolved command decision. The legacy
+// repository path retains its person-only typed-stop rule.
+func requireTodoRetryAuthority(ctx context.Context, action string) error {
+	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok && (bound.command == "todo.retry" || bound.command == "todo.steer") {
+		_, err := Authorize(ctx, nil, bound.command)
+		return err
+	}
+	return middleware.RequirePerson(ctx, action)
+}
+
 func mythicalRetried(ctx context.Context, item db.MythicalItem) (db.MythicalItem, error) {
 	if item.State != "blocked" && item.State != "rejected" && item.State != "declined" {
 		return db.MythicalItem{}, pkgerrors.Conflict("only a blocked, rejected or declined item, or a TODO held on its review, is retried")
 	}
 	person := item.State != "blocked" || mythicalChecksOf(item).Fault != nil
 	if person {
-		if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {
+		if err := requireTodoRetryAuthority(ctx, "retry a "+item.State+" item"); err != nil {
 			return db.MythicalItem{}, err
 		}
 	}

@@ -118,6 +118,23 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 		status, repeated = call(i, false, "/api/todos", key, payload)
 		require.Equal(t, 202, status, repeated)
 		require.Equal(t, "approved", repeated["state"])
+		// A catalog-authorized full delegated member lifts a typed stop;
+		// no later person-only helper may replace the bound retry decision.
+		var n int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT max(number) FROM mythical_items`).Scan(&n))
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked', checks=jsonb_set(checks,'{fault}','{"class":"factory","tag":"defect"}'::jsonb) WHERE number=$1`, n)
+		require.NoError(t, err)
+		path := fmt.Sprintf("/api/todos/%d", n)
+		status, retry := call(i, false, path, "retry-"+users[i].Username, `{"op":"retry","steer":"Use the shared helper"}`)
+		require.Equal(t, 202, status, retry)
+		require.Equal(t, "accepted", retry["state"])
+		status, again := call(i, false, path, "retry-"+users[i].Username, `{"op":"retry","steer":"Use the shared helper"}`)
+		require.Equal(t, 202, status, again)
+		require.Equal(t, retry, again)
+		var state string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM mythical_items WHERE number=$1`, n).Scan(&state))
+		require.Equal(t, "queued", state)
+
 	}
 	// The body-bound Make TODO command has its own catalog id. Its missing
 	// snapshot consumer must not silently file an ordinary TODO instead.
