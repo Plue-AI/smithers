@@ -442,3 +442,126 @@ func TestInstallMainRetryWithMissingCheckReviewOwners(t *testing.T) {
 	main.Sweep(t.Context())
 	require.NoError(t, main.PollOnce(t.Context()), "missing owners cannot reject the independently admitted main worker")
 }
+
+func TestInstallSyncRefHealthAndPauseSurviveRestart(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := db.New(pool)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	codec, err := webhook.NewSecretCodec("polling-key")
+	require.NoError(t, err)
+	credentials := services.NewGitHubAppCredentialStore(pool, codec)
+	require.NoError(t, credentials.Save(t.Context(), services.GitHubAppCredentials{ID: 710, Slug: "polling", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "hook", InstallationID: 91, PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}))
+	assembled, err := composeGitHubSync(pool, credentials, nil, topology{}, newGitHubBudget(topology{}))
+	require.NoError(t, err)
+	tokens := &pausedMainTokens{retryAt: time.Now().UTC().Add(time.Hour)}
+	main := services.NewGitHubMainPullService(q, nil, tokens, nil)
+	main.UseInstallPolicy()
+	stack := services.NewMythicalService(pool, nil)
+	composeGitHubTodoPolling(stack, main, assembled.synced, topology{})
+	composeGitHubInstallAuthority(assembled.synced, credentials, true)
+	_, err = assembled.synced.EnrollGitHubRepo(t.Context(), services.EnrollGitHubRepoInput{Owner: "acme", Repo: "app", InstallationID: 91, GitHubRepositoryID: 100, MetadataOnly: true})
+	require.NoError(t, err)
+	user, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "poll-owner", LowerUsername: "poll-owner"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `UPDATE repositories SET mirror_destination='acme/app' WHERE id=$1`, repo.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES($1)`, user.ID)
+	require.NoError(t, err)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Server.PublicURL = "http://example.com"
+	cfg.Server.AllowedOrigins = []string{"http://example.com"}
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: main})
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		request := httptest.NewRequest(method, "/api/github/sync", nil)
+		request.Header.Set("Origin", "http://example.com")
+		request.Header.Set("X-CSRF-Token", "poll-csrf")
+		request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "poll-csrf"})
+		request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &user, SessionHash: "poll-session"}))
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		expected := 200
+		if method == http.MethodPost {
+			expected = 202
+		}
+		require.Equal(t, expected, response.Code, response.Body.String())
+		if method == http.MethodGet {
+			require.Contains(t, response.Body.String(), `"state":"stale"`)
+		}
+	}
+
+	require.NoError(t, main.PollOnce(t.Context()))
+	require.Equal(t, 1, tokens.calls)
+	row, err := q.GetGithubMainPull(t.Context(), repo.ID)
+	require.NoError(t, err)
+	require.True(t, row.RetryAt.Valid)
+	require.WithinDuration(t, tokens.retryAt, row.RetryAt.Time, time.Microsecond)
+	// Construct new production services over the same persisted receipt.
+	restarted := services.NewGitHubMainPullService(q, nil, tokens, nil)
+	restarted.UseInstallPolicy()
+	composeGitHubTodoPolling(stack, restarted, assembled.synced, topology{})
+	router = githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: restarted})
+	for range 3 {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			request := httptest.NewRequest(method, "/api/github/sync", nil)
+			request.Header.Set("Origin", "http://example.com")
+			request.Header.Set("X-CSRF-Token", "poll-csrf")
+			request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "poll-csrf"})
+			request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &user, SessionHash: "poll-session"}))
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if method == http.MethodGet {
+				require.Equal(t, 200, response.Code, response.Body.String())
+				require.Contains(t, response.Body.String(), `"state":"limited"`)
+				require.Contains(t, response.Body.String(), `"retry_at":`)
+			} else {
+				require.Equal(t, 202, response.Code, response.Body.String())
+			}
+		}
+		restarted.Sweep(t.Context())
+		require.NoError(t, restarted.PollOnce(t.Context()))
+	}
+	require.Equal(t, 1, tokens.calls, "repeated served Retry cannot shorten the persisted pause")
+	claims, err := q.ClaimGithubMainPulls(t.Context(), 1, 900)
+	require.NoError(t, err)
+	require.Empty(t, claims)
+	for _, cause := range []string{"permission", "not_installed"} {
+		tokens.cause = cause
+		_, err = pool.Exec(t.Context(), `UPDATE github_main_pulls SET retry_at=NULL,next_attempt_at=clock_timestamp()-interval '1 second' WHERE repository_id=$1`, repo.ID)
+		require.NoError(t, err)
+		require.NoError(t, restarted.PollOnce(t.Context()))
+		recovered := services.NewGitHubMainPullService(q, nil, tokens, nil)
+		recovered.UseInstallPolicy()
+		composeGitHubTodoPolling(stack, recovered, assembled.synced, topology{})
+		served := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: recovered})
+		request := httptest.NewRequest(http.MethodGet, "/api/github/sync", nil)
+		request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &user, SessionHash: "poll-session"}))
+		response := httptest.NewRecorder()
+		served.ServeHTTP(response, request)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		require.Contains(t, response.Body.String(), `"state":"refused"`)
+		require.Contains(t, response.Body.String(), `"cause":"`+cause+`"`)
+	}
+}
+
+type pausedMainTokens struct {
+	cause   string
+	retryAt time.Time
+	calls   int
+}
+
+func (p *pausedMainTokens) CreateGitHubInstallationTokenForRepositoryOwner(context.Context, int64, int64, string, string, map[string]string) (services.GitHubInstallationToken, error) {
+	p.calls++
+	if p.cause == "permission" {
+		return services.GitHubInstallationToken{}, services.GitHubResponseFailure(403, http.Header{}, time.Now())
+	}
+	if p.cause == "not_installed" {
+		return services.GitHubInstallationToken{}, pkgerrors.New(pkgerrors.CodeGitHubNotInstalled, "GitHub App is not installed")
+	}
+	fault := pkgerrors.New(pkgerrors.CodeGitHubRateLimited, "GitHub rate limited")
+	fault.RetryAt = &p.retryAt
+	return services.GitHubInstallationToken{}, fault
+}

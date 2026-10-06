@@ -183,6 +183,7 @@ func (f *fakeMainPullStore) FinishGithubMainPull(_ context.Context, arg db.Finis
 		row.SmithersHead = arg.SmithersHead
 	}
 	row.LastError = arg.Error
+	row.HealthCause, row.RetryAt = arg.HealthCause, arg.RetryAt
 	if arg.ResetPolicy {
 		row.FactoryState, row.FactoryError = "", ""
 	} else if arg.FactoryState != "" {

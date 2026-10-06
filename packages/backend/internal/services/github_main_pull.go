@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
@@ -116,9 +117,7 @@ type GitHubMainPullService struct {
 	refReadAdmission interface {
 		prepareRefRead(context.Context, db.GithubMainPull) (gitHubRefReadCommit, error)
 	}
-	wake        chan struct{}
-	refHealthMu sync.Mutex
-	refHealth   map[int64]gitHubMainPullHealthObservation
+	wake chan struct{}
 
 	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
 	readFactory      func(context.Context, string, string, string, string) ([]byte, error)
@@ -424,13 +423,12 @@ func (s *GitHubMainPullService) runClaimed(parent context.Context, row db.Github
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()
 	written, err := s.store.FinishGithubMainPull(finishCtx, db.FinishGithubMainPullParams{
-		RepositoryID: row.RepositoryID, Claim: row.Claim, State: outcome.state, GithubRepository: outcome.githubRepository,
-		Branch: outcome.branch, Policy: outcome.policy, PolicyCommit: outcome.policyCommit, GithubHead: outcome.githubHead,
+		RepositoryID: row.RepositoryID, Claim: row.Claim, State: outcome.state,
+		HealthCause: outcome.faultCause, RetryAt: pgtype.Timestamptz{Time: outcome.retryAt, Valid: !outcome.retryAt.IsZero()},
+		GithubRepository: outcome.githubRepository,
+		Branch:           outcome.branch, Policy: outcome.policy, PolicyCommit: outcome.policyCommit, GithubHead: outcome.githubHead,
 		SmithersHead: outcome.smithersHead, Error: outcome.err, FactoryState: outcome.factoryState, FactoryError: outcome.factoryError, BackoffSeconds: backoff.Seconds(), ResetPolicy: outcome.resetPolicy,
 	})
-	if s.install && err == nil && written > 0 {
-		s.recordRefHealth(finishCtx, row, outcome)
-	}
 	switch {
 	case err != nil:
 		s.logger.Error("github.main_pull.finish_failed", "repository_id", row.RepositoryID, "error", err)

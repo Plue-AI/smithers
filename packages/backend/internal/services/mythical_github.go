@@ -138,6 +138,26 @@ type MythicalGitHubStore interface {
 // and opening or reading its pull requests.
 var mythicalGitHubAPIPermissions = map[string]string{"contents": "read", "issues": "read", "pull_requests": "write"}
 
+// ResolvePullRead uses the same repository binding and scoped token minter as
+// the stack, without acquiring its publication or git-push authority.
+func (g *mythicalGitHubAPI) ResolvePullRead(ctx context.Context, repository db.Repository, owner string, actorUserID int64) (mythicalGitHubRepo, error) {
+	if g == nil || g.store == nil || g.tokens == nil {
+		return mythicalGitHubRepo{}, errors.New("GitHub read authority is unavailable")
+	}
+	ghOwner, ghRepo, err := resolveGitHubDestination(ctx, g.store, g.connections, actorUserID, repository.ID, owner, repository.Name)
+	if err != nil {
+		return mythicalGitHubRepo{}, err
+	}
+	token, err := g.tokens.CreateGitHubInstallationTokenForRepositoryOwner(ctx, repository.UserID.Int64, repository.OrgID.Int64, ghOwner, ghRepo, map[string]string{"pull_requests": "read"})
+	if err != nil {
+		return mythicalGitHubRepo{}, err
+	}
+	if strings.TrimSpace(token.Token) == "" {
+		return mythicalGitHubRepo{}, errors.New("GitHub read authority is unavailable")
+	}
+	return mythicalGitHubRepo{Owner: ghOwner, Name: ghRepo, Token: token.Token, userID: repository.UserID.Int64, orgID: repository.OrgID.Int64}, nil
+}
+
 type mythicalGitHubAPI struct {
 	credentials GitHubAppCredentialReader
 	api         *landingGitHubAPI

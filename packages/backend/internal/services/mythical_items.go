@@ -1726,6 +1726,11 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 		launched.Fault, item.Reason = nil, ""
 	}
 	item.Checks = launched.encode()
+	if flowID == flowdispatch.TodoFlow {
+		// The attempt exists as soon as its launch commits, even if the host
+		// never responds. Runtime projection fills in the real run id later.
+		item = retainTodoAttemptEvidence(item)
+	}
 	saved, err := db.New(tx).SaveMythicalItem(ctx, item)
 	if err != nil {
 		return db.MythicalItem{}, err

@@ -70,7 +70,17 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 	if s.github == nil {
 		return ReviewAdmission{}, reviewUnavailable("github_unavailable")
 	}
-	gh, err := s.stackGitHub(ctx, repositoryID)
+	reader, ok := s.github.(interface {
+		ResolvePullRead(context.Context, db.Repository, string, int64) (mythicalGitHubRepo, error)
+	})
+	if !ok {
+		return ReviewAdmission{}, reviewUnavailable("github_unavailable")
+	}
+	repository, owner, err := s.repository(ctx, repositoryID)
+	if err != nil {
+		return ReviewAdmission{}, reviewUnavailable("repository_unavailable")
+	}
+	gh, err := reader.ResolvePullRead(ctx, repository, owner, requesterID)
 	if err != nil {
 		return ReviewAdmission{}, reviewUnavailable("github_unavailable")
 	}

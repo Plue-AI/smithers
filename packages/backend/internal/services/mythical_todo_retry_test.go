@@ -97,12 +97,24 @@ func TestTodoRetryStartsTheNextAttemptWithItsSteer(t *testing.T) {
 	launches = o.launcher.byFlow("todo")
 	require.Len(t, launches, 2, "one press, one attempt")
 	second := launches[1]
+	admitted := mythicalChecksOf(o.byID(id)).Attempts
+	require.Len(t, admitted, 2, "retry admission records both attempts before attachment")
+	require.Equal(t, int32(1), admitted[0].Attempt)
+	require.Equal(t, "todo-run-1", admitted[0].RunID)
+	require.Equal(t, int32(2), admitted[1].Attempt)
+	require.Empty(t, admitted[1].RunID, "attempt 2 never borrows attempt 1's run")
+	require.Equal(t, todoPinOne, admitted[1].FlowDigest)
 	require.Equal(t, "mythical:"+id+":2:todo:2", second.RequestID)
 	payload := decodeJSON(t, second.Payload)
 	require.Equal(t, steer, payload["feedback"])
 	require.Equal(t, decodeJSON(t, launches[0].Payload)["prompt"], payload["prompt"])
 	require.NotContains(t, decodeJSON(t, launches[0].Payload), "feedback", "attempt 1 had no steer")
 	o.projectTodo(second, jobs.StateWaiting, "todo-run-2", todoPinOne, "")
+	attached := mythicalChecksOf(o.byID(id)).Attempts
+	require.Len(t, attached, 2)
+	require.Equal(t, admitted[0], attached[0])
+	require.Equal(t, "todo-run-2", attached[1].RunID)
+
 	card = o.todoCard(n)
 	require.Equal(t, "working", card["state"])
 	require.Equal(t, map[string]any{"id": "todo-run-2", "attempt": float64(2), "indicators": []any{}}, card["run"])

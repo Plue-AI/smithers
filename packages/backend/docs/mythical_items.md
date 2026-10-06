@@ -165,6 +165,10 @@ the new launch; nothing is sent to the closed run. Replays do not create another
 attempt, and late checkpoints from the dropped run cannot replace the restored
 candidate. A Steer held behind a merge fence waits for reconciliation.
 
+Admission records the new attempt and its flow pin in `checks.attempts` in the
+same transaction as its durable launch. Its run id remains empty until the
+runtime binds a run; a failed admission leaves no attempt snapshot.
+
 Settlement records the attempt’s run, flow pin, source, candidate generation and
 `merged` or `dropped` outcome in `checks.attempts` with the item mutation. That
 snapshot stays frozen across late runtime receipts, reopen and retry. Older

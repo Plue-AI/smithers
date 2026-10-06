@@ -68,57 +68,18 @@ func (g gitHubMainPullStreams) RequiredStreams(ctx context.Context) ([]GitHubSyn
 	return streams, nil
 }
 
-// Only health metadata lives here; the durable pull row remains the receipt.
-// Bind the observation to that exact completed read so an old worker cannot
-// publish a refusal over a later success or a changed repository binding.
-type gitHubMainPullHealthObservation struct {
-	claim                                    int64
-	checkedAt                                time.Time
-	githubRepository, branch, message, cause string
-	retryAt                                  time.Time
-}
-
-func (s *GitHubMainPullService) recordRefHealth(ctx context.Context, claimed db.GithubMainPull, outcome gitHubMainPullOutcome) {
-	row, err := s.store.GetGithubMainPull(ctx, claimed.RepositoryID)
-	if err != nil || row.Claim != claimed.Claim || row.LeaseExpiresAt.Valid || !row.LastCheckedAt.Valid || row.LastError != outcome.err {
-		return
-	}
-	s.refHealthMu.Lock()
-	defer s.refHealthMu.Unlock()
-	if s.refHealth == nil {
-		s.refHealth = make(map[int64]gitHubMainPullHealthObservation)
-	}
-	old, exists := s.refHealth[row.RepositoryID]
-	if exists && old.claim > row.Claim {
-		return
-	}
-	s.refHealth[row.RepositoryID] = gitHubMainPullHealthObservation{
-		claim: row.Claim, checkedAt: row.LastCheckedAt.Time, githubRepository: row.GithubRepository, branch: row.Branch,
-		message: row.LastError, cause: outcome.faultCause, retryAt: outcome.retryAt,
-	}
-}
-
+// Ref health is committed under the same claim as the read receipt. A new
+// service can recover refusals and pauses without contacting GitHub.
 func (s *GitHubMainPullService) refHealthStream(row db.GithubMainPull) GitHubSyncStream {
 	var stream GitHubSyncStream
 	if row.LastSyncedAt.Valid {
 		at := row.LastSyncedAt.Time
 		stream.LastSuccessAt = &at
 	}
-	s.refHealthMu.Lock()
-	observed, exists := s.refHealth[row.RepositoryID]
-	s.refHealthMu.Unlock()
-	if exists && row.LastCheckedAt.Valid && observed.checkedAt.Equal(row.LastCheckedAt.Time) &&
-		observed.githubRepository == row.GithubRepository && observed.branch == row.Branch && observed.message == row.LastError {
-		stream.Cause = observed.cause
-		if !observed.retryAt.IsZero() {
-			at := observed.retryAt
-			stream.RetryAt = &at
-		}
-	} else if row.LastError != "" {
-		// Health is intentionally in memory. After restart, or when another
-		// worker completed this row, an unclassified failure must be reread
-		// before a previous success can qualify the stream as fresh.
-		stream.LastSuccessAt = nil
+	stream.Cause = row.HealthCause
+	if row.RetryAt.Valid {
+		at := row.RetryAt.Time
+		stream.RetryAt = &at
 	}
 	return stream
 }

@@ -72,7 +72,11 @@ func TestInstallReviewPinsMemberPRBeforeDispatch(t *testing.T) {
 	require.Equal(t, f.userID, ownerAdmission.AuthorID)
 	require.Equal(t, strings.Repeat("e", 40), ownerAdmission.Pin.SourceCommit)
 	require.Equal(t, strings.Repeat("f", 64), ownerAdmission.Pin.ExecutionDigest)
-	require.Len(t, f.fake.Writes(), writes, "review admission makes no GitHub writes")
+	// Token minting is an App control-plane write, never a repository write.
+	newWrites := f.fake.Writes()[writes:]
+	require.Len(t, newWrites, 1)
+	require.Equal(t, fmt.Sprintf("/app/installations/%d/access_tokens", f.installation), newWrites[0].Path)
+	require.JSONEq(t, `{"repository_ids":[100],"permissions":{"pull_requests":"read"}}`, string(newWrites[0].Body))
 	var machines int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, f.repoID).Scan(&machines))
 	require.Zero(t, machines)

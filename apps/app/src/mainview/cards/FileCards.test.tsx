@@ -363,3 +363,50 @@ test("outside_change metadata projects and clears without replacing live text", 
     expect(provider.doc.getText("content").toString()).toBe("Alice's live edit")
   } finally { provider.dispose() }
 })
+
+test("production file command and mounted document share one branch-files projection", async () => {
+  const { LiveChannel } = await import("../runtime/LiveChannel")
+  const { ControllerContext } = await import("../ControllerContext")
+  const sent: string[] = []
+  const socket: import("../runtime/LiveChannel").LiveSocket = {
+    readyState: 0, onopen: null, onclose: null, onmessage: null,
+    send: data => { if (typeof data === "string") sent.push(data) }, close() {}
+  }
+  const channel = new LiveChannel({ documentFrames: true, socket: () => socket })
+  const model: import("@smthrs/rpc/FileCard").FileCard = {
+    branch: "T12", path: "retry.ts", language: "typescript", digest: "literal-digest",
+    content: { kind: "text", text: "const retry = 1" }, mode: "read_only", diagnostics: [], authors: [], editors: []
+  }
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, {
+    available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {}
+  }, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    live: channel, documentOptions: { channel, prerequisites: { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true } },
+    branchOptions: { ready: () => true, scope: () => ({ branch: "T12", member: "ben", revision: 1, sleeping: false }) },
+    fetchImpl: async () => new Response(JSON.stringify(model))
+  })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  mounted.push({ root, host, dispose: async () => { await controller.dispose(); channel.dispose() } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  expect((await controller.commands.submit({ name: "file", payload: { path: "retry.ts", branch: "T12" }, actor: "user" })).status).toBe("executed")
+  const card = [...store.collections.cards.values()].find(card => card.kind === "file" && card.payload.path === "retry.ts")!
+  const actions: CardActions = {
+    onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {},
+    worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {}
+  }
+  flushSync(() => root.render(<ControllerContext value={controller}>{renderCardBody(card, actions)}</ControllerContext>))
+  await loaded(host)
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  const provider = controller.fileDocuments!.resolve("T12", "retry.ts", model)!.provider
+  socket.readyState = 1; socket.onopen!()
+  const subscription = sent.map(frame => JSON.parse(frame)).find(frame => frame.topic === "branch:T12:files")
+  expect(subscription).toBeDefined()
+  socket.onmessage!({ data: JSON.stringify({ t: "snap", id: subscription.id, cursor: 1, data: [model] }) })
+  socket.onmessage!({ data: JSON.stringify({ t: "delta", id: subscription.id, cursor: 2, data: { path: "retry.ts", outside_change: { version: "outside-1", at: "2026-10-06T00:00:00Z" } } }) })
+  expect(provider.file?.outside).toEqual({ version: "outside-1", at: "2026-10-06T00:00:00Z" })
+  socket.onmessage!({ data: JSON.stringify({ t: "delta", id: subscription.id, cursor: 3, data: { path: "retry.ts" } }) })
+  expect(provider.file?.outside).toBeUndefined()
+  expect(host.textContent).not.toContain("Saved to the machine")
+})
