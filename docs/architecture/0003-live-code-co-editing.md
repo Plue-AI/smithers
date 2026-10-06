@@ -57,3 +57,43 @@ The probe injects only these scheduling boundaries around real `renameat2` calls
 it does not replace the file operations or expected bytes. A corrected provider
 must pass both cases in addition to fresh/retained-machine privilege and startup
 qualification. The production command and coding-tool write gates stay closed.
+
+### Repair requirements, still unqualified
+
+Engineering spec §9.4.1 prescribes the same exchange-and-rollback sequence.
+The outside-save-during-rollback counterexample therefore identifies a spec
+algorithm defect as well as an implementation defect: the sequence does not
+establish the promised stale-write guarantee. T-COL-10 (#3508) tracks the
+correction; this ADR does not silently weaken the product contract or amend
+the frozen ticket's prescribed implementation.
+
+An exchange-based repair must exclude outside writers throughout comparison,
+mutation and any rollback, including writers that can move an opened ancestor.
+A lock used only by Smithers file tools cannot establish that exclusion. The existing rewrite
+protocol in §9.4.2 is a candidate to extend, subject to qualification:
+
+- Every unprivileged working-copy writer must enter the managed process tree
+  before accessing repository bytes. The current guest `exec` path enters its
+  command cgroup; the `fs` and setup helpers do not. Host-initiated helpers must
+  serialize with the same transaction, and concurrent launches must remain
+  stopped until it finishes.
+- The mutation worker must remain outside the stopped tree and drop credentials
+  before consuming branch inputs. The current `drop_to` retains the team
+  supplementary group; it does not meet T-COL-10's no-supplementary-groups
+  qualification requirement for that worker.
+- A whole patch needs one bounded guest transaction. The current coding host
+  executes several filesystem calls, so stopping that host between calls would
+  prevent it from finishing the transaction. Reuse its existing read ledger,
+  patch semantics and errors; do not introduce a second public write protocol.
+- Failure, cancellation and restart must preserve the exclusion until a partial
+  mutation is recovered. Thawing before rollback would reintroduce the known
+  lost-update race. Outstanding kernel I/O also needs qualification on the
+  actual guest kernel and working-copy filesystem.
+
+The supplemental probe in
+`packages/backend/microsandbox/testdata/compare_write_freezer/` checks queued
+io_uring poll-and-write requests in ordinary and SQPOLL modes, with a thaw
+positive control. Both stayed paused on the supplemental Linux host; this is
+limited feasibility evidence, not guest qualification. T-SEC-01 fresh and
+retained-machine receipts, C-COL-01's production HTTP and coding-tool tests,
+and the named security owner's approval remain required before enablement.
