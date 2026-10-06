@@ -234,7 +234,9 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	// Multi-turn provider-removal rehearsals retain one install and native store
+	// across outages and restoration. Bound the fixture lifetime, not each turn.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
 	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	local := &localChat{ctx: ctx, pool: pool, logs: &lockedBuffer{}, client: &http.Client{Timeout: 60 * time.Second}}

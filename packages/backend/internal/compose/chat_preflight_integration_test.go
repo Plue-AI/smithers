@@ -347,6 +347,123 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 		require.Equal(t, 1, machines, "snapshot reads must not create another machine")
 	}
 
+	// Remove the real providers underneath the same admitted route. Each fault
+	// is isolated to this fixture database; no recording replacement can grant
+	// a successful history read or journal write. Keep source and model endpoint
+	// real as above, and restore before the next case.
+	for _, fault := range []string{"shared-history", "durable-step", "durable-selection", "model-access", "model-routing"} {
+		t.Run("provider-"+fault, func(t *testing.T) {
+			execute := func(sql string) {
+				t.Helper()
+				_, err := local.pool.Exec(local.ctx, sql)
+				require.NoError(t, err)
+			}
+			var restore func()
+			switch fault {
+			case "shared-history":
+				execute(`UPDATE chat_turn_batches SET canonical_bytes=canonical_bytes+1 WHERE turn_id=(SELECT id FROM chat_turns WHERE run_id='shared-history-000')`)
+				restore = func() {
+					execute(`UPDATE chat_turn_batches SET canonical_bytes=canonical_bytes-1 WHERE turn_id=(SELECT id FROM chat_turns WHERE run_id='shared-history-000')`)
+				}
+			case "durable-step", "durable-selection":
+				phase := "started"
+				if fault == "durable-selection" {
+					phase = "completed"
+				}
+				execute(fmt.Sprintf(`CREATE FUNCTION refuse_preflight_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+				  IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.frames) f WHERE f->>'type'='context.preflight' AND f->>'phase'='%s') THEN
+				    RAISE EXCEPTION 'preflight journal unavailable'; END IF; RETURN NEW; END $$;
+				  CREATE TRIGGER refuse_preflight_write BEFORE INSERT ON chat_turn_batches FOR EACH ROW EXECUTE FUNCTION refuse_preflight_write()`, phase))
+				restore = func() {
+					execute(`DROP TRIGGER refuse_preflight_write ON chat_turn_batches; DROP FUNCTION refuse_preflight_write()`)
+				}
+			case "model-access":
+				execute(`CREATE TABLE saved_preflight_access AS SELECT * FROM owner_model_credentials WHERE name='ANSWER_KEY'; DELETE FROM owner_model_credentials WHERE name='ANSWER_KEY'`)
+				restore = func() {
+					execute(`INSERT INTO owner_model_credentials SELECT * FROM saved_preflight_access; DROP TABLE saved_preflight_access`)
+				}
+			case "model-routing":
+				execute(`CREATE TABLE saved_preflight_roles AS SELECT * FROM install_settings WHERE key IN ('agent:app','agent:fast','agent:coding');
+				  CREATE TABLE saved_preflight_defaults AS SELECT * FROM owner_model_defaults;
+				  DELETE FROM install_settings WHERE key IN ('agent:app','agent:fast','agent:coding'); DELETE FROM owner_model_defaults`)
+				restore = func() {
+					execute(`INSERT INTO install_settings SELECT * FROM saved_preflight_roles; INSERT INTO owner_model_defaults SELECT * FROM saved_preflight_defaults;
+				  DROP TABLE saved_preflight_roles; DROP TABLE saved_preflight_defaults`)
+				}
+			}
+			restored := false
+			defer func() {
+				if !restored {
+					restore()
+				}
+			}()
+			prompt := func(key string) string {
+				t.Helper()
+				body, _ := json.Marshal(map[string]string{"prompt": "Where do we retry webhooks?", "idempotencyKey": key})
+				response, err := client.Post(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(string(body)))
+				require.NoError(t, err)
+				raw, err := io.ReadAll(response.Body)
+				response.Body.Close()
+				require.NoError(t, err)
+				require.Equal(t, http.StatusAccepted, response.StatusCode, string(raw))
+				var admitted struct {
+					TurnID string `json:"turnId"`
+				}
+				require.NoError(t, json.Unmarshal(raw, &admitted))
+				return admitted.TurnID
+			}
+			turnID := prompt("refuse-" + fault)
+			var terminal bool
+			var state string
+			require.Eventually(t, func() bool {
+				var released bool
+				err := local.pool.QueryRow(local.ctx, `SELECT terminal,state,coalesce(producer_generation>=1 AND producer_token_hash IS NULL AND producer_lease_expires_at>now(),false) FROM chat_turns WHERE id=$1`, turnID).Scan(&terminal, &state, &released)
+				return err == nil && (terminal || released)
+			}, 15*time.Second, 20*time.Millisecond, "provider failure did not reach a durable refusal: %s", local.logs.String())
+			require.NotEqual(t, "completed", state)
+			if fault == "durable-selection" {
+				require.True(t, terminal, "a selector that spent cannot be silently retried")
+				require.Len(t, calls, 1)
+				require.Equal(t, "coding", (<-calls).role)
+			} else {
+				require.Empty(t, calls, "missing provider must prevent selection and answer")
+			}
+			var answered, completed int
+			require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FILTER (WHERE f->>'type'='delta'), count(*) FILTER (WHERE f->>'type'='context.preflight' AND f->>'phase'='completed')
+			  FROM chat_turn_batches b CROSS JOIN LATERAL jsonb_array_elements(b.frames) f WHERE b.turn_id=$1`, turnID).Scan(&answered, &completed))
+			require.Zero(t, answered)
+			require.Zero(t, completed)
+			restore()
+			restored = true
+			// Pre-spend outages recover the admitted turn. Terminal credential or
+			// post-selector refusals require a new human prompt, never a rerun.
+			if terminal {
+				turnID = prompt("restored-" + fault)
+			}
+			require.Eventually(t, func() bool {
+				err := local.pool.QueryRow(local.ctx, `SELECT terminal,state FROM chat_turns WHERE id=$1`, turnID).Scan(&terminal, &state)
+				return err == nil && terminal
+			}, 20*time.Second, 20*time.Millisecond)
+			require.Equal(t, "completed", state, local.logs.String())
+			require.Len(t, calls, 2)
+			selection, answer := <-calls, <-calls
+			require.Equal(t, "coding", selection.role)
+			require.Equal(t, "answer", answer.role)
+			require.Contains(t, answer.body, "export const retries = 3")
+			require.NotContains(t, answer.body, "private-wiki-canary")
+			require.NotContains(t, answer.body, "canary-C")
+			shared, err := local.composition.runtime.Handler.Store.SharedEntries(local.ctx, chat.Scope{UserID: memberID, RepositoryID: local.repoID, Owner: "ben"}, "main")
+			require.NoError(t, err)
+			entry := shared.Entries[len(shared.Entries)-1]
+			require.Equal(t, turnID, entry.ID)
+			require.NotNil(t, entry.Context)
+			require.Len(t, *entry.Context, 1)
+			require.Contains(t, string((*entry.Context)[0]), `"ref":"src/webhooks/retry.ts"`)
+			require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, local.repoID).Scan(&machines))
+			require.Equal(t, 1, machines, "provider recovery must not admit a machine")
+		})
+	}
+
 }
 
 // Reuse the composed chat harness and create its real repository-store input.
