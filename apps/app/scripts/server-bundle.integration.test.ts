@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { constants, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 // This is a real release assembly, not a fixture that mocks compilers or tools.
@@ -133,6 +133,66 @@ for (const fault of [
     expect(processes.status).toBe(0)
     expect(processes.stdout).not.toContain(copy)
     expect(existsSync(join(home, "Library/Application Support/Smithers/postgres"))).toBe(false)
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+}, 180_000)
+
+// Doctor uses the packaged backend's production admission without opening the
+// launcher's fixed listeners. Faults modify a private copy of the real Mach-O,
+// never a shell stand-in, and no guest is booted from a modified artifact.
+boundary("packaged doctor refuses a real msb with an unqualified version", () => {
+  const temporary = mkdtempSync(join(homedir(), ".smithers-runtime-refusal-"))
+  try {
+    const copy = join(temporary, "bundle")
+    cpSync(bundle!, copy, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE })
+    const msb = join(copy, "bin/msb")
+    const entitlements = join(temporary, "entitlements.plist")
+    writeFileSync(entitlements, `<?xml version="1.0"?><plist version="1.0"><dict>
+      <key>com.apple.security.cs.disable-library-validation</key><true/>
+      <key>com.apple.security.hypervisor</key><true/>
+    </dict></plist>`)
+    {
+      const binary = readFileSync(msb)
+      const original = Buffer.from("0.6.16")
+      let replacements = 0
+      for (let offset = binary.indexOf(original); offset !== -1; offset = binary.indexOf(original, offset + original.length)) {
+        binary.write("0.6.15", offset, "ascii")
+        replacements++
+      }
+      expect(replacements).toBeGreaterThan(0)
+      writeFileSync(msb, binary)
+    }
+    const signed = spawnSync("/usr/bin/codesign", ["--force", "--sign", "-", "--options", "runtime", "--entitlements", entitlements, msb], { encoding: "utf8" })
+    expect(signed.status).toBe(0)
+    const version = spawnSync(msb, ["--version"], { encoding: "utf8", timeout: 5000 })
+    expect(version.error).toBeUndefined()
+    expect(version.status).toBe(0)
+    expect(version.stdout.trim()).toBe("msb 0.6.15")
+    // Declare the fault bytes so the refusal must reach version/host
+    // qualification; a hash mismatch would not prove either behavior.
+    const manifestPath = join(copy, "manifest.json")
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
+    const entry = manifest.files.find((file: { path: string }) => file.path === "bin/msb")
+    expect(entry).toBeDefined()
+    entry.sha256 = createHash("sha256").update(readFileSync(msb)).digest("hex")
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    const state = join(temporary, "state")
+    mkdirSync(state, { mode: 0o700 })
+    const result = spawnSync(join(copy, "bin/smithers-backend"), ["microvm", "doctor"], {
+      env: { HOME: homedir(), PATH: "/usr/bin:/bin", SMITHERS_DATA_ROOT: state, SMITHERS_MICROSANDBOX_BIN: msb },
+      encoding: "utf8", timeout: 30_000
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stdout).toContain("FAIL msb")
+    expect(result.stdout).toContain("msb 0.6.15 is installed; this backend is qualified with msb 0.6.16")
+    expect(result.stderr).toContain("microVM isolation is not ready")
+    expect(result.stdout).not.toContain('"setup_urls"')
+    expect(existsSync(join(state, "postgres"))).toBe(false)
+    const processes = spawnSync("/bin/ps", ["-axo", "pid=,comm="], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 })
+    expect(processes.status).toBe(0)
+    expect(processes.stdout).not.toContain(copy)
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }
