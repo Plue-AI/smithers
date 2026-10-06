@@ -28,6 +28,7 @@ export const InstallModelSchema = z.object({
     squash_allowed: z.boolean().optional(), app_error: z.string().optional() }),
   repository: z.object({ owner: z.string(), name: z.string() }).optional(),
   repositories: z.array(z.string()).optional(), models: z.array(role), chatgpt: z.boolean(),
+  todo_preapprove_default: z.boolean().optional(),
   todo_daily_admissions: z.number().int().positive().optional(),
   capacity: z.number().int().nonnegative(), parallel: z.number().int().min(1).max(8).optional(),
   wiki_sync: z.object({ obsidian: SettingsCardSchema.shape.obsidian }).optional(),
@@ -66,7 +67,7 @@ export const settingsCardModel = (model: InstallModel, origin: string): Settings
   return SettingsCardSchema.parse({ ...setup,
     address: { ...setup.address, origins_unencrypted: model.address.origins.filter(plainHttpOffLoopback), ...(refused ? { failed: { from: refused.from, to: refused.to,
       reason: { class: "user", message: refused.reason } } } : {}) },
-    todo_daily_admissions: model.todo_daily_admissions, callback_fixes: model.callback_fixes, capacity: model.capacity, parallel: model.parallel, health: model.health, obsidian: model.wiki_sync?.obsidian,
+    todo_preapprove_default: model.todo_preapprove_default, todo_daily_admissions: model.todo_daily_admissions, callback_fixes: model.callback_fixes, capacity: model.capacity, parallel: model.parallel, health: model.health, obsidian: model.wiki_sync?.obsidian,
     laptop_lines: model.address.origins.map(origin => `smthrs login ${origin}`),
     notifications_need_https: plainHttpOffLoopback(origin)
   })

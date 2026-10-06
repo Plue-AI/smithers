@@ -565,6 +565,7 @@ export interface AppController extends IssueFlowsController {
   readonly setInstallAddress: InstallSeam["setInstallAddress"]
   readonly setInstallCapacity: InstallSeam["setInstallCapacity"]
   readonly setInstallObsidian: InstallSeam["setInstallObsidian"]
+  readonly setInstallPreapproveDefault: InstallSeam["setInstallPreapproveDefault"]
   readonly setInstallDailyAdmissions: InstallSeam["setInstallDailyAdmissions"]
   readonly setInstallParallel: InstallSeam["setInstallParallel"]
   readonly saveInstallModelKey: InstallSeam["saveInstallModelKey"]
@@ -1888,6 +1889,7 @@ export const createAppController = (
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
     setInstallCapacity: capacity => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
     setInstallObsidian: installSeam.setInstallObsidian,
+    setInstallPreapproveDefault: value => installSeam.setInstallPreapproveDefault(value),
     setInstallDailyAdmissions: value => installSeam.setInstallDailyAdmissions(value),
     setInstallParallel: parallel => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
     saveInstallModelKey: installSeam.saveInstallModelKey,

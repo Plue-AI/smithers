@@ -4,6 +4,7 @@ export const CATALOG_TAGS = [
   "approval.approve",
   "approval.deny",
   "settings.address",
+  "settings.preapprove-default",
   "settings.daily-admissions",
   "settings.capacity",
   "settings.obsidian",

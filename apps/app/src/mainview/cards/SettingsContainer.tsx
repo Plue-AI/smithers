@@ -65,6 +65,8 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
     { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "1", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
       input: [{ name: "value", label: "Machines", kind: "text", required: true, value: String(model.capacity) }],
       resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) },
+    ...(model.todo_preapprove_default === undefined ? [] : [{ tag: "settings.preapprove-default" as const, label: "New TODOs start pre-approved", command_input: { todo_preapprove_default: model.todo_preapprove_default },
+      resolve_input: (input: Record<string, string>) => ({ todo_preapprove_default: input.enabled === "true" }) }]),
     ...(model.todo_daily_admissions === undefined ? [] : [{ tag: "settings.daily-admissions" as const, label: "TODOs per day", args: { field: "todo_daily_admissions", min: "1" }, command_input: { todo_daily_admissions: model.todo_daily_admissions },
       input: [{ name: "value", label: "TODOs per day", kind: "text" as const, required: true, value: String(model.todo_daily_admissions) }],
       resolve_input: (input: Record<string, string>) => ({ todo_daily_admissions: Number(input.value ?? model.todo_daily_admissions) }) }]),

@@ -40,6 +40,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "github.app": "Install controls require the owner’s person session",
   "repo.choose": "Install setup requires the owner’s person session",
   "repo.create": "Install setup requires the owner’s person session",
+  "settings.preapprove-default": "Install controls require the owner’s person session",
   "settings.daily-admissions": "Install controls require the owner’s person session",
   "agent.model": "Only the owner’s browser session changes models",
   "model.new": "Only the owner’s browser session configures models",

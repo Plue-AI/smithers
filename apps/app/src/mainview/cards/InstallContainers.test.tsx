@@ -44,6 +44,15 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(html).toContain("Source ready"); expect(html).not.toContain("Machine ready")
     expect(html).toContain("Free disk space"); expect(html).toContain("Retry")
   })
+  test("served pre-approval default dispatches its typed owner control and stays hidden for members", () => {
+    const model = installFixture()
+    model.todo_preapprove_default = false
+    const h = harness({ model }); h.renderSettings()
+    expect(h.settings()!.model.todo_preapprove_default).toBe(false)
+    h.settings()!.onAction("settings.preapprove-default", { enabled: "true" })
+    expect(h.commands).toEqual([{ tag: "settings.preapprove-default", input: { todo_preapprove_default: true } }])
+    expect(h.renderSettings(false)).toBe("")
+  })
   test("Settings passes a schema-valid model, member view state and cardActions dispatch", () => {
     const h = harness(); h.renderSettings(); const props = h.settings()!
     expect(SettingsCardSchema.safeParse(props.model).success).toBe(true)

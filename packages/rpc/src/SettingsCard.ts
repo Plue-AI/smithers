@@ -24,6 +24,7 @@ export const SettingsCardSchema = SetupCardSchema.extend({
   callback_fixes: z.array(z.object({ settings_url: z.string().url(), add_url: z.string().url() })).optional(),
   capacity: z.number().int().nonnegative(),
   parallel: z.number().int().nonnegative().optional(),
+  todo_preapprove_default: z.boolean().optional(),
   todo_daily_admissions: z.number().int().positive().optional(),
   laptop_lines: z.array(z.string()),
   notifications_need_https: z.boolean(),

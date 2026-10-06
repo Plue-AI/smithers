@@ -422,6 +422,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   return {
     snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
     setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { bind: input.bind, origins: input.origins }),
+    setInstallPreapproveDefault: (todo_preapprove_default: boolean) => write("todo_preapprove_default", "/install", { todo_preapprove_default }),
     setInstallCapacity, setInstallDailyAdmissions, setInstallParallel, setInstallObsidian, saveInstallModelKey,
     dispose: () => { shared.disposed = true; shared.generation++; shared.stop?.(); shared.stop = undefined
       if (shared.installPoll !== undefined) clearTimeout(shared.installPoll)

@@ -172,6 +172,7 @@ export interface CardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
   readonly "approval.deny": { readonly cardId: string }
   readonly "settings.address": { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
+  readonly "settings.preapprove-default": { readonly todo_preapprove_default: boolean }
   readonly "settings.daily-admissions": { readonly todo_daily_admissions: number }
   readonly "settings.capacity": { readonly capacity: number }
   readonly "settings.obsidian": { readonly path: string }
