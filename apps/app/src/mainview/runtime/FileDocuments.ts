@@ -1,3 +1,5 @@
+import type { StorageApi } from "@tanstack/db"
+import { PERSISTED_KEY_PREFIX } from "../chain/SchemaVersion"
 import { z } from "zod"
 import type { FileCard } from "@smthrs/rpc/FileCard"
 import { FileCardSchema, branchFileRows, projectBranchFiles } from "@smthrs/rpc/FileCard"
@@ -12,13 +14,18 @@ export class FileDocuments {
   private readonly documents = new Map<string, FileDocumentBinding & { dispose(): void }>()
   private readonly releases = new Map<string, () => void>()
   constructor(private readonly channel: LiveChannel, private readonly prerequisites: DocumentPrerequisites,
-    private readonly files: BranchFileOperations) {}
+    private readonly files: BranchFileOperations,
+    private readonly recovery?: { storage?: StorageApi | undefined; member: () => string | undefined }) {}
   resolve(branch: string, path: string, initial?: FileCard) {
     if (initial && initial.content.kind !== "text") return undefined
-    const key = JSON.stringify([branch, path])
+    const member = this.recovery?.member()
+    const key = JSON.stringify([branch, path, member])
     let resource = this.documents.get(key)
     if (!resource && [this.prerequisites.contract, this.prerequisites.actor, this.prerequisites.file, this.prerequisites.recovery, this.prerequisites.catalog, this.prerequisites.machine].every(value => value === true)) {
-      const provider = new LiveDocProvider(`doc:code:${branch}:${path}`, this.channel, this.prerequisites)
+      const provider = new LiveDocProvider(`doc:code:${branch}:${path}`, this.channel, this.prerequisites, member && this.recovery?.storage ? {
+        read: () => { const raw = this.recovery!.storage!.getItem(`${PERSISTED_KEY_PREFIX}live-doc:${key}`); return raw ? JSON.parse(raw) : undefined },
+        write: value => { const storage = this.recovery!.storage!; const storageKey = `${PERSISTED_KEY_PREFIX}live-doc:${key}`; if (value) storage.setItem(storageKey, JSON.stringify(value)); else storage.removeItem(storageKey) }
+      } : undefined)
       resource = fileDocument(provider)
       this.documents.set(key, resource)
       if (initial) provider.setFile(initial)
@@ -47,13 +54,13 @@ export class FileDocuments {
     }
     return resource
   }
-  has(path: string) { return this.target(path) !== undefined }
-  private target(path: string) {
-    const matches = [...this.documents.entries()].filter(([key]) => JSON.parse(key)[1] === path)
+  has(path: string, branch?: string) { return this.target(path, branch) !== undefined }
+  private target(path: string, branch?: string) {
+    const matches = [...this.documents.entries()].filter(([key]) => JSON.parse(key)[1] === path && (branch === undefined || JSON.parse(key)[0] === branch) && JSON.parse(key)[2] === (this.recovery?.member() ?? null))
     return matches.length === 1 ? matches[0]![1] : undefined
   }
-  async recover(tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string, open?: (file: FileCard, from: string) => Promise<void>): Promise<string | { value: string }> {
-    const resource = this.target(path)
+  async recover(tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string, open?: (file: FileCard, from: string) => Promise<void>, branch?: string): Promise<string | { value: string }> {
+    const resource = this.target(path, branch)
     if (!resource) return "File recovery is unavailable."
     const provider = resource.provider, model = provider.file
     if (!provider.available) return "Reconnect first."

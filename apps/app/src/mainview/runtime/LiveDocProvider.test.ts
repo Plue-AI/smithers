@@ -212,3 +212,72 @@ test("caret positions use the wire JSON shape and authenticated remote names", a
   expect(Y.createAbsolutePositionFromRelativePosition(remote.cursor.head, b.provider.doc)?.index).toBe(5)
   a.provider.dispose(); b.provider.dispose()
 })
+
+test("reload retains unreceipted text until Reapply is receipted or Copy succeeds", async () => {
+  let record: unknown
+  const storage = { read: () => record, write: (value: unknown) => { record = value } }
+  let receive!: (event: DocumentEvent) => void
+  const channel: DocumentChannel = { subscribeDocument(_topic, callback) { receive = callback; return { send() {}, release() {} } } }
+  const first = new LiveDocProvider("doc:code:T12:retry.ts", channel, ready, storage)
+  receive({ kind: "assigned", epoch, clientId: 7 }); receive({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+  first.doc.getText("content").insert(0, "retained")
+  expect(record).toMatchObject({ count: 1, text: "retained", base: "", epoch })
+  first.dispose()
+  const second = new LiveDocProvider("doc:code:T12:retry.ts", channel, ready, storage)
+  expect(second.unsaved).toEqual({ count: 1, text: "retained" })
+  receive({ kind: "assigned", epoch, clientId: 8 }); receive({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+  receive({ kind: "saved", seq: 0, vector: Y.encodeStateVector(second.doc) })
+  expect(second.unsaved?.text).toBe("retained")
+  expect(second.reapply()).toBe(true)
+  expect(record).toMatchObject({ text: "retained" })
+  receive({ kind: "saved", seq: 1, vector: Y.encodeStateVector(second.doc) })
+  expect(record).toBeUndefined()
+  second.dispose()
+})
+
+test("line awareness coalesces at 50 ms and repeated coordinates emit no frame", async () => {
+  const f = fixture(); f.event({ kind: "assigned", epoch, clientId: 7 })
+  f.provider.doc.getMap("authors").set("7", { person: "alice" })
+  const count = f.sent.length
+  f.provider.setLine(1, "blue"); f.provider.setLine(2, "blue"); f.provider.setLine(3, "blue")
+  expect(f.sent.length).toBe(count)
+  await new Promise(resolve => setTimeout(resolve, 70))
+  expect(f.sent.length).toBe(count + 1)
+  f.provider.setLine(3, "blue")
+  await new Promise(resolve => setTimeout(resolve, 70))
+  expect(f.sent.length).toBe(count + 1)
+  f.provider.dispose()
+})
+
+test("Reapply after reload does not duplicate text already in the host mirror", () => {
+  let record: unknown = { count: 1, text: "retained", base: "", epoch }
+  let receive!: (event: DocumentEvent) => void
+  const provider = new LiveDocProvider("doc:code:T12:retry.ts", { subscribeDocument(_topic, callback) {
+    receive = callback; return { send() {}, release() {} }
+  } }, ready, { read: () => record, write: value => { record = value } })
+  receive({ kind: "assigned", epoch, clientId: 8 })
+  const mirror = new Y.Doc(); mirror.getText("content").insert(0, "retained")
+  const frame = encoding.createEncoder(); sync.writeSyncStep2(frame, mirror)
+  receive({ kind: "sync", payload: encoding.toUint8Array(frame) })
+  expect(provider.reapply()).toBe(true)
+  expect(provider.doc.getText("content").toString()).toBe("retained")
+  expect(provider.saved).toBe("saving")
+  receive({ kind: "saved", seq: 1, vector: Y.encodeStateVector(provider.doc) })
+  expect(record).toBeUndefined()
+  provider.dispose(); mirror.destroy()
+})
+
+test("a replacement authenticated client retains old-id updates rather than forging them", () => {
+  const f = fixture(); f.event({ kind: "assigned", epoch, clientId: 7 })
+  f.provider.doc.getText("content").insert(0, "pending")
+  const before = f.sent.length
+  f.event({ kind: "assigned", epoch, clientId: 8 })
+  expect(f.sent.length - before).toBe(1)
+  expect(f.provider.unsaved).toEqual({ count: 1, text: "pending" })
+  expect(f.provider.editable).toBe(false)
+  expect(f.provider.reapply()).toBe(true)
+  expect(f.provider.doc.getText("content").toString()).toBe("pending")
+  f.event({ kind: "saved", seq: 1, vector: Y.encodeStateVector(f.provider.doc) })
+  expect(f.provider.unsaved).toBeUndefined()
+  f.provider.dispose()
+})

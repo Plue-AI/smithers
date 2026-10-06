@@ -584,7 +584,7 @@ export interface AppController extends IssueFlowsController {
   readonly listCommits: CommitsSeam["listCommits"]
   readonly readCommit: CommitsSeam["readCommit"]
   readonly fileDocuments: FileDocuments | undefined
-  readonly recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string) => Promise<string | { value: string } | undefined>
+  readonly recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string, branch?: string) => Promise<string | { value: string } | undefined>
   readonly branchFiles: FilesSeam["branchFiles"]
   readonly listFiles: FilesSeam["listFiles"]
   readonly branchDiff: ReturnType<typeof createDiffFilesSeam>["branchDiff"]
@@ -1246,18 +1246,18 @@ export const createAppController = (
   })).read
   const installDiffReader = installHost ? createBranchDiffReader(ctx).readBranchDiff : undefined
   const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles, installDiffReader))
-  const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles) : undefined
+  const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles, { storage: store.documentRecoveryStorage, member: () => store.collections.identitySessions.get("identity")?.login?.toLowerCase() }) : undefined
   ctx.onDispose(() => fileDocuments?.dispose())
   const { recoverFile } = actors.pair(seamCtx, context => ({
-    recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string) => fileDocuments?.has(path) ? fileDocuments.recover(tag, path, async (file, from) => {
-      const old = [...store.collections.cards.values()].find(card => card.kind === "file" && card.payload.ref === file.branch && card.payload.path === from)
+    recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string, branch?: string) => fileDocuments?.has(path, branch) ? fileDocuments.recover(tag, path, async (file, from) => {
+      const old = [...store.collections.cards.values()].find(card => card.kind === "file" && (card.payload.file?.branch ?? card.payload.ref ?? card.payload.repo) === file.branch && card.payload.path === from)
       if (old?.kind !== "file") return
       await context.dispatch({ type: "card.navigated", actor: context.actor(), card: { ...old, title: `${file.path} · ${old.payload.repo}`, payload: {
-        ...old.payload, path: file.path, ref: file.branch, digest: file.digest,
+        ...old.payload, file, path: file.path, ref: file.branch, digest: file.digest,
         content: file.content.kind === "binary" ? "" : file.content.text, binary: file.content.kind === "binary", truncated: false,
         readAt: undefined, line: undefined, column: undefined, hover: undefined, diagnostics: undefined, diagnosticsTotal: undefined, intel: undefined
       } } }).isPersisted.promise
-    }) : Promise.resolve(undefined)
+    }, branch) : Promise.resolve(undefined)
   }))
   const repoTreeSeam = actors.pair(seamCtx, (context) => createRepoTreeSeam(context))
 

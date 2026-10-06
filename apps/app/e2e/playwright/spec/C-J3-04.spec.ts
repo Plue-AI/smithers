@@ -28,3 +28,27 @@ test("C-J3-04: two mounted File cards co-edit through the production browser cha
     await expect(page.getByTestId("composer-input")).toBeEditable()
   } finally { await viewerContext.close(); host.dispose() }
 })
+
+test("C-J3-04: reload retains pending text and Reapply waits for a save receipt", async ({ page }) => {
+  const host = fileCoeditFixture()
+  try {
+    host.acknowledge(false)
+    await host.install(page, "Alice")
+    await page.goto("/")
+    await say(page, '/file {"path":"retry.ts","branch":"T12"}')
+    await expect(page.locator('[data-kind="file"][data-mode="live"]').last()).toBeVisible()
+    const editor = page.locator('[data-kind="file"] .cm-content').last()
+    await editor.click(); await page.keyboard.insertText("retained after reload")
+    await expect.poll(() => host.text()).toBe("retained after reload")
+    await expect(page.getByText("Saving…", { exact: true }).last()).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Reapply", exact: true }).last()).toBeVisible()
+    await expect(page.locator('[data-tone="attention"]').last()).toContainText("retained after reload")
+    host.acknowledge(true)
+    await page.getByRole("button", { name: "Reapply", exact: true }).last().press("Enter")
+    await expect(page.getByText("Saved to the machine", { exact: true }).last()).toBeVisible()
+    await expect.poll(() => editorText(editor)).toBe("retained after reload")
+    expect(host.text()).toBe("retained after reload")
+    await expect(page.getByRole("button", { name: "Reapply", exact: true })).toHaveCount(0)
+  } finally { host.dispose() }
+})

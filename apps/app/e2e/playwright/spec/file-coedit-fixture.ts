@@ -11,10 +11,12 @@ export function fileCoeditFixture() {
   const doc = new Y.Doc()
   const peers: Array<{ socket: WebSocketRoute; id: number; client: number; seq: number }> = []
   let nextClient = 42
+  let acknowledge = true
   const model = () => ({ branch: "T12", path: "retry.ts", language: "typescript", digest: "fixture",
     content: { kind: "text", text: doc.getText("content").toString() }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
   return {
     dispose: () => doc.destroy(),
+    acknowledge: (value: boolean) => { acknowledge = value },
     text: () => doc.getText("content").toString(),
     async install(page: Page, login: string) {
       await installCloudFixture(page, { capabilities: ["install", "identity"] })
@@ -51,7 +53,7 @@ export function fileCoeditFixture() {
             peer.seq++
             const update = encoding.createEncoder(); sync.writeUpdate(update, Y.encodeStateAsUpdate(doc))
             for (const other of peers) if (other !== peer) other.socket.send(Buffer.from(encodeLiveDocBinary({ kind: 1, id: other.id, payload: encoding.toUint8Array(update) })))
-            socket.send(JSON.stringify({ t: "saved", id: peer.id, seq: peer.seq, sv: Buffer.from(Y.encodeStateVector(doc)).toString("base64") }))
+            if (acknowledge) socket.send(JSON.stringify({ t: "saved", id: peer.id, seq: peer.seq, sv: Buffer.from(Y.encodeStateVector(doc)).toString("base64") }))
           }
         })
       })

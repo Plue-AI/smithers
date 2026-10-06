@@ -111,7 +111,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       name, visibility: "in-card", agent: "run", actors: ["person","app_agent"], minimumRole: "member", summary: name === "file.compare" ? "Compare" : name === "file.restore-deleted" ? "Restore" : "Follow", hidden: true, discloseToAgent: true,
       grammar: positional("path"), input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String) }),
       handler: async ({ path, branch }) => {
-        const document = await actions.recoverFile(name, path)
+        const document = await actions.recoverFile(name, path, branch)
         if (document !== undefined) return document
         if (realFiles()) return actions.branchFiles.action(name, path, branch)
         const file = findFile(design.world(), path, branch, design.viewer())

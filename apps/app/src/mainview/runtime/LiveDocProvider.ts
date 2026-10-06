@@ -1,3 +1,4 @@
+import { z } from "zod"
 import { ActorSchema } from "@smthrs/rpc/CardPrimitives"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import { LiveDocId, LiveDocAwareness, parseLiveDocTopic } from "@smthrs/rpc/LiveDoc"
@@ -23,6 +24,11 @@ export interface DocumentChannel {
 }
 export interface DocumentPrerequisites {
   contract: boolean; actor: boolean; file: boolean; recovery: boolean; catalog: boolean; machine: boolean
+}
+const RecoveryRecord = z.object({ count: z.number().int().positive(), text: z.string(), base: z.string(), epoch: z.string().regex(/^[a-f0-9]{32}$/i).optional() }).strict()
+export interface DocumentRecoveryStore {
+  read(): unknown
+  write(value: z.infer<typeof RecoveryRecord> | undefined): void
 }
 let nextDocument = 0
 interface DocumentStatus { id: string; revision: number; editable: boolean; signature: string; saved: "saving" | "saved"; unsaved?: { count: number; text: string } | undefined }
@@ -72,11 +78,15 @@ export class LiveDocProvider {
     if (transaction.origin !== this.remote && !this.pending.length && !this.recovery) this.recoveryBase = this.doc.getText(this.textName).toString()
   }
   private readonly remote = {}
-  constructor(topic: string, channel?: DocumentChannel, prerequisites?: DocumentPrerequisites) {
+  constructor(topic: string, channel?: DocumentChannel, prerequisites?: DocumentPrerequisites, private readonly recoveryStore?: DocumentRecoveryStore) {
     let contract: ReturnType<typeof parseLiveDocTopic> | undefined
     try { contract = parseLiveDocTopic(topic) } catch { /* Invalid topics stay dark. */ }
     this.textName = contract?.kind === "wiki" ? "markdown" : "content"
     this.doc.getText(this.textName)
+    try {
+      const stored = RecoveryRecord.safeParse(recoveryStore?.read())
+      if (stored.success) { this.recovery = { count: stored.data.count, text: stored.data.text }; this.recoveryBase = stored.data.base }
+    } catch { /* A failed local read never invents a saved receipt. */ }
     this.publish()
     this.doc.on("beforeTransaction", this.beforeTransaction); this.doc.on("update", this.updated)
     this.watchAwareness()
@@ -94,7 +104,13 @@ export class LiveDocProvider {
   get editable() { return !this.file?.gone && this.available && !this.recovery }
   get saved(): "saving" | "saved" { return !this.acknowledged || this.pending.length || this.recovery || !covered(this.localClocks, this.savedClocks) ? "saving" : "saved" }
   get unsaved() { return this.recovery && { ...this.recovery } }
+  private persistRecovery() {
+    const retained = this.recovery ?? (this.pending.length ? { count: this.pending.length, text: this.doc.getText(this.textName).toString() } : undefined)
+    try { this.recoveryStore?.write(retained ? { ...retained, base: this.recoveryBase, ...(this.epoch ? { epoch: this.epoch } : {}) } : undefined) }
+    catch { /* Keep the in-memory buffer if its local recovery store is unavailable. */ }
+  }
   private publish() {
+    this.persistRecovery()
     const previous = this.collection.get("document")
     const signature = JSON.stringify([this.comparison, this.file, this.epoch, this.doc.clientID, [...this.doc.getMap("authors")], [...this.awareness.getStates()]])
     const unsaved = this.unsaved
@@ -136,7 +152,7 @@ export class LiveDocProvider {
     if (event.kind === "refused") { this.assigned = false; this.retain(); return }
     if (event.kind === "assigned") {
       if (!/^[a-f0-9]{32}$/i.test(event.epoch) || !LiveDocId.safeParse(event.clientId).success) return
-      if ((this.epoch !== undefined && this.epoch !== event.epoch) || (this.epoch === undefined && this.recovery)) {
+      if ((this.epoch !== undefined && this.epoch !== event.epoch) || (this.epoch === undefined && this.recovery) || (this.pending.length > 0 && this.doc.clientID !== event.clientId)) {
         this.retain(); this.pending = []; this.localClocks.clear(); this.savedClocks.clear(); this.acknowledged = false
         this.doc.off("beforeTransaction", this.beforeTransaction); this.doc.off("update", this.updated); this.awareness.destroy(); this.doc.destroy(); this.doc = new Y.Doc(); this.awareness = new Awareness(this.doc); this.doc.on("beforeTransaction", this.beforeTransaction); this.doc.on("update", this.updated)
       } else if (this.pending.some(update => update.vector.has(event.clientId)) && this.doc.clientID !== event.clientId) {
@@ -212,8 +228,13 @@ export class LiveDocProvider {
     while (prefix < base.length && prefix < retained.length && base[prefix] === retained[prefix]) prefix++
     while (suffix < base.length - prefix && suffix < retained.length - prefix && base[base.length - 1 - suffix] === retained[retained.length - 1 - suffix]) suffix++
     const removed = base.slice(prefix, base.length - suffix), inserted = retained.slice(prefix, retained.length - suffix)
-    let offset = prefix
-    if (current !== base) {
+    let offset = prefix, deleteLength = removed.length
+    if (current === retained && current !== base) {
+      // The recovered mirror already contains these characters. Reattribute only
+      // the retained change so the new subscription obtains its own save receipt.
+      deleteLength = inserted.length
+      if (!inserted.length) { this.comparison = { version: "unsaved", text: retained }; this.publish(); return false }
+    } else if (current !== base) {
       const before = base.slice(Math.max(0, prefix - 32), prefix), after = base.slice(base.length - suffix, base.length - suffix + 32)
       const anchor = before + removed + after
       const found = anchor ? current.indexOf(anchor) : current.length
@@ -224,7 +245,7 @@ export class LiveDocProvider {
     }
     this.reapplying = true
     this.comparison = undefined
-    this.doc.transact(() => { text.delete(offset, removed.length); text.insert(offset, inserted) })
+    this.doc.transact(() => { text.delete(offset, deleteLength); text.insert(offset, inserted) })
     return true
   }
   async copy(write: (text: string) => Promise<CopyResult> = copyText) {
@@ -241,8 +262,8 @@ export class LiveDocProvider {
     if (!this.editable || !Number.isSafeInteger(line) || line < 1 || colour.length > 64) return false
     const actor = this.doc.getMap("authors").get(String(this.doc.clientID))
     if (!actor) return false
-    this.awareness.setLocalState({ ...this.awareness.getLocalState(), actor, colour, line })
-    this.sendAwareness()
+    const current = this.awareness.getLocalState()
+    if (current?.line !== line || current.colour !== colour || JSON.stringify(current.actor) !== JSON.stringify(actor)) this.awareness.setLocalState({ ...current, actor, colour, line })
     return true
   }
   dispose() {

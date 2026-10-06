@@ -166,6 +166,7 @@ test("two File cards opened through files.read converge on literal 1000-edit pac
     expect((globalThis as Record<string, unknown>).__coeditExecuted).toBeUndefined()
     const a = peers[0]!, b = peers[1]!
     flushSync(() => a.editor.dispatch({ selection: { anchor: 1 } }))
+    await new Promise(resolve => setTimeout(resolve, 70))
     const awareness = a.socket.frames.at(-1) as Uint8Array
     expect([...awareness.subarray(0, 5)]).toEqual([2, 0, 0, 0, 1])
     b.socket.receive(awareness)

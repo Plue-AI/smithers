@@ -784,6 +784,8 @@ export interface AgentContextSnapshot {
 }
 
 export interface AppStore {
+  /** Owned emergency recovery storage, shared with draft and wiki recovery. */
+  readonly documentRecoveryStorage?: StorageApi | undefined
   readonly collections: AppCollections
   /**
    * Apply one transition. Its change is visible in `collections` when this
@@ -2110,6 +2112,7 @@ const initializeAppStore = async (
     committedRuntimeRun: id => { assertReadable(); return committed.snapshot.runtimeRuns.find(row => row.id === id) },
     committedRuntimeApproval: id => { assertReadable(); return committed.snapshot.runtimeApprovals.find(row => row.id === id) },
     committedHttpTurn: (turnId, owner) => { assertReadable(); return committed.snapshot.httpTurns.find(row => row.turnId === turnId && row.owner === owner) },
+    documentRecoveryStorage: draftRecoveryStorage,
     persistenceMode: resolved.mode,
     persistedLoad: loadReport,
     persistenceDegraded: resolved.degraded,
