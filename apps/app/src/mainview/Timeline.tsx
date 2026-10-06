@@ -44,7 +44,7 @@ export function Timeline({ lines, on_screen, onView, onAction }: TimelineProps) 
     }
     report()
     media.addEventListener("change", report)
-    return () => media.removeEventListener("change", report)
+    return () => { media.removeEventListener("change", report); previous.current = undefined; callback.current({ timeline_visible: false }) }
   }, [])
   useSyncExternalStore(subscribe, () => window.matchMedia(WIDE).matches, () => false)
   const first = lines.findIndex(line => line.entry_id === on_screen[0])
