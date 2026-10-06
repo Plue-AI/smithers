@@ -79,7 +79,9 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 	}))
 	defer provider.Close()
-	bearer := make(chan string, 8)
+	bearer := make(chan string, 32)
+	calls := make(map[string]int)
+	var callsMu sync.Mutex
 	local := startConfiguredLocalChat(t, func(local *localChat, options *chat.RuntimeOptions) {
 		q := db.New(local.pool)
 		ctx := local.ctx
@@ -109,7 +111,7 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 		auth := services.NewAuthService(q, cfg.Auth, nil, nil)
 		auth.Members = &services.Members{Pool: local.pool}
 		options.API = services.InstallAPI{Auth: auth}
-		reader, _, _ := composedContextSources(t, local)
+		reader := conversationContextSource(t, local)
 		options.ContextRepository = reader.Read
 		local.api = func(runtime *chat.Runtime) http.Handler {
 			branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(local.pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)))
@@ -134,10 +136,25 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 				if r.URL.Path == "/api/stack" || strings.HasPrefix(r.URL.Path, "/api/todos/") {
 					if r.URL.Path == "/api/stack" {
 						require.Equal(t, "GET", r.Method)
-					} else {
-						require.Equal(t, "POST", r.Method)
+					} else if r.Method == http.MethodPost {
 						require.True(t, strings.HasPrefix(r.Header.Get("Idempotency-Key"), "chat:"))
+					} else {
+						require.Equal(t, http.MethodGet, r.Method)
 					}
+					key := r.Method + " " + r.URL.Path
+					if r.Method == http.MethodPost {
+						raw, err := io.ReadAll(r.Body)
+						require.NoError(t, err)
+						r.Body = io.NopCloser(strings.NewReader(string(raw)))
+						var operation struct {
+							Op string `json:"op"`
+						}
+						require.NoError(t, json.Unmarshal(raw, &operation))
+						key += " " + operation.Op
+					}
+					callsMu.Lock()
+					calls[key]++
+					callsMu.Unlock()
 					require.Equal(t, "smithers", r.Header.Get("Smithers-Via"))
 					require.Empty(t, r.Header.Get("Cookie"))
 					bearer <- strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -184,15 +201,15 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	default:
 		t.Fatal("host never called the public API")
 	}
-	for i := 0; i < 4; i++ {
-		select {
-		case next := <-bearer:
-			require.Equal(t, token, next)
-		default:
-			t.Fatal("missing catalog HTTP call")
-		}
+	for len(bearer) > 0 {
+		require.Equal(t, token, <-bearer)
 	}
-	require.Empty(t, bearer, "each tool call must reach the API once")
+	callsMu.Lock()
+	require.Equal(t, 1, calls["GET /api/stack"])
+	require.Equal(t, 1, calls["POST /api/todos/2 move"])
+	require.Equal(t, 1, calls["POST /api/todos/1 stop"])
+	require.Equal(t, 1, calls["POST /api/todos/1 drop"])
+	callsMu.Unlock()
 	var order []int64
 	rows, err := local.pool.Query(local.ctx, `SELECT number FROM mythical_items WHERE repository_id=$1 ORDER BY stack_position`, local.repoID)
 	require.NoError(t, err)
@@ -219,7 +236,10 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	modelRequests := strings.Join(captured, "\n")
 	require.Contains(t, modelRequests, "Add greeting")
 	require.Contains(t, modelRequests, "todo_control_unavailable")
-	require.Contains(t, modelRequests, "confirmation_unavailable")
+	require.NotContains(t, modelRequests, "confirmation_unavailable")
+	var confirmations int
+	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM approvals WHERE repository_id=$1 AND member_id=$2 AND command='todo.drop' AND state='pending'`, local.repoID, local.ownerID).Scan(&confirmations))
+	require.Equal(t, 1, confirmations, "drop requests one private confirmation for its author")
 	require.Contains(t, modelRequests, `\"place\":1`)
 
 	for _, body := range captured {
