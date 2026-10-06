@@ -1,5 +1,14 @@
-import { expect, test } from "../browserTest"
+import { expect, test, type Page } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+
+// Exercise the self-hosted composition, including its branch and audience providers.
+const installOwner = async (page: Page) => {
+  await owner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test",
+    capabilities: ["agent", "identity", "install"], authFlow: "credentials", sandbox: null
+  } }))
+}
 
 // UI projection of .specs/engineering/checks/C-UI-04.md.
 // Integration and reference-host evidence remains required separately.
@@ -9,7 +18,7 @@ test("C-UI-04: Edge map and timeline: shared entries, per-viewer actions, live s
   // Required seed: shared Maya/Alice conversation with timed live events,
   // ASK, FAIL and PR entries; owner/propmter-specific notices and summaries.
   // Real summary-worker timing and transaction checks remain separate.
-  await owner(page)
+  await installOwner(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto("/")
   await say(page, "/todo T9")
@@ -32,7 +41,7 @@ test("C-UI-04: Edge map and timeline: shared entries, per-viewer actions, live s
 
 // The served TODO path is independent of the pending shared-entry/summary journey.
 test("C-UI-04: served failure has one rail action and keyboard Retry uses the production seam", async ({ page }) => {
-  await owner(page)
+  await installOwner(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   const model = {
     n: 24, title: "Retry from the install", state: "failed",
@@ -62,7 +71,7 @@ test("C-UI-04: served failure has one rail action and keyboard Retry uses the pr
 })
 
 test("C-UI-04: the owner's served merge raises a terminal notice and Hide preserves its timeline entry", async ({ page }) => {
-  await owner(page)
+  await installOwner(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   let state = "in_review"
   const model = () => ({
@@ -90,7 +99,7 @@ test("C-UI-04: the owner's served merge raises a terminal notice and Hide preser
 })
 
 test("C-UI-04: served approvals and conflicts stay attention notices until the wait settles", async ({ page }) => {
-  await owner(page)
+  await installOwner(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   let waits = [{ id: "approval-24", kind: "approval", prompt: "Approve the change", since: "2026-10-06T00:00:00Z", actions: [] }]
   const model = () => ({
@@ -117,4 +126,55 @@ test("C-UI-04: served approvals and conflicts stay attention notices until the w
   await expect(line).toHaveAttribute("data-tone", "attention")
   waits = []
   await expect(line).toHaveAttribute("data-tone", "live")
+})
+
+test("C-UI-04: keyboard Resolve opens the served branch", async ({ page }) => {
+  await installOwner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const model = {
+    n: 24, title: "Resolve from the install", state: "needs_you",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    branch: { id: "branch-24", name: "smithers/fix-retry", machine: { state: "awake" } },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [],
+    waits: [{ id: "conflict-24", kind: "conflict", prompt: "Resolve", since: "2026-10-06T00:00:00Z", actions: [{ tag: "branch", label: "Resolve" }] }],
+    merge: { state: "waiting", reason: "state", on_github: false }
+  }
+  const requests: string[] = []
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model }))
+  await page.route("**/api/branches/*", route => {
+    requests.push(new URL(route.request().url()).pathname)
+    return route.fulfill({ json: { name: "smithers/fix-retry", machine: { id: "machine-24" } } })
+  })
+  await page.goto("/")
+  await say(page, "/todo T24")
+  const line = page.getByRole("navigation", { name: "Timeline", exact: true }).locator('[data-entry="todo:24"]')
+  await expect(line).toHaveAttribute("data-tone", "attention")
+  await line.getByRole("button", { name: "Resolve", exact: true }).press("Enter")
+  await expect.poll(() => requests).toEqual(["/api/branches/smithers%2Ffix-retry"])
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})
+
+test("C-UI-04: rail Answer keeps the TODO number when its wait supplies scoped arguments", async ({ page }) => {
+  await installOwner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const model = {
+    n: 24, title: "Answer from the install", state: "needs_you",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [],
+    waits: [{ id: "ask-24", kind: "question", prompt: "Choose", since: "2026-10-06T00:00:00Z", actions: [{ tag: "todo.answer", label: "Answer" }] }],
+    merge: { state: "waiting", reason: "state", on_github: false }
+  }
+  let reads = 0
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/24", route => { reads++; return route.fulfill({ json: model }) })
+  await page.goto("/")
+  await say(page, "/todo T24")
+  const line = page.getByRole("navigation", { name: "Timeline", exact: true }).locator('[data-entry="todo:24"]')
+  await expect(line).toHaveAttribute("data-tone", "attention")
+  const before = reads
+  await line.getByRole("button", { name: "Answer", exact: true }).press("Enter")
+  await expect.poll(() => reads).toBeGreaterThan(before)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await expect(line).toContainText("Answer from the install")
 })

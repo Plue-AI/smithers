@@ -61,7 +61,7 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
       // A state label alone cannot grant a command: the mounted TODO's provider
       // must offer that command too (retryability, branch and merge readiness).
       const definition = candidate && todoActionDefinitions(model, viewer.role).find(action => action.tag === candidate.tag && !action.disabled)
-      const action = definition ? { ...candidate!, args: definition.args ?? candidate!.args } : undefined
+      const action = definition ? { ...candidate!, args: { ...candidate!.args, ...definition.args, ...(definition.tag === "branch" ? { name: definition.command_input.name } : {}) } } : undefined
       const tone: TimelineLine["tone"] = model.state === "needs_you" ? "attention" : model.state === "failed" ? "failed"
         : model.state === "starting" || model.state === "working" ? "live" : model.state === "merged" || model.state === "dropped" ? "done" : "quiet"
       return [{ entry_id: entry.card.id, kind: "card", title: model.title, tone, glyph: { state: model.state }, ...(action ? { action } : {}) }]
@@ -87,7 +87,7 @@ export const timelineActions = (lines: readonly TimelineLine[], dispatch: CardCo
     seen.add(key)
     const n = Number(action.args?.n)
     switch (action.tag) {
-      case "todo.answer": definitions.push({ ...action, tag: "todo.answer", command_input: { n, answer: "" } }); break
+      case "todo.answer": definitions.push({ ...action, tag: "todo.answer", command_input: { n, answer: "", ...(action.args?.wait ? { wait: action.args.wait } : {}) } }); break
       case "todo.retry": definitions.push({ ...action, tag: "todo.retry", command_input: { n } }); break
       case "todo": definitions.push({ ...action, tag: "todo", command_input: { n } }); break
       case "merge": definitions.push({ ...action, tag: "merge", command_input: { n } }); break

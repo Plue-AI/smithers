@@ -65,7 +65,7 @@ export interface TodoListSnapshots {
 }
 export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "todo", () => ({
-    notableModels: new Map<number, TodoCard>(), notableLive: new Set<number>(), opening: new Set<string>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
+    mergedNotices: new Set<string>(), notableModels: new Map<number, TodoCard>(), notableLive: new Set<number>(), opening: new Set<string>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
     timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision,
     list: { snapshot: {} as TodoListSnapshot, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, reading: false, disposed: false }
   }))
@@ -196,8 +196,12 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     }
     // A historical merged item is not a new event. Only the served terminal
     // transition notifies its owner; presence does not subscribe to others' merges.
-    if (previous && previous.state !== "merged" && model.state === "merged" && model.owner.login === owner() && live()) {
-      const key = `todo.merged.${n}.${model.run?.id ?? "no-run"}.${model.run?.attempt ?? 0}`
+    const mergeKey = `todo.merged.${n}.${model.run?.id ?? "no-run"}.${model.run?.attempt ?? 0}`
+    if (previous && previous.state !== "merged" && model.state === "merged" && model.owner.login === owner() && live() && !shared.mergedNotices.has(mergeKey)) {
+      // A late REST snapshot can precede the same terminal event again. Hide
+      // must survive that replay; the run/attempt identifies one merge notice.
+      shared.mergedNotices.add(mergeKey)
+      const key = mergeKey
       ctx.dispatch({ type: "toast.shown", actor: "system", key, title: model.title, sourceCard: `todo:${n}`,
         audience: { member: owner()!, entryId: key, kind: "merged", actorLabel, target: { flow: "todo", n } } })
       ctx.resolveToast?.(key, { status: "ok", detail: "Merged" })
@@ -650,6 +654,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     shared.aborts.clear()
     for (const unsubscribe of shared.watches.values()) unsubscribe()
     shared.watches.clear()
+    shared.mergedNotices.clear()
     shared.notableModels.clear()
     shared.notableLive.clear()
     for (const timer of shared.timers.values()) clearTimeout(timer)
