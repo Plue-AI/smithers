@@ -88,3 +88,23 @@ omitting a boundary cannot pass even when every executed leaf has a marker.
 Repeated markers and parent-only markers do not satisfy a missing boundary.
 The rebase harness must still cover both presence contexts and retain their
 observations; point inventory alone does not prove that coverage.
+
+`internal/compose/postgres_kill_fault_test.go` now supplies the
+`postgres-transition` case. Its operation is a person's Drop through the
+production install router. Fixtures precede dispatch; a database trigger holds
+the real event insert after the item update. A second connection observes
+`PgSleep` and requires the PostgreSQL child log marker before the controller
+kills its own PostgreSQL 18 cluster. REST and event replay retain Queued after recovery. The failed
+request is not acknowledged; its retry and replay commit exactly one Drop.
+HTTP exchanges, committed event replay and PostgreSQL recovery logs are retained
+under `C-DUR-01/<timestamp>/postgres-transition/`.
+
+This test needs PostgreSQL 18 `postgres` and `initdb` binaries. Set
+`SMITHERS_FAULT_POSTGRES_BIN` to their directory when they are outside PATH.
+It creates a private cluster on a loopback ephemeral port, disables Unix
+sockets, and signals only its postmaster and the children whose kernel parent PID is that
+postmaster. It waits for those children to exit before restart. It never kills the shared
+integration database server. Restart is driven by the test controller; this
+case does not qualify the install supervisor, run recovery, live WebSocket
+projection, or all of C-DUR-01. The case lives in `compose` so it can reuse the
+production router harness without introducing a services/compose import cycle.
