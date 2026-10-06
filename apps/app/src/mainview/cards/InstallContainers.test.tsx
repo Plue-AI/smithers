@@ -51,7 +51,8 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(props.actions.map(action => [action.tag, action.args])).toEqual([
       ["settings.address", { field: "address", listen: "mac" }], ["settings.address", { field: "address", listen: "network" }],
       ["settings.capacity", { field: "capacity", min: "0", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
-      ["settings.model-key", { field: "key", role: "fast" }], ["settings.model-key", { field: "key", role: "coding" }], ["settings.model-key", { field: "key", role: "jev" }]
+      ["settings.model-key", { field: "key", role: "fast" }], ["settings.model-key", { field: "key", role: "coding" }], ["settings.model-key", { field: "key", role: "jev" }],
+      ["settings.model.set", { role: "fast" }], ["settings.model.set", { role: "coding" }], ["settings.model.set", { role: "jev" }]
     ])
     props.onAction("settings.capacity", { capacity: "3" }); props.onAction("settings.parallel", { parallel: "1" })
     expect(h.commands).toEqual([{ tag: "settings.capacity", input: { capacity: 3 } }, { tag: "settings.parallel", input: { parallel: 1 } }])

@@ -1327,19 +1327,20 @@ type InstallSetupEmpty = map[string]json.RawMessage
 
 // InstallSetupStatus is generated from docs/api/openapi.yaml.
 type InstallSetupStatus struct {
-	SSHHost       *string                               `json:"ssh_host,omitempty"`
-	SSHLine       *string                               `json:"ssh_line,omitempty"`
-	CallbackFixes []InstallSetupStatusCallbackFixesItem `json:"callback_fixes,omitempty"`
-	Address       InstallSetupStatusAddress             `json:"address"`
-	Steps         []InstallSetupStatusStepsItem         `json:"steps"`
-	ThisMac       InstallSetupStatusThisMac             `json:"this_mac"`
-	Github        InstallSetupStatusGithub              `json:"github"`
-	Repository    *InstallSetupStatusRepository         `json:"repository,omitempty"`
-	Repositories  []string                              `json:"repositories,omitempty"`
-	Models        []InstallSetupStatusModelsItem        `json:"models"`
-	Chatgpt       bool                                  `json:"chatgpt"`
-	Capacity      int64                                 `json:"capacity"`
-	Parallel      *int64                                `json:"parallel,omitempty"`
+	SSHHost         *string                               `json:"ssh_host,omitempty"`
+	SSHLine         *string                               `json:"ssh_line,omitempty"`
+	CallbackFixes   []InstallSetupStatusCallbackFixesItem `json:"callback_fixes,omitempty"`
+	Address         InstallSetupStatusAddress             `json:"address"`
+	Steps           []InstallSetupStatusStepsItem         `json:"steps"`
+	ThisMac         InstallSetupStatusThisMac             `json:"this_mac"`
+	Github          InstallSetupStatusGithub              `json:"github"`
+	Repository      *InstallSetupStatusRepository         `json:"repository,omitempty"`
+	Repositories    []string                              `json:"repositories,omitempty"`
+	CanAssignModels *bool                                 `json:"can_assign_models,omitempty"`
+	Models          []InstallSetupStatusModelsItem        `json:"models"`
+	Chatgpt         bool                                  `json:"chatgpt"`
+	Capacity        int64                                 `json:"capacity"`
+	Parallel        *int64                                `json:"parallel,omitempty"`
 }
 
 // InstallSetupStatusCallbackFixesItem is generated from docs/api/openapi.yaml.
@@ -1403,6 +1404,7 @@ type InstallSetupStatusRepository struct {
 type InstallSetupStatusModelsItem struct {
 	Role     string  `json:"role"`
 	Provider string  `json:"provider"`
+	Model    *string `json:"model,omitempty"`
 	Key      string  `json:"key"`
 	Error    *string `json:"error,omitempty"`
 }
@@ -2336,6 +2338,20 @@ func (c *Client) GetAPIConversationViewState(ctx context.Context, b string) (map
 func (c *Client) PutAPIConversationViewState(ctx context.Context, b string, body map[string]json.RawMessage) (map[string]json.RawMessage, error) {
 	var out map[string]json.RawMessage
 	err := c.do(ctx, "PUT", "/api/conversations/"+url.PathEscape(b)+"/view-state", nil, body, &out)
+	return out, err
+}
+
+// GetAPIAgents calls GET /api/agents.
+func (c *Client) GetAPIAgents(ctx context.Context) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/agents", nil, nil, &out)
+	return out, err
+}
+
+// PutAPIAgentsRoleModel calls PUT /api/agents/{role}/model.
+func (c *Client) PutAPIAgentsRoleModel(ctx context.Context, role string, body any) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "PUT", "/api/agents/"+url.PathEscape(role)+"/model", nil, body, &out)
 	return out, err
 }
 

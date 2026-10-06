@@ -1,3 +1,8 @@
+import { actorSharedState } from "../ActorBindings"
+import { randomUuid } from "../../runtime/RandomUuid"
+import { assignInstallAgentModel } from "./models"
+import { CardSchema } from "@smthrs/rpc/Cards"
+import type { LiveChannel } from "../../runtime/LiveChannel"
 import {
   AGENT_ROLES,
   knownModelLabel,
@@ -19,11 +24,15 @@ export interface AgentsController {
   /** The agents as the menus list them: the mirror, or the built-ins until it loads. */
   readonly agentRoles: () => ReadonlyArray<AgentRole>
   /** `agent.list`: the Agents card, at the transcript's tail. */
-  readonly listAgents: () => Promise<string | void>
+  readonly assignAgentModel: (role: string, model: string) => Promise<string | void>
+  readonly listAgents: (role?: string, model?: string) => Promise<string | void>
 
 }
 
 export interface AgentsControllerDependencies {
+  readonly refreshSettings?: () => Promise<unknown>
+  readonly install?: boolean
+  readonly live?: Pick<LiveChannel, "subscribe" | "getSnapshot">
   readonly nextOrdinal: () => number
 }
 
@@ -90,7 +99,11 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
    * the local backend (docs/LOCAL-BACKEND-RETIREMENT.md). The card states
    * that the way the web host always has.
    */
-  const agentsPayload = (): AgentsCard["payload"] => ({
+  const shared = actorSharedState(ctx, "agents", () => ({
+    served: undefined as AgentsCard["payload"] | undefined, stopLive: undefined as (() => void) | undefined,
+    selectedAgent: undefined as string | undefined, selectedModel: undefined as string | undefined, generation: 0, pending: new Set<string>(), assignmentTail: Promise.resolve() as Promise<unknown>
+  }))
+  const agentsPayload = (): AgentsCard["payload"] => shared.served ?? (deps.install ? { native: false, install: true, agents: [] } : {
     native: false,
     /*
      * The built-in roles, then the loaded repository's agent flows: label,
@@ -122,7 +135,7 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
         status: "active",
         createdAt: existing?.createdAt ?? Date.now(),
         ordinal: toTail || existing === undefined ? deps.nextOrdinal() : existing.ordinal,
-        payload: { ...agentsPayload(), ...(error === undefined ? {} : { error }) }
+        payload: { ...agentsPayload(), ...(existing && "agents" in existing.payload && existing.payload.testing ? { testing: existing.payload.testing } : {}), ...(shared.selectedAgent ? { selectedAgent: shared.selectedAgent } : {}), ...(shared.selectedModel ? { selectedModel: shared.selectedModel } : {}), ...(error === undefined ? {} : { error }) }
       }
     })
   }
@@ -146,10 +159,93 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
   })
   void ctx.onDispose(() => { subscription.unsubscribe() })
 
-  const listAgents: AgentsController["listAgents"] = async () => {
+  const accept = (payload: unknown, tail: boolean) => {
+    const parsed = CardSchema.safeParse({ id: AGENTS_CARD_ID, kind: "agents", title: "Agents", status: "active", createdAt: Date.now(), ordinal: 0, payload })
+    if (!parsed.success || parsed.data.kind !== "agents") throw new Error("Invalid agents response")
+    shared.served = parsed.data.payload
+    renderAgentsCard(tail)
+  }
+  const listAgents: AgentsController["listAgents"] = async (role, model) => {
+    shared.selectedAgent = role
+    shared.selectedModel = model
     renderAgentsCard(true)
+    if (!deps.install) return
+    const request = ++shared.generation
+    const epoch = ctx.accountEpoch
+    void (async () => {
+      try {
+        const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/agents`, { credentials: "same-origin" })
+        if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "Could not read agents"))
+        const body: unknown = await response.json()
+        if (ctx.disposed || epoch !== ctx.accountEpoch || request !== shared.generation) return
+        const assignment = shared.served && "agents" in shared.served ? shared.served.assignment : undefined
+        accept({ ...body as object, ...(assignment ? { assignment } : {}) }, false)
+        if (!shared.stopLive && deps.live) shared.stopLive = deps.live.subscribe("agents", () => {
+          if (ctx.disposed || epoch !== ctx.accountEpoch) return
+          const snapshot = deps.live?.getSnapshot("agents")
+          if (snapshot?.data !== undefined) {
+            try { accept({ ...snapshot.data as object, ...(shared.served && "agents" in shared.served && shared.served.assignment ? { assignment: shared.served.assignment } : {}), canAssign: shared.served && "canAssign" in shared.served ? shared.served.canAssign : false }, false) } catch { renderAgentsCard(false, "Could not read agents") }
+          }
+        })
+      } catch (error) { if (!ctx.disposed && request === shared.generation) renderAgentsCard(false, error instanceof Error ? error.message : "Could not read agents") }
+    })()
+  }
+  const launchAssignment = (request: { id: string; role: string; model: string; state: "requested" | "failed" }, reserved = false) => {
+    const key = `${request.role}:${request.model}`
+    if (!reserved && shared.pending.has(key)) return
+    shared.pending.add(key)
+    const epoch = ctx.accountEpoch
+    const prior = shared.assignmentTail
+    let release!: () => void
+    shared.assignmentTail = new Promise<void>(done => { release = done })
+    void ctx.withToast(`agent.model.${request.id}`, "Saving model", "Model saved", async () => {
+      try {
+        await prior
+        if (ctx.disposed || epoch !== ctx.accountEpoch) return true
+        const body = await assignInstallAgentModel(ctx, request.role, request.model)
+        if (!ctx.disposed && epoch === ctx.accountEpoch && shared.served && "agents" in shared.served && shared.served.assignment?.id === request.id) accept(body, false)
+        if (!ctx.disposed && epoch === ctx.accountEpoch) void deps.refreshSettings?.()
+        return true
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save model"
+        if (!ctx.disposed && epoch === ctx.accountEpoch && shared.served && "agents" in shared.served && shared.served.assignment?.id === request.id) {
+          shared.served = { ...shared.served, assignment: { ...request, state: "failed" } }
+          renderAgentsCard(false, message)
+        }
+        return message
+      } finally { shared.pending.delete(key); release() }
+    }, false, () => !ctx.disposed, AGENTS_CARD_ID)
+  }
+  const assignAgentModel: AgentsController["assignAgentModel"] = async (role, model) => {
+    if (ctx.commandActor !== "user" || !deps.install) return "Owner access required"
+    const key = `${role}:${model}`
+    if (shared.pending.has(key)) return
+    if (!shared.served) {
+      shared.served = { native: false, agents: [] }
+      renderAgentsCard(true)
+    }
+    if (!("agents" in shared.served)) return "Agents unavailable"
+    const request = { id: randomUuid(), role, model, state: "requested" as const }
+    shared.pending.add(key)
+    shared.served = { ...shared.served, assignment: request }
+    renderAgentsCard(false)
+    await store.settled?.()
+    launchAssignment(request, true)
+  }
+  const recovered = agentsCard()?.payload
+  if (deps.install && recovered && "agents" in recovered && recovered.assignment?.state === "requested") {
+    shared.served = recovered
+    shared.selectedAgent = recovered.selectedAgent
+    shared.selectedModel = recovered.selectedModel
+    queueMicrotask(() => { if (!ctx.disposed && ctx.commandActor === "user") launchAssignment(recovered.assignment!) })
   }
 
+  const stopAccount = ctx.onAccountChange?.(() => {
+    shared.generation++; shared.stopLive?.(); shared.stopLive = undefined; shared.served = undefined; shared.selectedAgent = undefined; shared.selectedModel = undefined
+    renderAgentsCard(false)
+  })
+  void ctx.onDispose(() => { stopAccount?.(); shared.generation++; shared.stopLive?.() })
 
-  return { agentRoles, listAgents }
+
+  return { agentRoles, listAgents, assignAgentModel }
 }

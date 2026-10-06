@@ -72,6 +72,20 @@ func validModelTestRecord(raw json.RawMessage) bool {
 	return true
 }
 
+// ValidModelBinding reuses the configured-record validator for owner settings.
+func ValidModelBinding(raw json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return false
+	}
+	if _, present := fields["id"]; present {
+		return false
+	}
+	fields["id"] = json.RawMessage(`"assignment"`)
+	record, err := json.Marshal(fields)
+	return err == nil && validModelTestRecord(record)
+}
+
 // ModelTester runs one owner-scoped call on the same private provider host as chat.
 type ModelTester interface {
 	RunModelTest(context.Context, int64, json.RawMessage) (json.RawMessage, error)

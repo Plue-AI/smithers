@@ -2498,6 +2498,13 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       z.object({
         /** False on the web host: no local harnesses, so nothing local is listed. */
         native: z.boolean(),
+        install: z.boolean().optional(),
+        canAssign: z.boolean().optional(),
+        roleBindings: z.record(z.string(), z.unknown()).optional(),
+        selectedAgent: z.string().optional(),
+        selectedModel: z.string().optional(),
+        testing: z.array(z.string()).optional(),
+        assignment: z.object({ id: z.string(), role: z.string(), model: z.string(), state: z.enum(["requested", "failed"]) }).optional(),
         agents: z.array(
           z.object({
             /** A built-in role id, or the flow id of a repository agent flow (`flows/<id>/flow.mdx` with a model). */
@@ -2509,6 +2516,10 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
             /** The harness's display name from the table; the id when the table lacks it. */
             harnessName: z.string().optional(),
             model: AgentRoleModelSchema,
+            source: z.enum(["owner", "repository", "builtin"]).optional(),
+            binding: z.object({ protocol: z.string(), modelId: z.string(), credential: z.string(), baseUrl: z.string().optional(), path: z.string().optional() }).nullable().optional(),
+            instructions: z.string().optional(),
+            runs: z.array(z.object({ id: z.string(), model: z.string() })).optional(),
             builtin: z.boolean(),
             /** Profile metadata (smithers-ui-DESIGN.md §3.3): whether it is a core role or a specialist. */
             kind: z.enum(["core", "specialist", "helper"]).optional(),

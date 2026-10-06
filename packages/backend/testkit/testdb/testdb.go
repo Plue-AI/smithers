@@ -25,6 +25,8 @@ const (
 	// RequireEnv set to "1" turns a missing or unusable server into a failure
 	// instead of a skip.
 	RequireEnv = "SMITHERS_REQUIRE_DATABASE_TESTS"
+	// NamespaceEnv restricts names to one integration lane.
+	NamespaceEnv = "SMITHERS_TEST_DATABASE_NAMESPACE"
 
 	namePrefix     = "smithers_test_"
 	connectBudget  = 30 * time.Second
@@ -140,7 +142,22 @@ func NewFromTemplate(t testing.TB, template string) *Database {
 	return database
 }
 
+func databasePrefix() (string, error) {
+	namespace := os.Getenv(NamespaceEnv)
+	if namespace == "" {
+		return namePrefix, nil
+	}
+	if len(namespace) > 15 || strings.IndexFunc(namespace, func(r rune) bool { return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') }) >= 0 {
+		return "", fmt.Errorf("invalid %s", NamespaceEnv)
+	}
+	return namePrefix + namespace + "_", nil
+}
+
 func databaseName(now time.Time) (string, error) {
+	prefix, err := databasePrefix()
+	if err != nil {
+		return "", err
+	}
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return "", err
@@ -154,10 +171,13 @@ func databaseName(now time.Time) (string, error) {
 	if len(lane) > 20 {
 		lane = lane[:20]
 	}
+	if os.Getenv(NamespaceEnv) != "" {
+		lane = ""
+	}
 	if lane != "" {
 		lane += "_"
 	}
-	return fmt.Sprintf("%s%d_%s%s", namePrefix, now.Unix(), lane, hex.EncodeToString(suffix[:])), nil
+	return fmt.Sprintf("%s%d_%s%s", prefix, now.Unix(), lane, hex.EncodeToString(suffix[:])), nil
 }
 
 // connect retries briefly so a server that is still starting, or a port

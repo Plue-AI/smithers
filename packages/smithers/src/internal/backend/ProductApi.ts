@@ -831,9 +831,11 @@ export type InstallSetupStatus = {
     name: string
   }
   repositories?: Array<string>
+  can_assign_models?: boolean
   models: Array<{
     role: "fast" | "coding" | "jev"
     provider: string
+    model?: string
     key: "none" | "validating" | "saved" | "failed"
     error?: string
   }>
@@ -1259,6 +1261,25 @@ export interface PutApiConversationViewStateInput {
 /** PUT /api/conversations/{b}/view-state: Save my conversation view state */
 export const putApiConversationViewState = (transport: Transport, input: PutApiConversationViewStateInput): Promise<PutApiConversationViewStateResponse> =>
   transport.request("PUT", `/api/conversations/${segment(input.path.b)}/view-state`, input.body) as Promise<PutApiConversationViewStateResponse>
+
+export type GetApiAgentsResponse = AnyJSON
+
+/** GET /api/agents: Read factory agents */
+export const getApiAgents = (transport: Transport): Promise<GetApiAgentsResponse> =>
+  transport.request("GET", `/api/agents`) as Promise<GetApiAgentsResponse>
+
+export type PutApiAgentsRoleModelBody = AnyJSON
+
+export type PutApiAgentsRoleModelResponse = AnyJSON
+
+export interface PutApiAgentsRoleModelInput {
+  readonly path: { readonly role: "planner" | "implementer" | "reviewer" | "app" | "fast" | "coding" | "jev" }
+  readonly body: PutApiAgentsRoleModelBody
+}
+
+/** PUT /api/agents/{role}/model: Assign a factory agent model */
+export const putApiAgentsRoleModel = (transport: Transport, input: PutApiAgentsRoleModelInput): Promise<PutApiAgentsRoleModelResponse> =>
+  transport.request("PUT", `/api/agents/${segment(input.path.role)}/model`, input.body) as Promise<PutApiAgentsRoleModelResponse>
 
 export type DeleteApiAppTimelinesIdMembersUserDResponse = AnyJSON
 

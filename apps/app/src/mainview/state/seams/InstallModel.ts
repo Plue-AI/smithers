@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { SetupCardSchema, SetupStepIdSchema, SETUP_STEP_IDS, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
+import { SetupCardSchema, ModelRoleSchema, SetupStepIdSchema, SETUP_STEP_IDS, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
 import { SettingsCardSchema, type SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { HttpUrlSchema } from "@smthrs/rpc/WebUrl"
 
@@ -11,9 +11,9 @@ export const InstallErrorSchema = z.object({
 export type InstallError = z.infer<typeof InstallErrorSchema>
 export type InstallStepId = SetupStepId
 const state = z.enum(["pending", "running", "done", "blocked", "failed"])
-const role = z.object({ role: z.enum(["fast", "coding", "jev"]), provider: z.string(),
-  key: z.enum(["none", "validating", "saved", "failed"]), error: z.string().optional() })
+const role = ModelRoleSchema
 export const InstallModelSchema = z.object({
+  can_assign_models: z.boolean().optional(),
   address: z.object({ listen: z.enum(["mac", "network"]), bind: z.string(), origins: z.array(HttpUrlSchema),
     change_failed: z.object({ from: z.string(), to: z.string(), reason: z.string() }).optional() }),
   steps: z.array(z.object({ id: SetupStepIdSchema, state, pct: z.number().min(0).max(100).optional(),

@@ -129,7 +129,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			}
 			return json.Marshal(status)
 		}}, ""
-	case "branch", "conversation", "doc", "secrets", "proposals", "agents", "run":
+	case "branch", "conversation", "doc", "secrets", "proposals", "run":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
@@ -146,6 +146,14 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 				return nil, err
 			}
 			return json.Marshal(roster)
+		}}, ""
+	case topic == "agents":
+		return live.Source{Key: topic, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			profiles, err := agentProfiles(ctx, t.queries)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(profiles)
 		}}, ""
 	case topic == "home":
 		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {

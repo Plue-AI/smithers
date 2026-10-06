@@ -125,6 +125,17 @@ export const IN_CARD_TAGS = [
   "code.definition",
   "draft.discard",
   "confirm.cancel",
+  "agent.model",
+  "agent.open",
+  "model",
+  "model.list",
+  "model.new",
+  "model.edit",
+  "model.save",
+  "model.show",
+  "model.remove",
+  "model.test",
+  "model.assign",
   "settings.model.set"
 ] as const
 

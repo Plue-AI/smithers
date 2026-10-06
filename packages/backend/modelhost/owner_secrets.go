@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/ports"
@@ -108,10 +109,14 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 		// A turn that names no model is the app agent's. On an install it runs
 		// on the fast role Model access wrote (mvp.md §6.5), which is the
 		// coding model when no fast key was saved; elsewhere, on the default.
-		err = pool.QueryRow(ctx, `SELECT s.value FROM install_settings s JOIN self_host_owners o ON o.user_id=$1 WHERE s.key='agent:fast'`, ownerID).Scan(&input.Model)
-		if errors.Is(err, pgx.ErrNoRows) {
+		var claimedOwner int64
+		err = pool.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE user_id=$1`, ownerID).Scan(&claimedOwner)
+		if err == nil {
+			input.Model, err = db.New(pool).EffectiveInstallAgentModel(ctx, "app")
+		} else if errors.Is(err, pgx.ErrNoRows) {
 			err = pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, ownerID).Scan(&input.Model)
 		}
+
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Binding{}, ErrOwnerModelUnset
 		}

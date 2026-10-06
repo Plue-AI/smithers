@@ -10,6 +10,7 @@ import { type CatalogTag, CatalogTagSchema } from "./catalog/index.ts"
 import { ConfirmRevisionSchema } from "./ConfirmCard.ts"
 import { DraftIdSchema } from "./DraftCard.ts"
 import type { SetupStepId } from "./SetupCard.ts"
+import type { ModelProtocol } from "./ConfiguredModel.ts"
 /**
  * The failure codes and fault classes shared by refusal boundaries.
  * @since 1.0.0
@@ -274,6 +275,17 @@ export interface CardCommandInput {
   readonly "code.definition": { readonly path: string; readonly line: number; readonly col: number }
   readonly "draft.discard": z.infer<typeof DraftDiscardInputSchema>
   readonly "confirm.cancel": z.infer<typeof ConfirmCancelInputSchema>
+  readonly "agent.model": { readonly role: string; readonly model: string }
+  readonly "agent.open": { readonly role: string }
+  readonly "model": undefined
+  readonly "model.list": undefined
+  readonly "model.new": undefined
+  readonly "model.edit": { readonly id: string }
+  readonly "model.show": { readonly id: string }
+  readonly "model.remove": { readonly id: string }
+  readonly "model.test": { readonly id: string }
+  readonly "model.assign": { readonly role: string; readonly model: string }
+  readonly "model.save": { readonly name: string; readonly protocol: ModelProtocol; readonly modelId: string; readonly credential: string; readonly baseUrl?: string; readonly path?: string }
   readonly "settings.model.set": z.infer<typeof SettingsModelSetInputSchema>
 }
 

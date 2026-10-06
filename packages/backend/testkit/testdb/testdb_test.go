@@ -7,6 +7,7 @@ import (
 )
 
 func TestDatabaseNamesIncludeOnlySafeBoundedLaneNames(t *testing.T) {
+	t.Setenv(NamespaceEnv, "")
 	for _, lane := range []string{"", "fr-t-ins-06", "lane/hostile;DROP DATABASE postgres", strings.Repeat("z", 100)} {
 		t.Run(lane, func(t *testing.T) {
 			t.Setenv("LANE", lane)
@@ -29,5 +30,26 @@ func TestDatabaseNamesIncludeOnlySafeBoundedLaneNames(t *testing.T) {
 				t.Fatalf("lane missing: %s", name)
 			}
 		})
+	}
+}
+
+func TestDatabaseNamespaceFencesOtherLanes(t *testing.T) {
+	t.Setenv(NamespaceEnv, "fr_t_flw_08")
+	now := time.Unix(1_800_000_000, 0)
+	name, err := databaseName(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(name) > 63 {
+		t.Fatal("PostgreSQL name would truncate")
+	}
+	if !strings.HasPrefix(name, "smithers_test_fr_t_flw_08_") {
+		t.Fatal("namespace missing")
+	}
+	for _, invalid := range []string{"fr-t-flw-08", "OTHER", "a_very_long_lane_name", "bad/name"} {
+		t.Setenv(NamespaceEnv, invalid)
+		if _, err := databaseName(now); err == nil {
+			t.Fatalf("accepted invalid namespace %s", invalid)
+		}
 	}
 }

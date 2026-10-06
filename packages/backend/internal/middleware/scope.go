@@ -525,3 +525,9 @@ func PublicReadAsAnonymousWithoutTokenScope(required TokenScope) func(http.Handl
 		})
 	}
 }
+
+// IsOwnerBrowserSession is the install model-setting authority, projected on
+// read cards and enforced again at every write boundary.
+func IsOwnerBrowserSession(info *AuthInfo, ownerID int64) bool {
+	return ownerID > 0 && info != nil && info.User != nil && info.User.ID == ownerID && !info.IsTokenAuth && !info.IsAgent() && info.SessionHash != ""
+}

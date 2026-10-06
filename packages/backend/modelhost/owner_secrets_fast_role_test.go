@@ -51,6 +51,13 @@ func TestResolveChatModelRunsUnnamedTurnsOnTheInstallFastRole(t *testing.T) {
 	require.Equal(t, "cerebras-value", binding.CredentialValue)
 	binding = resolve(json.RawMessage(`{"model":null}`))
 	require.Equal(t, "CEREBRAS_API_KEY", binding.CredentialName)
+	// Removing the fast key changes only new resolutions. The in-flight binding
+	// above keeps the credential/model bytes it already acquired.
+	require.Equal(t, true, f.credential(t, "remove", "remove-fast-cerebras", "CEREBRAS_API_KEY", "", "")["ok"])
+	fallback := resolve(unnamed)
+	require.JSONEq(t, coding, string(fallback.Model))
+	require.Equal(t, "openai-value", fallback.CredentialValue)
+	require.Equal(t, "cerebras-value", binding.CredentialValue)
 
 	// A turn that names its model keeps it.
 	named, err := json.Marshal(map[string]any{"model": json.RawMessage(coding)})

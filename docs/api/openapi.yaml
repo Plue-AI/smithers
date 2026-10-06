@@ -1367,6 +1367,60 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/agents:
+    get:
+      summary: Read factory agents
+      operationId: get_api_agents
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Factory models, sources and instruction paths
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/agents/{role}/model:
+    put:
+      summary: Assign a factory agent model
+      description: Only the install owner's browser session may write. Members and run or machine credentials are refused; eligible delegated owners receive never.
+      operationId: put_api_agents_role_model
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: role
+          required: true
+          schema:
+            type: string
+            enum: [planner, implementer, reviewer, app, fast, coding, jev]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyJSON'
+      responses:
+        '200':
+          description: Assignment persisted; current agent projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/app-timelines/{id}/members/{userId}:
     delete:
       summary: DELETE /api/app-timelines/{id}/members/{userId}
@@ -24849,6 +24903,8 @@ components:
         repositories:
           type: array
           items: *a1
+        can_assign_models:
+          type: boolean
         models:
           type: array
           minItems: 3
@@ -24867,6 +24923,7 @@ components:
                   - coding
                   - jev
               provider: *a1
+              model: *a1
               key:
                 type: string
                 enum:

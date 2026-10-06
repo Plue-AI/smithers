@@ -400,6 +400,9 @@ var installMemberRoutes = []struct {
 	// workspaces, the repository and its stack, the GitHub sync, the live
 	// channel and the app's error reports.
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install$`)},
+	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/agents$`)},
+	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/model/(catalog|default)$`)},
+	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(orgs|workspaces)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},

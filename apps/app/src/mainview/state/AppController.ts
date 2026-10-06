@@ -53,6 +53,7 @@ import type { StorageRecoveryAction,StorageRecoveryHost } from "./StorageRecover
 import type { AccountController } from "./controller/account"
 import { createAccountController } from "./controller/account"
 import type { AgentsController } from "./controller/agents"
+import { createModelsController } from "./controller/models"
 import { createAgentsController } from "./controller/agents"
 import { createAuthBillingController } from "./controller/auth-billing"
 import { createCloudWikiController } from "./controller/cloud-wiki"
@@ -338,6 +339,13 @@ export interface AppController extends IssueFlowsController {
   /* The sidebar's file tree and workspace heading; see controller/sidebar.ts. */
   readonly toggleRepoTree: SidebarController["toggleRepoTree"]
   /* Agents as data; see controller/agents.ts. */
+  readonly showModel: ReturnType<typeof createModelsController>["showModel"]
+  readonly newModel: ReturnType<typeof createModelsController>["newModel"]
+  readonly editModel: ReturnType<typeof createModelsController>["editModel"]
+  readonly saveModel: ReturnType<typeof createModelsController>["saveModel"]
+  readonly removeModel: ReturnType<typeof createModelsController>["removeModel"]
+  readonly testModel: ReturnType<typeof createModelsController>["testModel"]
+  readonly assignAgentModel: AgentsController["assignAgentModel"]
   readonly listAgents: AgentsController["listAgents"]
   /* THE FORM LAW (apps/app/AGENTS.md): the flow-form card's render, field commits, submit, and dismiss; see controller/forms.ts. */
   readonly renderFlowForm: FormsController["renderFlowForm"]
@@ -1174,7 +1182,9 @@ export const createAppController = (
   }))
   const {
     listAgents,
-  } = actors.pair(ctx, (context) => createAgentsController(context, { nextOrdinal: store.nextOrdinal }))
+    assignAgentModel,
+  } = actors.pair(ctx, (context, select) => createAgentsController(context, { nextOrdinal: store.nextOrdinal, install: installHost, live: services.live, refreshSettings: select(installSeam).readInstall }))
+  const { newModel, editModel, saveModel, removeModel, testModel, showModel } = actors.pair(ctx, (context, select) => createModelsController(context, { renderFlowForm: select(renderFlowForm), listAgents: select(listAgents) }))
   const { toggleRepoTree,} = actors.pair(ctx, (context, select) => createSidebarController(context, select(repoTreeSeam)))
   const socketProtocols = services.socketProtocols ?? localSocketProtocols
   createHealthStatusController(ctx)
@@ -1857,7 +1867,9 @@ export const createAppController = (
     ...tutorialRepository,
     selectRepo,
     toggleRepoTree,
+    newModel, editModel, saveModel, removeModel, testModel, showModel,
     listAgents,
+    assignAgentModel,
     renderFlowForm,
     setFormField: todoForms.setFormField,
     submitForm,

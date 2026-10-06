@@ -1,3 +1,4 @@
+import { ModelRoles } from "./ModelCards"
 import { useMemo, useSyncExternalStore, type ComponentType } from "react"
 import { useController } from "../ControllerContext"
 import type { CardActions, CardFamily } from "./CardFamily"
@@ -68,14 +69,17 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
       command_input: { path: model.wiki_sync.obsidian?.path ?? "" },
       input: [{ name: "path", label: "Obsidian folder", kind: "text" as const, required: true, value: model.wiki_sync.obsidian?.path ?? "" }],
       resolve_input: (input: Record<string, string>) => ({ path: input.path ?? model.wiki_sync?.obsidian?.path ?? "" }) }]),
-    ...roleKeyActions(key!.definition, model, { field: "key" }, !snapshot.seed)
+    ...roleKeyActions(key!.definition, model, { field: "key" }, !snapshot.seed),
+    ...(!snapshot.seed ? model.models.map(role => ({ tag: "settings.model.set" as const, label: "Save", args: { role: role.role }, command_input: { role: role.role, model: role.model ?? "" },
+      input: [{ name: "model", label: "Model", kind: "text" as const, required: true }],
+      resolve_input: (input: Record<string, string>) => ({ role: role.role, model: input.model ?? "" }) })) : [])
   ] : []
   /* This Mac's fix renders inside its row (model.this_mac.limit): it binds for onAction but stays out of the listed actions. */
   const fix: CardActionDefinition[] = owner && model?.this_mac.limit ? [{ ...limitFix(model.this_mac.limit.fix), command_input: undefined }] : []
   const listed = cardActions(key?.dispatch ?? dispatchAvailable, definitions)
   const bindings = cardActions(key?.dispatch ?? dispatchAvailable, [...definitions, ...fix])
   if (!owner || !model?.health) return null
-  return <View modelSlot={modelSlot} model={settingsCardModel(model, origin)} actions={listed.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
+  return <View modelSlot={modelSlot ?? <ModelRoles model={settingsCardModel(model, origin)} actions={listed.actions} onAction={bindings.onAction} />} model={settingsCardModel(model, origin)} actions={listed.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
 
 /* The settings card (card-kinds.md L5): subject only; the body reads the install and binds through cardActions. */
@@ -84,7 +88,7 @@ const SettingsBody = ({ presentation }: { readonly presentation: CardActions["pr
   const install = useMemo(() => designInstall(controller.design, controller.installSnapshots), [controller])
   // A served /api/install projection is owner-only after claim; until one is served the seeded viewer's role decides.
   const live = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get).model
-  const owner = live === undefined ? designViewerRole(controller.design) === "owner" : live.github.signed_in
+  const owner = live === undefined ? designViewerRole(controller.design) === "owner" : live.can_assign_models === true
   // MOCK SEAM: the seed's per-member view state holds the Address choice until the `view:<member>` topic lands.
   const viewer = controller.design.viewer()
   const listen = useLiveQuery(settingsViewsOf(controller.design)).data.find(row => row.id === viewer)?.listen

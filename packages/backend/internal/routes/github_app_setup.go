@@ -215,6 +215,11 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 				status["callback_fixes"] = fixes
 			}
 		}
+		status["can_assign_models"] = false
+		if h.Owners != nil {
+			owner, ownerErr := h.Owners.GetSelfHostOwner(r.Context())
+			status["can_assign_models"] = ownerErr == nil && middleware.IsOwnerBrowserSession(middleware.AuthInfoFromContext(r.Context()), owner.ID)
+		}
 		pkgerrors.WriteJSON(w, http.StatusOK, status)
 		return
 	}

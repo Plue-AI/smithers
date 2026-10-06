@@ -315,6 +315,8 @@ var installCommands = map[string]installCommand{
 	"todo.read":          {role: InstallMember},
 	"todo.new":           {role: InstallMember},
 	"todo.answer":        {role: InstallMember},
+	"agents.read":        {role: InstallMember},
+	"agent.model":        {role: InstallOwner, personOnly: true},
 	// todo.control is POST /api/todos/{n}; its handler authorizes the
 	// control itself: steer, stop, resume, retry, drop or move.
 	"todo.control":  {role: InstallMember},

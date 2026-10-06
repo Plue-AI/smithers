@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -515,8 +516,9 @@ type installModelFailure struct {
 }
 
 type installModelCheck struct {
-	roles  map[string]json.RawMessage
-	failed map[string]installModelFailure
+	fastSource string
+	roles      map[string]json.RawMessage
+	failed     map[string]installModelFailure
 }
 
 func modelCredentialOf(binding json.RawMessage) string {
@@ -550,12 +552,26 @@ func (s *InstallSetupService) checkModels(ctx context.Context) (*installModelChe
 			return nil, &InstallReadinessError{Code: "model_key_missing", Class: "user", Message: "Save coding and Gateway keys"}
 		}
 	}
-	check := &installModelCheck{failed: map[string]installModelFailure{},
+	check := &installModelCheck{fastSource: "coding", failed: map[string]installModelFailure{},
 		roles: map[string]json.RawMessage{"coding": coding, "fast": coding, "jev": json.RawMessage(installDecisionModel)}}
 	tested := []string{"coding", "jev"}
 	// Without a fast key the app agent uses the coding model (mvp.md §6.5).
-	if digests["CEREBRAS_API_KEY"] != "" {
-		check.roles["fast"] = json.RawMessage(InstallFastModel)
+	q := db.New(s.Pool)
+	source, sourceErr := q.GetInstallSetting(ctx, "agent:fast.source")
+	if sourceErr != nil && !errors.Is(sourceErr, pgx.ErrNoRows) {
+		return nil, sourceErr
+	}
+	if sourceErr == nil && string(source.Value) == `"owner"` {
+		fast, fastErr := q.GetInstallSetting(ctx, "agent:fast")
+		if fastErr != nil {
+			return nil, fastErr
+		}
+		check.roles["fast"], check.fastSource = fast.Value, "owner"
+		if digests[modelCredentialOf(fast.Value)] != "" {
+			tested = append(tested, "fast")
+		}
+	} else if digests["CEREBRAS_API_KEY"] != "" {
+		check.roles["fast"], check.fastSource = json.RawMessage(InstallFastModel), "owner"
 		tested = append(tested, "fast")
 	}
 	if s.Models == nil {
@@ -672,6 +688,17 @@ func installModelTestReason(result json.RawMessage, err error) string {
 func (c *installModelCheck) save(ctx context.Context, tx pgx.Tx, passed bool) error {
 	q := db.New(tx)
 	if passed {
+		source := c.fastSource
+		if source == "" {
+			source = "owner"
+			if bytes.Equal(c.roles["fast"], c.roles["coding"]) {
+				source = "coding"
+			}
+		}
+		rawSource, _ := json.Marshal(source)
+		if err := q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:fast.source", Value: rawSource}); err != nil {
+			return err
+		}
 		for role, value := range c.roles {
 			if err := q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:" + role, Value: value}); err != nil {
 				return err
@@ -786,11 +813,19 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		row, err := q.GetInstallSetting(ctx, "agent:"+role)
 		if err == nil {
 			binding = row.Value
+			if role == "fast" {
+				if effective, resolveErr := q.EffectiveInstallAgentModel(ctx, role); resolveErr == nil {
+					binding = effective
+				} else if !errors.Is(resolveErr, pgx.ErrNoRows) {
+					return nil, resolveErr
+				}
+			}
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
 		if len(binding) > 0 {
 			var model struct {
+				ModelID    string `json:"modelId"`
 				Protocol   string `json:"protocol"`
 				Credential string `json:"credential"`
 			}
@@ -802,6 +837,9 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 				provider = model.Protocol
 			}
 			value["provider"] = provider
+			if model.ModelID != "" {
+				value["model"] = model.ModelID
+			}
 			if keys[model.Credential] != "" {
 				value["key"] = "saved"
 			}

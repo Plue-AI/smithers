@@ -920,6 +920,8 @@ components:
         repositories:
           type: array
           items: *a1
+        can_assign_models:
+          type: boolean
         models:
           type: array
           minItems: 3
@@ -938,6 +940,7 @@ components:
                   - coding
                   - jev
               provider: *a1
+              model: *a1
               key:
                 type: string
                 enum:

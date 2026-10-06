@@ -1,3 +1,6 @@
+import { useLiveQuery } from "@tanstack/react-db"
+import type { ConfiguredModel } from "@smthrs/rpc/ConfiguredModel"
+import { AgentModel, ModelRecords } from "./ModelCards"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
 import { Button } from "@smthrs/ui"
@@ -26,7 +29,7 @@ type ProfileRow = Extract<AgentsCard["payload"], { native: boolean }>["agents"][
  * profile is a role flow, so its runs are the run list filtered by that flow
  * (runs.list flow=<id>).
  */
-const ProfileRowView = ({ agent, native, onRunCommand }: { readonly agent: ProfileRow; readonly native: boolean; readonly onRunCommand: RunCommand }) => (
+const ProfileRowView = ({ agent, native, canAssign, onRunCommand }: { readonly agent: ProfileRow; readonly native: boolean; readonly canAssign: boolean; readonly onRunCommand: RunCommand }) => (
   <li key={agent.id} className="workflow-list-row agent-row" data-agent={agent.id} data-available={agent.available} data-kind={agent.kind}>
     <Monogram persona={{ id: agent.id, name: agent.label, agentId: agent.id }} />
     <span className="workflow-list-text">
@@ -39,19 +42,21 @@ const ProfileRowView = ({ agent, native, onRunCommand }: { readonly agent: Profi
         ].filter((fact) => fact !== undefined && fact !== "").join(" · ")}
       </span>
     </span>
+    <AgentModel agent={agent} canAssign={canAssign} onRunCommand={onRunCommand} />
     <Button variant="ghost" size="sm" data-testid={`agent-runs-${agent.id}`} {...flowAction(onRunCommand, "runs.list", flowArgs("runs.list", { flow: agent.id }))}>Runs</Button>
   </li>
 )
 
-export const AgentsCardBody = ({ card, onRunCommand }: { readonly card: AgentsCard; readonly onRunCommand: RunCommand }) => {
+export const AgentsCardBody = ({ card, onRunCommand, models = [] }: { readonly card: AgentsCard; readonly onRunCommand: RunCommand; readonly models?: ReadonlyArray<ConfiguredModel> }) => {
   if ("cloud" in card.payload) return null
-  const { native, agents, error } = card.payload
-  if (agents.length === 0) return <p className="smithers-card-note">Agents run on the native app's harnesses.</p>
+  const { native, agents, error, canAssign, selectedAgent, selectedModel, testing } = card.payload
+  if (agents.length === 0 && card.payload.install !== true) return <p className="smithers-card-note">Agents run on the native app's harnesses.</p>
   return (
     <div className="agents-card">
       <ul className="workflow-list" data-testid="agents-list">
-        {agents.map((agent) => <ProfileRowView key={agent.id} agent={agent} native={native} onRunCommand={onRunCommand} />)}
+        {agents.filter(agent => selectedAgent === undefined || agent.id === selectedAgent).map((agent) => <ProfileRowView key={agent.id} agent={agent} native={native} canAssign={canAssign === true} onRunCommand={onRunCommand} />)}
       </ul>
+      {canAssign && <ModelRecords models={models.filter(model => selectedModel === undefined || model.id === selectedModel)} testing={testing ?? []} onRunCommand={onRunCommand} />}
       {error !== undefined ?
         <FailureNotice className="sui-approval-error" data-testid="agents-failure" failure={describedFailure("AgentsFailed", AGENTS_FAILED, error)} /> :
         null}
@@ -59,10 +64,15 @@ export const AgentsCardBody = ({ card, onRunCommand }: { readonly card: AgentsCa
   )
 }
 
+const ObservedAgents = ({ card, actions }: { readonly card: AgentsCard; readonly actions: import("./CardFamily").CardActions }) => {
+ const { data } = useLiveQuery(actions.projectionStore!.collections.models)
+ return <AgentsCardBody card={card} onRunCommand={actions.onRunCommand} models={data} />
+}
+
 export const agentCardFamily: CardFamily<"agents"> = {
   /* Agents as data: the listings settle when they render. */
   agents: {
-    render: (card, actions) => <AgentsCardBody card={card} onRunCommand={actions.onRunCommand} />,
+    render: (card, actions) => actions.projectionStore ? <ObservedAgents card={card} actions={actions} /> : <AgentsCardBody card={card} onRunCommand={actions.onRunCommand} />,
     pill: settledPill
   },
 

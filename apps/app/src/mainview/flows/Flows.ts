@@ -26,6 +26,7 @@ import type { FlowEntry } from "./registry"
 import type { CommandActions } from "./entries/Declare"
 import { accountFlows } from "./entries/account"
 import {  adminResetFlows, adminToolFlows } from "./entries/admin"
+import { modelFlows } from "./entries/model"
 import { agentFlows } from "./entries/agent"
 import { appFlows } from "./entries/app"
 import { themeFlows } from "./entries/theme"
@@ -169,6 +170,7 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...findingsFlows(actions),
   ...chatReloadFlows(actions),
   ...agentFlows(actions),
+  ...modelFlows(actions),
   ...formFlows(actions),
   ...repoFlows(actions),
   ...tutorialRepositoryFlows(actions),

@@ -45,6 +45,10 @@ const declaredNames = (): ReadonlyArray<string> => {
   for (const file of readdirSync(entries).sort()) {
     if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue
     const source = readFileSync(`${entries}${file}`, "utf8")
+    // A literal alias array shares one declaration (for example debug.api).
+    for (const match of source.matchAll(/\[([^\]]+)\](?:\s+as\s+const\))?\.map\(name\s*=>\s*flow\(\{\s*(?:\.\.\.\w+,\s*)?name,/g)) {
+      for (const literal of match[1]!.matchAll(/"([^"]+)"/g)) names.push(literal[1]!)
+    }
     for (const match of source.matchAll(/\bname:\s*"([^"]+)"/g)) names.push(match[1]!)
   }
   const shared = fileURLToPath(new URL(".", import.meta.resolve("@smthrs/ui/app-operations")))
