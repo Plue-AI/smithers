@@ -48,6 +48,15 @@ impl Documents for Machine {
     }
 }
 impl Core for Machine {
+    fn return_target(&self) -> Result<Oid> {
+        self.call("resolve return");
+        Ok([7; 20])
+    }
+    fn return_to_item(&self, _: &mut LockCx, target: Oid) -> Result<Oid> {
+        assert_eq!(target, [7; 20]);
+        self.call("return edit");
+        Ok(target)
+    }
     fn validate_rebase(&self, _: Oid) -> Result<()> {
         Ok(())
     }
@@ -143,4 +152,50 @@ fn pending_rewrite_does_not_block_roster_revocation() {
     assert_eq!(Frame::decode(&output).unwrap().payload[11], 16);
     assert_eq!(*m.calls.lock().unwrap(), ["revoke roster"]);
     assert!(cx.rewrite_pending);
+}
+
+#[test]
+fn return_rpc_uses_shared_freeze_capture_reconcile_thaw() {
+    let m = Arc::new(Machine::default());
+    let mut cx = LockCx::new(Hooks {
+        broker: m.clone(),
+        core: m.clone(),
+        watcher: m.clone(),
+        documents: m.clone(),
+        ..Hooks::default()
+    });
+    let request = include_bytes!(
+        "../../../packages/backend/internal/compose/testdata/cocontracts/req_return_to_item.bin"
+    );
+    let mut output = vec![];
+    rpc::serve_one(&mut Cursor::new(request), &mut output, &mut cx).unwrap();
+    assert_eq!(Frame::decode(&output).unwrap().payload[11], 12);
+    assert_eq!(
+        *m.calls.lock().unwrap(),
+        [
+            "resolve return",
+            "freeze",
+            "capture",
+            "return edit",
+            "reconcile",
+            "thaw"
+        ]
+    );
+    assert!(!cx.rewrite_pending);
+}
+
+#[test]
+fn return_without_history_provider_has_no_privileged_effect() {
+    let m = Arc::new(Machine::default());
+    let mut cx = LockCx::new(Hooks {
+        broker: m.clone(),
+        ..Hooks::default()
+    });
+    let request = include_bytes!(
+        "../../../packages/backend/internal/compose/testdata/cocontracts/req_return_to_item.bin"
+    );
+    let mut output = vec![];
+    rpc::serve_one(&mut Cursor::new(request), &mut output, &mut cx).unwrap();
+    assert_eq!(Frame::decode(&output).unwrap().payload[11], 255);
+    assert!(m.calls.lock().unwrap().is_empty());
 }

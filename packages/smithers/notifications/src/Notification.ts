@@ -126,6 +126,24 @@ export const SystemEvent = Schema.TaggedStruct("system-event", {
 export type SystemEvent = typeof SystemEvent.Type
 
 /**
+ * A committed watcher burst for one pinned coding run. It reaches the next
+ * turn boundary without waiting for idle. Burst ids deduplicate admission;
+ * every actor and file remains data. Host verification is mandatory.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export const OutsideChange = Schema.TaggedStruct("outside-change", {
+  ...common,
+  delivery: Schema.Literal("steer"),
+  payload: Schema.Struct({
+    kind: Schema.Literal("outside_change"),
+    actor: Schema.Struct({ id: Schema.NonEmptyString, label: Schema.String }),
+    files: Schema.Array(Schema.NonEmptyString)
+  })
+})
+
+/**
  * Any durable notification retained by the pending queue.
  *
  * `NotificationQueue.admit` decodes its argument against this union before it
@@ -137,7 +155,7 @@ export type SystemEvent = typeof SystemEvent.Type
  * @category models
  * @since 0.1.0
  */
-export const Notification = Schema.Union([HumanSteer, HumanFollowup, SystemEvent])
+export const Notification = Schema.Union([HumanSteer, HumanFollowup, SystemEvent, OutsideChange])
 
 /**
  * Any durable notification retained by the pending queue.

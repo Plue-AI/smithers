@@ -93,6 +93,15 @@ impl Core for Files {
     fn validate_rebase(&self, onto: hooks::Oid) -> hooks::Result<()> {
         self.next.validate_rebase(onto)
     }
+    fn return_target(&self) -> hooks::Result<hooks::Oid> {
+        self.next.return_target()
+    }
+    fn return_to_item(&self, cx: &mut LockCx, target: hooks::Oid) -> hooks::Result<hooks::Oid> {
+        self.next.return_to_item(cx, target)
+    }
+    fn restore_rewrite(&self, cx: &mut LockCx) -> hooks::Result<()> {
+        self.next.restore_rewrite(cx)
+    }
     fn capture_local(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.next.capture_local(cx)
     }

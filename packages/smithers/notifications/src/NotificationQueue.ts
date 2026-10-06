@@ -395,7 +395,15 @@ const maximumCachedRuns = 64
  * @since 1.0.0
  */
 export const layerWith = (
-  options: { readonly capacity?: number | undefined } = {}
+  options: {
+    readonly capacity?: number | undefined
+    // Host-owned verifier binds a committed burst to its pinned coding run
+    // and verifies authenticated watcher and stale-write enforcement authority.
+    readonly verifyOutsideChange?: (
+      runId: string,
+      notification: typeof NotificationModel.OutsideChange.Type
+    ) => Effect.Effect<void, NotificationError>
+  } = {}
 ): Layer.Layer<NotificationQueue, never, Journal.Journal> =>
   Layer.effect(
     NotificationQueue,
@@ -633,19 +641,22 @@ export const layerWith = (
         admit: Effect.fn("NotificationQueue.admit")((rawRunId, notification) =>
           Effect.gen(function*() {
             const admitted = yield* validated(notification)
-            // T-COL-12 stays dark: nothing yet authenticates a watcher burst, pins
-            // its coding run or enforces fresh machine reads. Refusing here, before
-            // the journal, keeps co-admitted steers deliverable on every replay.
+            // Reserved payloads require the typed burst envelope and a host
+            // verifier. Refuse before journaling when authority is absent;
+            // never let a generic message impersonate a watcher notification.
             const payload = admitted.payload
             if (
               typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
               (payload as Readonly<Record<string, unknown>>)["kind"] === "outside_change"
             ) {
-              return yield* new NotificationError({
-                code: "notification_refused",
-                notificationId: admitted.id,
-                message: "Outside-change delivery requires authenticated watcher facts and stale-write enforcement"
-              })
+              if (admitted._tag !== "outside-change" || options.verifyOutsideChange === undefined) {
+                return yield* new NotificationError({
+                  code: "notification_refused",
+                  notificationId: admitted.id,
+                  message: "Outside-change delivery requires authenticated watcher facts and stale-write enforcement"
+                })
+              }
+              yield* options.verifyOutsideChange(rawRunId, admitted)
             }
             const admittedFingerprint = yield* fingerprint(admitted)
             return yield* journal.transact(

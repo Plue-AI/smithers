@@ -10,7 +10,7 @@ const item = (
   delivery: "steer" | "queue",
   targetLineageId = "run/root",
   body = id
-): Notification => {
+): Exclude<Notification, { readonly _tag: "outside-change" }> => {
   const common = {
     id,
     targetLineageId,
@@ -1320,6 +1320,68 @@ it("refuses outside-change admission without journaling or consuming pending cap
       const boundary = { runId, targetLineageId: "run/root", boundary: "turn-1", wouldIdle: true }
       expect((yield* queue.drain(boundary)).notifications.map((note) => note.id)).toEqual(["say"])
       expect((yield* queue.drain(boundary)).duplicate).toBe(true)
+    }).pipe(Effect.provide(NotificationQueue.layer), Effect.provide(TestJournal.layer()), Effect.scoped)
+  )
+})
+
+it("checks host authority for typed outside changes before every admission, including retries", async () => {
+  const calls: string[] = []
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const queue = yield* NotificationQueue.NotificationQueue
+      const change: Notification = {
+        _tag: "outside-change",
+        delivery: "steer",
+        id: "burst-1",
+        targetLineageId: "run/root",
+        provenance: { sourceRunId: "machine", sourceLineageId: "machine/root", sourceTurn: 0, sourceActor: "daemon" },
+        payload: { kind: "outside_change", actor: { id: "maya", label: "Maya" }, files: ["retry.ts"] }
+      }
+      yield* queue.admit("run", change)
+      expect((yield* queue.admit("run", change)).duplicate).toBe(true)
+      const refused = yield* Effect.flip(queue.admit("wrong-run", change))
+      expect(refused).toMatchObject({ code: "notification_refused" })
+      expect(yield* queue.pending("wrong-run")).toEqual([])
+      const drain = yield* queue.drain({
+        runId: "run",
+        targetLineageId: "run/root",
+        boundary: "turn-1",
+        wouldIdle: false
+      })
+      expect(drain.notifications.map((note) => note.id)).toEqual(["burst-1"])
+    }).pipe(
+      Effect.provide(NotificationQueue.layerWith({
+        verifyOutsideChange: (run, change) => {
+          calls.push(`${run}:${change.id}`)
+          return run === "run" ? Effect.void : Effect.fail(
+            new NotificationQueue.NotificationError({
+              code: "notification_refused",
+              message: "burst belongs to another run"
+            })
+          )
+        }
+      })),
+      Effect.provide(TestJournal.layer()),
+      Effect.scoped
+    )
+  )
+  expect(calls).toEqual(["run:burst-1", "run:burst-1", "wrong-run:burst-1"])
+})
+
+it("keeps typed outside changes disabled without a host verifier", async () => {
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const queue = yield* NotificationQueue.NotificationQueue
+      const refused = yield* Effect.flip(queue.admit("run", {
+        _tag: "outside-change",
+        delivery: "steer",
+        id: "burst-1",
+        targetLineageId: "run/root",
+        provenance: { sourceRunId: "machine", sourceLineageId: "machine/root", sourceTurn: 0, sourceActor: "daemon" },
+        payload: { kind: "outside_change", actor: { id: "maya", label: "Maya" }, files: ["retry.ts"] }
+      }))
+      expect(refused).toMatchObject({ code: "notification_refused" })
+      expect(yield* queue.pending("run")).toEqual([])
     }).pipe(Effect.provide(NotificationQueue.layer), Effect.provide(TestJournal.layer()), Effect.scoped)
   )
 })

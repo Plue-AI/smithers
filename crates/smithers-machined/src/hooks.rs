@@ -179,6 +179,17 @@ pub trait Core: Send + Sync {
         Err(Error::unsupported())
     }
 
+    /// Resolve the retained pre-move target before freezing. The target comes
+    /// from daemon history, never a caller-supplied revision or host execution.
+    fn return_target(&self) -> Result<Oid> {
+        Err(Error::unsupported())
+    }
+    /// Native jj edit under the shared rewrite barrier. Capture must preserve
+    /// any off-item writes before this runs. Clear the fact only after settle.
+    fn return_to_item(&self, _cx: &mut LockCx, _target: Oid) -> Result<Oid> {
+        Err(Error::unsupported())
+    }
+
     /// Snapshot, pin and enqueue locally while holding the mutation lock.
     /// Unlike capture RPC, this must never wait for host acknowledgement.
     fn capture_local(&self, _cx: &mut LockCx) -> Result<()> {

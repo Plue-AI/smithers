@@ -44,6 +44,21 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
                 })
             }
 
+            12 => {
+                let fields = conn::fields("args12", args)?;
+                let principal = conn::fields("principal", &fields[0].1[1..])?;
+                let bytes = &principal[0].1[4..];
+                if bytes.is_empty() {
+                    return Err(ProtocolError::BadValue);
+                }
+                let actor = crate::hooks::Actor::Principal(bytes.to_vec());
+                hooks.core.return_target().and_then(|target| {
+                    crate::freeze::freeze_then(cx, &actor, |cx| {
+                        hooks.core.return_to_item(cx, target)
+                    })
+                    .map(|head| conn::structure_bytes(&[conn::field(1, head)]))
+                })
+            }
             13 => {
                 let (path, actor) = conn::open_doc_args(args)?;
                 match actor {
