@@ -52,7 +52,7 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 	cfg.Server.PublicURL = "http://127.0.0.1:4000"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	note := `{"signature":"check:lint@review","title":"Run lint","prompt":"Run lint before review","diff":"+pnpm lint","evidence":["3 of the last 5 failed lint at review"],"todos":[1,3,5],"repository":"maya/app","run":"learning-5"}`
-	_, err = pool.Exec(ctx, `INSERT INTO memory_notes(id,namespace_kind,namespace_id,text,tags_json,provenance_json,status,created_at_ms) VALUES('lint','flow',$1,'Run lint','[]',$2,'pending',1),('dismiss','flow',$1,'Run lint','[]',$2,'pending',2),('fail','flow',$1,'Run lint','[]',$2,'pending',4),('other','flow','learning:999','Run lint','[]',$2,'pending',3)`, fmt.Sprintf("learning:%d", repo), note)
+	_, err = pool.Exec(ctx, `INSERT INTO memory_notes(id,namespace_kind,namespace_id,text,tags_json,provenance_json,status,created_at_ms) VALUES('lint','flow',$1,'Run lint','[]',$2,'pending',1),('check:lint@review/%2F','flow',$1,'Run lint','[]',$2,'pending',2),('fail','flow',$1,'Run lint','[]',$2,'pending',4),('other','flow','learning:999','Run lint','[]',$2,'pending',3)`, fmt.Sprintf("learning:%d", repo), note)
 	require.NoError(t, err)
 	service := services.NewMythicalService(pool, nil)
 	router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
@@ -95,17 +95,17 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT issue_body FROM mythical_items WHERE repository_id=$1`, repo).Scan(&prompt))
 	require.Contains(t, prompt, "3 of the last 5 failed lint at review")
 	require.Contains(t, prompt, "+pnpm lint")
-	code, body = call("POST", "/api/proposals/dismiss/dismiss", "{}", "dismiss")
+	code, body = call("POST", "/api/proposals/check%3Alint%40review%2F%252F/dismiss", "{}", "dismiss")
 	require.Equal(t, 202, code, body)
 	require.Equal(t, "dismissed", body["state"])
 	var dismissed int64
-	require.NoError(t, pool.QueryRow(ctx, `SELECT status_at_ms FROM memory_notes WHERE id='dismiss'`).Scan(&dismissed))
-	code, body = call("POST", "/api/proposals/dismiss/dismiss", "{}", "replay")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status_at_ms FROM memory_notes WHERE id='check:lint@review/%2F'`).Scan(&dismissed))
+	code, body = call("POST", "/api/proposals/check%3Alint%40review%2F%252F/dismiss", "{}", "replay")
 	require.Equal(t, 202, code, body)
 	var replay int64
-	require.NoError(t, pool.QueryRow(ctx, `SELECT status_at_ms FROM memory_notes WHERE id='dismiss'`).Scan(&replay))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status_at_ms FROM memory_notes WHERE id='check:lint@review/%2F'`).Scan(&replay))
 	require.Equal(t, dismissed, replay)
-	code, body = call("POST", "/api/proposals/dismiss/accept", "{}", "wrong")
+	code, body = call("POST", "/api/proposals/check%3Alint%40review%2F%252F/accept", "{}", "wrong")
 	require.Equal(t, 409, code, body)
 	code, body = call("POST", "/api/proposals/other/accept", "{}", "other")
 	require.Equal(t, 404, code, body)
