@@ -51,9 +51,11 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
           await save(row)
         }
           const response = await request(url(row.branch), "GET")
-          const conversation = SharedConversationSchema.parse(await response.json())
           if (!current()) return
           if (branch() === row.branch) await source.read()
+          const decoded = SharedConversationSchema.safeParse(await response.json())
+          if (!decoded.success) throw new Error("Conversation unavailable")
+          const conversation = decoded.data
           const turn = conversation.entries.find(entry => entry.id === row.turnId)
           if (ctx.store.session().sharedPrompts?.find(item => item.id === row.id)?.state === "requested") continue
           if (turn && "state" in turn && ["completed", "failed", "cancelled", "uncertain"].includes(turn.state)) {

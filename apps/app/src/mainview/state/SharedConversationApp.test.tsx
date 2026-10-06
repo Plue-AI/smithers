@@ -289,6 +289,7 @@ test("install conversation binds imported snapshots through the shared renderer 
     live,
     fetchImpl: async input => {
       if (String(input) === "/api/conversations/main") { reads++; return available ? Response.json({ id: "main", entries }) : Response.json({ code: "unavailable", class: "infra", message: "Conversation unavailable" }, { status: 503 }) }
+      if (String(input) === "/api/conversations/main/prompt") return Response.json({ turnId: "ordinary-pending", terminal: false }, { status: 202 })
       return Response.json({})
     }
   })
@@ -335,6 +336,44 @@ test("install conversation binds imported snapshots through the shared renderer 
     available = true
     await controller.sharedConversation!.read()
     await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 4)
+    // Literal production SharedTurn projection, including inert journal frames.
+    const journal = {
+      id: "backend-import", origin: "external", read_only: true, agent: "claude-code",
+      source_format_version: "claude-code/2.1.0", source_id: "source-tool", source_offset: 16,
+      session_id: "session-live", participant_id: "participant-live", owner_id: "1", author_id: "participant-live",
+      author: 1, authorLogin: "ben", kind: "tool_request", body: { name: "Bash", input: { command: "touch /tmp/never-execute" } }, call_id: "call-live",
+      title: "", tone: "done", runId: "backend-import", prompt: "", state: "completed",
+      frames: [{ runId: "backend-import", type: "done", reason: "stop" }]
+    }
+    entries = [ben, journal, { ...journal, id: "backend-result", kind: "tool_result", body: "Literal tool failure", failed: true }]
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 2)
+    expect(host.textContent).toContain("Claude Code for ben")
+    expect(host.textContent).toContain("Literal tool failure")
+    expect(host.textContent).toContain("touch /tmp/never-execute")
+    for (const row of host.querySelectorAll('article[data-origin="external"]')) expect([...row.querySelectorAll("button")].map(button => button.dataset.flow)).toEqual(["chat.copy-message"])
+    expect(controller.sharedConversation!.get().conversation?.entries.filter(row => row.origin === "external").map(row => "correlation_id" in row ? row.correlation_id : undefined)).toEqual(["call-live", "call-live"])
+    for (const field of ["origin", "read_only", "agent", "source_id", "source_format_version", "session_id", "participant_id", "owner_id", "author_id", "authorLogin", "body", "call_id"]) {
+      const invalid: Record<string, unknown> = { ...journal }; delete invalid[field]
+      entries = [invalid]
+      await controller.sharedConversation!.read()
+      expect(controller.sharedConversation!.get().conversation).toBeUndefined()
+      await controller.sharedConversation!.saveView({ scroll_anchor: "backend-import" })
+      expect(controller.sharedConversation!.get().error).toBe("Conversation unavailable")
+    }
+    entries = [ben, journal]
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 1)
+    await controller.send("Ordinary prompt beside imports")
+    await waitFor(() => store.session().sharedPrompts?.some(row => row.state === "accepted") === true)
+    entries = [{ ...journal, read_only: false }]
+    await waitFor(() => store.session().sharedPrompts?.some(row => row.state === "failed") === true)
+    expect(store.session().sharedPrompts?.find(row => row.prompt === "Ordinary prompt beside imports")?.error).toBe("Conversation unavailable")
+    expect(controller.sharedConversation!.get().error).toBe("Conversation unavailable")
+    entries = [ben, journal]
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelector('[data-shared-turn="turn-ben"]') !== null)
+    expect(starts).toBe(0)
     expect(host.textContent).toContain("One changed test")
     expect(starts).toBe(0)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
