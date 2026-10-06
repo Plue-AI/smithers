@@ -63,8 +63,6 @@ import { CLOUD_CHAT_SIGN_IN } from "./CloudAgent"
 import type { CloudAgent } from "./CloudAgent"
 import { createCloudAuth } from "./CloudAuth"
 import type { CloudAuth, CloudKeychain } from "./CloudAuth"
-import { createModelCredentials } from "./ModelCredentials"
-import { nativeStateDirectory } from "./NativeState"
 import { modelFailureLine, sealedMessages, sealedTurn } from "./ConfiguredModelHost"
 import { planOnLocal } from "@smthrs/model-host/LocalModel"
 import { createModelProbe } from "@smthrs/model-host/ModelProbe"
@@ -182,7 +180,6 @@ export interface LocalServerOptions {
    * local host uses its application-support directory; a
    * test passes a temp dir or nothing.
    */
-  readonly modelKeychain?: CloudKeychain
   readonly stateDir?: string
   /** The home directory reported by `/api/health`. */
   readonly home?: string
@@ -816,7 +813,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   })
 
   const modelEnv: ModelCredentialEnv = options.env ?? Bun.env
-  const modelCredentials = await createModelCredentials({ env: modelEnv, scope: resolve(options.stateDir ?? nativeStateDirectory()), ...(options.modelKeychain ? { keychain: options.modelKeychain } : {}) })
   /** Offline performs no egress, so a configured model may be reached on loopback only. */
   const modelEgress = remoteEnabled ? {} : { egress: false }
   /** Live configured-model turns by runId: what a cancel interrupts. */
@@ -893,7 +889,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     if (messages === undefined) {
       return refuse("tools_not_supported", "A configured model runs no tools, so it cannot continue a tool call.")
     }
-    const planned = planOnLocal(model, modelEnv, { kind: "generation", ...modelEgress }, modelCredentials)
+    const planned = planOnLocal(model, modelEnv, { kind: "generation", ...modelEgress })
     if (!planned.ok) return refuse(modelFailureRefusalCode(planned.failure), modelFailureLine(planned.failure))
     const runId = body.runId
     if (writers.has(runId)) return jsonError("turn_running", "That Smithers turn is already running.")
@@ -959,7 +955,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       return jsonError("invalid_request", "Body must be { runId, messages, instructions } with optional tools and context.")
     }
     const body = parsed.body
-    if ("model" in body) await modelCredentials.refresh()
     if (body.journal !== undefined && !AgentTurnJournalRequestSchema.safeParse(body.journal).success) {
       return jsonError("invalid_request", "The recorded turn identity is invalid.")
     }
@@ -985,7 +980,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     }
     const body = parsed.body
     if (body.tools !== undefined && body.tools.length > 0) return refuse("tools_not_supported", "A model answer runs no tools; send it without tools.")
-    if ("model" in body) await modelCredentials.refresh()
     return startChatTurn(body)
   })
   for (const path of [TURN_REPLAY_PATH, TURN_RETIRE_PATH, TURN_ERASE_PATH]) {
@@ -1030,12 +1024,11 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
    * (R8). The catalog carries names and presence, never a value.
    */
   const modelProbe = createModelProbe({
-    credentials: modelCredentials,
     env: modelEnv,
     egress: remoteEnabled,
     ...(options.modelFetch === undefined ? {} : { fetch: options.modelFetch })
   })
-  router.add("GET", MODEL_CATALOG_PATH, async () => { await modelCredentials.refresh(); return json(modelProbe.catalog()) })
+  router.add("GET", MODEL_CATALOG_PATH, () => json(modelProbe.catalog()))
   /*
    * The Smithers Cloud login (lane piper, ADR 0001): start answers the URL the
    * renderer opens in the system browser; the session answer never carries

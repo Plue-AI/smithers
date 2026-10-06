@@ -29,7 +29,7 @@ for (const [mode, options] of modes) test(`${mode}: route and bootstrap agree on
   try {
     Bun.env.SMITHERS_BACKEND_API = "http://127.0.0.1:9"
     await writeFile(join(dist, "index.html"), "<!doctype html><div id=root></div>")
-    const server = await startLocalServer({ port: 0, distDir: dist, stateDir: dist, modelKeychain: { read: async () => null, write: async () => {}, remove: async () => {} },
+    const server = await startLocalServer({ port: 0, distDir: dist, stateDir: dist,
       log: () => {}, agentLauncher: launcher, ...options })
     try {
       const headers = { [LOCAL_SESSION_HEADER]: server.sessionToken, origin: server.origin, "content-type": "application/json" }

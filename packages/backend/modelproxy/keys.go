@@ -13,9 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 )
@@ -169,92 +167,12 @@ func UsableKey(value string) bool {
 	return true
 }
 
-// KeysFileEnv names the platform model key file of a self-hosted install.
-const KeysFileEnv = "SMITHERS_PLATFORM_MODEL_KEYS_FILE"
-
-// FileKeys serves keys from a JSON object of provider to key, such as
-// {"anthropic":"sk-ant-...","openai":"sk-..."}. The providers offered are
-// fixed when the file is opened; each key is read from the file on every
-// call, so a rotated key applies to the next call. The file must not be
-// readable or writable by other users. Errors never quote the file.
-type FileKeys struct {
-	path      string
-	providers []string
-}
-
-// OpenKeysFile validates path and returns the keys it offers.
-func OpenKeysFile(path string) (*FileKeys, error) {
-	keys := &FileKeys{path: strings.TrimSpace(path)}
-	if keys.path == "" {
-		return nil, errors.New("modelproxy: platform model key file path is empty")
-	}
-	byProvider, err := keys.read()
-	if err != nil {
-		return nil, err
-	}
-	for name, key := range byProvider {
-		if _, ok := SeatFor(name); !ok || name != strings.TrimSpace(name) {
-			// The name is never quoted: a swapped entry would print a key.
-			return nil, fmt.Errorf("modelproxy: platform model key file names an unknown provider (want %s)", strings.Join(providerNames(), ", "))
-		}
-		if !UsableKey(key) {
-			return nil, fmt.Errorf("modelproxy: platform model key for %s is blank or a placeholder", name)
-		}
-	}
-	keys.providers = NewStaticKeys(byProvider).PlatformModelProviders()
-	return keys, nil
-}
-
-func (k *FileKeys) read() (map[string]string, error) {
-	file, err := os.Open(k.path)
-	if err != nil {
-		return nil, fmt.Errorf("modelproxy: open platform model key file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("modelproxy: stat platform model key file: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errors.New("modelproxy: platform model key file is not a regular file")
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return nil, fmt.Errorf("modelproxy: platform model key file %s is accessible to other users (mode %04o); chmod 600 it", k.path, info.Mode().Perm())
-	}
-	raw, err := io.ReadAll(io.LimitReader(file, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("modelproxy: read platform model key file: %w", err)
-	}
-	var byProvider map[string]string
-	if json.Unmarshal(raw, &byProvider) != nil || byProvider == nil {
-		return nil, errors.New("modelproxy: platform model key file must be a JSON object of provider name to key")
-	}
-	return byProvider, nil
-}
-
 func providerNames() []string {
 	names := make([]string, len(Seats))
 	for i, seat := range Seats {
 		names[i] = seat.Provider
 	}
 	return names
-}
-
-func (k *FileKeys) PlatformModelProviders() []string { return slices.Clone(k.providers) }
-
-func (k *FileKeys) PlatformModelKey(_ context.Context, provider string) (string, error) {
-	if !slices.Contains(k.providers, provider) {
-		return "", ErrKeyMissing
-	}
-	byProvider, err := k.read()
-	if err != nil {
-		return "", errors.Join(ErrKeyMissing, err)
-	}
-	key := strings.TrimSpace(byProvider[provider])
-	if !UsableKey(key) {
-		return "", ErrKeyMissing
-	}
-	return key, nil
 }
 
 // UpstreamsEnv names a self-hosted install's provider origin overrides: a

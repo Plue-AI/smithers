@@ -24,7 +24,6 @@ export const browserTestOptions = (
     ...(env.SMITHERS_E2E_CODEX_CLI === undefined ? {} : { codex: { cli: env.SMITHERS_E2E_CODEX_CLI, home: launchHome(root, "codex") } }),
     ...(env.SMITHERS_E2E_CLAUDE_CLI === undefined ? {} : { "claude-code": { cli: env.SMITHERS_E2E_CLAUDE_CLI, home: launchHome(root, "claude-code") } })
   }
-  const modelVault = new Map<string, string>()
   // The real-model tier explicitly passes named fixture providers. Neither
   // ordinary browser tests nor that tier inherit unrelated host model keys.
   const modelEnv = realChat ? Object.fromEntries(Object.entries(env).filter(
@@ -45,11 +44,6 @@ export const browserTestOptions = (
     },
     identityUpstream: null,
     env: modelEnv,
-    modelKeychain: {
-      read: async (service, account) => modelVault.get(`${service}\0${account}`) ?? null,
-      write: async (service, account, value) => { modelVault.set(`${service}\0${account}`, value) },
-      remove: async (service, account) => { modelVault.delete(`${service}\0${account}`) }
-    },
     home: root,
     stateDir: join(root, "state"),
     // M-38: Codex and Claude Code sessions from SMITHERS_E2E_CODEX_HOME and SMITHERS_E2E_CLAUDE_HOME, and from the

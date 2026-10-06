@@ -362,7 +362,7 @@ const securityReview = Smithers.SecurityReview({
         "The token written to logs, argv of `security`, or the renderer session answer.",
         "A keychain command built by string interpolation of an unchecked service or account."
       ],
-      paths: ["src/bun/CloudAuth.ts", "src/bun/ModelCredentials.ts"]
+      paths: ["src/bun/CloudAuth.ts"]
     },
     {
       id: "backend-child-env",
