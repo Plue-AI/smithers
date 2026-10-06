@@ -168,6 +168,22 @@ impl<I: Ignore> Inotify<I> {
         }
         Ok(files)
     }
+    pub fn tracked(&mut self, path: &str) -> io::Result<bool> {
+        Ok(!self.ignore.ignored(Path::new(path), false)?)
+    }
+    pub fn tracked_paths(&mut self, paths: Vec<String>) -> io::Result<Vec<String>> {
+        let ignored = self.ignore.batch(
+            &paths
+                .iter()
+                .map(|p| (PathBuf::from(p), false))
+                .collect::<Vec<_>>(),
+        )?;
+        Ok(paths
+            .into_iter()
+            .zip(ignored)
+            .filter_map(|(p, i)| if i { None } else { Some(p) })
+            .collect())
+    }
     pub fn read(&self, path: &str) -> io::Result<Option<Vec<u8>>> {
         if !relative(Path::new(path)) {
             return Err(io::ErrorKind::InvalidInput.into());
@@ -317,7 +333,27 @@ pub struct InotifyWatcher<I, P> {
     )>,
     origin: std::time::Instant,
 }
+/// Preserve the shared core's typed refusal (notably moved_off) across the
+/// provider's IO boundary without inventing a second error envelope.
+#[derive(Debug)]
+struct HookFailure(crate::hooks::Error);
+impl std::fmt::Display for HookFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "daemon error {}", self.0.code)
+    }
+}
+impl std::error::Error for HookFailure {}
+pub fn provider_error(error: crate::hooks::Error) -> io::Error {
+    io::Error::other(HookFailure(error))
+}
 fn hook_error(error: io::Error) -> crate::hooks::Error {
+    if let Some(failure) = error
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<HookFailure>())
+    {
+        return failure.0.clone();
+    }
+
     let mut result = crate::hooks::Error::unsupported();
     result.code = match error.kind() {
         io::ErrorKind::Unsupported => 2,
@@ -362,6 +398,7 @@ impl<I: Ignore, P: crate::events::Provider<crate::hooks::Actor, Blob = crate::ho
         checkpoint: crate::events::Checkpoint<crate::hooks::Actor, crate::hooks::Oid>,
         cx: &mut crate::lock::LockCx,
     ) -> crate::hooks::Result<Self> {
+        provider.activate().map_err(hook_error)?;
         let mut watcher =
             crate::resync::WatchLoop::new(watch, crate::events::Changes::new(checkpoint));
         watcher.resync(&mut provider, 0).map_err(hook_error)?;
@@ -420,6 +457,9 @@ impl<
         write: &crate::hooks::WriteRecord,
     ) -> crate::hooks::Result<()> {
         self.job(cx, |w, p, now| {
+            if !w.watch.tracked(&write.path)? {
+                return Ok(());
+            }
             let mode = p
                 .read(&write.path)?
                 .map(|(_, mode)| mode)

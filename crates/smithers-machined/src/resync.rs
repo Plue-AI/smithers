@@ -23,7 +23,13 @@ impl<I: Ignore, A: Eq + Clone, B: Eq + Clone> WatchLoop<I, A, B> {
     pub fn resync<P: Provider<A, Blob = B>>(&mut self, p: &mut P, now: u64) -> io::Result<()> {
         self.changes.begin_resync();
         self.moves.clear();
-        let paths = self.watch.rearm()?;
+        let mut paths: std::collections::BTreeSet<_> = self.watch.rearm()?.into_iter().collect();
+        paths.extend(self.changes.state.recorded.keys().cloned());
+        for burst in self.changes.state.bursts.pending() {
+            paths.extend(burst.files.keys().cloned());
+        }
+        let paths = self.watch.tracked_paths(paths.into_iter().collect())?;
+        self.changes.retain_paths(&paths.iter().cloned().collect());
         self.changes.resync(p, now, paths)
     }
     /// Dispatcher invokes this on the shared lock thread before every write;
@@ -32,7 +38,14 @@ impl<I: Ignore, A: Eq + Clone, B: Eq + Clone> WatchLoop<I, A, B> {
         if self.changes.needs_resync() {
             return self.resync(p, now);
         }
-        for event in self.watch.drain()? {
+        let events = match self.watch.drain() {
+            Ok(events) => events,
+            Err(e) => {
+                self.changes.begin_resync();
+                return Err(e);
+            }
+        };
+        for event in events {
             match event {
                 Event::Overflow => return self.resync(p, now),
                 Event::Metadata => self.changes.metadata(now),
@@ -50,7 +63,10 @@ impl<I: Ignore, A: Eq + Clone, B: Eq + Clone> WatchLoop<I, A, B> {
                             self.changes.rename(&source, &path);
                         }
                     }
-                    self.changes.outside(p, now, &path)?;
+                    if let Err(e) = self.changes.outside(p, now, &path) {
+                        self.changes.begin_resync();
+                        return Err(e);
+                    }
                 }
             }
         }
