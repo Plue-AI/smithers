@@ -7,7 +7,7 @@
  */
 import { useLiveQuery } from "@tanstack/react-db"
 import { useCallback, useSyncExternalStore, type ComponentType } from "react"
-import type { MonitorCard, RunViewProps } from "@smthrs/rpc/MonitorCard"
+import type { MonitorCard, RunViewProps } from "@smthrs/rpc/RunCard"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { useDesignWorld } from "../state/seams/DesignWorld/hooks"

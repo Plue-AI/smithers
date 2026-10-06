@@ -1,4 +1,4 @@
-import { MonitorCardSchema, type MonitorCard } from "@smthrs/rpc/MonitorCard"
+import { MonitorCardSchema, type MonitorCard } from "@smthrs/rpc/RunCard"
 import { z } from "zod"
 import type { LiveChannel } from "../../runtime/LiveChannel"
 
