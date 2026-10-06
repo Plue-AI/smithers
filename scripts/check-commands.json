@@ -902,7 +902,7 @@
     },
     "C-SPK-06": {
       "status": "pending-owner",
-      "reason": "Absent: scripts/spikes/homebrew-hypervisor/run.sh",
+      "reason": "Input preflight exists; fresh-user Homebrew signing/pour, GUI login and relocation evidence plus approved reference-host binding remain outstanding",
       "ticket": "T-INS-03"
     },
     "C-SPK-07": {
