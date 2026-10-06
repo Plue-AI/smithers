@@ -43,6 +43,7 @@ const adminPath = (path: string) => /^\/api\/admin(?:\/|$)/.test(path)
 export const CREDENTIAL_OPERATIONS: ReadonlySet<string> = new Set([
   // SSE and live tickets
   "post_api_auth_sse_ticket", "post_api_v1_sse_ticket",
+  "post_api_gateways_host_file_write_grants",
   // OAuth codes, token exchanges and sign-in handoffs
   "get_api_oauth2_authorize", "post_api_oauth2_authorize", "post_api_oauth2_token", "post_api_auth_github_token_exchange",
   "get_api_auth_github_callback", "get_api_auth_auth0_callback", "get_api_auth_github_cli", "get_api_auth_github_cli_consent", "post_api_auth_github_cli_consent",

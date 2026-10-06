@@ -91,7 +91,7 @@ test("the pinned credential-minting list", () => {
   expect([...CREDENTIAL_OPERATIONS].sort()).toEqual([
     "get_api_auth_auth0_callback", "get_api_auth_github_callback", "get_api_auth_github_cli", "get_api_auth_github_cli_consent", "get_api_oauth2_authorize",
     "get_api_repos_owner_repo_workspace_sessions_id_ssh", "get_api_repos_owner_repo_workspaces_id_ssh", "get_api_user_emails_verify_token",
-    "post_api_auth_github_cli_consent", "post_api_auth_github_token_exchange", "post_api_auth_sse_ticket", "post_api_install_setup_app", "post_api_install_setup_models",
+    "post_api_auth_github_cli_consent", "post_api_auth_github_token_exchange", "post_api_auth_sse_ticket", "post_api_gateways_host_file_write_grants", "post_api_install_setup_app", "post_api_install_setup_models",
     "post_api_model_credential", "post_api_oauth2_authorize", "post_api_oauth2_token", "post_api_orgs_org_provider_connections",
     "post_api_repos_owner_repo_build_cache_tokens", "post_api_user_emails_verify_token", "post_api_user_provider_connections",
     "post_api_user_provider_connections_codex_device", "post_api_user_provider_connections_codex_device_id", "post_api_user_provider_connections_id_refresh",
@@ -108,6 +108,22 @@ for (const id of ["post_api_auth_sse_ticket", "post_api_v1_sse_ticket"]) test(`r
   await seam.send({ operationId: id, intent: "confirm", confirmation: seam.get().confirmation })
   expect(seam.get().model.exchange?.response?.status).toBe(200)
   expect(JSON.stringify(seam.get())).not.toContain("5e5e5e")
+  seam.dispose()
+})
+test("release file-write grant token and inputs never render in the response pane", async () => {
+  const id = "post_api_gateways_host_file_write_grants"
+  const token = "private-file-write-token"
+  const digest = "5e".repeat(32)
+  const host = "11111111-1111-4111-8111-111111111111"
+  const values = { "path:hostID": host, body: JSON.stringify({ run_id: "private-run", batch_digest: digest }) }
+  const seam = createDebugApiSeam({ document: async () => document, gates: () => ({ view: true, catalog: true, authorizer: true }),
+    origin: "http://mini.local", fetch: async () => Response.json({ token_id: 7, token, run_id: "private-run", workspace_id: host,
+      repository_slug: "acme/app", expires_at: "2026-10-05T12:00:00Z", batch_digest: digest }, { status: 201 }) })
+  await seam.open(id)
+  await seam.send({ operationId: id, values })
+  await seam.send({ operationId: id, values, intent: "confirm", confirmation: seam.get().confirmation })
+  expect(seam.get().model.exchange?.response?.status).toBe(201)
+  for (const secret of [token, digest, host, "private-run"]) expect(JSON.stringify(seam.get())).not.toContain(secret)
   seam.dispose()
 })
 test("release install request form comes from the document and Send remains dark by default", async () => {
