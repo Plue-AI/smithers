@@ -179,10 +179,17 @@ impl<C: Controls> Sessions<C> {
         if peer_uid != 19999 {
             return Err(refusal("local caller is not agent"));
         }
-        self.entries
+        let entry = self
+            .entries
             .get(&caller_session)
             .filter(|e| e.user.uid == peer_uid)
-            .and_then(|e| e.run.as_deref())
+            .ok_or_else(|| refusal("caller is outside a registered run"))?;
+        // Retained cgroups remain attributable during failed roster cleanup,
+        // but must not grant local mutation authority while admission is fenced.
+        self.authorize(&entry.user)?;
+        entry
+            .run
+            .as_deref()
             .ok_or_else(|| refusal("caller is outside a registered run"))
     }
     pub fn exited(&mut self, id: u32) -> io::Result<()> {

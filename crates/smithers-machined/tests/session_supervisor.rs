@@ -329,22 +329,27 @@ fn failed_cleanup_blocks_every_spawn_until_confirmed_retry() {
     s.set_roster(&[user()], now).unwrap();
     s.insert(1, user(), Kind::Pty).unwrap();
     s.insert(2, user(), Kind::Tcp).unwrap();
+    let agent = User {
+        login: "agent".into(),
+        uid: 19999,
+    };
+    s.insert(3, agent.clone(), Kind::Exec).unwrap();
+    s.register_run(3, "trusted-run").unwrap();
+    assert_eq!(s.local_run(19999, 3).unwrap(), "trusted-run");
     fail.store(true, Ordering::SeqCst);
     let alice = User {
         login: "alice".into(),
         uid: 20002,
     };
-    let agent = User {
-        login: "agent".into(),
-        uid: 19999,
-    };
     assert!(s.set_roster(&[alice.clone()], now).is_err());
     assert!(s.authorize(&alice).is_err());
     assert!(s.authorize(&agent).is_err());
-    assert_eq!(s.entries().count(), 2);
+    assert!(s.local_run(19999, 3).is_err());
+    assert_eq!(s.entries().count(), 3);
     fail.store(false, Ordering::SeqCst);
     s.set_roster(&[alice.clone()], now).unwrap();
-    assert_eq!(s.entries().count(), 0);
+    assert_eq!(s.entries().count(), 1);
+    assert_eq!(s.local_run(19999, 3).unwrap(), "trusted-run");
     s.authorize(&alice).unwrap();
     s.authorize(&agent).unwrap();
     assert!(s.authorize(&user()).is_err());

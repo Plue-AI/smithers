@@ -436,3 +436,122 @@ fn one_gib_output_stalls_at_credit_then_resumes_without_loss() {
     assert_eq!(received, 1_073_741_824);
     assert!(sender.attach(received as u64).unwrap().is_empty());
 }
+
+#[test]
+fn failed_roster_rpc_fences_local_run_until_cleanup_receipt() {
+    use smithers_machined::broker::sessions::{Controls as SessionControls, Sessions};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Instant;
+    struct Cleanup(Arc<AtomicBool>);
+    impl SessionControls for Cleanup {
+        fn close(&mut self, _: u32, _: Kind) -> io::Result<()> {
+            Ok(())
+        }
+        fn kill(&mut self, _: u32, _: Instant) -> io::Result<()> {
+            if self.0.load(Ordering::SeqCst) {
+                Err(io::Error::other("populated 1"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    struct Boundary(Mutex<Sessions<Cleanup>>);
+    impl hooks::Broker for Boundary {
+        fn set_roster(&self, members: &[User]) -> hooks::Result<()> {
+            self.0
+                .lock()
+                .unwrap()
+                .set_roster(members, Instant::now())
+                .map_err(|_| hooks::Error {
+                    code: 12,
+                    ..hooks::Error::unsupported()
+                })
+        }
+    }
+    impl hooks::Sessions for Boundary {
+        fn run_of_cgroup(&self, path: &str) -> Option<String> {
+            let id = path.strip_prefix("/smithers/sessions/")?.parse().ok()?;
+            self.0
+                .lock()
+                .unwrap()
+                .local_run(19999, id)
+                .ok()
+                .map(str::to_owned)
+        }
+    }
+    let stalled = Arc::new(AtomicBool::new(false));
+    let boundary = Arc::new(Boundary(Mutex::new(Sessions::new(Cleanup(
+        stalled.clone(),
+    )))));
+    let mut cx = LockCx::new(Hooks {
+        broker: boundary.clone(),
+        sessions: boundary.clone(),
+        ..Hooks::default()
+    });
+    let ben = User {
+        login: "ben".into(),
+        uid: 20001,
+    };
+    assert_eq!(
+        result(&invoke(
+            &mut cx,
+            16,
+            &request::roster_bytes(&[ben.clone()]).unwrap()
+        )),
+        [16, 0, 0, 0, 0]
+    );
+    {
+        let mut registry = boundary.0.lock().unwrap();
+        registry.insert(1, ben, Kind::Exec).unwrap();
+        registry
+            .insert(
+                2,
+                User {
+                    login: "agent".into(),
+                    uid: 19999,
+                },
+                Kind::Exec,
+            )
+            .unwrap();
+        registry.register_run(2, "trusted-run").unwrap();
+    }
+    assert_eq!(
+        hooks::Sessions::run_of_cgroup(&*boundary, "/smithers/sessions/2"),
+        Some("trusted-run".into())
+    );
+    stalled.store(true, Ordering::SeqCst);
+    assert_eq!(
+        result(&invoke(&mut cx, 16, &request::roster_bytes(&[]).unwrap()))[0],
+        255
+    );
+    assert_eq!(
+        hooks::Sessions::run_of_cgroup(&*boundary, "/smithers/sessions/2"),
+        None
+    );
+    #[cfg(target_os = "linux")]
+    assert_eq!(
+        smithers_machined::local::run_for_peer(19999, "0::/smithers/sessions/2\n", &*boundary)
+            .unwrap_err()
+            .code,
+        11
+    );
+    stalled.store(false, Ordering::SeqCst);
+    assert_eq!(
+        result(&invoke(&mut cx, 16, &request::roster_bytes(&[]).unwrap())),
+        [16, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        hooks::Sessions::run_of_cgroup(&*boundary, "/smithers/sessions/2"),
+        Some("trusted-run".into())
+    );
+    assert_eq!(
+        boundary
+            .0
+            .lock()
+            .unwrap()
+            .entries()
+            .map(|e| e.id)
+            .collect::<Vec<_>>(),
+        [2]
+    );
+}
