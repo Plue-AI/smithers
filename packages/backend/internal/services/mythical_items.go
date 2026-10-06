@@ -3064,6 +3064,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		if errors.As(err, &foreign) {
 			return st.holdForeignHead(latest, foreign), nil
 		}
+		s.logger.Warn("mythical.proposal_push_failed", "item", uuidString(item.ID), "error", err)
 		return mythicalInfraOutage(latest, "github", "the proposal push did not finish; retrying", st.now), nil
 	}
 	if sent == nil || len(sent.PendingOp) > 0 {
