@@ -62,6 +62,10 @@ func TestInstallObsidianSettingsRouteWorkerPostgres(t *testing.T) {
 		require.NoError(t, err)
 	}
 	state, vault, next := t.TempDir(), t.TempDir(), t.TempDir()
+	for _, path := range []*string{&state, &vault, &next} {
+		*path, err = filepath.EvalSymlinks(*path)
+		require.NoError(t, err)
+	}
 	github := &rosterGitHub{roles: map[string]string{"owner": "admin"}}
 	provider := httptest.NewServer(http.HandlerFunc(github.serve))
 	defer provider.Close()
