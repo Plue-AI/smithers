@@ -9,28 +9,26 @@ clock or I/O belongs to either decoder.
 
 ## Host caller (T-AGT-02)
 
-```ts
-import { Transcript } from "@smthrs/harness"
-import { Result } from "effect"
+The install-shipped `apps/model-host/src/transcript.ts` normalizes records at
+`POST /v1/transcript/normalize`, mounted by `src/serve.ts`. It authenticates the
+host bearer, checks framing and byte offsets, selects the explicit profile,
+and returns drafts plus parser state. It rejects stale checkpoints and context
+rebinding; reported commands remain inert text.
 
-const result = Transcript.decodeCodex(
-  frame.format_version,
-  trustedRegistration, // owner_id, participant_id, session_id, source_generation
-  frame.completeRecordText,
-  receipt.parserState
-)
-if (Result.isFailure(result)) {
-  // Stop this source and surface result.failure; do not advance its receipt.
-} else {
-  // Atomically commit entries, parser state and source receipt, then publish.
-  // Do not enqueue prompts or create executable runs from these drafts.
-}
-```
+`packages/backend/internal/compose/external_transcript_checkpoint.go` calls this
+host through `NormalizeExternalTranscript`. The authenticated session binding
+supplies all four context identities. The provider stores parser state with the
+machine receipt in the same transaction as the conversation entries; rejected
+records do not advance the checkpoint. Replay checks the retained record hash
+before reusing the checkpoint. These implementations replace the original caller
+sketch; their presence alone does not prove installation activation or browser
+acceptance.
 
-This is a caller sketch, not an activated importer. T-AGT-02 owns atomic storage,
-receipt deduplication, UID/source validation and publication; T-AGT-03 owns the
-conversation view. The host forwards daemon-framed complete records with their
-line terminators, or persists `pending` until the next chunk. A complete JSON
+T-AGT-02 owns atomic storage, receipt deduplication, UID/source validation and
+publication; T-AGT-03 owns the conversation view. The host endpoint accepts one
+complete record without its terminator and appends the newline before decoding.
+Direct decoder callers supply line terminators, or retain `pending` until the
+next chunk. A complete JSON
 object without its line terminator is still incomplete framing. State is bound
 to the profile and all four trusted context identities. The host must serialize
 chunks per source and bind its checkpoint to its transport receipt. Replay from
