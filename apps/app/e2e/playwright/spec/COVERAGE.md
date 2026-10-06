@@ -117,7 +117,7 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 C-UI-13 also has a passing UI projection for the mounted Setup
 View; full reachability and remaining fixtures await their wiring tickets.
 
-| C-AGT-02 | [C-AGT-02.spec.ts](C-AGT-02.spec.ts) | mounted-install contract fake: light/dark × 1280/390; real sessions and authenticated refusal pending T-AGT-02 | T-AGT-02, T-AGT-03 |
+| C-AGT-02 | [C-AGT-02.spec.ts](C-AGT-02.spec.ts) | mounted-install contract fake: canonical messages and backend journal projection, light/dark × 1280/390; real sessions and broker qualification pending T-AGT-02/Mac mini | T-AGT-02, T-AGT-03 |
 | C-COL-01 | [C-COL-01.spec.ts](C-COL-01.spec.ts) | fixme-before-implementation | T-COL-10, T-COL-03r, T-COL-08a, T-COL-08b, T-APP-14a |
 | C-COL-02 | [C-COL-02.spec.ts](C-COL-02.spec.ts) | passing TODO and Home replay/gap/reload; PostgreSQL upgrade, bearer revocation, rollback and retention; reference-host evidence pending | T-COL-02 |
 | C-COL-03 | [C-COL-03.spec.ts](C-COL-03.spec.ts) | fixme-before-implementation | T-COL-03r, T-COL-03a, T-COL-03, T-STK-08, T-APP-14a |

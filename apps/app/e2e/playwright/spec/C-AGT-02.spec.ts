@@ -29,7 +29,7 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     const rows = page.locator('article[data-origin="external"]')
     await expect(rows).toHaveCount(4)
     for (const label of ["Claude Code for Ben", "Codex for Ben"]) await expect(rows.getByRole("img", { name: label, exact: true }).last()).toBeVisible()
-    for (const label of ["Run the webhook tests", "Tests failed"]) await expect(page.getByText(label, { exact: true }).last()).toBeVisible()
+    for (const label of ["Run the webhook tests", "Tests failed"]) await expect(rows.getByText(label, { exact: true }).last()).toBeVisible()
     expect(await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-participant-id")))).toEqual(["participant-claude", "participant-claude", "participant-claude", "participant-codex"])
     for (const name of ["Edit", "Resend", "Answer", "Approve", "Retry", "Stop", "Steer"]) await expect(rows.getByRole("button", { name, exact: true })).toHaveCount(0)
     expect(admitted.size).toBe(0)
@@ -45,7 +45,7 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
       entries = [invalid]
       await page.reload()
       await expect(rows).toHaveCount(0)
-      await expect(page.getByText("Conversation unavailable", { exact: true })).toBeVisible()
+      await expect(page.getByText("Conversation unavailable", { exact: true }).first()).toBeVisible()
     }
     entries = imported
     await page.reload()
@@ -53,12 +53,25 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     available = false
     await page.reload()
     await expect(rows).toHaveCount(0)
-    await expect(page.getByText("Conversation unavailable", { exact: true })).toBeVisible()
+    await expect(page.getByText("Conversation unavailable", { exact: true }).first()).toBeVisible()
     await say(page, "Ordinary prompt while import delivery is unavailable")
     await expect.poll(() => admitted.size).toBe(2)
     available = true
     await page.reload()
     await expect(rows).toHaveCount(4)
+    entries = [{
+      id: "journal-codex", origin: "external", read_only: true, agent: "codex",
+      source_format_version: "codex/0.160.0", source_id: "codex-live-answer", source_offset: 0,
+      session_id: "codex-live", participant_id: "codex-live-participant", owner_id: "1", author_id: "codex-live-participant",
+      author: 1, authorLogin: "ben", kind: "assistant", body: "Literal backend answer",
+      title: "", tone: "done", runId: "journal-codex", prompt: "", state: "completed",
+      frames: [{ runId: "journal-codex", type: "done", reason: "stop" }]
+    }]
+    await page.reload()
+    await expect(rows).toHaveCount(1)
+    await expect(rows.getByRole("img", { name: "Codex for ben", exact: true })).toBeVisible()
+    await expect(rows.getByText("Literal backend answer", { exact: true })).toBeVisible()
+    for (const name of ["Edit", "Resend", "Answer", "Approve", "Retry", "Stop", "Steer"]) await expect(rows.getByRole("button", { name, exact: true })).toHaveCount(0)
     expect([...admitted.values()]).toEqual(["Hello Smithers", "Ordinary prompt while import delivery is unavailable"])
   })
 }
