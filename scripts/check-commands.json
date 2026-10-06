@@ -664,7 +664,7 @@
     },
     "C-PRC-02": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/db/product/migration_gate_test.go",
+      "reason": "Automation present (packages/backend/db/product/migration_registry_test.go and scripts/migration-landing.test.mjs); approved machine identity/security receipts and owner mapping approval remain outstanding",
       "ticket": "T-PRC-02"
     },
     "C-PRC-03": {

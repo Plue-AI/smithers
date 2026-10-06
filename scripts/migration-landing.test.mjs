@@ -8,7 +8,13 @@ import { test } from 'node:test'
 
 const root = resolve(import.meta.dirname, '..')
 const go = spawnSync('which', ['go'], { encoding: 'utf8' }).stdout.trim()
-const invoke = (cwd, bin, args, extra = {}) => spawnSync(bin, args, { cwd, encoding: 'utf8', env: { ...process.env, DATABASE_URL: '', SMITHERS_TEST_DATABASE_URL: '', ...extra } })
+const invoke = (cwd, bin, args, extra = {}) => {
+ const env = { ...process.env, ...extra, HOME: join(cwd, '.git/test-home') }
+ for (const key of Object.keys(env)) {
+  if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY/.test(key) || ['DATABASE_URL', 'SMITHERS_TEST_DATABASE_URL', 'SMITHERS_GITHUB_PROXY'].includes(key)) delete env[key]
+ }
+ return spawnSync(bin, args, { cwd, encoding: 'utf8', env })
+}
 const ok = (cwd, bin, args, extra) => {
  const r = invoke(cwd, bin, args, extra); assert.equal(r.status, 0, r.stdout + r.stderr); return r.stdout.trim()
 }
