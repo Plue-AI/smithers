@@ -274,3 +274,42 @@ test("C-UI-12: File text reload retains comparison DOM, scroll and selected line
   expect(await page.evaluate(() => Reflect.get(window, 'reloadEditor') === document.querySelector('.code-file-current .cm-editor'))).toBe(true)
   expect(await page.evaluate(() => Reflect.get(window, 'reloadSnapshot') === document.querySelector('.code-file-outside .cm-editor'))).toBe(true)
 })
+
+test("C-UI-12: Terminal states keep literal actors and keyboard permissions in both themes and widths", async ({ page }) => {
+  test.setTimeout(180_000)
+  const states = [
+    ["Owner's idle terminal", "Ben", false, false],
+    ["Running a command with a watcher", "Ben", false, false],
+    ["Claude Code working in Ben's terminal", "Claude Code for Ben", false, false],
+    ["Someone else's terminal", "Ben", true, false],
+    ["The coding agent's terminal", "Coding agent for Ben", true, false],
+    ["Ben via SSH", "Ben via SSH", false, false],
+    ["Frozen while rebasing", "Ben", false, true],
+    ["Watching while rebasing", "Ben", true, true]
+  ] as const
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const [name, actor, watching, frozen] of states) {
+      await page.goto(`/view-stories.html?story=${encodeURIComponent(`TerminalView/${name}`)}&theme=${theme}`)
+      const card = page.locator(".terminal-view")
+      await expect(card).toBeVisible()
+      await expect(card.locator(`.avatar[aria-label="${actor}"]`).first()).toBeVisible()
+      const field = card.locator(".xterm-helper-textarea")
+      await expect(field).toHaveCount(1)
+      await expect(field).not.toBeFocused()
+      await expect(card.getByText("Watching", { exact: true })).toHaveCount(watching ? 1 : 0)
+      await expect(card.getByText("Rebasing…", { exact: true })).toHaveCount(frozen ? 1 : 0)
+      if (watching || frozen) {
+        await expect(card.locator(".terminal-output > div")).toHaveAttribute("inert", "")
+        await card.locator(".terminal-output").click()
+        await page.keyboard.press("Tab")
+        await expect(field).not.toBeFocused()
+      } else {
+        await field.focus()
+        await expect(field).toBeFocused()
+      }
+      await expect(card.getByRole("button", { name: /Ask to type|Allow|Let others type|Add to machine image/ })).toHaveCount(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+  }
+})

@@ -154,3 +154,28 @@ test("On an install Fork is POST /api/branches {from, name}: the value is the ne
     expect(controller.design.world().branches.some(each => each.name.startsWith("scratch/ben/"))).toBe(false)
   } finally { await controller.dispose() }
 })
+
+test("non-install bootstrap keeps the design terminal doors while install bootstrap refuses them", async () => {
+  for (const install of [false, true]) {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
+    const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+      live: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: install ? ["install"] : [], authFlow: "none", sandbox: null } })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+    try {
+      const opened = await controller.submitCommand({ name: "terminal", payload: { branch: "b-retry" }, actor: "user" })
+      if (install) {
+        expect(opened).toMatchObject({ status: "failed", error: "Terminal unavailable" })
+        expect(controller.design.world().terminals).toEqual([])
+      } else {
+        expect(opened.status).toBe("executed")
+        const terminal = controller.design.world().terminals.find(each => each.owner === "maya")!
+        expect(store.collections.cards.get(`terminal:${terminal.id}`)?.kind).toBe("terminal")
+        expect((await controller.submitCommand({ name: "terminal.send", payload: { id: terminal.id, command: "pnpm test" }, actor: "user" })).status).toBe("executed")
+        expect(controller.design.world().terminals.find(each => each.id === terminal.id)!.lines.at(-1)?.text).toBe("✓ 42 passed")
+        expect((await controller.submitCommand({ name: "terminal.watch", payload: { id: "term-retry-1" }, actor: "user" })).status).toBe("executed")
+      }
+    } finally { controller.dispose() }
+  }
+})
