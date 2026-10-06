@@ -135,4 +135,84 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&count))
 	require.Equal(t, 3, count)
+	// The same production dispatcher holds a delegated amendment for its
+	// person's private Confirm card, then commits the revision and intent once.
+	token := "smithers_" + strings.Repeat("d", 40)
+	tokenSum := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(tokenSum[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "amend-agent", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
+	confirmationCall := func(method, path, body, key string, delegated bool, status int) map[string]any {
+		t.Helper()
+		req, err := http.NewRequest(method, origin+path, strings.NewReader(body))
+		require.NoError(t, err)
+		if delegated {
+			req.Header.Set("Authorization", "Bearer "+token)
+		} else {
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+		}
+		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+		req.Header.Set("X-CSRF-Token", "csrf")
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", key)
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		var result map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&result))
+		require.Equal(t, status, res.StatusCode, result)
+		return result
+	}
+	amendment := `{"prompt":"Keep cancellation responsive","acceptance":["Cancel stops retries"]}`
+	pending := confirmationCall("PATCH", "/api/todos/1", amendment, "confirm-amend", true, 202)
+	require.Equal(t, "pending", pending["state"])
+	id := pending["confirmation"].(string)
+	require.Len(t, pending, 2, "agent sees only id and state")
+	require.Equal(t, pending, confirmationCall("PATCH", "/api/todos/1", amendment, "confirm-amend", true, 202))
+	beforePress, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, read.Revisions, beforePress.Revisions)
+	confirmationCall("POST", "/api/confirmations/"+id+"/approve", `{}`, "amend-press", true, 403)
+	// A failure at the approval CAS rolls back the admitted revision and intent.
+	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_confirm_amend() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.state='approved' THEN RAISE EXCEPTION 'approval unavailable'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_confirm_amend BEFORE UPDATE ON approvals FOR EACH ROW EXECUTE FUNCTION reject_confirm_amend()`)
+	require.NoError(t, err)
+	confirmationCall("POST", "/api/confirmations/"+id+"/approve", `{}`, "amend-press", false, 503)
+	rolledBack, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, beforePress.Revisions, rolledBack.Revisions)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&count))
+	require.Equal(t, 3, count)
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_confirm_amend ON approvals; DROP FUNCTION reject_confirm_amend()`)
+	require.NoError(t, err)
+	approved := confirmationCall("POST", "/api/confirmations/"+id+"/approve", `{}`, "amend-press", false, 200)
+	require.Equal(t, "approved", approved["state"])
+	var privateEffect []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'effect' FROM approvals WHERE id=$1`, id).Scan(&privateEffect))
+	require.JSONEq(t, fmt.Sprintf(`{"todo":1,"request":"confirmation:%s","revision":3}`, id), string(privateEffect))
+	require.Equal(t, approved, confirmationCall("POST", "/api/confirmations/"+id+"/approve", `{}`, "amend-press", false, 200))
+	afterPress, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	var amended []struct {
+		Text       string   `json:"text"`
+		Acceptance []string `json:"acceptance"`
+	}
+	require.NoError(t, json.Unmarshal(afterPress.Revisions, &amended))
+	require.Len(t, amended, 3)
+	require.Equal(t, "Keep cancellation responsive", amended[2].Text)
+	require.Equal(t, []string{"Cancel stops retries"}, amended[2].Acceptance)
+	require.Eventually(t, func() bool { receiver.mu.Lock(); defer receiver.mu.Unlock(); return len(receiver.messages) == 4 }, 5*time.Second, 100*time.Millisecond)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&count))
+	require.Equal(t, 4, count)
+	// A moved TODO expires the confirmation before any revision or intent.
+	stale := confirmationCall("PATCH", "/api/todos/1", `{"prompt":"Stale text"}`, "stale-amend", true, 202)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	confirmationCall("POST", "/api/confirmations/"+stale["confirmation"].(string)+"/approve", `{}`, "stale-press", false, 409)
+	var state string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, stale["confirmation"]).Scan(&state))
+	require.Equal(t, "expired", state)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&count))
+	require.Equal(t, 4, count)
+
 }

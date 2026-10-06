@@ -74,6 +74,32 @@ describe("TodoSeam — admission and live completion", () => {
       expect(calls).toEqual([])
     } finally { restored.close() }
   })
+  test("an approved Amend reconnects and waits for its exact committed revision", async () => {
+    const storage = memoryStorage(), calls: RequestInit[] = []
+    const row: MemberConfirmation = { id: "10000000-0000-4000-8000-000000000002", command: "todo.amend", state: "approved", revision: "item:2:1", expires_at: "2099-01-01T00:00:00Z",
+      payload: { input: { prompt: "Keep cancellation responsive", acceptance: ["Cancel stops retries"] }, card: confirms.one_click.model, effect: { todo: 12, request: "confirmation:amend", revision: 2 } } }
+    const h = await harness(async (_url, init) => { if (init?.method) calls.push(init); return json(fixtures.queued.model, 200) }, storage)
+    await h.seam.observeConfirmation(row)
+    expect(h.todo().payload.requests[0]).toMatchObject({ operation: "amend", revision: 2, state: "accepted" })
+    h.close()
+    const restored = await harness(async (_url, init) => { if (init?.method) calls.push(init); return json(fixtures.queued.model, 200) }, storage)
+    try {
+      restored.seam.resumeTodos()
+      await restored.seam.observeConfirmation(row)
+      await waitFor(() => restored.observed.has("todo:12"))
+      const completed = { ...fixtures.in_review.model, prompt_revisions: [...fixtures.in_review.model.prompt_revisions.slice(0, 1), { ...fixtures.in_review.model.prompt_revisions[0]!, text: "Keep cancellation responsive", acceptance: ["Wrong criterion"] }] }
+      restored.observed.get("todo:12")!(completed)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(restored.outcomes).toEqual([])
+      completed.prompt_revisions[1]!.acceptance = ["Cancel stops retries"]
+      restored.observed.get("todo:12")!(completed)
+      await waitFor(() => restored.outcomes.length === 1)
+      expect(restored.outcomes[0]).toMatchObject({ key: "todo.request.confirmation:amend", status: "ok", detail: "Amended" })
+      await restored.seam.observeConfirmation(row)
+      expect(restored.todo().payload.requests).toEqual([])
+      expect(calls).toEqual([])
+    } finally { restored.close() }
+  })
   test("draft stays private and editable; two presses acknowledge before HTTP and commit with one key", async () => {
     const admission = deferred<Response>()
     const calls: { url: string; init?: RequestInit }[] = []

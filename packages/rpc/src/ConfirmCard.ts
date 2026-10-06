@@ -72,7 +72,7 @@ export const MemberConfirmationSchema = z.object({
   payload: z.object({
     card: ConfirmCardSchema,
     input: z.record(z.string(), z.unknown()),
-    effect: z.object({ todo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), request: z.string().min(1) }).optional()
+    effect: z.object({ todo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), request: z.string().min(1), revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }).optional()
   })
 })
 

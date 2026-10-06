@@ -348,7 +348,7 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err := tx.QueryRow(ctx, `SELECT state='active' FROM mythical_stacks WHERE repository_id=$1`, repository).Scan(&ready); err != nil || !ready {
 			return p, confirmationUnavailable()
 		}
-	case "todo.drop":
+	case "todo.drop", "todo.amend":
 		if subject.Kind != "todo" || !strings.HasPrefix(subject.Ref, "T") {
 			return p, invalidConfirmation()
 		}
@@ -356,13 +356,26 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err != nil || n <= 0 || subject.Ref != "T"+strconv.FormatInt(n, 10) {
 			return p, invalidConfirmation()
 		}
-		var request struct {
-			Op string `json:"op"`
+		var amendment TodoAmendInput
+		if input.Command == "todo.amend" {
+			if err := confirmationJSON(input.Payload, &amendment); err != nil {
+				return p, err
+			}
+			var err error
+			text, err = amendment.feedback()
+			if err != nil {
+				return p, err
+			}
+			p.input, _ = json.Marshal(amendment)
+		} else {
+			var request struct {
+				Op string `json:"op"`
+			}
+			if err := confirmationJSON(input.Payload, &request); err != nil || request.Op != "drop" {
+				return p, invalidConfirmation()
+			}
+			p.input, _ = json.Marshal(request)
 		}
-		if err = confirmationJSON(input.Payload, &request); err != nil || request.Op != "drop" {
-			return p, invalidConfirmation()
-		}
-		p.input, _ = json.Marshal(request)
 		if !inspect {
 			p.subject, _ = json.Marshal(subject)
 			return p, nil
@@ -374,12 +387,24 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err != nil {
 			return p, err
 		}
-		if err = todoControlGuard(item, TodoControlInput{Op: "drop"}, todoControlFacts{}); err != nil {
+		if input.Command == "todo.amend" {
+			if !s.todoSteering || s.todoFlow == nil {
+				return p, confirmationUnavailable()
+			}
+			if _, ok := s.launcher.(mythicalSteerer); !ok {
+				return p, confirmationUnavailable()
+			}
+			_, _, _, err = prepareTodoAmend(ctx, item, TodoControlInput{Repository: repository, Actor: info.User.ID, Request: input.Key, Steer: &text}, amendment, todoActor(ctx, *info.User), todoActorRef(ctx, *info.User), s.now().UTC())
+			verb = "Amend"
+		} else {
+			err = todoControlGuard(item, TodoControlInput{Op: "drop"}, todoControlFacts{})
+			verb = "Drop"
+		}
+		if err != nil {
 			return p, err
 		}
-		p.input, _ = json.Marshal(request)
-		p.revision = uuidString(item.ID) + ":" + strconv.FormatInt(item.Version, 10)
-		p.title, verb = item.Title.String, "Drop"
+		p.revision = uuidString(item.ID) + ":" + strconv.FormatInt(item.Version, 10) + ":" + strconv.FormatInt(item.Generation, 10)
+		p.title = item.Title.String
 	default:
 		return p, confirmationUnavailable()
 	}
@@ -487,6 +512,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			consumer := *s.confirmationTodos
 			consumer.store = tx
 			var number int64
+			var amendedRevision int
 			switch command {
 			case "todo.new":
 				var request MythicalTodoInput
@@ -497,6 +523,22 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				var item MythicalItemView
 				item, err = consumer.FileTodo(bound, repository, info.User.ID, request)
 				number = item.Number
+			case "todo.amend":
+				var subject struct {
+					Ref string `json:"ref"`
+				}
+				var request TodoAmendInput
+				if err = json.Unmarshal(prepared.subject, &subject); err != nil {
+					return err
+				}
+				if err = json.Unmarshal(prepared.input, &request); err != nil {
+					return err
+				}
+				number, _ = strconv.ParseInt(strings.TrimPrefix(subject.Ref, "T"), 10, 64)
+				request.Repository, request.Actor, request.Request = repository, info.User.ID, input.Key
+				var result TodoControlReceipt
+				result, err = consumer.AmendTodo(bound, number, request)
+				amendedRevision = result.Revision
 			case "todo.drop":
 				var subject struct {
 					Ref string `json:"ref"`
@@ -515,7 +557,11 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			}
 			// The private projection retains the admitted subject across a lost
 			// response/reload. This is an admission receipt, never execution success.
-			effect, err := json.Marshal(map[string]any{"todo": number, "request": input.Key})
+			effectInput := map[string]any{"todo": number, "request": input.Key}
+			if amendedRevision > 0 {
+				effectInput["revision"] = amendedRevision
+			}
+			effect, err := json.Marshal(effectInput)
 			if err != nil {
 				return err
 			}

@@ -472,3 +472,23 @@ func TestConfirmationInstallBindingChangeWhileWaitingPostgres(t *testing.T) {
 	require.Equal(t, 0, f.count("approvals"))
 	require.Equal(t, 0, f.count("mythical_items"))
 }
+
+func TestConfirmationAmendUnavailableAndMalformedPostgres(t *testing.T) {
+	f := newConfirmationFixture(t)
+	created, err := f.todos.FileTodo(f.person, f.repo, f.member.ID, MythicalTodoInput{Title: "Amend me", Prompt: "Original", Request: "seed-amend"})
+	require.NoError(t, err)
+	input := ConfirmationInput{Command: "todo.amend", Subject: json.RawMessage(fmt.Sprintf(`{"kind":"todo","ref":"T%d"}`, created.Number)), Payload: json.RawMessage(`{"prompt":"Revised","acceptance":["Keep cancel"]}`), Key: "unavailable-amend"}
+	_, err = f.service.RequestConfirmation(f.agent, input)
+	requireConfirmationCode(t, err, "confirmation_unavailable")
+	for _, raw := range []string{`{}`, `null`, `{"prompt":" "}`, `{"prompt":"Revised","actor":1}`, `{"prompt":"Revised","acceptance":"check"}`} {
+		input.Payload = json.RawMessage(raw)
+		_, err = f.service.RequestConfirmation(f.agent, input)
+		require.Error(t, err, raw)
+	}
+	require.Equal(t, 0, f.count("approvals"))
+	var revisions []byte
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT revisions FROM mythical_items WHERE id=$1`, created.ID).Scan(&revisions))
+	var entries []any
+	require.NoError(t, json.Unmarshal(revisions, &entries))
+	require.Len(t, entries, 1)
+}

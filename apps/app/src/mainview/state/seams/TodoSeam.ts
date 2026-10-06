@@ -668,14 +668,15 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const observeConfirmation = async (confirmation: MemberConfirmation): Promise<void> => {
     const effect = confirmation.payload.effect
     if (ctx.actor() !== "user" || signedIn() || confirmation.state !== "approved" || !effect ||
-      !["todo.new", "todo.drop"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
+      !["todo.new", "todo.drop", "todo.amend"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
     const row = entry(effect.todo) ?? blank(effect.todo)
     if (row.payload.observedConfirmations?.includes(confirmation.id)) return
     observingConfirmations.add(confirmation.id)
     const login = owner()!, revision = identity()?.ownerRevision ?? identity()?.revision
     try {
       const request: Request = { key: effect.request, owner: login,
-        operation: confirmation.command === "todo.new" ? "create" : "drop",
+        operation: confirmation.command === "todo.new" ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
+        ...(effect.revision === undefined ? {} : { revision: effect.revision }),
         body: confirmation.payload.input, n: effect.todo, state: "accepted" }
       await write({ ...row, title: confirmation.payload.card.summary, payload: { ...row.payload,
         observedConfirmations: [...row.payload.observedConfirmations ?? [], confirmation.id],

@@ -45,9 +45,10 @@ const open = async (page: Page) => {
   return confirm
 }
 
-test("C-UI-13 Confirm: 202 keeps progress through the running subject", async ({ page }) => {
+for (const verb of ["Commit", "Amend"] as const) test(`C-UI-13 Confirm: ${verb} keeps progress through the running subject`, async ({ page }) => {
   test.setTimeout(120_000)
   let row = privateRow(), todo: TodoCard = todos.working.model, calls = 0
+  if (verb === "Amend") row = { ...row, command: "todo.amend", payload: { ...row.payload, input: { prompt: "Publish card projections" }, card: { ...row.payload.card, action: { tag: "todo.amend", verb: "Amend" }, text: "Publish card projections" } } }
   const publish = await fixture(page, topic => topic === "confirmations:1" ? [row] : topic === "members" ? roster("owner") : topic === "todo:12" ? todo : undefined)
   await page.route("**/api/todos", route => route.fulfill({ json: [todo] }))
   await page.route("**/api/todos/12", route => route.fulfill({ json: todo }))
@@ -57,17 +58,17 @@ test("C-UI-13 Confirm: 202 keeps progress through the running subject", async ({
     await route.fulfill({ status: 202, json: { id, state: "pending" } })
   })
   const confirm = await open(page)
-  await confirm.getByRole("button", { name: "Commit", exact: true }).press("Enter")
+  await confirm.getByRole("button", { name: verb, exact: true }).press("Enter")
   const toast = page.locator(`[data-notice="toast-todo.request.confirmation:${id}"]`)
   await expect(toast).toHaveAttribute("data-tone", "live")
-  await confirm.getByRole("button", { name: "Commit", exact: true }).press("Enter")
+  await confirm.getByRole("button", { name: verb, exact: true }).press("Enter")
   expect(calls).toBe(1)
   await expect(page.getByTestId("composer-input")).toBeEnabled()
-  row = { ...row, state: "approved", payload: { ...row.payload, effect: { todo: 12, request: `confirmation:${id}` }, card: { ...row.payload.card, receipt: { ...confirms.done.model.receipt!, text: "Approved" } } } }
+  row = { ...row, state: "approved", payload: { ...row.payload, effect: { todo: 12, request: `confirmation:${id}`, ...(verb === "Amend" ? { revision: 2 } : {}) }, card: { ...row.payload.card, receipt: { ...confirms.done.model.receipt!, text: "Approved" } } } }
   publish("confirmations:1")
   await expect(confirm).toContainText("Approved")
   await expect(toast).toHaveAttribute("data-tone", "live")
-  todo = todos.in_review.model
+  todo = verb === "Amend" ? { ...todos.in_review.model, prompt_revisions: [...todos.in_review.model.prompt_revisions.slice(0, 1), { ...todos.in_review.model.prompt_revisions[0]!, text: "Publish card projections" }] } : todos.in_review.model
   publish("todo:12")
   await expect(toast).toHaveAttribute("data-tone", "done")
 })
