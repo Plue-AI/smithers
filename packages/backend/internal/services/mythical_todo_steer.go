@@ -262,7 +262,7 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 			if err != nil {
 				return err
 			}
-			if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), feedback.ID, "todo.steer_received", todoState(saved), fact); err != nil {
+			if _, err := s.recordTodoFact(ctx, tx, saved, feedback.ID, "todo.steer_received", todoState(saved), fact); err != nil {
 				return err
 			}
 			stack, err := q.GetMythicalStack(ctx, repository)
@@ -275,7 +275,7 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 				if err != nil {
 					return err
 				}
-				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.amended", todoState(saved), amended); err != nil {
+				if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.amended", todoState(saved), amended); err != nil {
 					return err
 				}
 				after := slices.Clone(order)

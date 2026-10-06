@@ -46,7 +46,7 @@ func newReviewConsumer(t *testing.T) (*mythicalOrchestration, *GitHubSyncedRepoS
 	item.State = "proposed"
 	item.Attempt = ready.Attempt
 	item.RequestRunID = ready.RequestRunID
-	item.WorkspaceID = ready.WorkspaceID
+	item.WorkspaceID = "7e140000-0000-4000-8000-000000000002"
 	item.FlowDigest = ready.FlowDigest
 	checks := mythicalChecksOf(ready)
 	checks.Branch = "smithers/review"
