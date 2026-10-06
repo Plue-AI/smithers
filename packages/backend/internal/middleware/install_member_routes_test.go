@@ -60,6 +60,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/repos/acme/app/workspaces/branch-id/files/content", "branch.read"},
 		{http.MethodPost, "/api/flows", ""},
 		{http.MethodGet, "/api/flows/todo", ""},
+		{http.MethodPost, "/api/repos/owner/demo/workspaces", "branch.join"},
+		{http.MethodPost, "/api/repos/owner/demo/workspaces/ws/fork", ""},
 		{http.MethodGet, "/api/members", "members.list"},
 		{http.MethodPost, "/api/members", "members.write"},
 		{http.MethodPatch, "/api/members/alice", "members.write"},

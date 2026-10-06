@@ -1,13 +1,17 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,20 +19,47 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/process"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
 
 // Composed install HTTP, real sessions and PostgreSQL. The retained machine
 // is a fixture; this verifies member admission and removal, not VM isolation.
 func TestBranchMachineMemberAccessAndRevocationInstall(t *testing.T) {
-	branchMachineMemberInstall(t, false)
+	branchMachineMemberInstall(t, false, false)
 }
 
 func TestBranchMachineMemberErasureInstall(t *testing.T) {
-	branchMachineMemberInstall(t, true)
+	branchMachineMemberInstall(t, true, false)
 }
 
-func branchMachineMemberInstall(t *testing.T, erase bool) {
+func TestBranchMachineConcurrentJoinHTTP(t *testing.T) {
+	branchMachineMemberInstall(t, false, true)
+}
+
+// Runtime inspection is an external effect sentinel. Holding it unresolved
+// proves HTTP joins do not wait for launch, while no repository code runs on
+// the host and no VM qualification is inferred from this PostgreSQL proof.
+type pendingBranchInspection struct {
+	*process.Runtime
+	release chan struct{}
+	entered chan struct{}
+	started sync.Once
+	once    sync.Once
+}
+
+func (r *pendingBranchInspection) finish() { r.once.Do(func() { close(r.release) }) }
+func (r *pendingBranchInspection) InspectWorkspace(ctx context.Context, _ string) (workspaceapi.Workspace, error) {
+	r.started.Do(func() { close(r.entered) })
+	select {
+	case <-ctx.Done():
+		return workspaceapi.Workspace{}, ctx.Err()
+	case <-r.release:
+		return workspaceapi.Workspace{}, errors.New("retained inspection fixture unavailable")
+	}
+}
+
+func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
 	user := func(login string) db.User {
@@ -63,8 +94,18 @@ func branchMachineMemberInstall(t *testing.T, erase bool) {
 	benCookie, aliceCookie := session(ben), session(alice)
 	runtime, err := process.New(process.Config{Root: t.TempDir()})
 	require.NoError(t, err)
-	server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: unusedChatHost{}, Workspace: runtime, FlowHostProductAPIURL: "http://127.0.0.1:4000", FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}, BranchMachines: rehearsalBranchMachines(pool)}))
+	var runtimeBoundary workspaceapi.WorkspaceRuntime = runtime
+	pending := &pendingBranchInspection{Runtime: runtime, release: make(chan struct{}), entered: make(chan struct{})}
+	if concurrent {
+		runtimeBoundary = pending
+	}
+	server := httptest.NewUnstartedServer(nil)
+	origin := "http://" + server.Listener.Addr().String()
+	t.Setenv("SMITHERS_PUBLIC_URL", origin)
+	server.Config.Handler = startSplitProcess(t, Options{ChatHost: unusedChatHost{}, Workspace: runtimeBoundary, FlowHostProductAPIURL: origin, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}, BranchMachines: rehearsalBranchMachines(pool)})
+	server.Start()
 	defer server.Close()
+	t.Cleanup(pending.finish)
 	machineOwner, err := q.GetBranchMachineOwner(ctx)
 	require.NoError(t, err)
 	machine, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machineOwner, TargetBookmark: "mythical", Kind: "container", Status: "running", EnvironmentSource: "repository"})
@@ -73,10 +114,13 @@ func branchMachineMemberInstall(t *testing.T, erase bool) {
 	require.NoError(t, err)
 	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{RepositoryID: repo.ID, ItemID: item.ID, WorkspaceID: machine.ID, Name: "shared lane"})
 	require.NoError(t, err)
-	for _, u := range []db.User{ben, alice} {
-		_, err := q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: machine.ID, OwnerUserID: machineOwner, GranteeUserID: u.ID, Level: "write"})
-		require.NoError(t, err)
+	if !concurrent {
+		for _, u := range []db.User{ben, alice} {
+			_, err := q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: machine.ID, OwnerUserID: machineOwner, GranteeUserID: u.ID, Level: "write"})
+			require.NoError(t, err)
+		}
 	}
+
 	_, err = pool.Exec(ctx, `UPDATE users SET created_at='2026-10-01T00:00:00Z' WHERE id=$1`, ben.ID)
 	require.NoError(t, err)
 	ownerCookie := session(owner)
@@ -84,6 +128,7 @@ func branchMachineMemberInstall(t *testing.T, erase bool) {
 		req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", origin)
 		req.Header.Set("X-CSRF-Token", "csrf-fixture")
 		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf-fixture"})
 		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
@@ -94,6 +139,72 @@ func branchMachineMemberInstall(t *testing.T, erase bool) {
 		require.NoError(t, err)
 		require.Equal(t, expected, res.StatusCode, string(raw))
 		return string(raw)
+	}
+
+	if concurrent {
+		type receipt struct {
+			status int
+			id     string
+			err    error
+			body   string
+		}
+		results := make([]receipt, 60)
+		start := make(chan struct{})
+		var joins sync.WaitGroup
+		for i := range results {
+			joins.Add(1)
+			go func(i int) {
+				defer joins.Done()
+				<-start
+				cookie := []string{benCookie, aliceCookie, ownerCookie}[i%3]
+				req, err := http.NewRequest("POST", server.URL+"/api/repos/owner/demo/workspaces", strings.NewReader(`{"source_bookmark":"mythical"}`))
+				if err != nil {
+					results[i].err = err
+					return
+				}
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Origin", origin)
+				req.Header.Set("X-CSRF-Token", "csrf-fixture")
+				req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf-fixture"})
+				req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+				client := &http.Client{Timeout: 15 * time.Second}
+				res, err := client.Do(req)
+				if err != nil {
+					results[i].err = err
+					return
+				}
+				defer res.Body.Close()
+				body, err := io.ReadAll(res.Body)
+				results[i].status, results[i].body, results[i].err = res.StatusCode, string(body), err
+				if err == nil && res.StatusCode == 202 {
+					var v struct {
+						ID string `json:"id"`
+					}
+					results[i].err = json.Unmarshal(body, &v)
+					results[i].id = v.ID
+				}
+			}(i)
+		}
+		close(start)
+
+		joins.Wait()
+		select {
+		case <-pending.entered:
+		case <-time.After(3 * time.Second):
+			t.Fatal("accepted joins never reached runtime inspection")
+		}
+		pending.finish()
+		for i, v := range results {
+			require.NoError(t, v.err, "join %d", i)
+			require.Equal(t, 202, v.status, "join %d: %s", i, v.body)
+			require.Equal(t, machine.ID, v.id, "join %d", i)
+		}
+		var count, active, grants int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE deleted_at IS NULL) FROM workspaces WHERE repository_id=$1 AND target_bookmark='mythical'`, repo.ID).Scan(&count, &active))
+		require.Equal(t, 1, count)
+		require.Equal(t, 1, active)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspace_shares WHERE workspace_id=$1 AND level='write'`, machine.ID).Scan(&grants))
+		require.Equal(t, 3, grants)
 	}
 
 	for _, cookie := range []string{benCookie, aliceCookie} {

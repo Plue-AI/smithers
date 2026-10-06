@@ -206,7 +206,14 @@ func ensureWorkspaceShare(ctx context.Context, q *db.Queries, row db.Workspace, 
 	if actorID == row.UserID {
 		return nil
 	}
-	_, err := q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{
+	share, err := q.GetWorkspaceShare(ctx, db.GetWorkspaceShareParams{WorkspaceID: row.ID, GranteeUserID: actorID})
+	if err == nil && share.OwnerUserID == row.UserID && share.Level == string(WorkspaceAccessWrite) {
+		return nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{
 		WorkspaceID: row.ID, OwnerUserID: row.UserID, GranteeUserID: actorID, Level: string(WorkspaceAccessWrite),
 	})
 	return err

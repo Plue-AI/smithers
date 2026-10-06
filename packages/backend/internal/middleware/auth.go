@@ -449,6 +449,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
+	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},

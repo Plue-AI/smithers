@@ -608,7 +608,14 @@ func buildRouter(
 					[]func(http.Handler) http.Handler{userSandboxesQuota},
 				),
 			)
-			r.With(vmProvisionSandbox...).Post("/api/repos/{owner}/{repo}/workspaces", workspaceHandler.CreateWorkspace)
+			workspaceJoin := vmProvisionSandbox
+			if config.IsSingleOwner(cfg.Auth) {
+				// Install branch machines use host admission and the service's
+				// activation providers, not hosted per-user sandbox controls.
+				workspaceJoin = append([]func(http.Handler) http.Handler{}, vmProvision...)
+				workspaceJoin = append(workspaceJoin, memberCommands(queries))
+			}
+			r.With(workspaceJoin...).Post("/api/repos/{owner}/{repo}/workspaces", workspaceHandler.CreateWorkspace)
 			r.With(vmProvisionSandbox...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/resume", workspaceHandler.ResumeWorkspace)
 			r.With(vmProvisionSandbox...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/fork", workspaceHandler.ForkWorkspace)
 			r.With(vmProvision...).Delete("/api/repos/{owner}/{repo}/workspaces/{id}", workspaceHandler.DeleteWorkspace)
