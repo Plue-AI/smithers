@@ -1963,24 +1963,7 @@ type GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse struct {
 
 // PutAPIReposOwnerRepoWorkspacesIDFilesContentParams is the query of PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
 type PutAPIReposOwnerRepoWorkspacesIDFilesContentParams struct {
-	Path string
-}
-
-// PutAPIReposOwnerRepoWorkspacesIDFilesContentBody is generated from docs/api/openapi.yaml.
-type PutAPIReposOwnerRepoWorkspacesIDFilesContentBody struct {
-	Content    string `json:"content"`
-	BaseDigest string `json:"base_digest"`
-}
-
-// PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse is generated from docs/api/openapi.yaml.
-type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse struct {
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	Type     string `json:"type"`
-	Encoding string `json:"encoding"`
-	Content  string `json:"content"`
-	Size     int64  `json:"size"`
-	Digest   string `json:"digest"`
+	Path *string
 }
 
 // PostAPIReposOwnerRepoMythicalItemsIDMergeBody is generated from docs/api/openapi.yaml.
@@ -2137,7 +2120,7 @@ type PostAPITodosNBody struct {
 type PostAPITodosNResponse struct {
 	State   string `json:"state"`
 	Attempt *int64 `json:"attempt,omitempty"`
-	Place   *int64 `json:"place,omitempty"`
+	Lessons *int64 `json:"lessons,omitempty"`
 }
 
 // PatchAPITodosNBody is generated from docs/api/openapi.yaml.
@@ -4820,10 +4803,12 @@ func (c *Client) GetAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Contex
 }
 
 // PutAPIReposOwnerRepoWorkspacesIDFilesContent calls PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
-func (c *Client) PutAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string, params PutAPIReposOwnerRepoWorkspacesIDFilesContentParams, body PutAPIReposOwnerRepoWorkspacesIDFilesContentBody) (PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse, error) {
+func (c *Client) PutAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string, params PutAPIReposOwnerRepoWorkspacesIDFilesContentParams, body any) (json.RawMessage, error) {
 	query := url.Values{}
-	query.Set("path", params.Path)
-	var out PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse
+	if params.Path != nil {
+		query.Set("path", *params.Path)
+	}
+	var out json.RawMessage
 	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", query, body, &out)
 	return out, err
 }

@@ -4388,6 +4388,17 @@ export const getApiReposOwnerRepoWorkspacesIdFilesContent = (transport: Transpor
 export type PutApiReposOwnerRepoWorkspacesIdFilesContentBody = {
   content: string
   base_digest: string
+} | {
+  changes: Array<{
+    path: string
+    content: string
+    encoding?: "utf-8" | "base64"
+    base_digest: string
+  } | {
+    path: string
+    content: null
+    base_digest: string
+  }>
 }
 
 export type PutApiReposOwnerRepoWorkspacesIdFilesContentResponse = {
@@ -4398,17 +4409,22 @@ export type PutApiReposOwnerRepoWorkspacesIdFilesContentResponse = {
   content: string
   size: number
   digest: string
+} | {
+  changes: Array<{
+    path: string
+    digest: string
+  }>
 }
 
 export interface PutApiReposOwnerRepoWorkspacesIdFilesContentInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-  readonly query: { readonly path: string }
+  readonly query?: { readonly path?: string }
   readonly body: PutApiReposOwnerRepoWorkspacesIdFilesContentBody
 }
 
 /** PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content */
 export const putApiReposOwnerRepoWorkspacesIdFilesContent = (transport: Transport, input: PutApiReposOwnerRepoWorkspacesIdFilesContentInput): Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse> =>
-  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content${search({ path: input.query.path })}`, input.body) as Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse>
+  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content${search({ path: input.query?.path })}`, input.body) as Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse>
 
 export type GetApiReposOwnerRepoWorkspacesIdOperationsOpIdUndoPreviewResponse = AnyJSON
 
@@ -5666,7 +5682,7 @@ export type PostApiTodosNBody = {
 export type PostApiTodosNResponse = {
   state: "accepted"
   attempt?: number
-  place?: number
+  lessons?: number
 }
 
 export interface PostApiTodosNInput {

@@ -60,13 +60,21 @@ func TestWorkspaceWritePreconditionsInstall(t *testing.T) {
 		{`{"content":"new","base_digest":"absent","machine":"fixture"}`, 400},
 		{`{"content":"new","base_digest":"absent","uid":0}`, 400},
 		{`{"content":"new","base_digest":"absent"}`, 503},
+		{`{"changes":[{"path":"a","content":"new","base_digest":"absent"},{"path":"b","content":null,"base_digest":"absent"}]}`, 503},
+		{`{"changes":[{"path":"a","content":"new","base_digest":"absent","uid":0}]}`, 400},
+		{`{"changes":[{"path":"a","content":"new","base_digest":"absent"},{"path":"a/b","content":null,"base_digest":"absent"}]}`, 400},
+		{`{"changes":[{"path":"a","content":"new"}]}`, 400},
 	} {
-		req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=a.ts", strings.NewReader(item.body))
+		query := "?path=a.ts"
+		if strings.Contains(item.body, `"changes"`) {
+			query = ""
+		}
+		req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content"+query, strings.NewReader(item.body))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", origin)
- req.Header.Set("X-CSRF-Token", "digest-csrf")
- req.AddCookie(&http.Cookie{Name:"__csrf",Value:"digest-csrf"})
+		req.Header.Set("X-CSRF-Token", "digest-csrf")
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
 		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
 		response, err := server.Client().Do(req)
 		require.NoError(t, err)

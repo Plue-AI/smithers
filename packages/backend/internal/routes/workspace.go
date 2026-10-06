@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -156,13 +155,6 @@ type forkWorkspaceRequest struct {
 type createWorkspaceSnapshotRequest struct {
 	WorkspaceID string `json:"workspace_id"`
 	Name        string `json:"name"`
-}
-
-var workspaceBaseDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
-type writeWorkspaceFileRequest struct {
-	Content    string `json:"content"`
-	BaseDigest string `json:"base_digest"`
 }
 
 // LaunchWorkspaceService starts a runtime-managed process. Its declared port
@@ -483,15 +475,49 @@ func (h *WorkspaceHandler) WriteWorkspaceFile(w http.ResponseWriter, r *http.Req
 	if !decodeStrictJSONBody(w, r, &request) {
 		return
 	}
-	if request.BaseDigest != "absent" && !workspaceBaseDigestPattern.MatchString(request.BaseDigest) {
-		pkgerrors.WriteError(w, pkgerrors.BadRequest("base_digest must be a SHA-256 digest or absent"))
-		return
+	var content any
+	var svcErr error
+	if request.Changes != nil {
+		if request.Content != nil || request.BaseDigest != nil || request.Encoding != nil || r.URL.Query().Has("path") {
+			pkgerrors.WriteError(w, pkgerrors.BadRequest("changes cannot be combined with single-file fields or path"))
+			return
+		}
+		changes, decodeErr := decodeWorkspaceFileChanges(request.Changes)
+		if decodeErr != nil {
+			pkgerrors.WriteError(w, decodeErr)
+			return
+		}
+		service, ok := h.Service.(workspaceFileBatchRouteService)
+		if !ok {
+			pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable"))
+			return
+		}
+		var results []services.WorkspaceFileMutationResult
+		results, svcErr = service.WriteWorkspaceFiles(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, changes)
+		content = struct {
+			Changes []services.WorkspaceFileMutationResult `json:"changes"`
+		}{results}
+	} else {
+		// Single-file callers keep their existing response and text-only request.
+		if request.Encoding != nil {
+			pkgerrors.WriteError(w, pkgerrors.BadRequest("encoding requires changes"))
+			return
+		}
+		change, decodeErr := request.workspaceFileValue.decode(r.URL.Query().Get("path"), false)
+		if decodeErr != nil {
+			pkgerrors.WriteError(w, decodeErr)
+			return
+		}
+		content, svcErr = h.Service.WriteWorkspaceFile(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, change.Path, string(change.Content), change.BaseDigest)
 	}
-	content, svcErr := h.Service.WriteWorkspaceFile(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, r.URL.Query().Get("path"), request.Content, request.BaseDigest)
 	if svcErr != nil {
 		var stale *workspaceapi.StaleFileError
 		if errors.As(svcErr, &stale) {
-			pkgerrors.WriteJSON(w, http.StatusConflict, map[string]string{"code": "stale", "current_digest": stale.CurrentDigest})
+			response := map[string]string{"code": "stale", "current_digest": stale.CurrentDigest}
+			if request.Changes != nil {
+				response["path"] = stale.Path
+			}
+			pkgerrors.WriteJSON(w, http.StatusConflict, response)
 			return
 		}
 		writeRouteError(w, r, svcErr)

@@ -483,16 +483,30 @@ type WorkspaceFiles interface {
 	RemoveFile(ctx context.Context, workspaceID, path string) error
 }
 
+// FileMutation replaces or removes one relative workspace path. Nil Content
+// removes the file; a non-nil empty slice creates or replaces an empty file.
+// BaseDigest is the full SHA-256 of the read bytes, or "absent". Implementations
+// preserve existing file modes and use 0644 for new files.
+type FileMutation struct {
+	Path       string
+	BaseDigest string
+	Content    []byte
+}
+
 // WorkspaceCompareWriter is the qualified mutation capability. Implementations
-// compare the full SHA-256 (or "absent") at the mutation boundary and must leave
-// all bytes unchanged on refusal, including under outside-writer races.
+// compare every full SHA-256 (or "absent") at one mutation boundary and must
+// leave the entire batch unchanged on refusal, including outside-writer races.
+// A move is one batch containing both the removal and the destination write.
 // A runtime without this capability must never fall back to WriteFile.
 type WorkspaceCompareWriter interface {
-	CompareWriteFile(ctx context.Context, workspaceID, path, baseDigest string, content []byte, mode fs.FileMode) error
+	CompareWriteFiles(ctx context.Context, workspaceID string, changes []FileMutation) error
 }
 
 // StaleFileError reports the version that refused a compare-and-write.
-type StaleFileError struct{ CurrentDigest string }
+type StaleFileError struct {
+	Path          string
+	CurrentDigest string
+}
 
 func (e *StaleFileError) Error() string { return "stale workspace file: " + e.CurrentDigest }
 

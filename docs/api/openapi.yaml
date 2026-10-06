@@ -14944,6 +14944,14 @@ paths:
           $ref: '#/components/responses/InternalError'
     put:
       summary: PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content
+      description: |
+        Writes one text file with the path query, or submits a whole atomic batch
+        without that query. Every affected path carries its own base_digest.
+        Batch content is UTF-8 by default or canonical padded base64; null deletes.
+        Existing modes are preserved; new files use 0644. Duplicate and ancestor/
+        descendant paths are rejected. Requests and total decoded content are each
+        bounded to 1 MiB; encoding and JSON overhead count toward the request limit.
+        Qualified provider availability is required for both forms.
       operationId: put_api_repos_owner_repo_workspaces_id_files_content
       tags:
         - Repositories
@@ -14965,7 +14973,8 @@ paths:
             type: string
         - name: path
           in: query
-          required: true
+          description: Required for a single-file request; forbidden for a batch.
+          required: false
           schema:
             type: string
       requestBody:
@@ -14973,15 +14982,41 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [content, base_digest]
-              properties:
-                content:
-                  type: string
-                base_digest:
-                  type: string
-                  pattern: '^(absent|[0-9a-f]{64})$'
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [content, base_digest]
+                  properties:
+                    content:
+                      type: string
+                    base_digest:
+                      type: string
+                      pattern: '^(absent|[0-9a-f]{64})$'
+                - type: object
+                  additionalProperties: false
+                  required: [changes]
+                  properties:
+                    changes:
+                      type: array
+                      minItems: 1
+                      maxItems: 256
+                      items:
+                        oneOf:
+                          - type: object
+                            additionalProperties: false
+                            required: [path, content, base_digest]
+                            properties:
+                              path: {type: string, minLength: 1, maxLength: 4096}
+                              content: {type: string}
+                              encoding: {type: string, enum: [utf-8, base64], default: utf-8}
+                              base_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
+                          - type: object
+                            additionalProperties: false
+                            required: [path, content, base_digest]
+                            properties:
+                              path: {type: string, minLength: 1, maxLength: 4096}
+                              content: {type: 'null'}
+                              base_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -14992,24 +15027,41 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [name, path, type, encoding, content, size, digest]
-                properties:
-                  name: {type: string}
-                  path: {type: string}
-                  type: {type: string, const: file}
-                  encoding: {type: string, enum: [utf-8, base64]}
-                  content: {type: string}
-                  size: {type: integer}
-                  digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+                oneOf:
+                  - type: object
+                    required: [name, path, type, encoding, content, size, digest]
+                    properties:
+                      name: {type: string}
+                      path: {type: string}
+                      type: {type: string, const: file}
+                      encoding: {type: string, enum: [utf-8, base64]}
+                      content: {type: string}
+                      size: {type: integer}
+                      digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+                  - type: object
+                    additionalProperties: false
+                    required: [changes]
+                    properties:
+                      changes:
+                        type: array
+                        minItems: 1
+                        maxItems: 256
+                        items:
+                          type: object
+                          additionalProperties: false
+                          required: [path, digest]
+                          properties:
+                            path: {type: string}
+                            digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
         '409':
-          description: The current file does not match base_digest; no bytes changed.
+          description: A file does not match base_digest; the entire batch is unchanged. Batch errors include the refusing path.
           content:
             application/json:
               schema:
                 type: object
                 required: [code, current_digest]
                 properties:
+                  path: {type: string, description: Present for batch requests.}
                   code: {type: string, const: stale}
                   current_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
         '503':
@@ -15022,6 +15074,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '413':
+          description: Request body or decoded content exceeds 1 MiB.
         '422':
           $ref: '#/components/responses/ValidationError'
         '429':

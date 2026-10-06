@@ -159,6 +159,16 @@ error. Malformed responses remain unavailable. Tests exercise exact binary bytes
 absent creation, stale preservation, input rejection followed by retry, and the
 continued production gate.
 
+The existing authenticated file-content PUT also accepts a bounded `changes`
+array: one full base per path, exact text/base64 bytes, explicit null deletions,
+and at most 256 paths with 1 MiB of decoded content (the request body has its
+own 1 MiB bound). Single-file requests retain their response shape and use this
+same service transaction. Duplicate and ancestor/descendant paths are refused.
+One mutation-authority scope encloses one provider batch call; a stale batch
+response identifies its refusing path and acknowledges no writes. The qualified
+runtime capability now requires whole-batch semantics and preservation of
+existing modes. Service/HTTP tests of this seam do not qualify the guest.
+
 There is still no CLI/runtime caller for new file mutations. Authenticated
 app/coding transport, the actual working-copy filesystem
 and path-alias behavior, external-service/kernel-I/O exclusion, and fresh/retained
