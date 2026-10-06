@@ -104,3 +104,16 @@ Set `lane` to the lane namespace when the target runner filters ambient LANE;
 otherwise they preserve the caller's LANE. They use the shared Go cache. The complete
 K1–K8 target remains incomplete pending executable guest composition and the
 writer/head/row/client evidence matrix.
+
+`projection-delta.mjs` qualifies C-PERF-02 from the second Mac. Set
+`SMITHERS_PERF_ORIGIN`, `SMITHERS_PERF_TODO` (a queued TODO that can move up
+and down), `SMITHERS_PERF_OWNER_COOKIE` (session and `__csrf` cookies),
+`SMITHERS_PERF_MEMBER_A` (Playwright storage-state file), and
+`SMITHERS_PERF_INSTALL_VERSION`. The reference install needs ten TODOs.
+Run `node scripts/perf/projection-delta.mjs` from the repository root.
+It opens two Node live sockets plus three Chromium Home tabs, performs 200
+idempotent moves, and records same-process monotonic timings and source cursors.
+Any gap, coalescing, duplicate, refusal or unrelated delta fails the workload;
+it never resubscribes to turn missing delivery into a passing sample.
+The runner writes raw samples through the existing artifact writer. A Linux
+run cannot qualify the reference-host check.
