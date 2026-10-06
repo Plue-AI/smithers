@@ -27,7 +27,6 @@ func approvedRootBoundaryRuntime(t *testing.T) (*Runtime, string) {
 		}
 		t.Skip("PENDING C-SEC-02: run only from the approved install source with bundled msb")
 	}
-	r := realRuntime(t, t.TempDir())
 	approved := os.Getenv("SMITHERS_APPROVED_GUEST_HELPER")
 	require.NotEmpty(t, approved, "approved bundle helper artifact is required")
 	body, err := os.ReadFile(approved)
@@ -35,6 +34,7 @@ func approvedRootBoundaryRuntime(t *testing.T) (*Runtime, string) {
 	sum := sha256.Sum256(body)
 	sourceSum := sha256.Sum256(guestHelper)
 	require.Equal(t, hex.EncodeToString(sum[:]), hex.EncodeToString(sourceSum[:]), "test source must match approved install; digest equality alone does not authorize root execution")
+	r := realRuntime(t, t.TempDir())
 	return r, hex.EncodeToString(sum[:])
 }
 

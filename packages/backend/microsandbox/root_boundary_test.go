@@ -167,7 +167,7 @@ func rootBoundaryLifecycle(t *testing.T, hostileHome bool) {
 	if os.Getenv("SMITHERS_GUEST_ROOT_BOUNDARY_CHECK") != "1" {
 		t.Skip("PENDING C-SEC-02: requires approved installed bundle and real msb; set SMITHERS_GUEST_ROOT_BOUNDARY_CHECK=1")
 	}
-	runtime := realRuntime(t, t.TempDir())
+	runtime, _ := approvedRootBoundaryRuntime(t)
 	ctx := operation("root-boundary")
 	id := "root-boundary"
 	_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
