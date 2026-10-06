@@ -97,7 +97,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 	case "branch", "conversation", "doc", "members", "secrets", "proposals", "agents", "install", "run":
 		return live.Source{}, live.Unsupported
 	case "external":
-		return t.externalSession(ctx, topic, rest, member)
+		return t.externalSession(ctx, topic, rest)
 	}
 	if repository == 0 {
 		return live.Source{}, live.Unsupported
@@ -137,8 +137,10 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 // externalSession is external:<agent>:<session> (mvp.md M-38): the size of
 // the owner's session file, read every liveRefreshEvery, so the app reads
 // what the agent appended at once instead of at its next poll. Like GET
-// /api/external/sessions, it is the install owner's alone.
-func (t *liveTopics) externalSession(ctx context.Context, topic, rest string, member int64) (live.Source, string) {
+// /api/external/sessions, it is the install owner's alone: the socket's own
+// credential is authorized for external.read, a person-only command, so
+// the topic and the route take one decision.
+func (t *liveTopics) externalSession(ctx context.Context, topic, rest string) (live.Source, string) {
 	if t.external == nil {
 		return live.Source{}, live.Unsupported
 	}
@@ -147,7 +149,7 @@ func (t *liveTopics) externalSession(ctx context.Context, topic, rest string, me
 	if !ok || !externalsessions.IDPattern.MatchString(prefix) {
 		return live.Source{}, live.UnknownTopic
 	}
-	if role, err := services.InstallRoleOf(ctx, t.queries, member); err != nil || role != services.InstallOwner {
+	if _, err := services.Authorize(ctx, t.queries, "external.read"); err != nil {
 		return live.Source{}, live.Forbidden
 	}
 	if _, err := t.external.Find(agent, prefix); err != nil {
