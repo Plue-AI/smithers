@@ -555,3 +555,618 @@ fn failed_roster_rpc_fences_local_run_until_cleanup_receipt() {
         [2]
     );
 }
+
+mod descriptor_stream {
+    use super::*;
+    use smithers_machined::session_stream::{Exit, Input, Pipe};
+    use std::{
+        io::{Read, Write},
+        process::{ChildStdin, Command, Stdio},
+    };
+
+    struct Stdin(Option<ChildStdin>);
+    impl Write for Stdin {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .as_mut()
+                .ok_or(io::ErrorKind::BrokenPipe)?
+                .write(bytes)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Input for Stdin {
+        fn eof(&mut self) -> io::Result<()> {
+            self.0.take();
+            Ok(())
+        }
+        fn close(&mut self) -> io::Result<()> {
+            self.eof()
+        }
+        fn resize(&mut self, _: u16, _: u16) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn signal(&mut self, _: u8) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+    fn frame(payload: Vec<u8>) -> Frame {
+        Frame {
+            kind: 5,
+            stream: 17,
+            payload,
+        }
+    }
+    fn data(bytes: &[u8]) -> Frame {
+        frame([&[1, 0], bytes].concat())
+    }
+    fn window(bytes: u32) -> Frame {
+        frame([&[6], bytes.to_be_bytes().as_slice()].concat())
+    }
+
+    // Test-only wiring of the descriptor module into the production RPC boundary.
+    // Child processes inherit this test's unprivileged uid; this is not a root
+    // broker or an install-activation receipt.
+    struct Provider(Mutex<Pipe<Stdin>>);
+    impl hooks::Sessions for Provider {
+        fn frame(&self, frame: &Frame) -> hooks::Result<Frame> {
+            let mut pipe = self.0.lock().unwrap();
+            pipe.accept(frame)
+                .and_then(|()| pipe.flush())
+                .and_then(|receipt| receipt.ok_or(io::ErrorKind::WouldBlock.into()))
+                .map_err(|_| hooks::Error {
+                    code: 1,
+                    ..hooks::Error::unsupported()
+                })
+        }
+    }
+    fn dispatch(cx: &mut LockCx, frame: Frame) -> Frame {
+        let mut out = Vec::new();
+        rpc::serve_one(&mut frame.encode().unwrap().as_slice(), &mut out, cx).unwrap();
+        Frame::decode(&out).unwrap()
+    }
+
+    #[test]
+    fn one_mib_half_close_reaches_real_wc_through_rpc() {
+        let mut child = Command::new("/usr/bin/wc")
+            .arg("-c")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let provider = Arc::new(Provider(Mutex::new(
+            Pipe::new(17, Stdin(child.stdin.take()), false).unwrap(),
+        )));
+        let mut cx = LockCx::new(Hooks {
+            sessions: provider.clone(),
+            ..Hooks::default()
+        });
+        for _ in 0..16 {
+            assert_eq!(
+                dispatch(&mut cx, data(&vec![b'x'; 65_536])).payload,
+                [6, 0, 1, 0, 0]
+            );
+        }
+        let mut pipe = provider.0.lock().unwrap();
+        pipe.accept(&frame(vec![2, 0])).unwrap();
+        assert_eq!(pipe.flush().unwrap(), None);
+        let stdout = child.stdout.as_mut().unwrap();
+        let mut output = Vec::new();
+        loop {
+            let f = pipe.poll(1, stdout).unwrap().unwrap();
+            if f.payload == [2, 1] {
+                break;
+            }
+            output.extend_from_slice(&f.payload[2..]);
+            pipe.accept(&window((f.payload.len() - 2) as u32)).unwrap();
+        }
+        assert_eq!(String::from_utf8(output).unwrap().trim(), "1048576");
+        assert_eq!(pipe.received(), 1_048_576);
+        assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn real_exit_status_waits_for_both_output_eofs() {
+        use std::os::unix::process::ExitStatusExt;
+        for (script, expected) in [
+            ("printf out; printf err >&2; exit 7", Exit::Code(7)),
+            (
+                "printf out; printf err >&2; kill -TERM $$",
+                Exit::Signal {
+                    signal: 2,
+                    core: false,
+                },
+            ),
+        ] {
+            let mut child = Command::new("/bin/sh")
+                .args(["-c", script])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut pipe = Pipe::new(17, Stdin(child.stdin.take()), true).unwrap();
+            let status = child.wait().unwrap();
+            let exit = if let Some(code) = status.code() {
+                Exit::Code(code)
+            } else {
+                assert_eq!(status.signal(), Some(15));
+                Exit::Signal {
+                    signal: 2,
+                    core: status.core_dumped(),
+                }
+            };
+            assert_eq!(exit, expected);
+            pipe.exited(exit).unwrap();
+            assert!(pipe.poll_exit().is_none());
+            let mut stdout = child.stdout.take().unwrap();
+            assert_eq!(
+                pipe.poll(1, &mut stdout).unwrap().unwrap().payload,
+                b"\x01\x01out"
+            );
+            assert_eq!(pipe.poll(1, &mut stdout).unwrap().unwrap().payload, [2, 1]);
+            assert!(pipe.poll_exit().is_none());
+            let mut stderr = child.stderr.take().unwrap();
+            assert_eq!(
+                pipe.poll(2, &mut stderr).unwrap().unwrap().payload,
+                b"\x01\x02err"
+            );
+            assert_eq!(pipe.poll(2, &mut stderr).unwrap().unwrap().payload, [2, 2]);
+            let exit = pipe.poll_exit().unwrap();
+            assert_eq!(
+                exit.payload,
+                if expected == Exit::Code(7) {
+                    vec![5, 0, 0, 0, 0, 7]
+                } else {
+                    vec![5, 1, 2, 0]
+                }
+            );
+            Frame::decode(&exit.encode().unwrap()).unwrap();
+            assert!(pipe.poll_exit().is_none());
+            let replay = pipe.attach(6).unwrap().1;
+            assert_eq!(
+                replay.iter().map(|f| f.payload.clone()).collect::<Vec<_>>(),
+                [vec![2, 1], vec![2, 2], exit.payload]
+            );
+        }
+    }
+
+    #[derive(Default)]
+    struct Slow {
+        bytes: Vec<u8>,
+        calls: usize,
+        eof: bool,
+        closed: bool,
+        controls: Vec<String>,
+    }
+    impl Write for Slow {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.calls += 1;
+            match self.calls {
+                1 => {
+                    self.bytes.extend_from_slice(&bytes[..2]);
+                    Ok(2)
+                }
+                2 => Err(io::ErrorKind::Interrupted.into()),
+                3 => Err(io::ErrorKind::WouldBlock.into()),
+                _ => {
+                    self.bytes.extend_from_slice(bytes);
+                    Ok(bytes.len())
+                }
+            }
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Input for Slow {
+        fn eof(&mut self) -> io::Result<()> {
+            self.eof = true;
+            Ok(())
+        }
+        fn close(&mut self) -> io::Result<()> {
+            self.closed = true;
+            Ok(())
+        }
+        fn resize(&mut self, rows: u16, cols: u16) -> io::Result<()> {
+            self.controls.push(format!("{rows}x{cols}"));
+            Ok(())
+        }
+        fn signal(&mut self, signal: u8) -> io::Result<()> {
+            self.controls.push(format!("signal:{signal}"));
+            Ok(())
+        }
+    }
+    #[test]
+    fn partial_stdin_delivery_defers_eof_and_returns_only_consumed_credit() {
+        let mut pipe = Pipe::new(17, Slow::default(), false).unwrap();
+        pipe.accept(&data(b"abcdef")).unwrap();
+        pipe.accept(&frame(vec![2, 0])).unwrap();
+        assert!(pipe.accept(&data(b"later")).is_err());
+        assert_eq!(pipe.flush().unwrap().unwrap().payload, [6, 0, 0, 0, 2]);
+        assert_eq!(pipe.received(), 2);
+        assert_eq!(pipe.buffered_input(), 4);
+        assert_eq!(pipe.flush().unwrap().unwrap().payload, [6, 0, 0, 0, 4]);
+        assert_eq!(pipe.received(), 6);
+        assert_eq!(pipe.flush().unwrap(), None);
+        assert!(pipe.attach(1).is_err());
+        assert_eq!(pipe.attach(0).unwrap().0, 6);
+    }
+    #[test]
+    fn shared_credit_and_fd_replay_remain_bounded() {
+        use std::io::Cursor;
+        struct NoRead;
+        impl Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                panic!("read at zero credit");
+            }
+        }
+        let mut pipe = Pipe::new(17, Slow::default(), true).unwrap();
+        for fd in [1, 2, 1, 2] {
+            assert_eq!(
+                pipe.poll(fd, &mut Cursor::new(vec![fd; 65_536]))
+                    .unwrap()
+                    .unwrap()
+                    .payload
+                    .len(),
+                65_538
+            );
+        }
+        assert_eq!(pipe.poll(1, &mut NoRead).unwrap(), None);
+        assert_eq!(pipe.poll(2, &mut NoRead).unwrap(), None);
+        assert!(pipe.attach(262_145).is_err());
+        let (_, replay) = pipe.attach(65_537).unwrap();
+        assert_eq!(
+            replay.iter().map(|f| f.payload.len() - 2).sum::<usize>(),
+            196_607
+        );
+        assert_eq!(
+            replay.iter().map(|f| f.payload[1]).collect::<Vec<_>>(),
+            [2, 1, 2]
+        );
+        assert_eq!(
+            replay[0].payload,
+            [&[1, 2], vec![2; 65_535].as_slice()].concat()
+        );
+        assert_eq!(pipe.attach(65_537).unwrap().1, replay);
+        assert!(pipe.attach(65_536).is_err());
+        pipe.accept(&window(196_607)).unwrap();
+        assert!(pipe.attach(262_144).unwrap().1.is_empty());
+        assert_eq!(
+            pipe.poll(1, &mut Cursor::new(b"resume"))
+                .unwrap()
+                .unwrap()
+                .payload,
+            b"\x01\x01resume"
+        );
+    }
+    #[test]
+    fn wrong_direction_and_malformed_controls_have_no_effect() {
+        let mut pipe = Pipe::new(17, Slow::default(), false).unwrap();
+        for payload in [
+            vec![1, 1, 5],
+            vec![2, 2],
+            vec![3, 0, 0, 0, 80],
+            vec![3, 0, 24, 0, 0],
+            vec![4, 8],
+            vec![5, 0, 0, 0, 0, 7],
+            vec![255, 0, 0, 0, 0],
+        ] {
+            assert!(pipe.accept(&frame(payload)).is_err());
+        }
+        let mut wrong = data(b"wrong");
+        wrong.stream = 18;
+        assert!(pipe.accept(&wrong).is_err());
+        assert_eq!(pipe.received(), 0);
+        assert_eq!(pipe.buffered_input(), 0);
+        pipe.accept(&frame(vec![3, 0, 24, 0, 80])).unwrap();
+        pipe.accept(&frame(vec![4, 1])).unwrap();
+        pipe.accept(&frame(vec![7])).unwrap();
+        pipe.close().unwrap();
+        assert!(pipe.accept(&data(b"after close")).is_err());
+        assert!(pipe.attach(0).is_err());
+        assert!(pipe.flush().is_err());
+        assert!(pipe.poll(1, &mut b"output".as_slice()).is_err());
+        assert!(pipe.exited(Exit::Code(0)).is_err());
+    }
+    #[test]
+    fn real_one_gib_writer_stalls_then_delivers_with_bounded_rss() {
+        fn rss() -> usize {
+            let output = Command::new("/bin/ps")
+                .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap()
+        }
+        let baseline_rss_kib = rss();
+        let mut child = Command::new("/usr/bin/head")
+            .args(["-c", "1073741824", "/dev/zero"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut pipe = Pipe::new(17, Stdin(child.stdin.take()), false).unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let mut received = 0usize;
+        while received < 262_144 {
+            let f = pipe.poll(1, &mut stdout).unwrap().unwrap();
+            assert_eq!(&f.payload[..2], [1, 1]);
+            assert!(f.payload[2..].iter().all(|b| *b == 0));
+            received += f.payload.len() - 2;
+        }
+        // Kernel pipe fills while the reader is deliberately stalled. Credit
+        // prevents any further descriptor reads, regardless of writer size.
+        assert_eq!(pipe.poll(1, &mut stdout).unwrap(), None);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(child.try_wait().unwrap().is_none());
+        let stalled_rss_kib = rss();
+        assert!(
+            stalled_rss_kib <= baseline_rss_kib + 16_384,
+            "stalled RSS grew beyond 16 MiB: {baseline_rss_kib} -> {stalled_rss_kib} KiB"
+        );
+        eprintln!("descriptor test RSS baseline={baseline_rss_kib} stalled={stalled_rss_kib} KiB");
+        let (_, replay) = pipe.attach(0).unwrap();
+        assert_eq!(
+            replay.iter().map(|f| f.payload.len() - 2).sum::<usize>(),
+            262_144
+        );
+        assert!(replay
+            .iter()
+            .all(|f| f.payload[2..].iter().all(|b| *b == 0)));
+        drop(replay);
+        pipe.accept(&window(262_144)).unwrap();
+        loop {
+            let f = pipe.poll(1, &mut stdout).unwrap().unwrap();
+            if f.payload == [2, 1] {
+                break;
+            }
+            assert_eq!(&f.payload[..2], [1, 1]);
+            assert!(f.payload[2..].iter().all(|b| *b == 0));
+            let count = f.payload.len() - 2;
+            received += count;
+            pipe.accept(&window(count as u32)).unwrap();
+        }
+        assert_eq!(received, 1_073_741_824);
+        assert_eq!(
+            pipe.attach(received as u64)
+                .unwrap()
+                .1
+                .iter()
+                .map(|f| f.payload.clone())
+                .collect::<Vec<_>>(),
+            [vec![2, 1]]
+        );
+        assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn real_ten_second_detach_replays_missing_stdout_and_stderr() {
+        use smithers_machined::broker::sessions::{Controls as LifetimeControls, Sessions};
+        use std::time::Instant;
+        struct Lifetime;
+        impl LifetimeControls for Lifetime {
+            fn close(&mut self, _: u32, _: Kind) -> io::Result<()> {
+                Ok(())
+            }
+            fn kill(&mut self, _: u32, _: Instant) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut registry = Sessions::new(Lifetime);
+        let ben = User {
+            login: "ben".into(),
+            uid: 20001,
+        };
+        registry.set_roster(&[ben.clone()], Instant::now()).unwrap();
+        registry.insert(17, ben, Kind::Exec).unwrap();
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "printf abcdef; printf ghijkl >&2"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut pipe = Pipe::new(17, Stdin(child.stdin.take()), true).unwrap();
+        let out = pipe
+            .poll(1, child.stdout.as_mut().unwrap())
+            .unwrap()
+            .unwrap();
+        let err = pipe
+            .poll(2, child.stderr.as_mut().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(out.payload, b"\x01\x01abcdef");
+        assert_eq!(err.payload, b"\x01\x02ghijkl");
+        // The peer received only the first three bytes, and lost its window.
+        registry.disconnected(Instant::now());
+        let disconnected = Instant::now();
+        std::thread::sleep(Duration::from_secs(10));
+        assert!(disconnected.elapsed() >= Duration::from_secs(10));
+        registry.attach(17, Instant::now()).unwrap();
+        let (input_received, replay) = pipe.attach(3).unwrap();
+        assert_eq!(input_received, 0);
+        assert_eq!(
+            replay.iter().map(|f| f.payload.clone()).collect::<Vec<_>>(),
+            [b"\x01\x01def".to_vec(), b"\x01\x02ghijkl".to_vec()]
+        );
+        pipe.accept(&window(9)).unwrap();
+        assert!(pipe.attach(12).unwrap().1.is_empty());
+        assert!(child.wait().unwrap().success());
+    }
+    #[test]
+    fn invalid_frames_and_over_credit_preserve_descriptor_state() {
+        #[derive(Default)]
+        struct Probe(Arc<Mutex<Vec<String>>>);
+        impl Write for Probe {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("write:{}", bytes.len()));
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        impl Input for Probe {
+            fn eof(&mut self) -> io::Result<()> {
+                self.0.lock().unwrap().push("eof".into());
+                Ok(())
+            }
+            fn close(&mut self) -> io::Result<()> {
+                self.0.lock().unwrap().push("close".into());
+                Ok(())
+            }
+            fn resize(&mut self, rows: u16, cols: u16) -> io::Result<()> {
+                self.0.lock().unwrap().push(format!("{rows}x{cols}"));
+                Ok(())
+            }
+            fn signal(&mut self, signal: u8) -> io::Result<()> {
+                self.0.lock().unwrap().push(format!("signal:{signal}"));
+                Ok(())
+            }
+        }
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut pipe = Pipe::new(17, Probe(calls.clone()), false).unwrap();
+        for id in [0, 0x80000000, u32::MAX] {
+            assert!(Pipe::new(id, Probe::default(), false).is_err());
+        }
+        for payload in [
+            vec![1, 1, 5],
+            vec![2, 1],
+            vec![3, 0, 0, 0, 80],
+            vec![4, 0],
+            vec![5, 0, 0, 0, 0, 7],
+        ] {
+            assert!(pipe.accept(&frame(payload)).is_err());
+        }
+        assert!(calls.lock().unwrap().is_empty());
+        // Wire resize is columns then rows, while the OS adapter takes rows/cols.
+        pipe.accept(&frame(vec![3, 0, 80, 0, 24])).unwrap();
+        for signal in 1..=7 {
+            pipe.accept(&frame(vec![4, signal])).unwrap();
+        }
+        assert_eq!(calls.lock().unwrap()[0], "24x80");
+        assert_eq!(calls.lock().unwrap().len(), 8);
+        for _ in 0..4 {
+            pipe.accept(&data(&vec![1; 65_536])).unwrap();
+        }
+        assert!(pipe.accept(&data(b"over credit")).is_err());
+        assert_eq!(pipe.buffered_input(), 262_144);
+        pipe.accept(&frame(vec![2, 0])).unwrap();
+        assert_eq!(pipe.flush().unwrap().unwrap().payload, [6, 0, 4, 0, 0]);
+        assert_eq!(pipe.buffered_input(), 0);
+        assert_eq!(pipe.received(), 262_144);
+        assert_eq!(calls.lock().unwrap().last().unwrap(), "eof");
+        let count = calls.lock().unwrap().len();
+        assert_eq!(pipe.flush().unwrap(), None);
+        assert_eq!(calls.lock().unwrap().len(), count, "EOF delivered once");
+        pipe.close().unwrap();
+        pipe.close().unwrap();
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|s| s.as_str() == "close")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn descriptor_errors_preserve_delivered_offsets_and_pending_bytes() {
+        struct Broken {
+            first: bool,
+            kind: io::ErrorKind,
+        }
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                if self.first {
+                    self.first = false;
+                    return Ok(2);
+                }
+                if self.kind == io::ErrorKind::WriteZero {
+                    Ok(0)
+                } else {
+                    Err(self.kind.into())
+                }
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        impl Input for Broken {
+            fn eof(&mut self) -> io::Result<()> {
+                Err(io::ErrorKind::BrokenPipe.into())
+            }
+            fn close(&mut self) -> io::Result<()> {
+                Err(io::ErrorKind::Other.into())
+            }
+            fn resize(&mut self, _: u16, _: u16) -> io::Result<()> {
+                Err(io::ErrorKind::Unsupported.into())
+            }
+            fn signal(&mut self, _: u8) -> io::Result<()> {
+                Err(io::ErrorKind::Unsupported.into())
+            }
+        }
+        for kind in [
+            io::ErrorKind::WriteZero,
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::WouldBlock,
+        ] {
+            let mut pipe = Pipe::new(17, Broken { first: true, kind }, false).unwrap();
+            pipe.accept(&data(b"abcdef")).unwrap();
+            assert_eq!(pipe.flush().unwrap().unwrap().payload, [6, 0, 0, 0, 2]);
+            assert_eq!(pipe.received(), 2);
+            assert_eq!(pipe.buffered_input(), 4);
+            if kind == io::ErrorKind::WouldBlock {
+                assert_eq!(pipe.flush().unwrap(), None);
+            } else {
+                assert_eq!(pipe.flush().unwrap_err().kind(), kind);
+            }
+            assert_eq!(pipe.received(), 2);
+            assert_eq!(pipe.buffered_input(), 4);
+            assert!(pipe.accept(&frame(vec![3, 0, 80, 0, 24])).is_err());
+            assert!(pipe.accept(&frame(vec![4, 1])).is_err());
+            assert!(pipe.close().is_err());
+            assert_eq!(pipe.buffered_input(), 4, "failed close retains retry state");
+            assert!(pipe
+                .exited(Exit::Signal {
+                    signal: 0,
+                    core: false
+                })
+                .is_err());
+            pipe.exited(Exit::Code(7)).unwrap();
+            assert!(pipe.exited(Exit::Code(8)).is_err());
+            assert!(pipe.poll(0, &mut b"x".as_slice()).is_err());
+            assert!(pipe.poll(2, &mut b"x".as_slice()).is_err());
+        }
+        struct BadRead;
+        impl Read for BadRead {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::Other.into())
+            }
+        }
+        let mut pipe = Pipe::new(17, Slow::default(), false).unwrap();
+        assert!(pipe.poll(1, &mut BadRead).is_err());
+        assert!(pipe.attach(0).unwrap().1.is_empty());
+        let mut blocked = Broken {
+            first: false,
+            kind: io::ErrorKind::WouldBlock,
+        };
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(self.kind.into())
+            }
+        }
+        assert_eq!(pipe.poll(1, &mut blocked).unwrap(), None);
+    }
+}
