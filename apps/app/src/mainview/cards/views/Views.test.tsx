@@ -989,6 +989,44 @@ test("Settings actions live in their rows and unassigned actions retain order", 
   expect([...host.querySelectorAll(".setup-view > .setup-actions button")].map(button => button.textContent)).toEqual(["Add", "Docs"])
 })
 
+// Read the app's relative sheets in their actual entry order; Chromium also loads
+// the full entry (including Tailwind) in C-UI-12's browser shell cases.
+const appStyles = () => {
+  const entry = readFileSync(new URL("../../index.css", import.meta.url), "utf8")
+  return [...entry.matchAll(/@import "(\.\/[^\"]+)";/g)]
+    .map(([, path]) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8")).join("\n")
+}
+
+for (const theme of ["light", "dark"]) test(`Conversation shell uses app Paper styles ${theme}`, async () => {
+  const { EntryRow } = await import("../../EntryRow")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/EntryRow")
+  const chat = readFileSync(new URL("../../styles/chat.css", import.meta.url), "utf8")
+  const cards = readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
+  for (const selector of [".tree", ".crumbs", ".entry", ".author", ".locked", ".tombstone", ".context", ".earlier", ".read-only"]) {
+    expect(chat).toContain(selector)
+    expect(cards).not.toContain(selector)
+    expect(appStyles()).not.toContain(`.mvp-${selector.slice(1)}`)
+  }
+  document.documentElement.dataset.theme = theme
+  const sheet = document.createElement("style")
+  sheet.textContent = appStyles()
+  document.head.append(sheet)
+  const row = await mounted({ name: "styled shell", expect: [], render: ({ onAction }) => <EntryRow {...fixtures.failed.model} onAction={onAction} /> })
+  try {
+    const entry = row.host.querySelector<HTMLElement>(".entry")!
+    expect(getComputedStyle(entry).borderLeftWidth).toBe("2px")
+    expect(getComputedStyle(entry).paddingLeft).toBe("10px")
+    expect(getComputedStyle(row.host.querySelector(".entry-title")!).lineHeight).toBe("1.5")
+    const control = row.host.querySelector<HTMLButtonElement>("button")!
+    // CSSOM verifies the actual entry retains the shell's keyboard focus rule;
+    // the browser case verifies the painted ring on a focused production control.
+    const focus = [...sheet.sheet!.cssRules].find(rule => rule.cssText.startsWith(":is(.tree, .crumbs, .entry, .context, .earlier) button:focus-visible")) as CSSStyleRule
+    expect(focus.style.outlineOffset).toBe("-2px")
+    expect(chat).toContain("button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }")
+    expect(control.disabled).toBe(true)
+  } finally { await row.close(); sheet.remove(); delete document.documentElement.dataset.theme }
+})
+
 // T-UI-07: spec §14.1.5, §14.5.1 and ui-components T-UI-07 literal oracles.
 test("Conversation shell renders branch navigation, entries and Earlier", async () => {
   const { EntryRow } = await import("../../EntryRow")
@@ -999,12 +1037,12 @@ test("Conversation shell renders branch navigation, entries and Earlier", async 
   const row = await mounted({ name: "tombstone", expect: [], render: ({ onAction }) => <EntryRow {...fixtures.tombstone.model} private action={{ tag: "merge", label: "Merge", args: { n: "12" } }} card={<button>Forbidden body</button>} onAction={onAction} /> })
   try {
     expect(row.host.textContent).toBe("Card model contracts")
-    expect(row.host.querySelectorAll("button, .avatar, .mvp-locked")).toHaveLength(0)
-    expect(row.host.querySelector(".mvp-tombstone")).not.toBeNull()
+    expect(row.host.querySelectorAll("button, .avatar, .locked")).toHaveLength(0)
+    expect(row.host.querySelector(".tombstone")).not.toBeNull()
   } finally { await row.close() }
   const tree = await mounted({ name: "ancestry", expect: [], render: ({ onAction, onView }) => <BranchTree nodes={[branches.main.model]} view={{ selected_branch: "todo-12" }} onAction={onAction} onView={onView} /> })
   try {
-    expect([...tree.host.querySelectorAll(".mvp-tree-name")].map(node => node.textContent)).toEqual(["main", "todo/12", "scratch/repro", "Earlier · 3"])
+    expect([...tree.host.querySelectorAll(".tree-name")].map(node => node.textContent)).toEqual(["main", "todo/12", "scratch/repro", "Earlier · 3"])
     expect([...tree.host.querySelectorAll("li")].map(node => node.getAttribute("data-depth"))).toEqual(["0", "1", "2", "0"])
     expect(tree.host.querySelector('[aria-current="page"]')?.textContent).toContain("todo/12")
     await act(async () => tree.host.querySelector<HTMLButtonElement>('[data-node="scratch-repro"]')!.click())
@@ -1032,8 +1070,8 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
   const hostile = '<script>throw Error("executed")</script>'
   const row = await mounted({ name: "hostile", expect: [], render: ({ onAction }) => <EntryRow kind="answer" author={actors.system.model.actor} title={hostile} summary={hostile} tone="quiet" onAction={onAction} /> })
   try {
-    expect(row.host.querySelector(".mvp-entry-title")?.textContent).toBe(hostile)
-    expect(row.host.querySelector(".mvp-entry-summary")?.textContent).toBe(hostile)
+    expect(row.host.querySelector(".entry-title")?.textContent).toBe(hostile)
+    expect(row.host.querySelector(".entry-summary")?.textContent).toBe(hostile)
     expect(row.host.querySelector(".avatar")?.getAttribute("aria-label")).toBe("Install event")
     expect(row.host.querySelector("script")).toBeNull()
     expect(row.host.querySelector("button")).toBeNull()
@@ -1041,7 +1079,7 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
   const context = await mounted({ name: "empty", expect: [], render: ({ onView }) => <ContextLine count={0} items={[]} expanded={false} onView={onView} /> })
   try {
     expect(context.host.textContent).toBe("Context · 0")
-    expect(context.host.querySelector(".mvp-context-chip")).toBeNull()
+    expect(context.host.querySelector(".context-chip")).toBeNull()
     await act(async () => context.host.querySelector<HTMLButtonElement>("button")!.click())
     expect(context.onView.mock.calls).toEqual([[{ expanded: true }]])
     expect(context.onAction.mock.calls).toEqual([])
@@ -1081,7 +1119,7 @@ test("missing selected branch has no unnamed crumb; popover arrows move and go t
   try { expect(missing.host.querySelector("button")).toBeNull() } finally { await missing.close() }
   const row = await mounted({ name: "keys", expect: [], render: ({ onAction, onView }) => <BranchCrumbs nodes={[fixtures.main.model]} view={{ selected_branch: "scratch-repro" }} onAction={onAction} onView={onView} /> })
   try {
-    const trigger = row.host.querySelector<HTMLButtonElement>(".mvp-crumb-here")!
+    const trigger = row.host.querySelector<HTMLButtonElement>(".crumb-here")!
     await act(async () => { trigger.click(); trigger.focus() })
     const press = async (key: string) => act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })) })
     await press("ArrowDown")
@@ -1097,7 +1135,7 @@ test("missing selected branch has no unnamed crumb; popover arrows move and go t
     expect((document.activeElement as HTMLElement).dataset.node).toBe("main")
     await press("Escape")
     expect(document.activeElement).toBe(trigger)
-    expect(row.host.querySelector(".mvp-tree")).toBeNull()
+    expect(row.host.querySelector(".tree")).toBeNull()
   } finally { await row.close() }
 })
 

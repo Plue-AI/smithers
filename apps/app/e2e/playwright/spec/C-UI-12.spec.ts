@@ -119,6 +119,83 @@ test("C-UI-12 TODO: a REST-served question answers through the mounted card and 
   await expect.poll(() => answers).toEqual([{ answer: "Keep retry\nverbatim", wait: "question-24" }])
 })
 
+// T-UI-07: literal callbacks from ui-components T-UI-07, independent of model actions.
+test("C-UI-12: Conversation shell renders branch navigation, entries and Earlier", async ({ page }) => {
+  test.setTimeout(180_000)
+  const callbacks = async () => page.evaluate(() => (window as unknown as { shellCalls: unknown[] }).shellCalls)
+  const clear = async () => page.evaluate(() => { (window as unknown as { shellCalls: unknown[] }).shellCalls = [] })
+  await page.addInitScript(() => {
+    const state = window as unknown as { shellCalls: unknown[] }
+    state.shellCalls = []
+    window.addEventListener("story-callback", event => state.shellCalls.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=ConversationView/branch-main&theme=${theme}`)
+    await expect(page.locator(".tree-name")).toHaveText(["main", "todo/12", "scratch/repro", "Earlier · 3"])
+    await expect(page.locator(".tree")).toHaveCSS("box-sizing", "border-box")
+    await expect(page.locator(".tree-presence").first()).toHaveCSS("display", "flex")
+    for (const [node, expected] of [["main", { kind: "view", value: { selected_branch: "main" } }], ["todo-12", { kind: "view", value: { selected_branch: "todo-12" } }], ["scratch-repro", { kind: "action", value: { tag: "branch", args: { name: "scratch/repro" } } }], ["earlier", { kind: "view", value: { selected_branch: "earlier" } }]] as const) {
+      await clear()
+      const control = page.locator(`[data-node="${node}"]`)
+      await control.focus()
+      await page.keyboard.press("Enter")
+      await expect.poll(callbacks).toEqual([expected])
+      await expect(control).toBeFocused()
+      await expect(control).toHaveCSS("outline-style", "solid")
+      await expect(control).toHaveCSS("outline-width", "2px")
+    }
+    await page.goto(`/view-stories.html?story=ConversationView/crumb-ancestry&theme=${theme}`)
+    const crumb = page.locator(".crumb-here")
+    await crumb.focus()
+    await page.keyboard.press("Space")
+    await expect(page.getByRole("navigation", { name: "Branches", exact: true })).toBeVisible()
+    await page.locator('[data-node="main"]').focus()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("navigation", { name: "Branches", exact: true })).toHaveCount(0)
+    await expect(crumb).toBeFocused()
+    await page.goto(`/view-stories.html?story=ConversationView/context-collapsed&theme=${theme}`)
+    await page.locator(".context-toggle").focus()
+    await page.keyboard.press("Space")
+    await expect.poll(callbacks).toEqual([{ kind: "view", value: { expanded: true } }])
+    for (const [story, tag, label] of [["needs_you", "todo.answer", "Answer"], ["in_review", "merge", "Merge"]]) {
+      await page.goto(`/view-stories.html?story=ConversationView/entry-${story}&theme=${theme}`)
+      await expect(page.locator("[data-flow]")).toHaveAttribute("data-flow", tag!)
+      await page.getByRole("button", { name: label }).click()
+      await expect.poll(callbacks).toEqual([{ kind: "action", value: { tag, args: { n: "12" } } }])
+    }
+    // spec §14.5.2 and the Paper tone contract: literal token names, never schema-derived.
+    for (const [entry, token] of [["working", "--brand"], ["needs_you", "--attention"], ["failed", "--danger"]]) {
+      await page.goto(`/view-stories.html?story=ConversationView/entry-${entry}&theme=${theme}`)
+      const colors = await page.locator(".entry").evaluate((node, token) => {
+        const probe = document.createElement("span")
+        probe.style.color = `var(${token})`
+        document.body.append(probe)
+        const expected = getComputedStyle(probe).color
+        probe.remove()
+        return { actual: getComputedStyle(node).borderLeftColor, expected }
+      }, token!)
+      expect(colors.actual).toBe(colors.expected)
+    }
+    await page.goto(`/view-stories.html?story=ConversationView/entry-failed&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Retry" })).toBeDisabled()
+    await expect(page.getByText("Repository access refused")).toBeVisible()
+    expect(await callbacks()).toEqual([])
+    await page.goto(`/view-stories.html?story=ConversationView/entry-tombstone&theme=${theme}`)
+    await expect(page.locator("article[data-story]")).toHaveText("Card model contracts")
+    await expect(page.locator(".tombstone")).toHaveCSS("white-space", "nowrap")
+    await expect(page.locator("article[data-story] button")).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=ConversationView/entry-private&theme=${theme}`)
+    await expect(page.getByText("Only you")).toBeVisible()
+    await page.goto(`/view-stories.html?story=ConversationView/earlier-selected&theme=${theme}`)
+    await expect(page.getByText("Read-only")).toBeVisible()
+    await expect(page.locator(".read-only")).toHaveCSS("border-top-width", "1px")
+    await expect(page.locator("[data-flow]")).toHaveCount(0)
+    await page.getByRole("button", { name: "Earlier question" }).click()
+    await expect.poll(callbacks).toEqual([{ kind: "view", value: { selected_archive: "old" } }])
+  }
+})
+
 // UI projection of C-UI-12; its unit/CLI acceptance evidence remains separate.
 // Written before implementation: mvp.md §6, §9; lands with T-UI-01..T-UI-14
 test("C-UI-12: Every card fixture renders inline and maximized", async ({ page }) => {

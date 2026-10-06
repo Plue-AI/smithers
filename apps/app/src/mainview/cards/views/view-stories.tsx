@@ -1,8 +1,7 @@
 /// <reference types="vite/client" />
 import { createRoot } from "react-dom/client"
 import type { StoryModule, ViewStory } from "./stories"
-import "../../styles/tokens.css"
-import "../../styles/cards.css"
+import "../../index.css"
 import "./view-stories.css"
 
 const modules = import.meta.glob<StoryModule>("./*.stories.tsx", { eager: true })

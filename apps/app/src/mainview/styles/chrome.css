@@ -26,13 +26,6 @@
 	display: none;
 }
 
-.tab-terminal {
-	flex: 1;
-	min-height: 0;
-	border: 0;
-	border-radius: 0;
-}
-
 /* One row recipe: 32px, 8px inline padding, 8px radius. */
 .chrome-action {
 	display: flex;
@@ -202,22 +195,4 @@
 	.mvp-edge[data-edge="above"] .mvp-edge-pill { top: 9px; right: 132px; }
 	.mvp-edge[data-edge="below"] .mvp-edge-pill { bottom: 14px; left: 16px; }
 	.mvp-notify { position: fixed; bottom: 64px; left: 12px; z-index: 40; width: min(300px, calc(100vw - 24px)); }
-}
-
-/*
- * Where this person is in the branch tree (SessionNavigation.tsx Crumbs,
- * T-APP-16): `owner/repo / main / <branch> ▾` beside the wordmark; the last
- * crumb opens the branch tree beneath the strip.
- */
-.session-navigation .mvp-crumbs-host { position: absolute; top: 0; right: 196px; left: 148px; z-index: 40; display: flex; height: var(--session-strip, 44px); align-items: center; gap: 6px; color: var(--text-faint); font-size: var(--fs-small); white-space: nowrap; }
-.session-navigation .mvp-crumb-repo { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; }
-.session-navigation .mvp-crumbs { min-width: 0; }
-.session-navigation .mvp-crumb-path { flex-wrap: nowrap; }
-.session-navigation .mvp-crumb { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-navigation .mvp-crumb-here > svg { flex: none; color: var(--text-muted); }
-.session-navigation .mvp-crumbs > .mvp-tree { position: absolute; top: calc(100% + 2px); left: 0; width: 360px; max-width: calc(100vw - 24px); margin-top: 0; }
-@media (max-width: 600px) {
-	.session-navigation .mvp-crumbs-host { right: 12px; left: 128px; }
-	.session-navigation .mvp-crumbs > .mvp-tree { position: fixed; top: calc(var(--session-strip, 44px) + 2px); left: 12px; }
-	.session-navigation .mvp-crumb-repo, .session-navigation .mvp-crumb-repo + span { display: none; }
 }

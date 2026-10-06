@@ -37,7 +37,7 @@ const navigation: Record<keyof typeof branches, ViewStory["interactions"]> = {
 }
 export const stories: ViewStory[] = [
   { name: "branch-disabled", expect: ["scratch/repro", "Repository access refused"], actions: [{ tag: "branch", label: "Open", args: { name: "scratch/repro" }, disabled: { reason: "Repository access refused" } }], render: ({ onAction, onView }, actions = [{ tag: "branch", label: "Open", args: { name: "scratch/repro" }, disabled: { reason: "Repository access refused" } }]) => <BranchTree nodes={[withAction(branches.scratch.model, actions[0] as Action | undefined)]} view={{}} onAction={onAction} onView={onView} /> },
-  { name: "context-empty", expect: ["Context · 0"], interactions: [{ selector: ".mvp-context-toggle", patch: { expanded: true } }], render: ({ onView }) => <ContextLine count={0} items={[]} expanded={false} onView={onView} /> },
+  { name: "context-empty", expect: ["Context · 0"], interactions: [{ selector: ".context-toggle", patch: { expanded: true } }], render: ({ onView }) => <ContextLine count={0} items={[]} expanded={false} onView={onView} /> },
   ...Object.entries(branches).map(([name, fixture]): ViewStory => ({
     name: `branch-${name}`, expect: branchExpect[name as keyof typeof branches],
     actions: name === "main" || name === "scratch" ? [{ tag: "branch", label: "Open", args: { name: "scratch/repro" } }] : [],
@@ -46,17 +46,17 @@ export const stories: ViewStory[] = [
   })),
   ...Object.entries(entries).map(([name, fixture]): ViewStory => ({
     name: `entry-${name}`, expect: entryExpect[name as keyof typeof entries], actions: entryActions[name as keyof typeof entries] ?? [],
-    interactions: fixture.model.context ? [{ selector: ".mvp-context-toggle" }] : [],
+    interactions: fixture.model.context ? [{ selector: ".context-toggle" }] : [],
     render: ({ onAction }, actions) => <EntryRow {...fixture.model} action={actions?.length === 0 ? undefined : fixture.model.action} onAction={onAction} />,
   })),
   ...Object.entries(contexts).map(([name, fixture]): ViewStory => ({
     name: `context-${name}`, expect: name === "collapsed" ? ["Context · 5"] : name === "one" ? ["Context · 1", "flow.ts"] : ["Context · 5", "flow.ts", "Factory decisions", "#3474", "T12", "Implement"],
-    interactions: [{ selector: ".mvp-context-toggle", patch: { expanded: name === "collapsed" } }],
+    interactions: [{ selector: ".context-toggle", patch: { expanded: name === "collapsed" } }],
     render: ({ onView }) => <ContextLine {...fixture.model} onView={onView} />,
   })),
   { name: "earlier-selected", expect: ["Earlier · 3", "Read-only", "Earlier question", "Card model contracts"],
     interactions: [{ selector: '[data-archive="old"]', patch: { selected_archive: "old" } }],
     render: ({ onView }) => <EarlierArchive model={{ node: { ...branches.earlier.model, kind: "earlier", archive_count: 3 }, read_only: true, archives: [{ id: "old", title: "Earlier question", entries: [<EntryRow key="row" {...entries.tombstone.model} onAction={() => {}} />] }] }} view={{ selected_archive: "old" }} onView={onView} /> },
   { name: "earlier-unselected", expect: ["Earlier · 0", "Read-only"], render: ({ onView }) => <EarlierArchive model={{ node: { ...branches.earlier.model, kind: "earlier", archive_count: 0 }, read_only: true, archives: [] }} view={{}} onView={onView} /> },
-  { name: "crumb-ancestry", expect: ["main", "todo/12", "scratch/repro"], interactions: [{ selector: '[data-branch="main"]', patch: { selected_branch: "main" } }, { selector: '[data-branch="todo-12"]', patch: { selected_branch: "todo-12" } }, { selector: ".mvp-crumb-here" }, { selector: '[data-node="main"]', patch: { selected_branch: "main" } }, { selector: '[data-node="todo-12"]', patch: { selected_branch: "todo-12" } }, { selector: '[data-node="scratch-repro"]', action: { tag: "branch", args: { name: "scratch/repro" } } }, { selector: '[data-node="earlier"]', patch: { selected_branch: "earlier" } }], render: ({ onAction, onView }) => <BranchCrumbs nodes={[branches.main.model]} view={{ selected_branch: "scratch-repro" }} onAction={onAction} onView={onView} /> },
+  { name: "crumb-ancestry", expect: ["main", "todo/12", "scratch/repro"], interactions: [{ selector: '[data-branch="main"]', patch: { selected_branch: "main" } }, { selector: '[data-branch="todo-12"]', patch: { selected_branch: "todo-12" } }, { selector: ".crumb-here" }, { selector: '[data-node="main"]', patch: { selected_branch: "main" } }, { selector: '[data-node="todo-12"]', patch: { selected_branch: "todo-12" } }, { selector: '[data-node="scratch-repro"]', action: { tag: "branch", args: { name: "scratch/repro" } } }, { selector: '[data-node="earlier"]', patch: { selected_branch: "earlier" } }], render: ({ onAction, onView }) => <BranchCrumbs nodes={[branches.main.model]} view={{ selected_branch: "scratch-repro" }} onAction={onAction} onView={onView} /> },
 ]
