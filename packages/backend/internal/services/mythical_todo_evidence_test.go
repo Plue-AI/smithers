@@ -134,12 +134,13 @@ func TestTodoEvidenceSaysNoChecksFoundForAPlanWithNone(t *testing.T) {
 
 func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 	duration := int64(0)
-	item := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "candidate", FlowDigest: pgtype.Text{String: "pin", Valid: true}, Checks: mythicalChecks{
+	item := db.MythicalItem{Source: "todo", Attempt: 1, RequestRunID: "attempt-one-run", CandidateHead: "candidate", FlowDigest: pgtype.Text{String: "pin", Valid: true}, Checks: mythicalChecks{
 		Receipts: &mythicalReceipts{Run: "bound", Checks: []mythicalReceipt{
 			{Check: "parent", Commit: "parent", Status: "failed"}, {Check: "unit", Commit: "candidate", Status: "passed", DurationMs: &duration},
 		}}, Review: &mythicalReview{Head: "old", Verdict: "approve"},
 	}.encode()}
 	evidence := currentTodoEvidence(item)
+	require.Equal(t, "attempt-one-run", evidence.RunID)
 	require.Equal(t, []map[string]any{{"kind": "check", "name": "unit", "state": "passed", "took_s": float64(0)}, {"kind": "flow", "name": "todo", "version": "pin", "source_commit": ""}}, evidence.Items)
 	archived := retainTodoAttemptEvidence(item)
 	first, _ := json.Marshal(mythicalChecksOf(archived).Attempts[0])
@@ -154,10 +155,13 @@ func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 	require.Equal(t, map[string]any{"kind": "review", "summary": "request-changes"}, currentTodoEvidence(moved).Items[0])
 	// A later attempt changes only its own evidence. Old bytes remain frozen.
 	moved.Attempt = 2
+	moved.RequestRunID = "attempt-two-run"
 	moved = retainTodoAttemptEvidence(moved)
 	second, _ := json.Marshal(mythicalChecksOf(moved).Attempts[0])
 	require.Equal(t, string(first), string(second))
 	require.Len(t, todoEvidence(moved), 2)
+	require.Equal(t, "attempt-one-run", todoEvidence(moved)[0].RunID)
+	require.Equal(t, "attempt-two-run", todoEvidence(moved)[1].RunID)
 	require.Equal(t, moved, retainTodoAttemptEvidence(moved))
 	for _, attempt := range []int32{0, -1} {
 		empty := db.MythicalItem{Source: "todo", Attempt: attempt}

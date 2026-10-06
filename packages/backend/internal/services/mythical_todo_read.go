@@ -226,7 +226,7 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			if n := len(evidence); n > 0 && evidence[n-1].Attempt == item.Attempt {
 				evidence[n-1].Items = append(append([]map[string]any{}, evidence[n-1].Items...), entry)
 			} else {
-				evidence = append(evidence, todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{entry}})
+				evidence = append(evidence, todoAttemptEvidence{Attempt: item.Attempt, RunID: item.RequestRunID, Revision: item.CandidateHead, Items: []map[string]any{entry}})
 			}
 		}
 	}
@@ -319,6 +319,7 @@ func modelAccessLabel(access []db.ModelAccess) string {
 // current candidate. This replaces the previous current-attempt-only projection.
 type todoAttemptEvidence struct {
 	Attempt  int32            `json:"attempt"`
+	RunID    string           `json:"run_id,omitempty"`
 	Revision string           `json:"revision"`
 	Items    []map[string]any `json:"items"`
 }
@@ -327,7 +328,7 @@ var wikiCitationPageID = regexp.MustCompile(`^[1-9][0-9]*$`)
 var wikiCitationDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
-	evidence := todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{}}
+	evidence := todoAttemptEvidence{Attempt: item.Attempt, RunID: item.RequestRunID, Revision: item.CandidateHead, Items: []map[string]any{}}
 	for _, receipt := range mythicalReceiptsView(item) {
 		if receipt.Commit != item.CandidateHead {
 			continue
