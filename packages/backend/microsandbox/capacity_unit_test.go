@@ -735,7 +735,7 @@ func TestAdmissionOverdueStopWaitsForObservation(t *testing.T) {
 			require.True(t, r.CancelAdmission("A", "Alice", now))
 			_, err = r.Request("person", "B", "Ben", "terminal")
 			require.NoError(t, err)
-			require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(59999*time.Millisecond)))
+			require.Empty(t, r.AdmissionForceStops(now.Add(59999*time.Millisecond)))
 			require.NoFileExists(t, log)
 			require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(time.Minute)))
 			calls, err := os.ReadFile(log)
@@ -886,4 +886,47 @@ func TestAdmissionExternalCancellationEndsWait(t *testing.T) {
 		t.Fatal("cancelled row left its waiter blocked")
 	}
 	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionReleaseObservedWithoutWaitingCaller(t *testing.T) {
+	for _, overdue := range []bool{false, true} {
+		t.Run(fmt.Sprint(overdue), func(t *testing.T) {
+			r, p := admissionFixture()
+			root := t.TempDir()
+			binary := filepath.Join(root, "msb")
+			log := filepath.Join(root, "calls")
+			listing := filepath.Join(root, "status")
+			require.NoError(t, os.WriteFile(listing, []byte(`[{"name":"vm-a","status":"running"}]`), 0600))
+			script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> '%s'\ncase \"$1\" in\nlist) cat '%s';;\nesac\n", log, listing)
+			require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+			r.cli = &cli{binary: binary, home: root}
+			_, err := r.Request("person", "A", "Alice", "terminal")
+			require.NoError(t, err)
+			_, err = r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+			now := time.Now()
+			if overdue {
+				now = now.Add(-time.Minute)
+			}
+			require.True(t, r.CancelAdmission("A", "Alice", now))
+			r.startAdmissionReconciler(t.Context())
+			t.Cleanup(func() { r.admissionCancel() })
+			require.Eventually(t, func() bool { _, err := os.Stat(log); return err == nil }, 3*time.Second, 10*time.Millisecond)
+			require.Equal(t, 1, r.InUse(), "a successful stop command does not release the slot")
+			calls, err := os.ReadFile(log)
+			require.NoError(t, err)
+			if overdue {
+				require.Contains(t, string(calls), "stop -t 0 -q vm-a")
+			} else {
+				require.NotContains(t, string(calls), "stop -t 0")
+			}
+			// Atomic replacement avoids an incomplete observation while the daemon reads.
+			next := filepath.Join(root, "next")
+			require.NoError(t, os.WriteFile(next, []byte(`[{"name":"vm-a","status":"stopped"}]`), 0600))
+			require.NoError(t, os.Rename(next, listing))
+			require.Eventually(t, func() bool { return r.InUse() == 0 }, 3*time.Second, 10*time.Millisecond)
+			require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+		})
+	}
 }

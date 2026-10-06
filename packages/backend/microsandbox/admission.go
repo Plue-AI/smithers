@@ -302,17 +302,34 @@ func (r *Runtime) AdmissionForceStops(now time.Time) []string {
 // slot on a CLI acknowledgment. Only an observed stopped or missing VM frees it.
 func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time) error {
 	var errs []error
-	for _, holder := range r.AdmissionForceStops(now) {
+	r.mu.Lock()
+	holders := []string{}
+	for holder, h := range r.admission {
+		if h.held && !h.releasing.IsZero() {
+			holders = append(holders, holder)
+		}
+	}
+	r.mu.Unlock()
+	sort.Strings(holders)
+	for _, holder := range holders {
 		r.mu.Lock()
 		h := r.admission[holder]
 		machine := h.machine
+		overdue := !h.releasing.IsZero() && now.Sub(h.releasing) >= time.Minute
 		r.mu.Unlock()
 		if machine == "" {
 			continue // A preparing grant still owns its reservation.
 		}
-		stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, stopErr := r.cli.run(stopCtx, nil, "stop", "-t", "0", "-q", machine)
-		cancel()
+		if r.cli == nil {
+			errs = append(errs, ErrUnavailable)
+			continue
+		}
+		var stopErr error
+		if overdue {
+			stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			_, stopErr = r.cli.run(stopCtx, nil, "stop", "-t", "0", "-q", machine)
+			cancel()
+		}
 		status, found, err := r.cli.sandboxStatus(ctx, machine)
 		if err != nil || found && status != "stopped" {
 			if err != nil {
@@ -347,6 +364,34 @@ func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time)
 		r.mu.Unlock()
 	}
 	return errors.Join(errs...)
+}
+
+// Release observation and deadline retries belong to the runtime's lifetime,
+// including when the last caller has left and there is no waiting demand.
+func (r *Runtime) startAdmissionReconciler(parent context.Context) {
+	ctx, cancel := context.WithCancel(parent)
+	r.mu.Lock()
+	if r.closed || r.admissionCancel != nil {
+		r.mu.Unlock()
+		cancel()
+		return
+	}
+	r.admissionCancel = cancel
+	r.mu.Unlock()
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				observe, done := context.WithTimeout(ctx, 10*time.Second)
+				_ = r.ReconcileAdmissionReleases(observe, time.Now())
+				done()
+			}
+		}
+	}()
 }
 
 // AdmissionSafety is an observation from the existing presence/session/run
@@ -472,9 +517,6 @@ func (r *Runtime) WaitAdmission(ctx context.Context, p AdmissionProviders, class
 			r.abandonAdmission(holder, actor)
 			return ctx, err
 		}
-		// Failed stop attempts keep their slots and are retried on the next
-		// event/tick. They must not fail an unrelated person's waiting action.
-		_ = r.ReconcileAdmissionReleases(ctx, time.Now())
 		r.mu.Lock()
 		h := r.admission[holder]
 		cancelled := r.closed || h == nil || h.rows[actor] == nil || h.rows[actor].State == "cancelled" || h.rows[actor].State == "released"

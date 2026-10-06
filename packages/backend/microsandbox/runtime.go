@@ -171,6 +171,7 @@ type Runtime struct {
 	admission         map[string]*admissionHolder
 	admissionSequence uint64
 	admissionChanged  chan struct{}
+	admissionCancel   context.CancelFunc
 }
 
 // New qualifies Microsandbox, loads persisted workspaces, reaps this
@@ -270,6 +271,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if err := runtime.recover(recoverCtx); err != nil {
 		return nil, err
 	}
+	runtime.startAdmissionReconciler(ctx)
 	return runtime, nil
 }
 
@@ -1034,6 +1036,9 @@ func (r *Runtime) Close() error {
 		return nil
 	}
 	r.closed = true
+	if r.admissionCancel != nil {
+		r.admissionCancel()
+	}
 	var commands []*guestCommand
 	var running []*workspace
 	var auxiliary []string
