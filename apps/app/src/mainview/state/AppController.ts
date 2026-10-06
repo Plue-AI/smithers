@@ -466,6 +466,7 @@ export interface AppController extends IssueFlowsController {
    */
   readonly listIssues: IssuesSeam["listIssues"]
   readonly viewIssue: IssuesSeam["viewIssue"]
+  readonly issueWriteTarget: IssuesSeam["issueWriteTarget"]
   readonly createIssue: IssuesSeam["createIssue"]
   readonly setIssueState: IssuesSeam["setIssueState"]
   readonly draftIssueComment: IssuesSeam["draftIssueComment"]
@@ -1901,6 +1902,7 @@ export const createAppController = (
     showAccount: account.showAccount,
     listIssues: issuesSeam.listIssues,
     viewIssue: issuesSeam.viewIssue,
+    issueWriteTarget: issuesSeam.issueWriteTarget,
     createIssue: issuesSeam.createIssue,
     setIssueState: issuesSeam.setIssueState,
     commentOnIssue: issuesSeam.commentOnIssue,
