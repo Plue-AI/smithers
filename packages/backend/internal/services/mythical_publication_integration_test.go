@@ -116,6 +116,7 @@ func newPublicationFixture(t *testing.T, private bool, issues ...int64) *publica
 func (f *publicationFixture) todo(title, prompt, base, path, content string) db.MythicalItem {
 	f.t.Helper()
 	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: f.userID}, SessionHash: "owner-session"})
+	ctx = registerTestInstallCredential(f.t, f.pool, ctx, f.repoID)
 	view, err := f.service.FileTodo(ctx, f.repoID, f.userID, MythicalTodoInput{Title: title, Prompt: prompt, Acceptance: []string{"JOURNEY.md greets"}, Request: title})
 	require.NoError(f.t, err)
 	f.git(f.work, "checkout", "-q", base)

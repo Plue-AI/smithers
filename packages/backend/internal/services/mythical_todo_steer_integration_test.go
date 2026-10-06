@@ -50,18 +50,20 @@ func testTodoSteerDeliveryAuthorizer(t *testing.T, delegated bool) {
 	ready, input, _ := steerFixture()
 	item.State, item.Attempt, item.RequestRunID = ready.State, ready.Attempt, ready.RequestRunID
 	item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
+	item.WorkspaceID = "7e110000-0000-4000-8000-000000000002"
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
 	input.Repository, input.Actor = o.repoID, member.ID
 	wantAttribution := map[string]string{"person": "steer-member"}
 	if delegated {
 		scopes := fmt.Sprintf("read:repository,read:user,repo:%d,", o.repoID) + strings.Join(middleware.DelegationScopes(middleware.Delegation{
-			Via: "terminal", Branch: item.WorkspaceID, Profile: middleware.TerminalProfileS1, Session: "terminal-1",
+			Via: "terminal", Branch: item.WorkspaceID, Profile: middleware.TerminalProfileS1, Session: "7e110000-0000-4000-8000-000000000001",
 		}), ",")
 		memberSession = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &member, IsTokenAuth: true, TokenSystemIssued: true, TokenID: 123,
 			RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes), ViaHint: "codex"})
-		wantAttribution = map[string]string{"person": "steer-member", "via": "codex", "session": "terminal-1"}
+		wantAttribution = map[string]string{"person": "steer-member", "via": "codex", "session": "7e110000-0000-4000-8000-000000000001"}
 	}
+	memberSession = registerTestInstallCredential(t, o.pool, memberSession, o.repoID)
 	_, err = o.service.ControlTodo(memberSession, item.Number.Int64, input)
 	require.NoError(t, err)
 	var payload, authority json.RawMessage
@@ -506,6 +508,7 @@ func TestTodoFeedbackCredentialIdempotencyPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first, again)
 	replacement := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "replacement-session"})
+	replacement = registerTestInstallCredential(t, o.pool, replacement, o.repoID)
 	second, err := o.service.AmendTodo(replacement, item.Number.Int64, input)
 	require.NoError(t, err)
 	require.Equal(t, 3, second.Revision, "a replacement session starts a distinct authorized request")

@@ -118,11 +118,11 @@ func confirmationJSON(raw []byte, out any) error {
 	return nil
 }
 
-// confirmationAuthority serializes with role changes, member suspension and
+// lockInstallWriteCredential serializes command writes with role changes, member suspension and
 // credential revocation before reloading the actual credential. The roster
 // owner is locked before user/session rows, as member removal requires. The
 // repository and stack retain the existing TODO transaction order.
-func confirmationAuthority(ctx context.Context, tx pgx.Tx, info *middleware.AuthInfo) (context.Context, int64, error) {
+func lockInstallWriteCredential(ctx context.Context, tx pgx.Tx, info *middleware.AuthInfo) (context.Context, int64, error) {
 	if info == nil || info.User == nil {
 		return ctx, 0, confirmationPermission()
 	}
@@ -195,7 +195,7 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 	}
 	var receipt ConfirmationReceipt
 	err := pgx.BeginFunc(ctx, s.confirmationStore, func(tx pgx.Tx) error {
-		bound, repository, err := confirmationAuthority(ctx, tx, info)
+		bound, repository, err := lockInstallWriteCredential(ctx, tx, info)
 		if err != nil {
 			return err
 		}
@@ -413,7 +413,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 	var receipt ConfirmationReceipt
 	var refused error
 	err := pgx.BeginFunc(ctx, s.confirmationStore, func(tx pgx.Tx) error {
-		bound, repository, err := confirmationAuthority(ctx, tx, info)
+		bound, repository, err := lockInstallWriteCredential(ctx, tx, info)
 		if err != nil {
 			return err
 		}

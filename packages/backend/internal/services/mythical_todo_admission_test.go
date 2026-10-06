@@ -57,7 +57,7 @@ func newTodoAdmission(t *testing.T) (*mythicalOrchestration, context.Context) {
 	require.NoError(t, err)
 	binding := fmt.Sprintf(`{"owner_login":"smithers-canary","repository_name":"smithers","repository_id":%d}`, o.repoID)
 	require.NoError(t, db.New(o.pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
-	return o, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "owner-session"})
+	return o, registerTestInstallCredential(t, o.pool, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "owner-session"}), o.repoID)
 }
 
 // fileTodo files an owner's TODO through the public creation path.

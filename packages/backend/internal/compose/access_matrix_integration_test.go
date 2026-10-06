@@ -159,6 +159,38 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 			require.Equal(t, tc.codes[i], result["code"])
 		}
 	}
+	// Revoke the exact credential after router admission, while its replay
+	// waits on the stack lock. The bound decision cannot disclose its receipt.
+	locked, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer locked.Rollback(ctx)
+	_, err = locked.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repo.ID)
+	require.NoError(t, err)
+	type reply struct {
+		status int
+		body   map[string]any
+	}
+	done := make(chan reply, 1)
+	go func() {
+		status, body := call(1, false, "/api/todos/2", "retry-ben", `{"op":"retry","steer":"Use the shared helper"}`)
+		done <- reply{status, body}
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND objid=$1)`, repo.ID).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond)
+	_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE token_hash=$1`, hashes[1])
+	require.NoError(t, err)
+	require.NoError(t, locked.Commit(ctx))
+	select {
+	case denied := <-done:
+		require.Equal(t, 401, denied.status, denied.body)
+		require.Equal(t, "unauthenticated", denied.body["code"])
+		require.NotContains(t, denied.body, "attempt")
+	case <-time.After(5 * time.Second):
+		t.Fatal("revoked replay did not finish")
+	}
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='write:repository,read:user,via:unlisted-tool' WHERE token_hash=$1`, hashes[0])
 	require.NoError(t, err)
 	status, unknown := call(0, false, "/api/todos", "unknown-actor", `{"title":"No new TODO","prompt":"No new TODO"}`)

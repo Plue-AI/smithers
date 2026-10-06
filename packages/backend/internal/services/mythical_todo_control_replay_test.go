@@ -137,6 +137,7 @@ func TestTodoControlCredentialReplay(t *testing.T) {
 
 			// Same member and key through a new authenticated session are independent.
 			replacement := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "replacement-session"})
+			replacement = registerTestInstallCredential(t, o.pool, replacement, o.repoID)
 			target := item
 			if op == "drop" {
 				target = other
@@ -230,7 +231,7 @@ func TestTodoControlReplayRechecksAuthorityAfterLockWait(t *testing.T) {
 			}
 			var denied *AccessError
 			require.ErrorAs(t, err, &denied)
-			require.Equal(t, "permission", denied.Code)
+			require.Equal(t, "unauthenticated", denied.Code)
 		})
 	}
 }

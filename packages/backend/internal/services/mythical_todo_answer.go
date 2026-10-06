@@ -266,6 +266,9 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, repositoryID); err != nil {
 			return err
 		}
+		if err := guardInstallTodoWrite(ctx, tx, repositoryID, userID); err != nil {
+			return err
+		}
 		q := db.New(tx)
 		for range 3 {
 			item, err := q.GetMythicalItemByNumber(ctx, repositoryID, number)

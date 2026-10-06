@@ -28,6 +28,7 @@ func TestTodoCreationRealPostgres(t *testing.T) {
 	require.NoError(t, err)
 	s := NewMythicalService(pool, nil) // nil GitHub/launcher: any outbound call fails.
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "session-one"})
+	ctx = registerTestInstallCredential(t, pool, ctx, repoID)
 	input := MythicalTodoInput{Title: "One", Prompt: "Change the README", Request: "same"}
 	first, err := s.FileTodo(ctx, repoID, userID, input)
 	require.NoError(t, err)
@@ -91,6 +92,7 @@ func TestTodoCreationRealPostgres(t *testing.T) {
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 	// The same member's replacement session owns a distinct idempotency scope.
 	ctx2 := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "session-two"})
+	ctx2 = registerTestInstallCredential(t, pool, ctx2, repoID)
 	second, err := s.FileTodo(ctx2, repoID, userID, input)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, second.Number)

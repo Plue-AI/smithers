@@ -32,6 +32,7 @@ func TestTodoCardKeepsItsBranchAfterReleaseRealPostgres(t *testing.T) {
 	require.NoError(t, err)
 	s := NewMythicalService(pool, nil)
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, repoID)
 	for _, title := range []string{"Add a greeting", "Second"} {
 		_, err = s.FileTodo(ctx, repoID, userID, MythicalTodoInput{Title: title, Prompt: "Change " + title, Request: title})
 		require.NoError(t, err)
@@ -100,6 +101,7 @@ func TestTodoCardShowsItsLaneWaitingForAMachineRealPostgres(t *testing.T) {
 	s := NewMythicalService(pool, nil)
 	s.lanes = NewWorkspaceMythicalLanes(NewWorkspaceService(q, WithWorkspaceRuntime(queue)))
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, repoID)
 	_, err = s.FileTodo(ctx, repoID, userID, MythicalTodoInput{Title: "Add a greeting", Prompt: "Change it", Request: "one"})
 	require.NoError(t, err)
 	item, err := q.GetMythicalItemByNumber(ctx, repoID, 1)

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -269,24 +270,40 @@ func lockTodoRequest(ctx context.Context, tx pgx.Tx, q *db.Queries, command stri
 	if input.Request == "" || len(input.Request) > 256 {
 		return db.User{}, "", &TodoControlError{http.StatusBadRequest, "invalid_idempotency_key", "user", "Idempotency-Key must contain 1 to 256 bytes"}
 	}
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repository); err != nil {
+	if err = guardInstallTodoWrite(ctx, tx, repository, auth.UserID); err != nil {
 		return db.User{}, "", err
 	}
-	if _, err = tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repository); err != nil {
-		return db.User{}, "", err
-	}
-	// The command decision stays bound across an ordinary role change, but
-	// removal or suspension never authorizes disclosure or a write.
-	role, err := InstallRoleOf(ctx, q, auth.UserID)
-	if err != nil {
-		return db.User{}, "", err
-	}
-	if role == "" {
-		return db.User{}, "", &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not a member"}
-	}
-
 	person, err := q.GetUserByID(ctx, auth.UserID)
 	return person, credential, err
+}
+
+// The decision belongs to the admitted request; this guard checks current
+// credential/member liveness and stored repository identity, never its old role.
+func guardInstallTodoWrite(ctx context.Context, tx pgx.Tx, repository, actor int64) error {
+	fresh, current, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
+	if err != nil {
+		return err
+	}
+	if current != repository || middleware.UserFromContext(fresh).ID != actor {
+		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Invalid TODO authority"}
+	}
+	original := middleware.AuthInfoFromContext(ctx)
+	currentInfo := middleware.AuthInfoFromContext(fresh)
+	if original.RawScopes != currentInfo.RawScopes || original.CredentialKind() != currentInfo.CredentialKind() {
+		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential binding changed"}
+	}
+	q := db.New(tx)
+	role, err := InstallRoleOf(fresh, q, actor)
+	if err != nil {
+		return err
+	}
+	if role == "" {
+		return &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+	}
+	if refusal := identity.NewMemberBoundary(q).AuthorizeMember(identity.WithMemberRoute(fresh), actor); refusal != nil {
+		return refusal
+	}
+	return nil
 }
 
 // todoControlReplay reads the operation's existing fact, never the TODO's

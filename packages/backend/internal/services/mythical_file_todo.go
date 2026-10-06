@@ -120,6 +120,9 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	var item db.MythicalItem
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
+		if err := guardInstallTodoWrite(ctx, tx, repositoryID, userID); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
 			return err
 		}

@@ -73,7 +73,7 @@ func (o *mythicalOrchestration) person(login string) (int64, context.Context) {
 	require.NoError(o.t, o.pool.QueryRow(context.Background(), `INSERT INTO users(username, lower_username, display_name) VALUES ($1, $1, $1) RETURNING id`, login).Scan(&id))
 	_, err := o.pool.Exec(context.Background(), `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, o.repoID, id)
 	require.NoError(o.t, err)
-	return id, middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"})
+	return id, registerTestInstallCredential(o.t, o.pool, middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"}), o.repoID)
 }
 
 func (o *mythicalOrchestration) todoCard(n int64) map[string]any {
@@ -320,11 +320,11 @@ func TestTodoAnswerByATerminalCredential(t *testing.T) {
 		by   map[string]any
 		ref  map[string]any
 	}{
-		{"claude-code", map[string]any{"kind": "agent", "id": "agent-session-5e55-session", "agent": "claude-code", "session_id": "5e55-session",
+		{"claude-code", map[string]any{"kind": "agent", "id": "agent-session-5e550000-0000-4000-8000-000000000001", "agent": "claude-code", "session_id": "5e550000-0000-4000-8000-000000000001",
 			"for_member": map[string]any{"login": "ben", "name": "Ben Ito"}, "color_index": float64(0)},
-			map[string]any{"person": "ben", "via": "claude-code", "session": "5e55-session"}},
+			map[string]any{"person": "ben", "via": "claude-code", "session": "5e550000-0000-4000-8000-000000000001"}},
 		{"browser", map[string]any{"kind": "person", "login": "ben", "name": "Ben Ito", "via": "terminal", "color_index": float64(0)},
-			map[string]any{"person": "ben", "via": "terminal", "session": "5e55-session"}},
+			map[string]any{"person": "ben", "via": "terminal", "session": "5e550000-0000-4000-8000-000000000001"}},
 	} {
 		t.Run(tc.hint, func(t *testing.T) {
 			o, session, launcher, item, launch := newAskingTodo(t)
@@ -341,7 +341,7 @@ func TestTodoAnswerByATerminalCredential(t *testing.T) {
 			// Refused before any write: another branch's terminal, and a run
 			// credential.
 			var refused *AccessError
-			other := terminalContext(ben, "0b1c0000-0000-4000-8000-0000000other", "5e55-session", tc.hint)
+			other := registerTestInstallCredential(t, o.pool, terminalContext(ben, "0b1c0000-0000-4000-8000-000000000002", "5e550000-0000-4000-8000-000000000002", tc.hint), o.repoID)
 			require.ErrorAs(t, o.service.AnswerTodo(other, o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}), &refused)
 			require.Equal(t, AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal acts only on its own branch's TODO"}, *refused)
 			run := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: ben}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,repo:1"})
@@ -350,7 +350,7 @@ func TestTodoAnswerByATerminalCredential(t *testing.T) {
 			require.Empty(t, launcher.sent())
 
 			// Its own branch's TODO: answered for Ben, by the terminal or its agent.
-			require.NoError(t, o.service.AnswerTodo(terminalContext(ben, branch, "5e55-session", tc.hint), o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}))
+			require.NoError(t, o.service.AnswerTodo(registerTestInstallCredential(t, o.pool, terminalContext(ben, branch, "5e550000-0000-4000-8000-000000000001", tc.hint), o.repoID), o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}))
 			item = o.byID(uuidString(item.ID))
 			require.Equal(t, "working", todoState(item))
 			require.Len(t, launcher.sent(), 1)
