@@ -1047,7 +1047,10 @@ for (const status of [202, 409] as const) {
         expect(h.todo().payload.requests).toEqual([])
         expect(h.todo().payload.model?.waits).toEqual([model.waits[1]!])
         expect(h.todo().payload.model?.evidence).toEqual(model.evidence)
-        expect(h.outcomes).toEqual([{ key: `todo.request.${pending.key}`, status: "ok", detail: "Discarded" }])
+        expect(h.outcomes).toEqual([
+          { key: `todo.needs-you.12.${foreign.id}`, status: "ok", detail: "" },
+          { key: `todo.request.${pending.key}`, status: "ok", detail: "Discarded" }
+        ])
       }
     } finally { h.close() }
   })
@@ -1131,5 +1134,36 @@ test("the served merge transition notifies only its owner once, already terminal
     h.seam.resumeTodos()
     expect(calls).toHaveLength(1)
     expect(JSON.parse(String(calls[0]!.body))).toEqual({ prompt: "PROMPT-B" })
+  } finally { h.close() }
+})
+
+test("served approval and conflict waits notify branch recipients once and settle only on removal", async () => {
+  const h = await harness(async () => json(fixtures.queued.model, 200))
+  try {
+    await h.seam.showTodo(12)
+    const notices = () => [...h.store.collections.toasts.values()].filter(toast =>
+      toast.audience?.kind === "approval" || toast.audience?.kind === "conflict")
+    const approval = fixtures.approval.model.waits[0]!
+    const conflict = fixtures.conflict.model.waits[0]!
+    await h.seam.applyTodoProjection(12, { ...fixtures.needs_you.model, waits: [approval, conflict] })
+    await waitFor(() => notices().length === 2)
+    expect(notices().map(toast => [toast.audience?.kind, toast.audience?.member, toast.status])).toEqual([
+      ["approval", "ben", "running"], ["conflict", "ben", "running"]
+    ])
+    await h.seam.applyTodoProjection(12, { ...fixtures.needs_you.model, waits: [approval, conflict] })
+    expect(notices()).toHaveLength(2)
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...fixtures.needs_you.model, waits: [conflict] })
+    await waitFor(() => notices().find(toast => toast.audience?.kind === "approval")?.status === "ok")
+    expect(notices().find(toast => toast.audience?.kind === "conflict")?.status).toBe("running")
+    await h.seam.applyTodoProjection(12, { ...fixtures.working.model, waits: [] })
+    await waitFor(() => notices().every(toast => toast.status === "ok"))
+    const other = { ...fixtures.approval.model, owner: { ...fixtures.approval.model.owner, login: "maya" }, present: [] }
+    await h.seam.applyTodoProjection(12, { ...other, waits: [{ ...approval, id: "private-approval" }] })
+    expect(notices()).toHaveLength(2)
+    // M-14: a person on the branch receives its conflict even when another person owns it.
+    await h.seam.applyTodoProjection(12, { ...other, present: fixtures.needs_you.model.present, waits: [{ ...conflict, id: "branch-conflict" }] })
+    await waitFor(() => notices().length === 3)
+    expect(notices()[2]?.audience).toMatchObject({ kind: "conflict", member: "ben" })
   } finally { h.close() }
 })

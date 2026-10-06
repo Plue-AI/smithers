@@ -88,3 +88,33 @@ test("C-UI-04: the owner's served merge raises a terminal notice and Hide preser
   await expect(line).toHaveAttribute("data-tone", "done")
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
+
+test("C-UI-04: served approvals and conflicts stay attention notices until the wait settles", async ({ page }) => {
+  await owner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  let waits = [{ id: "approval-24", kind: "approval", prompt: "Approve the change", since: "2026-10-06T00:00:00Z", actions: [] }]
+  const model = () => ({
+    n: 24, title: "Waits from the install", state: waits.length ? "needs_you" : "working",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [], waits,
+    merge: { state: "waiting", reason: "state", on_github: false }
+  })
+  await page.route("**/api/todos", route => route.fulfill({ json: [model()] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model() }))
+  await page.goto("/")
+  await say(page, "/todo T24")
+  const approval = page.locator('[data-notice="toast-todo.needs-you.24.approval-24"]')
+  await expect(approval).toBeVisible()
+  await expect(approval).toHaveAttribute("data-tone", "attention")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  waits = [{ id: "conflict-24", kind: "conflict", prompt: "Resolve the conflict", since: "2026-10-06T00:00:00Z", actions: [] }]
+  const conflict = page.locator('[data-notice="toast-todo.needs-you.24.conflict-24"]')
+  await expect(conflict).toBeVisible()
+  await expect(conflict).toHaveAttribute("data-tone", "attention")
+  await conflict.getByRole("button", { name: "Hide T24 needs you", exact: true }).press("Enter")
+  await expect(conflict).toHaveCount(0)
+  const line = page.getByRole("navigation", { name: "Timeline", exact: true }).locator('[data-entry="todo:24"]')
+  await expect(line).toHaveAttribute("data-tone", "attention")
+  waits = []
+  await expect(line).toHaveAttribute("data-tone", "live")
+})

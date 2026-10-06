@@ -170,18 +170,20 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const n = model.n, previous = shared.notableModels.get(n)
     if (!live()) return
     shared.notableModels.set(n, model)
-    // Needs you (M-14): each question the agent opens raises one toast with its Answer for the TODO's owner and anyone
-    // on its branch, settled when the question is.
-    const asked = (value: TodoCard | undefined) => new Set((value?.waits ?? []).filter(wait => wait.kind === "question").map(wait => wait.id))
+    // Needs you (M-14): waits notify the owner and branch viewers, and
+    // settle only when the served wait disappears.
+    const asked = (value: TodoCard | undefined) => new Set((value?.waits ?? []).map(wait => wait.id))
     const before = asked(previous), after = asked(model)
     const sourceActor = model.present.find(actor => actor.kind === "agent")
     const actorLabel = sourceActor ? actorName(sourceActor) : "Smithers"
     const toasted = model.owner.login === owner() || model.present.some(actor => actor.kind === "person" && actor.login === owner())
     for (const id of after) {
+      const wait = model.waits.find(wait => wait.id === id)!
+      const kind = wait.kind === "question" ? "needs_you" : wait.kind === "approval" ? "approval" : "conflict"
       if (toasted && !before.has(id) && live()) ctx.dispatch({ type: "toast.shown", actor: "system", key: needsYouKey(n, id), title: `T${n} needs you`,
-        sourceCard: `todo:${n}`, audience: { member: owner()!, entryId: needsYouKey(n, id), kind: "needs_you",
-          actorLabel: model.waits.find(wait => wait.id === id)?.by ? actorName(model.waits.find(wait => wait.id === id)!.by!) : actorLabel,
-          target: { flow: "todo", n } }, action: { flow: "todo", args: `T${n}`, label: "Answer" } })
+        sourceCard: `todo:${n}`, audience: { member: owner()!, entryId: needsYouKey(n, id), kind,
+          actorLabel: wait.by ? actorName(wait.by) : actorLabel,
+          target: { flow: "todo", n } }, action: { flow: "todo", args: `T${n}`, label: wait.kind === "question" ? "Answer" : "Open" } })
     }
     // The served owner and attempt identify these events; ordinary work receipts are not audience facts.
     if (model.owner.login === owner() && live() && (model.state === "in_review" || model.state === "failed")
@@ -200,7 +202,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         audience: { member: owner()!, entryId: key, kind: "merged", actorLabel, target: { flow: "todo", n } } })
       ctx.resolveToast?.(key, { status: "ok", detail: "Merged" })
     }
-    for (const id of before) if (!after.has(id) && live()) ctx.resolveToast?.(needsYouKey(n, id), { status: "ok", detail: "Answered" })
+    for (const id of before) if (!after.has(id) && live()) ctx.resolveToast?.(needsYouKey(n, id), { status: "ok", detail: previous?.waits.find(wait => wait.id === id)?.kind === "question" ? "Answered" : "" })
   }
   const applyModel = async (n: number, model: TodoCard, receipts: readonly TodoReceipt[], live: () => boolean) => {
     const card = entry(n) ?? blank(n)
