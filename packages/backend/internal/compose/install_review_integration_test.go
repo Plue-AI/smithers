@@ -28,9 +28,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Production install composition and auth, real PostgreSQL; no stub review
-// consumer or fabricated successful execution. Missing integrations allocate
-// nothing and the old workspace invocation remains closed.
+// Production install router/auth with real PostgreSQL and GitHub fake. Missing
+// integrations allocate nothing. The success/recovery portion uses explicitly
+// test-only machine and delivery ports; it does not qualify a real microVM.
 func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
@@ -548,6 +548,75 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
 		require.NoError(t, err)
 		require.Equal(t, 403, call(body, "durable-member-review").Code)
+		// An accepted but unstarted job rechecks the author's live membership.
+		workerCtx, cancel = context.WithCancel(ctx)
+		done = make(chan error, 1)
+		go func() {
+			done <- background.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-revoked", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond})
+		}()
+		require.Eventually(t, func() bool {
+			op, e := store.Get(ctx, scope, confirmedID)
+			return e == nil && op.State == jobs.StateFailed
+		}, 5*time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, <-done)
+		machine.mu.Lock()
+		require.Len(t, machine.runs, 1)
+		machine.mu.Unlock()
+		// A lost launch reply must not leak the allocated machine if membership
+		// is revoked before the next recovery pass can learn its run ID.
+		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE user_id=$1`, member.ID)
+		require.NoError(t, err)
+		lostMachine := &reviewMachineFixture{runs: map[string]string{}, loseStart: true}
+		lostBackground, err := services.NewReviewBackground(pool, service, lostMachine, &reviewDeliveryFixture{})
+		require.NoError(t, err)
+		service.SetReviewBackground(lostBackground)
+		lostAnswer := call(body, "lost-launch-revoked")
+		require.Equal(t, 202, lostAnswer.Code, lostAnswer.Body.String())
+		var lostAdmission services.ReviewAdmission
+		require.NoError(t, json.Unmarshal(lostAnswer.Body.Bytes(), &lostAdmission))
+		retireGate := make(chan struct{})
+		retireEntered := make(chan struct{}, 1)
+		var retireRelease sync.Once
+		releaseRetire := func() { retireRelease.Do(func() { close(retireGate) }) }
+		t.Cleanup(releaseRetire)
+		lostMachine.retireGateID, lostMachine.retireGate, lostMachine.retireEntered = lostAdmission.OperationID, retireGate, retireEntered
+		lostMachine.retireFailID = lostAdmission.OperationID
+		lostMachine.loseStartID = lostAdmission.OperationID
+		lostMachine.onLost = func() error {
+			_, e := pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
+			return e
+		}
+		workerCtx, cancel = context.WithCancel(ctx)
+		done = make(chan error, 1)
+		go func() {
+			done <- lostBackground.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-lost-revoked", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
+		}()
+		select {
+		case <-retireEntered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("uncertain launch never reached retirement")
+		}
+		pendingStatus := readReview(lostAdmission.OperationID, "review-cookie")
+		require.Equal(t, 200, pendingStatus.Code, pendingStatus.Body.String())
+		var retiring services.ReviewStatus
+		require.NoError(t, json.Unmarshal(pendingStatus.Body.Bytes(), &retiring))
+		require.Contains(t, []jobs.State{jobs.StateAccepted, jobs.StateDispatching, jobs.StateRunning, jobs.StateWaiting}, retiring.State)
+		history := readReview(selected.OperationID, "review-cookie")
+		require.Equal(t, 200, history.Code, history.Body.String())
+		require.Contains(t, history.Body.String(), `"path":"cache.ts"`)
+		releaseRetire()
+		require.Eventually(t, func() bool {
+			op, e := store.Get(ctx, scope, lostAdmission.OperationID)
+			return e == nil && op.State == jobs.StateFailed
+		}, 5*time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, <-done)
+		lostMachine.mu.Lock()
+		require.Contains(t, lostMachine.runs, lostAdmission.OperationID)
+		require.True(t, lostMachine.retiredOperations[lostAdmission.OperationID], "retire an uncertain launch before terminal refusal")
+		require.GreaterOrEqual(t, lostMachine.retireAttempts[lostAdmission.OperationID], 2, "failed cleanup must remain retryable")
+		lostMachine.mu.Unlock()
 		for _, table := range []string{"workspaces", "mythical_items", "mythical_stacks"} {
 			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
 			require.Zero(t, count, table)
@@ -560,12 +629,19 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 // Test-only machine and delivery contracts. This is boundary/recovery evidence,
 // not C-J10-09 reference-host microVM qualification.
 type reviewMachineFixture struct {
-	mu        sync.Mutex
-	runs      map[string]string
-	selected  services.ReviewAdmission
-	refusal   string
-	loseStart bool
-	retired   int
+	mu                         sync.Mutex
+	runs                       map[string]string
+	selected                   services.ReviewAdmission
+	refusal                    string
+	loseStart                  bool
+	loseStartID                string
+	onLost                     func() error
+	retiredOperations          map[string]bool
+	retireAttempts             map[string]int
+	retireGateID, retireFailID string
+	retireGate                 <-chan struct{}
+	retireEntered              chan<- struct{}
+	retired                    int
 }
 
 func (*reviewMachineFixture) Isolation() workspace.IsolationLevel {
@@ -584,19 +660,43 @@ func (m *reviewMachineFixture) Start(_ context.Context, id string, a services.Re
 	if m.runs[id] == "" {
 		m.runs[id] = "review-run"
 	}
-	if m.loseStart {
+	if m.loseStart && (m.loseStartID == "" || m.loseStartID == id) {
 		m.loseStart = false
+		if m.onLost != nil {
+			if err := m.onLost(); err != nil {
+				return "", err
+			}
+		}
 		return "", fmt.Errorf("lost Start reply")
 	}
 	return m.runs[id], nil
 }
 func (*reviewMachineFixture) Observe(context.Context, string, services.ReviewAdmission) (services.ReviewObservation, error) {
-	return services.ReviewObservation{State: jobs.StateCompleted, Change: json.RawMessage(`{"findings":[{"path":"cache.ts","line":20,"severity":"fix","body":"Off by one"}]}`)}, nil
+	return services.ReviewObservation{State: jobs.StateCompleted, Change: json.RawMessage(`{"repo":"review-owner/app","changeId":"review-50","description":"Review","commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currentSeq":null,"revisionCount":null,"revisions":[],"authorName":null,"timestamp":null,"repos":[],"diff":null,"checks":null,"findings":[{"analyzer":"review","severity":"fix","path":"cache.ts","line":20,"summary":"Off by one","raisedAtSeq":null}],"reviews":null,"threads":null,"conflicts":null,"stack":null,"changeset":null}`)}, nil
 }
-func (m *reviewMachineFixture) Retire(context.Context, string, services.ReviewAdmission) error {
+func (m *reviewMachineFixture) Retire(_ context.Context, id string, _ services.ReviewAdmission) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.retireAttempts == nil {
+		m.retireAttempts = map[string]int{}
+	}
+	m.retireAttempts[id]++
+	if m.retireGateID == id && m.retireGate != nil {
+		select {
+		case m.retireEntered <- struct{}{}:
+		default:
+		}
+		<-m.retireGate
+	}
+	if m.retireFailID == id {
+		m.retireFailID = ""
+		return fmt.Errorf("retirement retry")
+	}
 	m.retired++
+	if m.retiredOperations == nil {
+		m.retiredOperations = map[string]bool{}
+	}
+	m.retiredOperations[id] = true
 	return nil
 }
 
