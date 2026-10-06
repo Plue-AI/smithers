@@ -4,6 +4,7 @@ import (
 	"context"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,7 +69,11 @@ func (s *WorkspaceService) workspaceGuestLayout(ctx context.Context, row db.Work
 		return workspaceGuestLayout{}, runtimeOperationError("read workspace guest account", err)
 	}
 	fields := strings.Fields(result.Stdout)
-	if result.ExitCode != 0 || len(fields) != 2 || fields[0] == "0" || !guestAccountPattern.MatchString(fields[1]) {
+	if result.ExitCode != 0 || result.OutputTruncated || len(fields) != 2 {
+		return workspaceGuestLayout{}, pkgerrors.Internal("workspace runtime runs commands as no unprivileged account")
+	}
+	uid, uidErr := strconv.ParseUint(fields[0], 10, 32)
+	if uidErr != nil || uid == 0 || !guestAccountPattern.MatchString(fields[1]) {
 		return workspaceGuestLayout{}, pkgerrors.Internal("workspace runtime runs commands as no unprivileged account")
 	}
 	layout.User = fields[1]

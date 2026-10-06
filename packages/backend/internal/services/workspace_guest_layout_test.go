@@ -27,6 +27,7 @@ type guestLayoutRuntime struct {
 	pool                *pgxpool.Pool
 	account, home, root string
 	uid                 string
+	accountTruncated    bool
 	repositoryID        int64
 	cloneURL            string
 	answer              func(script string) string
@@ -108,7 +109,7 @@ func (r *guestLayoutRuntime) ExecuteCommand(_ context.Context, _ string, command
 		r.scripts = append(r.scripts, command.Args[2])
 		r.mu.Unlock()
 		if command.Args[2] == "id -u && id -un" {
-			return workspaceapi.CommandResult{Stdout: r.uid + "\n" + r.account + "\n"}, nil
+			return workspaceapi.CommandResult{Stdout: r.uid + "\n" + r.account + "\n", OutputTruncated: r.accountTruncated}, nil
 		}
 		return workspaceapi.CommandResult{Stdout: r.answer(command.Args[2])}, nil
 	}
@@ -269,19 +270,32 @@ func TestWorkspaceGuestLayoutReadsTheRuntimeAccount(t *testing.T) {
 	row := sampleDBWorkspace("ws-1")
 	for _, tc := range []struct {
 		name, uid, account, want string
+		truncated                bool
 	}{
 		{name: "developer", uid: "1000", account: "developer", want: "developer"},
 		{name: "root", uid: "0", account: "root"},
+		{name: "zero padded root", uid: "00", account: "agent"},
+		{name: "negative uid", uid: "-1", account: "developer"},
+		{name: "not a uid", uid: "unknown", account: "developer"},
+		{name: "uid overflow", uid: "4294967296", account: "developer"},
+		{name: "truncated", uid: "1000", account: "developer", truncated: true},
 		{name: "malformed", uid: "1000", account: "dev eloper"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runtime := newGuestLayoutRuntime(tc.account, "/home/developer", "/home/developer/workspace")
 			runtime.uid = tc.uid
+			runtime.accountTruncated = tc.truncated
 			runtime.state[row.ID] = workspaceapi.WorkspaceRunning
 			svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceRuntime(runtime))
 			layout, err := svc.workspaceGuestLayout(context.Background(), row, row.UserID)
 			if tc.want == "" {
 				require.ErrorContains(t, err, "no unprivileged account")
+				// Refused observations never become a cached SSH identity.
+				runtime.uid, runtime.account, runtime.accountTruncated = "1000", "developer", false
+				recovered, err := svc.workspaceGuestLayout(context.Background(), row, row.UserID)
+				require.NoError(t, err)
+				require.Equal(t, "developer", recovered.User)
+				require.Len(t, runtime.recorded(), 2)
 				return
 			}
 			require.NoError(t, err)
