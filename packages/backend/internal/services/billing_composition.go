@@ -232,3 +232,35 @@ func runUnlimitedCommit(ctx context.Context, commit func(context.Context) error)
 func (*UnlimitedBillingPolicy) AuthorizeCountedSandboxResume(context.Context, int64, string, string) error {
 	return nil
 }
+
+// machineStartIntent is installed only by the workspace lifecycle after its
+// durable machine identity exists. Creating a row is admission, not a VM start.
+type machineStartIntentKey struct{}
+type machineStartIntent struct {
+	acquire func(context.Context) (context.Context, error)
+	granted context.Context
+}
+
+type machineAdmissionPolicy struct{ BillingPolicy }
+
+// NewMachineAdmissionPolicy keeps the install's existing sandbox-start hook
+// as the single start policy. Other accounting delegates to the host policy.
+func NewMachineAdmissionPolicy(base BillingPolicy) BillingPolicy {
+	return &machineAdmissionPolicy{BillingPolicy: base}
+}
+
+func (p *machineAdmissionPolicy) AuthorizeSandboxStart(ctx context.Context, actorID int64) error {
+	intent, _ := ctx.Value(machineStartIntentKey{}).(*machineStartIntent)
+	if intent == nil {
+		return p.BillingPolicy.AuthorizeSandboxStart(ctx, actorID)
+	}
+	if intent.acquire == nil {
+		return errors.New("machine admission intent unavailable")
+	}
+	granted, err := intent.acquire(ctx)
+	if err != nil {
+		return err
+	}
+	intent.granted = granted
+	return nil
+}

@@ -169,6 +169,7 @@ type Runtime struct {
 	capacityReader    func(context.Context) (int, error)
 	admission         map[string]*admissionHolder
 	admissionSequence uint64
+	admissionChanged  chan struct{}
 }
 
 // New qualifies Microsandbox, loads persisted workspaces, reaps this
@@ -467,6 +468,7 @@ func (r *Runtime) recover(ctx context.Context) error {
 			// A stopped state makes common reconciliation call StartWorkspace,
 			// which restarts the host bridge before anything runs.
 			if err := r.stopMachine(ctx, ws.Machine); err != nil {
+				ws.State = string(workspaceapi.WorkspaceStarting)
 				errs = append(errs, err)
 			}
 		default:
@@ -719,7 +721,7 @@ func (r *Runtime) stopMachine(ctx context.Context, name string) error {
 		return nil
 	}
 	status, found, statusErr := r.cli.sandboxStatus(ctx, name)
-	if statusErr == nil && (!found || status != "running") {
+	if statusErr == nil && (!found || status == "stopped") {
 		return nil
 	}
 	return fmt.Errorf("stop microVM %s: %w", name, err)

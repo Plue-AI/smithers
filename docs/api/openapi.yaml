@@ -24464,6 +24464,10 @@ components:
         machine:
           type: object
           additionalProperties: true
+          properties:
+            wait_position:
+              type: integer
+              minimum: 1
     TODOBranchDiff:
       type: object
       required: [files]

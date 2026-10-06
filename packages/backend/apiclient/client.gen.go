@@ -1102,12 +1102,12 @@ type SavedConversationProblem struct {
 
 // Branch is generated from docs/api/openapi.yaml.
 type Branch struct {
-	Name       string                     `json:"name"`
-	Kind       string                     `json:"kind"`
-	State      string                     `json:"state"`
-	Head       *string                    `json:"head,omitempty"`
-	ForkedFrom *BranchForkedFrom          `json:"forked_from,omitempty"`
-	Machine    map[string]json.RawMessage `json:"machine"`
+	Name       string            `json:"name"`
+	Kind       string            `json:"kind"`
+	State      string            `json:"state"`
+	Head       *string           `json:"head,omitempty"`
+	ForkedFrom *BranchForkedFrom `json:"forked_from,omitempty"`
+	Machine    BranchMachine     `json:"machine"`
 }
 
 // BranchForkedFrom is generated from docs/api/openapi.yaml.
@@ -1117,6 +1117,27 @@ type BranchForkedFrom struct {
 	Commit string `json:"commit"`
 	Base   string `json:"base"`
 	Item   *int64 `json:"item,omitempty"`
+}
+
+// BranchMachine is generated from docs/api/openapi.yaml.
+type BranchMachine struct {
+	WaitPosition         *int64                     `json:"wait_position,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members BranchMachine does not declare in AdditionalProperties.
+func (v *BranchMachine) UnmarshalJSON(data []byte) error {
+	type plain BranchMachine
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "wait_position")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of BranchMachine.
+func (v BranchMachine) MarshalJSON() ([]byte, error) {
+	type plain BranchMachine
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // TODOBranchDiff is generated from docs/api/openapi.yaml.

@@ -19,6 +19,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -219,6 +220,7 @@ type WorkspaceResponse struct {
 	// belongs to (RFD-004).
 	AgentSessionID    string `json:"agent_session_id,omitempty"`
 	ProvisioningStage string `json:"provisioning_stage,omitempty"`
+	WaitPosition      int    `json:"wait_position,omitempty"`
 	IsFork            bool   `json:"is_fork"`
 	ParentWorkspaceID string `json:"parent_workspace_id,omitempty"`
 	VMID              string `json:"vm_id"`
@@ -574,6 +576,7 @@ type WorkspaceService struct {
 	// scoped advisory lock).
 	transactions                 RepositoryJobTransactions
 	branchMachineProviders       BranchMachineProviders
+	machineAdmission             *microsandbox.AdmissionProviders
 	sandbox                      SandboxVMClient
 	runtime                      workspaceapi.WorkspaceRuntime
 	runtimeIdentity              WorkspaceRuntimeIdentityResolver
@@ -1221,6 +1224,9 @@ func (s *WorkspaceService) toWorkspaceResponse(workspace db.Workspace) Workspace
 		LastActivityAt:     workspace.LastActivityAt,
 		CreatedAt:          workspace.CreatedAt,
 		UpdatedAt:          workspace.UpdatedAt,
+	}
+	if queue, ok := s.runtime.(workspaceMachineQueue); ok {
+		resp.WaitPosition, _ = machineQueuePlace(queue, machineQueueHolder(workspace.ID))
 	}
 	if workspace.ClientLeaseExpiresAt.Valid {
 		expires := workspace.ClientLeaseExpiresAt.Time
