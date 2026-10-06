@@ -76,6 +76,13 @@ transactional captured-event path. It cannot use this registry alone.
 `attach_session`. `Registry.Sessions` encodes these calls through the admitted
 host connection. Wrong-branch, stale and unreconciled connections refuse before
 sending. A nil transport returns `unsupported` without effects.
+`SessionTransport.Stream` (also exposed by `Sessions.Stream`) uses that same
+connection pump for bounded session frames. It enforces input credit without
+blocking control replies, caps queued output at the credit bound, and accepts
+output windows only for bytes delivered to the consumer. `Reattach` on a retained
+stream reports delivered output and resends only stdin beyond the broker's
+received offset; it refuses replacement boots. Close and confirmed user/run
+kills wake readers. Window frames remain visible for gateway mapping.
 
 The installed root launcher composes `broker/supervisor.rs` with the Linux
 process owner in `broker/spawn.rs`. Its environment/credential admission

@@ -535,3 +535,22 @@ fn session_ids_share_document_object_reservations_and_never_reuse() {
     s.session(Request::KillUser(user())).unwrap();
     assert_eq!(s.allocate_stream().unwrap(), 3);
 }
+
+#[test]
+fn literal_open_size_is_columns_then_rows_on_the_wire() {
+    // ADR 0004: User ben/20001, PTY, Size {cols:80, rows:24}.
+    let bytes = [
+        0, 0, 0, 29, 1, 0, 0, 0, 11, 1, 0, 3, b'b', b'e', b'n', 2, 0, 0, 78, 33, 2, 1, 4, 0, 0, 0,
+        6, 1, 0, 80, 2, 0, 24,
+    ];
+    let request = Request::decode(6, &bytes).unwrap();
+    assert_eq!(
+        request,
+        Request::Open {
+            user: user(),
+            kind: Kind::Pty,
+            argv: vec![],
+            size: Some((24, 80))
+        }
+    );
+}

@@ -100,8 +100,8 @@ fn open(login: &str, uid: u32, kind: u8, argv: &[&str], size: Option<(u16, u16)>
         fields.push(conn::field(
             4,
             conn::structure_bytes(&[
-                conn::field(1, rows.to_be_bytes()),
-                conn::field(2, cols.to_be_bytes()),
+                conn::field(1, cols.to_be_bytes()),
+                conn::field(2, rows.to_be_bytes()),
             ]),
         ));
     }

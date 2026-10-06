@@ -50,7 +50,7 @@ func TestSessionClientRejectsBeforeTransport(t *testing.T) {
 		return SessionResult{}, nil
 	}))
 	ctx := context.Background()
-	for _, user := range []SessionUser{{"", 20000}, {strings.Repeat("a", 33), 20000}, {"../x", 20000}, {"Alice", 20000}, {"alice", 0}, {"root", 20000}, {"alice", 19999}, {"agent", 20000}, {"agent", 0}, {"alice", 19998}} {
+	for _, user := range []SessionUser{{"", 20000}, {strings.Repeat("a", 33), 20000}, {"../x", 20000}, {"Alice", 20000}, {"alice", 0}, {"root", 20000}, {"alice", 19999}, {"agent", 20000}, {"agent", 0}, {"alice", 19998}, {"machined", 20001}, {"alice", 0x80000000}} {
 		_, err := s.OpenSession(ctx, user, SessionPTY, nil, nil)
 		errorCode(t, err, "unauthorized")
 		_, err = s.KillUser(ctx, user)
