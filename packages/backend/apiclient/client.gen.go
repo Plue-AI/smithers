@@ -1512,6 +1512,28 @@ type MembersCardMembersItem struct {
 	Actions     []map[string]json.RawMessage `json:"actions"`
 }
 
+// LearningProposalCard is generated from docs/api/openapi.yaml.
+type LearningProposalCard struct {
+	ID       string                         `json:"id"`
+	Title    string                         `json:"title"`
+	Evidence []string                       `json:"evidence"`
+	Refs     []LearningProposalCardRefsItem `json:"refs"`
+	State    string                         `json:"state"`
+	Todo     *LearningProposalCardTodo      `json:"todo,omitempty"`
+}
+
+// LearningProposalCardRefsItem is generated from docs/api/openapi.yaml.
+type LearningProposalCardRefsItem struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+// LearningProposalCardTodo is generated from docs/api/openapi.yaml.
+type LearningProposalCardTodo struct {
+	N     int64  `json:"n"`
+	Title string `json:"title"`
+}
+
 // TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
 type TodoCard struct {
 	N                    int64                         `json:"n"`
@@ -3504,6 +3526,27 @@ func (c *Client) PostAPIOrgsOrgBillingPortal(ctx context.Context, org string) (A
 func (c *Client) PostAPIOrgsOrgBillingRefresh(ctx context.Context, org string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/orgs/"+url.PathEscape(org)+"/billing/refresh", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIProposals calls GET /api/proposals.
+func (c *Client) GetAPIProposals(ctx context.Context) ([]LearningProposalCard, error) {
+	var out []LearningProposalCard
+	err := c.do(ctx, "GET", "/api/proposals", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIProposalsIDAccept calls POST /api/proposals/{id}/accept.
+func (c *Client) PostAPIProposalsIDAccept(ctx context.Context, id string) (LearningProposalCard, error) {
+	var out LearningProposalCard
+	err := c.do(ctx, "POST", "/api/proposals/"+url.PathEscape(id)+"/accept", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIProposalsIDDismiss calls POST /api/proposals/{id}/dismiss.
+func (c *Client) PostAPIProposalsIDDismiss(ctx context.Context, id string) (LearningProposalCard, error) {
+	var out LearningProposalCard
+	err := c.do(ctx, "POST", "/api/proposals/"+url.PathEscape(id)+"/dismiss", nil, nil, &out)
 	return out, err
 }
 

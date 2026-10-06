@@ -6748,6 +6748,62 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/proposals:
+    get:
+      x-composition: install
+      summary: Read learning proposals
+      operationId: get_api_proposals
+      tags:
+        - Proposals
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Proposal cards for the install repository
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/LearningProposalCard'}
+        '403': {description: Membership unavailable}
+  /api/proposals/{id}/accept:
+    post:
+      x-composition: install
+      summary: Make a TODO from a learning proposal
+      operationId: post_api_proposals_id_accept
+      tags:
+        - Proposals
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string, minLength: 1}}
+      responses:
+        '202':
+          description: Proposal accepted with its one ordinary TODO
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LearningProposalCard'}
+        '403': {description: Person session or current membership required}
+        '404': {description: Proposal absent from the install repository}
+        '409': {description: Proposal dismissed}
+        '503': {description: TODO append unavailable; proposal remains pending}
+  /api/proposals/{id}/dismiss:
+    post:
+      x-composition: install
+      summary: Dismiss a learning proposal
+      operationId: post_api_proposals_id_dismiss
+      tags:
+        - Proposals
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string, minLength: 1}}
+      responses:
+        '202':
+          description: Dismissed; repeated dismissal retains its first timestamp
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LearningProposalCard'}
+        '403': {description: Person session or current membership required}
+        '404': {description: Proposal absent from the install repository}
+        '409': {description: Proposal accepted}
   /api/public/repos:
     get:
       summary: GET /api/public/repos
@@ -25207,6 +25263,28 @@ components:
                 type: array
                 items: {type: object}
         access_url: {type: string}
+    LearningProposalCard:
+      type: object
+      required: [id, title, evidence, refs, state]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        evidence: {type: array, items: {type: string}}
+        refs:
+          type: array
+          items:
+            type: object
+            required: [label, url]
+            properties:
+              label: {type: string}
+              url: {type: string, format: uri}
+        state: {type: string, enum: [open, accepted, dismissed]}
+        todo:
+          type: object
+          required: [n, title]
+          properties:
+            n: {type: integer, minimum: 1}
+            title: {type: string}
     TodoCard:
       description: One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
       type: object

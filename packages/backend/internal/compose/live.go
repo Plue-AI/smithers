@@ -12,6 +12,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -151,7 +152,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}, ""
 	case "doc":
 		return t.documents.Resolve(ctx, topic, repository, member)
-	case "branch", "conversation", "proposals", "run":
+	case "branch", "conversation", "run":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
@@ -180,6 +181,19 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 				secrets = append(secrets, map[string]any{"name": row.Name, "scope": scope, "hosts": hosts, "actions": []any{}})
 			}
 			return json.Marshal(map[string]any{"secrets": secrets})
+		}}, ""
+	case topic == "proposals":
+		provider, ok := t.todos.(routes.LearningProposalRoutes)
+		if !ok {
+			return live.Source{}, live.Unsupported
+		}
+		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			rows, err := provider.LearningProposals(ctx, repository)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(rows)
+
 		}}, ""
 	case topic == "members":
 		if t.members == nil {

@@ -958,6 +958,11 @@ func buildRouter(
 			r.Patch("/todos/{n}", todos.Amend)
 			r.Post("/todos/{n}/merge", todos.Merge)
 			r.Post("/todos/{n}/answer", todos.Answer)
+			proposals, _ := extras.Mythical.Service.(routes.LearningProposalRoutes)
+			handler := &routes.LearningProposalsHandler{Queries: queries, Service: proposals}
+			r.Get("/proposals", handler.List)
+			r.Post("/proposals/{id}/accept", handler.Accept)
+			r.Post("/proposals/{id}/dismiss", handler.Dismiss)
 			// The issue list card and the issue card read the install
 			// repository's GitHub issues through the install's App.
 			issueService, _ := extras.Mythical.Service.(routes.InstallIssueRouteService)

@@ -912,6 +912,21 @@ export type MembersCard = {
   access_url: string
 }
 
+export type LearningProposalCard = {
+  id: string
+  title: string
+  evidence: Array<string>
+  refs: Array<{
+    label: string
+    url: string
+  }>
+  state: "open" | "accepted" | "dismissed"
+  todo?: {
+    n: number
+    title: string
+  }
+}
+
 /** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
 export type TodoCard = {
   n: number
@@ -2589,6 +2604,32 @@ export interface PostApiOrgsOrgBillingRefreshInput {
 /** POST /api/orgs/{org}/billing/refresh */
 export const postApiOrgsOrgBillingRefresh = (transport: Transport, input: PostApiOrgsOrgBillingRefreshInput): Promise<PostApiOrgsOrgBillingRefreshResponse> =>
   transport.request("POST", `/api/orgs/${segment(input.path.org)}/billing/refresh`) as Promise<PostApiOrgsOrgBillingRefreshResponse>
+
+export type GetApiProposalsResponse = Array<LearningProposalCard>
+
+/** GET /api/proposals: Read learning proposals */
+export const getApiProposals = (transport: Transport): Promise<GetApiProposalsResponse> =>
+  transport.request("GET", `/api/proposals`) as Promise<GetApiProposalsResponse>
+
+export type PostApiProposalsIdAcceptResponse = LearningProposalCard
+
+export interface PostApiProposalsIdAcceptInput {
+  readonly path: { readonly id: string }
+}
+
+/** POST /api/proposals/{id}/accept: Make a TODO from a learning proposal */
+export const postApiProposalsIdAccept = (transport: Transport, input: PostApiProposalsIdAcceptInput): Promise<PostApiProposalsIdAcceptResponse> =>
+  transport.request("POST", `/api/proposals/${segment(input.path.id)}/accept`) as Promise<PostApiProposalsIdAcceptResponse>
+
+export type PostApiProposalsIdDismissResponse = LearningProposalCard
+
+export interface PostApiProposalsIdDismissInput {
+  readonly path: { readonly id: string }
+}
+
+/** POST /api/proposals/{id}/dismiss: Dismiss a learning proposal */
+export const postApiProposalsIdDismiss = (transport: Transport, input: PostApiProposalsIdDismissInput): Promise<PostApiProposalsIdDismissResponse> =>
+  transport.request("POST", `/api/proposals/${segment(input.path.id)}/dismiss`) as Promise<PostApiProposalsIdDismissResponse>
 
 export type GetApiPublicReposResponse = AnyJSON
 
