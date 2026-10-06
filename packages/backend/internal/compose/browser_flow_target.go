@@ -6,9 +6,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 // browserFlowTarget resolves the repository and workspace afresh on every RPC.
@@ -17,6 +19,8 @@ type browserFlowTarget struct {
 	queries interface {
 		GetRepoByOwnerAndLowerName(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
 		GetFlowWorkspaceForUserRepo(context.Context, db.GetFlowWorkspaceForUserRepoParams) (db.Workspace, error)
+		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
+		GetMythicalItem(context.Context, pgtype.UUID) (db.MythicalItem, error)
 	}
 }
 
@@ -44,10 +48,19 @@ func (resolver browserFlowTarget) ResolveFlowHostTarget(ctx context.Context, tar
 	if err != nil || workspace.ID != target.WorkspaceID || workspace.Status != "running" {
 		return flowhost.Authority{}, errors.New("browser Flow workspace is unavailable")
 	}
-	return flowhost.Authority{
+	authority := flowhost.Authority{
 		Target: target, RepositoryID: repository.ID, UserID: userID, WorkspaceID: workspace.ID,
 		// Like every other coding-host caller, name no repository: it is part
 		// of the host's service identity, and the box's host is shared.
 		CatalogKey: flowhost.CatalogCoding,
-	}, nil
+	}
+	execution, err := services.ResolveTodoWorkspaceExecution(ctx, resolver.queries, repository.ID, workspace.ID)
+	if err != nil {
+		return flowhost.Authority{}, err
+	}
+	if execution != nil {
+		authority.ExecutionPin = &execution.Pin
+		authority.SourceRevision = execution.Pin.SourceCommit
+	}
+	return authority, nil
 }

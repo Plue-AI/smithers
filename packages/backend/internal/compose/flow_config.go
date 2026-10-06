@@ -23,6 +23,7 @@ import (
 func installCodingProject(pool *pgxpool.Pool, sources workspaceapi.SourceFiles) func(context.Context, flowhost.HostLaunch) ([]byte, error) {
 	return func(ctx context.Context, launch flowhost.HostLaunch) ([]byte, error) {
 		key := "coding.snapshot:" + launch.Binding.ID
+		existingSnapshotOnly := false
 		if launch.Authority.Target.BindingKind == flowdispatch.StackBindingKind {
 			id, err := uuid.Parse(launch.Authority.Target.BindingID)
 			if err != nil {
@@ -36,6 +37,20 @@ func installCodingProject(pool *pgxpool.Pool, sources workspaceapi.SourceFiles) 
 				return nil, fmt.Errorf("coding configuration repository differs")
 			}
 			key = fmt.Sprintf("coding.snapshot:todo:%s:%d", id.String(), item.Attempt)
+		} else if launch.Authority.Target.BindingKind == "browser-flow" {
+			execution, err := services.ResolveTodoWorkspaceExecution(ctx, db.New(pool), launch.Binding.RepositoryID, launch.Binding.WorkspaceID)
+			if err != nil {
+				return nil, err
+			}
+			if execution != nil {
+				if launch.Authority.ExecutionPin == nil || *launch.Authority.ExecutionPin != execution.Pin || launch.Authority.SourceRevision != execution.Pin.SourceCommit {
+					return nil, fmt.Errorf("coding execution changed before configuration read")
+				}
+				key = fmt.Sprintf("coding.snapshot:todo:%s:%d", execution.ItemID, execution.Attempt)
+				existingSnapshotOnly = true
+			} else if launch.Authority.ExecutionPin != nil {
+				return nil, fmt.Errorf("coding execution disappeared before configuration read")
+			}
 		}
 		tx, err := pool.Begin(ctx)
 		if err != nil {
@@ -52,6 +67,9 @@ func installCodingProject(pool *pgxpool.Pool, sources workspaceapi.SourceFiles) 
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
+		}
+		if existingSnapshotOnly {
+			return nil, fmt.Errorf("coding attempt configuration snapshot is unavailable")
 		}
 		stored, err := services.StoredCodingProject(ctx, q)
 		if err != nil {
