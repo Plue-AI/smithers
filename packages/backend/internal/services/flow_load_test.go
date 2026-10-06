@@ -463,3 +463,14 @@ func TestFlowLoadSyncingTracksImportedHelpersAndLockfiles(t *testing.T) {
 	card = o.flowCard("todo")
 	require.Equal(t, "merged-syncing", card.Versions[1].State)
 }
+
+// Version metadata must not borrow the steps of a newer built-in or another
+// digest. An explicit empty guest graph is different from an old receipt.
+func TestFlowVersionConfigKeepsGuestSteps(t *testing.T) {
+	custom := []FlowStep{{ID: "changelog", Label: "Changelog"}, {ID: "merge", Wait: true, Signals: []FlowSignal{{On: "steer", To: "changelog"}}}}
+	for _, steps := range [][]FlowStep{custom, {}} {
+		config := flowVersionConfig(FlowLoadVersion{Name: "todo", Steps: steps})
+		require.Equal(t, steps, storedFlowSteps(config, builtinFlowSteps["todo"]))
+	}
+	require.Equal(t, builtinFlowSteps["todo"], storedFlowSteps(flowVersionConfig(FlowLoadVersion{Name: "todo"}), nil))
+}

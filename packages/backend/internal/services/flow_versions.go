@@ -22,12 +22,13 @@ import (
 // FlowLoadVersion is one flow version as flow-load measured it at one commit
 // (FlowVersion in flows/coding/flow-load.ts).
 type FlowLoadVersion struct {
-	Name         string   `json:"name"`
-	Path         string   `json:"path"`
-	Digest       string   `json:"digest"`
-	Status       string   `json:"status"`
-	Error        string   `json:"error,omitempty"`
-	Dependencies []string `json:"dependencies,omitempty"`
+	Name         string     `json:"name"`
+	Path         string     `json:"path"`
+	Digest       string     `json:"digest"`
+	Status       string     `json:"status"`
+	Error        string     `json:"error,omitempty"`
+	Dependencies []string   `json:"dependencies,omitempty"`
+	Steps        []FlowStep `json:"steps"`
 }
 
 // FlowLoadResult is a flow-load run's output (FlowLoadResult in
@@ -67,10 +68,13 @@ func decodeFlowLoadResult(raw []byte, commit string) (FlowLoadResult, error) {
 }
 
 // flowVersionConfig is the config a version row stores: the steps the Flow
-// card shows for it. A repository todo composition runs the host's steps
-// (@smthrs/coding), so its steps are the built-in's.
-func flowVersionConfig(name string) json.RawMessage {
-	steps := builtinFlowSteps[name]
+// card shows for it. Guest metadata belongs to this digest; old guest
+// receipts without metadata retain the installed display.
+func flowVersionConfig(version FlowLoadVersion) json.RawMessage {
+	steps := version.Steps
+	if steps == nil {
+		steps = builtinFlowSteps[version.Name]
+	}
 	if steps == nil {
 		steps = []FlowStep{}
 	}
@@ -109,7 +113,7 @@ func persistFlowVersions(ctx context.Context, q *db.Queries, repositoryID int64,
 		}
 		declared[version.Name] = true
 		if _, err := q.InsertFlowVersion(ctx, repositoryID, version.Name, version.Path, commit, version.Digest, version.Status,
-			version.Error, flowVersionConfig(version.Name)); err != nil {
+			version.Error, flowVersionConfig(version)); err != nil {
 			return nil, fmt.Errorf("record %s at %s: %w", version.Name, short(version.Digest), err)
 		}
 		if version.Status != "loaded" || !current {
