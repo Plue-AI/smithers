@@ -1,5 +1,3 @@
-import { probeHostTurn } from "./host-turn-probe"
-import { csrfHeaders } from "../../server/scripts/canary/uptime-checks"
 /*
  * Wave 6: the seam probe. Against a running product Worker it exercises every
  * configured backend seam end to end and fails on ANY 501 ("not configured")
@@ -12,6 +10,8 @@ import { csrfHeaders } from "../../server/scripts/canary/uptime-checks"
  * replays its session cookie exactly like the browser would.
  */
 import { readFileSync } from "node:fs"
+import { conversationProbe } from "../../server/scripts/canary/conversation-probe"
+import { csrfHeaders } from "../../server/scripts/canary/uptime-checks"
 
 const [origin, storageStatePath] = process.argv.slice(2)
 if (origin === undefined || storageStatePath === undefined) {
@@ -71,9 +71,9 @@ const balanceBody = await no501("billing seam /api/billing/balance", balance)
 const watched = await fetch(`${origin}/api/identity/watched`, { headers: { cookie } })
 await no501("identity seam /api/identity/watched", watched)
 
-// 4. The accepted host turn completes through the shared branch replay.
-const turn = await probeHostTurn(origin, fetch, { cookie, ...csrfHeaders(cookie) }, `seam-probe-${Date.now()}`)
-check("host turn completed", turn.completed, `HTTP ${turn.status}`)
+// 4. Durable admission is separate from the completed shared answer.
+const turn = await conversationProbe({ origin, key: `seam-probe-${Date.now()}`, headers: { cookie, ...csrfHeaders(cookie) }, signal: AbortSignal.timeout(90_000), fetch, sleep: ms => Bun.sleep(ms) })
+check("chat turn completed", turn.status === 202 && turn.state === "completed" && turn.frames.some(frame => frame.type === "done"), `HTTP ${turn.status}, state ${turn.state}, ${turn.frames.length} frames`)
 
 /*
  * 5. The insecure static gateway proxy is retired, not merely unconfigured.
