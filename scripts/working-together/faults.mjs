@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdir, lstat, readFile, writeFile } from 'node:fs/promises'
 import { statfsSync } from 'node:fs'
-import { cpus, platform, release, totalmem } from 'node:os'
+import { cpus, homedir, platform, release, totalmem } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -17,20 +17,46 @@ export function verdict(code, logs) {
   }
   return 'component-passed'
 }
-// A wiki boundary receipt is separate from the complete K1–K8 matrix.
-export function wikiVerdict(code, logs) {
+export const wikiTests = ['TestWikiHostCommittedReceiptsAndRestart']
+export const codeTests = ['TestMachinedComposedDocumentBoundary', 'TestDocRelayMirrorRecovery', 'TestDocRelayRevocation', 'TestDocRelayRebuildBarrier', 'TestDocRelayReconnectUnreceipted']
+// Count completed run/pass lifecycles from the selected package, not pass lines.
+export function boundaryVerdict(code, logs, tests, repetitions = 10) {
   if (code !== 0) return 'failed'
-  const events = logs.split('\n').flatMap(line => {
-    try {
-      const event = JSON.parse(line)
-      return event && typeof event === 'object' && !Array.isArray(event) ? [event] : []
-    } catch { return [] }
-  })
-  const named = events.filter(event => event.Test === 'TestWikiHostCommittedReceiptsAndRestart')
-  if (named.some(event => ['skip', 'fail'].includes(event.Action))) return 'failed'
-  return named.filter(event => event.Action === 'pass').length === 10 &&
-    events.some(event => !event.Test && event.Action === 'pass') ? 'boundary-passed' : 'failed'
+  const pkg = 'github.com/smithersai/smithers/packages/backend/internal/compose'
+  const counts = new Map(tests.map(name => [name, 0]))
+  const running = new Set()
+  let started = false
+  let completed = false
+  for (const line of logs.split('\n')) {
+    let event
+    try { event = JSON.parse(line) } catch { continue }
+    if (!event || event.Package !== pkg) continue
+    if (['fail', 'skip'].includes(event.Action)) return 'failed'
+    if (!event.Test) {
+      if (event.Action === 'start') {
+        if (started || completed) return 'failed'
+        started = true
+      }
+      if (event.Action === 'pass') {
+        if (!started || completed || running.size) return 'failed'
+        completed = true
+      }
+      continue
+    }
+    if (!counts.has(event.Test)) continue
+    if (!started || completed) return 'failed'
+    if (event.Action === 'run') {
+      if (running.has(event.Test)) return 'failed'
+      running.add(event.Test)
+    }
+    if (event.Action === 'pass') {
+      if (!running.delete(event.Test)) return 'failed'
+      counts.set(event.Test, counts.get(event.Test) + 1)
+    }
+  }
+  return completed && !running.size && [...counts.values()].every(count => count === repetitions) ? 'boundary-passed' : 'failed'
 }
+export const wikiVerdict = (code, logs) => boundaryVerdict(code, logs, wikiTests)
 const probe = (command, args) => {
   try { return execFileSync(command, args, { encoding: 'utf8', timeout: 5000 }).trim() } catch { return null }
 }
@@ -45,7 +71,16 @@ const metadata = () => ({
   rust_version: probe('rustc', ['--version']),
   scope: 'unprivileged component fixtures; no integrated VM, host transaction or browser kill proof'
 })
-export async function run({ root = process.cwd(), componentsOnly = false, wikiOnly = false } = {}) {
+export function boundaryEnvironment(config, ambient = process.env) {
+  if (typeof config?.databaseUrl !== 'string' || typeof config?.libraryPath !== 'string') throw new Error('invalid fixture')
+  return { ...ambient, SMITHERS_TEST_DATABASE_URL: config.databaseUrl, SMITHERS_FFI_LIBRARY_PATH: config.libraryPath,
+    SMITHERS_REQUIRE_DATABASE_TESTS: '1', GOCACHE: ambient.GOCACHE || join(homedir(), '.cache/go-build-shared'),
+    LANE: config.lane || ambient.LANE || 'working-together-boundary' }
+}
+export async function run({ root = process.cwd(), componentsOnly = false, wikiOnly = false, codeOnly = false } = {}) {
+  if (wikiOnly && codeOnly) throw new Error('select one boundary suite')
+  const boundaryOnly = wikiOnly || codeOnly
+  const tests = wikiOnly ? wikiTests : codeTests
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   let directory = resolve(root)
   for (const part of ['.artifacts', 'checks', 'C-DUR-04']) {
@@ -57,22 +92,21 @@ export async function run({ root = process.cwd(), componentsOnly = false, wikiOn
   directory = join(directory, timestamp)
   await mkdir(directory)
   const env = metadata()
-  if (wikiOnly) env.scope = 'K8 composed wiki host/native PostgreSQL boundary, ten repetitions; no full kill-matrix qualification'
+  if (boundaryOnly) env.scope = wikiOnly ? 'K8 composed wiki host/native PostgreSQL boundary, ten repetitions; no full kill-matrix qualification' : 'composed HTTP/live/native PostgreSQL code recovery boundary with scripted daemon peer, ten repetitions; no real guest kill-matrix qualification'
   await writeFile(join(directory, 'env.json'), JSON.stringify(env, null, 2) + '\n', { flag: 'wx' })
   let executionEnv = process.env
-  if (wikiOnly) {
+  if (boundaryOnly) {
     try {
       const config = JSON.parse(await readFile(join(root, '.artifacts/working-together-host.json'), 'utf8'))
-      if (typeof config.databaseUrl !== 'string' || typeof config.libraryPath !== 'string') throw new Error('invalid fixture')
-      executionEnv = { ...process.env, SMITHERS_TEST_DATABASE_URL: config.databaseUrl, SMITHERS_FFI_LIBRARY_PATH: config.libraryPath, SMITHERS_REQUIRE_DATABASE_TESTS: '1', LANE: 'working-together-wiki' }
+      executionEnv = boundaryEnvironment(config)
     } catch {
-      await writeFile(join(directory, 'summary.json'), JSON.stringify({ ...env, timestamp, status: 'failed', componentStatus: 'failed', reason: 'wiki host fixture unavailable', points: [{ point: 'K8', status: 'blocked' }] }, null, 2) + '\n', { flag: 'wx' })
-      console.error(`failed: ${directory} (wiki host fixture unavailable)`)
+      await writeFile(join(directory, 'summary.json'), JSON.stringify({ ...env, timestamp, status: 'failed', componentStatus: 'failed', reason: 'host fixture unavailable', tests, points: (wikiOnly ? ['K8'] : points.filter(point => point.startsWith('K7'))).map(point => ({ point, status: 'blocked' })) }, null, 2) + '\n', { flag: 'wx' })
+      console.error(`failed: ${directory} (host fixture unavailable)`)
       return 1
     }
   }
-  const command = wikiOnly ? 'go' : 'cargo'
-  const args = wikiOnly ? ['test', './packages/backend/internal/compose', '-run', '^TestWikiHostCommittedReceiptsAndRestart$', '-count=10', '-json'] : ['test', '--locked', '-p', 'smithers-machined', '--features', 'testing,killpoints', ...suites.flatMap(suite => ['--test', suite]), '--', '--test-threads=1']
+  const command = boundaryOnly ? 'go' : 'cargo'
+  const args = boundaryOnly ? ['test', './packages/backend/internal/compose', '-run', `^(${tests.join('|')})$`, '-count=10', '-json'] : ['test', '--locked', '-p', 'smithers-machined', '--features', 'testing,killpoints', ...suites.flatMap(suite => ['--test', suite]), '--', '--test-threads=1']
   let logs = ''
   const code = await new Promise(resolve => {
     const child = spawn(command, args, { cwd: root, env: executionEnv, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -80,13 +114,13 @@ export async function run({ root = process.cwd(), componentsOnly = false, wikiOn
     child.on('error', error => { logs += error.message; resolve(1) })
     child.on('close', code => resolve(code))
   })
-  await writeFile(join(directory, wikiOnly ? 'wiki.log' : 'components.log'), logs, { flag: 'wx' })
-  const componentStatus = wikiOnly ? wikiVerdict(code, logs) : verdict(code, logs)
+  await writeFile(join(directory, boundaryOnly ? wikiOnly ? 'wiki.log' : 'code.log' : 'components.log'), logs, { flag: 'wx' })
+  const componentStatus = boundaryOnly ? boundaryVerdict(code, logs, tests) : verdict(code, logs)
   const result = { ...env, timestamp, status: componentStatus === 'failed' ? 'failed' : 'incomplete', componentStatus,
-    command: [command, ...args], points: (wikiOnly ? ['K8'] : points).map(point => ({ point, status: 'blocked',
-      reason: wikiOnly ? 'ten host/native boundary repetitions; full-check client-text/row artifacts and the remaining matrix are not qualified' : 'integrated packages/backend/internal/machined/fault_test.go is absent; component fixtures do not run the C-DUR-04 writer/receipt/head/browser matrix' })) }
+    command: [command, ...args], tests: boundaryOnly ? tests : undefined, points: (wikiOnly ? ['K8'] : codeOnly ? points.filter(point => point.startsWith('K7')) : points).map(point => ({ point, status: 'blocked',
+      reason: boundaryOnly ? 'ten host/native boundary repetitions; full-check client-text/row artifacts and the remaining matrix are not qualified' : 'integrated packages/backend/internal/machined/fault_test.go is absent; component fixtures do not run the C-DUR-04 writer/receipt/head/browser matrix' })) }
   await writeFile(join(directory, 'summary.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx' })
   console.log(`${result.status}: ${directory}`)
-  return componentStatus === 'failed' ? 1 : componentsOnly || wikiOnly ? 0 : 2
+  return componentStatus === 'failed' ? 1 : componentsOnly || boundaryOnly ? 0 : 2
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await run({ componentsOnly: process.argv.includes('--components-only'), wikiOnly: process.argv.includes('--wiki-only') })
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await run({ componentsOnly: process.argv.includes('--components-only'), wikiOnly: process.argv.includes('--wiki-only'), codeOnly: process.argv.includes('--code-only') })

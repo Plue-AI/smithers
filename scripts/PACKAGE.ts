@@ -823,6 +823,13 @@ const workingTogetherWikiFaults = Smithers.Shell.Test({
   exclusive: true, timeout: "1h"
 })
 
+/** Code mirror recovery through composed HTTP/live with a scripted daemon peer. */
+const workingTogetherCodeFaults = Smithers.Shell.Test({
+  shell: "node scripts/working-together/faults.mjs --code-only",
+  data: [...sources, backendPackage.buildInputs, Smithers.file("//go.mod"), Smithers.file("//go.sum"), Smithers.file("//apps/app/package.json"), Smithers.file("//pnpm-lock.yaml")],
+  exclusive: true, timeout: "1h"
+})
+
 /** Per-budget availability reports retain honest incomplete evidence. */
 const perfProjection = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("//scripts/perf/run.mjs"), ["C-PERF-02"]),
@@ -1134,6 +1141,7 @@ export const Package = Smithers.Package({
     workingTogetherFaults,
     workingTogetherComponents,
     workingTogetherWikiFaults,
+    workingTogetherCodeFaults,
     tierContracts,
     releaseIntegrity,
     webBundleContract,
