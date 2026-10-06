@@ -15,6 +15,7 @@ import (
 
 func TestOwnerFSIdentityEnvelope(t *testing.T) {
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0700))
 	binary := filepath.Join(dir, "msb")
 	log := filepath.Join(dir, "args")
 
