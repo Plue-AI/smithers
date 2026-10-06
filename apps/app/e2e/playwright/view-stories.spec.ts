@@ -632,6 +632,38 @@ test("Secrets Add, Cancel and absent actions use real controls", async ({ page }
   }
 })
 
+test("Secrets optional Hosts, disabled forms and Delete use real controls", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=SecretsView/no_hosts_field&theme=${theme}`)
+    await expect(page.getByRole("textbox", { name: "Hosts", exact: true })).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=SecretsView/disabled_form&theme=${theme}`)
+    await page.evaluate(() => {
+      Object.assign(window, { secretCalls: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { secretCalls: unknown[] }).secretCalls.push((event as CustomEvent).detail))
+    })
+    await expect(page.locator('.secret-add input:disabled,.secret-add select:disabled')).toHaveCount(4)
+    await expect(page.getByRole("button", { name: "Add", exact: true })).toBeDisabled()
+    await page.getByRole("button", { name: "Cancel", exact: true }).focus()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => Reflect.get(window, "secretCalls"))).toEqual([])
+    await page.goto(`/view-stories.html?story=SecretsView/hostile&theme=${theme}`)
+    await expect(page.locator('.secrets-view code')).toHaveText('<img src=x onerror="alert(1)">')
+    await expect(page.locator('.secrets-view img,.secrets-view script')).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=SecretsView/mixed&theme=${theme}`)
+    await expect(page.locator('.secret-scope')).toHaveText(["all branches", "main only"])
+    await page.evaluate(() => {
+      Object.assign(window, { secretCalls: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { secretCalls: unknown[] }).secretCalls.push((event as CustomEvent).detail))
+    })
+    await page.getByRole("button", { name: "Delete", exact: true }).first().focus()
+    await page.keyboard.press("Space")
+    expect(await page.evaluate(() => Reflect.get(window, "secretCalls"))).toEqual([
+      { kind: "action", value: { tag: "secrets.delete", args: { name: "NPM_TOKEN" } } }
+    ])
+  }
+})
+
 test("Secrets Replace keyboard form keeps values write-only", async ({ page }) => {
   for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
