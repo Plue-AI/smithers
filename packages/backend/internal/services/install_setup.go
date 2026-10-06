@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -519,7 +520,15 @@ func (s *InstallSetupService) writeAddress(ctx context.Context, tx pgx.Tx, input
 			return err
 		}
 	}
-	return nil
+	fact, err := json.Marshal(map[string]any{"bind": input.Bind, "origins": input.Origins})
+	if err != nil {
+		return err
+	}
+	if _, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: "install", PrincipalID: "owner"}, uuid.NewString(), "install.address", "completed", fact); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, "SELECT pg_notify('install', 'address')")
+	return err
 }
 
 // InstallFastModel is the fast role on a Cerebras key (mvp.md §6.5). The

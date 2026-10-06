@@ -40,8 +40,8 @@ func TestLiveRefusesBeforeUpgrading(t *testing.T) {
 		{"unknown host", handler, "elsewhere.test:4000", "http://elsewhere.test:4000", session, 421, "unknown_origin"},
 		{"signed out", handler, "install.test:4000", "http://install.test:4000", nil, 401, "unauthenticated"},
 		{"a token", handler, "install.test:4000", "http://install.test:4000", &middleware.AuthInfo{User: &db.User{ID: 2}, IsTokenAuth: true, TokenHash: "t"}, 401, "unauthenticated"},
-		{"another origin", handler, "install.test:4000", "http://evil.test", session, 403, "forbidden"},
-		{"no origin", handler, "install.test:4000", "", session, 403, "forbidden"},
+		{"another origin", handler, "install.test:4000", "http://evil.test", session, 403, "origin"},
+		{"no origin", handler, "install.test:4000", "", session, 403, "origin"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "http://"+tc.host+"/api/live", nil)

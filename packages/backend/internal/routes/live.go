@@ -56,7 +56,7 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// A cookie upgrade comes from the install's own page.
 	if !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
-		liveRefusal(w, http.StatusForbidden, "permission", "forbidden", "request origin differs from install origin")
+		liveRefusal(w, http.StatusForbidden, "permission", "origin", "origin")
 		return
 	}
 	if _, err := services.Authorize(r.Context(), h.Queries, "live"); err != nil {

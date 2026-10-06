@@ -462,3 +462,25 @@ func TestPresenceBranchMachineWaitPosition(t *testing.T) {
 	read(0)
 	require.Zero(t, runtime.InUse(), "subscribing and ranking do not wake a machine")
 }
+
+// C-INS-03: a mounted Branch card follows committed Address changes without
+// a wake or a process restart, and falls back to localhost on This Mac only.
+func TestPresenceBranchRefreshCommittedInstallAddress(t *testing.T) {
+	f := presenceInstall(t)
+	address := &services.InstallAddress{Configured: []string{"http://localhost:4000"}, Listen: func(string) error { return nil }}
+	setup := &services.InstallSetupService{Pool: f.pool, Address: address}
+	f.p.publicOrigin = address.Public
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	first := readPresenceFrame(t, conn)
+	require.Contains(t, string(first.Data), `"ssh_line":"ssh -p 2222 scratch/presence-owner/presence@localhost"`)
+	require.NoError(t, setup.SetAddress(t.Context(), f.user.ID, services.InstallSetupInput{Bind: "0.0.0.0:4000", Origins: []string{"http://lan-a:4000", "https://box.example"}}))
+	second := readPresenceFrame(t, conn)
+	require.Contains(t, string(second.Data), `"ssh_line":"ssh -p 2222 scratch/presence-owner/presence@lan-a"`)
+	require.NoError(t, setup.SetAddress(t.Context(), f.user.ID, services.InstallSetupInput{Origins: []string{"http://localhost:4000"}}))
+	third := readPresenceFrame(t, conn)
+	require.Contains(t, string(third.Data), `"ssh_line":"ssh -p 2222 scratch/presence-owner/presence@localhost"`)
+	var status string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&status))
+	require.Equal(t, "running", status)
+}

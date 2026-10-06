@@ -246,10 +246,6 @@ func (s *InstallSetupService) SetAddress(ctx context.Context, actor int64, input
 	if err = s.writeAddress(ctx, tx, input); err != nil {
 		return err
 	}
-	// The existing shared broker receives only committed settings changes.
-	if _, err = tx.Exec(ctx, "SELECT pg_notify('install', 'address')"); err != nil {
-		return err
-	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
