@@ -315,7 +315,10 @@ path = "lib.rs"
 	var registry *flowmanifest.Registry
 	var platformKeys modelproxy.Keys
 	var upstreams map[string]string
-	if helper := rehearsalJJExport(r.root, library); helper == "" {
+	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" {
+		// No TODO runs in the held-build file journey. The app agent below
+		// still uses its real model host and registered files.read dispatch.
+	} else if helper := rehearsalJJExport(r.root, library); helper == "" {
 		fmt.Println("rehearsal: no smithers-jj-export (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, beside the FFI library, or target/release); the TODO's coding run is not composed")
 	} else {
 		t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
@@ -349,7 +352,7 @@ path = "lib.rs"
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = live.Close() })
 	go func() {
-		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
+		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}, holdUntilCancelled: enable == "SMITHERS_BRANCH_FILES_INTEGRATION"}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
 			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
 			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
 			// Explicit synthetic measurements model capacity 3 and default parallel 2.
@@ -1681,9 +1684,17 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 // detected toolchain). "6 machine ready" therefore proves setup admission,
 // persistence and fencing, not an image build. The install bundle binds its
 // microVM runtime's builder instead (installMachineImages).
-type trustedProcessImages struct{ sources workspaceapi.SourceFiles }
+type trustedProcessImages struct {
+	sources workspaceapi.SourceFiles
+	// C-J1-03 holds the external image build, not the source mirror or routes.
+	holdUntilCancelled bool
+}
 
 func (images trustedProcessImages) ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.WorkspaceSpec) (microsandbox.Layer, error) {
+	if images.holdUntilCancelled {
+		<-ctx.Done()
+		return microsandbox.Layer{}, ctx.Err()
+	}
 	if spec.Source == nil || spec.Source.Repository == "" || len(spec.Source.Revision) != 40 {
 		return microsandbox.Layer{}, fmt.Errorf("a machine image needs main's resolved revision")
 	}

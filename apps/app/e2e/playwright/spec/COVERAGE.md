@@ -10,7 +10,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | passing: mounted install seam, live readiness, reload, squash/image fixes; reference Mac/LAN/OAuth evidence pending | T-APP-03 |
-| C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | fixme-before-implementation | T-APP-15 |
+| C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | partial: mirrored read-only File card during held machine build and reload; question journey pending | T-APP-15 |
 | C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | browser-pass (private Draft, one Commit, served states, reviewed-head Merge/reload; fresh macOS install/real execution/GitHub/timing pending) | T-APP-02 |
 | C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
 | C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; reference-host qualification separate | T-MCH-10 |
