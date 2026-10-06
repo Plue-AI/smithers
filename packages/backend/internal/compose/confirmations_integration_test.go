@@ -304,8 +304,8 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	w = call("POST", "/api/confirmations", "", token, "create", `{"command":"todo.new"}`)
 	require.Equal(t, 401, w.Code, w.Body.String())
 	// A qualified consumer uses the same production auth, dispatcher, service
-	// and SQL transaction. Normal install composition remains dark until the
-	// private browser View is wired; this is HTTP acceptance, not browser proof.
+	// and SQL transaction through the production approvals-handler binding.
+	// Browser projection is covered by TestConfirmationsBrowserPostgres.
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()+interval '1 hour' WHERE token_hash=$1`, hash)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, owner.ID)
@@ -314,7 +314,7 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.NoError(t, err)
 	todos := services.NewMythicalService(pool, nil)
 	approvals := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
-	router = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: approvals})
+	router = githubAppSetupComposeRouter(cfg, pool, nil, &routes.ApprovalsHandler{Service: approvals}, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}})
 	w = call("POST", "/api/todos", "", token, "implicit-new", `{"prompt":"Keep this exact prompt"}`)
 	require.Equal(t, 202, w.Code, w.Body.String())
 	var created map[string]string

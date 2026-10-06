@@ -80,6 +80,7 @@ func buildRouterCompat(
 	smithersMetrics *routes.SmithersMetrics,
 	optional ...any, // *routes.GitHubImportHandler, *routes.ProviderConnectionHandler, routerExtras
 ) http.Handler {
+	var approvalsHandler *routes.ApprovalsHandler
 	var proxyHandler *routes.GitHubProxyHandler
 	var importHandler *routes.GitHubImportHandler
 	var providerConnectionHandler *routes.ProviderConnectionHandler
@@ -87,6 +88,8 @@ func buildRouterCompat(
 	var extras []any
 	for _, handler := range optional {
 		switch h := handler.(type) {
+		case *routes.ApprovalsHandler:
+			approvalsHandler = h
 		case *routes.GitHubProxyHandler:
 			proxyHandler = h
 		case routerExtras:
@@ -137,7 +140,7 @@ func buildRouterCompat(
 		agentInternalHandler,
 		agentSessionHandler,
 		agentSessionStreamHandler,
-		nil,             // approvalsHandler
+		approvalsHandler,
 		pushHookHandler, // canaryReportHandler
 		workflowHandler,
 		nil, // workflowCacheHandler

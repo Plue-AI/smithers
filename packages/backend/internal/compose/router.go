@@ -147,6 +147,8 @@ func buildRouter(
 	confirmations := extras.Confirmations
 	if confirmations == nil && approvalsHandler != nil {
 		confirmations, _ = approvalsHandler.Service.(*services.ApprovalsService)
+		// Use the same service for delegated admission and member decisions.
+		extras.Confirmations = confirmations
 	}
 	if config.IsSingleOwner(cfg.Auth) && confirmations == nil {
 		confirmations = services.NewApprovalsService(queries)

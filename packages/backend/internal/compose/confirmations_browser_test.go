@@ -74,7 +74,8 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, nil,
 		&routes.UserHandler{ProfileService: services.NewUserService(q)},
-		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Live: liveHandler, Confirmations: services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))})
+		&routes.ApprovalsHandler{Service: services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))},
+		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Live: liveHandler})
 	api := withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{install: true, identity: true, redirectAuth: true}), cors.Options{})
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
