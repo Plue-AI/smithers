@@ -42,6 +42,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   admitted({ tag: "todo.new", label: "New TODO", command_input: { text: "" } })
   /* Sync Retry shows only once main's sync is stale; limited retries on its own, refused needs a fix. */
   if (health === "stale") admitted({ tag: "github.retry", label: "Retry", command_input: undefined })
+  if (health === "refused") admitted({ tag: "settings", label: "Fix", command_input: undefined })
   const topCount = definitions.length
   const attention = parsed.attention.filter(row => row.kind === "force_push" ? role === "owner" : role !== "member").map(row => {
     const start = definitions.length
@@ -98,12 +99,12 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
 /** Every control the Home card can render; role and the row's state narrow it further above. */
 export const HOME_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>([
   "todo", "todo.new", "todo.answer", "todo.retry", "todo.resume", "todo.drop", "branch", "merge", "stack.move",
-  "order.ok", "main.reset-to-github", "background.retry", "background.dismiss", "github.retry"
+  "order.ok", "main.reset-to-github", "background.retry", "background.dismiss", "github.retry", "settings"
 ])
 /** A failed `home` provider offers no row or sync control: nothing it shows is a live TODO. */
 const FAILED_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new"])
 /** The install's own sync still serves `main`'s row under a failed `home` provider, and its Retry. */
-const FAILED_SYNC_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new", "github.retry"])
+const FAILED_SYNC_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new", "github.retry", "settings"])
 
 /** `/api/live` refusal codes meaning this host serves no `home` topic (the live channel's 404): the seed stands in. */
 const NO_PROVIDER = new Set(["unknown_topic", "unsupported"])

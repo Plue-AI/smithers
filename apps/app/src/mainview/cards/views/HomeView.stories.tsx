@@ -44,9 +44,9 @@ export const stories: ViewStory[] = (Object.keys(fixtures) as (keyof typeof fixt
       { selector: '[data-filter="in_review"]', patch: key.startsWith("active") ? { filter: "in_review" } : undefined },
       ...(key.startsWith("active") ? [ ["Persist merge requests", "8"], ["Card model contracts", "12"], ["Wire Home", "15"], ["Retry webhook delivery", "16"] ].flatMap(([title, n]): StoryInteraction[] => [
         { selector: `button[aria-label="Order ${title}"]` },
-        { selector: '.mvp-menu .mvp-home-action:nth-child(1) button', action: { tag: "stack.move", args: { n: n!, direction: "up" } } },
-        { selector: '.mvp-menu .mvp-home-action:nth-child(2) button', action: { tag: "stack.move", args: { n: n!, direction: "down" } } },
-        { selector: '.mvp-menu .mvp-home-action:nth-child(3) button', action: { tag: "todo.drop", args: { n: n! } } },
+        { selector: '.menu .home-action:nth-child(1) button', action: { tag: "stack.move", args: { n: n!, direction: "up" } } },
+        { selector: '.menu .home-action:nth-child(2) button', action: { tag: "stack.move", args: { n: n!, direction: "down" } } },
+        { selector: '.menu .home-action:nth-child(3) button', action: { tag: "todo.drop", args: { n: n! } } },
         { selector: `button[aria-label="Order ${title}"]`, event: "keydown" as const, key: "Escape" },
       ]) : []),
     ],
@@ -99,4 +99,37 @@ stories.push({
       merge: { state: "blocked", reason, detail: reason === "order" ? "T8" : reason === "checks" ? "unit" : reason === "github" ? "denied" : undefined, on_github: false },
     })),
   }} />,
+})
+
+// Rendering security is exercised through the same HomeView browser entry.
+const hostile = '<img src=x onerror="window.__homePwned=1"><script>window.__homePwned=1</script>'
+const hostileAction: Action = { tag: "todo.new", label: hostile }
+stories.push({
+  name: "home-hostile", expect: [hostile], actions: [hostileAction],
+  interactions: ["needs_you", "working", "queued", "in_review"].map(state => ({ selector: `[data-filter="${state}"]` })),
+  render: (callbacks, actions = [hostileAction]) => <HomeView {...fixtures.fresh} {...callbacks} actions={[hostileAction].filter(action => actions.includes(action))} model={{ ...fixtures.fresh.model,
+    repository: hostile, main: { ...fixtures.fresh.model.main, title: hostile, health: "refused", cause: hostile },
+    attention: [{ kind: "force_push", text: hostile, actions: [] }],
+    items: [{ ...fixtures.active.model.items[0]!, title: hostile, present: [], actions: [], amendments: 0 }],
+  }} />,
+})
+const unavailable: Action[] = [
+  { tag: "todo.new", label: "New TODO", disabled: { reason: "Permission missing" } },
+  { tag: "order.ok", label: "OK", disabled: { reason: "Permission missing" } },
+  { tag: "todo", label: "Unavailable TODO", args: { door: "title", n: "8" }, disabled: { reason: "Permission missing" } },
+  { tag: "branch", label: "todo/8", disabled: { reason: "Permission missing" } },
+  { tag: "background.retry", label: "Retry", disabled: { reason: "Permission missing" } },
+  { tag: "background.dismiss", label: "Dismiss", disabled: { reason: "Permission missing" } },
+]
+stories.push({
+  name: "home-disabled", expect: ["Permission missing", "Unavailable TODO"], actions: [unavailable[1]!, unavailable[2]!, unavailable[3]!, unavailable[4]!, unavailable[5]!, unavailable[0]!],
+  interactions: ["needs_you", "working", "queued", "in_review"].map(state => ({ selector: `[data-filter="${state}"]` })),
+  render: (callbacks, allowed = unavailable) => {
+    const keep = (action: StoryAction) => allowed.includes(action)
+    return <HomeView {...fixtures.fresh} {...callbacks} actions={unavailable.slice(0, 1).filter(keep)} model={{ ...fixtures.fresh.model,
+      attention: [{ kind: "order", text: "Order changed", actions: unavailable.slice(1, 2).filter(keep) }],
+      items: [{ ...fixtures.active.model.items[0]!, title: "Unavailable TODO", present: [], actions: unavailable.slice(2, 4).filter(keep) }],
+      background_runs: [{ id: "failed", title: "Refresh wiki", state: "failed", actions: unavailable.slice(4).filter(keep) }],
+    }} />
+  },
 })

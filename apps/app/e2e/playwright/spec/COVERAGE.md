@@ -102,6 +102,7 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 | C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | fixme-before-implementation | T-CAT-01 |
 | C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts) | fixme-before-implementation | T-CAT-01 |
 | C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts) | fixme-before-implementation | T-CAT-01 |
+| C-UI-12 · Home | [Home cases](../home.spec.ts) | passing: sync health, keyboard menu, absent/disabled actions and hostile text in light/dark at 1440/390 | T-UI-06 |
 | C-AGT-01 | [C-AGT-01.spec.ts](C-AGT-01.spec.ts) | fixme-before-implementation | T-AGT-01 |
 
 C-UI-13 also has a passing UI projection for the mounted Setup

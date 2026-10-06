@@ -11,7 +11,7 @@ test("A-TODO-DROP: removes an unmerged TODO durably", async ({ page }) => {
   await say(page, "/todo T10")
   await expect(page.locator(".smithers-card").last()).toContainText("Dropped")
   await say(page, "/stack")
-  await expect(page.locator(".mvp-stack-row").filter({ hasText: "T10" })).toHaveCount(0)
+  await expect(page.locator(".stack-row").filter({ hasText: "T10" })).toHaveCount(0)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
 

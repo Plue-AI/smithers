@@ -6,6 +6,8 @@
  */
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
+import { act } from "react"
+import { createRoot } from "./views/testDom"
 import type { Card } from "@smthrs/rpc/Cards"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { ControllerTestProvider } from "../ControllerContext"
@@ -160,9 +162,31 @@ describe("branch card mount", () => {
   })
 })
 
-test("a hosted Branch never renders the seeded model without its live topics", () => {
-  const controller = { design: make(), bootstrap: { host: "local" } } as unknown as AppController
+test("an install Branch never renders the seeded model without its live topics", () => {
+  const controller = { design: createDesignWorld({ enabled: false }), bootstrap: { host: "local" } } as unknown as AppController
   const card = { id: "branch:b-retry", kind: "branch", title: "Branch", status: "active", createdAt: 1, ordinal: 1, payload: { id: "b-retry" } } as const
   const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
   expect(renderToStaticMarkup(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>)).toBe("")
 })
+
+
+test("a branch opened from seeded Home keeps its seed until the real provider answers", async () => {
+  const card: CardOfBranch = { id: "branch:b-retry", kind: "branch", title: "Branch", status: "active", createdAt: 1, ordinal: 1, payload: { id: "b-retry" } }
+  const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
+  for (const error of [undefined, "unknown_topic", "unsupported", "forbidden"] as const) {
+    const design = make(), snapshot = error === undefined ? undefined : { error }
+    const host = document.createElement("div"), root = createRoot(host)
+    const value = { design, commands: { submit: async () => ({ status: "executed" }) }, bootstrap: { host: "local" },
+      live: { subscribe: () => () => {}, getSnapshot: () => snapshot } } as unknown as AppController
+    try {
+      await act(async () => root.render(<ControllerTestProvider controller={value}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
+      const html = host.innerHTML
+      if (error === "forbidden") expect(html).toBe("")
+      else {
+        expect(html).toContain("retry-webhooks")
+        expect(html).toContain('data-flow="branch.fork"')
+      }
+    } finally { await act(async () => root.unmount()); design.dispose() }
+  }
+})
+type CardOfBranch = Extract<Card, { kind: "branch" }>

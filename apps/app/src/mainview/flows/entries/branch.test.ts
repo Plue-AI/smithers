@@ -9,10 +9,11 @@ import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, signupProfileFetch, unavailableAgent } from "../../state/TestFixtures"
 import { todoOf } from "../../state/seams/DesignWorld"
 
-const boot = async (live?: import("../../state/useTopic").LiveTopics) => {
+const boot = async (live?: import("../../state/useTopic").LiveTopics, install = false) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
-  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(live ? { live } : {}) })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(live ? { live } : {}),
+    ...(install ? { bootstrap: { apiVersion: 1 as const, host: "local" as const, version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect" as const, sandbox: null } } : {}) })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
   return { store, controller }
 }
@@ -110,8 +111,8 @@ test("A✓: the agent's Add to stack asks for the person's press and commits not
   } finally { h.controller.dispose() }
 })
 
-test("live dispatcher refuses absent Branch and Terminal providers before seed or cloud effects", async () => {
-  const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined })
+test("install live dispatcher refuses absent Branch and Terminal providers before seed or cloud effects", async () => {
+  const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined }, true)
   const before = h.controller.design.world()
   try {
     for (const [name, payload, error] of [
@@ -126,6 +127,27 @@ test("live dispatcher refuses absent Branch and Terminal providers before seed o
     }
     expect(h.controller.design.world()).toEqual(before)
   } finally { h.controller.dispose() }
+})
+
+
+
+test("bootstrap and an unanswered live channel keep seeded Home branch doors available off an install", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: [], authFlow: "redirect", sandbox: null },
+    live: { subscribe: () => () => {}, getSnapshot: () => undefined } })
+  try {
+    expect(await controller.submitCommand({ name: "branch", payload: { name: "T9" }, actor: "user" })).toMatchObject({ status: "executed" })
+    expect(store.collections.cards.get("branch:b-retry")).toMatchObject({ kind: "branch", title: "retry-webhooks" })
+    expect(await controller.submitCommand({ name: "branch.fork", payload: { name: "T10" }, actor: "user" })).toMatchObject({ status: "executed" })
+    const scratch = controller.design.world().branches.find(branch => branch.from === "b-checkout" && branch.item === undefined)!
+    expect(scratch).toBeDefined()
+    expect(await controller.submitCommand({ name: "branch.add-to-stack", payload: { branch: scratch.id }, actor: "user" })).toMatchObject({ status: "executed" })
+    const world = controller.design.world()
+    const placed = world.branches.find(branch => branch.id === scratch.id)!
+    expect(todoOf(world, placed.item!)?.ref).toBe("T12")
+  } finally { await controller.dispose() }
 })
 
 test("On an install Fork is POST /api/branches {from, name}: the value is the new scratch branch, a refusal is the server message", async () => {

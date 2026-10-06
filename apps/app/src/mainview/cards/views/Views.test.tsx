@@ -2563,19 +2563,143 @@ describe("HomeView", () => {
     const row = model.items[0]!
     try {
       await act(async () => root.render(<HomeView model={model} actions={[]} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
-      const chip = host.querySelector<HTMLButtonElement>(".mvp-stack-row button.mvp-branch-chip")!
+      const chip = host.querySelector<HTMLButtonElement>(".stack-row button.branch-chip")!
       expect(chip.dataset.flow).toBe("branch")
       expect(chip.textContent).toBe(row.branch.name)
       // The chip is the branch action's only control: it is not repeated among the row's end actions.
-      expect(host.querySelectorAll('.mvp-row-end [data-flow="branch"]')).toHaveLength(0)
+      expect(host.querySelectorAll('.row-end [data-flow="branch"]')).toHaveLength(0)
       await act(async () => chip.click())
       expect(onAction.mock.calls).toEqual([["branch", { n: String(row.n), door: "branch" }]])
       expect(onView).toHaveBeenCalledTimes(0)
       await act(async () => root.render(<HomeView model={{ ...model, items: [{ ...row, actions: [] }] }} actions={[]} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
-      expect(host.querySelector(".mvp-branch-chip")).toBeNull()
-      expect(host.querySelector(".mvp-where")?.firstChild?.nodeType).toBe(Node.TEXT_NODE)
-      expect(host.querySelector(".mvp-where")?.firstChild?.textContent).toBe(row.branch.name)
+      expect(host.querySelector(".branch-chip")).toBeNull()
+      expect(host.querySelector(".where")?.firstChild?.nodeType).toBe(Node.TEXT_NODE)
+      expect(host.querySelector(".where")?.firstChild?.textContent).toBe(row.branch.name)
     } finally { await act(async () => root.unmount()); host.remove() }
+  })
+
+  test("HomeView preserves order controls, closes on Escape, and omits unsupplied reset", async () => {
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host), onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock((_patch: Record<string, unknown>) => {})
+    const draw = (model: HomeViewProps["model"], actions: Action[]) => act(async () => root.render(<HomeView model={model} actions={actions} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
+    const row = homeFixtures.active.model.items[0]!
+    const model: HomeViewProps["model"] = { ...homeFixtures.fresh.model, attention: [{ kind: "order", text: "Order changed", actions: [] }],
+      items: [{ ...row, title: "Unavailable TODO", actions: [] }], background_runs: [{ id: "failed", title: "Refresh wiki", state: "failed", actions: [] }] }
+    try {
+      await draw(model, [])
+      expect(host.querySelectorAll("button[data-flow]")).toHaveLength(0)
+      expect(host.querySelector('[aria-haspopup="menu"]')).toBeNull()
+      expect(host.textContent).not.toContain("Reset to GitHub main")
+      const disabled = { reason: "Permission missing" }
+      await draw({ ...model, attention: [{ ...model.attention[0]!, actions: [{ tag: "order.ok", label: "OK", disabled }] }],
+        items: [{ ...model.items[0]!, actions: [
+          { tag: "todo", label: "Unavailable TODO", args: { n: "8", door: "title" }, disabled },
+          { tag: "branch", label: "Open branch", disabled }, { tag: "merge", label: "Merge", disabled },
+          { tag: "stack.move", label: "Move up", args: { n: "8", direction: "up" }, disabled },
+          { tag: "stack.move", label: "Move down", args: { n: "8", direction: "down" }, disabled },
+          { tag: "todo.drop", label: "Drop", args: { n: "8" }, disabled },
+        ] }], background_runs: [{ ...model.background_runs[0]!, actions: [{ tag: "background.retry", label: "Retry", disabled }, { tag: "background.dismiss", label: "Dismiss", disabled }] }] },
+        [{ tag: "todo.new", label: "New TODO", disabled }, { tag: "main.reset-to-github", label: "Reset to GitHub main", disabled }])
+      const trigger = host.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+      await act(async () => trigger.click())
+      expect([...host.querySelectorAll('[role="menuitem"]')].map(button => button.textContent)).toEqual(["Move up", "Move down", "Drop"])
+      expect(host.textContent?.match(/Permission missing/g)).toHaveLength(11)
+      for (const button of host.querySelectorAll<HTMLButtonElement>('button[data-flow]')) {
+        expect(button.disabled).toBe(true)
+        await act(async () => { button.click(); button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })) })
+      }
+      expect(onAction).toHaveBeenCalledTimes(0)
+      expect(onView).toHaveBeenCalledTimes(0)
+      await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
+      expect(host.querySelector('[role="menu"]')).toBeNull()
+      expect(document.activeElement).toBe(trigger)
+      await draw(model, [{ tag: "main.reset-to-github", label: "Reset to GitHub main", args: { revision: "abc123" } }])
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-flow="main.reset-to-github"]')!.click())
+      expect(onAction.mock.calls).toEqual([["main.reset-to-github", { revision: "abc123" }]])
+    } finally { await act(async () => root.unmount()); host.remove() }
+  })
+
+  test("HomeView menu supports keyboard navigation and outside dismissal with opaque tags", async () => {
+    const model = withBranch(), row = model.items[0]!
+    const story: ViewStory = { name: "menu", expect: [], render: callbacks => <HomeView {...homeFixtures.fresh} {...callbacks} model={{ ...model, items: [{ ...row, actions: [
+      { tag: "wiki.page", label: "Move up", args: { n: "8", direction: "up" } },
+      { tag: "files", label: "Move down", disabled: { reason: "Last item" } },
+      { tag: "terminal", label: "Drop", args: { n: "8" } },
+    ] }] }} /> }
+    const h = await mounted(story)
+    try {
+      const trigger = h.host.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!
+      await act(async () => trigger.click())
+      const key = (value: string) => act(async () => h.host.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })))
+      await key("Home")
+      expect(document.activeElement?.textContent).toBe("Move up")
+      await key("ArrowDown")
+      expect(document.activeElement?.textContent).toBe("Drop")
+      await key("ArrowDown")
+      expect(document.activeElement?.textContent).toBe("Move up")
+      await key("ArrowUp")
+      expect(document.activeElement?.textContent).toBe("Drop")
+      await key("Home")
+      await act(async () => (document.activeElement as HTMLButtonElement).click())
+      expect(h.onAction.mock.calls).toEqual([["wiki.page", { n: "8", direction: "up" }]])
+      await key("Escape")
+      expect(document.activeElement).toBe(trigger)
+      expect(h.host.querySelector('[role="menu"]')).toBeNull()
+      await act(async () => trigger.click())
+      await key("End")
+      expect(document.activeElement?.textContent).toBe("Drop")
+      await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })))
+      expect(h.host.querySelector('[role="menu"]')).toBeNull()
+      expect(h.onView).toHaveBeenCalledTimes(0)
+    } finally { await h.close() }
+  })
+
+  test("HomeView renders hostile supplied text without executing it", async () => {
+    const hostile = '<img src=x onerror="window.__homePwned=1"><script>window.__homePwned=1</script>'
+    const h = await mounted({ name: "hostile", expect: [], render: callbacks => <HomeView {...homeFixtures.active} {...callbacks}
+      actions={[{ tag: "todo.new", label: hostile }]} model={{ ...homeFixtures.active.model, repository: hostile,
+        main: { ...homeFixtures.active.model.main, health: "refused", title: hostile, cause: hostile },
+        attention: [{ kind: "force_push", text: hostile, actions: [] }],
+        items: [{ ...homeFixtures.active.model.items[0]!, title: hostile, present: [], actions: [] }], background_runs: [] }} /> })
+    try {
+      expect(h.host.querySelector("h2")?.textContent).toBe(hostile)
+      expect(h.host.querySelector(".stack-title")?.textContent).toContain(hostile)
+      expect(h.host.querySelector(".stack-trunk")?.textContent).toContain(hostile)
+      expect(h.host.querySelector(".sync")?.textContent).toBe(hostile)
+      expect(h.host.querySelector(".home-attention")?.textContent).toBe(hostile)
+      expect(h.host.querySelector('button[data-flow="todo.new"]')?.textContent).toBe(hostile)
+      expect(h.host.querySelectorAll("img, script")).toHaveLength(0)
+      expect(Reflect.get(window, "__homePwned")).toBeUndefined()
+      expect(h.onAction).toHaveBeenCalledTimes(0)
+      await act(async () => h.host.querySelector<HTMLButtonElement>('button[data-flow="todo.new"]')!.click())
+      expect(h.onAction.mock.calls).toEqual([["todo.new", {}]])
+      expect(Reflect.get(window, "__homePwned")).toBeUndefined()
+    } finally { await h.close() }
+  })
+
+  test("HomeView sync health ages once per second without sending a command", async () => {
+    let now = Date.parse("2026-10-05T12:00:40Z"), tick: (() => void) | undefined
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    const interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void) => { tick = callback; return 1 }) as typeof setInterval)
+    const h = await mounted({ name: "clock", expect: [], render: callbacks => <HomeView {...homeFixtures.fresh} {...callbacks}
+      model={{ ...homeFixtures.fresh.model, main: { sha: "abc123", title: "Publish", last_success_at: "2026-10-05T12:00:00Z", health: "fresh" } }} /> })
+    try {
+      expect(h.host.querySelector(".sync")?.textContent).toBe("synced 40 s ago")
+      await act(async () => { now += 1000; tick!() })
+      expect(h.host.querySelector(".sync")?.textContent).toBe("synced 41 s ago")
+      expect(h.onAction).toHaveBeenCalledTimes(0)
+      expect(h.onView).toHaveBeenCalledTimes(0)
+      for (const [health, main, actions, expected] of [
+        ["stale", { cause: "Network unavailable", last_success_at: "2026-10-05T11:54:41Z" }, [{ tag: "github.retry", label: "Retry" }], "synced 6 min ago · Network unavailableRetry"],
+        ["limited", { cause: "GitHub rate limit", retry_at: "10:42" }, [], "GitHub rate limit · retries at 10:42"],
+        ["refused", { cause: "Repository access refused" }, [{ tag: "settings", label: "Fix" }], "Repository access refusedFix"],
+      ] as const) {
+        await act(async () => h.root.render(<HomeView {...homeFixtures.fresh} model={{ ...homeFixtures.fresh.model, main: { ...homeFixtures.fresh.model.main, health, ...main } }} actions={[...actions]} onAction={h.onAction} onView={h.onView} />))
+        expect(h.host.querySelector(".sync")?.textContent).toBe(expected)
+        expect(h.host.querySelector(".sync")?.getAttribute("data-stale")).toBe("true")
+      }
+      expect(h.onAction).toHaveBeenCalledTimes(0)
+    } finally { await h.close(); interval.mockRestore(); clock.mockRestore() }
   })
 
   test("visibility reports only changes, through one observer, even when every report re-renders with a new onView", async () => {
@@ -2793,9 +2917,9 @@ test("TODO and Home share absent, zero, one and multiple lesson counts without c
       else expect(host.textContent).not.toContain("lesson")
       const item = homeReceiptFixtures.active.model.items[0]!
       await act(async () => root.render(<HomeView {...homeReceiptFixtures.active} model={{ ...homeReceiptFixtures.active.model, items: [{ ...item, state: "merged", lessons }] }} onAction={() => {}} onView={() => {}} />))
-      expect(host.querySelector('.mvp-stack-row [data-state="merged"]')?.textContent).toBe("Merged")
-      if (label) expect(host.querySelector(".mvp-stack-row")?.textContent).toContain(label)
-      else expect(host.querySelector(".mvp-stack-row")?.textContent).not.toContain("lesson")
+      expect(host.querySelector('.stack-row [data-state="merged"]')?.textContent).toBe("Merged")
+      if (label) expect(host.querySelector(".stack-row")?.textContent).toContain(label)
+      else expect(host.querySelector(".stack-row")?.textContent).not.toContain("lesson")
     }
   } finally { await act(async () => root.unmount()) }
 })

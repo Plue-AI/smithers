@@ -22,11 +22,11 @@ const command = async (page: Page, line: string): Promise<void> => {
 test("the Home card: merge order, Move, a failed run's Retry and Dismiss, and /stack", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto("/")
-  const home = page.locator(".mvp-home").first()
+  const home = page.locator(".home").first()
   await expect(home).toBeVisible()
-  const refs = home.locator(".mvp-stack-row .mvp-ref")
+  const refs = home.locator(".stack-row .ref")
   await expect(refs).toHaveText(["T8", "T9", "T10", "T11"])
-  await expect(home.locator(".mvp-stack-row[data-state='in_review']").getByRole("button", { name: "Merge", exact: true })).toBeVisible()
+  await expect(home.locator(".stack-row[data-state='in_review']").getByRole("button", { name: "Merge", exact: true })).toBeVisible()
 
   await home.getByRole("button", { name: "Order Log every webhook retry attempt", exact: true }).click()
   await home.getByRole("menuitem", { name: "Move up", exact: true }).click()
@@ -34,14 +34,14 @@ test("the Home card: merge order, Move, a failed run's Retry and Dismiss, and /s
   await command(page, "/stack.move T11 down")
   await expect(refs).toHaveText(["T8", "T9", "T10", "T11"])
 
-  const failed = home.locator(".mvp-run-row[data-state='failed']", { hasText: "release-notes" })
+  const failed = home.locator(".run-row[data-state='failed']", { hasText: "release-notes" })
   await expect(failed).toContainText("GitHub API rate limited")
   await expect(failed.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible()
   await failed.getByRole("button", { name: "Retry", exact: true }).click()
-  await expect(home.locator(".mvp-run-row", { hasText: "release-notes" })).toHaveAttribute("data-state", "running")
+  await expect(home.locator(".run-row", { hasText: "release-notes" })).toHaveAttribute("data-state", "running")
   await command(page, "/background.dismiss r-release")
-  await expect(home.locator(".mvp-run-row", { hasText: "release-notes" })).toHaveCount(0)
-  await expect(home.locator(".mvp-run-row", { hasText: "Wiki refresh" })).toHaveCount(1)
+  await expect(home.locator(".run-row", { hasText: "release-notes" })).toHaveCount(0)
+  await expect(home.locator(".run-row", { hasText: "Wiki refresh" })).toHaveCount(1)
 
   // /stack from a branch returns to main, where the Home card stands first: the crumbs lose the branch.
   const crumbs = page.locator(".session-navigation")
@@ -51,3 +51,65 @@ test("the Home card: merge order, Move, a failed run's Retry and Dismiss, and /s
   await expect(crumbs).not.toContainText("retry-webhooks")
   await expect(home).toBeVisible()
 })
+
+
+
+test("T-UI-06 Home sync, actions, keyboard menu and inert text in both Paper themes", async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.addInitScript(() => {
+    const calls: unknown[] = []
+    Object.assign(window, { homeCalls: calls })
+    window.addEventListener("story-callback", event => {
+      const detail = (event as CustomEvent).detail
+      if (detail.kind === "action") calls.push(detail)
+    })
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    for (const [state, text, control] of [
+      ["fresh", "synced", "New TODO"], ["stale", "GitHub sync delayed", "Retry"],
+      ["limited", "retries at 10:42", "New TODO"], ["refused", "Repository access refused", "Fix"],
+    ] as const) {
+      await page.goto(`/view-stories.html?story=HomeView/home-${state}&theme=${theme}`)
+      await expect(page.locator('.home .sync')).toContainText(text)
+      await expect(page.getByRole("button", { name: control, exact: true })).toBeVisible()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+    await page.goto(`/view-stories.html?story=HomeView/home-active&theme=${theme}`)
+    await page.getByRole("button", { name: "Order Persist merge requests", exact: true }).focus()
+    await page.keyboard.press("Enter")
+    const menu = page.getByRole("menu", { name: "Order Persist merge requests", exact: true })
+    await page.keyboard.press("Tab")
+    await expect(menu.getByRole("menuitem", { name: "Move up", exact: true })).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await expect(menu.getByRole("menuitem", { name: "Move down", exact: true })).toBeFocused()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => Reflect.get(window, "homeCalls"))).toEqual([
+      { kind: "action", value: { tag: "stack.move", args: { n: "8", direction: "down" } } },
+    ])
+    await page.keyboard.press("Escape")
+    await expect(menu).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Order Persist merge requests", exact: true })).toBeFocused()
+    await page.goto(`/view-stories.html?story=HomeView/home-fresh&removeFirst&theme=${theme}`)
+    await expect(page.locator('.home button[data-flow]')).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Reset to GitHub main", exact: true })).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=HomeView/home-disabled&theme=${theme}`)
+    await expect(page.locator('.home button[data-flow]')).toHaveCount(6)
+    await expect(page.locator('.home')).toContainText("Permission missing")
+    for (const button of await page.locator('.home button[data-flow]').all()) {
+      await expect(button).toBeDisabled()
+      await button.evaluate(node => (node as HTMLButtonElement).click())
+    }
+    expect(await page.evaluate(() => Reflect.get(window, "homeCalls"))).toEqual([])
+    await page.goto(`/view-stories.html?story=HomeView/home-hostile&theme=${theme}`)
+    const hostile = '<img src=x onerror="window.__homePwned=1"><script>window.__homePwned=1</script>'
+    await expect(page.locator('.home h2')).toHaveText(hostile)
+    await expect(page.locator('.home .sync')).toHaveText(hostile)
+    await expect(page.locator('.home .home-attention')).toHaveText(hostile)
+    await expect(page.locator('.home .stack-title')).toContainText(hostile)
+    await expect(page.locator('.home button[data-flow]')).toHaveText(hostile)
+    await expect(page.locator('.home img, .home script')).toHaveCount(0)
+    expect(await page.evaluate(() => Reflect.get(window, "__homePwned"))).toBeUndefined()
+  }
+})
+

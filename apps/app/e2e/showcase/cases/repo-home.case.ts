@@ -59,7 +59,7 @@ export default showcase({
     for (const row of LOG) await backend.json(`${API}/changes/${row.change_id}`, row)
     await backend.json(`${API}/changes/kxyzqrpv/diff`, { change_id: "kxyzqrpv", file_diffs: [
       { path: "apps/app/src/mainview/cards/HomeContainer.tsx", change_type: "modified", additions: 12, deletions: 2, is_binary: false,
-        patch: "@@ -40,3 +40,6 @@\n   <li className=\"mvp-run-row\">\n+    <span>{run.title}</span>\n+    <span>{run.detail}</span>\n   </li>" }
+        patch: "@@ -40,3 +40,6 @@\n   <li className=\"run-row\">\n+    <span>{run.title}</span>\n+    <span>{run.detail}</span>\n   </li>" }
     ] })
     await backend.json("/api/repos/smithersai/smithers/commits/c0ffee1234567890/statuses", [
       { context: "typecheck", status: "success", created_at: "2026-09-24T10:42:00Z" },
@@ -68,7 +68,7 @@ export default showcase({
     await backend.json(`${API}/contents/README.md`, { type: "file", path: "README.md", content: README, encoding: "utf-8" })
 
     await app.open(`/${REPO}`)
-    const home = page.locator(".mvp-home").first()
+    const home = page.locator(".home").first()
     await expect(home).toContainText("T8")
     await app.show(home)
     await app.beat(1500)
