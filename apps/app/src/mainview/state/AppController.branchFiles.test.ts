@@ -24,3 +24,19 @@ test("controller without provider receipts keeps branch reads dark", async () =>
   expect(await app.branchFiles.read("main", "README.md")).toEqual({ error: "Branch files are unavailable." })
   expect(requests).toEqual([])
 })
+
+test("seeded Follow keeps the File card identity and moves its existing file row", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const app = controller(store, agent, { fetchImpl: async () => new Response("{}", { status: 404 }) })
+  const file = app.design.world().files.find(file => file.gone?.kind === "renamed") ?? app.design.world().files[0]!
+  app.design.patch("files", file.id, current => ({ ...current, gone: { kind: "renamed", to: "src/deliver.ts", by: "maya" } }))
+  await app.commands.submit({ name: "file", payload: { path: file.path, branch: file.branch }, actor: "user" })
+  const opened = [...store.collections.cards.values()].find(card => card.kind === "file" && card.payload.path === file.path)
+  expect(opened?.kind).toBe("file")
+  expect((await app.commands.submit({ name: "file.follow-rename", payload: { path: file.path, branch: file.branch }, actor: "user" })).status).toBe("executed")
+  const followed = store.collections.cards.get(opened!.id)
+  if (followed?.kind !== "file") throw new Error("Missing followed file")
+  expect(followed.payload.path).toBe("src/deliver.ts")
+  expect(app.design.world().files.find(row => row.id === file.id)?.path).toBe("src/deliver.ts")
+  expect(app.design.world().files.find(row => row.id === file.id)?.gone).toBeUndefined()
+})

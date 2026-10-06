@@ -109,7 +109,11 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         if (realFiles()) return actions.branchFiles.action(name, path, branch)
         const file = findFile(design.world(), path, branch, design.viewer())
         if (!file) return `No file ${path}`
-        if (name === "file.follow-rename" && file.gone?.kind === "renamed") return open(fileCard(repo(), file.branch, file.gone.to ?? file.path))
+        if (name === "file.follow-rename" && file.gone?.kind === "renamed") {
+          const path = file.gone.to ?? file.path
+          design.patch("files", file.id, current => ({ ...current, path, gone: undefined }))
+          return open({ ...fileCard(repo(), file.branch, path), id: fileCard(repo(), file.branch, file.path).id })
+        }
         if (name === "file.compare") return open(diffCard(repo(), file.id, file.path))
         const result = design.restoreFile(file.id)
         return result.ok ? { value: result.ack } : result.refusal

@@ -139,7 +139,7 @@ const FileBody = ({ card, subject }: { readonly card: Extract<Card, { kind: "fil
   const world = useDesignWorld()
   const press = usePress(card.id)
   const [intel, setIntel] = useState<Pick<FileCard, "hover" | "reveal">>({})
-  const file = world.files.find(each => each.id === subject)
+  const file = world.files.find(each => each.id === subject || `${each.branch}:${each.path}` === subject)
   if (file === undefined) return null
   const model: FileCard = { ...designFileCard(world, file, card.payload.line), ...intel }
   const answer = (tag: CatalogTag, input?: Record<string, string>) => {
