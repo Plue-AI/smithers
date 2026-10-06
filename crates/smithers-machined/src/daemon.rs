@@ -48,46 +48,49 @@ impl Daemon {
         let lock = self.executor.lock.clone();
         let session_reconciled = self.reconciled.clone();
         let session_roster = self.roster.clone();
-        let responder = std::thread::spawn(move || loop {
-            match rx.recv_timeout(std::time::Duration::from_millis(25)) {
-                Ok(receipt) => {
-                    let receipt: crate::lock::Receipt<Result<Frame, ProtocolError>> = receipt;
-                    let frame = match receipt.wait() {
-                        Ok(Ok(frame)) => frame,
-                        _ => break,
-                    };
-                    let Ok(mut socket) = output.lock() else { break };
-                    if frame.write(&mut *socket).is_err() {
-                        break;
+        let responder = std::thread::spawn(move || {
+            loop {
+                match rx.recv_timeout(std::time::Duration::from_millis(25)) {
+                    Ok(receipt) => {
+                        let receipt: crate::lock::Receipt<Result<Frame, ProtocolError>> = receipt;
+                        let frame = match receipt.wait() {
+                            Ok(Ok(frame)) => frame,
+                            _ => break,
+                        };
+                        let Ok(mut socket) = output.lock() else { break };
+                        if frame.write(&mut *socket).is_err() {
+                            break;
+                        }
                     }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => (),
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => (),
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-            let reconciled = session_reconciled.clone();
-            let roster = session_roster.clone();
-            let frames = match lock.run_blocking(
-                "stream_tick",
-                move |cx| -> crate::hooks::Result<Vec<Frame>> {
-                    let mut frames = cx.hooks.documents.clone().poll(cx)?;
-                    if reconciled.load(Ordering::Acquire) && roster.load(Ordering::Acquire) {
-                        cx.hooks.sessions.ready()?;
-                        frames.extend(cx.hooks.sessions.poll()?);
-                    }
-                    Ok(frames)
-                },
-            ) {
-                Ok(Ok(frames)) => frames,
-                _ => {
-                    if let Ok(socket) = output.lock() {
-                        let _ = socket.shutdown(std::net::Shutdown::Both);
-                    }
+                let reconciled = session_reconciled.clone();
+                let roster = session_roster.clone();
+                let frames = match lock.run_blocking(
+                    "stream_tick",
+                    move |cx| -> crate::hooks::Result<Vec<Frame>> {
+                        let mut frames = cx.hooks.documents.clone().poll(cx)?;
+                        if reconciled.load(Ordering::Acquire) && roster.load(Ordering::Acquire) {
+                            cx.hooks.sessions.ready()?;
+                            frames.extend(cx.hooks.sessions.poll()?);
+                        }
+                        Ok(frames)
+                    },
+                ) {
+                    Ok(Ok(frames)) => frames,
+                    _ => break,
+                };
+                let Ok(mut socket) = output.lock() else { break };
+                if frames.iter().any(|f| f.write(&mut *socket).is_err()) {
                     break;
                 }
-            };
-            let Ok(mut socket) = output.lock() else { break };
-            if frames.iter().any(|f| f.write(&mut *socket).is_err()) {
-                break;
+            }
+            // A failed receipt or frame write must also interrupt the reader.
+            // Otherwise it can wait forever for another host request after the
+            // only responder has exited.
+            if let Ok(socket) = output.lock() {
+                let _ = socket.shutdown(std::net::Shutdown::Both);
             }
         });
         let result = (|| loop {
