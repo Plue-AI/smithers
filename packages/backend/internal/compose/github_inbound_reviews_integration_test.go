@@ -196,4 +196,30 @@ func TestGitHubCommentSteerThroughComposedInstall(t *testing.T) {
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input'`).Scan(&count))
 	require.Equal(t, 1, count)
+	// Drive the same guarded review read used by the production TODO worker.
+	// The signed hints and incremental stream above admitted the original input;
+	// only a complete PR conversation snapshot may now prove its deletion.
+	upstream.UpdatePull("owner/app", 1, func(p *githubfake.Pull) {
+		p.Repository, p.ID, p.Number, p.State = "owner/app", 101, 1, "open"
+		p.Head.SHA, p.Head.Ref, p.Base.Ref = "head", "smithers/review", "main"
+	})
+	row, err := q.GetGitHubSyncedRepo(ctx, db.GetGitHubSyncedRepoParams{OwnerLogin: "owner", RepoName: "app"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO github_synced_issues(synced_repo_id,resource,github_id,number,payload) VALUES($1,'pulls',101,1,$2::jsonb) ON CONFLICT(synced_repo_id,resource,number) DO UPDATE SET payload=EXCLUDED.payload`, row.ID, `{"id":101,"number":1,"head":{"sha":"head"}}`)
+	require.NoError(t, err)
+	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
+	require.True(t, upstream.DeleteComment("owner/app", comment))
+	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
+	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
+	require.Eventually(t, func() bool {
+		request := httptest.NewRequest("GET", "/api/todos/1/events", nil).WithContext(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"}))
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response.Code == 200 && bytes.Contains(response.Body.Bytes(), []byte(`"hidden":true`))
+	}, 5*time.Second, 10*time.Millisecond)
+	receiver.mu.Lock()
+	require.Len(t, receiver.messages, 1, "deletion after delivery never repeats or retracts an effective steer")
+	receiver.mu.Unlock()
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&count))
+	require.Equal(t, 1, count)
 }

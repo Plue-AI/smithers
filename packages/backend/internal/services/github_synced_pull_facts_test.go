@@ -13,7 +13,7 @@ import (
 )
 
 func TestInstalledPullFactsCommitAndFailureRetainPreviousRead(t *testing.T) {
-	for _, failure := range []string{"transport", "invalid", "unsolicited-304", "head-moved", "revoked"} {
+	for _, failure := range []string{"transport", "conversation-transport", "invalid", "unsolicited-304", "head-moved", "revoked"} {
 		t.Run(failure, func(t *testing.T) {
 			s, pool, row := newFetchedFixture(t)
 			allowFetched(s)
@@ -37,6 +37,9 @@ func TestInstalledPullFactsCommitAndFailureRetainPreviousRead(t *testing.T) {
 							body = `{"check_runs":[]}`
 						}
 						pages++
+					}
+					if active && failure == "conversation-transport" && resource == "issues/7/comments" {
+						return GitHubSyncedRepoConditionalPage{}, errors.New("offline conversation snapshot")
 					}
 					if active && strings.HasSuffix(resource, "reviews") {
 						switch failure {
@@ -73,17 +76,23 @@ func TestInstalledPullFactsCommitAndFailureRetainPreviousRead(t *testing.T) {
 }
 
 func TestPullFactResourcePaths(t *testing.T) {
-	for _, resource := range []string{"pulls/7/reviews", "pulls/7/comments", "commits/" + strings.Repeat("a", 40) + "/check-runs", "commits/" + strings.Repeat("b", 64) + "/statuses"} {
+	for _, resource := range []string{"pulls/7/reviews", "pulls/7/comments", "issues/7/comments", "commits/" + strings.Repeat("a", 40) + "/check-runs", "commits/" + strings.Repeat("b", 64) + "/statuses"} {
 		require.True(t, gitHubPullFactResource(resource), resource)
 	}
-	for _, resource := range []string{"pulls/0/reviews", "pulls/01/reviews", "pulls/../reviews", "commits/main/check-runs", "commits/" + strings.Repeat("x", 40) + "/statuses", "pulls/7/merge"} {
+	for _, resource := range []string{"pulls/0/reviews", "pulls/01/reviews", "pulls/../reviews", "commits/main/check-runs", "commits/" + strings.Repeat("x", 40) + "/statuses", "pulls/7/merge", "issues/01/comments", "issues/7/reviews"} {
 		require.False(t, gitHubPullFactResource(resource), resource)
 	}
 }
 
 func TestPullFactBudgetStreams(t *testing.T) {
+	require.Equal(t, "conversation-comments", gitHubBudgetStream("/repos/o/r/issues/7/comments"))
 	require.Equal(t, "reviews", gitHubBudgetStream("/repos/o/r/pulls/7/reviews"))
 	require.Equal(t, "reviews", gitHubBudgetStream("/repos/o/r/pulls/7/comments"))
 	require.Equal(t, "checks", gitHubBudgetStream("/repos/o/r/commits/sha/check-runs"))
 	require.Equal(t, "pulls", gitHubBudgetStream("/repos/o/r/pulls/7"))
+}
+
+func TestPullFactReaderRejectsUnknownKind(t *testing.T) {
+	s := &GitHubSyncedRepoService{}
+	require.Error(t, s.ReadInstallPullFacts(t.Context(), db.GithubSyncedRepo{}, 7, "head", "unknown"))
 }

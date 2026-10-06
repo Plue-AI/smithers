@@ -10,7 +10,9 @@ journal, so an unavailable consumer retains its input for replay.
 The existing TODO pull-request poll reads submitted reviews and line comments.
 A submission combines its body and its author's lines into one input, retaining
 `path:line @ commit` anchors. Conversation comments use the repository comment
-stream. Polling and webhook hints share the same delivery identity.
+stream. The existing per-TODO review sweep also reads complete conversations
+to detect deletion; incremental pages never prove absence. Polling and webhook
+hints share the same delivery identity.
 
 Current active members can steer a pinned, bound TODO run. Admission commits
 activity, the TODO transition, the fetched receipt and the durable runtime intent

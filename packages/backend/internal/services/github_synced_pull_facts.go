@@ -57,7 +57,7 @@ func gitHubPullFactResource(resource string) bool {
 	if len(parts) != 3 {
 		return false
 	}
-	if parts[0] == "pulls" && (parts[2] == "reviews" || parts[2] == "comments") {
+	if (parts[0] == "pulls" && (parts[2] == "reviews" || parts[2] == "comments")) || (parts[0] == "issues" && parts[2] == "comments") {
 		n, err := strconv.ParseInt(parts[1], 10, 64)
 		return err == nil && n > 0 && strconv.FormatInt(n, 10) == parts[1]
 	}
@@ -88,7 +88,7 @@ func (s *GitHubSyncedRepoService) pollInstallPullFacts(ctx context.Context, row 
 	}
 	var failures []error
 	for _, kind := range []string{"checks", "reviews"} {
-		err := s.readInstallPullFacts(ctx, row, number, head, kind)
+		err := s.ReadInstallPullFacts(ctx, row, number, head, kind)
 		s.install.mu.Lock()
 		key := syncedStreamKey(row, kind+"/"+strconv.FormatInt(number, 10))
 		state := s.install.streams[key]
@@ -107,7 +107,12 @@ func (s *GitHubSyncedRepoService) pollInstallPullFacts(ctx context.Context, row 
 	return errors.Join(failures...)
 }
 
-func (s *GitHubSyncedRepoService) readInstallPullFacts(ctx context.Context, row db.GithubSyncedRepo, number int64, head, kind string) error {
+// ReadInstallPullFacts refreshes one TODO PR through the shared guarded reader.
+// The stack worker owns scheduling; callers cannot bypass install authority.
+func (s *GitHubSyncedRepoService) ReadInstallPullFacts(ctx context.Context, row db.GithubSyncedRepo, number int64, head, kind string) error {
+	if kind != "checks" && kind != "reviews" {
+		return gitHubFetchUnavailable()
+	}
 	if err := s.authorizeFetched(ctx, row); err != nil {
 		return err
 	}
@@ -118,7 +123,8 @@ func (s *GitHubSyncedRepoService) readInstallPullFacts(ctx context.Context, row 
 	if fetch == nil {
 		return gitHubFetchUnavailable()
 	}
-	paths := []string{"pulls/" + strconv.FormatInt(number, 10) + "/reviews", "pulls/" + strconv.FormatInt(number, 10) + "/comments"}
+	snapshotAt := s.now().UTC()
+	paths := []string{"pulls/" + strconv.FormatInt(number, 10) + "/reviews", "pulls/" + strconv.FormatInt(number, 10) + "/comments", "issues/" + strconv.FormatInt(number, 10) + "/comments"}
 	if kind == "checks" {
 		paths = []string{"commits/" + head + "/check-runs", "commits/" + head + "/statuses"}
 	}
@@ -180,6 +186,10 @@ func (s *GitHubSyncedRepoService) readInstallPullFacts(ctx context.Context, row 
 			return err
 		}
 		if kind == "reviews" && s.install.consumers[gitHubReviews] != nil {
+			comments, _ := facts["issues/"+strconv.FormatInt(number, 10)+"/comments"].([]json.RawMessage)
+			if err := s.commitFetchedConversationSnapshot(ctx, tx, row, number, snapshotAt, comments); err != nil {
+				return err
+			}
 			if err := s.admitFetchedReviewSnapshot(ctx, tx, row, number, facts); err != nil {
 				return err
 			}

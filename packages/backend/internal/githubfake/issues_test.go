@@ -99,7 +99,13 @@ func TestOpenedIssuesAnswerTextEventsCommentsAndClose(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &listed))
 	require.Len(t, listed, 1)
 	require.NotEmpty(t, listed[0]["created_at"])
+	require.NotEmpty(t, listed[0]["updated_at"])
+	require.Equal(t, server.URL+"/repos/acme/app/issues/1", listed[0]["issue_url"])
+	require.NotZero(t, listed[0]["user"].(map[string]any)["id"])
 	delete(listed[0], "created_at")
+	delete(listed[0], "updated_at")
+	delete(listed[0], "issue_url")
+	delete(listed[0]["user"].(map[string]any), "id")
 	require.Equal(t, map[string]any{"id": float64(comment.ID), "body": "Committed as T1 again", "user": map[string]any{"login": "smithers-test[bot]", "type": "Bot"},
 		"performed_via_github_app": map[string]any{"id": float64(42)}}, listed[0])
 
@@ -356,4 +362,49 @@ func TestRepositoryIssueCommentsFilterSortAndPage(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Equal(t, first, rows[0].ID, "direction is ignored without sort")
 	require.False(t, server.UpdateComment("elsewhere/app", first, "wrong", old))
+}
+
+func TestIssueConversationSnapshotPaginationEditAndDeletion(t *testing.T) {
+	server, cfg, key := fixture(t)
+	number := server.OpenIssue("acme/app", "ben", "Comments", "")
+	var first, last int64
+	for n := 0; n < 101; n++ {
+		id := server.CommentIssue("acme/app", number, "ben", "comment")
+		if n == 0 {
+			first = id
+		}
+		last = id
+	}
+	stamp := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	require.True(t, server.UpdateComment("acme/app", last, "edited", stamp))
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	read := func(page string) []map[string]any {
+		status, body := request(t, server, "GET", "/repos/acme/app/issues/1/comments?per_page=100&page="+page, access.Token, nil)
+		require.Equal(t, 200, status)
+		var comments []map[string]any
+		require.NoError(t, json.Unmarshal(body, &comments))
+		return comments
+	}
+	require.Len(t, read("1"), 100)
+	second := read("2")
+	require.Len(t, second, 1)
+	require.EqualValues(t, last, second[0]["id"])
+	require.Equal(t, "edited", second[0]["body"])
+	require.Equal(t, stamp.Format(time.RFC3339), second[0]["updated_at"])
+	require.Equal(t, server.URL+"/repos/acme/app/issues/1", second[0]["issue_url"])
+	require.NotZero(t, second[0]["user"].(map[string]any)["id"])
+	require.False(t, server.DeleteComment("other/app", first))
+	require.True(t, server.DeleteComment("acme/app", first))
+	require.False(t, server.DeleteComment("acme/app", first))
+	remaining := read("1")
+	require.Len(t, remaining, 100)
+	require.Empty(t, read("2"))
+	for _, c := range remaining {
+		require.NotEqualValues(t, first, c["id"])
+	}
 }

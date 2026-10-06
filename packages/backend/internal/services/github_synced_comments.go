@@ -114,3 +114,58 @@ func (s *GitHubSyncedRepoService) commitFetchedComments(ctx context.Context, tx 
 	// Missing rows are not tombstones: incremental pages cannot prove deletion.
 	return nil
 }
+
+// The existing per-TODO review sweep reads a complete conversation snapshot.
+// Only this complete read proves absence; incremental repository pages do not.
+// Keep tombstones in the same cache so restart/replay preserves their identity.
+func (s *GitHubSyncedRepoService) commitFetchedConversationSnapshot(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, number int64, snapshotAt time.Time, objects []json.RawMessage) error {
+	seen := make(map[int64]bool, len(objects))
+	for _, raw := range objects {
+		header, err := fetchedObjectHeader(row, gitHubConversationComments, raw)
+		if err != nil {
+			return err
+		}
+		if header.Number != number {
+			return invalidFetchedComment()
+		}
+		seen[header.ID] = true
+	}
+	rows, err := tx.Query(ctx, `SELECT github_id,payload FROM github_synced_issue_comments WHERE synced_repo_id=$1 AND issue_number=$2 AND github_updated_at<=$3 AND NOT COALESCE((payload->>'deleted')::boolean,false)`, row.ID, number, snapshotAt)
+	if err != nil {
+		return err
+	}
+	type cached struct {
+		id  int64
+		raw json.RawMessage
+	}
+	var missing []cached
+	for rows.Next() {
+		var c cached
+		if err := rows.Scan(&c.id, &c.raw); err != nil {
+			rows.Close()
+			return err
+		}
+		if !seen[c.id] {
+			missing = append(missing, c)
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, c := range missing {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(c.raw, &object); err != nil {
+			return err
+		}
+		object["deleted"] = json.RawMessage(`true`)
+		object["updated_at"], _ = json.Marshal(snapshotAt)
+		raw, err := json.Marshal(object)
+		if err != nil {
+			return err
+		}
+		objects = append(objects, raw)
+	}
+	return s.commitFetchedComments(ctx, tx, row, objects)
+}

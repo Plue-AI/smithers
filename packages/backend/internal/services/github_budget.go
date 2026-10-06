@@ -499,7 +499,7 @@ func gitHubBudgetStream(path string) string {
 		switch {
 		case suffix == "issues/events":
 			return "issue-events"
-		case suffix == "issues/comments":
+		case suffix == "issues/comments" || len(parts) == 6 && parts[3] == "issues" && parts[5] == "comments":
 			return "conversation-comments"
 		case suffix == "pulls/comments":
 			return "review-comments"
