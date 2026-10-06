@@ -3,7 +3,9 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"net/http"
 	"strconv"
 	"strings"
@@ -104,7 +106,46 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 			if strings.HasSuffix(topic, ":activity") || strings.HasSuffix(topic, ":files") {
 				return live.Source{}, live.Unsupported
 			}
-			return t.presence.source(r.Context(), strings.TrimPrefix(topic, "branch:"), repository, member, slug)
+			source, refusal := t.presence.source(r.Context(), strings.TrimPrefix(topic, "branch:"), repository, member, slug)
+			if refusal != "" || t.todos == nil {
+				return source, refusal
+			}
+			build := source.Build
+			source.Build = func(ctx context.Context) (json.RawMessage, error) {
+				raw, err := build(ctx)
+				if err != nil {
+					return nil, err
+				}
+				var branch struct {
+					ID string `json:"id"`
+				}
+				if err := json.Unmarshal(raw, &branch); err != nil {
+					return nil, err
+				}
+				lane, err := t.queries.GetMythicalLane(ctx, branch.ID)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return raw, nil
+				}
+				if err != nil {
+					return nil, err
+				}
+				if lane.RepositoryID != repository {
+					return nil, fmt.Errorf("branch item repository mismatch")
+				}
+				item, err := t.queries.GetMythicalItem(ctx, lane.ItemID)
+				if err != nil {
+					return nil, err
+				}
+				if !item.Number.Valid {
+					return raw, nil
+				}
+				card, err := t.todos.Todo(ctx, repository, item.Number.Int64)
+				if err != nil {
+					return nil, err
+				}
+				return branchItemProjection(raw, []map[string]any{card})
+			}
+			return source, ""
 		}
 		return t.resolve(ctx, topic, repository, slug, member)
 	}, repository
@@ -392,4 +433,38 @@ func homeModel(repository string, todos []map[string]any, sync *services.GitHubS
 func flowProposalReader(provider any) services.FlowProposalReader {
 	reader, _ := provider.(services.FlowProposalReader)
 	return reader
+}
+
+// Reuse the TODO read model; only a stable workspace binding identifies its item.
+// Names can change and are never a substitute for that binding. No read wakes a machine.
+func branchItemProjection(raw json.RawMessage, todos []map[string]any) (json.RawMessage, error) {
+	var model map[string]any
+	if err := json.Unmarshal(raw, &model); err != nil {
+		return nil, err
+	}
+	for _, todo := range todos {
+		branch, ok := todo["branch"].(map[string]any)
+		if !ok || branch["id"] != model["id"] {
+			continue
+		}
+		place := todo["place"]
+		if place == nil {
+			place = 0
+		}
+		item := map[string]any{"n": todo["n"], "title": todo["title"], "state": todo["state"], "place": place}
+		if steps, ok := todo["steps"].([]map[string]any); ok {
+			for _, step := range steps {
+				if step["state"] == "current" {
+					item["step"] = step["label"]
+					break
+				}
+			}
+		}
+		model["item"] = item
+		if pending, ok := todo["rebase_pending"].(map[string]any); ok {
+			model["rebase"] = map[string]any{"state": "pending", "onto": pending["onto"]}
+		}
+		break
+	}
+	return json.Marshal(model)
 }

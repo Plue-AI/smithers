@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -30,4 +31,26 @@ func TestBranchPresenceModelMachineAndSSH(t *testing.T) {
 		model := branchPresenceModel(db.Workspace{ID: "scratch-1", TargetBookmark: "scratch/alice/retry", Status: "suspended"}, []any{}, tc.origin)
 		require.Equal(t, "ssh -p 2222 scratch/alice/retry@"+tc.host, model["ssh_line"])
 	}
+}
+
+func TestBranchItemProjection(t *testing.T) {
+	raw := json.RawMessage(`{"id":"b2","name":"smithers/renamed","machine":{"state":"asleep"}}`)
+	todos := []map[string]any{
+		{"n": 1, "title": "Wrong branch", "branch": map[string]any{"id": "b1", "name": "smithers/renamed"}},
+		{"n": 2, "title": "Retry webhooks", "state": "working", "place": 3, "steps": []map[string]any{{"label": "Plan", "state": "done"}, {"label": "Code", "state": "current"}}, "branch": map[string]any{"id": "b2"}, "rebase_pending": map[string]any{"onto": "main"}},
+	}
+	projected, err := branchItemProjection(raw, todos)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"id":"b2","name":"smithers/renamed","machine":{"state":"asleep"},"item":{"n":2,"title":"Retry webhooks","state":"working","place":3,"step":"Code"},"rebase":{"state":"pending","onto":"main"}}`, string(projected))
+	todos[1]["state"] = "merged"
+	delete(todos[1], "place")
+	delete(todos[1], "rebase_pending")
+	projected, err = branchItemProjection(raw, todos)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"id":"b2","name":"smithers/renamed","machine":{"state":"asleep"},"item":{"n":2,"title":"Retry webhooks","state":"merged","place":0,"step":"Code"}}`, string(projected))
+	projected, err = branchItemProjection(raw, todos[:1])
+	require.NoError(t, err)
+	require.JSONEq(t, string(raw), string(projected))
+	_, err = branchItemProjection(json.RawMessage(`invalid`), todos)
+	require.Error(t, err)
 }

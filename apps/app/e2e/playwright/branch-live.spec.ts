@@ -21,6 +21,7 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
     const data = frame.topic === "branch:b-live" ? {
       id: "b-live", name: "smithers/retry-webhooks", machine: { state: "asleep" },
       item: { n: 2, title: "Retry webhooks", state: "working", place: 2 },
+      rebase: { state: "pending", onto: "main" },
       presence: [{ actor: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }, where: { kind: "file", path: "retry.ts", line: 12 } }],
       terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost"
     } : (frame.topic === "branch:b-live:activity" || frame.topic === "branch:b-live:files") && optionalStreams === "served" ? [] : undefined
@@ -32,6 +33,9 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   const card = page.getByTestId("card-branch:b-live")
   await expect(card).toContainText("smithers/retry-webhooks")
   await expect(card).toContainText("Asleep")
+  await expect(card).toContainText("Retry webhooks")
+  await expect(card).toContainText("Rebase pending")
+  await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toHaveCount(0)
   await expect(card).toContainText("Maya via SSH")
   await expect(card).toContainText("retry.ts:12")
   await expect(card).toContainText("ssh -p 2222 retry-webhooks@localhost")
