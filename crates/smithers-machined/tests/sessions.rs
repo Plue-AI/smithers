@@ -496,7 +496,7 @@ fn failed_roster_rpc_fences_local_run_until_cleanup_receipt() {
         result(&invoke(
             &mut cx,
             16,
-            &request::roster_bytes(&[ben.clone()]).unwrap()
+            &request::roster_bytes(std::slice::from_ref(&ben)).unwrap()
         )),
         [16, 0, 0, 0, 0]
     );
@@ -962,7 +962,7 @@ mod descriptor_stream {
             login: "ben".into(),
             uid: 20001,
         };
-        registry.set_roster(&[ben.clone()], Instant::now()).unwrap();
+        registry.set_roster(std::slice::from_ref(&ben), Instant::now()).unwrap();
         registry.insert(17, ben, Kind::Exec).unwrap();
         let mut child = Command::new("/bin/sh")
             .args(["-c", "printf abcdef; printf ghijkl >&2"])
