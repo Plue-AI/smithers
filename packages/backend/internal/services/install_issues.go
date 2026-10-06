@@ -195,7 +195,12 @@ func (s *MythicalService) InstallIssues(ctx context.Context, repositoryID int64,
 	if err != nil {
 		return nil, err
 	}
-	issues, err := reader.IssuePage(ctx, gh, state, page)
+	var issues []InstallIssue
+	if s.installGitHubPolling {
+		issues, err = s.projectedInstallIssues(ctx, gh, state, page)
+	} else {
+		issues, err = reader.IssuePage(ctx, gh, state, page)
+	}
 	if err != nil {
 		s.logger.Warn("install.issues_unavailable", "repository_id", repositoryID, "error", err)
 		return nil, issuesUnavailable()
@@ -212,7 +217,13 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 	if err != nil {
 		return InstallIssueThread{}, err
 	}
-	thread, found, err := reader.IssueThread(ctx, gh, number)
+	var thread InstallIssueThread
+	var found bool
+	if s.installGitHubPolling {
+		thread, found, err = s.projectedInstallIssue(ctx, gh, number)
+	} else {
+		thread, found, err = reader.IssueThread(ctx, gh, number)
+	}
 	if err != nil {
 		s.logger.Warn("install.issues_unavailable", "repository_id", repositoryID, "issue", number, "error", err)
 		return InstallIssueThread{}, issuesUnavailable()
@@ -220,7 +231,7 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 	if !found {
 		return InstallIssueThread{}, &TodoControlError{http.StatusNotFound, "not_found", "user", fmt.Sprintf("Issue #%d was not found", number)}
 	}
-	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil && !info.IsTokenAuth {
+	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil {
 		decision, err := Authorize(ctx, s.queries(), "issue.read")
 		if err != nil {
 			return InstallIssueThread{}, err

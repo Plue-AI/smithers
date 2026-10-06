@@ -287,9 +287,6 @@ func mythicalCommittedNotice(number int64, link string) mythicalNotice {
 // drafting; neither an unknown digest nor another member's read is admitted.
 func (s *MythicalService) readTodoIssue(ctx context.Context, repositoryID int64, role InstallRole, number int64, digest string) (*db.MythicalTodoIssue, error) {
 	unavailable := &TodoControlError{503, "github_unavailable", "infra", fmt.Sprintf("Could not read issue #%d from GitHub", number)}
-	if s.github == nil {
-		return nil, unavailable
-	}
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.User == nil {
 		return nil, unavailable
@@ -301,6 +298,9 @@ func (s *MythicalService) readTodoIssue(ctx context.Context, repositoryID int64,
 		return nil, &TodoControlError{409, "issue_snapshot_unknown", "conflict", "Open the issue before making a TODO"}
 	}
 	if err != nil {
+		return nil, unavailable
+	}
+	if s.github == nil {
 		return nil, unavailable
 	}
 	var read struct {
