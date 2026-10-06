@@ -15,13 +15,15 @@ This record captures `.specs/engineering/overview.md` decisions E-01, E-02, E-03
 
 A Homebrew tap installs the host service, PostgreSQL 18, packaged Flow runtimes, web assets and the microVM runtime with its pinned guest base image. S1 uses a per-user LaunchAgent under `gui/<uid>` as the installing macOS user, who must be logged in. Startup uses no privilege escalation. The host launcher supervises the backend and PostgreSQL. Durable data lives in `~/Library/Application Support/Smithers`.
 
-The browser is the product surface. The install has no Electrobun app or Docker container. T-INS-02 owns the S1 host launcher; T-INS-08 owns the per-user LaunchAgent. T-INS-05 owns release distribution and deletes the Docker self-host image, which cannot host the required microVMs on macOS. A notarized `.pkg` would require an Apple Developer identity and delay launch. T-INS-03 supplies measured release evidence, not an S1 prerequisite. Before-login daemon support is unproven; this record makes no release-support claim without that evidence.
+The browser is the product surface. The install has no Electrobun app or Docker container. T-INS-02 owns the S1 host launcher; T-INS-08 owns the per-user LaunchAgent. T-INS-05 owns release distribution and deletes the Docker self-host image, which cannot host the required microVMs on macOS. A notarized `.pkg` would add an installer outside Homebrew and slow releases. The existing Developer ID identity permits notarization inside the formula as T-INS-03's fallback, subject to measured release evidence. T-INS-03 supplies measured release evidence, not an S1 prerequisite. Before-login daemon support is unproven; this record makes no release-support claim without that evidence.
 
 Sources: E-01; engineering spec §1.1, §1.2 and §16.1; product M-10 and §6.1.
 
 ### Run repository code only inside microVMs
 
 Repository code runs only inside machines: overridable TODO, learning, review and repository flows, coding agents, checks, terminals, SSH sessions and services. Repository flows run in the branch's coding host or an ephemeral background machine. The Mac host runs only code shipped in the install package and never loads repository flows into its process. The install refuses to start without working microVM isolation and never falls back to host processes or `trusted_process`.
+
+The installed bundle is the host's trust anchor: executable, library and planted artifact bytes must match its pinned manifest before use. Guest root uses only the pinned base image's interpreter and system tools in root-owned directories that machine users cannot write. Nothing a branch build produces is installed, loaded or executed by root.
 
 This boundary keeps agents steered by untrusted text away from host secrets. ADR 0001's `trusted_process` executor cannot provide it. Stack operations, merge, members and settings remain system flows that the repository cannot override.
 
