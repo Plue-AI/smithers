@@ -199,7 +199,15 @@ impl smithers_machined::hooks::Core for Reconciler {
         method: u8,
         _: &[u8],
     ) -> smithers_machined::hooks::Result<Vec<u8>> {
-        if method == 5 {
+        if method == 1 {
+            Ok(conn::structure_bytes(&[
+                conn::field(1, [3]),
+                conn::field(2, 1u16.to_be_bytes()),
+                conn::field(3, [0, 1, b'v']),
+                conn::field(4, 7u32.to_be_bytes()),
+                conn::field(6, 2u16.to_be_bytes()),
+            ]))
+        } else if method == 5 {
             Ok(conn::structure_bytes(&[conn::field(
                 1,
                 conn::tagged(1, &[]),
@@ -207,7 +215,7 @@ impl smithers_machined::hooks::Core for Reconciler {
         } else {
             Err(smithers_machined::hooks::Error {
                 code: 4,
-                current_digest: Some([9; 32]),
+                current_digest: Some([0x33; 32]),
                 ..smithers_machined::hooks::Error::unsupported()
             })
         }
@@ -270,6 +278,9 @@ fn authenticated_dispatch_requires_reconcile_and_roster_on_every_link() {
         let status = call(&mut stream, 1, 1, &[]);
         let result = conn::fields("response", &status.payload[1..]).unwrap()[1].1;
         assert_eq!(conn::fields("result1", &result[1..]).unwrap()[0].1, &[2]);
+        let metrics = conn::fields("result1", &result[1..]).unwrap();
+        assert_eq!(metrics[3].1, 7u32.to_be_bytes());
+        assert_eq!(metrics[4].1, 2u16.to_be_bytes());
         let refused = call(&mut stream, 2, 4, &[]);
         assert_eq!(
             conn::fields("response", &refused.payload[1..]).unwrap()[1].1[0],
@@ -295,6 +306,13 @@ fn authenticated_dispatch_requires_reconcile_and_roster_on_every_link() {
         use std::io::Write;
         stream.write_all(&fixture).unwrap();
         let stale = Frame::read(&mut stream).unwrap();
+        assert_eq!(
+            stale.encode().unwrap(),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../packages/backend/internal/compose/testdata/cocontracts/err_stale.bin"
+            ))
+        );
         let result = conn::fields("response", &stale.payload[1..]).unwrap()[1].1;
         assert_eq!(result[0], 255);
         assert_eq!(conn::fields("error", &result[1..]).unwrap()[0].1, &[4]);

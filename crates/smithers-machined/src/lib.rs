@@ -25,15 +25,15 @@ pub mod watch;
 
 pub mod document_payload;
 
+pub mod boot;
 pub mod capture;
+#[cfg(target_os = "linux")]
+pub mod confine;
+pub mod link;
 pub mod objects;
 pub mod oplog;
 pub mod outbox;
 pub mod reconcile;
-pub mod boot;
-#[cfg(target_os = "linux")]
-pub mod confine;
-pub mod link;
 
 pub mod client;
 pub mod daemon;

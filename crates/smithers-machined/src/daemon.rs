@@ -86,37 +86,34 @@ impl Daemon {
                         }
                         return rpc::dispatch(&frame, cx);
                     }
-                    let (id, method, _) = frame.request()?;
+                    let (id, method, args) = frame.request()?;
                     if crate::wiring::ready(&cx.hooks).is_err() {
                         state.store(false, Ordering::Release);
                         roster.store(false, Ordering::Release);
                     }
                     if method == 1 {
-                        let version = env!("CARGO_PKG_VERSION");
-                        let mut text = (version.len() as u16).to_be_bytes().to_vec();
-                        text.extend(version.as_bytes());
-                        return Ok(response(
-                            id,
-                            1,
-                            conn::structure_bytes(&[
-                                conn::field(
-                                    1,
-                                    [
-                                        if state.load(Ordering::Acquire)
-                                            && roster.load(Ordering::Acquire)
-                                        {
-                                            3
-                                        } else {
-                                            2
-                                        },
-                                    ],
-                                ),
-                                conn::field(2, conn::PROTOCOL.to_be_bytes()),
-                                conn::field(3, text),
-                                conn::field(4, 0u32.to_be_bytes()),
-                                conn::field(6, 0u16.to_be_bytes()),
-                            ]),
-                        ));
+                        // Depth, acked head and queue length belong to the live
+                        // core. Never claim an empty outbox from transport defaults.
+                        let core = cx.hooks.core.clone();
+                        let body = match core.call(cx, 1, args) {
+                            Ok(body) => body,
+                            Err(error) => return Ok(refused(id, error)),
+                        };
+                        let fields = conn::fields("result1", &body)?;
+                        let ready = state.load(Ordering::Acquire)
+                            && roster.load(Ordering::Acquire)
+                            && !cx.rewrite_pending;
+                        let fields: Vec<_> = fields
+                            .into_iter()
+                            .map(|(tag, value)| {
+                                if tag == 1 {
+                                    conn::field(1, [if ready { 3 } else { 2 }])
+                                } else {
+                                    conn::field(tag, value)
+                                }
+                            })
+                            .collect();
+                        return Ok(response(id, 1, conn::structure_bytes(&fields)));
                     }
                     if !matches!(method, 5 | 16)
                         && !(state.load(Ordering::Acquire) && roster.load(Ordering::Acquire))
@@ -128,6 +125,7 @@ impl Daemon {
                         roster.store(true, Ordering::Release);
                     }
                     if method == 5 {
+                        state.store(false, Ordering::Release);
                         let fields = conn::fields("response", &result.payload[1..])?;
                         let value = fields[1].1;
                         if value[0] == 5 {

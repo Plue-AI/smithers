@@ -76,6 +76,9 @@ pub fn serve(
             {
                 return Ok(daemon::refused(id, unauthorized()));
             }
+            if cx.rewrite_pending && method == 3 {
+                return Ok(daemon::refused(id, crate::freeze::pending_error()));
+            }
             match method {
                 3 => Ok(match files.write(cx, write.unwrap()) {
                     Ok(body) => daemon::response(id, 3, body),
