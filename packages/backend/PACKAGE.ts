@@ -1,5 +1,11 @@
 import { Smithers } from "@smthrs/targets"
 
+/** Backend-owned inputs for the root Go build and test gate. */
+const buildInputs = Smithers.Filegroup({
+  srcs: [Smithers.glob("**/*")],
+  cwd: "packages/backend"
+})
+
 /** Checks the App setup guide against the source it documents.
  * Refresh the receipt with `smthrs docs //packages/backend:docs --write`.
  * @since 1.0.0
@@ -88,4 +94,4 @@ const journeyTodoLabel = Smithers.NodeTest({
  * @since 1.0.0
  * @category packages
  */
-export const Package = Smithers.Package({ targets: { docs, journeyTodoLabel } })
+export const Package = Smithers.Package({ targets: { buildInputs, docs, journeyTodoLabel } })

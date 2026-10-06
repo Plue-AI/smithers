@@ -38,11 +38,6 @@
         "path": "pnpm-lock.yaml"
       },
       {
-        "kind": "glob",
-        "pattern": "apps/model-host/src/**/*.ts",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "apps/model-host/build.mjs"
       },
@@ -61,11 +56,6 @@
       {
         "kind": "file",
         "path": "packages/rpc/contracts/app-bootstrap-v1.schema.json"
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/backend/**/*",
-        "exclude": []
       },
       {
         "kind": "glob",
@@ -88,7 +78,9 @@
       "//:backendGoModules",
       "//:backendSQLC",
       "//:nativeFfi",
+      "//apps/model-host:backendInputs",
       "//flows:codingHostInputs",
+      "//packages/backend:buildInputs",
       "//packages/smithers/agent/integrations:lib",
       "//packages/smithers/agent/model-host:lib",
       "//packages/smithers/flows:lib"
@@ -822,7 +814,7 @@
     "package": "",
     "name": "reviewDocsAgainstCode",
     "rule": "LlmLint",
-    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"origin/main\",\"paths\":[\"packages/*/src/**\",\"packages/*/*/src/**\",\"packages/*/*/*/src/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/src/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/*/src/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/*/*/src/**\",\"exclude\":[]}],\"context\":[{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/README.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/*/README.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/*/*/README.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/concepts/*.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/flows.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/flow.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/plan.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/journal.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/targets.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/build.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/build-cli.mdx\",\"exclude\":[]}],\"deps\":[],\"prompt\":\"You are reviewing a diff in `smithers`, an Effect v4 coding-agent harness written from scratch. Report only violations of the rubric below. Judgment calls that the rubric does not cover are not findings. Prefer no finding over a speculative one.\",\"rubric\":\"The context files are package prose and selected site reference, concept, or guide pages.\\nCompare their current contents against the changed source, whether or not they changed.\\n1. A public export whose reference page still describes removed, renamed, or changed\\n   behavior is a warning against the reference page.\\n2. A new public export absent from its package's reference page is a warning against the\\n   reference page.\\n3. A concept page contradicted by the change is a warning against the concept page.\\nName the stale documentation page in `file`. Do not report a source file for these.\\nPrivate helpers, tests, and internal modules are out of scope.\",\"engine\":\"codex\",\"model\":\"gpt-6-luna\",\"batchSize\":3,\"failOn\":\"warning\",\"scope\":\"changed\",\"manual\":false}",
+    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"origin/main\",\"paths\":[\"packages/*/src/**\",\"packages/*/*/src/**\",\"packages/*/*/*/src/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/src/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/*/src/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/*/*/src/**\",\"exclude\":[]}],\"context\":[{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/README.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/*/README.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//packages/*/*/*/README.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/installation.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/flows.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/flow.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/plan.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/journal.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/targets.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/build.mdx\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//apps/site/src/content/docs/docs/reference/api/build-cli.mdx\",\"exclude\":[]}],\"deps\":[],\"prompt\":\"You are reviewing a diff in `smithers`, an Effect v4 coding-agent harness written from scratch. Report only violations of the rubric below. Judgment calls that the rubric does not cover are not findings. Prefer no finding over a speculative one.\",\"rubric\":\"The context files are package prose and selected site reference, concept, or guide pages.\\nCompare their current contents against the changed source, whether or not they changed.\\n1. A public export whose reference page still describes removed, renamed, or changed\\n   behavior is a warning against the reference page.\\n2. A new public export absent from its package's reference page is a warning against the\\n   reference page.\\n3. A concept page contradicted by the change is a warning against the concept page.\\nName the stale documentation page in `file`. Do not report a source file for these.\\nPrivate helpers, tests, and internal modules are out of scope.\",\"engine\":\"codex\",\"model\":\"gpt-6-luna\",\"batchSize\":3,\"failOn\":\"warning\",\"scope\":\"changed\",\"manual\":false}",
     "kinds": [
       "review"
     ],
@@ -871,7 +863,7 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/site/src/content/docs/docs/concepts/*.mdx",
+        "pattern": "apps/site/src/content/docs/docs/installation.mdx",
         "exclude": []
       },
       {
@@ -2331,6 +2323,26 @@
     "dependencies": [],
     "source": {
       "file": "apps/bug-worker/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/model-host:backendInputs",
+    "package": "apps/model-host",
+    "name": "backendInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/model-host/src/**/*.ts",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/model-host/PACKAGE.ts"
     }
   },
   {
@@ -12423,6 +12435,26 @@
     "dependencies": [],
     "source": {
       "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/backend:buildInputs",
+    "package": "packages/backend",
+    "name": "buildInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/backend/PACKAGE.ts"
     }
   },
   {
