@@ -195,17 +195,18 @@ func TestGitHubAppSetupBeginRefusesUntrustedOriginsAndMalformedBody(t *testing.T
 			r.AddCookie(&http.Cookie{Name: GitHubAppSetupSessionCookie, Value: strings.Repeat("s", 64)})
 			r.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
 			r.Header.Set("X-CSRF-Token", "csrf")
-			origin, ok := h.requestOrigin(r)
-			if ok {
-				r.Header.Set("Origin", origin)
-			}
-			if r.RemoteAddr == "192.0.2.1:1234" && strings.Contains(r.Host, "localhost") {
-				r.RemoteAddr = "127.0.0.1:1234"
-			}
+			// Model the browser and loopback peer directly; deriving Origin
+			// before assigning the peer can stop at CSRF instead of JSON.
+			r.RemoteAddr = "127.0.0.1:1234"
+			r.Header.Set("Origin", test.origin)
 			w := httptest.NewRecorder()
 			h.Begin(w, r)
 			require.Equal(t, test.want, w.Code)
 			require.Zero(t, s.beginCalls)
+			require.Empty(t, w.Result().Cookies())
+			if test.want == http.StatusBadRequest {
+				require.Contains(t, w.Body.String(), "invalid setup body")
+			}
 		})
 	}
 }

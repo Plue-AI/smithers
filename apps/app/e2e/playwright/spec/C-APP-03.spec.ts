@@ -2,7 +2,6 @@ import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
-import type { TodoCard } from "@smthrs/rpc/TodoCard"
 
 // The shared failure/slash command. Settings binds the same command in T-APP-03;
 // guest rebuild and certified TODO failure ingestion need install qualification.

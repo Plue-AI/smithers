@@ -303,7 +303,7 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
     if (todo !== undefined) await openTodo(todo)
     return { value: outcome.ack }
   }
-  const control = (todo: DesignTodo, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop", text?: string): DesignResult => {
+  const control = (todo: DesignTodo, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop" | "takeover", text?: string): DesignResult => {
     switch (operation) {
       case "stop": return design.stop(todo.id, by())
       case "resume": return design.resume(todo.id, by())
