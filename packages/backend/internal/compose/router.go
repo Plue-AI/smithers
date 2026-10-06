@@ -958,6 +958,9 @@ func buildRouter(
 		if queries != nil {
 			r.Use(delegatedAttribution(services.NewAuditService(queries)))
 		}
+		if config.IsSingleOwner(cfg.Auth) && workspaceTerminalHandler != nil {
+			r.With(middleware.RequireAuth).Post("/terminals", workspaceTerminalHandler.OpenTerminal)
+		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
 			todos := &routes.TodoHandler{Queries: queries, Service: service}

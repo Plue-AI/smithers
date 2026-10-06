@@ -1,0 +1,43 @@
+paths:
+  /api/terminals:
+    post:
+      x-composition: install
+      summary: Open a branch terminal
+      description: Refuses without the owner-uid machine session providers. No host or shared-user fallback.
+      operationId: post_api_terminals
+      tags:
+        - Terminals
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch]
+              properties:
+                branch:
+                  type: string
+      responses:
+        '401':
+          description: Authentication required
+        '403':
+          description: Not admitted to the install
+        '503':
+          description: Owner-uid terminal providers unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, class, message]
+                properties:
+                  code:
+                    type: string
+                    enum: [terminal_unavailable]
+                  class:
+                    type: string
+                    enum: [infra]
+                  message:
+                    type: string
+                    enum: [Terminal is unavailable]

@@ -1845,6 +1845,11 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 	ExpiresAt      time.Time  `json:"expires_at"`
 }
 
+// PostAPITerminalsBody is generated from docs/api/openapi.yaml.
+type PostAPITerminalsBody struct {
+	Branch string `json:"branch"`
+}
+
 // PostAPITodosBody is generated from docs/api/openapi.yaml.
 type PostAPITodosBody struct {
 	Title       string                 `json:"title"`
@@ -5212,6 +5217,11 @@ func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/telemetry/errors", nil, nil, &out)
 	return out, err
+}
+
+// PostAPITerminals calls POST /api/terminals.
+func (c *Client) PostAPITerminals(ctx context.Context, body PostAPITerminalsBody) error {
+	return c.do(ctx, "POST", "/api/terminals", nil, body, nil)
 }
 
 // GetAPITodos calls GET /api/todos.

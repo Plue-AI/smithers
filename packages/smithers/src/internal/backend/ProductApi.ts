@@ -5316,6 +5316,18 @@ export type PostApiTelemetryErrorsResponse = AnyJSON
 export const postApiTelemetryErrors = (transport: Transport): Promise<PostApiTelemetryErrorsResponse> =>
   transport.request("POST", `/api/telemetry/errors`) as Promise<PostApiTelemetryErrorsResponse>
 
+export type PostApiTerminalsBody = {
+  branch: string
+}
+
+export interface PostApiTerminalsInput {
+  readonly body: PostApiTerminalsBody
+}
+
+/** POST /api/terminals: Open a branch terminal */
+export const postApiTerminals = (transport: Transport, input: PostApiTerminalsInput): Promise<void> =>
+  transport.request("POST", `/api/terminals`, input.body).then(() => undefined)
+
 export type GetApiTodosResponse = Array<TodoCard>
 
 /** GET /api/todos: Read the install repository TODOs */
