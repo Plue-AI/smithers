@@ -89,6 +89,9 @@ pub fn serve(
     } else {
         None
     };
+    let stream_ready = ready.clone();
+    let stream_groups = groups.clone();
+    let stream_run = run.clone();
     let response = lock
         .run_blocking("local_rpc", move |cx| {
             // Recheck after queueing: revocation can happen while this request waits
@@ -126,5 +129,32 @@ pub fn serve(
         })
         .map_err(|_| io::Error::other("mutation executor stopped"))?
         .map_err(io::Error::other)?;
-    response.write(&mut socket)
+    response.write(&mut socket)?;
+    if method != 6 {
+        return Ok(());
+    }
+    let fields = conn::fields("response", &response.payload[1..]).map_err(io::Error::other)?;
+    let value = fields[1].1;
+    if value.first() != Some(&6) {
+        return Ok(());
+    }
+    let fields = conn::fields("result6", &value[1..]).map_err(io::Error::other)?;
+    let session = u32::from_be_bytes(
+        fields[0]
+            .1
+            .try_into()
+            .map_err(|_| io::ErrorKind::InvalidData)?,
+    );
+    crate::local_stream::serve(
+        socket,
+        session,
+        lock.clone(),
+        Arc::new(move |cx| {
+            stream_ready()
+                && run_for_peer(19999, &stream_groups, &*cx.hooks.sessions)
+                    .ok()
+                    .as_ref()
+                    == Some(&stream_run)
+        }),
+    )
 }

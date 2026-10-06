@@ -157,3 +157,149 @@ fn local_open_refuses_identity_and_kind_selection() {
         assert!(validate_open(&bytes).is_err());
     }
 }
+
+#[test]
+fn local_pty_stream_delivers_input_controls_and_output_without_host_poll() {
+    use smithers_machined::{
+        hooks::{Hooks, Sessions},
+        local_stream,
+        lock::Executor,
+    };
+    use std::sync::{Arc, Mutex};
+    struct Pty(Mutex<Vec<Frame>>);
+    impl Sessions for Pty {
+        fn call(&self, method: u8, args: &[u8]) -> smithers_machined::hooks::Result<Vec<u8>> {
+            assert_eq!(method, 8);
+            assert_eq!(args, &[0, 0, 0, 5, 1, 0, 0, 0, 17]);
+            Ok(vec![0, 0])
+        }
+        fn frame(&self, f: &Frame) -> smithers_machined::hooks::Result<Frame> {
+            self.0.lock().unwrap().push(f.clone());
+            Ok(Frame {
+                kind: 5,
+                stream: 17,
+                payload: vec![6, 0, 0, 0, 3],
+            })
+        }
+        fn poll(&self) -> smithers_machined::hooks::Result<Vec<Frame>> {
+            panic!("local socket must never drain host output")
+        }
+        fn poll_local(&self, session: u32) -> smithers_machined::hooks::Result<Vec<Frame>> {
+            assert_eq!(session, 17);
+            if self.0.lock().unwrap().len() == 2 {
+                Ok(vec![
+                    Frame {
+                        kind: 5,
+                        stream: 17,
+                        payload: vec![1, 1, b'o', b'k'],
+                    },
+                    Frame {
+                        kind: 5,
+                        stream: 17,
+                        payload: vec![5, 0, 0, 0, 0, 7],
+                    },
+                ])
+            } else {
+                Ok(vec![])
+            }
+        }
+    }
+    let pty = Arc::new(Pty(Mutex::new(vec![])));
+    let executor = Executor::start(Hooks {
+        sessions: pty.clone(),
+        ..Hooks::default()
+    })
+    .unwrap();
+    let (mut caller, server) = UnixStream::pair().unwrap();
+    caller
+        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+        .unwrap();
+    let lock = executor.lock.clone();
+    let worker =
+        std::thread::spawn(move || local_stream::serve(server, 17, lock, Arc::new(|_| true)));
+    for payload in [vec![1, 0, b'a', b'b', b'c'], vec![2, 0]] {
+        Frame {
+            kind: 5,
+            stream: 17,
+            payload,
+        }
+        .write(&mut caller)
+        .unwrap();
+        assert_eq!(Frame::read(&mut caller).unwrap().payload, [6, 0, 0, 0, 3]);
+    }
+    assert_eq!(
+        Frame::read(&mut caller).unwrap().payload,
+        [1, 1, b'o', b'k']
+    );
+    assert_eq!(
+        Frame::read(&mut caller).unwrap().payload,
+        [5, 0, 0, 0, 0, 7]
+    );
+    worker.join().unwrap().unwrap();
+    assert_eq!(pty.0.lock().unwrap().len(), 2);
+    executor.shutdown().unwrap();
+}
+
+#[test]
+fn local_pty_foreign_stream_and_revocation_interrupt_idle_reader() {
+    use smithers_machined::{
+        hooks::{Hooks, Sessions},
+        local_stream,
+        lock::Executor,
+    };
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    struct Pty;
+    impl Sessions for Pty {
+        fn call(&self, method: u8, args: &[u8]) -> smithers_machined::hooks::Result<Vec<u8>> {
+            assert_eq!(method, 8);
+            assert_eq!(args, &[0, 0, 0, 5, 1, 0, 0, 0, 17]);
+            Ok(vec![0, 0])
+        }
+        fn frame(&self, _: &Frame) -> smithers_machined::hooks::Result<Frame> {
+            panic!("foreign input reached session provider")
+        }
+        fn poll_local(&self, _: u32) -> smithers_machined::hooks::Result<Vec<Frame>> {
+            Ok(vec![])
+        }
+    }
+    for revoked in [false, true] {
+        let executor = Executor::start(Hooks {
+            sessions: Arc::new(Pty),
+            ..Hooks::default()
+        })
+        .unwrap();
+        let (mut caller, server) = UnixStream::pair().unwrap();
+        caller
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let allowed = Arc::new(AtomicBool::new(true));
+        let check = allowed.clone();
+        let lock = executor.lock.clone();
+        let worker = std::thread::spawn(move || {
+            local_stream::serve(
+                server,
+                17,
+                lock,
+                Arc::new(move |_| check.load(Ordering::Acquire)),
+            )
+        });
+        if revoked {
+            allowed.store(false, Ordering::Release);
+        } else {
+            Frame {
+                kind: 5,
+                stream: 18,
+                payload: vec![1, 0, b'x'],
+            }
+            .write(&mut caller)
+            .unwrap();
+        }
+        let mut byte = [0];
+        assert_eq!(caller.read(&mut byte).unwrap(), 0);
+        assert!(worker.join().unwrap().is_err());
+        executor.shutdown().unwrap();
+    }
+}

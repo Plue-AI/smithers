@@ -148,6 +148,11 @@ pub trait Sessions: Send + Sync {
     fn frame(&self, _frame: &Frame) -> Result<Frame> {
         Err(Error::unsupported())
     }
+    /// Drain only this local socket's stream. Never implement this by draining
+    /// `poll`: that would consume output belonging to the authenticated host.
+    fn poll_local(&self, _session: u32) -> Result<Vec<Frame>> {
+        Err(Error::unsupported())
+    }
     /// Agent-local admission uses the kernel-observed cgroup, not request user
     /// or run fields. The broker must inherit its registered run atomically.
     fn open_local(&self, _caller_cgroup: &str, _arguments: &[u8]) -> Result<Vec<u8>> {
