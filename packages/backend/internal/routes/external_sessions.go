@@ -77,7 +77,7 @@ func (h *ExternalSessionsHandler) Read(w http.ResponseWriter, r *http.Request) {
 		externalSessionError(w, err)
 		return
 	}
-	chunk, err := externalsessions.Read(session.Path, offset)
+	chunk, err := externalsessions.Read(session, offset)
 	if err != nil {
 		externalSessionError(w, err)
 		return
@@ -95,10 +95,17 @@ func (h *ExternalSessionsHandler) Read(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// externalSessionError writes a Find or Read failure. A Refusal is its own
+// envelope; anything else is infra, and no path or OS error text reaches
+// the body.
 func externalSessionError(w http.ResponseWriter, err error) {
 	var refused *externalsessions.Refusal
 	if errors.As(err, &refused) {
-		externalSessionRefusal(w, refused.Status, "user", refused.Code, refused.Message)
+		class := refused.Class
+		if class == "" {
+			class = "user"
+		}
+		externalSessionRefusal(w, refused.Status, class, refused.Code, refused.Message)
 		return
 	}
 	externalSessionRefusal(w, http.StatusServiceUnavailable, "infra", "external_unavailable", "Agent sessions are unavailable")

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -160,11 +159,11 @@ func (t *liveTopics) externalSession(ctx context.Context, topic, rest string) (l
 		if err != nil {
 			return nil, err
 		}
-		info, err := os.Stat(session.Path)
+		size, err := session.Size()
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"session_id": session.ID, "size": info.Size()})
+		return json.Marshal(map[string]any{"session_id": session.ID, "size": size})
 	}}, ""
 }
 

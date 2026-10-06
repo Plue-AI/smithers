@@ -175,6 +175,27 @@ func TestExternalSessionsComposedInstallPostgres(t *testing.T) {
 	require.Equal(t, http.StatusConflict, status)
 	require.Equal(t, "ambiguous_session", body["code"])
 	require.NoError(t, os.Remove(ambiguous))
+	// A file the account cannot read is an infra refusal whose body names
+	// no path and carries no OS error text.
+	if os.Geteuid() != 0 {
+		require.NoError(t, os.Chmod(rollout, 0))
+		res, err := func() (*http.Response, error) {
+			req, err := http.NewRequest(http.MethodGet, origin+"/api/external/sessions?agent=codex&session="+codexID, nil)
+			require.NoError(t, err)
+			req.Header.Set("Origin", origin)
+			req.AddCookie(&http.Cookie{Name: "session", Value: ben.cookie})
+			return http.DefaultClient.Do(req)
+		}()
+		require.NoError(t, err)
+		raw, err := io.ReadAll(res.Body)
+		require.NoError(t, err)
+		res.Body.Close()
+		require.Equal(t, http.StatusServiceUnavailable, res.StatusCode, string(raw))
+		require.JSONEq(t, `{"class":"infra","code":"source_unreadable","message":"The session file could not be read."}`, string(raw))
+		require.NotContains(t, string(raw), home)
+		require.NotContains(t, string(raw), "permission denied")
+		require.NoError(t, os.Chmod(rollout, 0o600))
+	}
 
 	// Only the owner's browser session reads them.
 	aliceCookie := session(writer)
