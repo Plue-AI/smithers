@@ -93,18 +93,34 @@ func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userI
 	if err := s.branchMachineProviders.Authorize(ctx, tx, "branches.read", repositoryID, "", userID); err != nil {
 		return nil, 0, err
 	}
-	rows, total, err := s.ListWorkspaces(ctx, repositoryID, userID, page, perPage)
+	// Branch machines belong to the service identity, never to the person
+	// reading the roster. List that canonical inventory, including branches
+	// the member has not joined yet; reading creates no grant.
+	q := db.New(tx)
+	owner, err := q.GetBranchMachineOwner(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	q := db.New(tx)
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 30
+	}
+	rows, err := q.ListWorkspacesByRepo(ctx, db.ListWorkspacesByRepoParams{
+		RepositoryID: repositoryID, UserID: owner,
+		PageOffset: ClampInt32((page - 1) * perPage), PageSize: int32(perPage),
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	total, err := q.CountWorkspacesByRepo(ctx, db.CountWorkspacesByRepoParams{RepositoryID: repositoryID, UserID: owner})
+	if err != nil {
+		return nil, 0, err
+	}
 	result := make([]BranchMachineResponse, 0, len(rows))
 	for _, row := range rows {
-		full, err := s.q.GetWorkspace(ctx, row.ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		branch, err := s.projectBranch(ctx, q, full, row)
+		branch, err := s.projectBranch(ctx, q, row, s.toWorkspaceResponse(row))
 		if err != nil {
 			return nil, 0, err
 		}

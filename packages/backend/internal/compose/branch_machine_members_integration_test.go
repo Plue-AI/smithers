@@ -144,6 +144,12 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 		return string(raw)
 	}
 
+	// Listing is roster-authorized, including before a member joins. The
+	// database owner is the service identity, so a person-owned query is empty.
+	for _, cookie := range []string{ownerCookie, benCookie, aliceCookie} {
+		require.Contains(t, call("GET", "/api/branches", "", cookie, 200), machine.ID)
+	}
+
 	if concurrent {
 		type receipt struct {
 			status int
@@ -222,6 +228,7 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 		call("DELETE", "/api/members/ben", "", ownerCookie, 204)
 	}
 	call("GET", "/api/branches/mythical", "", benCookie, 401)
+	call("GET", "/api/branches", "", benCookie, 401)
 	require.Contains(t, call("GET", "/api/branches/mythical", "", aliceCookie, 200), machine.ID)
 	var shares, events, machines int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspace_shares WHERE workspace_id=$1 AND grantee_user_id=$2`, machine.ID, ben.ID).Scan(&shares))
