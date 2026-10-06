@@ -29,7 +29,7 @@ describe("TODO Container", () => {
   test("a queued TODO without an admitted branch renders and has no Open branch action", () => {
     const model = TodoCardSchema.parse({ ...fixtures.queued.model, branch: undefined })
     const h = mount(model)
-    expect(h.props.actions.some(action => action.tag === "branch")).toBe(false)
+    expect(h.props.actions.some(action => action.tag === "branch" || action.tag === "branch.fork")).toBe(false)
     expect(renderToStaticMarkup(<TodoView {...h.props} />)).toContain(model.title)
   })
   test("maps every schema fixture, including past attempts and repairs, without owning presentation", () => {
@@ -201,10 +201,10 @@ test("a supplied conflict terminal and Done retain their wait through the Contai
     expect(calls).toEqual([["todo.answer", { n: 12, wait: "wait-conflict-1", answer: "done" }]])
   } finally { await act(async () => root.unmount()); host.remove() }
 })
-test("one actions row: Open branch, Inspect, Steer and Amend as plain buttons, Drop; the only form is the wait's Answer", () => {
+test("one actions row: Open branch, Fork, Inspect, Steer and Amend as plain buttons, Drop; the only form is the wait's Answer", () => {
   const model = { ...fixtures.needs_you.model, first_answer: undefined }
   const h = mount(model)
-  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "run.inspect", "todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "branch.fork", "run.inspect", "todo.steer", "todo.amend", "todo.drop"])
   expect(h.props.actions.every(action => action.input === undefined)).toBe(true)
   h.props.onAction("todo.steer")
   h.props.onAction("todo.amend")
