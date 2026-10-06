@@ -114,8 +114,28 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 	if err != nil {
 		return BranchDiff{}, &BranchError{http.StatusBadRequest, "invalid_branch", "user", "Invalid branch"}
 	}
+	subject := branch
+	// Branch cards dispatch the durable workspace id; slash commands may
+	// name its bookmark. Resolve only within this install repository before
+	// selecting the scratch reader, so both doors compare the same revision.
+	if mythicalWorkspaceID.MatchString(branch) {
+		workspace, readErr := s.queries().GetWorkspace(ctx, branch)
+		if readErr == nil && workspace.RepositoryID == repository && !workspace.DeletedAt.Valid {
+			if strings.HasPrefix(workspace.TargetBookmark, scratchBranchPrefix) {
+				branch = workspace.TargetBookmark
+			}
+		} else if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+			return BranchDiff{}, readErr
+		} else {
+			return BranchDiff{}, &BranchError{http.StatusNotFound, "branch_not_found", "user", "Branch not found"}
+		}
+	}
 	if strings.HasPrefix(branch, scratchBranchPrefix) {
-		return s.scratchBranchDiff(ctx, repository, branch)
+		diff, err := s.scratchBranchDiff(ctx, repository, branch)
+		for i := range diff.Files {
+			diff.Files[i].Branch = subject
+		}
+		return diff, err
 	}
 	var id string
 	err = s.store.QueryRow(ctx, `SELECT id::text FROM mythical_items WHERE repository_id=$1 AND (workspace_id=$2 OR checks->>'branch'=$2) ORDER BY created_at DESC LIMIT 1`, repository, branch).Scan(&id)

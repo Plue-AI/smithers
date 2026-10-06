@@ -116,8 +116,24 @@ func TestScratchDiffUsesForkRevisionInstall(t *testing.T) {
 	require.Equal(t, 200, got.Code, got.Body.String())
 	require.JSONEq(t, fmt.Sprintf(`{"files":[{"path":"src/retry.ts","branch":"%s","against":{"kind":"fork","rev":"%s"},"change":"added","hunks":[{"old_start":0,"new_start":1,"lines":[{"op":"+","text":"export const backoff = 2"}]}]}]}`, branch, fork), got.Body.String())
 	require.Equal(t, 1, reads)
+	// Mounted Branch cards use the workspace id, while slash commands use
+	// the bookmark. Both must reach the fork reader with identical output.
+	byID := call(machine.ID, cookie)
+	require.Equal(t, 200, byID.Code, byID.Body.String())
+	require.JSONEq(t, strings.ReplaceAll(got.Body.String(), branch, machine.ID), byID.Body.String())
+	require.Equal(t, 2, reads)
 	require.Equal(t, 401, call(branch, "").Code)
-	require.Equal(t, 1, reads, "unauthenticated reads never reach repo-host")
+	require.Equal(t, 2, reads, "unauthenticated reads never reach repo-host")
+	require.Equal(t, 404, call("00000000-0000-0000-0000-000000000000", cookie).Code)
+	other, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "other", LowerName: "other", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	foreign, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: other.ID, UserID: owner.ID, Name: "foreign", Kind: "container", Status: "running", TargetBookmark: branch, EnvironmentSource: "main"})
+	require.NoError(t, err)
+	require.Equal(t, 404, call(foreign.ID, cookie).Code)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET deleted_at=now() WHERE id=$1`, foreign.ID)
+	require.NoError(t, err)
+	require.Equal(t, 404, call(foreign.ID, cookie).Code)
+	require.Equal(t, 2, reads, "missing, foreign and deleted ids never reach repo-host")
 	require.Equal(t, 404, call("smithers/retry", cookie).Code, "missing items keep the accepted-prefix reader response")
 	require.Equal(t, 404, call("scratch/ben/missing", cookie).Code)
 	binary = true
@@ -133,4 +149,9 @@ func TestScratchDiffUsesForkRevisionInstall(t *testing.T) {
 	require.Equal(t, "running", unchanged.Status)
 	require.Equal(t, machine.ProvisioningGeneration, unchanged.ProvisioningGeneration)
 	require.Equal(t, fork, unchanged.SourceCommit)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET deleted_at=now() WHERE id=$1`, machine.ID)
+	require.NoError(t, err)
+	beforeDeletedRead := reads
+	require.Equal(t, 404, call(machine.ID, cookie).Code)
+	require.Equal(t, beforeDeletedRead, reads, "deleted install workspaces never reach repo-host")
 }
