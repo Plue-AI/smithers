@@ -351,7 +351,9 @@ describe("C-1 (every affordance resolves to a /name)", () => {
 })
 
 describe("D-4 (at $0, chat keeps working and non-complimentary work pauses)", () => {
-  const turnOk: ProbeContext["fetch"] = async () => jsonResponse("{\"type\":\"done\"}")
+  const turnOk: ProbeContext["fetch"] = async url => url.endsWith("/prompt")
+    ? Response.json({ turnId: "test-turn", runId: "host-run" }, { status: 202 })
+    : Response.json({ id: "main", entries: [{ id: "test-turn", runId: "host-run", state: "completed", frames: [{ runId: "host-run", type: "done", reason: "stop" }] }] })
   const evaluate = (expression: string): unknown => (expression.includes("textarea") ? true : null)
   const env = { CHECKLIST_ZERO_BALANCE_BEARER: "smithers_session=zero" }
 

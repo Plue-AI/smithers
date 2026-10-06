@@ -2,7 +2,6 @@ import { expect, test } from "bun:test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createChatStub } from "../../e2e/support/ChatStub"
 import { startLocalServer } from "./server"
 
 test("live upgrade forwards session, origin, protocol and frames to the product backend", async () => {
@@ -18,7 +17,7 @@ test("live upgrade forwards session, origin, protocol and frames to the product 
     },
     websocket: { message: (socket, raw) => { socket.send(raw) } }
   })
-  const app = await startLocalServer({ port: 0, distDir: dist, agent: createChatStub, backendApi: backend.url.origin, log: () => {} })
+  const app = await startLocalServer({ port: 0, distDir: dist, backendApi: backend.url.origin, log: () => {} })
   let socket: WebSocket | undefined
   try {
     const received = await new Promise<string>((resolve, reject) => {
@@ -56,7 +55,7 @@ for (const available of [false, true]) {
       },
       websocket: { message: (socket, raw) => { socket.send(raw) } }
     })
-    const app = await startLocalServer({ port: 0, distDir: dist, agent: createChatStub, backendApi: backend.url.origin, log: () => {} })
+    const app = await startLocalServer({ port: 0, distDir: dist, backendApi: backend.url.origin, log: () => {} })
     let socket: WebSocket | undefined
     try {
       const frames: unknown[] = []
