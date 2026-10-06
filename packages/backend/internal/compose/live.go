@@ -280,7 +280,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			return t.home(ctx, repository, slug, member)
 		}}, ""
 	case topic == "flows":
-		return live.Source{Key: topic, Hints: hints, Every: 5 * time.Second, Build: func(ctx context.Context) (json.RawMessage, error) {
+		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			cards, err := services.RepositoryFlowCatalog(ctx, t.queries, repository, flowProposalReader(t.todos))
 			if err != nil {
 				return nil, err
