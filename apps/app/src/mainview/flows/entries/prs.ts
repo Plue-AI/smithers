@@ -55,7 +55,7 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     handler: ({ cardId, tab }) => actions.setLandingTab(cardId, tab)
   }),
   flow({
-    // Retain the old button/form door for persisted cards; it shares /review's refusal.
+    // Retain the persisted door; it shares /review's host dispatcher.
     name: "prs.triage",
     hidden: true,
     summary: "Review a pull request",
@@ -66,7 +66,7 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     handler: ({ number, repo }) => actions.triagePullRequest(number, repo, true)
   }),
   flow({
-    name: "review", slash: "/review", cli: ["review"], journey: ["J2"], group: "Review", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, hidden: true, discloseToAgent: false,
+    name: "review", workflow: "review", slash: "/review", cli: ["review"], journey: ["J2"], group: "Review", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/reviews", body: { number: "number", repo: "repo" }, defaults: { conversation: "main" } },
     summary: "Review a change, return findings",
     confirm: "review the pull request",
     args: "<number> [owner/repo]",

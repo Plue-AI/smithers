@@ -7,6 +7,7 @@ import type { SeamContext } from "../seams/SeamContext"
 import { issueAuthorizationScope, readResult } from "../seams/SeamContext"
 import type { WorkflowController } from "./workflows"
 import type { TodoSeam } from "../seams/TodoSeam"
+import { createReviewSeam } from "../seams/ReviewSeam"
 import { flowArgs } from "../../flows/FlowArgs"
 
 export interface IssueFlowsController {
@@ -14,8 +15,8 @@ export interface IssueFlowsController {
   readonly inspectIssueFlows: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | { readonly value: string }>
   readonly runIssueFlow: (name: "repro" | "poc", number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   readonly runIssueImplementation: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
-  /** Review remains dark until the host can authorize and dispatch an isolated run. */
-  readonly triagePullRequest: (number: number, repo?: string, humanDoor?: boolean) => Promise<string>
+  /** The host admits review; the browser never runs repository code. */
+  readonly triagePullRequest: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | { readonly value: string }>
 }
 
 export const createIssueFlowsController = (
@@ -26,6 +27,7 @@ export const createIssueFlowsController = (
   const authorized = (issue: IssuePayload): boolean => issue.makeTodoAllowed === true
     && /^[0-9a-f]{64}$/.test(issue.issueDigest ?? "")
     && issue.todoAuthorizationScope === issueAuthorizationScope(ctx)
+  const reviews = createReviewSeam(ctx)
   const cards = (): Array<Card> => [...ctx.store.collections.cards.values()]
   const requireBox = (repo: string, flow: string, args: string, title: string, humanDoor: boolean): string | { readonly value: string } | undefined => {
     if (humanDoor) return flows.requireBox(repo, { flow, args }, title)
@@ -110,9 +112,7 @@ export const createIssueFlowsController = (
       return todos.draftFromIssue({ number, ...(issue.issueDigest ? { digest: issue.issueDigest } : {}), title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
         comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) })
     },
-    // No browser launch can establish host-bound authorization, membership,
-    // confirmation, Active closure, pinned loading, delivery or microVM safety.
-    triagePullRequest: async () => "Review is unavailable on this host.",
+    triagePullRequest: reviews.request,
     runIssueFlow: async (name, number, explicit, humanDoor = false) => {
       const selected = target(number, explicit)
       if ("error" in selected) return selected.error

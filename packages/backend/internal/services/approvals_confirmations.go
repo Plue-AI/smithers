@@ -310,6 +310,7 @@ type preparedConfirmation struct {
 	subject, input  json.RawMessage
 	revision, title string
 	card            map[string]any
+	review          *ReviewAdmission
 }
 
 // prepareConfirmation adapts existing transactional TODO consumers. Its switch
@@ -358,6 +359,41 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if input.Command == "learning.dismiss" {
 			verb = "Dismiss"
 		}
+	case "review":
+		var request ReviewRequest
+		if err := confirmationJSON(input.Payload, &request); err != nil {
+			return p, err
+		}
+		if s.reviews == nil {
+			return p, confirmationUnavailable()
+		}
+		ref := "review#" + strconv.FormatInt(request.Number, 10)
+		if (subject.Kind != "" || subject.Ref != "") && (subject.Kind != "flow" || subject.Ref != ref) {
+			return p, invalidConfirmation()
+		}
+		subject.Kind, subject.Ref = "flow", ref
+		p.input, _ = json.Marshal(request)
+		if !inspect {
+			p.subject, _ = json.Marshal(subject)
+			return p, nil
+		}
+		consumer := *s
+		consumer.store = tx
+		admission, err := consumer.prepareReviewSubject(ctx, repository, info.User.ID, request, input.Key)
+		if err != nil {
+			return p, err
+		}
+		if err = s.reviews.machine.Prepare(ctx, admission); err != nil {
+			return p, err
+		}
+		if err = s.reviews.delivery.Ready(ctx, admission); err != nil {
+			return p, err
+		}
+		p.review = &admission
+		snapshot, _ := json.Marshal(admission)
+		sum := sha256.Sum256(snapshot)
+		p.revision = hex.EncodeToString(sum[:])
+		p.title, text, verb = "Review #"+strconv.FormatInt(request.Number, 10), "", "Review"
 	case "todo.new":
 		var request MythicalTodoInput
 		if err := confirmationJSON(input.Payload, &request); err != nil {
@@ -647,6 +683,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			consumer.store = tx
 			var number int64
 			var amendedRevision int
+			var reviewOperationID string
 			switch command {
 			case "learning.accept", "learning.dismiss":
 				var subject struct {
@@ -660,6 +697,17 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				if card.Todo != nil {
 					number = card.Todo.N
 				}
+			case "review":
+				if prepared.review == nil || consumer.reviews == nil {
+					return confirmationUnavailable()
+				}
+				var request ReviewRequest
+				if err = json.Unmarshal(prepared.input, &request); err != nil {
+					return err
+				}
+				var admitted ReviewAdmission
+				admitted, err = consumer.reviews.admitInTx(bound, tx, *prepared.review, request)
+				reviewOperationID = admitted.OperationID
 			case "todo.new":
 				var request MythicalTodoInput
 				if err = json.Unmarshal(prepared.input, &request); err != nil {
@@ -720,8 +768,13 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			}
 			// The private projection retains the admitted subject across a lost
 			// response/reload. This is an admission receipt, never execution success.
-			if number > 0 {
-				effectInput := map[string]any{"todo": number, "request": input.Key}
+			if number > 0 || reviewOperationID != "" {
+				effectInput := map[string]any{"request": input.Key}
+				if reviewOperationID != "" {
+					effectInput["review"] = reviewOperationID
+				} else {
+					effectInput["todo"] = number
+				}
 				if amendedRevision > 0 {
 					effectInput["revision"] = amendedRevision
 				}
