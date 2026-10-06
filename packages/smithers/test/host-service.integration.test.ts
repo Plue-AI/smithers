@@ -35,7 +35,6 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
   const launchctl = (...args: string[]) => spawnSync("/bin/launchctl", args, { encoding: "utf8" })
   // Never replace an operator's running install during qualification.
   expect(launchctl("print", `${domain}/sh.smithers.host`).status, "Stop the existing host service first").not.toBe(0)
-  const cli = join(resolve(bundle!), "bin/smthrs")
   expect(existsSync(cli), "Qualification requires the CLI shipped in the built bundle").toBe(true)
   // Production isolation refuses writable shared ancestors such as /tmp.
   // Keep this private home in the worktree, with a short Unix-socket path.
@@ -100,8 +99,8 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
   try {
     cpSync(resolve(bundle!), ownedBundle, { recursive: true, verbatimSymlinks: true })
     expect(existsSync(cli), "Qualification uses the CLI shipped in the bundle").toBe(true)
-    const started = run("start", "--bundle", ownedBundle, "--json")
     const startedAt = Date.now()
+    const started = run("start", "--bundle", ownedBundle, "--json")
     expect(started.status, started.stderr).toBe(0)
     expect(Date.now() - startedAt, "first start must print setup URLs within 60 seconds").toBeLessThanOrEqual(60_000)
     const firstToken = tokenOf(started.stdout), pid = backendPID()
