@@ -217,7 +217,6 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 		sessionRefreshWindow = 168 * time.Hour
 	}
 
-	cookieSecure := cfg.CookieSecure
 	var ownerBoundary identity.MemberAuthorizer
 	if config.IsSingleOwner(cfg) {
 		if len(boundaries) > 0 {
@@ -234,6 +233,10 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 			if authorizationDelegated(r, cfg.WorkerExchangeToken) {
 				next.ServeHTTP(w, r)
 				return
+			}
+			cookieSecure := cfg.CookieSecure
+			if origin, ok := r.Context().Value(effectiveOriginKey{}).(string); ok {
+				cookieSecure = strings.HasPrefix(origin, "https://")
 			}
 			ctx := r.Context()
 			now := time.Now().UTC()
@@ -314,7 +317,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 						// cookie's lifetime, otherwise it silently expires first and
 						// blocks every mutation for a still-logged-in user (#207).
 						if token, err := NewCSRFToken(); err == nil {
-							SetCSRFCookie(w, token, cookieSecure, refreshedSession.ExpiresAt)
+							SetCSRFCookie(w, token, cookieSecure, refreshedSession.ExpiresAt, csrfSameSite(r))
 						} else {
 							slog.Error("failed to mint refreshed csrf token", "error", err)
 						}
@@ -324,7 +327,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 						// session-scoped CSRF cookie set before this fix — mints one
 						// so the client can resume making mutating requests.
 						if token, err := NewCSRFToken(); err == nil {
-							SetCSRFCookie(w, token, cookieSecure, sessionExpiresAt)
+							SetCSRFCookie(w, token, cookieSecure, sessionExpiresAt, csrfSameSite(r))
 						} else {
 							slog.Error("failed to mint csrf token", "error", err)
 						}
@@ -727,4 +730,11 @@ func authRowToUser(authRow db.GetAuthInfoByTokenHashRow) db.User {
 		CreatedAt:     authRow.CreatedAt,
 		UpdatedAt:     authRow.UpdatedAt,
 	}
+}
+
+func csrfSameSite(r *http.Request) http.SameSite {
+	if _, ok := r.Context().Value(effectiveOriginKey{}).(string); ok {
+		return http.SameSiteLaxMode
+	}
+	return http.SameSiteStrictMode
 }

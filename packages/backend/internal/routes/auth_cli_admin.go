@@ -48,8 +48,8 @@ func (h *AuthHandler) showAdminCLIConsent(w http.ResponseWriter, r *http.Request
 	}
 	consent, err := svc.PrepareAdminCLIConsent(r.Context(), result, state, verifier)
 	if err != nil {
-		clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
-		clearCLICallbackCookie(w)
+		clearOAuthStateCookie(w, h.cookieSecure(r))
+		clearCLICallbackCookie(w, h.cookieSecure(r))
 		if apiErr, ok := err.(*pkgerrors.APIError); ok && apiErr.Status == http.StatusForbidden {
 			adminCLIPageHeaders(w)
 			w.WriteHeader(http.StatusForbidden)
@@ -59,9 +59,9 @@ func (h *AuthHandler) showAdminCLIConsent(w http.ResponseWriter, r *http.Request
 		writeRouteError(w, r, err)
 		return
 	}
-	clearCLICallbackCookie(w)
+	clearCLICallbackCookie(w, h.cookieSecure(r))
 	// Renew the verifier cookie for the consent's ten-minute lifetime.
-	setOAuthStateCookie(w, verifier, time.Now().UTC().Add(10*time.Minute), h.AuthConfig.CookieSecure)
+	setOAuthStateCookie(w, verifier, time.Now().UTC().Add(10*time.Minute), h.cookieSecure(r))
 	adminCLIPageHeaders(w)
 	_ = adminCLIConsentPage.Execute(w, consent)
 }
@@ -69,8 +69,8 @@ func (h *AuthHandler) showAdminCLIConsent(w http.ResponseWriter, r *http.Request
 // GetAdminCLIConsent denies the pending flow by removing its browser verifier.
 // The unused durable consent record expires automatically after ten minutes.
 func (h *AuthHandler) GetAdminCLIConsent(w http.ResponseWriter, r *http.Request) {
-	clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
-	clearCLICallbackCookie(w)
+	clearOAuthStateCookie(w, h.cookieSecure(r))
+	clearCLICallbackCookie(w, h.cookieSecure(r))
 	adminCLIPageHeaders(w)
 	_, _ = fmt.Fprint(w, "<!doctype html><html lang=\"en\"><title>Login denied</title><h1>Admin CLI login denied</h1><p>No token was created. You can close this tab.</p></html>")
 }
@@ -97,8 +97,8 @@ func (h *AuthHandler) PostAdminCLIConsent(w http.ResponseWriter, r *http.Request
 		writeRouteError(w, r, err)
 		return
 	}
-	clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
-	clearCLICallbackCookie(w)
+	clearOAuthStateCookie(w, h.cookieSecure(r))
+	clearCLICallbackCookie(w, h.cookieSecure(r))
 	params := url.Values{"token": {result.Token.Token}, "username": {result.User.Username}}
 	if result.Token.ExpiresAt != nil {
 		params.Set("expires_at", result.Token.ExpiresAt.UTC().Format(time.RFC3339))

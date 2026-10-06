@@ -9,6 +9,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -203,6 +204,16 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			WriteInstallSetupError(w, r, err)
 			return
+		}
+		if h.Store != nil {
+			fixes, fixErr := h.Store.CallbackFixes(r.Context(), h.knownOrigins())
+			if fixErr != nil && !errors.Is(fixErr, services.ErrGitHubAppNotConfigured) {
+				WriteInstallSetupError(w, r, fixErr)
+				return
+			}
+			if fixErr == nil {
+				status["callback_fixes"] = fixes
+			}
 		}
 		pkgerrors.WriteJSON(w, http.StatusOK, status)
 		return
@@ -478,10 +489,45 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var input struct {
-		Capacity *int  `json:"capacity"`
-		ChatGPT  *bool `json:"chatgpt"`
+		ChatGPT  *bool     `json:"chatgpt"`
+		Capacity *int      `json:"capacity"`
+		Bind     *string   `json:"bind"`
+		Origins  *[]string `json:"origins"`
 	}
 	if !decodeStrictJSONBody(w, r, &input) {
+		return
+	}
+	if input.Bind != nil || input.Origins != nil {
+		if input.Capacity != nil || input.ChatGPT != nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("other settings and address must be set separately"))
+			return
+		}
+		if h.Setup == nil || h.Setup.Address == nil {
+			WriteInstallSetupError(w, r, &services.InstallReadinessError{Code: "address_unavailable", Class: "transient", Message: "Install listener unavailable"})
+			return
+		}
+		current := h.Setup.Address.Settings()
+		if input.Bind != nil {
+			current.Bind = *input.Bind
+		}
+		if input.Origins != nil {
+			current.Origins = *input.Origins
+		}
+		bind := current.Bind
+		if net.ParseIP(bind) != nil || strings.EqualFold(bind, "localhost") {
+			bind = net.JoinHostPort(bind, "4000")
+		}
+		raw, _ := json.Marshal(map[string]any{"bind": bind, "origins": current.Origins})
+		address, validateErr := services.ValidateInstallSetupBody("address", raw)
+		if validateErr != nil {
+			WriteInstallSetupError(w, r, validateErr)
+			return
+		}
+		if err = h.Setup.SetAddress(r.Context(), info.User.ID, address); err != nil {
+			WriteInstallSetupError(w, r, err)
+			return
+		}
+		h.Status(w, r)
 		return
 	}
 	if input.Capacity == nil && input.ChatGPT == nil {
@@ -527,6 +573,8 @@ func WriteInstallSetupError(w http.ResponseWriter, r *http.Request, err error) {
 		status := http.StatusServiceUnavailable
 		if readiness.Class == "user" {
 			status = http.StatusBadRequest
+		} else if readiness.Class == "permission" {
+			status = http.StatusForbidden
 		}
 		pkgerrors.WriteJSON(w, status, readiness)
 		return

@@ -1295,16 +1295,25 @@ type InstallSetupEmpty = map[string]json.RawMessage
 
 // InstallSetupStatus is generated from docs/api/openapi.yaml.
 type InstallSetupStatus struct {
-	Address      InstallSetupStatusAddress      `json:"address"`
-	Steps        []InstallSetupStatusStepsItem  `json:"steps"`
-	ThisMac      InstallSetupStatusThisMac      `json:"this_mac"`
-	Github       InstallSetupStatusGithub       `json:"github"`
-	Repository   *InstallSetupStatusRepository  `json:"repository,omitempty"`
-	Repositories []string                       `json:"repositories,omitempty"`
-	Models       []InstallSetupStatusModelsItem `json:"models"`
-	Chatgpt      bool                           `json:"chatgpt"`
-	Capacity     int64                          `json:"capacity"`
-	Parallel     *int64                         `json:"parallel,omitempty"`
+	SSHHost       *string                               `json:"ssh_host,omitempty"`
+	SSHLine       *string                               `json:"ssh_line,omitempty"`
+	CallbackFixes []InstallSetupStatusCallbackFixesItem `json:"callback_fixes,omitempty"`
+	Address       InstallSetupStatusAddress             `json:"address"`
+	Steps         []InstallSetupStatusStepsItem         `json:"steps"`
+	ThisMac       InstallSetupStatusThisMac             `json:"this_mac"`
+	Github        InstallSetupStatusGithub              `json:"github"`
+	Repository    *InstallSetupStatusRepository         `json:"repository,omitempty"`
+	Repositories  []string                              `json:"repositories,omitempty"`
+	Models        []InstallSetupStatusModelsItem        `json:"models"`
+	Chatgpt       bool                                  `json:"chatgpt"`
+	Capacity      int64                                 `json:"capacity"`
+	Parallel      *int64                                `json:"parallel,omitempty"`
+}
+
+// InstallSetupStatusCallbackFixesItem is generated from docs/api/openapi.yaml.
+type InstallSetupStatusCallbackFixesItem struct {
+	AddURL      *string `json:"add_url,omitempty"`
+	SettingsURL *string `json:"settings_url,omitempty"`
 }
 
 // InstallSetupStatusAddress is generated from docs/api/openapi.yaml.
@@ -1603,12 +1612,6 @@ type GetAPIStatusResponseComponentsCanary struct {
 type GetAPIInstallScorecardParams struct {
 	From time.Time
 	To   time.Time
-}
-
-// PutAPIInstallBody is generated from docs/api/openapi.yaml.
-type PutAPIInstallBody struct {
-	Chatgpt  *bool  `json:"chatgpt,omitempty"`
-	Capacity *int64 `json:"capacity,omitempty"`
 }
 
 // PostAPIInstallQuiesceBody is generated from docs/api/openapi.yaml.
@@ -2689,7 +2692,7 @@ func (c *Client) GetAPIInstall(ctx context.Context) (InstallSetupStatus, error) 
 }
 
 // PutAPIInstall calls PUT /api/install.
-func (c *Client) PutAPIInstall(ctx context.Context, body PutAPIInstallBody) (InstallSetupStatus, error) {
+func (c *Client) PutAPIInstall(ctx context.Context, body any) (InstallSetupStatus, error) {
 	var out InstallSetupStatus
 	err := c.do(ctx, "PUT", "/api/install", nil, body, &out)
 	return out, err

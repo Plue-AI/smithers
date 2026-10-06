@@ -53,6 +53,16 @@ type InstallSetupInput struct {
 // ValidateInstallSetupBody precedes both step and job writes. Every transport
 // has exactly one literal body contract; null is refused.
 func ValidateInstallSetupBody(step string, raw []byte) (InstallSetupInput, error) {
+	return validateInstallSetupBody(step, raw, true)
+}
+
+// ValidateInitialInstallAddress permits a bind without a public origin; local
+// host start prints the required LAN-origin instruction.
+func ValidateInitialInstallAddress(raw []byte) (InstallSetupInput, error) {
+	return validateInstallSetupBody("address", raw, false)
+}
+
+func validateInstallSetupBody(step string, raw []byte, requireNetworkOrigin bool) (InstallSetupInput, error) {
 	var fields map[string]json.RawMessage
 	var input InstallSetupInput
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
@@ -77,7 +87,7 @@ func ValidateInstallSetupBody(step string, raw []byte) (InstallSetupInput, error
 	switch step {
 	case "address":
 		host, port, err := net.SplitHostPort(input.Bind)
-		if err != nil || port != "4000" || !(host == "localhost" || net.ParseIP(host) != nil) {
+		if input.Bind != "" && (err != nil || port != "4000" || !(host == "localhost" || net.ParseIP(host) != nil)) {
 			return input, pkgerrors.BadRequest("invalid bind address")
 		}
 		if len(input.Origins) == 0 || len(input.Origins) > 10 {
@@ -98,7 +108,7 @@ func ValidateInstallSetupBody(step string, raw []byte) (InstallSetupInput, error
 		}
 		// A network bind serves teammates only at an origin they can open;
 		// loopback origins alone would answer them 421 unknown_origin.
-		if NetworkBind(input.Bind) != "" && !teammates {
+		if requireNetworkOrigin && NetworkBind(input.Bind) != "" && !teammates {
 			return input, pkgerrors.BadRequest("network needs the address teammates use")
 		}
 	case "app_manifest":
@@ -807,7 +817,13 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]any{"address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": chatgpt, "capacity": capacity}
+	sshHost := "localhost"
+	if len(origins) > 0 {
+		if origin, err := url.Parse(origins[0]); err == nil {
+			sshHost = origin.Hostname()
+		}
+	}
+	result := map[string]any{"ssh_host": sshHost, "ssh_line": "ssh -p 2222 <branch>@" + sshHost, "address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": chatgpt, "capacity": capacity}
 	repository, err := q.GetInstallSetting(ctx, "repository")
 	if err == nil {
 		var slug string

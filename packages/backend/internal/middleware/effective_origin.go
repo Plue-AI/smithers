@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/url"
@@ -37,6 +39,9 @@ func SameOrigin(a, b string) bool {
 // The origin it returns is canonical (CanonicalOrigin), whatever the spelling
 // of the known origin it matched.
 func ResolveEffectiveOrigin(r *http.Request, publicOrigins []string) (string, bool) {
+	if origin, ok := r.Context().Value(effectiveOriginKey{}).(string); ok {
+		return origin, true
+	}
 	host := r.Host
 	socketPeer := r.RemoteAddr
 	if original, ok := r.Context().Value(socketPeerKey{}).(string); ok {
@@ -61,6 +66,10 @@ func ResolveEffectiveOrigin(r *http.Request, publicOrigins []string) (string, bo
 	for _, candidate := range known {
 		u, err := url.Parse(candidate)
 		if err == nil && strings.EqualFold(u.Host, host) {
+			ip := net.ParseIP(u.Hostname())
+			if !loopback && (strings.EqualFold(u.Hostname(), "localhost") || (ip != nil && ip.IsLoopback())) {
+				continue
+			}
 			if origin != "" && origin != CanonicalOrigin(candidate) {
 				return "", false
 			}
@@ -72,3 +81,35 @@ func ResolveEffectiveOrigin(r *http.Request, publicOrigins []string) (string, bo
 	}
 	return origin, true
 }
+
+// EffectiveOrigin resolves the install origin before authentication and RealIP.
+// Readiness is reachable without a browser host only on the control loopback.
+func EffectiveOrigin(origins func() []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			peer, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				peer = r.RemoteAddr
+			}
+			ip := net.ParseIP(peer)
+			if r.URL.Path == "/readyz" && ip != nil && ip.IsLoopback() {
+				next.ServeHTTP(w, r)
+				return
+			}
+			origin, ok := ResolveEffectiveOrigin(r, origins())
+			if !ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMisdirectedRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"class": "user", "code": "unknown_origin", "message": "unknown_origin"})
+				return
+			}
+			if r.Header.Get("Authorization") == "" && r.Header.Get("Origin") != "" && !SameOrigin(r.Header.Get("Origin"), origin) {
+				writeOriginPermission(w, "origin")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), effectiveOriginKey{}, origin)))
+		})
+	}
+}
+
+type effectiveOriginKey struct{}

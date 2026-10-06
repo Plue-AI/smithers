@@ -62,7 +62,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -87,11 +87,28 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              minProperties: 1
+              oneOf:
+                - anyOf:
+                    - required: [capacity]
+                    - required: [chatgpt]
+                - anyOf:
+                    - required: [bind]
+                    - required: [origins]
               properties:
                 chatgpt:
                   type: boolean
                   description: Enable the owner ChatGPT subscription pool; off by default.
+                bind:
+                  type: string
+                  description: Network IP address, optionally with port 4000; loopback always remains available.
+                origins:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: string
+                    format: uri
+                  description: HTTP or HTTPS origins with distinct hosts and ports.
                 capacity:
                   type: integer
                   minimum: 1
@@ -109,7 +126,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -157,7 +174,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -211,7 +228,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -259,7 +276,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -307,7 +324,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -355,7 +372,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -403,7 +420,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -451,7 +468,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InstallSetupError"
         "403":
-          description: Install owner required
+          description: Install owner required; cookie mutations require matching Origin and CSRF (permission/origin or permission/csrf).
           content:
             application/json:
               schema:
@@ -766,6 +783,22 @@ components:
         - chatgpt
         - capacity
       properties:
+        ssh_host:
+          type: string
+        ssh_line:
+          type: string
+          description: SSH command template using the first public origin hostname.
+        callback_fixes:
+          type: array
+          items:
+            type: object
+            properties:
+              add_url:
+                type: string
+                format: uri
+              settings_url:
+                type: string
+                format: uri
         address:
           type: object
           required:

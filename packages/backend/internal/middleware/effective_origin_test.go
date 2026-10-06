@@ -27,7 +27,7 @@ func TestEffectiveOriginSocketPeerAndKnownScheme(t *testing.T) {
 			r.Header.Set("X-Forwarded-Proto", tc.proto)
 			r.Header.Set("X-Forwarded-For", "127.0.0.1")
 			r.Header.Set("Origin", tc.origin)
-			origin, ok := ResolveEffectiveOrigin(r, []string{"http://lan-a:4000", "https://box.example"})
+			origin, ok := ResolveEffectiveOrigin(r, []string{"http://lan-a:4000", "https://box.example", "http://localhost:4000"})
 			require.Equal(t, tc.want != "", ok)
 			require.Equal(t, tc.want, origin)
 		})
@@ -81,5 +81,33 @@ func TestEffectiveOriginIsCanonicalWhateverTheSavedSpelling(t *testing.T) {
 		{"null", "http://localhost:4000", false},
 	} {
 		require.Equal(t, tc.same, SameOrigin(tc.a, tc.b), "%q %q", tc.a, tc.b)
+	}
+}
+
+func TestEffectiveOriginReadinessAndCachedRequest(t *testing.T) {
+	origins := []string{"https://box.example"}
+	handler := EffectiveOrigin(func() []string { return origins })(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origins = nil
+		if r.URL.Path != "/readyz" {
+			origin, ok := ResolveEffectiveOrigin(r, nil)
+			require.True(t, ok)
+			require.Equal(t, "https://box.example", origin)
+		}
+		w.WriteHeader(204)
+	}))
+	for _, tc := range []struct {
+		target, peer string
+		want         int
+	}{
+		{"http://box.example/", "127.0.0.1:123", 204},
+		{"http://unknown/readyz", "127.0.0.1:123", 204},
+		{"http://unknown/readyz", "192.0.2.1:123", 421},
+	} {
+		origins = []string{"https://box.example"}
+		req := httptest.NewRequest("GET", tc.target, nil)
+		req.RemoteAddr = tc.peer
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		require.Equal(t, tc.want, recorder.Code)
 	}
 }

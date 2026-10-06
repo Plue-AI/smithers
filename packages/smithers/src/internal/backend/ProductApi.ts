@@ -762,6 +762,12 @@ export type InstallSetupRepository = {
 export type InstallSetupEmpty = Record<string, never>
 
 export type InstallSetupStatus = {
+  ssh_host?: string
+  ssh_line?: string
+  callback_fixes?: Array<{
+    add_url?: string
+    settings_url?: string
+  }>
   address: {
     listen: "mac" | "network"
     bind: string
@@ -1702,10 +1708,7 @@ export type GetApiInstallResponse = InstallSetupStatus
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
 
-export type PutApiInstallBody = {
-  chatgpt?: boolean
-  capacity?: number
-}
+export type PutApiInstallBody = (unknown | unknown) | (unknown | unknown)
 
 export type PutApiInstallResponse = InstallSetupStatus
 

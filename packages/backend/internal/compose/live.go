@@ -34,6 +34,7 @@ type liveTopics struct {
 	queries *db.Queries
 	todos   liveTodos
 	sync    liveSync
+	install *services.InstallSetupService
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -88,7 +89,18 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			return live.Source{}, live.Forbidden
 		}
 		return live.Source{}, live.Unsupported
-	case "branch", "conversation", "doc", "members", "secrets", "proposals", "agents", "install", "run":
+	case "install":
+		if topic != "install" || t.install == nil {
+			return live.Source{}, live.Unsupported
+		}
+		return live.Source{Key: "install", Hints: []string{"install"}, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			status, err := t.install.Status(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(status)
+		}}, ""
+	case "branch", "conversation", "doc", "members", "secrets", "proposals", "agents", "run":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {

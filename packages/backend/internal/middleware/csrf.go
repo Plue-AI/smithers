@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -29,14 +30,18 @@ func NewCSRFToken() (string, error) {
 // same time as the auth session cookie it accompanies. HttpOnly is
 // deliberately false so client-side JS can read the value and echo it back
 // in the X-CSRF-Token header.
-func SetCSRFCookie(w http.ResponseWriter, token string, secure bool, expiresAt time.Time) {
+func SetCSRFCookie(w http.ResponseWriter, token string, secure bool, expiresAt time.Time, mode ...http.SameSite) {
+	sameSite := http.SameSiteStrictMode
+	if len(mode) != 0 {
+		sameSite = mode[0]
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     CSRFCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: false,
 		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: sameSite,
 		Expires:  expiresAt,
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 	})
@@ -81,6 +86,20 @@ func enforceCSRF(w http.ResponseWriter, r *http.Request, next http.Handler) {
 		return
 	}
 
+	if origin, ok := r.Context().Value(effectiveOriginKey{}).(string); ok {
+		if !SameOrigin(r.Header.Get("Origin"), origin) {
+			writeOriginPermission(w, "origin")
+			return
+		}
+		cookie, err := r.Cookie(CSRFCookieName)
+		token := r.Header.Get("X-CSRF-Token")
+		if err != nil || token == "" || cookie.Value == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(token)) != 1 {
+			writeOriginPermission(w, "csrf")
+			return
+		}
+		next.ServeHTTP(w, r)
+		return
+	}
 	// Session-authenticated state-changing request - validate CSRF token
 	csrfToken := r.Header.Get("X-CSRF-Token")
 	if csrfToken == "" {
@@ -111,4 +130,10 @@ func isSafeMethod(method string) bool {
 	default:
 		return false
 	}
+}
+
+func writeOriginPermission(w http.ResponseWriter, code string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_ = json.NewEncoder(w).Encode(map[string]string{"class": "permission", "code": code, "message": code})
 }

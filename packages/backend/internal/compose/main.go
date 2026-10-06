@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/sdk/trace"
 
@@ -286,6 +288,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	fs := flag.NewFlagSet("smithers-server", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "Path to config file")
+	initialBind := fs.String("bind", "", "Initial network bind beside loopback")
+	var initialOrigins originFlags
+	fs.Var(&initialOrigins, "origin", "Initial public origin (repeatable)")
 	setupHandoff := fs.String("setup-handoff", "terminal", "Setup URL output: terminal or socket")
 	if err := fs.Parse(args); err != nil {
 		return &flagParseError{err}
@@ -1545,6 +1550,36 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if err := installAddress.Load(ctx, queries); err != nil {
 			return fmt.Errorf("load install address: %w", err)
 		}
+		if *initialBind != "" || len(initialOrigins) > 0 {
+			bind := *initialBind
+			if bind == "" {
+				bind = "127.0.0.1:4000"
+			}
+			if net.ParseIP(bind) != nil || strings.EqualFold(bind, "localhost") {
+				bind = net.JoinHostPort(bind, "4000")
+			}
+			origins := []string(initialOrigins)
+			if len(origins) == 0 {
+				origins = []string{"http://localhost:4000"}
+				fmt.Fprintln(stderr, "LAN browsers need --origin")
+			}
+			raw, _ := json.Marshal(map[string]any{"bind": bind, "origins": origins})
+			input, err := services.ValidateInitialInstallAddress(raw)
+			if err != nil {
+				return err
+			}
+			if _, err := queries.GetSelfHostOwner(ctx); errors.Is(err, pgx.ErrNoRows) {
+				if _, savedErr := queries.GetInstallSetting(ctx, "bind"); errors.Is(savedErr, pgx.ErrNoRows) {
+					if err = installAddress.Initialize(ctx, pool, input); err != nil {
+						return err
+					}
+				} else if savedErr != nil {
+					return savedErr
+				}
+			} else if err != nil {
+				return err
+			}
+		}
 		// A TODO's pull request and issue comments link to the Address
 		// teammates open, read at each use so a saved change applies.
 		mythicalService.SetPublicOrigin(installAddress.Public)
@@ -1617,7 +1652,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var liveHandler *routes.LiveHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute}
+		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup}
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
 	}
 	router := buildRouter(
@@ -2220,3 +2255,8 @@ func selectGitHubAppCredentials(singleOwner, useEnv bool, store *services.GitHub
 	}
 	return store, nil
 }
+
+type originFlags []string
+
+func (o *originFlags) String() string         { return strings.Join(*o, ",") }
+func (o *originFlags) Set(value string) error { *o = append(*o, value); return nil }
