@@ -1006,3 +1006,44 @@ test("a server snapshot recovers Source after the TODO receipt cleared before it
     expect(posts).toBe(1)
   } finally { h.close() }
 })
+
+for (const status of [202, 409] as const) {
+  test(`Discard binds its branch/wait/head, persists once before HTTP and handles ${status}`, async () => {
+    const admission = deferred<Response>()
+    const calls: { url: string; init?: RequestInit }[] = []
+    const h = await harness((url, init) => { calls.push({ url, init }); return admission.promise })
+    try {
+      const foreign = fixtures.foreign_push.model.waits[0]!
+      const model = { ...fixtures.foreign_push.model, waits: [foreign, fixtures.needs_you.model.waits[0]!] }
+      await h.seam.applyTodoProjection(12, model)
+      expect(await h.seam.discardForeign("unserved/branch", foreign.id, foreign.sha!)).toBe("Could not open the TODO.")
+      expect(calls).toEqual([])
+      for (let press = 0; press < 2; press++) {
+        expect(await h.seam.discardForeign(model.branch!.name, foreign.id, foreign.sha!)).toEqual({ value: "Requested" })
+      }
+      expect(calls).toHaveLength(1)
+      expect(calls[0]!.url).toBe("https://install.test/api/branches/todo%2F12")
+      expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: "discard-foreign", id: foreign.id, revision: foreign.sha })
+      const pending = h.todo().payload.requests[0]!
+      expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe(pending.key)
+      expect(CardSchema.parse(h.todo()).payload).toEqual(h.todo().payload)
+      expect(h.outcomes).toEqual([])
+      admission.resolve(status === 202 ? json({ state: "accepted", n: 12 })
+        : json({ code: "conflict", class: "conflict", message: "Outside push changed; refresh the TODO" }, 409))
+      await waitFor(() => h.todo().payload.requests[0]?.state === (status === 202 ? "accepted" : "failed"))
+      if (status === 409) {
+        expect(h.outcomes).toEqual([{ key: `todo.request.${pending.key}`, status: "failed", detail: "Outside push changed; refresh the TODO" }])
+        expect(h.todo().payload.model).toEqual(model)
+      } else {
+        expect(h.outcomes).toEqual([])
+        await h.seam.applyTodoProjection(12, model)
+        expect(h.outcomes).toEqual([])
+        await h.seam.applyTodoProjection(12, { ...model, waits: [model.waits[1]!] })
+        expect(h.todo().payload.requests).toEqual([])
+        expect(h.todo().payload.model?.waits).toEqual([model.waits[1]!])
+        expect(h.todo().payload.model?.evidence).toEqual(model.evidence)
+        expect(h.outcomes).toEqual([{ key: `todo.request.${pending.key}`, status: "ok", detail: "Discarded" }])
+      }
+    } finally { h.close() }
+  })
+}

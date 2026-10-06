@@ -214,6 +214,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       // An accepted answer is done once its question is no longer open.
       if (request.operation === "answer") return model.waits.some(wait => wait.id === request.body.wait)
         ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Answered" } }]
+      if (request.operation === "discard-foreign") return model.waits.some(wait => wait.id === request.body.id)
+        ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Discarded" } }]
       if (request.operation === "takeover") return model.owner.login === request.owner
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Taken over" } }] : []
       // A drop settles once the TODO is dropped.
@@ -285,7 +287,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     showNotice(request, title)
     // An answer has its own route (POST /api/todos/{n}/answer); the other controls share the TODO's.
     const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move", "takeover"].includes(request.operation)
-    const route = request.operation === "create" ? TODOS_PATH
+    const route = request.operation === "discard-foreign" ? `/api/branches/${encodeURIComponent(String(request.body.branch))}`
+      : request.operation === "create" ? TODOS_PATH
       : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
       let response: Response
@@ -294,6 +297,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         // PATCH changes only the existing TODO's prompt and acceptance.
         const body = request.operation === "amend"
           ? { prompt: request.body.prompt, ...(request.body.acceptance === undefined ? {} : { acceptance: request.body.acceptance }) }
+          : request.operation === "discard-foreign" ? { op: request.operation, id: request.body.id, revision: request.body.revision }
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
           method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
@@ -640,7 +644,19 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeTodos))
   options.onDispose?.(() => { subscription.unsubscribe(); shared.list.disposed = true; stop() })
-  return { list, mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, newFlowSourceTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>, path: string) => {
+  return { list, discardForeign: async (branch: string, id: string, revision: string) => {
+    const refusal = signedIn(); if (refusal) return refusal
+    // Resolve only served projections already on this screen or in the stack.
+    // Persist the request before network admission; the route rechecks authority
+    // and the exact displayed wait/head before changing anything.
+    const models = new Map((shared.list.snapshot.todos ?? []).map(model => [model.n, model]))
+    for (const row of ctx.store.collections.cards.values()) {
+      if (row.kind === "todo" && row.payload.model) models.set(row.payload.n, row.payload.model)
+    }
+    const matches = [...models.values()].filter(model => model.branch?.name === branch)
+    if (matches.length !== 1) return "Could not open the TODO."
+    return request(matches[0]!.n, "discard-foreign", { branch, id, revision })
+  }, mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, newFlowSourceTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>, path: string) => {
       const refusal = signedIn(); if (refusal) return refusal
       const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
       if (!options.openSource || options.sourceAvailable && !await options.sourceAvailable(path)) return "Branch files are unavailable."

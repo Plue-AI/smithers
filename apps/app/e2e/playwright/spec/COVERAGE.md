@@ -59,7 +59,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | owner picker wired; Active-main instructions and per-call TODO routing pending | T-FLW-08 |
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
-| C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner; planner/multiplayer pending) | T-APP-02 |
+| C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |
 | C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings/guest qualification pending) | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
