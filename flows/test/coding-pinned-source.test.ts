@@ -1,6 +1,6 @@
 import { Effect, FileSystem } from "effect"
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -19,7 +19,7 @@ for (
   ] as const
 ) {
   test(`pinned startup ${mode} imports retained source before exporting or loading it`, async (t) => {
-    const temporary = await mkdtemp(join(tmpdir(), "coding-pinned-import-"))
+    const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-pinned-import-")))
     t.after(() => rm(temporary, { recursive: true, force: true }))
     const branch = join(temporary, "branch"), state = join(temporary, "state"), helper = join(temporary, "helper")
     await mkdir(branch)
@@ -108,7 +108,7 @@ if (process.argv[2] === '--local') {
 
 for (const mode of ["valid", "wrong-commit", "outside", "unavailable"] as const) {
   test(`pinned machine source export ${mode} never selects the editable checkout`, async (t) => {
-    const temporary = await mkdtemp(join(tmpdir(), "coding-pinned-source-"))
+    const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-pinned-source-")))
     t.after(() => rm(temporary, { recursive: true, force: true }))
     const branch = join(temporary, "branch"), state = join(temporary, "state")
     await mkdir(branch)
@@ -169,7 +169,7 @@ for (
   ]
 ) {
   test(`pinned ${lockfile} dependencies resolve in the source checkout`, async (t) => {
-    const temporary = await mkdtemp(join(tmpdir(), "coding-pinned-dependencies-"))
+    const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-pinned-dependencies-")))
     t.after(() => rm(temporary, { recursive: true, force: true }))
     const source = join(temporary, "source"), binaries = join(temporary, "bin")
     await mkdir(source)
@@ -196,7 +196,7 @@ for (
 }
 
 test("a failed pinned dependency install refuses before repository loading", async (t) => {
-  const temporary = await mkdtemp(join(tmpdir(), "coding-pinned-dependencies-fail-"))
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-pinned-dependencies-fail-")))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   await writeFile(join(temporary, "pnpm-lock.yaml"), "pinned lockfile")
   await writeFile(join(temporary, "pnpm"), "#!/bin/sh\nexit 1\n", { mode: 0o700 })
@@ -219,7 +219,7 @@ test("a failed pinned dependency install refuses before repository loading", asy
 })
 
 test("the repository host admits only its pinned TODO descriptor before loading a body", async (t) => {
-  const temporary = await mkdtemp(join(tmpdir(), "coding-pinned-registry-"))
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-pinned-registry-")))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   await mkdir(join(temporary, "flows", "todo"), { recursive: true })
   await writeFile(
@@ -271,7 +271,7 @@ test("the repository host admits only its pinned TODO descriptor before loading 
 })
 
 test("an installer cannot replace the approved lockfile before flow imports", async (t) => {
-  const temporary = await mkdtemp(join(tmpdir(), "coding-pinned-lockfile-fail-"))
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-pinned-lockfile-fail-")))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   await writeFile(join(temporary, "pnpm-lock.yaml"), "approved lockfile")
   await writeFile(join(temporary, "pnpm"), "#!/bin/sh\nprintf changed > pnpm-lock.yaml\n", { mode: 0o700 })

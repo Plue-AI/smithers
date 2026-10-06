@@ -16,6 +16,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 import * as MemoryStore from "../../packages/smithers/agent/memory/src/MemoryStore.ts"
+import { CapabilityPattern } from "../../packages/smithers/flows/capability/src/Capability.ts"
+import { Rule } from "../../packages/smithers/flows/capability/src/Permission.ts"
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
 import { atomError } from "../coding/atoms.ts"
 import { catalogLayers } from "../coding/catalog.ts"
@@ -24,8 +26,8 @@ import { nativeActions, NativeCoding, NativeCodingError } from "../coding/native
 import { PrepareRequest } from "../coding/preparation.ts"
 import { requestRegistration } from "../coding/request.ts"
 import { checkInputDigest, CodingError, Implementation, type Plan, Receipt } from "../coding/schema.ts"
-import { AdmitSource } from "../coding/source-admission.ts"
-import { CreateStackBase, PrepareStackBase } from "../coding/stack.ts"
+import { AdmitSource, sourceAdmission } from "../coding/source-admission.ts"
+import { CreateStackBase, PrepareStackBase, stackBaseLayer } from "../coding/stack.ts"
 import { ReceiveFeedback } from "../coding/steering.ts"
 import { TodoDelivery, todoLayers } from "../coding/todo.ts"
 import { InstallDependencyPages } from "../coding/wiki-refresh.ts"
@@ -65,6 +67,26 @@ class ForeignFailure
 {}
 const StepError = Schema.Union([atomError, ForeignFailure])
 const cases = [
+  ...(["outcome_unknown", "workspace_busy", "guest_failure"] as const).map((code) => ({
+    at: "stack-create" as const,
+    error: new NativeCodingError({ code, message: "Create outcome unavailable" }),
+    fault: code === "guest_failure" ? "bug" : "wait"
+  })),
+  ...(["source-read", "source-after-snapshot", "stack-import", "stack-create"] as const).flatMap((at) => [
+    { at, error: new NativeCodingError({ code: "host_unavailable", message: "Host offline" }), fault: "infra" },
+    { at, error: new NativeCodingError({ code: "operation_conflict", message: "Operation moved" }), fault: "wait" },
+    {
+      at,
+      error: new NativeCodingError({ code: "file_recovery_required", message: "Recover files", recovery }),
+      fault: "user"
+    },
+    { at, error: new NativeCodingError({ code: "request_conflict", message: "Request reused" }), fault: "bug" }
+  ]),
+  {
+    at: "source-publish",
+    error: new NativeCodingError({ code: "source_publication_unavailable", message: "Source offline" }),
+    fault: "dependency"
+  },
   ...(["implementation", "check"] as const).map((at) => ({
     at,
     error: new ForeignFailure({ message: "Foreign failure" }),
@@ -139,6 +161,7 @@ for (const scenario of cases) {
     execFileSync("jj", ["git", "init", root], { stdio: "pipe" })
     await writeFile(join(root, ".gitignore"), ".flows/\n")
     const calls: Array<string> = []
+    const createRequests: Array<unknown> = []
     const Step = Action.make("todo-fault/project-step", {
       payload: Executable.Invocation,
       success: Schema.Json,
@@ -201,6 +224,9 @@ for (const scenario of cases) {
     const registration = Layer.effectDiscard(Effect.gen(function*() {
       yield* (yield* FlowRuntime.FlowRuntime).register(PrepareRequest, () => Effect.succeed(plan))
     }))
+    const sourceScenario = scenario.at.startsWith("source-")
+    const stackScenario = scenario.at.startsWith("stack-")
+    let sourceReads = 0
     const layers = Layer.mergeAll(
       Interpreter.layer(Todo),
       requestRegistration,
@@ -213,17 +239,21 @@ for (const scenario of cases) {
       ...executables.map((entry) => entry.layer),
       todoLayers(Evaluator.layerScripted(() => ({ route: { choice: "implement" } }))),
       InstallDependencyPages.toLayer(() => Effect.void),
-      PrepareStackBase.toLayer(() =>
-        Effect.succeed({
-          operation: "create",
-          requestId: recovery.requestId,
-          expectedOperationId: base.operationId,
-          target: base,
-          description: ""
-        })
+      stackScenario ? stackBaseLayer : Layer.mergeAll(
+        PrepareStackBase.toLayer(() =>
+          Effect.succeed({
+            operation: "create",
+            requestId: recovery.requestId,
+            expectedOperationId: base.operationId,
+            target: base,
+            description: ""
+          })
+        ),
+        CreateStackBase.toLayer(() => Effect.succeed(base))
       ),
-      CreateStackBase.toLayer(() => Effect.succeed(base)),
-      AdmitSource.toLayer(({ plan }) => Effect.succeed({ ...plan, observedHead: base })),
+      sourceScenario
+        ? sourceAdmission
+        : AdmitSource.toLayer(({ plan }) => Effect.succeed({ ...plan, observedHead: base })),
       ReceiveFeedback.toLayer(({ boundary }) => Effect.succeed({ boundary, messages: [] })),
       TodoDelivery.toLayer(() =>
         Effect.suspend(() => {
@@ -276,9 +306,20 @@ for (const scenario of cases) {
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(Layer.succeed(Executable.Catalog, { executables, refused: [] })),
       Layer.provide(Layer.succeed(NativeCoding, {
-        sourcePublication: "local-only",
+        sourcePublication: scenario.at === "source-publish" ? "cloud" : "local-only",
         read: () =>
           Effect.suspend(() => {
+            if (sourceScenario) {
+              const at = sourceReads++ === 0 ? "source-read" : "source-after-snapshot"
+              calls.push(at)
+              if (scenario.at === at) return Effect.fail(scenario.error)
+              return Effect.succeed({
+                status: "read",
+                operationId: base.operationId,
+                head: { ...base, kind: "resolved" },
+                revisions: [{ ...base, kind: "resolved" }]
+              })
+            }
             calls.push("repair-read")
             if (scenario.at === "repair-read") return Effect.fail(scenario.error)
             return Effect.succeed({
@@ -288,15 +329,48 @@ for (const scenario of cases) {
               revisions: [{ ...base, kind: "resolved" }, { ...head, kind: "resolved" }]
             })
           }),
-        apply: () => Effect.die("Failure must stop before native writes"),
-        publishOriginalSource: () => Effect.die("Failure must stop before publication")
+        importSource: (request) =>
+          Effect.suspend(() => {
+            calls.push("stack-import")
+            if (scenario.at === "stack-import") return Effect.fail(scenario.error)
+            return Effect.succeed({
+              status: "imported",
+              requestId: request.requestId,
+              workspaceId: recovery.requestId,
+              repositoryId: 1,
+              operationId: base.operationId,
+              head: { ...base, kind: "resolved" },
+              revisions: [{ ...base, kind: "resolved" }]
+            })
+          }),
+        apply: (operation) =>
+          Effect.suspend(() => {
+            calls.push("stack-create")
+            createRequests.push(operation)
+            return scenario.at === "stack-create"
+              ? Effect.fail(scenario.error)
+              : Effect.die("Failure must stop before native writes")
+          }),
+        publishOriginalSource: () =>
+          Effect.suspend(() => {
+            calls.push("source-publish")
+            return scenario.at === "source-publish"
+              ? Effect.fail(scenario.error)
+              : Effect.die("Failure must stop before publication")
+          })
       }))
     )
     const runtime = NodeRuntime.layerHost({
       filename: join(root, ".flows", "engine.db"),
       workspaceRoot: root,
       owner: { hostId: "todo-fault-test" },
-      signals: []
+      signals: [],
+      rules: [[
+        new Rule({
+          effect: "allow",
+          pattern: new CapabilityPattern({ action: "jj:snapshot", resource: "coding request source admission" })
+        })
+      ]]
     }, layers).pipe(
       Layer.provide(Layer.succeed(NodeJj.StartupTimeoutMs, 30_000)),
       Layer.provideMerge(MemoryStore.layerNoop())
@@ -319,13 +393,27 @@ for (const scenario of cases) {
         const reason = result.cause.reasons.find(Cause.isFailReason)
         assert.ok(reason, Cause.pretty(result.cause))
         assert.ok(Schema.is(atomError)(reason.error), Cause.pretty(result.cause))
-        assert.ok(calls.includes(scenario.at), `fixture must reach ${scenario.at}`)
+        assert.ok(
+          calls.includes(scenario.at),
+          `fixture must reach ${scenario.at}; calls=${calls.join(",")}; ${Cause.pretty(result.cause)}`
+        )
         assert.deepEqual(
           Schema.encodeSync(Schema.toCodecJson(atomError))(reason.error),
           Schema.encodeSync(Schema.toCodecJson(atomError))("expected" in scenario ? scenario.expected : scenario.error),
           `${phase}: retain all failure evidence`
         )
         assert.equal(Fault.of(reason.error).class, scenario.fault)
+        if (scenario.at === "stack-create") {
+          const retried = ["outcome_unknown", "workspace_busy", "guest_failure"].includes(scenario.error.code)
+          assert.equal(
+            createRequests.length,
+            retried ? 3 : 1,
+            "only transient creates retry, within the same bounded attempt"
+          )
+          for (const request of createRequests) {
+            assert.deepEqual(request, createRequests[0], "retry must retain the native fence and request identity")
+          }
+        }
         assert.ok(!calls.includes("delivery"), "failed work must not enter candidate delivery")
         if (phase === "fresh") {
           firstCalls = [...calls]

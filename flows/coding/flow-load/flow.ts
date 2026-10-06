@@ -2,8 +2,7 @@
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { FlowLoadInput, FlowLoadResult, LoadFlows } from "../flow-load.ts"
-import { CodingError } from "../schema.ts"
-import { admitStackBase } from "../stack.ts"
+import { admitStackBase, PrepareStackBase } from "../stack.ts"
 
 /**
  * The stack service runs this on an ephemeral machine after `main` moves: it
@@ -17,6 +16,6 @@ export default Flow.make("coding/FlowLoad", {
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   payload: FlowLoadInput,
   success: FlowLoadResult,
-  error: CodingError,
+  error: PrepareStackBase.errorSchema,
   body: (input) => admitStackBase(input.base).pipe(Node.andThen(LoadFlows.call({ base: input.base })))
 })

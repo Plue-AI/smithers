@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url"
 import { checkDelegate } from "../coding/checks.ts"
 import { jevCheckDelegate } from "../coding/jev-check.ts"
 import { loadProject } from "../coding/project-config.ts"
+import { reviewCheckDelegate } from "../coding/review-check.ts"
+import { securityReviewCheckDelegate } from "../coding/security-review-check.ts"
 import { wikiCheckDelegate } from "../coding/wiki-check.ts"
 import { bindWikiRegistry } from "../coding/wiki-registry.ts"
 
@@ -44,7 +46,9 @@ test("the actual Smithers check declarations and the wiki check lower under the 
     list: () => registry.list().pipe(Effect.map((values) => values.filter((value) => names.has(value.name))))
   }
   const built = await Effect.runPromise(
-    Executable.catalog({ delegates: [checkDelegate, jevCheckDelegate, wikiCheckDelegate] })
+    Executable.catalog({
+      delegates: [checkDelegate, jevCheckDelegate, wikiCheckDelegate, reviewCheckDelegate, securityReviewCheckDelegate]
+    })
       .pipe(Effect.provideService(Registry.Registry, selected), Effect.provide(platform))
   )
   assert.deepEqual(built.refused, [])
@@ -54,7 +58,13 @@ test("the actual Smithers check declarations and the wiki check lower under the 
     assert.ok(entry, `${check.id} must resolve its actual declaration`)
     assert.equal(
       entry.delegate,
-      check.id === "wiki" ? wikiCheckDelegate._tag : check.id === "lint" ? jevCheckDelegate._tag : checkDelegate._tag
+      check.id === "wiki" ? wikiCheckDelegate._tag : check.id === "lint" ?
+        jevCheckDelegate._tag :
+        check.id === "review"
+        ? reviewCheckDelegate._tag
+        : check.id === "security"
+        ? securityReviewCheckDelegate._tag
+        : checkDelegate._tag
     )
     assert.equal(
       Descriptor.executionDigest(entry.descriptor),

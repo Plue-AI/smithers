@@ -1,4 +1,5 @@
 import { NodeServices } from "@effect/platform-node"
+import { Fault } from "@smthrs/flow"
 import { Effect, Layer, Sink, Stream } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
@@ -6,6 +7,8 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
+import * as Capability from "../../packages/smithers/flows/capability/src/Capability.ts"
+import * as Permission from "../../packages/smithers/flows/capability/src/Permission.ts"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
 import {
   NativeCoding,
@@ -72,7 +75,7 @@ const plan: Plan = {
 
 test("cloud admission retains before any snapshot, then refuses source movement; local capability never claims an ACK", async () => {
   for (const mode of ["cloud", "unavailable", "moved", "local-only"] as const) {
-    const calls: string[] = []
+    const calls: Array<string> = []
     let snapshots = 0
     const native = Layer.succeed(NativeCoding, {
       sourcePublication: mode === "local-only" ? "local-only" : "cloud",
@@ -112,10 +115,67 @@ test("cloud admission retains before any snapshot, then refuses source movement;
     } else {
       assert.equal(result._tag, "Failure")
       if (result._tag === "Failure") {
-        assert.equal(result.failure.code, mode === "unavailable" ? "unavailable" : "stale_revision")
+        assert.equal(result.failure.code, mode === "unavailable" ? "source_publication_unavailable" : "stale_revision")
       }
       if (mode === "unavailable") assert.deepEqual(calls, ["read", "publish"])
     }
+  }
+})
+
+test("admission snapshot failures distinguish changed source, refusals and outages", async () => {
+  const capability = Capability.make("fs:write", "/workspace")
+  const cases = [
+    ...Jj.JjErrorCode.literals.map((code) => ({
+      error: new Jj.JjError({ code, message: `Snapshot failed: ${code}` }),
+      code: code === "conflict"
+        ? "stale_revision"
+        : code === "invalid_ref" || code === "snapshot_refused"
+        ? "source_refused"
+        : "execution",
+      fault: code === "conflict" ? "factory" : code === "invalid_ref" || code === "snapshot_refused" ? "user" : "infra"
+    })),
+    {
+      error: new Permission.PermissionDenied({ capability, reason: "No write grant" }),
+      code: "source_refused",
+      fault: "user"
+    },
+    {
+      error: new Permission.PermissionRequired({ requestId, capability, tier: "compensable", meta: {} }),
+      code: "source_refused",
+      fault: "user"
+    },
+    {
+      error: new Permission.GrantStoreError({ code: "journal_failed", message: "Grant journal offline" }),
+      code: "execution",
+      fault: "infra"
+    }
+  ]
+  for (const scenario of cases) {
+    const calls: Array<string> = []
+    const runtime = Layer.merge(
+      Layer.succeed(NativeCoding, {
+        sourcePublication: "local-only",
+        read: () =>
+          Effect.sync(() => {
+            calls.push("read")
+            return { status: "read" as const, operationId: revision.operationId, head: revision, revisions: [revision] }
+          }),
+        apply: () => Effect.die("No writes after snapshot failure"),
+        publishOriginalSource: () => Effect.die("Local admission must not publish")
+      }),
+      Jj.layerNoop({
+        snapshot: () =>
+          Effect.suspend(() => {
+            calls.push("snapshot")
+            return Effect.fail(scenario.error)
+          })
+      })
+    )
+    const error = await Effect.runPromise(admitSource(plan, requestId).pipe(Effect.flip, Effect.provide(runtime)))
+    assert.equal(error.code, scenario.code, scenario.error.code)
+    assert.equal(Fault.of(error).class, scenario.fault, scenario.error.code)
+    assert.match(error.message, new RegExp(scenario.error.code))
+    assert.deepEqual(calls, ["read", "snapshot"], "failed snapshots must stop admission")
   }
 })
 
