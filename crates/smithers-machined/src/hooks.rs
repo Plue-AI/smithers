@@ -132,6 +132,11 @@ pub trait Documents: Send + Sync {
     }
 }
 pub trait Sessions: Send + Sync {
+    /// Drain bounded nonblocking descriptor output on the mutation lock. A
+    /// missing supervisor emits nothing and retains unsupported readiness.
+    fn poll(&self) -> Result<Vec<Frame>> {
+        Ok(vec![])
+    }
     /// Report readiness only after this provider's real dependencies are ready.
     /// Implementing an operation alone must not activate a partial daemon.
     fn ready(&self) -> Result<()> {

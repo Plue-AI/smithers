@@ -202,9 +202,7 @@ impl<I: Input> Pipe<I> {
         }
         match outcome {
             Ok(ReadOutcome::Data(bytes)) => {
-                if let Some((last_fd, n)) =
-                    self.retained_fds.back_mut().filter(|(last, _)| *last == fd)
-                {
+                if let Some((_, n)) = self.retained_fds.back_mut().filter(|(last, _)| *last == fd) {
                     *n += bytes.len();
                 } else {
                     self.retained_fds.push_back((fd, bytes.len()));
