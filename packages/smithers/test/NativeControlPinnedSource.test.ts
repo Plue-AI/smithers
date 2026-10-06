@@ -4,7 +4,7 @@ import { Control } from "@smthrs/control"
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import * as Executable from "@smthrs/registry/Executable"
-import { Effect, Layer, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Schema } from "effect"
 import { execFileSync } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -90,3 +90,41 @@ test("native host records the verified catalog source independently of the moved
     await rm(temporary, { recursive: true, force: true })
   }
 }, 60_000)
+
+// Both roots are composed in one memo map, as the immutable registry and the
+// executing coding workspace are in the real host. Neither may borrow the
+// other's filesystem instance, even though they use the same service tag.
+class SourceFiles extends Context.Service<SourceFiles, FileSystem.FileSystem>()("test/SourceFiles") {}
+class WorkFiles extends Context.Service<WorkFiles, FileSystem.FileSystem>()("test/WorkFiles") {}
+for (const sourceFirst of [true, false]) {
+  test(`pinned source and coding filesystem retain separate roots (source first: ${sourceFirst})`, async () => {
+    const temporary = await mkdtemp(join(tmpdir(), "smithers-two-roots-"))
+    const source = join(temporary, "source"), workspace = join(temporary, "workspace")
+    try {
+      await mkdir(source)
+      await mkdir(workspace)
+      await writeFile(join(source, "identity.txt"), "pinned")
+      await writeFile(join(workspace, "identity.txt"), "working")
+      const sourceLayer = Layer.effect(SourceFiles)(FileSystem.FileSystem).pipe(
+        Layer.provide(NodeControl.layerGuardedPlatform(source))
+      )
+      const workLayer = Layer.effect(WorkFiles)(FileSystem.FileSystem).pipe(
+        Layer.provide(NodeControl.layerGuardedPlatform(workspace))
+      )
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const pinned = yield* SourceFiles, working = yield* WorkFiles
+          expect(yield* pinned.readFileString(join(source, "identity.txt"))).toBe("pinned")
+          expect(yield* working.readFileString(join(workspace, "identity.txt"))).toBe("working")
+          expect((yield* Effect.result(pinned.readFileString(join(workspace, "identity.txt"))))._tag).toBe("Failure")
+          expect((yield* Effect.result(working.readFileString(join(source, "identity.txt"))))._tag).toBe("Failure")
+        }).pipe(
+          Effect.provide(sourceFirst ? Layer.merge(sourceLayer, workLayer) : Layer.merge(workLayer, sourceLayer)),
+          Effect.scoped
+        )
+      )
+    } finally {
+      await rm(temporary, { recursive: true, force: true })
+    }
+  }, 60_000)
+}

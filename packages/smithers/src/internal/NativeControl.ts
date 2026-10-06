@@ -502,7 +502,10 @@ export const make = (
     root: string,
     grants: Layer.Layer<GrantStore.GrantStore> = layerGrantStore(root)
   ) =>
-    Layer.orDie(KernelFileSystem.layer).pipe(
+    // One host may load pinned source beside the mutable coding workspace.
+    // The kernel layer is a singleton; memoizing it across these constructions
+    // would bind both filesystems to whichever root was built first.
+    Layer.orDie(Layer.fresh(KernelFileSystem.layer)).pipe(
       Layer.provide([Workspace.layer(root), grants]),
       Layer.provideMerge(layerHostPlatform)
     )

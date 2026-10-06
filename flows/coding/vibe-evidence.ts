@@ -11,7 +11,8 @@ import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts
 import { Poc, PocInput } from "./poc.ts"
 import { PrepareRequest } from "./preparation.ts"
 import { Request } from "./request.ts"
-import { CodingError, RequestInput, sameRevision } from "./schema.ts"
+import { CodingError, RequestInput, type RequestResult, sameRevision } from "./schema.ts"
+import { leafFeedback } from "./todo-route.ts"
 import { VibeEvidence, VibeInput } from "./vibe-schema.ts"
 export { VibeEvidence, VibeInput } from "./vibe-schema.ts"
 
@@ -36,14 +37,22 @@ const completed = <
   })
 
 /** No global run scan, second ledger, caller-supplied success or ambient repo ID. */
-export const readVibeRequest = (input: typeof VibeInput.Type) =>
+const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typeof RequestResult.Type) =>
   Effect.gen(function*() {
     // ModuleAuthority supplies this per handler, never while layers are built.
     const currentOwner = yield* Effect.serviceOption(ModuleOwner)
-    if (Option.isNone(currentOwner) || currentOwner.value.flowId !== "coding/vibe") {
-      return yield* invalid("Only an approved coding/vibe execution may admit finalization")
+    if (
+      Option.isNone(currentOwner) ||
+      (currentOwner.value.flowId !== "coding/vibe" && currentOwner.value.flowId !== "todo")
+    ) {
+      return yield* invalid("Only an approved delivery execution may admit finalization")
     }
     const owner = currentOwner.value
+    const composed = owner.flowId === "todo"
+    if (composed && input.requestExecutionId !== owner.rootId) {
+      return yield* invalid("TODO delivery requires its own current approved attempt")
+    }
+    let todoBridge: string | undefined, todoTag: string | undefined, todoDigest: string | undefined
     const store = yield* RunStore.RunStore, graph = yield* DurableEngineState.DurableEngineState
     const control = yield* ControlRuntime, catalog = yield* RunCatalogRead.RunCatalogRead
     let totalBytes = 0
@@ -61,8 +70,12 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
           return yield* invalid("Finalization evidence exceeds its bounded native-state lookup")
         }
         const state = Schema.decodeUnknownOption(Schema.fromJsonString(RunState))(row.stateJson)
-        if (Option.isNone(state) || row.status !== "completed" || state.value.cancellation !== undefined) {
-          return yield* invalid("Finalization requires completed, uncancelled native ancestry")
+        const active = composed && (id === owner.rootId || id === todoBridge)
+        if (
+          Option.isNone(state) || row.status !== (active ? "running" : "completed") ||
+          row.cancelRequestedAtMs !== null || state.value.cancellation !== undefined
+        ) {
+          return yield* invalid("Finalization requires uncancelled native evidence in its expected execution state")
         }
         return { row, state: state.value }
       })
@@ -71,8 +84,34 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
     // control run it launched (agent/run): select that run's one request.
     let selected = input.requestExecutionId
     let requestRow = yield* read(selected)
-    if (requestRow.state.flowName === "agent/run") {
-      const children = yield* catalog.listRuns({ filters: { flowName: "coding/request", parentRunId: selected }, limit: 2 })
+    if (composed) {
+      const run = yield* control.getRun(owner.rootId)
+      todoDigest = run.executionDigest
+      if (todoDigest === undefined || !/^[a-f0-9]{64}$/.test(todoDigest)) {
+        return yield* invalid("TODO delivery requires the attempt's retained execution digest")
+      }
+      // Canonical Flow.make declarations use the registry's digest-qualified
+      // adapter tag; the public name is not a persisted native execution tag.
+      todoTag = `registry/entry/${todoDigest}/todo`
+      const bridges = yield* catalog.listRuns({ filters: { flowName: todoTag, parentRunId: owner.rootId }, limit: 2 })
+      if (bridges.cursor !== null || bridges.runs.length !== 1) {
+        return yield* invalid("TODO delivery requires one retained composition in its current attempt")
+      }
+      todoBridge = bridges.runs[0]!.runId
+      const children = yield* catalog.listRuns({
+        filters: { flowName: Request._tag, parentRunId: todoBridge },
+        limit: 2
+      })
+      if (children.cursor !== null || children.runs.length !== 1) {
+        return yield* invalid("TODO delivery requires one completed request in its current composition")
+      }
+      selected = children.runs[0]!.runId
+      requestRow = yield* read(selected)
+    } else if (requestRow.state.flowName === "agent/run") {
+      const children = yield* catalog.listRuns({
+        filters: { flowName: "coding/request", parentRunId: selected },
+        limit: 2
+      })
       if (children.cursor !== null || children.runs.length !== 1) {
         return yield* invalid("Select a native coding/Request execution")
       }
@@ -80,10 +119,13 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       requestRow = yield* read(selected)
     }
     const inlined = requestRow.state.flowName === "coding/request"
-    if (requestRow.state.flowName !== Request._tag && !inlined) {
+    if (requestRow.state.flowName !== Request._tag && (composed || !inlined)) {
       return yield* invalid("Select a native coding/Request execution")
     }
     const request = yield* completed(requestRow.state, Request.successSchema, Request.errorSchema)
+    if (expectedRequest !== undefined && Digest.canonical(expectedRequest) !== Digest.canonical(request)) {
+      return yield* invalid("TODO delivery does not match its retained request result")
+    }
     if (
       request.outcome.status !== "validated" || request.outcome.blocked !== null ||
       request.outcome.result?.status !== "validated" || request.outcome.result.findings.length !== 0
@@ -100,7 +142,9 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
     const payload = Schema.decodeUnknownOption(RequestInput)(
       inlined ? (requestRow.state.payload as { readonly input?: unknown } | null)?.input : requestRow.state.payload
     )
-    if (Option.isNone(payload)) return yield* invalid("The request's retained input is invalid")
+    if (Option.isNone(payload) || (composed && payload.value.base === undefined)) {
+      return yield* invalid("The request's retained input is invalid")
+    }
     const visited = new Set<string>()
     let id = selected, bridged = false
     let root: { controlRunId: string; planId: string; planDigest: string } | undefined
@@ -112,11 +156,11 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       const entry = id === selected ? requestRow : yield* read(id)
       // Executable.fromDescriptor persists the descriptor's name and inlines
       // delegate.call. There need not be a separate coding/Request row.
-      if (entry.state.flowName === "coding/request") {
+      if ((!composed && entry.state.flowName === "coding/request") || (composed && id === todoBridge)) {
         const invocation = entry.state.payload as { readonly input?: unknown } | null
         const bridgeInput = Schema.decodeUnknownOption(RequestInput)(invocation?.input)
         if (
-          bridged || Option.isNone(bridgeInput) ||
+          bridged || (composed && entry.state.flowName !== todoTag) || Option.isNone(bridgeInput) ||
           Digest.canonical(bridgeInput.value) !== Digest.canonical(payload.value)
         ) {
           return yield* invalid("The registered request bridge does not match its native request input")
@@ -131,17 +175,20 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       if (Option.isSome(run)) {
         const nativePayload = entry.state.payload as { readonly planId?: unknown } | null
         if (
-          !bridged || id === owner.rootId || run.value.status !== "completed" || run.value.planId === undefined ||
+          !bridged || (composed ? id !== owner.rootId : id === owner.rootId) ||
+          run.value.status !== (composed ? "running" : "completed") || run.value.planId === undefined ||
           entry.state.flowName !== "agent/run" || nativePayload?.planId !== run.value.planId ||
           parents.length !== 0 || entry.state.parentExecutionId !== undefined
         ) {
-          return yield* invalid("The request is not owned by one completed approved control wrapper")
+          return yield* invalid("The request is not owned by its expected approved control wrapper")
         }
         const plan = yield* control.getPlan(run.value.planId)
         const approvedInput = Schema.decodeUnknownOption(RequestInput)(plan.decodedInput)
         if (
           plan.decision !== "approved" || run.value.planDigest !== plan.card.digest ||
-          run.value.flowId !== "coding/request" || plan.card.flowId !== "coding/request" ||
+          (composed && (run.value.executionDigest !== todoDigest || plan.card.executionDigest !== todoDigest)) ||
+          run.value.flowId !== (composed ? "todo" : "coding/request") ||
+          plan.card.flowId !== (composed ? "todo" : "coding/request") ||
           // `coding/request` IS its own flow, so its approved envelope names no
           // delegate. An envelope that names one was approved for a descriptor
           // that handed this work to code the descriptor does not measure.
@@ -159,6 +206,14 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
         const parentId = parents[0]?.parentId ?? entry.row.parentRunId
         if (parentId === null || parentId === undefined) {
           return yield* invalid("The request has no retained control ancestor")
+        }
+        if (
+          composed && (
+            (id === selected && parentId !== todoBridge) || (id === todoBridge && parentId !== owner.rootId) ||
+            (entry.row.parentRunId !== null && entry.row.parentRunId !== parentId)
+          )
+        ) {
+          return yield* invalid("TODO delivery ancestry does not belong to its current attempt")
         }
         if (entry.state.parentExecutionId !== undefined && entry.state.parentExecutionId !== parentId) {
           return yield* invalid("Native ancestry disagrees with the recorded child input")
@@ -190,7 +245,10 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       const plan = yield* completed(preparation.state, PrepareRequest.successSchema, PrepareRequest.errorSchema)
       if (
         Option.isNone(preparedInput) || preparedInput.value.prompt !== payload.value.prompt ||
-        preparedInput.value.feedback !== (payload.value.feedback ?? "") || plan.observedHead === undefined ||
+        preparedInput.value.feedback !== (request.route === undefined
+            ? payload.value.feedback ?? ""
+            : leafFeedback(request.route, payload.value.feedback ?? "")) ||
+        plan.observedHead === undefined ||
         plan.prompt !== payload.value.prompt
       ) {
         return yield* invalid("The original prepared source does not match the approved request input")
@@ -247,3 +305,22 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       message: "The retained request evidence could not be read from this host's native stores"
     })
   ))
+
+/** Legacy delivery reads a completed request; a TODO reads its own completed
+ * child beneath the still-running approved composition. Both use the same
+ * native evidence validation and original-source receipt. */
+export const readVibeRequest = (input: typeof VibeInput.Type) => readRequestEvidence(input)
+
+/** Derive identity from the host owner, never from repository-supplied IDs.
+ * Comparing the supplied result prevents an override from substituting a
+ * different planner result after the retained child completed. */
+export const readTodoDelivery = ({ request }: { readonly request: typeof RequestResult.Type }) =>
+  Effect.gen(function*() {
+    const owner = yield* Effect.serviceOption(ModuleOwner)
+    if (Option.isNone(owner) || owner.value.flowId !== "todo") {
+      return yield* invalid("Only an approved TODO attempt may resolve delivery")
+    }
+    const input = { requestExecutionId: owner.value.rootId }
+    yield* readRequestEvidence(input, request)
+    return input
+  })
