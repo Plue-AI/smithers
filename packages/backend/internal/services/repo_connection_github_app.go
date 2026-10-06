@@ -503,7 +503,11 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 		return GitHubInstallationToken{}, pkgerrors.Internal("failed to load github app credentials").WithCause(err)
 	}
 	key := scope.cacheKey(installationID)
-	if cached, ok := getCachedInstallationToken(key); ok {
+	now := time.Now()
+	if s.gitHubBudgetTracker != nil && s.gitHubBudgetTracker.now != nil {
+		now = s.gitHubBudgetTracker.now()
+	}
+	if cached, ok := getCachedInstallationToken(key, now); ok {
 		s.gitHubBudgetTracker.registerToken(cached.token, installationID, cached.expiresAt)
 		return GitHubInstallationToken{InstallationID: installationID, Token: cached.token, ExpiresAt: cached.expiresAt}, nil
 	}
@@ -557,7 +561,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 
 	token := strings.TrimSpace(payload.Token)
 	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(payload.ExpiresAt))
-	if token == "" || err != nil || time.Until(expiresAt) < installationTokenEarlyExpiry {
+	if token == "" || err != nil || expiresAt.Sub(now) <= installationTokenEarlyExpiry {
 		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub installation token response was invalid")
 	}
 
@@ -588,11 +592,15 @@ var (
 
 // getCachedInstallationToken returns the token cached for a scope key while it
 // has more than the early-expiry margin of life.
-func getCachedInstallationToken(key string) (cachedInstallationToken, bool) {
+func getCachedInstallationToken(key string, clocks ...time.Time) (cachedInstallationToken, bool) {
+	now := time.Now()
+	if len(clocks) > 0 {
+		now = clocks[0]
+	}
 	installationTokenCacheMu.Lock()
 	defer installationTokenCacheMu.Unlock()
 	cached, ok := installationTokenCache[key]
-	if !ok || time.Until(cached.expiresAt) < installationTokenEarlyExpiry {
+	if !ok || cached.expiresAt.Sub(now) <= installationTokenEarlyExpiry {
 		return cachedInstallationToken{}, false
 	}
 	return cached, true

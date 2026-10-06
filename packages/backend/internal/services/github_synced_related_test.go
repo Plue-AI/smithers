@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
@@ -139,6 +140,12 @@ func TestGitHubReviewCommentIdentityDoesNotCollideWithConversation(t *testing.T)
 	require.Len(t, comments, 1)
 	require.Contains(t, string(comments[0].Payload), "chat")
 	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id IN ('issues/comments','pulls/comments')`))
+	require.NoError(t, pgx.BeginFunc(t.Context(), pool, func(tx pgx.Tx) error {
+		return s.commitFetchedConversationSnapshot(t.Context(), tx, row, 7, time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC), nil)
+	}))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issue_comments WHERE source='conversation' AND payload->>'deleted'='true'`))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issue_comments WHERE source='review' AND NOT payload ? 'deleted'`))
+
 }
 
 func TestGitHubRelatedResourceRejectsPathInputs(t *testing.T) {
@@ -242,4 +249,13 @@ func commitRelatedPull(t *testing.T, s *GitHubSyncedRepoService, row db.GithubSy
 		return err
 	}
 	return s.commitFetched(t.Context(), row, "pulls", read, []json.RawMessage{pull})
+}
+
+func TestGitHubRelatedMissingTransportStaysUnavailable(t *testing.T) {
+	s, _, row := newFetchedFixture(t)
+	allowFetched(s)
+	head := strings.Repeat("a", 40)
+	require.NoError(t, commitRelatedPull(t, s, row, json.RawMessage(strings.Replace(fetchedPullDetail, "head-1", head, 1))))
+	require.Error(t, s.ReadInstallPullFacts(t.Context(), row, 7, head, "checks"))
+	require.Nil(t, s.syncStreamObservation(row, "checks/7", "checks").LastSuccessAt)
 }

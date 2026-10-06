@@ -52,6 +52,8 @@ type Account struct {
 }
 
 type Config struct {
+	// Now controls installation-token expiration in deterministic polling rehearsals.
+	Now func() time.Time
 	// OwnerStatus injects a GitHub outage at the public account lookup boundary.
 	OwnerStatus                                          int
 	SSHKeys                                              map[string][]string
@@ -925,7 +927,11 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		token := fmt.Sprintf("ghs_githubfake_%d_%d", id, len(s.writes)+1)
 		s.tokens[token] = id
 		s.grants[token] = granted
-		return http.StatusCreated, map[string]any{"token": token, "expires_at": time.Now().UTC().Add(time.Hour), "permissions": granted}
+		now := time.Now()
+		if s.config.Now != nil {
+			now = s.config.Now()
+		}
+		return http.StatusCreated, map[string]any{"token": token, "expires_at": now.UTC().Add(time.Hour), "permissions": granted}
 	}
 	if r.Method == http.MethodGet && len(path) == 4 && path[0] == "repos" && path[3] == "installation" {
 		for _, installation := range s.config.Installations {

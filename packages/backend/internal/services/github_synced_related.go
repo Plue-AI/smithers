@@ -53,6 +53,9 @@ func (s *GitHubSyncedRepoService) pollInstallRelated(ctx context.Context, row db
 	}
 	snapshot := gitHubRelatedSnapshot{Head: head, Pages: map[string]json.RawMessage{}}
 	pending := map[gitHubPageKey]gitHubPageValidator{}
+	if s.conditionalFetcherFactory == nil {
+		return gitHubFetchUnavailable()
+	}
 	fetch := s.conditionalFetcherFactory(row)
 	if fetch == nil {
 		return gitHubFetchUnavailable()

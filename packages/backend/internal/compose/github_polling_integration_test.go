@@ -52,7 +52,8 @@ type installPollingComposition struct {
 	repository  int64
 	clock       atomic.Int64
 	low         atomic.Bool
-	pauseIssues atomic.Bool
+	resetAt     atomic.Int64
+	pauseIssues atomic.Int32
 	mu          sync.Mutex
 	calls       []string
 }
@@ -67,15 +68,16 @@ func newInstallPollingComposition(t *testing.T, ready bool) *installPollingCompo
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	app := services.GitHubAppCredentials{ID: 3515, Slug: "polling-fixture", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "polling-hook", InstallationID: installation, PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
-	fake, err := githubfake.New(githubfake.Config{AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind, ClientID: app.ClientID, ClientSecret: app.ClientSecret, WebhookSecret: app.WebhookSecret, PrivateKeyPEM: app.PEM, ConversionCode: "manifest", Installations: []githubfake.Installation{{ID: installation, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}, {ID: 101, FullName: "acme/other"}}}, {ID: installation + 1000, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}}}}})
+	fake, err := githubfake.New(githubfake.Config{Now: now, AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind, ClientID: app.ClientID, ClientSecret: app.ClientSecret, WebhookSecret: app.WebhookSecret, PrivateKeyPEM: app.PEM, ConversionCode: "manifest", Installations: []githubfake.Installation{{ID: installation, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}, {ID: 101, FullName: "acme/other"}}}, {ID: installation + 1000, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	f.upstream = fake
-	reset := f.clock.Load() + 300
+	f.resetAt.Store(f.clock.Load() + 300)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.calls = append(f.calls, r.Method+" "+r.URL.Path)
 		f.mu.Unlock()
+		reset := f.resetAt.Load()
 		w.Header().Set("X-RateLimit-Limit", "10000")
 		w.Header().Set("X-RateLimit-Remaining", "9000")
 		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
@@ -87,9 +89,9 @@ func newInstallPollingComposition(t *testing.T, ready bool) *installPollingCompo
 			w.Header().Set("X-RateLimit-Remaining", "9000")
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset+3600, 10))
 		}
-		if f.pauseIssues.Load() && r.URL.Path == "/repos/acme/app/issues" {
+		if f.pauseIssues.Load() != 0 && r.URL.Path == "/repos/acme/app/issues" {
 			w.Header().Set("Retry-After", "50")
-			w.WriteHeader(429)
+			w.WriteHeader(int(f.pauseIssues.Load()))
 			return
 		}
 		fake.Handler().ServeHTTP(w, r)
@@ -117,7 +119,7 @@ func newInstallPollingComposition(t *testing.T, ready bool) *installPollingCompo
 	repo, err := f.q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: f.user.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
 	require.NoError(t, err)
 	f.repository = repo.ID
-	require.NoError(t, f.q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "github.repository", Value: json.RawMessage(`{"owner_login":"acme","repository_name":"app","repository_id":100}`)}))
+	require.NoError(t, f.q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "github.repository", Value: json.RawMessage(fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d}`, repo.ID))}))
 	_, err = pool.Exec(t.Context(), `UPDATE repositories SET mirror_destination='acme/app' WHERE id=$1`, repo.ID)
 	require.NoError(t, err)
 	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES($1)`, f.user.ID)
@@ -232,7 +234,7 @@ func TestInstallPollingCadencesAndBudget(t *testing.T) {
 		}
 	}
 	require.Greater(t, unchanged, 5)
-	f.pauseIssues.Store(true)
+	f.pauseIssues.Store(429)
 	f.retry(t)
 	require.Eventually(t, func() bool {
 		return !f.sync.budget.StreamRetryAt(351502+pollingFixtureSequence.Load(), "issues").IsZero()
@@ -303,6 +305,21 @@ func TestInstallScopedTokenCache(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, installation+1000, other.InstallationID)
 	require.Equal(t, 1, f.count("POST /app/installations/"+strconv.FormatInt(installation+1000, 10)+"/access_tokens"))
+
+	scope := services.GitHubTokenScope{RepositoryIDs: []int64{100}, Permissions: map[string]string{"issues": "read"}}
+	before, err := f.sync.connections.CreateGitHubInstallationToken(t.Context(), installation, scope)
+	require.NoError(t, err)
+	f.clock.Add(55*60 - 1)
+	cached, err := f.sync.connections.CreateGitHubInstallationToken(t.Context(), installation, scope)
+	require.NoError(t, err)
+	require.Equal(t, before.Token, cached.Token)
+	require.Equal(t, 3, f.count("POST /app/installations/"+strconv.FormatInt(installation, 10)+"/access_tokens"))
+	f.clock.Add(1)
+	refreshed, err := f.sync.connections.CreateGitHubInstallationToken(t.Context(), installation, scope)
+	require.NoError(t, err)
+	require.NotEqual(t, before.Token, refreshed.Token)
+	require.Equal(t, 4, f.count("POST /app/installations/"+strconv.FormatInt(installation, 10)+"/access_tokens"))
+	require.Equal(t, time.Unix(f.clock.Load(), 0).UTC().Add(time.Hour), refreshed.ExpiresAt)
 	for _, call := range f.upstream.Writes() {
 		require.True(t, strings.HasSuffix(call.Path, "/access_tokens"))
 	}
@@ -424,4 +441,131 @@ func (f *installPollingComposition) readTodos(t *testing.T) []map[string]any {
 	var todos []map[string]any
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &todos))
 	return todos
+}
+
+// Roster reads join the exact budget and clock used by the install poller.
+// The HTTP roster proves that the fetched permission becomes person-facing state.
+func TestInstallPollingPermissionsCadenceAndBudget(t *testing.T) {
+	f := newInstallPollingComposition(t, true)
+	ctx := t.Context()
+	writer, err := f.q.CreateUser(ctx, db.CreateUserParams{Username: "writer", LowerUsername: "writer"})
+	require.NoError(t, err)
+	f.upstream.SetCollaborator(77, "writer", "write")
+	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,github_id,github_login,permission) VALUES($1,$2,77,'writer','write')`, f.repository, writer.ID)
+	require.NoError(t, err)
+	members := &services.Members{Pool: f.pool, Credentials: f.credentials, Minter: f.sync.connections}
+	wakes := 0
+	composeGitHubPermissionPolling(members, f.sync.synced, f.main, func() { wakes++ })
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Server.PublicURL = "http://example.com"
+	cfg.Server.AllowedOrigins = []string{"http://example.com"}
+	router := githubAppSetupComposeRouter(cfg, f.pool, &routes.GitHubAppSetupHandler{}, nil, routerExtras{Members: &routes.MembersHandler{Service: members}})
+	path := "GET /repos/acme/app/collaborators/writer/permission"
+	base := f.clock.Load()
+	f.resetAt.Store(base + 20000)
+	require.NoError(t, members.PollPermissions(ctx))
+	require.Equal(t, 1, f.count(path))
+	f.clock.Store(base + 3599)
+	require.NoError(t, members.PollPermissions(ctx))
+	require.Equal(t, 1, f.count(path))
+	f.clock.Store(base + 3600)
+	f.low.Store(true)
+	require.NoError(t, members.PollPermissions(ctx))
+	require.Equal(t, 2, f.count(path))
+	f.clock.Store(base + 10799)
+	require.NoError(t, members.PollPermissions(ctx))
+	require.Equal(t, 2, f.count(path), "low budget doubles only this slow stream")
+	f.upstream.SetCollaborator(77, "writer", "read")
+	f.clock.Store(base + 10800)
+	require.NoError(t, members.PollPermissions(ctx))
+	require.Equal(t, 3, f.count(path))
+	request := httptest.NewRequest("GET", "/api/members", nil)
+	request = request.WithContext(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &f.user, SessionHash: "poll-session"}))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "writer")
+	require.Contains(t, response.Body.String(), "suspended")
+	// Reset ends the slowdown; Retry is an immediate hint without moving its deadline.
+	f.clock.Store(base + 20000)
+	require.NoError(t, members.PollPermissions(ctx))
+	require.Equal(t, 4, f.count(path))
+	f.clock.Add(3600)
+	require.NoError(t, members.PollPermissions(ctx))
+	require.Equal(t, 5, f.count(path), "reset restores the hourly cadence")
+	require.NoError(t, members.RetryStreams(ctx))
+	require.Equal(t, 1, wakes)
+	require.Equal(t, 5, f.count(path))
+	require.NoError(t, members.PollPermissions(ctx))
+	require.Equal(t, 6, f.count(path))
+}
+
+func TestInstallPollingMissingProvidersAndHostedBoundary(t *testing.T) {
+	for _, missing := range []string{"credentials", "storage", "runtime", "permission"} {
+		t.Run(missing, func(t *testing.T) {
+			f := newInstallPollingComposition(t, false)
+			var source services.GitHubAppCredentialSource = f.credentials
+			pool := f.pool
+			if missing == "credentials" {
+				source = nil
+			}
+			if missing == "storage" {
+				pool = nil
+			}
+			assembled, err := composeGitHubSync(pool, source, nil, topology{}, f.sync.budget)
+			if missing == "storage" {
+				require.ErrorContains(t, err, "PostgreSQL pool")
+				require.Empty(t, f.calls)
+				return
+			}
+			require.NoError(t, err)
+			composeGitHubInstallAuthority(assembled.synced, source, missing != "runtime")
+			if missing == "permission" {
+				members := &services.Members{Pool: f.pool, Credentials: f.credentials}
+				composeGitHubPermissionPolling(members, assembled.synced, f.main, func() { t.Error("missing minter cannot wake") })
+				require.Error(t, members.PollPermissions(t.Context()))
+				_, err := members.RequiredStreams(t.Context())
+				require.Error(t, err)
+			} else {
+				f.sync = assembled
+				f.start(t)
+				time.Sleep(1100 * time.Millisecond)
+				_, err := assembled.synced.RequiredStreams(t.Context())
+				require.Error(t, err)
+			}
+			require.Empty(t, f.calls)
+			require.Zero(t, f.cached(t, "issues"))
+		})
+	}
+	t.Run("hosted retains payload ingestion", func(t *testing.T) {
+		f := newInstallPollingComposition(t, false)
+		hosted, err := composeGitHubSync(f.pool, f.credentials, nil, topology{multitenant: true}, newGitHubBudget(topology{multitenant: true}))
+		require.NoError(t, err)
+		require.NoError(t, hosted.synced.ApplyIssueEvent(t.Context(), "acme", "app", 100, "issues", "opened", json.RawMessage(`{"id":1,"number":1,"title":"Hosted issue","body":"Hosted body","state":"open","created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}`)))
+		require.Equal(t, 1, f.cached(t, "issues"))
+		require.Empty(t, f.calls)
+	})
+}
+
+func TestInstallPollingSecondaryLimitIsolation(t *testing.T) {
+	for _, status := range []int32{403, 429} {
+		t.Run(strconv.Itoa(int(status)), func(t *testing.T) {
+			f := newInstallPollingComposition(t, true)
+			f.pauseIssues.Store(status)
+			f.start(t)
+			require.Eventually(t, func() bool {
+				return f.count("GET /repos/acme/app/issues") == 1 && f.count("GET /repos/acme/app/pulls") == 1
+			}, 5*time.Second, 10*time.Millisecond)
+			f.retry(t)
+			require.Eventually(t, func() bool { return f.count("GET /repos/acme/app/pulls") == 2 }, 5*time.Second, 10*time.Millisecond)
+			require.Equal(t, 1, f.count("GET /repos/acme/app/issues"))
+			f.clock.Add(49)
+			time.Sleep(1100 * time.Millisecond)
+			require.Equal(t, 1, f.count("GET /repos/acme/app/issues"))
+			f.pauseIssues.Store(0)
+			f.clock.Add(1)
+			require.Eventually(t, func() bool { return f.count("GET /repos/acme/app/issues") == 2 }, 5*time.Second, 10*time.Millisecond)
+		})
+	}
 }
