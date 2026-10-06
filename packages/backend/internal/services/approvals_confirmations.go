@@ -348,6 +348,45 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err := tx.QueryRow(ctx, `SELECT state='active' FROM mythical_stacks WHERE repository_id=$1`, repository).Scan(&ready); err != nil || !ready {
 			return p, confirmationUnavailable()
 		}
+	case "branch.bring-in", "branch.discard-foreign":
+		var answer struct {
+			ID       string `json:"id"`
+			Revision string `json:"revision"`
+		}
+		if subject.Kind != "branch" || !mythicalTodoBranchValid(subject.Ref) || confirmationJSON(input.Payload, &answer) != nil || answer.ID == "" || len(answer.ID) > 128 || !mythicalSHA.MatchString(answer.Revision) || strings.Trim(answer.Revision, "0") == "" {
+			return p, invalidConfirmation()
+		}
+		p.input, _ = json.Marshal(answer)
+		p.revision = answer.Revision
+		if !inspect {
+			p.subject, _ = json.Marshal(subject)
+			return p, nil
+		}
+		items, err := db.New(tx).ListMythicalGitHubBranchItems(ctx, repository)
+		if err != nil {
+			return p, err
+		}
+		var item *db.MythicalItem
+		for i := range items {
+			checks := mythicalChecksOf(items[i])
+			if checks.Todo && checks.Branch == subject.Ref {
+				if item != nil {
+					return p, todoControlConflict("Branch has more than one TODO")
+				}
+				item = &items[i]
+			}
+		}
+		if item == nil {
+			return p, todoControlConflict("TODO is settled or merging")
+		}
+		if _, err := foreignPushAnswerWait(*item, answer.ID, answer.Revision); err != nil {
+			return p, err
+		}
+		p.title = item.Title.String
+		verb = "Bring in"
+		if input.Command == "branch.discard-foreign" {
+			verb = "Discard"
+		}
 	case "todo.drop", "todo.amend":
 		if subject.Kind != "todo" || !strings.HasPrefix(subject.Ref, "T") {
 			return p, invalidConfirmation()
@@ -539,6 +578,23 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				var result TodoControlReceipt
 				result, err = consumer.AmendTodo(bound, number, request)
 				amendedRevision = result.Revision
+			case "branch.bring-in", "branch.discard-foreign":
+				var subject struct {
+					Ref string `json:"ref"`
+				}
+				var answer struct {
+					ID       string `json:"id"`
+					Revision string `json:"revision"`
+				}
+				if err = json.Unmarshal(prepared.subject, &subject); err != nil {
+					return err
+				}
+				if err = json.Unmarshal(prepared.input, &answer); err != nil {
+					return err
+				}
+				var result TodoControlReceipt
+				result, err = consumer.AnswerBranch(bound, subject.Ref, TodoControlInput{Repository: repository, Actor: info.User.ID, Request: input.Key, Op: strings.TrimPrefix(command, "branch."), Wait: answer.ID, Revision: answer.Revision})
+				number = result.Number
 			case "todo.drop":
 				var subject struct {
 					Ref string `json:"ref"`

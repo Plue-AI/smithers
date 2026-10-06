@@ -3340,23 +3340,12 @@ func (s *MythicalService) AnswerBranch(ctx context.Context, branch string, input
 			receipt = prior
 			return err
 		}
-		if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" || mythicalMergeFenced(item) {
-			return todoControlConflict("TODO is settled or merging")
+		index, err := foreignPushAnswerWait(item, input.Wait, input.Revision)
+		if err != nil {
+			return err
 		}
 		checks := mythicalChecksOf(item)
-		index := -1
-		for i, wait := range checks.Waits {
-			if wait.ID == input.Wait && wait.Kind == "foreign_push" {
-				index = i
-			}
-		}
-		if index < 0 {
-			return todoControlConflict("Outside push changed; refresh the TODO")
-		}
 		wait := &checks.Waits[index]
-		if wait.SettledAt != nil || wait.SHA != input.Revision || checks.ForeignHead != input.Revision {
-			return todoControlConflict("Outside push changed; refresh the TODO")
-		}
 		if input.Op == "bring-in" {
 			// No host integrate/rebaseCandidate fallback. The checkpoint provider
 			// must deliver the pinned commit to the current machine-bound run.
@@ -3394,6 +3383,21 @@ func (s *MythicalService) AnswerBranch(ctx context.Context, branch string, input
 		return q.NotifyMythical(ctx, input.Repository, string(notification))
 	})
 	return receipt, err
+}
+
+// foreignPushAnswerWait is shared by person answers and both confirmation
+// boundaries, so a request never authorizes a different observed push.
+func foreignPushAnswerWait(item db.MythicalItem, id, revision string) (int, error) {
+	if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" || mythicalMergeFenced(item) {
+		return -1, todoControlConflict("TODO is settled or merging")
+	}
+	checks := mythicalChecksOf(item)
+	for i, wait := range checks.Waits {
+		if wait.ID == id && wait.Kind == "foreign_push" && wait.SettledAt == nil && wait.SHA == revision && checks.ForeignHead == revision {
+			return i, nil
+		}
+	}
+	return -1, todoControlConflict("Outside push changed; refresh the TODO")
 }
 
 // pendingGitHubPushHead supplies the shared fact decision with the head of

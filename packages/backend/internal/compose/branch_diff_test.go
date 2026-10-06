@@ -92,7 +92,7 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		return string(raw)
 	}
 	// Agent requests cross the same installed authorization/confirmation doors.
-	// Missing dispatch cannot consume the foreign wait or mint an approval.
+	// Requests persist one private confirmation without consuming the foreign wait.
 	tokenFor := func(user db.User, digit string) string {
 		token := "smithers_" + strings.Repeat(digit, 40)
 		digest := sha256.Sum256([]byte(token))
@@ -102,7 +102,9 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		return token
 	}
 	ownerToken, memberToken := tokenFor(owner, "e"), tokenFor(member, "f")
-	confirmationCall := func(path, token, cookie, body, key string, status int, code string) {
+	confirmationCall := func(path, token, cookie, body, key string, status int, code string) string {
+		callBefore, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
 		req, err := http.NewRequest("POST", server.URL+path, strings.NewReader(body))
 		require.NoError(t, err)
 		req.Host = "127.0.0.1:4000"
@@ -122,25 +124,38 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		raw, err := io.ReadAll(res.Body)
 		require.NoError(t, err)
 		require.Equal(t, status, res.StatusCode, string(raw))
-		require.Contains(t, string(raw), `"code":"`+code+`"`)
+		if code != "" {
+			require.Contains(t, string(raw), `"code":"`+code+`"`)
+		}
 		unchanged, err := q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
-		require.Equal(t, before, unchanged)
+		require.Equal(t, callBefore, unchanged)
+		return string(raw)
 	}
+	confirmationIDs := map[string]string{}
 	for _, test := range []struct {
 		name, command, token, code string
 		status                     int
 	}{
 		{"member-discard", "branch.discard-foreign", memberToken, "permission", 403},
-		{"member-bring", "branch.bring-in", memberToken, "confirmation_unavailable", 503},
-		{"owner-discard", "branch.discard-foreign", ownerToken, "confirmation_unavailable", 503},
-		{"owner-bring", "branch.bring-in", ownerToken, "confirmation_unavailable", 503},
+		{"member-bring", "branch.bring-in", memberToken, "", 202},
+		{"owner-discard", "branch.discard-foreign", ownerToken, "", 202},
+		{"owner-bring", "branch.bring-in", ownerToken, "", 202},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			payload := fmt.Sprintf(`{"command":%q,"subject":{"kind":"branch","ref":"smithers/retry"},"payload":{"id":"foreign","revision":%q}}`, test.command, head)
-			confirmationCall("/api/confirmations", test.token, "", payload, test.name, test.status, test.code)
+			raw := confirmationCall("/api/confirmations", test.token, "", payload, test.name, test.status, test.code)
+			if test.status == 202 {
+				var receipt map[string]string
+				require.NoError(t, json.Unmarshal([]byte(raw), &receipt))
+				confirmationIDs[test.name] = receipt["confirmation"]
+				require.NotEmpty(t, receipt["confirmation"])
+				confirmationCall("/api/confirmations", test.token, "", payload, test.name, 202, "")
+			}
 		})
 	}
+	confirmationCall("/api/confirmations/"+confirmationIDs["member-bring"]+"/approve", "", ownerCookie, `{}`, "other-person", 403, "permission")
+	confirmationCall("/api/confirmations", ownerToken, "", fmt.Sprintf(`{"command":"branch.discard-foreign","subject":{"kind":"branch","ref":"smithers/retry"},"payload":{"id":"foreign","revision":%q}}`, strings.Repeat("d", 40)), "agent-stale", 409, "conflict")
 	// A downgraded/read-only delegation cannot acquire confirmation authority.
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=replace(scopes,'write:repository,','') WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
@@ -150,11 +165,12 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='write:repository,' || scopes WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
 	for _, answer := range []string{"bring-in", "discard-foreign"} {
-		confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 403, "confirm_in_app")
+		confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 403, "permission")
 	}
 	var confirmations int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&confirmations))
-	require.Zero(t, confirmations)
+	require.Equal(t, 3, confirmations)
+	confirmationCall("/api/confirmations/"+confirmationIDs["owner-bring"]+"/approve", "", ownerCookie, `{}`, "bring-press", 503, "checkpoint_rebase_unavailable")
 	for _, command := range []string{"branch.bring-in", "branch.discard-foreign"} {
 		id := uuid.NewString()
 		_, err := pool.Exec(ctx, `INSERT INTO approvals(id,repository_id,state,kind,title,member_id,credential_id,command,subject,revision,payload,expires_at) VALUES($1,$2,'pending','one_click','Outside push',$3,'requesting-agent',$4,'{"kind":"branch","ref":"smithers/retry"}',$5,'{"id":"foreign"}',now()+interval '1 hour')`, id, repo.ID, owner.ID, command, head)
@@ -175,7 +191,25 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	untouched, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, before, untouched)
-	call(ownerCookie, body, "discard", 202)
+	// The agent's request has no effect until this person presses it.
+	confirmationRequest, err := http.NewRequest("POST", server.URL+"/api/confirmations/"+confirmationIDs["owner-discard"]+"/approve", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	confirmationRequest.Host = "127.0.0.1:4000"
+	confirmationRequest.Header.Set("Origin", "http://127.0.0.1:4000")
+	confirmationRequest.Header.Set("Content-Type", "application/json")
+	confirmationRequest.Header.Set("X-CSRF-Token", "csrf-fixture")
+	confirmationRequest.Header.Set("Idempotency-Key", "discard-press")
+	confirmationRequest.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf-fixture"})
+	confirmationRequest.AddCookie(&http.Cookie{Name: "smithers_session", Value: ownerCookie})
+	response, err := server.Client().Do(confirmationRequest)
+	require.NoError(t, err)
+	responseBody, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	response.Body.Close()
+	require.Equal(t, 200, response.StatusCode, string(responseBody))
+	var confirmationState string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, confirmationIDs["owner-discard"]).Scan(&confirmationState))
+	require.Equal(t, "approved", confirmationState)
 	after, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, head, after.PRHead)
@@ -196,12 +230,12 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	require.Equal(t, "Alice", stored.Waits[1]["by"].(map[string]any)["login"])
 	require.Equal(t, "pushowner", stored.Waits[1]["answered_by"])
 	require.NotNil(t, stored.Fault)
-	call(ownerCookie, body, "discard", 202)
+	call(ownerCookie, body, "confirmation:"+confirmationIDs["owner-discard"], 202)
 	call(ownerCookie, body, "another-answer", 409)
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_discard-foreign'`).Scan(&count))
 	require.Equal(t, 1, count)
-	call(ownerCookie, strings.Replace(body, `"id":"foreign"`, `"id":"changed"`, 1), "discard", 409)
+	call(ownerCookie, strings.Replace(body, `"id":"foreign"`, `"id":"changed"`, 1), "confirmation:"+confirmationIDs["owner-discard"], 409)
 	// A later outside push is independent of the earlier decision receipt.
 	// Replaying the first press must not settle or lease against the new head.
 	newHead := strings.Repeat("e", 40)
@@ -219,7 +253,11 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	observed, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
-	call(ownerCookie, body, "discard", 202)
+	confirmationCall("/api/confirmations/"+confirmationIDs["owner-bring"]+"/approve", "", ownerCookie, `{}`, "bring-after-new-push", 409, "confirmation_resolved")
+	var expiredState string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, confirmationIDs["owner-bring"]).Scan(&expiredState))
+	require.Equal(t, "expired", expiredState)
+	call(ownerCookie, body, "confirmation:"+confirmationIDs["owner-discard"], 202)
 	call(ownerCookie, body, "old-answer-after-new-push", 409)
 	staleNew := strings.Replace(body, `"id":"foreign"`, `"id":"foreign-new"`, 1)
 	call(ownerCookie, staleNew, "new-wait-old-head", 409)
@@ -250,7 +288,7 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	require.Equal(t, 2, count)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='landed' WHERE id=$1`, item.ID)
 	require.NoError(t, err)
-	call(ownerCookie, body, "discard", 202)
+	call(ownerCookie, body, "confirmation:"+confirmationIDs["owner-discard"], 202)
 	call(ownerCookie, body, "after-merge", 409)
 	// Literal C-STK-08 precedence cases through the install's served doors.
 	// Only the foreign wait settles; the phase, pause and question survive.
