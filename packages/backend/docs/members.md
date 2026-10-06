@@ -108,16 +108,21 @@ card shows them suspended. Write access again clears the suspension, and the
 person signs in again. An installation failure or a failed lookup changes
 nothing.
 
-Rechecks resolve each stored numeric GitHub ID with `GET /user/{id}` before
-using its current login. Renames update the roster login; reassigned logins
-never grant another account's permission. A missing roster GitHub ID is a
-data defect and fails the recheck. Add writes the ID before creating the row;
-legacy repository collaborators may lack one, while owner rows are excluded.
+Rechecks resolve each stored numeric `github_id` with `GET /user/{id}` before
+using its current login. A confirmed missing account suspends; renames update
+`github_login`. A successful permission reply must carry a `user.id` equal to
+the stored ID. A missing or mismatched reply ID leaves that member unchanged
+for this sweep as a transient failure (§5.1.3), and refuses sign-in. A missing
+roster ID also skips only that member. Add writes the ID before creating the
+row; legacy repository collaborators may lack one, while owner rows are excluded.
+
+Member-specific lookup or permission failures skip only that member, are logged
+and counted in `MemberRecheckFailures`, and let confirmed members proceed.
 
 A permission-endpoint 404 confirms member loss only after resolving the
 expected account ID and proving that the same installation token lists the
 repository's numeric GitHub ID. A confirmed missing account also suspends.
-Installation refusals preserve every member row and persist the permission
-stream's refusal in the existing GitHub sync health projection. Transient or
+Installation-level 401/403/404 changes no member row and sets permission-stream
+health to `refused` in the existing GitHub sync health projection. Transient or
 malformed replies preserve state; a complete successful recheck clears the
 refusal. Explicit read or none suspends even with a contradictory role name.
