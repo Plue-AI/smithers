@@ -56,11 +56,11 @@ func installRepository(ctx context.Context, q *db.Queries) (int64, string, error
 	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
 		return 0, "", fmt.Errorf("install repository binding unreadable")
 	}
-	repo, err := q.GetRepoByOwnerAndName(ctx, db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
+	repositoryID, err := services.InstallRepositoryID(ctx, q)
 	if err != nil {
 		return 0, "", err
 	}
-	return repo.ID, binding.Owner + "/" + binding.Name, nil
+	return repositoryID, binding.Owner + "/" + binding.Name, nil
 }
 
 // resolver answers r's topics. The repository is read once per socket; a

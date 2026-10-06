@@ -148,6 +148,12 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			}
 			if want == http.StatusForbidden && who == "member token" && !ownerOnly[key] {
 				message := "Sign in with a browser session"
+				if middleware.InstallMemberCommand(route.method, route.path) == "members.write" {
+					message = "Only a maintainer can do this"
+				}
+				if key == "GET /api/members" {
+					message = "Only a person can do this"
+				}
 				if key == "POST /api/todos/1/merge" {
 					message = "Merge requires an owner or maintainer browser session"
 				}
