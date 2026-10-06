@@ -78,7 +78,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | fixme-before-implementation | T-STK-04 |
 | C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | passing mounted install seam; explicit writer recovery on reload; real GitHub/LAN/reference-host receipts pending | T-GH-01 |
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
-| C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | fixme-before-implementation | T-GH-02 |
+| C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | HTTP seam: ten PRs, automatic refresh, responsive Chat; backend/native receipts separate | T-GH-02 |
 | C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | fixme-before-implementation | T-GH-09, T-GH-01 |
 | C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | fixme-before-implementation | T-GH-04 |
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |

@@ -569,3 +569,96 @@ func TestInstallPollingSecondaryLimitIsolation(t *testing.T) {
 		})
 	}
 }
+
+// Literal event identities prove remove/reapply and rename survive the cursor,
+// rollback, absent consumers and a production-service restart.
+func TestInstallIssueEventPagedAdmissionRecovery(t *testing.T) {
+	f := newInstallPollingComposition(t, true)
+	ctx := t.Context()
+	number := f.upstream.OpenIssue("acme/app", "acme", "Before rename", "Trusted body")
+	require.EqualValues(t, 1001, f.upstream.LabelIssue("acme/app", number, "acme", "todo"))
+	for i := 0; i < 100; i++ {
+		require.EqualValues(t, i+1002, f.upstream.LabelIssue("acme/app", number, "acme", fmt.Sprintf("label-%d", i)))
+	}
+	require.EqualValues(t, 1102, f.upstream.UnlabelIssue("acme/app", number, "acme", "todo"))
+	require.EqualValues(t, 1103, f.upstream.LabelIssue("acme/app", number, "acme", "todo"))
+	require.True(t, f.upstream.EditIssue("acme/app", number, "acme", "After rename", "Trusted body"))
+	issue, ok := f.upstream.Issue("acme/app", number)
+	require.True(t, ok)
+	require.Len(t, issue.Events, 104)
+	require.Equal(t, "renamed", issue.Events[103].Event)
+	_, err := f.pool.Exec(ctx, "CREATE FUNCTION refuse_event_admission() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.principal_id='issues/events' THEN RAISE EXCEPTION 'before event cache commit'; END IF; RETURN NEW; END $$; CREATE TRIGGER refuse_event_admission BEFORE INSERT ON product_job_requests FOR EACH ROW EXECUTE FUNCTION refuse_event_admission()")
+	require.NoError(t, err)
+	stop := f.start(t)
+	require.Eventually(t, func() bool { return f.count("GET /repos/acme/app/issues/events") >= 2 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		var failed bool
+		return f.pool.QueryRow(ctx, "SELECT sync_state='error' FROM github_synced_repos").Scan(&failed) == nil && failed
+	}, 5*time.Second, 10*time.Millisecond)
+	stop()
+	var admitted, cursors int
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM product_job_requests WHERE principal_id='issues/events'").Scan(&admitted))
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM install_settings WHERE key LIKE 'github.issue-events.%'").Scan(&cursors))
+	require.Zero(t, admitted)
+	require.Zero(t, cursors, "cursor cannot escape a failed admission transaction")
+	_, err = f.pool.Exec(ctx, "DROP TRIGGER refuse_event_admission ON product_job_requests")
+	require.NoError(t, err)
+	recompose := func(register bool) {
+		assembled, err := composeGitHubSync(f.pool, f.credentials, nil, topology{}, newGitHubBudget(topology{}))
+		require.NoError(t, err)
+		stack := services.NewMythicalService(f.pool, nil)
+		composeGitHubTodoPolling(stack, f.main, assembled.synced, topology{})
+		composeGitHubInstallAuthority(assembled.synced, f.credentials, true)
+		stack.SetOrchestration(services.NewMythicalGitHub(f.q, assembled.connections, assembled.userRepositories, assembled.connections), nil, nil)
+		if !register {
+			assembled.synced.RegisterFetchedConsumer("issues/events", nil)
+		}
+		f.sync = assembled
+	}
+	recompose(false)
+	stop = f.start(t)
+	require.Eventually(t, func() bool {
+		return f.pool.QueryRow(ctx, "SELECT count(*) FROM product_job_requests WHERE principal_id='issues/events'").Scan(&admitted) == nil && admitted == 104
+	}, 10*time.Second, 10*time.Millisecond)
+	stop()
+	var cursor int
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT (value#>>'{}')::int FROM install_settings WHERE key LIKE 'github.issue-events.%'").Scan(&cursor))
+	require.Equal(t, 1104, cursor)
+	require.Empty(t, f.readTodos(t), "an absent owner cannot run substitute effects")
+	var identities []string
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT array_agg(request_id ORDER BY (payload->>'event_id')::bigint) FROM product_job_requests WHERE principal_id='issues/events'").Scan(&identities))
+	expected := make([]string, 104)
+	for i := range expected {
+		expected[i] = strconv.Itoa(i + 1001)
+	}
+	require.Equal(t, expected, identities)
+	// Observe committed consumer acknowledgements without replacing the consumer.
+	_, err = f.pool.Exec(ctx, "CREATE FUNCTION observe_event_ack() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.principal_id='issues/events' AND NEW.state='completed' AND OLD.state<>'completed' THEN INSERT INTO install_settings(key,value) VALUES('test.event-order',jsonb_build_array(NEW.payload->'event_id')) ON CONFLICT(key) DO UPDATE SET value=install_settings.value||excluded.value; END IF; RETURN NEW; END $$; CREATE TRIGGER observe_event_ack AFTER UPDATE ON product_job_requests FOR EACH ROW EXECUTE FUNCTION observe_event_ack()")
+	require.NoError(t, err)
+	before := len(f.upstream.Reads())
+	recompose(true)
+	stop = f.start(t)
+	require.Eventually(t, func() bool {
+		return f.pool.QueryRow(ctx, "SELECT count(*) FROM product_job_requests WHERE principal_id='issues/events' AND state='completed'").Scan(&admitted) == nil && admitted == 104
+	}, 30*time.Second, 20*time.Millisecond)
+	stop()
+	var order []byte
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT value FROM install_settings WHERE key='test.event-order'").Scan(&order))
+	var events []int
+	require.NoError(t, json.Unmarshal(order, &events))
+	require.Len(t, events, 104)
+	for i, event := range events {
+		require.Equal(t, i+1001, event)
+	}
+	var after []string
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT array_agg(request_id ORDER BY (payload->>'event_id')::bigint) FROM product_job_requests WHERE principal_id='issues/events'").Scan(&after))
+	require.Equal(t, identities, after)
+	for _, read := range f.upstream.Reads()[before:] {
+		if strings.Contains(read.Path, "/issues/events?") {
+			require.NotContains(t, read.Path, "page=2", "saved cursor stops at the first page on restart")
+		}
+	}
+	todos := f.readTodos(t)
+	require.Len(t, todos, 1)
+	require.Equal(t, "After rename", todos[0]["title"])
+}
