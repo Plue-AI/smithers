@@ -93,6 +93,29 @@ const post = (protocol: ProviderProtocol, modelId: string, credential: string | 
 }
 const last = async () => (await provider.journal()).at(-1)!
 
+test("journals only the names actually disclosed by production model requests", async () => {
+  for (const protocol of ["openai-chat", "anthropic-messages"] as const) {
+    for (const blocks of [false, true]) {
+      const instructions = "Private prompt text\n- /files.list — List files\n- /flow.run <name> — Run a flow\nPrivate credential " + KEY
+      const content = blocks ? [{ type: "text", text: instructions }] : instructions
+      const body = protocol === "openai-chat"
+        ? { model: PROVIDER_MODEL.answers, messages: [{ role: "developer", content }], tools: [{ type: "function", function: { name: "commands" } }] }
+        : { model: PROVIDER_MODEL.answers, system: content, messages: [], tools: [{ name: "commands" }] }
+      const headers = new Headers({ "content-type": "application/json" })
+      if (protocol === "openai-chat") headers.set("authorization", `Bearer ${KEY}`)
+      else { headers.set("x-api-key", KEY); headers.set("anthropic-version", "2023-06-01") }
+      const response = await fetch(`${provider.origin}${protocol === "openai-chat" ? PROVIDER_PATHS.openaiChat : PROVIDER_PATHS.anthropic}`, { method: "POST", headers, body: JSON.stringify(body) })
+      expect(response.status).toBe(200)
+      await response.text()
+      const receipt = await last()
+      expect(receipt.disclosedCommands).toEqual(["files.list", "flow.run"])
+      expect(receipt.toolNames).toEqual(["commands"])
+      expect(JSON.stringify(receipt)).not.toContain("Private prompt text")
+      expect(JSON.stringify(receipt)).not.toContain(KEY)
+    }
+  }
+})
+
 describe("a streamed answer reaches the real client", () => {
   for (const protocol of ["openai-chat", "anthropic-messages"] as const) {
     test(protocol, async () => {

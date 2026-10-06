@@ -57,6 +57,9 @@ export interface ProviderJournalEntry {
   readonly state?: unknown
   /** A generation's parameters: whether a system prompt was sent, and the knobs the body named. */
   readonly system?: boolean
+  /** Names actually disclosed in the production turn; no prompt or credential text. */
+  readonly disclosedCommands?: ReadonlyArray<string>
+  readonly toolNames?: ReadonlyArray<string>
   readonly maxTokens?: number
   readonly temperature?: number
 }
