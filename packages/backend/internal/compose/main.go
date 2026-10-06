@@ -1305,7 +1305,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// handler returns 404 without calling into the service.
 	// Ticket 0134: wire the AuditService into ApprovalsService so every
 	// create/decide transition emits an immutable audit row.
-	approvalsService := services.NewApprovalsServiceWithAudit(queries, auditService, services.WithConfirmationTodos(pool, nil))
+	approvalsService := services.NewApprovalsServiceWithAudit(queries, auditService, services.WithConfirmationTodos(pool, mythicalService))
 	approvalsHandler := &routes.ApprovalsHandler{
 		Service: approvalsService,
 		Enabled: cfg.FeatureFlags.ApprovalsFlowEnabled,

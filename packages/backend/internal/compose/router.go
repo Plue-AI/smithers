@@ -964,7 +964,7 @@ func buildRouter(
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
 		if config.IsSingleOwner(cfg.Auth) {
-			r.Use(memberCommands(queries, extras.Confirmations))
+			r.Use(memberCommands(queries, confirmations))
 		}
 		if queries != nil {
 			r.Use(delegatedAttribution(services.NewAuditService(queries)))
