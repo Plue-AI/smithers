@@ -3,7 +3,8 @@ import { fillComposer } from "./composer"
 import { installCloudFixture } from "./cloudFixture"
 
 // Browser contract proof. The PostgreSQL/SSH/lease journey remains reference-host evidence.
-for (const optionalStreams of ["served", "unsupported"] as const) test(`install /branch T2 renders captured facts with ${optionalStreams} streams and forks without waking`, async ({ page }) => {
+for (const optionalStreams of ["served", "unsupported"] as const) test(`install /branch T2 renders captured facts with ${optionalStreams} streams and forks without waking`, async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"])
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   const posts: unknown[] = []
   const presence: unknown[] = []
@@ -20,6 +21,7 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   await page.route("**/api/todos/2", route => route.fulfill({ json: { branch: { name: "smithers/retry-webhooks" } } }))
   await page.route("**/api/branches/smithers%2Fretry-webhooks", route => route.fulfill({ json: { name: "smithers/retry-webhooks", machine: { id: "b-live" } } }))
   await page.route("**/api/branches", route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: [{ name: "smithers/retry-webhooks", kind: "item", state: "asleep", machine: { id: "b-live" } }] })
     posts.push(route.request().postDataJSON())
     return route.fulfill({ status: 201, json: { name: "scratch/ben/try-retry", kind: "scratch" } })
   })
@@ -33,7 +35,7 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
       item: { n: 2, title: "Retry webhooks", state: "working", place: 2 },
       rebase: { state: "pending", onto: "main" },
       presence: [{ actor: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }, where: { kind: "file", path: "retry.ts", line: 12 } }],
-      terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost"
+      terminals: [{ id: "t-live", title: "Shell", owner: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1 }, agents: [], watchers: [], frozen: false }], ssh_line: "ssh -p 2222 retry-webhooks@localhost"
     } : frame.topic === "branch:b-live:activity" && optionalStreams === "served" ? [{ id: "outside-1", at: "2026-10-06T12:00:00Z", kind: "burst", actor: { id: "outside", kind: "outside", via: "tool" }, files: [{ path: "retry.ts", change: "modified" }] }, { id: "owned-1", at: "2026-10-06T12:00:01Z", kind: "burst", actor: writer, files: [{ path: "retry.ts", change: "modified" }] }]
       : frame.topic === "branch:b-live:files" && optionalStreams === "served" ? { changed: [{ path: "retry.ts", change: "modified", last_writer: writer }], open: [] } : undefined
     socket.send(JSON.stringify(data === undefined ? { t: "err", id: frame.id, code: "unsupported" } : { t: "snap", id: frame.id, cursor: 1, data }))
@@ -71,6 +73,13 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   await expect(card).toContainText("ssh -p 2222 retry-webhooks@localhost")
   await expect(card.locator('[data-flow="box.resume"]')).toHaveCount(0)
   await expect.poll(() => presence[0]).toEqual({ branch: "b-live" })
+  await card.getByRole("tab", { name: /Terminals\s*1/ }).press("Enter")
+  await card.getByRole("button", { name: /Shell/ }).press("Enter")
+  await expect(page.getByTestId("card-terminal:t-live")).toBeVisible()
+  await fillComposer(page, "/ssh T2")
+  await page.getByTestId("composer-send").click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("ssh -p 2222 retry-webhooks@localhost")
+  expect(posts).toEqual([])
   await card.getByRole("button", { name: "Fork", exact: true }).press("Enter")
   await expect.poll(() => posts).toEqual([{ from: "T2" }])
   await expect(page.getByTestId("composer-input")).toBeEnabled()

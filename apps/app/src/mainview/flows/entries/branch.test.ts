@@ -289,3 +289,66 @@ test("an unanswered live SSH provider keeps the off-install seed available", asy
     expect(await submit(h, "ssh", { branch: "retry-webhooks" })).toEqual({ status: "executed", value: "ssh -p 2222 retry-webhooks@maya-mini.tail1234.ts.net" })
   } finally { h.controller.dispose() }
 })
+
+
+test("install Watch discovers the machine topic from the real branch-list wire shape", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const topics: string[] = []
+  const live = {
+    subscribe: (topic: string) => { topics.push(topic); return () => {} },
+    getSnapshot: (topic: string) => topic === "branch:machine-retry" ? { topic, data: {
+      id: "machine-retry", ssh_line: "ssh -p 2222 smithers/retry@factory.example",
+      terminals: [{ id: "terminal-retry", title: "Shell", owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }, agents: [], watchers: [], frozen: false }]
+    } } : undefined
+  }
+  const profile = signupProfileFetch(async input => {
+    const path = new URL(String(input), "https://install.test").pathname
+    if (path === "/api/todos/2") return Response.json({ branch: { name: "smithers/retry" } })
+    if (path === "/api/branches/smithers%2Fretry") return Response.json({ name: "smithers/retry", machine: { id: "machine-retry" } })
+    return path === "/api/branches" ? Response.json([{ name: "smithers/retry", kind: "item", state: "asleep", machine: { id: "machine-retry" } }]) : new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, live,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  const stop = controller.terminalCards!.subscribe!(() => {})
+  try {
+    for (let i = 0; i < 100 && !controller.terminalCards?.branch("terminal-retry"); i++) await new Promise(resolve => setTimeout(resolve, 1))
+    expect(topics).toContain("branch:machine-retry")
+    expect(topics).not.toContain("branch:smithers/retry")
+    for (const branch of ["T2", "smithers/retry"]) expect(await controller.submitCommand({ name: "ssh", payload: { branch }, actor: "user" })).toEqual({ status: "executed", value: "ssh -p 2222 smithers/retry@factory.example" })
+    expect((await controller.submitCommand({ name: "ssh", payload: { branch: "missing" }, actor: "user" })).status).toBe("failed")
+    expect(await controller.submitCommand({ name: "terminal.watch", payload: { id: "terminal-retry" }, actor: "user" })).toMatchObject({ status: "executed" })
+    expect(store.collections.cards.get("terminal:terminal-retry")).toMatchObject({ kind: "terminal", payload: { id: "terminal-retry" } })
+  } finally { stop(); controller.dispose() }
+})
+
+
+test("SSH clipboard completion waits for the copy and reports its failure", async () => {
+  const { branchFlows } = await import("./branch")
+  const { FlowGesture } = await import("../CommandGesture")
+  const { Effect, Option } = await import("effect")
+  const Cell = await import("@smthrs/harness/Cell")
+  const h = await boot({ subscribe: () => () => {}, getSnapshot: topic => ({ topic, data: { id: "b-real", ssh_line: "ssh -p 2222 retry@localhost" } }) }, true)
+  const { nameOf } = await import("../registry")
+  const entry = branchFlows({ ...h.controller, snapshot: () => { throw new Error("SSH does not read command snapshots") } }).find(entry => nameOf(entry) === "ssh")!
+  const call = new Cell.Call({ flowName: "ssh", input: { branch: "b-real" }, capabilities: [],
+    effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
+    placement: Option.none(), identity: new Cell.CallIdentity({ session: "ssh-copy", frame: 0, cell: "copy", ordinal: 0, declaration: "ssh", layers: [] }) })
+  let complete!: () => void
+  const pending = new Promise<void>(resolve => { complete = resolve })
+  const copied: string[] = []
+  let settled = false
+  try {
+    const result = Effect.runPromise(entry.binding.run(call).pipe(Effect.provideService(FlowGesture, {
+      name: "ssh", release: () => {}, copyText: async text => { copied.push(text); await pending }
+    }))).then(value => { settled = true; return value })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    expect(copied).toEqual(["ssh -p 2222 retry@localhost"])
+    complete()
+    expect(await result).toMatchObject({ outcome: "success", value: { value: "ssh -p 2222 retry@localhost" } })
+    expect(await Effect.runPromise(entry.binding.run(call).pipe(Effect.provideService(FlowGesture, {
+      name: "ssh", release: () => {}, copyText: async () => { throw new Error("denied") }
+    })))).toMatchObject({ outcome: "failure", message: "Flow ssh failed: Copy failed" })
+  } finally { complete(); h.controller.dispose() }
+})
