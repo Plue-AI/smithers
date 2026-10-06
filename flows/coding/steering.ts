@@ -100,7 +100,10 @@ export const routeMessages = (
     })
 })
 
-const Boundary = Schema.Literals(["after-poc", "before-implementation", "after-correction"])
+const Boundary = Schema.Literals([
+  "route", "plan", "poc", "implement", "correct", "deliver",
+  "after-poc", "before-implementation", "after-correction"
+])
 const Revision = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const BoundaryTuple = Schema.Tuple([Schema.NonEmptyString, Boundary, Revision])
 const decodeBoundary = Schema.decodeUnknownOption(Schema.fromJsonString(BoundaryTuple))
@@ -192,7 +195,7 @@ export const receiveFeedback = (input: typeof ReceiveFeedback.payloadSchema.Type
     const boundary = feedbackBoundary(instance.executionId, input)
     const receipt = yield* queue.drain({
       runId: owner.value.rootId,
-      targetLineageId: lineage(owner.value.rootId),
+      targetLineageId: owner.value.flowId === todoFlowId ? owner.value.rootId : lineage(owner.value.rootId),
       boundary,
       wouldIdle: true
     }).pipe(Effect.mapError(() =>
