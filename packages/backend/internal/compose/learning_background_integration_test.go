@@ -2,6 +2,8 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -46,9 +49,11 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo)
 	require.NoError(t, err)
-	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: "fixture-person", ExpiresAt: time.Now().Add(time.Hour)})
+	sessionHash := sha256.Sum256([]byte("fixture-person"))
+	sessionKey := hex.EncodeToString(sessionHash[:])
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: sessionKey, ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
-	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "fixture-person"})
+	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: sessionKey})
 	service := services.NewMythicalService(pool, nil)
 	_, err = service.FileTodo(ctx, repo, owner.ID, services.MythicalTodoInput{Title: "Retry", Prompt: "Use retry", Request: "fixture", Place: services.MythicalTodoPlace{Mode: "append"}})
 	require.NoError(t, err)
@@ -82,12 +87,14 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	hubCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(hubCtx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	topics := &liveTopics{queries: q, todos: service}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{Live: handler, Mythical: &routes.MythicalHandler{Service: service}})
-	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		router.ServeHTTP(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: &owner, SessionHash: "fixture-person"})))
-	})
+	server.Config.Handler = router
 	server.Start()
 	for _, row := range []struct {
 		stored, visible, wikiStored, wikiVisible string
@@ -109,7 +116,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 			require.NoError(t, err)
 			readCtx, done := context.WithTimeout(ctx, 10*time.Second)
 			defer done()
-			conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}}})
+			conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"smithers_session=fixture-person"}}})
 			require.NoError(t, err)
 			defer conn.CloseNow()
 			require.NoError(t, conn.Write(readCtx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
