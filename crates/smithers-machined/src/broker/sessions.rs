@@ -22,11 +22,11 @@ impl User {
                 .login
                 .bytes()
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_' || c == b'-')
-            || self.login == "root"
+            || matches!(self.login.as_str(), "root" | "machined")
             || if self.login == "agent" {
                 self.uid != 19999
             } else {
-                self.uid < 20000
+                !(20000..=2147483647).contains(&self.uid)
             }
         {
             return Err(refusal("invalid session user"));
@@ -71,6 +71,8 @@ pub struct Sessions<C> {
     entries: BTreeMap<u32, Entry>,
     controls: C,
     detached: BTreeMap<u32, Instant>,
+    roster: Option<BTreeMap<u32, String>>,
+    roster_ready: bool,
 }
 impl<C: Controls> Sessions<C> {
     pub fn new(controls: C) -> Self {
@@ -78,12 +80,57 @@ impl<C: Controls> Sessions<C> {
             entries: BTreeMap::new(),
             controls,
             detached: BTreeMap::new(),
+            roster: None,
+            roster_ready: false,
         }
+    }
+    /// The authenticated host supplies the entire current roster before ready.
+    /// Install the restriction before cleanup: a failed kill must never leave
+    /// the revoked identity authorized to spawn or reattach. Retrying the same
+    /// roster completes cleanup of any still-populated cgroups.
+    pub fn set_roster(&mut self, members: &[User], now: Instant) -> io::Result<()> {
+        let mut roster = BTreeMap::new();
+        let mut logins = std::collections::BTreeSet::new();
+        for member in members {
+            member.validate()?;
+            if member.uid == 19999
+                || roster.insert(member.uid, member.login.clone()).is_some()
+                || !logins.insert(member.login.clone())
+            {
+                return Err(refusal("invalid or duplicate roster member"));
+            }
+        }
+        self.roster = Some(roster.clone());
+        self.roster_ready = false;
+        self.kill_matching(
+            |entry| {
+                entry.user.uid != 19999 && roster.get(&entry.user.uid) != Some(&entry.user.login)
+            },
+            now,
+        )?;
+        self.roster_ready = true;
+        Ok(())
+    }
+    /// Call before any account creation, fork or cgroup allocation, and again
+    /// when recording the spawn. Agent is an image identity, never a member.
+    pub fn authorize(&self, user: &User) -> io::Result<()> {
+        user.validate()?;
+        if !self.roster_ready {
+            return Err(refusal("roster cleanup incomplete"));
+        }
+        let roster = self
+            .roster
+            .as_ref()
+            .ok_or_else(|| refusal("roster not synchronized"))?;
+        if user.uid != 19999 && roster.get(&user.uid) != Some(&user.login) {
+            return Err(refusal("session user is not in roster"));
+        }
+        Ok(())
     }
     /// Called only after trusted account binding and successful cgroup spawn.
     /// Stream allocation is owned by the shared daemon allocator, not this map.
     pub fn insert(&mut self, id: u32, user: User, kind: Kind) -> io::Result<()> {
-        user.validate()?;
+        self.authorize(&user)?;
         if id == 0
             || id > 0x7fffffff
             || self.entries.contains_key(&id)
@@ -193,6 +240,12 @@ impl<C: Controls> Sessions<C> {
     /// Call after validating both stream replay offsets. A successful transport
     /// reconnect does not reattach sessions the host omitted.
     pub fn attach(&mut self, id: u32, now: Instant) -> io::Result<()> {
+        let user = &self
+            .entries
+            .get(&id)
+            .ok_or_else(|| refusal("unknown session"))?
+            .user;
+        self.authorize(user)?;
         if self
             .detached
             .get(&id)

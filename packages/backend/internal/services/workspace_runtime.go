@@ -553,10 +553,10 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 	return updated, nil
 }
 
-// Runtime forks use stack-resolved revisions, never machine snapshots. Until
-// the authorized stack operation is wired, retain access checks but refuse
-// before creating a workspace, waking the source, or invoking the runtime.
+// Runtime forks delegate to the stack's revision writer after checking source
+// workspace authority. No lifecycle operation runs on the source machine.
 func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
+	var response WorkspaceResponse
 	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, source db.Workspace) error {
 		if err := s.requireBranchMachineProviders(); err != nil {
 			return err
@@ -564,9 +564,14 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 		if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
 			return err
 		}
-		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision-based fork unavailable")
+		if s.revisionFork == nil {
+			return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision-based fork unavailable")
+		}
+		var err error
+		response, err = s.revisionFork(ctx, source, input)
+		return err
 	})
-	return WorkspaceResponse{}, err
+	return response, err
 }
 
 func (s *WorkspaceService) createRuntimeWorkspaceSnapshot(ctx context.Context, input CreateWorkspaceSnapshotInput, snapshotName string) (WorkspaceSnapshotResponse, error) {

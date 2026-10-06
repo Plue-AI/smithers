@@ -78,8 +78,8 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     ])
     const args: Record<string, z.ZodType> = {}, options: Record<string, z.ZodType> = {}
     for (const [key, field] of Object.entries(fields)) {
-      let value = key === "n" && key === positional
-        ? z.string().regex(/^T[1-9]\d*$/, "Expected Tn").transform((value) => Number(value.slice(1)))
+      let value = (key === "n" && key === positional) || key === "before"
+        ? z.string().regex(/^T[1-9]\d*$/, "Expected Tn").transform((value) => Number(value.slice(1))).meta({ type: "string", pattern: "^T[1-9]\\d*$" })
         : valueSchema({ ...field, $defs: row.payload.definitions })
       if (!required.has(key)) value = value.optional()
       if (positionalKeys.has(key)) args[key] = value
@@ -103,13 +103,13 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
             throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })
           }
           const supplied = { ...context.args, ...context.options }
-          const requestId = randomUUID()
           const input = Object.fromEntries(
             Object.keys(fields).filter((key) => supplied[key] !== undefined).map((key) => [key, supplied[key]])
           )
           const payload = payloadSchema({ ...row.payload.schema, $defs: row.payload.definitions }).parse(
             input
           ) as Record<string, unknown>
+          const requestId = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey : randomUUID()
           let request: ReturnType<typeof catalogRequest>
           try {
             request = catalogRequest(row, payload)
@@ -138,15 +138,28 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
               }
               body.wait = questions[0]!.id
             }
-            let result = await client.request(
+            const response = await client.response(
               request.method,
               request.path,
               request.method === "GET" ? undefined : body,
               { headers: request.method === "GET" ? {} : { "Idempotency-Key": requestId } }
             )
+            const text = await client.text(response)
+            let result: unknown = text.trim() ? JSON.parse(text) : null
             if (row.name === "todo.answer") result = { todo: payload.n, wait: body.wait, ...object(result) }
             const receipt = object(result)
-            if (receipt.confirmation !== undefined && receipt.state === "pending") runtime.exit?.(3)
+            if (receipt.confirmation !== undefined && receipt.state === "pending") {
+              if (response.status !== 202 || typeof receipt.confirmation !== "string" || !receipt.confirmation) {
+                throw new Refused({ fault: "infra", code: "backend_protocol", message: "Invalid confirmation response" })
+              }
+              let person = "you"
+              const encodedPerson = response.headers.get("Smithers-Confirmation-Person")
+              if (encodedPerson) {
+                try { person = Presentation.clean(decodeURIComponent(encodedPerson)).replace(/[\r\n]+/g, " ").trim() || person } catch { /* Old or malformed presentation metadata never changes authority. */ }
+              }
+              result = { ...receipt, message: `Waiting for ${person} to confirm` }
+              runtime.exit?.(3)
+            }
             return client.redact(result)
           } catch (error) {
             throw client.failure(error)
@@ -159,7 +172,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
             const receipt = object(value)
             return {
               human: receipt.confirmation !== undefined && receipt.state === "pending"
-                ? `Waiting for you to confirm\n${String(receipt.confirmation)} pending` :
+                ? `${String(receipt.message)}\n${String(receipt.confirmation)} pending` :
                 JSON.stringify(value)
             }
           }

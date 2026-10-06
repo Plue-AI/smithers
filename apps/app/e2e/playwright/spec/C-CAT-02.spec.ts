@@ -4,7 +4,7 @@ import { owner } from "./j1-fixtures"
 // UI projection of C-CAT-02; its unit/CLI acceptance evidence remains separate.
 // Written before implementation: mvp.md §6.1.2a, Appendix A, B.6; lands with T-CAT-01
 test("C-CAT-02: External CLI confirmation waits for the person", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.1.2a, Appendix A, B.6; lands with T-CAT-01")
+  test.fixme(true, "Merge confirmation consumer is unavailable: approvals_confirmations.go prepareConfirmation only adapts todo.new and todo.drop. Their real CLI/browser journey passes in TestConfirmationsBrowserPostgres.")
   // Required seed: real CLI delegated request already ingested into main,
   // plus its waiting confirmation. This is the UI half; CLI argv/schema and
   // refusal exit codes require the ticket's CLI integration suite.

@@ -21,12 +21,20 @@ import (
 )
 
 func TestRuntimeWorkspaceConformance(t *testing.T) {
-	runtime, err := New(Config{Root: t.TempDir(), MaxConcurrent: 2})
+	config := Config{Root: t.TempDir(), MaxConcurrent: 2}
+	runtime, err := New(config)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 
 	workspaceconformance.RunCore(t, workspaceconformance.CoreHarness{
 		Runtime: runtime,
+		Reopen: func() (workspaceapi.WorkspaceRuntime, error) {
+			if err := runtime.Close(); err != nil {
+				return nil, err
+			}
+			runtime, err = New(config)
+			return runtime, err
+		},
 		Context: func(operationID string) context.Context {
 			return workspaceapi.WithOperation(context.Background(), workspaceapi.Operation{
 				TenantID: "one-owner", PrincipalID: "one-owner", OperationID: operationID,

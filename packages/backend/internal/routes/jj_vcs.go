@@ -249,7 +249,11 @@ func (h *JJVCSHandler) CreateBookmark(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, err)
 		return
 	}
-	if err := services.RequireBookmarkNotProtected(r.Context(), h.RepoResolver, repo.ID, name); err != nil {
+	guard := services.RequireBookmarkNotProtected
+	if h.RepoHost.InstallMainMirror() {
+		guard = services.RequireInstallBookmarkNotProtected
+	}
+	if err := guard(r.Context(), h.RepoResolver, repo.ID, name); err != nil {
 		writeRouteError(w, r, err)
 		return
 	}
@@ -340,7 +344,11 @@ func (h *JJVCSHandler) DeleteBookmark(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, err)
 		return
 	}
-	if err := services.RequireBookmarkNotProtected(r.Context(), h.RepoResolver, repo.ID, name); err != nil {
+	guard := services.RequireBookmarkNotProtected
+	if h.RepoHost.InstallMainMirror() {
+		guard = services.RequireInstallBookmarkNotProtected
+	}
+	if err := guard(r.Context(), h.RepoResolver, repo.ID, name); err != nil {
 		writeRouteError(w, r, err)
 		return
 	}

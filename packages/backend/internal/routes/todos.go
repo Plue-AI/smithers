@@ -105,10 +105,6 @@ func authorizeInstallRepository(w http.ResponseWriter, r *http.Request, queries 
 	return repositoryID, decision.UserID, true
 }
 func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
-	repo, user, ok := h.authorize(w, r, "todo.new")
-	if !ok {
-		return
-	}
 	var input services.MythicalTodoInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	decoder.DisallowUnknownFields()
@@ -118,6 +114,14 @@ func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
 			refusal = &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO request"}
 		}
 		todoRouteError(w, refusal)
+		return
+	}
+	command := "todo.new"
+	if input.Issue != nil {
+		command = "todo.from-issue"
+	}
+	repo, user, ok := h.authorize(w, r, command)
+	if !ok {
 		return
 	}
 	input.Request = r.Header.Get("Idempotency-Key")

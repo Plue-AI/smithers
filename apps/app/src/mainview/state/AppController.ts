@@ -1,3 +1,4 @@
+import { createSharedPrompts } from "./controller/sharedPrompts"
 import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
 import { createEarlierHistoryController } from "./controller/earlierHistory"
 import { accountOwnerOf } from "./AccountOwner"
@@ -38,7 +39,7 @@ import { bindFlowPreloading } from "../flows/FlowAction"
 import type { CommandActions } from "../flows/Flows"
 import type { RepositoryFlowCatalog } from "../flows/entries/flow"
 import type { SlashItem,SlashRow } from "../flows/registry"
-import { flowRequirements } from "../flows/registry"
+import { parseSubmit, flowRequirements } from "../flows/registry"
 
 import type { AgentPort } from "../runtime/AgentPort"
 import type { ApplicationIdentityClient } from "../runtime/ApplicationClient"
@@ -1391,6 +1392,7 @@ export const createAppController = (
     forwardApprovalDecision,
     forwardInboxApprovalDecision
   })
+  const sharedPrompts = sharedConversation ? createSharedPrompts(ctx, sharedConversation) : undefined
   const promptQueue = createPromptQueueController(ctx, send)
   const decideApproval: typeof decideRunApproval = (id, decision, answer, question) => {
     if (id.startsWith("confirmation:")) {
@@ -1601,6 +1603,7 @@ export const createAppController = (
     await store.dispatch({ type: "message.response.completed", actor: "smithers", turnId, ...context }).isPersisted.promise
   }
   const designSend: TurnController["send"] = (text, admission, capturedDraft) => {
+    if (sharedPrompts && parseSubmit(text, ctx.commands.all()).kind === "prompt") return sharedPrompts.submit(text, capturedDraft)
     const viewer = design.viewer()
     const turn = admission === undefined && !text.trimStart().startsWith("/") && store.session().phase === "idle"
       ? (() => {
@@ -1891,9 +1894,12 @@ export const createAppController = (
     debugReset,
     askReset,
     cancelReset,
-    stop,
+    stop: sharedPrompts?.stop ?? stop,
     send: designSend,
-    enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue,
+    enqueuePrompt: sharedPrompts ? (text, draftCurrent) => { void designSend(text, undefined, draftCurrent) } : enqueuePrompt,
+    removeQueuedPrompt: sharedPrompts ? (id, edit) => { void sharedPrompts.remove(id, edit) } : removeQueuedPrompt,
+    restoreQueuedPrompts: sharedPrompts?.restore ?? restoreQueuedPrompts,
+    resumePromptQueue,
     showChat,
     showWorld,
     showWikiPane: () => {
@@ -1943,7 +1949,7 @@ export const createAppController = (
     setWikiCardView,
     decideApproval,
     answerApproval: (id: string, answer: unknown, question?: string) => decideApproval(id, "approved", answer, question),
-    retryLastTurn,
+    retryLastTurn: sharedPrompts?.retry ?? retryLastTurn,
     openBrowser,
     ...issueFlows,
     createWorkflow,
@@ -2295,9 +2301,9 @@ export const createAppController = (
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
-  subscribeToAgent()
+  if (!sharedPrompts) subscribeToAgent()
   conversationHistory.resume()
-  promptQueue.subscribe()
+  if (!sharedPrompts) promptQueue.subscribe()
   observeBackgroundWork(ctx)
   // Material transitions regenerate the next-step pills through the `recommend` flow.
   // The active repository's flow catalog, read now and on every change of target, so its leaves are in the registry.

@@ -14,12 +14,16 @@ import (
 // CoreHarness supplies provider identity and harmless fixture commands while
 // retaining one lifecycle, execution, and file assertion suite.
 type CoreHarness struct {
-	Runtime          workspace.WorkspaceRuntime
-	Context          func(operationID string) context.Context
-	Spec             workspace.WorkspaceSpec
-	CreateStates     []workspace.WorkspaceState
-	Command          workspace.Command
-	WantStdout       string
+	Runtime workspace.WorkspaceRuntime
+	// Reopen closes the current adapter and opens the same durable state.
+	Reopen       func() (workspace.WorkspaceRuntime, error)
+	Context      func(operationID string) context.Context
+	Spec         workspace.WorkspaceSpec
+	CreateStates []workspace.WorkspaceState
+	Command      workspace.Command
+	WantStdout   string
+	// DeniedEgress probes a destination outside the sandbox allowlist.
+	DeniedEgress     *workspace.Command
 	FilePath         string
 	FileContent      []byte
 	FileMode         fs.FileMode
@@ -69,6 +73,7 @@ func RunCore(t *testing.T, harness CoreHarness) {
 	}
 	if harness.WantCapabilities.FileOperations {
 		t.Run("paths", func(t *testing.T) { runPaths(t, harness, createdWorkspace) })
+		t.Run("base-digest", func(t *testing.T) { runCompareWrites(t, harness) })
 	}
 
 	result, err := harness.Runtime.ExecuteCommand(harness.Context("execute"), harness.Spec.ID, harness.Command)
@@ -136,6 +141,29 @@ func RunCore(t *testing.T, harness CoreHarness) {
 		}
 	}
 
+	if harness.WantCapabilities.Terminal {
+		t.Run("terminal", func(t *testing.T) { runTerminal(t, harness) })
+	}
+	var head string
+	if harness.WantCapabilities.SourceRevision {
+		t.Run("head", func(t *testing.T) { head = runHead(t, harness) })
+	}
+	if harness.WantIsolation == workspace.IsolationSandboxed {
+		t.Run("egress-denied", func(t *testing.T) {
+			if harness.DeniedEgress == nil {
+				t.Fatal("sandbox conformance requires an egress refusal probe")
+			}
+			result, err := harness.Runtime.ExecuteCommand(harness.Context("egress-denied"), harness.Spec.ID, *harness.DeniedEgress)
+			if err != nil || result.ExitCode != 0 || result.Stdout != "denied" {
+				t.Fatalf("egress refusal = %#v, %v", result, err)
+			}
+		})
+	}
+	if !harness.WantCapabilities.EgressSecrets {
+		t.Run("egress-refusal", func(t *testing.T) {
+			RunEgressSecretsRefused(t, harness.Runtime, harness.Context("egress-refusal"), harness.Spec.ID)
+		})
+	}
 	if err := harness.Runtime.StopWorkspace(harness.Context("stop"), harness.Spec.ID); err != nil {
 		t.Fatalf("%T: StopWorkspace: %v", harness.Runtime, err)
 	}
@@ -146,12 +174,29 @@ func RunCore(t *testing.T, harness CoreHarness) {
 	if observed.State != workspace.WorkspaceStopped {
 		t.Fatalf("%T: stopped workspace state = %q; want %q", harness.Runtime, observed.State, workspace.WorkspaceStopped)
 	}
+	if harness.Reopen == nil {
+		t.Fatal("conformance requires a durable runtime reopen")
+	}
+	harness.Runtime, err = harness.Reopen()
+	if err != nil {
+		t.Fatalf("reopen runtime: %v", err)
+	}
+	observed, err = harness.Runtime.InspectWorkspace(harness.Context("inspect-reopened"), harness.Spec.ID)
+	if err != nil || observed.State != workspace.WorkspaceStopped {
+		t.Fatalf("reopened workspace = %#v, %v", observed, err)
+	}
 	observed, err = harness.Runtime.StartWorkspace(harness.Context("restart"), harness.Spec.ID)
 	if err != nil {
 		t.Fatalf("%T: StartWorkspace(restart): %v", harness.Runtime, err)
 	}
 	if observed.State != workspace.WorkspaceRunning {
 		t.Fatalf("%T: restarted workspace state = %q; want %q", harness.Runtime, observed.State, workspace.WorkspaceRunning)
+	}
+	if head != "" {
+		reopenedHead, err := harness.Runtime.(workspace.WorkspaceSourceRevisionResolver).ResolveWorkspaceSourceRevision(harness.Context("head-after-restart"), harness.Spec.ID)
+		if err != nil || reopenedHead != head {
+			t.Fatalf("head after restart = %q, %v; want %q", reopenedHead, err, head)
+		}
 	}
 	if harness.WantCapabilities.FileOperations && harness.WantCapabilities.PersistentFiles {
 		content, err := harness.Runtime.ReadFile(harness.Context("read-after-restart"), harness.Spec.ID, harness.FilePath)

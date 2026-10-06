@@ -837,7 +837,14 @@ export const BranchNavigationSchema = z.object({
   nodes: z.array(BranchTreeNodeCardSchema)
 })
 
+export const SharedPromptSchema = z.object({
+  id: z.string(), owner: z.string(), branch: z.string(), prompt: z.string(),
+  state: z.enum(["editing", "requested", "accepted", "completed", "failed", "cancelled"]), turnId: z.string().optional(), error: z.string().optional()
+})
+export type SharedPrompt = z.infer<typeof SharedPromptSchema>
+
 export const SessionSchema = z.object({
+  sharedPrompts: z.array(SharedPromptSchema).optional(),
   branchNavigation: BranchNavigationSchema.optional(),
   wikiSaves: z.array(z.object({
     id: z.string(), owner: z.string(), branch: z.string(), repo: z.string(), space: z.enum(["public", "private"]),
@@ -1344,6 +1351,7 @@ export type AppTransition =
   | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
+  | { type: "conversation.prompt.changed"; actor: Actor; request: SharedPrompt; clearDraft?: boolean }
   | { type: "branch.navigation.changed"; actor: Actor; navigation: z.infer<typeof BranchNavigationSchema> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }
   /* The color theme (/theme) — the axis orthogonal to light/dark. */

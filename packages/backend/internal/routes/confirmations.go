@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -92,6 +93,20 @@ func (h *ConfirmationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		todoRouteError(w, err)
 		return
+	}
+	WriteRequestedConfirmation(w, r, receipt)
+}
+
+// WriteRequestedConfirmation preserves the two-field receipt. Presentation
+// metadata names the credential's person without another CLI request; it grants
+// no authority and never takes identity from caller-supplied attribution.
+func WriteRequestedConfirmation(w http.ResponseWriter, r *http.Request, receipt services.ConfirmationReceipt) {
+	if info := middleware.AuthInfoFromContext(r.Context()); info != nil && info.User != nil {
+		person := info.User.DisplayName
+		if person == "" {
+			person = info.User.Username
+		}
+		w.Header().Set("Smithers-Confirmation-Person", url.PathEscape(person))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)

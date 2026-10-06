@@ -49,3 +49,155 @@ test("install shell reads shared authors and clears stale output across branch a
     expect(requests.some(path => /\/api\/(agent|chat)\/turn$/.test(path))).toBe(false)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })
+
+test("composer persists before unresolved admission, deduplicates, and waits for host completion", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let release!: (value: Response) => void
+  let completed = false, starts = 0
+  const writes: Array<{ path: string; method: string; body: unknown }> = []
+  const controller = createAppController(store, { ...silentAgent, startTurn: async () => { starts++; return { status: "started" } } }, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    toastDebounceMs: 1,
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (init?.method === "POST") {
+        writes.push({ path, method: init.method, body: JSON.parse(String(init.body)) })
+        if (path === "/api/conversations/main/prompt") return new Promise(resolve => { release = resolve })
+      }
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: store.session().sharedPrompts?.some(row => row.turnId) ? [{ ...ben, state: completed ? "completed" : "running", frames: completed ? ben.frames : [] }] : [] })
+      if (path.endsWith("/view-state")) return Response.json({})
+      return new Response("{}", { status: 404 })
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    controller.changeDraft("List changed tests")
+    expect(await controller.send("List changed tests")).toBe(true)
+    expect(await controller.send("List changed tests")).toBe(true)
+    await waitFor(() => writes.length === 1)
+    const saved = store.session().sharedPrompts![0]!
+    expect(saved.state).toBe("requested")
+    expect(store.session().draft).toBe("")
+    expect(writes).toEqual([{ path: "/api/conversations/main/prompt", method: "POST", body: { prompt: "List changed tests", idempotencyKey: saved.id } }])
+    controller.changeDraft("Chat remains usable")
+    await waitFor(() => store.collections.toasts.get(`toast-prompt-${saved.id}`)?.status === "running")
+    release(Response.json({ status: "accepted", turnId: "turn-ben", terminal: false }, { status: 202 }))
+    await waitFor(() => host.querySelector('[data-shared-turn="turn-ben"][data-state="running"]') !== null)
+    expect(store.collections.toasts.get(`toast-prompt-${saved.id}`)?.status).toBe("running")
+    expect(store.session().draft).toBe("Chat remains usable")
+    completed = true
+    await waitFor(() => store.session().sharedPrompts?.[0]?.state === "completed")
+    await waitFor(() => store.collections.toasts.get(`toast-prompt-${saved.id}`)?.status === "ok")
+    expect(host.textContent).toContain("One changed test")
+    expect(starts).toBe(0)
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+})
+
+test("private queue Edit patches its server turn and Remove deletes only that turn", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let queue = [{ id: "queued-turn", prompt: "Old prompt" }]
+  const writes: Array<{ path: string; method: string; body: unknown }> = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input), method = init?.method ?? "GET"
+      if (method !== "GET") {
+        writes.push({ path, method, body: init?.body ? JSON.parse(String(init.body)) : null })
+        if (method === "PATCH") queue = [{ id: "queued-turn", prompt: "List changed tests" }]
+        if (method === "DELETE") queue = []
+        return Response.json({ status: "ok" })
+      }
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [] })
+      if (path.endsWith("/view-state")) return Response.json({ queue })
+      return new Response("{}", { status: 404 })
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await waitFor(() => host.querySelector('[aria-label="Edit queued prompt: Old prompt"]') !== null)
+    flushSync(() => host.querySelector<HTMLButtonElement>('[aria-label="Edit queued prompt: Old prompt"]')!.click())
+    await waitFor(() => store.session().draft === "Old prompt")
+    expect(writes).toEqual([])
+    controller.changeDraft("List changed tests")
+    await controller.send("List changed tests")
+    await waitFor(() => host.querySelector('[aria-label="Remove queued prompt: List changed tests"]') !== null)
+    expect(writes).toEqual([{ path: "/api/conversations/main/turns/queued-turn", method: "PATCH", body: { prompt: "List changed tests" } }])
+    flushSync(() => host.querySelector<HTMLButtonElement>('[aria-label="Remove queued prompt: List changed tests"]')!.click())
+    await waitFor(() => host.querySelector('[aria-label="Queued prompts"]') === null)
+    expect(writes[1]).toEqual({ path: "/api/conversations/main/turns/queued-turn", method: "DELETE", body: null })
+    expect(writes).toHaveLength(2)
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+})
+
+test("failed admission stays private and retry reuses its durable idempotency key", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let allowed = false
+  const bodies: unknown[] = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (path.endsWith("/prompt")) {
+        bodies.push(JSON.parse(String(init?.body)))
+        return allowed ? Response.json({ turnId: "turn-ben", terminal: true }, { status: 202 }) : Response.json({ class: "infra", code: "unavailable", message: "Prompt unavailable" }, { status: 503 })
+      }
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: allowed ? [ben] : [] })
+      if (path.endsWith("/view-state")) return Response.json({})
+      return new Response("{}", { status: 404 })
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await controller.send("List changed tests")
+    await waitFor(() => store.session().sharedPrompts?.[0]?.state === "failed")
+    await waitFor(() => host.querySelector('[data-private="true"]')?.textContent?.includes("Prompt unavailable") === true)
+    expect(host.querySelectorAll("[data-shared-turn]")).toHaveLength(0)
+    allowed = true
+    await controller.submitCommand({ name: "chat.retry", payload: {}, actor: "user" })
+    await waitFor(() => store.session().sharedPrompts?.[0]?.state === "completed")
+    expect(bodies).toHaveLength(2)
+    expect(bodies[0]).toEqual(bodies[1])
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+})
+
+test("Stop targets the author's running turn and queue restore preserves FIFO draft text", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let queue = [{ id: "first", prompt: "First" }, { id: "second", prompt: "Second" }]
+  const writes: Array<{ path: string; method: string }> = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input), method = init?.method ?? "GET"
+      if (method !== "GET") {
+        writes.push({ path, method })
+        if (method === "DELETE") queue = queue.filter(row => !path.endsWith(`/${row.id}`))
+        return Response.json({ status: "ok" })
+      }
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [{ ...ben, state: "running", frames: [] }] })
+      if (path.endsWith("/view-state")) return Response.json({ queue })
+      return new Response("{}", { status: 404 })
+    }
+  })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => controller.sharedConversation?.get().conversation !== undefined)
+    controller.stop()
+    expect(writes).toEqual([])
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => controller.sharedConversation?.get().queue?.length === 2)
+    controller.stop()
+    await waitFor(() => writes.length === 1)
+    expect(writes[0]).toEqual({ path: "/api/conversations/main/turns/turn-ben/stop", method: "POST" })
+    controller.changeDraft("Draft")
+    await controller.submitCommand({ name: "chat.queue.restore", payload: {}, actor: "user" })
+    await waitFor(() => store.session().draft === "First\nSecond\nDraft")
+    expect(writes.slice(1)).toEqual([{ path: "/api/conversations/main/turns/second", method: "DELETE" }, { path: "/api/conversations/main/turns/first", method: "DELETE" }])
+    await waitFor(() => controller.sharedConversation?.get().queue?.length === 0)
+  } finally { await controller.dispose() }
+})

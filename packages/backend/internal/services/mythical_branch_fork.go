@@ -31,6 +31,34 @@ type BranchForkInput struct {
 	Request string `json:"-"`
 }
 
+// forkWorkspaceRevision keeps the hosted workspace door on the same revision
+// operation as /api/branches. A workspace id selects a server-owned item
+// binding, never a caller-supplied commit or a machine snapshot.
+func (s *MythicalService) forkWorkspaceRevision(ctx context.Context, source db.Workspace, input ForkWorkspaceInput) (WorkspaceResponse, error) {
+	if s == nil || s.store == nil {
+		return WorkspaceResponse{}, branchForkUnavailable("fork unavailable")
+	}
+	from := "main"
+	if strings.HasPrefix(source.TargetBookmark, scratchBranchPrefix) {
+		from = source.TargetBookmark // S1 refuses; S2 must capture before selecting it.
+	} else {
+		var number int64
+		err := s.store.QueryRow(ctx, `SELECT i.number FROM mythical_items i
+            LEFT JOIN mythical_lanes l ON l.item_id=i.id
+            WHERE i.repository_id=$1 AND (i.workspace_id=$2 OR l.workspace_id=$2)
+            ORDER BY l.created_at DESC NULLS LAST LIMIT 1`, source.RepositoryID, source.ID).Scan(&number)
+		if err == nil {
+			from = "T" + strconv.FormatInt(number, 10)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return WorkspaceResponse{}, err
+		} else if source.TargetBookmark != "main" {
+			return WorkspaceResponse{}, &BranchError{409, "no_verified_head", "conflict", "Workspace has no verified revision to fork"}
+		}
+	}
+	branch, err := s.ForkBranch(ctx, input.RepositoryID, input.UserID, BranchForkInput{From: from, Name: input.Name, Request: input.Request})
+	return branch.Machine, err
+}
+
 // BranchError is a branch command's refusal on the §6.2.3 envelope.
 type BranchError struct {
 	Status  int    `json:"-"`

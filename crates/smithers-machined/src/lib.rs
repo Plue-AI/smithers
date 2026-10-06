@@ -25,4 +25,9 @@ pub mod watch;
 
 pub mod document_payload;
 
+pub mod capture;
+pub mod objects;
+pub mod oplog;
+pub mod outbox;
+pub mod reconcile;
 pub mod wiring;

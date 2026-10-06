@@ -28,8 +28,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -64,8 +63,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -101,8 +99,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -140,8 +137,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -173,8 +169,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -206,8 +201,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -239,8 +233,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -272,8 +265,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -305,8 +297,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -338,8 +329,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -370,8 +360,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -435,8 +424,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -468,8 +456,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -501,8 +488,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -533,8 +519,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -566,8 +551,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -677,8 +661,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
@@ -713,8 +696,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -751,8 +733,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -784,8 +765,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -822,8 +802,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -860,8 +839,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -898,8 +876,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':

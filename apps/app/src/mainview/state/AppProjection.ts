@@ -230,6 +230,7 @@ export const APP_TRANSITION_TYPES = {
   "repository.imports.changed": true,
   "secret.requests.changed": true,
   "egress.requests.changed": true,
+  "conversation.prompt.changed": true,
   "branch.navigation.changed": true,
   "theme.changed": true,
   "palette.changed": true,
@@ -2153,6 +2154,15 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, draft => { draft.wikiSaves = transition.requests })
           break
         }
+        case "conversation.prompt.changed":
+          if (accountOwnerOf(collections.identitySessions.get("identity")) !== transition.request.owner) break
+          collections.sessions.update(SESSION_ID, draft => {
+            const rows = draft.sharedPrompts ?? []
+            draft.sharedPrompts = [...rows.filter(row => row.id !== transition.request.id), transition.request]
+            if (transition.clearDraft) draft.draft = ""
+          })
+          break
+
         case "branch.navigation.changed":
           collections.sessions.update(SESSION_ID, draft => { draft.branchNavigation = transition.navigation })
           break

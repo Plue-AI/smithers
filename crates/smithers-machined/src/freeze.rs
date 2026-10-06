@@ -1,29 +1,27 @@
-//! The §9.4.2 rewrite barrier, called on the shared mutation lock thread.
-//! The broker receives only a fixed deadline, never repository input.
-use crate::hooks::{Actor, Broker, Error, Result};
+//! Rewrites thaw only after the tree and documents settle or restore succeeds.
+use crate::hooks::{Actor, Error, Result};
 use crate::lock::LockCx;
-use std::sync::Arc;
 use std::time::Duration;
 
-struct Thaw {
-    broker: Arc<dyn Broker>,
-    armed: bool,
-}
-impl Thaw {
-    fn finish(&mut self) -> Result<()> {
-        self.broker.thaw()?;
-        self.armed = false;
-        Ok(())
+pub fn pending_error() -> Error {
+    Error {
+        code: 12,
+        detail: Some("rewrite requires restore".into()),
+        ..Error::unsupported()
     }
 }
-impl Drop for Thaw {
-    fn drop(&mut self) {
-        if self.armed {
-            // The lock executor catches a panicking provider. Thaw before that
-            // catch allows the next queued mutation to run.
-            let _ = self.broker.thaw();
-        }
+
+/// Recovery is a mutation-lock job. Failure retains the frozen barrier.
+pub fn restore(cx: &mut LockCx, actor: &Actor) -> Result<()> {
+    if !cx.rewrite_pending {
+        return Ok(());
     }
+    let hooks = cx.hooks.clone();
+    hooks.core.restore_rewrite(cx)?;
+    hooks.documents.reconcile_all(cx, actor)?;
+    hooks.broker.thaw()?;
+    cx.rewrite_pending = false;
+    Ok(())
 }
 
 pub fn freeze_then<T>(
@@ -31,12 +29,12 @@ pub fn freeze_then<T>(
     actor: &Actor,
     rewrite: impl FnOnce(&mut LockCx) -> Result<T>,
 ) -> Result<T> {
+    if cx.rewrite_pending {
+        return Err(pending_error());
+    }
     let hooks = cx.hooks.clone();
-    let mut thaw = Thaw {
-        broker: hooks.broker.clone(),
-        armed: true,
-    };
-    let result = (|| {
+    // Even a partial freeze must be unwound if no rewrite has begun.
+    let prepared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if let Some(session) = hooks.broker.freeze(Duration::from_secs(1))? {
             return Err(Error {
                 code: 9,
@@ -44,14 +42,34 @@ pub fn freeze_then<T>(
                 ..Error::unsupported()
             });
         }
+        hooks.documents.flush_all(cx)?;
         hooks.watcher.drain(cx)?;
         hooks.watcher.close_bursts(cx)?;
-        hooks.core.capture_local(cx)?;
-        let output = rewrite(cx)?;
-        hooks.documents.reconcile_all(cx, actor)?;
-        Ok(output)
-    })();
-    // A successful rewrite with failed thaw is not a successful operation.
-    let thawed = thaw.finish();
-    result.and_then(|output| thawed.map(|()| output))
+        hooks.core.capture_local(cx)
+    }));
+    match prepared {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            hooks.broker.thaw()?;
+            return Err(error);
+        }
+        Err(panic) => {
+            let _ = hooks.broker.thaw();
+            std::panic::resume_unwind(panic);
+        }
+    }
+    // Set before calling native code: the executor catches panics, but must
+    // never admit another mutation or thaw a possibly half-applied tree.
+    cx.rewrite_pending = true;
+    let output = match rewrite(cx) {
+        Ok(output) => output,
+        Err(error) => {
+            let _ = restore(cx, actor);
+            return Err(error);
+        }
+    };
+    hooks.documents.reconcile_all(cx, actor)?;
+    hooks.broker.thaw()?;
+    cx.rewrite_pending = false;
+    Ok(output)
 }

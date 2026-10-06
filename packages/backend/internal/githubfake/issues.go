@@ -92,6 +92,7 @@ func (s *Server) EditIssue(repo string, number int64, login, title, body string)
 		issue.Title = title
 		issue.TitleEditor = login
 		issue.TitleEditedAt = now
+		s.event(issueKey(repo, number), "renamed", login, false, "")
 	}
 	if issue.Body != body {
 		issue.Body = body
@@ -116,6 +117,18 @@ func (s *Server) LabelIssue(repo string, number int64, login, label string) int6
 		s.labels[key] = append(s.labels[key], label)
 	}
 	return s.event(key, "labeled", login, false, label)
+}
+
+// UnlabelIssue removes a person's label while retaining its timeline identity.
+func (s *Server) UnlabelIssue(repo string, number int64, login, label string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := issueKey(repo, number)
+	if s.opened[key] == nil || !slices.Contains(s.labels[key], label) {
+		return 0
+	}
+	s.labels[key] = slices.DeleteFunc(s.labels[key], func(value string) bool { return value == label })
+	return s.event(key, "unlabeled", login, false, label)
 }
 
 // CommentIssue posts body on repo#number as the person login, as on

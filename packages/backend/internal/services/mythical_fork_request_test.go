@@ -66,6 +66,58 @@ func TestForkRequestReplaysAfterMainMoves(t *testing.T) {
 	require.Error(t, err, fmt.Sprint("receipt requires the original person's authority"))
 }
 
+func TestRetainedWorkspaceForkUsesRevisionWriter(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	pool := f.pool.(*pgxpool.Pool)
+	installBranchOwner(t, pool, f.userID)
+	f.commit("Source revision", "retry.ts", "export const retry = 2;\n")
+	head := f.publish()
+	ws := installLaneService(t, pool, f.userID)
+	f.service.SetOrchestration(f.service.github, f.service.launcher, NewWorkspaceMythicalLanes(ws))
+	q := db.New(pool)
+	person, err := q.GetUserByID(t.Context(), f.userID)
+	require.NoError(t, err)
+	ctx := middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &person, SessionHash: "retained-workspace-session"})
+	source, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, Name: "main", TargetBookmark: "main", Status: "running"})
+	require.NoError(t, err)
+	input := ForkWorkspaceInput{RepositoryID: f.repoID, UserID: f.userID, WorkspaceID: source.ID, Name: "retained-door", Request: "retained-fork"}
+	first, err := ws.ForkWorkspace(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, head, first.SourceCommit)
+	require.Equal(t, "scratch/"+strings.ToLower(person.Username)+"/retained-door", first.TargetBookmark)
+	f.commit("Main advanced", "retry.ts", "export const retry = 99;\n")
+	require.NotEqual(t, head, f.publish())
+	replayed, err := ws.ForkWorkspace(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, first.ID, replayed.ID)
+	require.Equal(t, head, replayed.SourceCommit)
+	retained, err := q.GetWorkspace(ctx, source.ID)
+	require.NoError(t, err)
+	require.Equal(t, "running", retained.Status)
+	itemSource, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, Name: "item", TargetBookmark: "smithers/retries", Status: "running"})
+	require.NoError(t, err)
+	item, err := q.InsertMythicalTodo(ctx, f.repoID, f.userID, "Retries", "Retry twice", []byte(`[{"text":"Retry twice"}]`), []byte(`{"todo":true}`))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id=$2,candidate_head=$3,candidate_base=$3,candidate_verified=true WHERE id=$1`, item.ID, itemSource.ID, head)
+	require.NoError(t, err)
+	f.git(f.hostDir, "update-ref", "refs/smithers/mythical/keep/"+head, head)
+	require.NoError(t, f.host.ImportRefs(ctx, "", ""))
+	itemFork, err := ws.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: f.repoID, UserID: f.userID, WorkspaceID: itemSource.ID, Name: "item-door", Request: "item-fork"})
+	require.NoError(t, err)
+	require.Equal(t, head, itemFork.SourceCommit, "an awake item uses its verified head, not the advanced main")
+	itemRetained, err := q.GetWorkspace(ctx, itemSource.ID)
+	require.NoError(t, err)
+	require.Equal(t, "running", itemRetained.Status)
+	// A scratch source cannot reach the legacy disk fork even without a runtime.
+	input.WorkspaceID, input.Request, input.Name = first.ID, "scratch-refusal", "scratch-refusal"
+	_, err = ws.ForkWorkspace(ctx, input)
+	require.ErrorContains(t, err, "cannot be forked yet")
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, f.repoID).Scan(&count))
+	require.Equal(t, 4, count)
+	require.NoError(t, ws.WaitForProvisioning(ctx))
+}
+
 // Fail after the workspace and published ref exist, before completion commits.
 // This models a process interruption using real workspace and Git boundaries.
 type interruptedScratchFork struct {

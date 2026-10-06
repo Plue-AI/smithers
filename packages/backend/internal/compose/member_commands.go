@@ -28,6 +28,24 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r)
 				return
 			}
+			if command == "todo.new" {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+				if err != nil {
+					writeConfirmationDispatchError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_todo", Message: "Invalid TODO request"})
+					return
+				}
+				var input struct {
+					Issue *int64 `json:"issue"`
+				}
+				if err := json.Unmarshal(raw, &input); err != nil {
+					writeConfirmationDispatchError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_todo", Message: "Invalid TODO request"})
+					return
+				}
+				if input.Issue != nil {
+					command = "todo.from-issue"
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+			}
 			if command == "todo.control" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
 				if err != nil {
@@ -119,9 +137,7 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 		writeConfirmationDispatchError(w, err)
 		return true
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(receipt)
+	routes.WriteRequestedConfirmation(w, r, receipt)
 	return true
 }
 func writeConfirmationDispatchError(w http.ResponseWriter, err error) {

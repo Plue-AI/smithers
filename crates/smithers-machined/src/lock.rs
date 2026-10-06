@@ -8,6 +8,7 @@ use tokio::sync::oneshot;
 pub struct LockCx {
     pub hooks: Hooks,
     pub completed: u64,
+    pub rewrite_pending: bool,
     pub last_hold: Option<(&'static str, Duration)>,
 }
 impl LockCx {
@@ -15,6 +16,7 @@ impl LockCx {
         Self {
             hooks,
             completed: 0,
+            rewrite_pending: false,
             last_hold: None,
         }
     }

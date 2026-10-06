@@ -26,8 +26,7 @@ paths:
           description: The smithers.live.v1 subprotocol is missing
         '401':
           description: No browser session, or a token
-        '403':
-          description: Another origin, or not a member
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '421':
           description: Unknown host
         '503':

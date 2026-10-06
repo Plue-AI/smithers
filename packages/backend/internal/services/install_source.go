@@ -291,6 +291,21 @@ func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware
 			(!strings.EqualFold(delegation.Branch, row.Machine.ID) || at != "" && at != row.Head) {
 			return repohost.FileContent{}, "", ErrSourceForbidden
 		}
+		if row.State == "asleep" {
+			snapshots, ok := branches.(interface {
+				RetainedBranchHead(context.Context, string, int64, int64) (string, error)
+			})
+			if !ok {
+				return repohost.FileContent{}, "", ErrSourceNotReady
+			}
+			head, err := snapshots.RetainedBranchHead(ctx, row.Machine.ID, repository.ID, userID)
+			if err != nil {
+				return repohost.FileContent{}, "", err
+			}
+			if head != row.Head {
+				return repohost.FileContent{}, "", ErrSourceNotReady
+			}
+		}
 		if revision == "" {
 			revision = row.Head
 		}

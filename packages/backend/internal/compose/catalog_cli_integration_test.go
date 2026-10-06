@@ -98,11 +98,15 @@ console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
 		require.NoError(t, json.Unmarshal(output, &response), string(output))
 		return response.Code, response.Result
 	}
-	code, receipt := invoke("todo", "new", "--text", "Keep the exact delegated request", "--title", "Retry")
+	code, receipt := invoke("todo", "new", "--text", "Keep the exact delegated request", "--title", "Retry", "--idempotencyKey", "catalog-new")
 	require.Equal(t, 3, code, receipt)
 	require.Equal(t, "pending", receipt["state"])
+	require.Equal(t, "Waiting for maya to confirm", receipt["message"])
 	id, ok := receipt["confirmation"].(string)
 	require.True(t, ok, receipt)
+	replayCode, replay := invoke("todo", "new", "--text", "Keep the exact delegated request", "--title", "Retry", "--idempotencyKey", "catalog-new")
+	require.Equal(t, 3, replayCode)
+	require.Equal(t, receipt, replay)
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
 	require.Zero(t, count, "CLI launch must not execute the confirmed operation")
@@ -132,6 +136,13 @@ console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
 	var state string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM mythical_items`).Scan(&state))
 	require.Equal(t, "queued", state)
+	// Before placement has no confirmation consumer yet. It must refuse,
+	// never silently append the request by discarding its placement flag.
+	code, receipt = invoke("todo", "new", "--text", "Before the first item", "--before", fmt.Sprintf("T%d", number))
+	require.Equal(t, 1, code, receipt)
+	require.Equal(t, "confirmation_unavailable", receipt["code"])
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
+	require.Equal(t, 1, count)
 	// Missing merge evidence is never fabricated into pending or success.
 	code, receipt = invoke("merge", fmt.Sprintf("T%d", number), "--reviewed_head_sha", strings.Repeat("a", 40))
 	require.Equal(t, 1, code, receipt)

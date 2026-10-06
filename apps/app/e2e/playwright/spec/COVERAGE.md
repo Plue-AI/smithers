@@ -61,7 +61,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
 | C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |
 | C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings name refusal and Draft passed with the design seed disabled in settings-install.spec.ts; guest qualification pending) | T-APP-02, T-APP-03 |
-| C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | partial: EntryRow, branch tree and private browser/journal Earlier and shared install reads pass; shared composer pending | T-APP-16 |
+| C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | partial: EntryRow, branch tree and private browser/journal Earlier and shared install reads and durable composer admission pass; full cutover and host acceptance pending | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
 | C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: composed PostgreSQL/browser one-click journey passed; merge recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
@@ -78,7 +78,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | fixme-before-implementation | T-STK-04 |
 | C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | passing mounted install seam; explicit writer recovery on reload; real GitHub/LAN/reference-host receipts pending | T-GH-01 |
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
-| C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | fixme-before-implementation | T-GH-02 |
+| C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | HTTP seam: ten PRs, automatic refresh, responsive Chat; backend/native receipts separate | T-GH-02 |
 | C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | fixme-before-implementation | T-GH-09, T-GH-01 |
 | C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | fixme-before-implementation | T-GH-04 |
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
@@ -102,8 +102,8 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 | C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts), [Draft and shell cases](../view-stories.spec.ts) | T-UI-01 primitives, T-UI-07 shell, T-UI-10 Flow, T-UI-15 Branch states/recovery, T-UI-16 read-only Compare, T-UI-17 terminal states and T-UI-19 co-editing active; Draft passed (light/dark, 1440/390, keyboard); T-UI-04 TODO conflict/mobile/keyboard, Fork/Add to stack and real-seam question active; T-UI-08 shell passes light/dark at 1,179/1,180 px with pointer/Tab + Enter/Space; remaining View matrix fixme | T-UI-01..T-UI-17, T-UI-19 |
 | C-UI-13 | [C-UI-13.spec.ts](C-UI-13.spec.ts) | Setup, Settings and Confirm passed (Confirm: composed install, private live, keyboard/reload); other doors pending | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |
 | C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | passing | T-CAT-01 |
-| C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts) | 3 card doors pass; delegated confirmation still pending | T-CAT-01 |
-| C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts) | fixme-before-implementation | T-CAT-01 |
+| C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | 3 card doors pass; source CLI TODO create/read/Drop, named pending result, private keyboard approval and reload pass against real PostgreSQL; merge consumer remains fixme | T-CAT-01 |
+| C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | installed generated skill and visible Commands pass; literal installed path/agent/excluded-group inventory passes in SkillsInstall.test.ts; real delegated TODO create/read/Drop and private approval pass | T-CAT-01 |
 | C-UI-12 · Home | [Home cases](../home.spec.ts) | passing: sync health, keyboard menu, absent/disabled actions and hostile text in light/dark at 1440/390 | T-UI-06 |
 | C-AGT-01 | [C-AGT-01.spec.ts](C-AGT-01.spec.ts) | fixme-before-implementation | T-AGT-01 |
 
@@ -384,3 +384,5 @@ T-APP-04 Confirm proof: `TestConfirmationsBrowserPostgres` drives [the browser j
 
 T-APP-04 additional Confirm coverage: [install contract cases](C-UI-13-confirm-install.spec.ts) passed (3): keyboard Commit with a 202 keeps progress running until the subject settles, suppresses repeated presses, and leaves chat usable; Review & merge respects member role, current head, required checks and failed optional checks. Retry restores running progress after an unavailable response and remains deduplicated while a successful admission awaits private live delivery. These use test-only live/HTTP fixtures; the PostgreSQL browser journey above remains the production composition proof.
 T-APP-16 shared read receipt: `shared-conversation.spec.ts` renders the install HTTP projection with author attribution and reload. `SharedConversationApp.test.tsx` fences pending reads across account/branch changes; `TestBranchConversationQueueMutationInstall` verifies the additive author login through the authenticated PostgreSQL router. Composer cutover remains pending.
+
+T-APP-16 prompt receipt: install composer uses only the canonical prompt body, acknowledges persisted requests before unresolved admission, deduplicates, retains progress through host completion and reconnects after reload. Mounted tests cover server queue PATCH/DELETE/restore, own-turn Stop, and retry after refusal. The legacy non-install executor and Bun route deletion remain pending.

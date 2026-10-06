@@ -39,8 +39,7 @@ paths:
                     additionalProperties: true
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '500':
           $ref: '#/components/responses/InternalError'
   /api/install/scorecard:

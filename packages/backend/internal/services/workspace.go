@@ -461,6 +461,7 @@ type ForkWorkspaceInput struct {
 	UserID       int64
 	WorkspaceID  string
 	Name         string
+	Request      string
 }
 
 // CreateWorkspaceSnapshotInput is the input for taking a conditional snapshot from a workspace.
@@ -557,6 +558,8 @@ type WorkspaceQuerier interface {
 // lifecycle reconciliation around either a shared runtime or the legacy
 // sandbox transport during migration.
 type WorkspaceService struct {
+	// revisionFork delegates retained workspace Fork to the sole history writer.
+	revisionFork         func(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error)
 	credentialIssuer     *AuthService
 	commandJobs          *jobs.Store
 	commandCodec         flowhost.SecretCodec

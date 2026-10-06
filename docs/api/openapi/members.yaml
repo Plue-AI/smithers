@@ -22,12 +22,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
-        '403':
-          description: Not a member, or not a person's browser session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Install repository unavailable
     post:
@@ -60,12 +55,7 @@ paths:
                 $ref: '#/components/schemas/AccessError'
         '401':
           description: Not signed in
-        '403':
-          description: Not a maintainer (permission), or the person needs write access on GitHub (needs_github_access, class user, with fix)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: No such GitHub user (unknown_github_user)
         '503':
@@ -101,12 +91,7 @@ paths:
           description: Invalid username or role
         '401':
           description: Not signed in
-        '403':
-          description: Not a maintainer (permission), or the owner's role (owner_immutable)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           description: Not on the roster
         '503':
@@ -132,12 +117,7 @@ paths:
           description: Invalid username
         '401':
           description: Not signed in
-        '403':
-          description: Not a maintainer (permission), or the owner (owner_immutable)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessError'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Install repository unavailable
 components:

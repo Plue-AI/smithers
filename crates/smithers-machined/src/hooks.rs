@@ -140,6 +140,10 @@ pub trait Broker: Send + Sync {
     fn ready(&self) -> Result<()> {
         Err(Error::unsupported())
     }
+    /// Full roster from the authenticated host, before ready and on changes.
+    fn set_roster(&self, _members: &[crate::broker::sessions::User]) -> Result<()> {
+        Err(Error::unsupported())
+    }
     fn freeze(&self, _timeout: Duration) -> Result<Option<u32>> {
         Err(Error::unsupported())
     }
@@ -178,6 +182,11 @@ pub trait Core: Send + Sync {
     /// Snapshot, pin and enqueue locally while holding the mutation lock.
     /// Unlike capture RPC, this must never wait for host acknowledgement.
     fn capture_local(&self, _cx: &mut LockCx) -> Result<()> {
+        Err(Error::unsupported())
+    }
+    /// Restore the operation retained by capture_local after an interrupted rewrite.
+    /// Success means the working tree is fully restored, not merely requested.
+    fn restore_rewrite(&self, _cx: &mut LockCx) -> Result<()> {
         Err(Error::unsupported())
     }
     /// Native jj rewrite only. RPC owns freeze/capture/reconcile/thaw.

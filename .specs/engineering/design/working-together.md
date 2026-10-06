@@ -1,5 +1,8 @@
 # Working together on one branch: merged design
 
+> **Status: proposal awaiting Will's review (2026-10-06).** Produced by a four-way panel and a merger at Will's request. Not normative: spec.md and mvp.md govern where they differ, until Will accepts this design. The stage 2 and 3 build lanes follow its build plan (§10) at Will's direction, so code may track it ahead of acceptance.
+
+
 Merged from codex-sol.md, codex-astra.md, fable.md and opus.md on 2026-10-06. Every code fact below was re-checked in `~/smithers-frontrun` at `origin/frontrun` `f98e01d638b2` (`jj log`, file reads, `rg`); paths are relative to the repository root. `B/` means `packages/backend/internal/`, `M/` means `crates/smithers-machined/src/`, `A/` means `apps/app/src/mainview/`.
 
 ## Decisions for Will

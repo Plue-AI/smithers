@@ -116,7 +116,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	maintainerOnly := map[string]bool{"POST /api/todos/1/merge": true, "POST /api/members": true, "PATCH /api/members/alice": true, "DELETE /api/members/alice": true}
 	call := func(method, path, cookie, bearer string) (int, map[string]any) {
 		var body *strings.Reader
-		body = strings.NewReader("")
+		body = strings.NewReader("{}")
 		if method == "POST" && path == "/api/todos/1" {
 			body = strings.NewReader(`{"op":"steer","text":"Continue"}`)
 		}

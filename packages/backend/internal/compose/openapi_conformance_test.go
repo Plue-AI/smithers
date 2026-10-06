@@ -711,3 +711,40 @@ func TestDeferredTriggerAliasesAndDarkCallbacks(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, rec.Code, path)
 	}
 }
+
+// These are literal command doors; schema checks do not generate policy.
+func TestInstallAuthorizationOpenAPIResponses(t *testing.T) {
+	paths := loadOpenAPIPaths(t)
+	for _, door := range []struct{ method, path string }{
+		{"post", "/api/todos"}, {"patch", "/api/todos/{n}"}, {"post", "/api/todos/{n}"},
+		{"post", "/api/todos/{n}/merge"}, {"post", "/api/branches/{b}"},
+		{"post", "/api/proposals/{id}/accept"}, {"post", "/api/proposals/{id}/dismiss"},
+		{"post", "/api/confirmations"},
+	} {
+		operation := mappingValue(mappingValue(paths, door.path), door.method)
+		require.NotNil(t, operation, door.path)
+		responses := mappingValue(operation, "responses")
+		require.Equal(t, "#/components/responses/AuthorizationForbidden", mappingValue(mappingValue(responses, "403"), "$ref").Value, door.path)
+		accepted := mappingValue(responses, "202")
+		require.NotNil(t, accepted, door.path)
+		content := mappingValue(accepted, "content")
+		require.NotNil(t, content, door.path)
+		media := mappingValue(content, "application/json")
+		require.NotNil(t, media, door.path)
+		schema := mappingValue(media, "schema")
+		require.NotNil(t, schema, door.path)
+		var containsReceipt func(*yaml.Node) bool
+		containsReceipt = func(node *yaml.Node) bool {
+			if node.Value == "#/components/schemas/ConfirmationReceipt" {
+				return true
+			}
+			for _, child := range node.Content {
+				if containsReceipt(child) {
+					return true
+				}
+			}
+			return false
+		}
+		require.True(t, containsReceipt(schema), door.path)
+	}
+}

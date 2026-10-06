@@ -6,6 +6,13 @@ use crate::{
 };
 pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> {
     frame.encode()?;
+    if (frame.kind == 4 || frame.kind == 5) && cx.rewrite_pending {
+        return Ok(Frame {
+            kind: frame.kind,
+            stream: frame.stream,
+            payload: conn::tagged(255, &crate::freeze::pending_error().fields()),
+        });
+    }
     if frame.kind == 4 || frame.kind == 5 {
         let hook = if frame.kind == 4 {
             // Only authenticated host input messages enter the document provider.
@@ -25,29 +32,37 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
     }
     let (id, method, args) = frame.request()?;
     let hooks: Hooks = cx.hooks.clone();
-    let result = match method {
-        11 => {
-            let (onto, actor) = conn::rebase_args(args)?;
-            hooks.core.validate_rebase(onto).and_then(|()| {
-                crate::freeze::freeze_then(cx, &actor, |cx| hooks.core.rebase(cx, onto))
-                    .map(|head| conn::structure_bytes(&[conn::field(1, head)]))
-            })
-        }
-
-        13 => {
-            let (path, actor) = conn::open_doc_args(args)?;
-            match actor {
-                Some(actor) => hooks.documents.open_authenticated(&path, &actor),
-                None => Err(crate::hooks::Error::unsupported()),
+    let result = if cx.rewrite_pending && !matches!(method, 1 | 2 | 8 | 9 | 14 | 16) {
+        Err(crate::freeze::pending_error())
+    } else {
+        match method {
+            11 => {
+                let (onto, actor) = conn::rebase_args(args)?;
+                hooks.core.validate_rebase(onto).and_then(|()| {
+                    crate::freeze::freeze_then(cx, &actor, |cx| hooks.core.rebase(cx, onto))
+                        .map(|head| conn::structure_bytes(&[conn::field(1, head)]))
+                })
             }
-            .map(|s| conn::structure_bytes(&[conn::field(1, s.to_be_bytes())]))
+
+            13 => {
+                let (path, actor) = conn::open_doc_args(args)?;
+                match actor {
+                    Some(actor) => hooks.documents.open_authenticated(&path, &actor),
+                    None => Err(crate::hooks::Error::unsupported()),
+                }
+                .map(|s| conn::structure_bytes(&[conn::field(1, s.to_be_bytes())]))
+            }
+            14 => hooks
+                .documents
+                .close(u32::from_be_bytes(args[5..9].try_into().unwrap()))
+                .map(|()| conn::structure_bytes(&[])),
+            6..=10 | 15 => hooks.sessions.call(method, args),
+            16 => hooks
+                .broker
+                .set_roster(&conn::roster_args(args)?)
+                .map(|()| conn::structure_bytes(&[])),
+            _ => hooks.core.call(cx, method, args),
         }
-        14 => hooks
-            .documents
-            .close(u32::from_be_bytes(args[5..9].try_into().unwrap()))
-            .map(|()| conn::structure_bytes(&[])),
-        6..=10 | 15 => hooks.sessions.call(method, args),
-        _ => hooks.core.call(cx, method, args),
     };
     let value = match result {
         Ok(body) => {

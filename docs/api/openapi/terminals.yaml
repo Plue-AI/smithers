@@ -22,8 +22,7 @@ paths:
       responses:
         '401':
           description: Authentication required
-        '403':
-          description: Not admitted to the install
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Owner-uid terminal providers unavailable
           content:
