@@ -138,4 +138,27 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	require.Equal(t, 200, status)
 	require.Equal(t, "queued", card["state"])
 	require.NotContains(t, card, "failure")
+	// A reconnect can resend the same Retry. It must return the durable
+	// receipt without creating another attempt or another lifecycle fact.
+	var retryEvents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&retryEvents))
+	queuedItem, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, float64(2), receipt["attempt"])
+	status, replay := call("POST", `{"op":"retry"}`, "retry-1")
+	require.Equal(t, 202, status, replay)
+	require.Equal(t, receipt, replay)
+	replayedItem, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, queuedItem, replayedItem)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, retryEvents, afterEvents)
+	// Late observations from the interrupted run cannot fail the new attempt.
+	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateUncertain, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: "run-1"}}))
+	status, card = call("GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "queued", card["state"])
+	require.NotContains(t, card, "failure")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, retryEvents, afterEvents)
 }
