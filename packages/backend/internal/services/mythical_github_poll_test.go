@@ -41,6 +41,7 @@ func TestInstallFollowCadenceAndRetryDeadline(t *testing.T) {
 	failure := pkgerrors.New(pkgerrors.CodeGitHubRateLimited, "paused")
 	failure.RetryAt = &at
 	require.Equal(t, at, mythicalStepFailedDue(failure, now))
+	require.Equal(t, at, mythicalStepFailedDue(&mythicalOutboundUncertainError{failure}, now), "uncertain writes still honor GitHub retry deadlines")
 	require.Equal(t, at.Add(time.Minute), mythicalStepFailedDue(failure, at), "expired deadline cannot busy-loop")
 }
 

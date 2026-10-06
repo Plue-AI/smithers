@@ -25,6 +25,12 @@ type MythicalOutboundOp struct {
 	State        string `json:"state"`
 }
 
+// An attempted write keeps its unknown slot. Wake for reconciliation promptly;
+// the next pass still looks up before it can authorize any repeat.
+type mythicalOutboundUncertainError struct{ error }
+
+func (e *mythicalOutboundUncertainError) Unwrap() error { return e.error }
+
 // MythicalOutboundProviders are current, effect-free guards supplied by the
 // owning dependencies. None may mint tokens. Missing wiring fails closed.
 // Lookup returns the observed head/digest/lifecycle; AppliedClose must consult
@@ -190,7 +196,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 				saved, saveErr := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
 				return &saved, saveErr
 			}
-			return nil, err
+			return nil, &mythicalOutboundUncertainError{err}
 		}
 		// A successful response still needs lookup before settlement. This retains
 		// the obligation if the process dies after the remote effect.

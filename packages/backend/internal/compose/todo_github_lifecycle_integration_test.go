@@ -179,14 +179,38 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET request_run_id='ended-todo-run',vibe_run_id='ended-delivery',verify_run_id='ended-verify',checks=checks || '{"run_launched":true,"run_attached":true}'::jsonb WHERE number=$1`, filed.N)
 		require.NoError(t, err)
 		if smithersDrop {
+			// GitHub accepts the close but loses its response. The composed
+			// worker must reconcile it, including repeated browser delivery.
+			beforeWrites := len(r.fake.Writes())
+			r.fake.LoseNextResponses("/repos/rehearsal-owner/app/pulls/1", 1)
 			code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", filed.N), `{"op":"drop"}`, "lifecycle-drop")
 			require.NoError(t, err)
 			require.Equal(t, 202, code, string(data))
+			replayCode, replayData, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", filed.N), `{"op":"drop"}`, "lifecycle-drop")
+			require.NoError(t, err)
+			require.Equal(t, code, replayCode, string(replayData))
+			require.JSONEq(t, string(data), string(replayData))
 			require.Eventually(t, func() bool {
 				var settled bool
 				err := r.pool.QueryRow(r.ctx, `SELECT pr_state='closed' AND pending_op IS NULL FROM mythical_items WHERE number=$1`, filed.N).Scan(&settled)
 				return err == nil && settled
 			}, 20*time.Second, 50*time.Millisecond)
+			closes := 0
+			for _, write := range r.fake.Writes()[beforeWrites:] {
+				if write.Method != "PATCH" || write.Path != "/repos/rehearsal-owner/app/pulls/1" {
+					continue
+				}
+				var payload struct{ State string }
+				require.NoError(t, json.Unmarshal(write.Body, &payload))
+				if payload.State == "closed" {
+					closes++
+					require.Equal(t, http.StatusBadGateway, write.Status, "the single close lost its response")
+				}
+			}
+			require.Equal(t, 1, closes, "Drop replay and uncertain close must not send a second close")
+			var facts int
+			require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.dropped'`).Scan(&facts))
+			require.Equal(t, 1, facts, "repeated browser delivery records one Drop")
 		} else {
 			fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"closed"}`)
 		}

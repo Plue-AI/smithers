@@ -324,6 +324,8 @@ func TestMythicalStepFailedDue(t *testing.T) {
 		{"a moved item runs the stack again at once", db.ErrMythicalItemMoved, now},
 		{"a wrapped lost race is still one", fmt.Errorf("record the push: %w", db.ErrMythicalLeaseLost), now},
 		{"a row not found is no lost race", pgx.ErrNoRows, now.Add(time.Minute)},
+		{"an uncertain write wakes for lookup", &mythicalOutboundUncertainError{errors.New("response lost")}, now.Add(5 * time.Second)},
+		{"a wrapped uncertain write wakes for lookup", fmt.Errorf("close: %w", &mythicalOutboundUncertainError{errors.New("response lost")}), now.Add(5 * time.Second)},
 		{"a transient failure waits a minute", errors.New("read the pull request branch: exit status 128"), now.Add(time.Minute)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -351,6 +353,7 @@ func TestMythicalDueAfterARecoveredOperation(t *testing.T) {
 		{"a landed merge takes no step", db.MythicalItem{State: "landed"}, true, time.Time{}},
 		{"a dropped TODO's sent close is looked up at once", db.MythicalItem{State: "cancelled", PendingOp: json.RawMessage(`{"kind":"close","state":"unknown"}`), WorkspaceID: "w"}, true, now},
 		{"a dropped TODO's settled close releases its lane at once", db.MythicalItem{State: "cancelled", PRState: "closed", WorkspaceID: "w"}, true, now},
+		{"a recovered Drop with no lane establishes its fresh read at once", db.MythicalItem{State: "cancelled", PRState: "closed", PRNumber: pgtype.Int8{Int64: 214, Valid: true}, NextAttemptAt: later, Checks: json.RawMessage(`{"dropped":{"at":"2026-10-05T03:00:00Z"}}`)}, true, now},
 		{"a dropped TODO with no lane takes no step", db.MythicalItem{State: "cancelled", PRState: "closed"}, true, time.Time{}},
 		{"an unchanged close waits for an event", db.MythicalItem{State: "cancelled", PendingOp: json.RawMessage(`{"kind":"close","state":"unknown"}`)}, false, time.Time{}},
 		{"a merge still open on GitHub waits for an event", db.MythicalItem{State: "proposed"}, false, time.Time{}},

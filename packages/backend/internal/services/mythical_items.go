@@ -1434,6 +1434,10 @@ func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 	switch {
 	case mythicalSettledStates[item.State] && moved && (len(item.PendingOp) > 0 || item.WorkspaceID != ""):
 		return now
+	case moved && item.State == "cancelled" && len(item.PendingOp) == 0 && mythicalReopenFollowed(item, now) && mythicalChecksOf(item).GitHubDropRead == nil:
+		// Close settlement must establish a fresh read before queued snapshots
+		// can reopen the Drop. A retired lane has no release to wake this pass.
+		return now
 	case mythicalReopenFollowed(item, now):
 		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now) {
 			return item.NextAttemptAt.Time
@@ -1453,7 +1457,8 @@ func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 // step failed partway: what it saved stands, the rest was not done. A save
 // that lost its race (the stack's claim ended, or another writer moved the
 // item) is due at once: the next pass reads the item again and goes on
-// from there. Any other failure waits the minute a transient one does
+// from there. An uncertain write wakes shortly for lookup; a GitHub retry
+// deadline takes precedence. Other failures wait the transient minute
 // (mythicalLater). The stale sweep stays the safety net.
 func mythicalStepFailedDue(err error, now time.Time) time.Time {
 	if errors.Is(err, db.ErrMythicalLeaseLost) || errors.Is(err, db.ErrMythicalItemMoved) {
@@ -1462,6 +1467,10 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 	var failure *pkgerrors.APIError
 	if errors.As(err, &failure) && failure.Class == pkgerrors.ClassGitHub && failure.RetryAt != nil && failure.RetryAt.After(now) {
 		return *failure.RetryAt
+	}
+	var uncertain *mythicalOutboundUncertainError
+	if errors.As(err, &uncertain) {
+		return now.Add(5 * time.Second)
 	}
 	return now.Add(mythicalLaterAfter)
 }

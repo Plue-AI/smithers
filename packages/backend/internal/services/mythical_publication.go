@@ -759,6 +759,9 @@ func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem,
 		}
 		next := item
 		next.PRState = pull.State
+		// The pre-Drop follow deadline cannot postpone the fresh post-close
+		// observation that admits a person's reopen.
+		next.NextAttemptAt.Valid = false
 		return next, nil
 	}
 	if op.Kind != "open" && op.Kind != "merge" {
