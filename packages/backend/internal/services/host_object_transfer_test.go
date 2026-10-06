@@ -11,9 +11,21 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 )
 
 func TestHostObjectTransferIgnoresInheritedExecutionConfiguration(t *testing.T) {
+	// Install startup pins the verified bundle before accepting any work.
+	// Configure that same boundary before poisoning the process environment;
+	// the unconfigured hosted fallback intentionally discovers Git through PATH.
+	program, err := exec.LookPath("git")
+	require.NoError(t, err)
+	program, err = filepath.Abs(program)
+	require.NoError(t, err)
+	restore, err := hostexec.Configure(hostexec.Config{Git: program, Environment: hostexec.SystemEnvironment})
+	require.NoError(t, err)
+	t.Cleanup(restore)
 	dir := t.TempDir()
 	canary := filepath.Join(dir, "executed")
 	script := "#!/bin/sh\ntouch " + shellQuote(canary) + "\nexit 1\n"
