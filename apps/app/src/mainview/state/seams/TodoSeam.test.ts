@@ -1080,3 +1080,21 @@ test("the served merge transition notifies only its owner once, already terminal
     expect([...history.store.collections.toasts.values()].filter(toast => toast.audience?.kind === "merged")).toEqual([])
   } finally { history.close() }
 })
+
+ test("prompt-only amendment settles with preserved acceptance and never replays on recovery", async () => {
+  const calls: RequestInit[] = []
+  const h = await harness(async (_url, init) => { if (init?.method === "PATCH") calls.push(init); return json({ state: "accepted", n: 12, rev: 2 }) })
+  try {
+    await h.seam.amendTodo({ n: 12, text: "PROMPT-B" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    const before = { ...fixtures.queued.model.prompt_revisions[0]!, acceptance: ["Keep the check"] }
+    await h.seam.applyTodoProjection(12, { ...fixtures.queued.model, prompt_revisions: [before] })
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...fixtures.queued.model, prompt_revisions: [before, { ...before, text: "PROMPT-B" }] })
+    expect(h.outcomes).toEqual([expect.objectContaining({ status: "ok", detail: "Amended" })])
+    expect(h.todo().payload.requests).toEqual([])
+    h.seam.resumeTodos()
+    expect(calls).toHaveLength(1)
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({ prompt: "PROMPT-B" })
+  } finally { h.close() }
+})

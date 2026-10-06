@@ -246,17 +246,31 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	require.Equal(t, "confirm_in_app", body["code"])
 	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
 	code, body = call("POST", "/api/todos/7", `{"op":"drop"}`, "delegated-drop")
-	require.Equal(t, 403, code, body)
+	require.Equal(t, 503, code, body)
+	require.Equal(t, "infra", body["class"])
+	require.Equal(t, "confirmation_unavailable", body["code"])
+	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
 	for _, credential := range []string{
 		mint("smithers_"+strings.Repeat("f", 40), "read:repository,via:cli", true),
 		mint("smithers_"+strings.Repeat("a", 40), "write:repository", true),
 		mint("smithers_"+strings.Repeat("b", 40), "write:repository,via:cli,"+middleware.RepositoryRestrictionScope(repo+1), true),
 		mint("smithers_"+strings.Repeat("c", 40), "write:repository,workspace:5a1b0000-0000-4000-8000-0000000000b1", true),
+		mint("smithers_"+strings.Repeat("d", 40), "write:repository,via:cli,"+middleware.PathRestrictionScopes([]string{"src/**"})[0], true),
 	} {
 		bearerToken = credential
+		var eventsBefore, eventsAfter int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsBefore))
 		code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "denied-move")
-		require.Equal(t, 403, code, body)
+		require.Equal(t, 403, code, "credential %s: %v", credential[len(credential)-8:], body)
 		require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+		for _, place := range []string{`{"mode":"append"}`, `{"mode":"before","n":7}`} {
+			code, body = call("POST", "/api/todos", `{"title":"Denied","prompt":"Add a line","place":`+place+`}`, "denied-create-"+place)
+			require.Equal(t, 403, code, body)
+			require.Equal(t, "permission", body["class"])
+		}
+		require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsAfter))
+		require.Equal(t, eventsBefore, eventsAfter)
 	}
 
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo, member.ID)

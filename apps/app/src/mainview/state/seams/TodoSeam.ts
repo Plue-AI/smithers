@@ -216,7 +216,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
       if (request.operation === "amend") {
         const changed = request.revision === undefined ? undefined : model.prompt_revisions[request.revision - 1]
-        return changed !== undefined && changed.text === request.body.prompt && canonicalize(changed.acceptance) === canonicalize(request.body.acceptance ?? [])
+        return changed !== undefined && changed.text === request.body.prompt && (request.body.acceptance === undefined || canonicalize(changed.acceptance) === canonicalize(request.body.acceptance))
           ? [{ key: request.key, committed: { n, rev: request.revision! }, outcome: { status: "ok" as const, detail: "Amended" } }] : []
       }
       // An accepted answer is done once its question is no longer open.
