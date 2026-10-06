@@ -118,12 +118,26 @@ export function debugApiScenarios(prefix: string) {
     pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
       "App agent and descriptor-generated smthrs debug api refuse locally; authenticated delegated reference-install fixture still required.")
     pending("repository-flow execution with isolation unavailable refuses before execution with no host process",
-      "Production flow composition refuses missing isolation before startup; no documented repository-flow invocation operation exposes that canary to the playground. Reference-install HTTP/process receipt required.")
+      "Production flow composition refuses missing isolation before startup. The documented POST /api/repos/{owner}/{repo}/invoke exists, but local-own always supplies trusted-process isolation; a production install refusal/process fixture is still required.")
     pending("available repository-flow execution runs only in a branch machine",
-      "T-FLW-01 guest composition exists; documented repository-flow invocation and reference-host branch-machine receipts are still required.")
+      "T-FLW-01 guest composition and POST /api/repos/{owner}/{repo}/invoke exist; this Linux local-own fixture has no qualified microVM bundle. Reference-host branch-machine receipts are still required.")
     for (const missing of ["catalog", "authorizer", "view"] as const) {
-      pending(`real install with only ${missing} unavailable produces zero API/SQL effects`,
-        "No real-install composition wires independently selectable DebugApiGates; seam checks above are not backend evidence.")
+      test(`production app with only ${missing} guard unavailable produces zero real-install API/SQL effects`, async () => {
+        test.setTimeout(900_000)
+        const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-guard-"))
+        try {
+          const result = await promisify(execFile)("bun", ["e2e/playwright/debug-api/local-own-read.ts", output, `guard-${missing}`], {
+            env: { ...process.env, TMPDIR: output }, timeout: 840_000, maxBuffer: 8 * 1024 * 1024
+          })
+          expect(result.stdout).toContain(`C-UI-10 REAL GUARD PASS: ${missing}`)
+        } finally {
+          for (const name of ["local-own.execution.json", "guard.role-receipt.json"]) {
+            const path = resolve(output, name)
+            if (existsSync(path)) await test.info().attach(name, { path, contentType: "application/json" })
+          }
+          rmSync(output, { recursive: true, force: true })
+        }
+      })
     }
   })
 }
