@@ -6550,7 +6550,10 @@
       "summary": "Review and merge the next item",
       "http": {
         "method": "POST",
-        "path": "/api/todos/{n}/merge"
+        "path": "/api/todos/{n}/merge",
+        "body": {
+          "reviewed_head_sha": "reviewed_head_sha"
+        }
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -6562,6 +6565,16 @@
               "minimum": 1
             },
             "reviewed_head_sha": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "idempotencyKey": {
               "anyOf": [
                 {
                   "type": "string"

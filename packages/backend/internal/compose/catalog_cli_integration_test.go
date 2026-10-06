@@ -87,33 +87,7 @@ func TestCatalogCLIConfirmationsPostgres(t *testing.T) {
 	server.Config.Handler = router
 	server.Start()
 	defer server.Close()
-	cli, err := filepath.Abs("../../../smithers/src/Cli.ts")
-	require.NoError(t, err)
-	home := t.TempDir()
-	invoke := func(argv ...string) (int, map[string]any) {
-		t.Helper()
-		encoded, err := json.Marshal(append(argv, "--json"))
-		require.NoError(t, err)
-		script := `import { pathToFileURL } from "node:url";
-const { makeCli } = await import(pathToFileURL(process.env.CATALOG_CLI).href);
-let stdout = "", code = 0;
-await makeCli({ environment: process.env, exit: n => { code = n } }).serve(JSON.parse(process.env.CATALOG_ARGV), {
- env: process.env, stdout: text => { stdout += text }, exit: n => { code = n }
-});
-console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
-		command := exec.CommandContext(ctx, "node", "--no-warnings", "--input-type=module")
-		command.Stdin = strings.NewReader(script)
-		command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home, "XDG_DATA_HOME=" + home,
-			"CATALOG_CLI=" + cli, "CATALOG_ARGV=" + string(encoded), "SMITHERS_API_ORIGIN=" + server.URL, "SMITHERS_TOKEN=" + token, "CODEX_TEST=1"}
-		output, err := command.CombinedOutput()
-		require.NoError(t, err, string(output))
-		var response struct {
-			Code   int            `json:"code"`
-			Result map[string]any `json:"result"`
-		}
-		require.NoError(t, json.Unmarshal(output, &response), string(output))
-		return response.Code, response.Result
-	}
+	invoke := catalogCLIInvoker(t, ctx, server.URL, token)
 	code, receipt := invoke("todo", "new", "--text", "Keep the exact delegated request", "--title", "Retry", "--idempotencyKey", "catalog-new")
 	require.Equal(t, 3, code, receipt)
 	require.Equal(t, "pending", receipt["state"])
@@ -199,4 +173,36 @@ console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
 	code, receipt = invoke("debug", "api")
 	require.Equal(t, 1, code, receipt)
 	require.Equal(t, "never", receipt["code"])
+}
+
+// The source parser and dispatcher run in an isolated home against the install listener.
+func catalogCLIInvoker(t *testing.T, ctx context.Context, origin, token string) func(...string) (int, map[string]any) {
+	t.Helper()
+	cli, err := filepath.Abs("../../../smithers/src/Cli.ts")
+	require.NoError(t, err)
+	home := t.TempDir()
+	return func(argv ...string) (int, map[string]any) {
+		t.Helper()
+		encoded, err := json.Marshal(append(argv, "--json"))
+		require.NoError(t, err)
+		script := `import { pathToFileURL } from "node:url";
+const { makeCli } = await import(pathToFileURL(process.env.CATALOG_CLI).href);
+let stdout = "", code = 0;
+await makeCli({ environment: process.env, exit: n => { code = n } }).serve(JSON.parse(process.env.CATALOG_ARGV), {
+ env: process.env, stdout: text => { stdout += text }, exit: n => { code = n }
+});
+console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
+		command := exec.CommandContext(ctx, "node", "--no-warnings", "--input-type=module")
+		command.Stdin = strings.NewReader(script)
+		command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home, "XDG_DATA_HOME=" + home,
+			"CATALOG_CLI=" + cli, "CATALOG_ARGV=" + string(encoded), "SMITHERS_API_ORIGIN=" + origin, "SMITHERS_TOKEN=" + token, "CODEX_TEST=1"}
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		var response struct {
+			Code   int            `json:"code"`
+			Result map[string]any `json:"result"`
+		}
+		require.NoError(t, json.Unmarshal(output, &response), string(output))
+		return response.Code, response.Result
+	}
 }

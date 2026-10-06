@@ -55,8 +55,8 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "stack.move",   slash: "/stack.move", cli: ["stack","move"], journey: ["J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",defaults:{op:"move"}}, summary: "Reorder an item", args: "<Tn> <up|down>", hidden: true, grammar: todoGrammar("direction"),
     agent: "run", input: Schema.Struct({ n: N, direction: Schema.Literals(["up", "down"]) }),
     handler: ({ n, direction }) => actions.moveTodo(n, direction) }),
-  flow({ name: "merge",   slash: "/merge", cli: ["merge"], journey: ["J1","J2","J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "maintainer", http: {"method":"POST","path":"/api/todos/{n}/merge"}, summary: "Review and merge the next item", args: "<Tn>", grammar: todoGrammar(),
-    agent: "confirm", input: Schema.Struct({ n: N, reviewed_head_sha: Schema.optional(Schema.String) }),
+  flow({ name: "merge",   slash: "/merge", cli: ["merge"], journey: ["J1","J2","J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "maintainer", http: {"method":"POST","path":"/api/todos/{n}/merge","body":{"reviewed_head_sha":"reviewed_head_sha"}}, summary: "Review and merge the next item", args: "<Tn>", grammar: todoGrammar(),
+    agent: "confirm", input: Schema.Struct({ n: N, reviewed_head_sha: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Schema.String) }),
     /* The agent's door: a bare Merge runs (it only opens Review & merge); a head-bound one asks the person, whose press opens it. */
     confirm: payload => payload.reviewed_head_sha === undefined ? undefined : MERGE_CONFIRM_LABEL,
     confirmArgs: payload => `T${String(payload.n)}`,

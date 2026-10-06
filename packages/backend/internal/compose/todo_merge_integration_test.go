@@ -230,12 +230,19 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 			require.NoError(t, json.NewDecoder(response.Body).Decode(&bodyMap))
 			return response.StatusCode, bodyMap
 		}
-		body := fmt.Sprintf(`{"reviewed_head_sha":%q}`, pull.Head.SHA)
-		status, receipt := call("POST", fmt.Sprintf("/api/todos/%d/merge", filed.Number), "", pat, "confirm-create", body)
-		require.Equal(t, 202, status, receipt)
-		require.Len(t, receipt, 2)
+		// C-CAT-02: request through the actual source CLI, with a delegated
+		// credential. Discovery, schema parsing and HTTP dispatch all run.
+		invoke := catalogCLIInvoker(t, ctx, origin, pat)
+		argv := []string{"merge", fmt.Sprintf("T%d", filed.Number), "--reviewed_head_sha", pull.Head.SHA, "--idempotencyKey", "confirm-create"}
+		code, receipt := invoke(argv...)
+		require.Equal(t, 3, code, receipt)
 		require.Equal(t, "pending", receipt["state"])
+		require.Equal(t, "Waiting for Merge owner to confirm", receipt["message"])
 		id := receipt["confirmation"].(string)
+		replayCode, replay := invoke(argv...)
+		require.Equal(t, 3, replayCode)
+		require.Equal(t, receipt, replay, "repeated CLI invocation keeps the same private confirmation")
+		status := 0
 		require.Empty(t, item().PendingOp)
 		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "", pat, "agent-press", `{}`)
 		require.Equal(t, 403, status, receipt)

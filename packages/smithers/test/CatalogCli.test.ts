@@ -252,6 +252,18 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       expect(f.seen).toEqual([0, 1].map(() => ({ method: "POST", path: "/api/todos/1", body: { steer: "Use retries" }, via: "codex" })))
     } finally { await f.close() }
   })
+  it("replays merge confirmation with its supplied request identity and no transport field in the body", async () => {
+    const f = await fixture()
+    try {
+      for (let i = 0; i < 2; i++) {
+        await f.invoke(["merge", "T1", "--reviewed_head_sha", "a".repeat(40), "--idempotencyKey", "stable-merge"])
+      }
+      expect(f.idempotencyKeys).toEqual(["stable-merge", "stable-merge"])
+      expect(f.seen).toHaveLength(2)
+      expect(f.seen).toEqual(Array.from({ length: 2 }, () => ({ method: "POST", path: "/api/todos/1/merge", body: { reviewed_head_sha: "a".repeat(40) }, via: "codex" })))
+    } finally { await f.close() }
+  })
+
   it("retains pending identity and uses an exit distinct from success or refusal", async () => {
     const f = await fixture(202, { confirmation: "confirm-1", state: "pending" })
     try {
