@@ -9,18 +9,32 @@ function SecretAction({ action, onAction }: { action: Action; onAction: SecretsV
   const [input, setInput] = useState<Record<string, string>>({})
   const values = Object.fromEntries((action.input ?? []).map(field => [field.name,
     field.kind === "secret" ? input[field.name] ?? "" : input[field.name] ?? field.value ?? field.choices?.[0] ?? ""]))
-  const submit = () => { if (!action.disabled) onAction(action.tag, { ...action.args, ...values }) }
+  const clear = (form: HTMLFormElement) => {
+    for (const field of action.input ?? []) if (field.kind === "secret") {
+      const control = form.elements.namedItem(field.name)
+      if (control instanceof HTMLInputElement) control.value = ""
+    }
+    setInput({})
+  }
+  const submit = (form: HTMLFormElement) => {
+    if (action.disabled) return
+    const writeOnly = Object.fromEntries((action.input ?? []).filter(field => field.kind === "secret").map(field => {
+      const control = form.elements.namedItem(field.name)
+      return [field.name, control instanceof HTMLInputElement ? control.value : ""]
+    }))
+    onAction(action.tag, { ...action.args, ...values, ...writeOnly })
+  }
   return <form className="setup-action" data-flow={action.tag} onSubmit={event => {
     event.preventDefault()
-    try { submit() } finally { setInput({}) }
+    try { submit(event.currentTarget) } finally { clear(event.currentTarget) }
   }}>
     {action.input?.map(field => <div className="setup-field" key={field.name}>
       {field.kind === "choice" ? <select id={`${id}-${field.name}`} aria-label={field.label} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })}>
         {field.choices?.map(choice => <option key={choice} value={choice}>{scopeWords[choice as keyof typeof scopeWords] ?? choice}</option>)}
-      </select> : <input id={`${id}-${field.name}`} aria-label={field.label} placeholder={field.label} type={field.kind === "secret" ? "password" : "text"} autoComplete={field.kind === "secret" ? "new-password" : "off"} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })} />}
+      </select> : <input name={field.name} id={`${id}-${field.name}`} aria-label={field.label} placeholder={field.label} type={field.kind === "secret" ? "password" : "text"} autoComplete={field.kind === "secret" ? "new-password" : "off"} value={field.kind === "secret" ? undefined : values[field.name]} defaultValue={field.kind === "secret" ? "" : undefined} required={field.required} disabled={!!action.disabled} onChange={field.kind === "secret" ? undefined : event => setInput({ ...input, [field.name]: event.target.value })} />}
     </div>)}
     <button type="submit" data-flow={action.tag} disabled={!!action.disabled}>{action.label}</button>
-    {action.input?.length ? <button type="button" onClick={() => setInput({})}>Cancel</button> : null}
+    {action.input?.length ? <button type="button" onClick={event => { if (event.currentTarget.form) clear(event.currentTarget.form) }}>Cancel</button> : null}
     {action.disabled ? <span className="setup-reason">{action.disabled.reason}</span> : null}
   </form>
 }
