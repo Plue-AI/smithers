@@ -257,6 +257,66 @@ test("Save to wiki persists before launch, acknowledges a held write once and re
   expect(reopened.collections.worldDocuments.get(id)?.body).toBe(markdown)
 })
 
+for (const staleResult of ["success", "lost acknowledgement"] as const) {
+  test(`Save to wiki resumes only for its author and ignores an old ${staleResult}`, async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memory() })
+    await signIn(store)
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", name: "repo", ownerKind: "user", head: null }] }).isPersisted.promise
+    await store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
+    const held = Promise.withResolvers<Response>()
+    const markdown = "Keep this answer after changing accounts."
+    const writes: Array<{ title: string; body: string; slug: string; path: string }> = []
+    const page = () => ({ id: 42, slug: writes[0]!.slug, title: "Recovery", path: "Recovery.md", revision: 1,
+      author: { id: 1, login: "will" }, created_at: "2026-10-05T00:00:00Z", updated_at: "2026-10-05T00:00:00Z" })
+    const ctx = createControllerContext(store, silentAgent, { fetchImpl: async (input, init) => {
+      const path = new URL(String(input), "http://test").pathname
+      if (init?.method === "POST" && path.endsWith("/wiki")) {
+        writes.push(JSON.parse(String(init.body)))
+        if (writes.length === 1) return held.promise
+        return Response.json({ message: "wiki page already exists" }, { status: 409 })
+      }
+      if (path.endsWith("/document")) {
+        const doc = new Y.Doc(); doc.getText("markdown").insert(0, markdown)
+        return Response.json({ page: { ...page(), body: markdown }, state: encodeWikiState(Y.encodeStateAsUpdate(doc)), state_vector: encodeWikiState(Y.encodeStateVector(doc)) })
+      }
+      if (path.endsWith("/navigation/index")) return Response.json({ pages: [], folders: [], tags: [] })
+      return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(": connected\n\n")) } }), { headers: { "content-type": "text/event-stream" } })
+    } })
+    // Isolate notification rendering, retaining the real store, controller,
+    // account generation and HTTP transport/recovery behavior.
+    ctx.withToast = async (_key, _title, _done, work) => work()
+    ctx.resolveToast = () => {}
+    cleanup.push(() => ctx.dispose())
+    const wiki = createCloudWikiController(ctx, () => 1)
+    expect(await wiki.saveWikiAnswer("Recovery", markdown)).toEqual({ value: "Requested" })
+    await until(() => writes.length === 1)
+    await signIn(store, "alice")
+    await store.settled?.()
+    expect(writes).toHaveLength(1)
+    expect(store.collections.worldDocuments.get(id)).toBeUndefined()
+    await signIn(store, "will")
+    await store.settled?.()
+    // Account cancellation releases the old attempt even if fetch ignores its
+    // abort signal. Returning to the author recovers by the original page id.
+    await until(() => store.session().wikiSaves?.[0]?.state === "completed")
+    await until(() => store.collections.worldDocuments.get(id)?.body === markdown)
+    expect(writes).toHaveLength(2)
+    if (staleResult === "success") held.resolve(Response.json(page()))
+    else held.reject(new Error("The server saved the page but the response was lost"))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await store.settled?.()
+    expect(store.session().wikiSaves?.[0]?.state).toBe("completed")
+    expect(store.collections.worldDocuments.get(id)?.body).toBe(markdown)
+    expect(writes).toHaveLength(2)
+    expect(writes[1]).toEqual(writes[0])
+    // Sign-in reloads repository discovery before another explicit command.
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", name: "repo", ownerKind: "user", head: null }] }).isPersisted.promise
+    await store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
+    expect(await wiki.saveWikiAnswer("Recovery", markdown)).toEqual({ value: "Saved" })
+    expect(writes).toHaveLength(2)
+  })
+}
+
 describe("cloud Wiki controller", () => {
   test("a store with unadmitted Wiki input refuses version-14 writers without changing its bytes", async () => {
     const f = await fixture()
@@ -751,6 +811,30 @@ describe("wiki spaces", () => {
     const creates = f.requests.filter(request => request.method === "POST")
     expect(creates).toHaveLength(1)
     expect(JSON.parse(creates[0]!.body!)).toEqual({ title: "Retry", body: markdown })
+  })
+
+  test("wiki.save without an answer refuses to save a tool marker", async () => {
+    const f = await space()
+    await f.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", name: "repo", ownerKind: "user", head: null }] }).isPersisted.promise
+    await f.store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
+    await f.store.dispatch({ type: "message.tool.executed", actor: "smithers", turnId: "answer-turn", text: "Smithers ran /review" }).isPersisted.promise
+    expect([...f.store.collections.messages.values()].some(message => message.act === "Smithers ran /review")).toBe(true)
+    expect(await f.wiki.saveWikiAnswer("Retry")).toBe("Choose an answer to save.")
+    expect(f.requests.some(request => request.method === "POST")).toBe(false)
+  })
+
+  test("wiki.save selects the last visible answer by transcript order", async () => {
+    const f = await space()
+    await f.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", name: "repo", ownerKind: "user", head: null }] }).isPersisted.promise
+    await f.store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
+    for (let n = 0; n < 10; n++) {
+      await f.store.dispatch({ type: "message.appended", actor: "smithers", text: `Answer ${n}` }).isPersisted.promise
+    }
+    await f.store.dispatch({ type: "message.appended", actor: "smithers", text: '{"action":"list"}' }).isPersisted.promise
+    await f.store.dispatch({ type: "message.tool.executed", actor: "smithers", turnId: "answer-turn", text: "Smithers ran /review" }).isPersisted.promise
+    expect(await f.wiki.saveWikiAnswer("Latest")).toEqual({ value: "Requested" })
+    await until(() => f.requests.some(request => request.method === "POST"))
+    expect(JSON.parse(f.requests.find(request => request.method === "POST")!.body!).body).toBe("Answer 9")
   })
 
   test("a page's history is a card of its revisions, renames included, each a link to that revision's own bytes", async () => {
