@@ -7,15 +7,16 @@
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { createCollection, localOnlyCollectionOptions, localStorageCollectionOptions, type StorageApi } from "@tanstack/db"
-import { PlaceholderAvatarUrl, type Actor, type PersonRef, type TodoState } from "@smthrs/rpc/CardPrimitives"
+import { PlaceholderAvatarUrl, type Actor, type PersonRef, type TodoState, type NeedsYouKind } from "@smthrs/rpc/CardPrimitives"
 import type { Action } from "@smthrs/rpc/CardAction"
 import type { HomeCard, HomeItem, HomeViewProps } from "@smthrs/rpc/HomeCard"
 import { useDesign, useDesignViewer, useDesignWorld } from "./hooks"
 import { goToBranch } from "./shell"
 import {
-  branchOf, canMerge, machineSlots, memberOf, mergeReadiness, needsAction, openItems, stackItems,
+  branchOf, machineSlots, memberOf, mergeReadiness, openItems, stackItems,
   type ActorId, type DesignMergeReadiness, type DesignResult, type DesignTodo, type DesignWorld, type DesignWorldRows
 } from "./index"
+import { actionFor } from "../../../flows/rowAction"
 import { randomUuid } from "../../../runtime/RandomUuid"
 
 /** A TODO's wire number from its ref: T9 → 9. */
@@ -72,6 +73,12 @@ const menu = (n: number, first: boolean, last: boolean): Action[] => [
   { tag: "todo.drop", label: "Drop", args: { n: String(n) } }
 ]
 
+const primaryWait = (todo: DesignTodo): { kind: NeedsYouKind; prompt: string } | undefined => {
+  const kind = todo.needs === "force_push" ? "foreign_push" : todo.needs === "order" ? "conflict" : todo.needs
+    ?? (todo.question !== undefined && todo.question.answer === undefined ? "question" : undefined)
+  return kind === undefined ? undefined : { kind, prompt: todo.question?.text ?? "Needs you" }
+}
+
 /** The row's one action (design Home.tsx rowAction), then the ⋯ menu. */
 const rowActions = (world: DesignWorldRows, todo: DesignTodo, viewer: ActorId, first: boolean, last: boolean): Action[] => {
   const n = designTodoNumber(todo)
@@ -81,16 +88,10 @@ const rowActions = (world: DesignWorldRows, todo: DesignTodo, viewer: ActorId, f
   /* The branch chip opens the row's branch (design Home.tsx BranchChip onOpen). */
   const branch = branchOf(world, todo.branch)
   own.push({ tag: "branch", label: branch?.name ?? todo.branch, args: { ...args, door: "branch" } })
-  if (todo.state === "needs-you") {
-    const word = needsAction(todo)
-    /* Answer is the question's door: pressed without an answer it opens the TODO card, where the answer is typed (design Home.tsx). */
-    own.push(word === "Answer" ? { tag: "todo.answer", label: word, args, primary: true } : { tag: "todo", label: word, args })
-  }
-  if (todo.state === "in-review") own.push(mergeReadiness(world, todo).state === "ready" && canMerge(world, viewer)
-    ? { tag: "merge", label: "Merge", args, primary: true }
-    : { tag: "todo", label: "Review", args })
-  if (todo.state === "failed") own.push({ tag: "todo.retry", label: "Retry", args })
-  if (todo.state === "paused") own.push({ tag: "todo.resume", label: "Resume", args })
+  const action = actionFor({ n, state: STATES[todo.state], needs_you: primaryWait(todo), first_in_order: first,
+    place: openItems(world).findIndex(row => row.id === todo.id) + 1, merge: mergeOf(mergeReadiness(world, todo)),
+    ...(todo.pr === undefined ? {} : { pr: { draft: false } }) }, { role: memberOf(world, viewer)?.role ?? "member" })
+  if (action) own.push(action)
   return [...own, ...menu(n, first, last)]
 }
 
@@ -112,6 +113,7 @@ export const designHomeModel = (world: DesignWorldRows, viewer: ActorId, syncedA
       title: todo.title,
       state: STATES[todo.state],
       owner: personRef(world, todo.owner),
+      ...(primaryWait(todo) === undefined ? {} : { needs_you: primaryWait(todo) }),
       place: index + 1,
       ...(position === undefined ? {} : { queue: { reason: "machine" as const, position } }),
       ...(step === undefined || todo.state === "queued" ? {} : { step }),

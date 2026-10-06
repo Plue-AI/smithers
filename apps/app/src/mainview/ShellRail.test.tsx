@@ -170,7 +170,7 @@ describe("Timeline container actions", () => {
     kind: "entry", id, facts, entry: { kind: "card", title: id, author: { kind: "system", color_index: 7 }, tone: "quiet", state }
   })
   test("one action from facts and role, removed when answered, merged, dropped or tombstoned", () => {
-    const entries = [entry("ask", "needs_you", { n: 12, needs_you: { kind: "question" } }), entry("retry", "failed", { n: 13 }), entry("merge", "in_review", { n: 14, first_in_order: true }), entry("later", "in_review", { n: 15, first_in_order: false })]
+    const entries = [entry("ask", "needs_you", { n: 12, needs_you: { kind: "question" } }), entry("retry", "failed", { n: 13 }), entry("merge", "in_review", { n: 14, first_in_order: true, place: 1, merge: { state: "ready" }, pr: { draft: false } }), entry("later", "in_review", { n: 15, first_in_order: false })]
     expect(railLines(entries, { role: "maintainer" }).map(line => line.action?.tag)).toEqual(["todo.answer", "todo.retry", "merge", undefined])
     expect(railLines(entries, { role: "member" }).map(line => line.action?.tag)).toEqual(["todo.answer", "todo.retry", undefined, undefined])
     expect(railLines([entry("answered", "working"), entry("merged", "merged"), entry("dropped", "dropped"), entry("missing wait", "needs_you")], { role: "owner" }).every(line => line.action === undefined)).toBe(true)
@@ -178,7 +178,7 @@ describe("Timeline container actions", () => {
     expect(railLines([{ ...removed, entry: { ...removed.entry, tombstone: true } }], { role: "owner" })[0]?.action).toBeUndefined()
   })
   test("repair, review and merge retain their typed inputs; repeated TODO lines share one binding", () => {
-    const entries = [entry("conflict", "needs_you", { n: 16, needs_you: { kind: "conflict" } }), entry("foreign", "needs_you", { n: 17, needs_you: { kind: "foreign_push" } }), entry("merge", "in_review", { n: 18, first_in_order: true }), entry("again", "in_review", { n: 18, first_in_order: true })]
+    const entries = [entry("conflict", "needs_you", { n: 16, needs_you: { kind: "conflict" } }), entry("foreign", "needs_you", { n: 17, needs_you: { kind: "foreign_push" } }), entry("merge", "in_review", { n: 18, first_in_order: true, place: 1, merge: { state: "ready" }, pr: { draft: false } }), entry("again", "in_review", { n: 18, first_in_order: true, place: 1, merge: { state: "ready" }, pr: { draft: false } })]
     const calls: unknown[] = []
     const lines = railLines(entries, { role: "maintainer" })
     const bindings = timelineActions(lines, (tag, input) => calls.push([tag, input]))
@@ -206,3 +206,12 @@ describe("Timeline container actions", () => {
     expect(lines.every(line => line.fresh === undefined)).toBe(true)
   })
 })
+
+ test("edge toasts retain the shared primary action and Resume dispatch", () => {
+  const lines = railLines([{ kind: "entry", id: "pause", facts: { n: 3 }, entry: { kind: "card", title: "Paused", author: { kind: "system", color_index: 7 }, tone: "attention", state: "paused" } }, { kind: "entry", id: "band", entry: { kind: "card", title: "Band", author: { kind: "system", color_index: 7 }, tone: "quiet" } }])
+  const edge = railEdges(lines, ["band", "band"]).above[0]!
+  expect(edge.action).toEqual({ tag: "todo.resume", label: "Resume", args: { n: "3" }, primary: true })
+  const calls: unknown[] = []
+  timelineActions(lines, (tag, input) => calls.push([tag, input])).onAction(edge.action!.tag, edge.action!.args)
+  expect(calls).toEqual([["todo.resume", { n: 3 }]])
+ })

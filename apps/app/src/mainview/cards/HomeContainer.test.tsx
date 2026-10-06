@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
-import type { CatalogTag } from "@smthrs/rpc/CardAction"
+import type { Action, CatalogTag } from "@smthrs/rpc/CardAction"
 import { fixtures } from "@smthrs/rpc/fixtures/Home"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { act } from "react"
@@ -102,7 +102,7 @@ test("lack of admission removes all controls, and unavailable models never rende
 test("row identity, direction and background run identity stay bound across multiple controls", () => {
   const base = Object.values(fixtures).find(fixture => fixture.model.items.length > 0)!.model
   const row = base.items[0]!
-  const model = { ...base, attention: [], items: [{ ...row, n: 42, state: "needs_you", actions: [
+  const model = { ...base, attention: [], items: [{ ...row, n: 42, state: "needs_you", needs_you: { kind: "question", prompt: "Act" }, actions: [
     { tag: "todo.answer", label: "Answer" },
     { tag: "stack.move", label: "Move up", args: { direction: "up" } },
     { tag: "stack.move", label: "Move down", args: { direction: "down" } }
@@ -441,7 +441,7 @@ test("Home from GET /api/todos: one row per unmerged TODO in served order, every
   expect(home.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 1, dropped: 0 })
   expect(home.items[0]).toMatchObject({ queue: { reason: "machine", position: 1 }, branch: { id: "", name: "" }, place: 1 })
   expect(home.items[0]!.actions).toEqual([{ tag: "todo", label: "First local TODO", args: { n: "1", door: "title" } }])
-  expect(home.items[2]!.actions.map(action => [action.tag, action.label])).toEqual([["todo", review.title], ["merge", "Merge"]])
+  expect(home.items[2]!.actions.map(action => [action.tag, action.label])).toEqual([["todo", review.title]])
   expect(home.machines.in_use).toBe(2)
   expect(home.machines.slots.map(slot => [slot.branch, slot.awake, slot.actor.kind === "agent" && slot.actor.todo])).toEqual([["todo-2", true, 2], ["todo/12", true, 3]])
   expect(home.main).toMatchObject({ title: "main", health: "limited" })
@@ -461,7 +461,7 @@ test("Home from GET /api/todos: a TODO in review whose PR rebuilds keeps its row
   const home = homeFromTodos("local-owner/demo", [first, second])
   expect(HomeCardSchema.parse(home)).toEqual(home)
   expect(home.items.map(item => [item.n, item.state, item.rebase_pending?.onto, item.approval_cleared])).toEqual([[1, "in_review", undefined, true], [2, "in_review", "T1", undefined]])
-  for (const item of home.items) expect(item.actions.map(action => action.tag)).toEqual(["todo", "todo"])
+  for (const item of home.items) expect(item.actions.map(action => action.tag)).toEqual(["todo"])
   const { props } = mount(home)
   const markup = renderToStaticMarkup(<HomeView {...props} />)
   expect(markup).toContain("Rebase pending onto T1")
@@ -630,4 +630,16 @@ test("on a host with the seed the rail's home line reads the seeded stack", () =
   expect(home.kind).toBe("seed")
   expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: home.model.repository, summary: "1 need you · 1 working", tone: "attention", glyph: { state: "needs_you" } })
   h.controller.design.dispose()
+})
+
+test("removing the not-ready Review action keeps a TODO titled Review openable", () => {
+  const base = Object.values(fixtures).find(fixture => fixture.model.items.length > 0)!.model
+  const row = { ...base.items[0]!, title: "Review", state: "in_review", merge: { state: "waiting", reason: "state", on_github: false }, actions: [
+    { tag: "todo" as const, label: "Review", args: { n: String(base.items[0]!.n), door: "title" } },
+    { tag: "todo" as const, label: "Review", args: { n: String(base.items[0]!.n) } }
+  ] as Action[] }
+  const h = mount({ ...base, items: [row] })
+  expect(h.props.model.items[0]!.actions).toEqual([row.actions[0]!])
+  h.props.onAction("todo", { n: String(row.n), door: "title" })
+  expect(h.calls).toEqual([{ tag: "todo", input: { n: row.n } }])
 })

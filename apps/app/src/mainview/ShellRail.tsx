@@ -6,7 +6,8 @@
  */
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
-import { actionFor, type CatalogTag } from "@smthrs/rpc/CardAction"
+import { actionFor } from "./flows/rowAction"
+import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "./flows/cardActions"
 import { useTodoRole } from "./cards/TodoCard"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
@@ -94,6 +95,7 @@ export const timelineActions = (lines: readonly TimelineLine[], dispatch: CardCo
     const n = Number(action.args?.n)
     switch (action.tag) {
       case "todo.answer": definitions.push({ ...action, tag: "todo.answer", command_input: { n, answer: "" } }); break
+      case "todo.resume": definitions.push({ ...action, tag: "todo.resume", command_input: { n } }); break
       case "todo.retry": definitions.push({ ...action, tag: "todo.retry", command_input: { n } }); break
       case "todo": definitions.push({ ...action, tag: "todo", command_input: { n } }); break
       case "merge": definitions.push({ ...action, tag: "merge", command_input: { n } }); break
@@ -107,7 +109,7 @@ const LIVE: ReadonlySet<TimelineLine["tone"]> = new Set(["live", "attention", "f
 const RANK: Record<TimelineLine["tone"], number> = { attention: 0, failed: 1, live: 2, done: 3, quiet: 4 }
 
 const edgeCard = (line: TimelineLine): ToastCard => ({
-  id: line.entry_id, entry_id: line.entry_id, title: line.title, ...(line.summary === undefined ? {} : { detail: line.summary }), tone: line.tone,
+  id: line.entry_id, entry_id: line.entry_id, title: line.title, ...(line.summary === undefined ? {} : { detail: line.summary }), tone: line.tone, ...(line.action === undefined ? {} : { action: line.action }),
   kind: line.tone === "attention" ? "needs_you" : line.tone === "failed" ? "failed" : "progress"
 })
 
@@ -175,7 +177,7 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
     controller.runCommand(toast.action.flow, toast.action.args)
     if (toast.status !== "running") controller.runCommand("toast.dismiss", toast.id)
   }
-  const onEdgeAction = (tag: CatalogTag, args?: Record<string, string>): void => { controller.commands.submit({ name: tag, payload: args ?? {}, actor: "user" }) }
+  const onEdgeAction = timeline.onAction
   const last = lines.at(-1)?.entry_id ?? ""
   // A long conversation zooms out with distance from the band; the band and the edges still read every entry (#3728).
   const folded = zoomTimeline(lines, band, railTimes(entries))
