@@ -1644,7 +1644,12 @@ func mythicalReopenFollowed(item db.MythicalItem, now time.Time) bool {
 
 func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 	switch {
-	case mythicalSettledStates[item.State] && moved && (len(item.PendingOp) > 0 || item.WorkspaceID != ""):
+	case moved && len(item.PendingOp) > 0:
+		// Successful outbound progress owes immediate reconciliation. A
+		// previous PR follow deadline must not strand the retained write.
+		// Failed sends keep their retry deadline in mythicalStepFailedDue.
+		return now
+	case mythicalSettledStates[item.State] && moved && item.WorkspaceID != "":
 		return now
 	case moved && item.State == "cancelled" && len(item.PendingOp) == 0 && mythicalReopenFollowed(item, now) && mythicalChecksOf(item).GitHubDropRead == nil:
 		// Close settlement must establish a fresh read before queued snapshots

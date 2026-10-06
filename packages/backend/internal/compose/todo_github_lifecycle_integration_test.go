@@ -27,7 +27,14 @@ import (
 // Accepted-tree fixtures stand in for a completed machine run; ingress,
 // polling, durable delivery and the person's TODO card use the composed install.
 func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
-	t.Setenv("REHEARSAL_INSTALLATION_ID", "93")
+	for _, days := range []int{6, 8} {
+		t.Run(fmt.Sprintf("day_%d", days), func(t *testing.T) { testTODOGitHubCloseReopenComposedInstall(t, days) })
+	}
+}
+
+func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int) {
+	installationID := int64(9300 + days)
+	t.Setenv("REHEARSAL_INSTALLATION_ID", fmt.Sprint(installationID))
 	r := newRehearsal(t, "SMITHERS_GH03_REHEARSAL", "C-J10-08", "gh03-life-", 25)
 	r.stepBudget = 2 * time.Minute
 	r.client.Timeout = 30 * time.Second
@@ -53,7 +60,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	credentials := services.NewGitHubAppCredentialStore(r.pool, codec)
 	connections := services.NewRepoConnectionService(r.pool, credentials)
-	access, err := connections.CreateGitHubInstallationToken(r.ctx, 93, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "write"}})
+	access, err := connections.CreateGitHubInstallationToken(r.ctx, installationID, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "write"}})
 	require.NoError(t, err)
 	fakeRequest := func(method, path, body string) {
 		req, err := http.NewRequest(method, r.fake.URL+path, bytes.NewBufferString(body))
@@ -100,7 +107,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 		diagnostic, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		var status string
-		if err := r.pool.QueryRow(diagnostic, `SELECT json_build_object('state',state,'reason',reason,'candidate_base',candidate_base,'candidate_head',candidate_head,'verified',candidate_verified,'pr_head',pr_head,'pending',pending_op,'manifests',checks->'prManifests')::text FROM mythical_items WHERE number=$1`, filed.N).Scan(&status); err == nil {
+		if err := r.pool.QueryRow(diagnostic, `SELECT json_build_object('state',state,'reason',reason,'candidate_base',candidate_base,'candidate_head',candidate_head,'verified',candidate_verified,'pr_head',pr_head,'pending',pending_op,'due',next_attempt_at,'manifests',checks->'prManifests')::text FROM mythical_items WHERE number=$1`, filed.N).Scan(&status); err == nil {
 			t.Log("publication fixture", status)
 		} else {
 			t.Log("publication fixture read", err)
@@ -128,7 +135,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 		return len(manifests) == 1 && publishedHead != "" && manifests[0].Head == publishedHead && len(manifests[0].Included) == 0
 	}, 30*time.Second, 50*time.Millisecond)
 	hint := func(action string) {
-		payload := []byte(fmt.Sprintf(`{"action":%q,"number":1,"installation":{"id":93},"repository":{"id":100,"name":"app","full_name":"rehearsal-owner/app","owner":{"login":"rehearsal-owner"}},"pull_request":{"number":1,"head":{"ref":%q,"sha":%q}}}`, action, branch, publishedHead))
+		payload := []byte(fmt.Sprintf(`{"action":%q,"number":1,"installation":{"id":%d},"repository":{"id":100,"name":"app","full_name":"rehearsal-owner/app","owner":{"login":"rehearsal-owner"}},"pull_request":{"number":1,"head":{"ref":%q,"sha":%q}}}`, action, installationID, branch, publishedHead))
 		mac := hmac.New(sha256.New, []byte("webhook"))
 		_, err := mac.Write(payload)
 		require.NoError(t, err)
@@ -154,7 +161,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	}
 	sealed, err := credentials.Load(r.ctx)
 	require.NoError(t, err)
-	require.Equal(t, int64(93), sealed.InstallationID)
+	require.Equal(t, installationID, sealed.InstallationID)
 	var binding string
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT json_build_object('id',id,'installation',installation_id,'github',github_repository_id,'metadata',sync_metadata,'state',sync_state)::text FROM github_synced_repos WHERE owner_login='rehearsal-owner' AND repo_name='app'`).Scan(&binding))
 	t.Log("sync binding", binding)
@@ -164,7 +171,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 		Metadata     bool  `json:"metadata"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(binding), &source))
-	require.Equal(t, int64(93), source.Installation)
+	require.Equal(t, installationID, source.Installation)
 	require.Equal(t, int64(100), source.Github)
 	require.True(t, source.Metadata)
 	for _, smithersDrop := range []bool{false, true} {
@@ -212,6 +219,14 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 			var facts int
 			require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.dropped'`).Scan(&facts))
 			require.Equal(t, 1, facts, "repeated browser delivery records one Drop")
+			// The aged-close scenario starts after the scheduled post-close
+			// observation has established its reopen floor. A real six-day wait
+			// includes that read; advancing only the retained timestamp must too.
+			require.Eventually(t, func() bool {
+				var observed bool
+				err := r.pool.QueryRow(r.ctx, `SELECT checks->'githubDropRead' IS NOT NULL FROM mythical_items WHERE number=$1`, filed.N).Scan(&observed)
+				return err == nil && observed
+			}, 60*time.Second, 50*time.Millisecond)
 		} else {
 			fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"closed"}`)
 		}
@@ -221,12 +236,43 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 			githubLifecycleBrowserPhase(t, r, filed.N, "dropped")
 		}
 		hint("closed")
+		// Keep the original close age independent of row-update time. The
+		// install's webhook-triggered worker still uses its production clock.
+		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{githubClosedAt}',to_jsonb(clock_timestamp() - $2 * interval '1 day')),updated_at=clock_timestamp(),version=version+1 WHERE number=$1`, filed.N, days)
+		require.NoError(t, err)
+		// Simulate GitHub deleting the closed PR's branch, while its accepted
+		// objects and immutable manifest remain retained in the install.
+		deleteBranch := exec.Command("/usr/bin/git", "--git-dir", filepath.Join(r.gitRoot, "rehearsal-owner/app.git"), "update-ref", "-d", "refs/heads/"+branch, publishedHead)
+		deleted, deleteErr := deleteBranch.CombinedOutput()
+		require.NoError(t, deleteErr, string(deleted))
 		fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"open"}`)
+		if days == 8 {
+			hint("reopened")
+			// A stale-window delivery may still be queued by an earlier hint.
+			// Let every committed receipt settle before checking the card.
+			require.Eventually(t, func() bool {
+				var pending int
+				err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='pulls' AND state <> 'completed'`).Scan(&pending)
+				return err == nil && pending == 0
+			}, 20*time.Second, 50*time.Millisecond)
+			require.True(t, cardState("dropped"))
+			var reopened int
+			require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`).Scan(&reopened))
+			require.Zero(t, reopened)
+			branchRead := exec.Command("/usr/bin/git", "--git-dir", filepath.Join(r.gitRoot, "rehearsal-owner/app.git"), "show-ref", "--verify", "refs/heads/"+branch)
+			require.Error(t, branchRead.Run(), "expired reopen must not restore a deleted branch")
+			return
+		}
 		hint("reopened")
 		require.Eventually(t, func() bool { return cardState("in_review") }, 60*time.Second, 50*time.Millisecond)
 		if !smithersDrop {
 			githubLifecycleBrowserPhase(t, r, filed.N, "in_review")
 		}
+		require.Eventually(t, func() bool {
+			branchRead := exec.Command("/usr/bin/git", "--git-dir", filepath.Join(r.gitRoot, "rehearsal-owner/app.git"), "rev-parse", "refs/heads/"+branch)
+			remoteHead, readErr := branchRead.Output()
+			return readErr == nil && strings.TrimSpace(string(remoteHead)) == publishedHead
+		}, 30*time.Second, 50*time.Millisecond, "reopen restores the accepted published head")
 		hint("reopened")
 		var attempt int
 		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT attempt FROM mythical_items WHERE number=$1`, filed.N).Scan(&attempt))
@@ -266,7 +312,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	require.True(t, cardState("paused"))
 	// A person's merge on GitHub is followed through the real mirror sync and
 	// fetched-PR worker, without an in-product approval or second merge call.
-	access, err = connections.CreateGitHubInstallationToken(r.ctx, 93, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "write", "contents": "write"}})
+	access, err = connections.CreateGitHubInstallationToken(r.ctx, installationID, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "write", "contents": "write"}})
 	require.NoError(t, err)
 	fakeRequest("PUT", "/repos/rehearsal-owner/app/pulls/1/merge", fmt.Sprintf(`{"sha":%q,"merge_method":"squash"}`, publishedHead))
 	code, _, err := r.keyed("POST", "/api/github/sync", "", "gh03-external-merge")
