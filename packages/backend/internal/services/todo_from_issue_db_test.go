@@ -197,7 +197,7 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 
 	// Without GitHub, Make TODO is unavailable and a plain TODO still files.
 	s.github = nil
-	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &eight, IssueDigest: read, Request: "no-github"}, 503, "github_unavailable")
+	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &eight, IssueDigest: outsiderSnapshot.IssueDigest, Request: "no-github"}, 503, "github_unavailable")
 	plain, err := s.FileTodo(ctx, repoID, userID, MythicalTodoInput{Title: "Plain", Prompt: "No issue", Request: "plain"})
 	require.NoError(t, err)
 	stored, err := q.GetMythicalItemByNumber(ctx, repoID, plain.Number)
