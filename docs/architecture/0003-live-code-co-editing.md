@@ -103,11 +103,14 @@ this private mode. Ordinary commands and home initialization still drop first.
 The supervisor collects recipe descendants on normal completion or cancellation.
 If the supervisor dies, its descendants remain subject to the aggregate freeze
 and existing cgroup recovery, even after detaching their process sessions.
-A future transaction or recovery supervisor must take the exclusive lock.
+The transaction or recovery supervisor takes the exclusive lock.
 Any `pending` entry refuses admission without opening or decoding journal
-bytes. This is a prerequisite, not a transaction implementation: production
-does not yet create or settle that recovery fence, freeze writers, or recover
-a patch. Tests use actual file locks and process death with an ordinary-user
+bytes. Retained startup installs the trusted helper, collects old command groups,
+then invokes `recover-files` before preparation can admit new work. This fixed,
+operand-free command can settle an existing journal but cannot start a mutation.
+Recovery failure refuses startup; cancellation alone still never thaws a journal.
+Production app and coding writes remain disabled. Tests use actual file locks
+and process death with an ordinary-user
 protected-directory fixture. The Linux lifecycle probe also exercises the real
 recipe subprocess path with an instrumented root identity and test recipe pin.
 These are not privileged guest receipts, nor proof that services started through
@@ -142,7 +145,8 @@ decide whether a partial transaction is safe to thaw.
 The supplemental `testdata/mutation_coordinator/` probe runs this coordinator
 with real Linux cgroups and pipes. A caller sends and receives more than a pipe
 buffer; coordinator death during input, partial mutation, settled-before-thaw and
-after-thaw recovers without the old supervisor. An outside save after thaw survives.
+after-thaw recovers through `recover-files` without the old supervisor. An outside
+save after thaw survives.
 Root ownership and credential transitions are instrumented for ordinary-user
 delegation, so this does not qualify privileged journal isolation or machine reboot.
 
@@ -155,7 +159,7 @@ error. Malformed responses remain unavailable. Tests exercise exact binary bytes
 absent creation, stale preservation, input rejection followed by retry, and the
 continued production gate.
 
-There is still no CLI/runtime mutation caller. Startup recovery, authenticated
+There is still no CLI/runtime caller for new file mutations. Authenticated
 app/coding transport, the actual working-copy filesystem
 and path-alias behavior, external-service/kernel-I/O exclusion, and fresh/retained
 security receipts remain outstanding. The old failing exchange candidate is

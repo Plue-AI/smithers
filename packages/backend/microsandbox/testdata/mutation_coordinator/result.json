@@ -1,7 +1,7 @@
 {
   "uid": 1000,
   "kernel": "7.0.0-38-generic",
-  "helper_sha256": "908bac965f3bba7b09eeb076a4c984df264f512f99d6d3fee08df639f57337a1",
+  "helper_sha256": "c9af1a9e3cfd44556d88d640de3f8512331eee742b972c44631e8aa2b0c4b37f",
   "results": [
     {
       "case": "streaming-caller",
@@ -12,27 +12,32 @@
     {
       "case": "coordinator-death-input",
       "passed": true,
-      "recovered_without_old_supervisor": true
+      "recovered_without_old_supervisor": true,
+      "recovery_entry": "recover-files"
     },
     {
       "case": "coordinator-death-partial",
       "passed": true,
-      "recovered_without_old_supervisor": true
+      "recovered_without_old_supervisor": true,
+      "recovery_entry": "recover-files"
     },
     {
       "case": "coordinator-death-settled-before-thaw",
       "passed": true,
-      "recovered_without_old_supervisor": true
+      "recovered_without_old_supervisor": true,
+      "recovery_entry": "recover-files"
     },
     {
       "case": "coordinator-death-after-thaw",
       "passed": true,
-      "recovered_without_old_supervisor": true
+      "recovered_without_old_supervisor": true,
+      "recovery_entry": "recover-files"
     },
     {
       "case": "coordinator-death-kill-all",
       "passed": true,
-      "recovered_without_old_supervisor": true
+      "recovered_without_old_supervisor": true,
+      "recovery_entry": "recover-files"
     }
   ]
 }

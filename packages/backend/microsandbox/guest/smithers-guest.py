@@ -9,6 +9,7 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
   root-recipe DIGEST run only a binary-pinned system recipe as root
   kill ID         kill every process of one command cgroup
   kill-all        kill every command cgroup (backend restart recovery)
+  recover-files   settle a pending file journal before retained-machine startup
   fs USER read|write|list|remove ROOT PATH [ARG]
                   root-confined file operations as the workspace user
   relay PORT      bridge stdin/stdout to guest TCP 127.0.0.1:PORT
@@ -541,7 +542,7 @@ def mutation_cleanup(journal):
 
 
 def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
-    """Private coordinator candidate; no CLI/runtime enablement yet.
+    """Coordinate recovery; new mutations remain private and gated off.
 
     prepare/emit are fixed installed callbacks, never supplied by a request.
     Only the dropped worker calls them. Root sees fixed control bytes, trusted
@@ -549,7 +550,6 @@ def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
     """
     if os.geteuid() != 0 or type(limit) is not int or not 0 < limit <= 64 << 20:
         fail(125, "mutation coordinator requires trusted root envelope")
-    entry, gid = mutation_account()
     with writer_coordinator(exclusive=True) as store:
         try:
             os.stat("pending", dir_fd=store, follow_symlinks=False)
@@ -558,6 +558,7 @@ def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
             recovering = False
         if recover_only and not recovering:
             return 0
+        entry, gid = mutation_account()
         # Recovery runs before admitting a new request. A killed input worker
         # may still hold a stream, and a killed apply worker may have partial data.
         phases = [True] if recover_only else ([True, False] if recovering else [False])
@@ -1197,9 +1198,9 @@ def mutation_validate_state(state):
 def recover_mutation(root, journal, limit):
     """Private worker phase; qualified writer exclusion MUST remain held.
 
-    This is deliberately not exposed by a CLI or runtime capability. Root never
-    reads this journal. The future coordinator must kill any old mutation worker
-    and freeze all other writers before invoking recovery after credential drop.
+    Only the coordinator invokes this after collecting any old mutation worker
+    and freezing all writers. Root never reads the journal. Startup recovery
+    cannot supply new file mutations or select a journal or workspace path.
     """
     mutation_identity(journal, limit)
     body, _ = mutation_read(journal, "state.json", 1 << 20)
@@ -2169,6 +2170,10 @@ def main(args):
     if command == "kill" and len(args) == 2 and valid_id(args[1]):
         cgroup_kill(os.path.join(CGROUP_ROOT, args[1]))
         return
+    if command == "recover-files" and len(args) == 1:
+        # Fixed installed limit; no request operands or stdin are consumed.
+        # This never admits a new mutation or opens the compare-write gate.
+        sys.exit(coordinate_mutation(None, None, 64 << 20, recover_only=True))
     if command == "kill-all":
         # The mutation worker intentionally lives outside the frozen writer
         # tree. Cancellation must collect it too, without thawing or clearing

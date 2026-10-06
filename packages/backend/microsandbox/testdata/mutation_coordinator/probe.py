@@ -215,14 +215,20 @@ with tempfile.TemporaryDirectory(prefix="smithers-coordinator-") as directory:
             assert pending.exists()
             if stage == "after-thaw":
                 target.write_bytes(b"outside after thaw")
-            assert guest.coordinate_mutation(None, None, 4096, recover_only=True) == 0
+            try:
+                guest.main(["recover-files"])
+            except SystemExit as error:
+                assert error.code == 0, error.code
+            else:
+                raise AssertionError("startup recovery did not propagate status")
             expected = (b"alpha" if stage in ("input", "partial", "kill-all") else
                         b"ALPHA" if stage == "settled-before-thaw" else b"outside after thaw")
             assert target.read_bytes() == expected
             assert not pending.exists() and (writers / "cgroup.freeze").read_text().strip() == "0"
             assert not any(path.is_dir() for path in mutators.iterdir())
             results.append({"case": "coordinator-death-" + stage, "passed": True,
-                            "recovered_without_old_supervisor": True})
+                            "recovered_without_old_supervisor": True,
+                            "recovery_entry": "recover-files"})
     finally:
         for root in (writers, mutators):
             (root / "cgroup.kill").write_text("1")
