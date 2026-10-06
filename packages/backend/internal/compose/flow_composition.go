@@ -323,3 +323,10 @@ func codingHostAccountPoolURL(cfg *config.Config, productAPIURL string) string {
 	}
 	return ""
 }
+
+func installFlowRuns(queries *db.Queries, flow *flowComposition) *services.InstallFlowRuns {
+	if flow == nil {
+		return nil
+	}
+	return &services.InstallFlowRuns{Queries: queries, Dispatcher: flow.dispatcher, Jobs: flow.jobs}
+}
