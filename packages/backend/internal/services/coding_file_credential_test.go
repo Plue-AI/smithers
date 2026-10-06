@@ -84,6 +84,9 @@ func (f codingGrantFixture) dispatch(token, body string, fn func(context.Context
 
 func TestCodingFileGrantPostgresLifecycle(t *testing.T) {
 	f := newCodingGrantFixture(t)
+	var turns int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM chat_turns`).Scan(&turns))
+	require.Zero(t, turns, "coding grants belong to a flow host, not a chat producer")
 	g := f.mint(t)
 	require.Equal(t, "Run-A", g.RunID)
 	require.Equal(t, f.workspace, g.WorkspaceID)

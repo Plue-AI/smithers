@@ -146,7 +146,10 @@ WHERE t.token_hash = $1
   -- Checking on every lookup also fences a crashed host without relying on
   -- its deferred token deletion to run. Scope separators match Go unicode.IsSpace
   -- and comma, as middleware.tokenScopeEntries requires for grants and bindings.
-  AND (NOT (t.system_issued AND 'via:smithers' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+')))
+  -- Coding-file grants are fenced by their flow host and exact request body,
+  -- not a chat producer. The middleware still validates the entire profile.
+  AND (NOT (t.system_issued AND 'via:smithers' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+    AND NOT ('profile:coding_file_s1' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))))
     OR EXISTS (
       SELECT 1 FROM chat_turns c
       WHERE c.user_id = t.user_id AND c.state = 'running' AND NOT c.terminal
