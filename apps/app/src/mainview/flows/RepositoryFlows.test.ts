@@ -5,7 +5,8 @@
  *
  * Live defect this pins: the homepage of smithersai/smithers said "Try
  * first /review" while typing /review answered "There is no /review flow",
- * because the projection's flows were never leaves of the registry. Every
+ * because the projection's flows were never leaves of the registry. The current
+ * /review host door is protected (#3612); a repository cannot replace it. Every
  * expectation below runs the real controller over a stub of the public
  * contents route that serves `.smithers/factory.json`; nothing here names a
  * flow the app declares itself.
@@ -129,7 +130,7 @@ const row = (
 const CATALOG = {
   summary: "How will/flows develops itself.",
   flows: [
-    row("review", { summary: "Review the change.", featured: true }),
+    row("audit", { summary: "Review the change.", featured: true }),
     row("release-notes"),
     row("lint", { summary: null, featured: true }),
     row("create-flow/clarify", { modelInvocable: false }),
@@ -167,9 +168,9 @@ const treeNames = (rows: ReturnType<Awaited<ReturnType<typeof ready>>["controlle
 describe("the repository's flows are slash leaves", () => {
   test("every projection row is a leaf, featured first, with the projection's summary; a `/` in an id is a namespace dot; a declared name keeps its flow", async () => {
     const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }))
-    expect(repositoryLeaves(controller)).toEqual(["review", "lint", "release-notes"])
-    expect(controller.commands.find("review")?.metadata.summary).toBe("Review the change.")
-    expect(controller.commands.find("review")?.metadata.workflow).toBe("review")
+    expect(repositoryLeaves(controller)).toEqual(["audit", "lint", "release-notes"])
+    expect(controller.commands.find("audit")?.metadata.summary).toBe("Review the change.")
+    expect(controller.commands.find("audit")?.metadata.workflow).toBe("audit")
     // A null summary falls back to the description's first line, never the whole description.
     expect(controller.commands.find("lint")?.metadata.summary).toBe("Runs lint.")
     // `create-flow/clarify` lists under the synthesized create-flow namespace.
@@ -185,42 +186,35 @@ describe("the repository's flows are slash leaves", () => {
     const names = treeNames(controller.slashTree(""))
     const firstNamespace = names.findIndex((name) => name.endsWith("/"))
     expect(firstNamespace).toBeGreaterThan(0)
-    for (const leaf of ["review", "lint", "release-notes"]) {
+    for (const leaf of ["audit", "lint", "release-notes"]) {
       const at = names.indexOf(leaf)
       expect(at).toBeGreaterThan(-1)
       expect(at).toBeLessThan(firstNamespace)
     }
-    expect(names.indexOf("review")).toBeLessThan(names.indexOf("lint"))
+    expect(names.indexOf("audit")).toBeLessThan(names.indexOf("lint"))
     expect(names.indexOf("lint")).toBeLessThan(names.indexOf("release-notes"))
-    for (const surface of SURFACE_FLOWS) expect(names.indexOf(surface)).toBeLessThan(names.indexOf("review"))
+    for (const surface of SURFACE_FLOWS) expect(names.indexOf(surface)).toBeLessThan(names.indexOf("audit"))
   })
 
-  test("the collision rule: bare /review runs the repository flow and /review. opens the review namespace, with one note saying so", async () => {
-    const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }))
-    const bare = controller.slashTree("review")
-    expect(bare[0]).toEqual({
-      kind: "note",
-      text: "Enter runs /review, this repository's flow. Type /review. to open the review flows instead."
-    })
-    expect(bare[1]).toMatchObject({ kind: "flow", flow: { name: "review" } })
-    expect(bare.some((entry) => entry.kind === "namespace")).toBe(false)
-    expect(parseSubmit("/review", controller.commands.all())).toEqual({ kind: "command", name: "review" })
-
-    const branch = controller.slashTree("review.")
-    expect(branch.length).toBeGreaterThan(0)
-    expect(branch.every((entry) => entry.kind === "flow" && entry.flow.name.startsWith("review."))).toBe(true)
-    // The note is only for the colliding name: a leaf that is no namespace lists plainly.
-    expect(controller.slashTree("lint").some((entry) => entry.kind === "note")).toBe(false)
+  test("a projection cannot replace the host's protected review door", async () => {
+    const seen: Array<Seen> = []
+    const { controller } = await ready(backend({ [PROJECTION]: projectionDocument({ flows: [row("review")], on: [] }) }, seen))
+    expect(controller.commands.find("review")?.metadata.args).toBe("<number> [owner/repo]")
+    expect(isLeaf(controller, "review")).toBe(false)
+    expect(parseSubmit("/review 17", controller.commands.all())).toEqual({ kind: "command", name: "review", args: "17" })
+    seen.length = 0
+    expect(await controller.commands.run("review", `17 ${REPO}`)).toEqual({ status: "failed", error: "Review is unavailable on this host." })
+    expect(seen).toEqual([])
   })
 
-  test("/review dispatches exactly what /flow.run review does: the same doors, the same wire, this repository as the target", async () => {
+  test("/audit dispatches exactly what /flow.run audit does: the same doors, the same wire, this repository as the target", async () => {
     const seen: Array<Seen> = []
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }, seen))
     const walked = (): Array<Seen> => seen.filter((call) => call.path !== PROJECTION && call.path !== `/api/repos/${REPO}/home` && !(call.method === "GET" && call.path.split("?")[0] === "/api/repository-setup/state"))
-    const viaLeaf = await controller.commands.run("review")
+    const viaLeaf = await controller.commands.run("audit")
     const leafCalls = walked()
     seen.length = 0
-    const viaRun = await controller.commands.run("flow.run", `review ${REPO}`)
+    const viaRun = await controller.commands.run("flow.run", `audit ${REPO}`)
     const runCalls = walked()
     expect(leafCalls.length).toBeGreaterThan(0)
     expect(leafCalls.map((call) => call.path)).toContain("/api/workflow/provision")
@@ -229,27 +223,27 @@ describe("the repository's flows are slash leaves", () => {
     // A trailing owner/repo retargets the leaf exactly as flow.run's does.
     seen.length = 0
     await loadBox(store, "will/other", "0b0c0d0e-0000-4000-8000-000000000002")
-    await controller.commands.run("review", "will/other")
+    await controller.commands.run("audit", "will/other")
     const provision = walked().find((call) => call.path === "/api/workflow/provision")
     expect(provision?.body).toMatchObject({ repo: "will/other" })
   })
 
   test("search.flows and the palette's / mode find the leaf", async () => {
     const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }))
-    const outcome = await controller.commands.run("search.flows", "review")
+    const outcome = await controller.commands.run("search.flows", "audit")
     expect(outcome.status).toBe("executed")
     if (outcome.status !== "executed") return
     const value = JSON.parse(outcome.value ?? "{}") as { items: Array<{ ref: string; subtitle?: string }> }
-    expect(value.items.map((item) => item.ref)).toContain("review")
-    expect(value.items.find((item) => item.ref === "review")?.subtitle).toBe("Review the change.")
-    expect(controller.searchPalette("/rev")).toMatchObject({ flow: "search.flows" })
-    expect(treeNames(controller.slashTree("rev"))).toContain("review")
+    expect(value.items.map((item) => item.ref)).toContain("audit")
+    expect(value.items.find((item) => item.ref === "audit")?.subtitle).toBe("Review the change.")
+    expect(controller.searchPalette("/aud")).toMatchObject({ flow: "search.flows" })
+    expect(treeNames(controller.slashTree("aud"))).toContain("audit")
   })
 
   test("the leaf is an agent tool door like every listed flow; a row the repository keeps from models is the human's alone", async () => {
     const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }))
     const disclosed = controller.commands.disclosed().map((descriptor) => descriptor.name)
-    expect(disclosed).toContain("review")
+    expect(disclosed).toContain("audit")
     expect(disclosed).toContain("lint")
     expect(disclosed).not.toContain("create-flow.clarify")
     const refused = await executeAgentToolCall(controller.commands, {
@@ -258,25 +252,25 @@ describe("the repository's flows are slash leaves", () => {
     })
     expect(refused).toContain("will/flows declares create-flow/clarify is not for a model to start")
     const listed = await executeAgentToolCall(controller.commands, { name: "commands", arguments: JSON.stringify({ action: "list" }) })
-    expect(listed).toContain("review")
+    expect(listed).toContain("audit")
   })
 
-  test("signed out, /review renders flow.run's sign-in door, never the no-such-flow refusal", async () => {
+  test("signed out, /audit renders flow.run's sign-in door, never the no-such-flow refusal", async () => {
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }), "signed-out")
-    // The leaf is offered when the user names it outright, so Enter on the menu is the deferral, not a review.* flow.
-    const listed = treeNames(controller.slashTree("review"))
-    expect(listed[1]).toBe("review")
-    controller.send("/review")
+    // The leaf is offered when the user names it outright, so Enter on the menu is the deferral, not an app flow.
+    const listed = treeNames(controller.slashTree("audit"))
+    expect(listed[0]).toBe("audit")
+    controller.send("/audit")
     await settled()
-    expect(store.session().pendingCommand).toMatchObject({ name: "review", requirement: "signed-in" })
+    expect(store.session().pendingCommand).toMatchObject({ name: "audit", requirement: "signed-in" })
     const toasts = [...store.collections.toasts.values()]
     expect(toasts).toEqual([])
     expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in")).toHaveLength(1)
-    const outcome = await controller.commands.run("flow.run", "review")
+    const outcome = await controller.commands.run("flow.run", "audit")
     expect(outcome.status).not.toBe("unknown-command")
   })
 
-  test("without a projection there are no leaves, and /review is the app's own stand-in", async () => {
+  test("without a projection there are no leaves, and /review remains the host's protected door", async () => {
     const { controller } = await ready(backend({}))
     expect(repositoryLeaves(controller)).toEqual([])
     expect(controller.commands.find("review")?.metadata.args).toBe("<number> [owner/repo]")
@@ -288,7 +282,7 @@ describe("the repository's flows are slash leaves", () => {
     const { store, controller } = await ready(
       backend({ [PROJECTION]: projectionDocument(CATALOG), [projectionPath(other)]: projectionDocument({ flows: [row("triage")], on: [] }) })
     )
-    expect(repositoryLeaves(controller)).toEqual(["review", "lint", "release-notes"])
+    expect(repositoryLeaves(controller)).toEqual(["audit", "lint", "release-notes"])
     store.dispatch({
       type: "repositories.loaded",
       actor: "system",
@@ -303,10 +297,10 @@ describe("the repository's flows are slash leaves", () => {
     store.dispatch({ type: "repo.selected", actor: "user", id: other })
     await settled(6)
     expect(repositoryLeaves(controller)).toEqual(["triage"])
-    expect(isLeaf(controller, "review")).toBe(false)
+    expect(isLeaf(controller, "audit")).toBe(false)
     store.dispatch({ type: "repo.selected", actor: "user", id: REPO })
     await settled(6)
-    expect(repositoryLeaves(controller)).toEqual(["review", "lint", "release-notes"])
+    expect(repositoryLeaves(controller)).toEqual(["audit", "lint", "release-notes"])
   })
 
 
