@@ -190,6 +190,8 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 	_, err = tx.Exec(ctx, `UPDATE product_job_events SET recorded_at='2026-10-04T08:03:00Z' WHERE operation_id='00000000-0000-4000-8000-000000000001'`)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx))
+	_, err = pool.Exec(ctx, `UPDATE product_job_events SET recorded_at='2026-10-04T06:30:00Z' WHERE principal_id=$1 AND event_type='todo.created'`, "todo:"+item)
+	require.NoError(t, err)
 	readState := func() services.Scorecard {
 		request := httptest.NewRequest("GET", "http://localhost:4000/api/install/scorecard?from=2026-10-03T23:30:00-07:00&to=2026-10-17T23:30:00-07:00", nil)
 		request.RemoteAddr = "127.0.0.1:61000"
@@ -211,5 +213,29 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 	require.Equal(t, "source_missing", incomplete.Measures["failed"].Verdict)
 	require.Equal(t, []string{"T-STK-01"}, incomplete.Measures["failed"].MissingTickets)
 	require.Equal(t, float64(1), incomplete.Measures["accepted"].Value)
+
+	// Direct GitHub merges use the same synced settlement receipt as app merges.
+	// A duplicate delivery does not increase the count or delay first merge.
+	tx, err = pool.Begin(ctx)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE mythical_items SET state='landed',updated_at='2031-01-01T00:00:00Z' WHERE id=$1::uuid`, item)
+	require.NoError(t, err)
+	mergedFact, _ := json.Marshal(map[string]any{"item": item, "source": "github", "pr": 1})
+	for _, operation := range []string{"00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003"} {
+		_, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(repo), PrincipalID: "todo:" + item}, operation, "todo.github_merged", "merged", mergedFact)
+		require.NoError(t, err)
+	}
+	_, err = tx.Exec(ctx, `UPDATE product_job_events SET recorded_at=CASE WHEN operation_id='00000000-0000-4000-8000-000000000002' THEN '2026-10-04T08:04:00Z'::timestamptz ELSE '2026-10-04T08:05:00Z'::timestamptz END WHERE operation_id IN ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000003')`)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
+	mergedCard := readState()
+	require.Equal(t, float64(1), mergedCard.Measures["merged"].Value)
+	require.Equal(t, "between", mergedCard.Measures["merged"].Verdict)
+	require.Empty(t, mergedCard.Measures["merged"].MissingTickets)
+	require.Equal(t, "2026-10-04T08:04:00Z", mergedCard.Measures["first_merge"].Value)
+	require.Equal(t, float64(0), mergedCard.Measures["dropped"].Value)
+	require.Equal(t, "source_missing", mergedCard.Measures["outside_work"].Verdict)
+	require.Equal(t, []string{"T-GH-02"}, mergedCard.Measures["outside_work"].MissingTickets)
+	require.Equal(t, "source_missing", mergedCard.Measures["dogfood"].Verdict)
 
 }

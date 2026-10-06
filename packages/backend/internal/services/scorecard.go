@@ -107,6 +107,16 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 			facts.TODOs = append(facts.TODOs, scorecardTODO{ID: row.ID, Owner: fmt.Sprint(row.Owner), Accepted: row.Accepted, State: state, StateAt: stateAt})
 		}
 		facts.Coverage["T-STK-01"] = complete
+		mergedCoverage, err := queries.ScorecardMergeCoverage(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		facts.Coverage["T-STK-04"] = mergedCoverage
+		// A covered merge stream does not prove the separate main-commit
+		// inventory needed by outside work and dogfood.
+		for _, name := range []string{"merged", "first_merge", "activation", "no_hand_written_code"} {
+			facts.Coverage[name+":T-GH-02"] = mergedCoverage
+		}
 	}
 	if present["chat_turns"] && present["chat_turn_batches"] {
 		answer, err := queries.ScorecardFirstAnswer(ctx)

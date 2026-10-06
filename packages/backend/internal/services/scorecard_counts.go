@@ -53,7 +53,11 @@ func aggregateScorecard(window ScorecardWindow, facts scorecardFacts) Scorecard 
 		m := out.Measures[name]
 		missing := make([]string, 0)
 		for _, ticket := range m.MissingTickets {
-			if !facts.Coverage[ticket] || facts.IncompleteStates[name] {
+			covered := facts.Coverage[ticket]
+			if scoped, ok := facts.Coverage[name+":"+ticket]; ok {
+				covered = scoped
+			}
+			if !covered || facts.IncompleteStates[name] {
 				missing = append(missing, ticket)
 			}
 		}

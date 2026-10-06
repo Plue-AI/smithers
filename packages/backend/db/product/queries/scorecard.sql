@@ -21,16 +21,17 @@ FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
 SELECT i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
        i.state::text AS state, i.checks, i.paused_at,
        (SELECT COALESCE(jsonb_object_agg(receipt.state, receipt.since), '{}'::jsonb)
-        FROM (SELECT transition.state, max(transition.recorded_at) AS since
-          FROM (SELECT state, recorded_at, lag(state) OVER (ORDER BY sequence) AS previous
-            FROM product_job_events WHERE principal_id = 'todo:' || i.id::text
-              AND event_type LIKE 'todo.%') AS transition
+        FROM (SELECT DISTINCT ON (transition.state) transition.state, transition.recorded_at AS since
+          FROM (SELECT state, recorded_at, sequence, lag(state) OVER (ORDER BY sequence) AS previous
+            FROM product_job_events WHERE tenant_id = i.repository_id::text
+              AND principal_id = 'todo:' || i.id::text AND event_type LIKE 'todo.%') AS transition
           WHERE transition.previous IS DISTINCT FROM transition.state
-          GROUP BY transition.state) AS receipt)::jsonb AS state_times,
+          ORDER BY transition.state, transition.sequence DESC) AS receipt)::jsonb AS state_times,
        COALESCE(min(e.recorded_at), 'epoch'::timestamptz)::timestamptz AS accepted,
        (count(e.event_id) > 0)::boolean AS covered
 FROM mythical_items i
-LEFT JOIN product_job_events e ON e.principal_id = 'todo:' || i.id::text
+LEFT JOIN product_job_events e ON e.tenant_id = i.repository_id::text
+ AND e.principal_id = 'todo:' || i.id::text
  AND e.event_type = 'todo.created' AND e.data->>'item' = i.id::text
 WHERE i.source = 'todo' OR i.checks->>'todo' = 'true'
 GROUP BY i.id;
@@ -46,3 +47,21 @@ WHERE t.repository_id > 0 AND t.conversation_id IS NOT NULL AND t.conversation_i
    CASE WHEN jsonb_typeof(b.frames) = 'array' THEN b.frames ELSE '[]'::jsonb END
  ) AS f(frame) WHERE frame->>'type' = 'delta' AND frame->>'kind' = 'text'
    AND jsonb_typeof(frame->'text') = 'string' AND frame->>'text' <> '');
+
+-- Merge settlement is covered independently from the missing main-commit
+-- inventory. Both app merges and direct GitHub merges settle through this
+-- existing synced-store writer; repeated delivery is not another merge.
+-- name: ScorecardMergeCoverage :one
+SELECT (count(*) > 0 AND bool_and(COALESCE(
+  receipt.event_type = 'todo.github_merged' AND receipt.data->>'source' = 'github', false)))::boolean AS covered
+FROM mythical_items i
+LEFT JOIN LATERAL (
+  SELECT transition.event_type, transition.data
+  FROM (SELECT event_type, data, state, sequence,
+          lag(state) OVER (ORDER BY sequence) AS previous
+        FROM product_job_events WHERE tenant_id = i.repository_id::text
+          AND principal_id = 'todo:' || i.id::text AND event_type LIKE 'todo.%') AS transition
+  WHERE transition.state = 'merged' AND transition.previous IS DISTINCT FROM transition.state
+  ORDER BY transition.sequence DESC LIMIT 1
+) AS receipt ON true
+WHERE i.state = 'landed' AND (i.source = 'todo' OR i.checks->>'todo' = 'true');
