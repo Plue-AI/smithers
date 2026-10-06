@@ -37,6 +37,14 @@ const sources = [
  * directory named by an environment expression, which made the two steps agree
  * only by both interpolating the same string.
  */
+const engineeringChecks = Smithers.Filegroup({ cwd: ".specs/engineering", srcs: [Smithers.glob("checks/*.md")] })
+const integrationSources = Smithers.Filegroup({ cwd: "packages/smithers/agent/integrations", srcs: [Smithers.glob("src/**/*.ts")] })
+const gatewaySources = Smithers.Filegroup({ cwd: "packages/smithers/gateway", srcs: [Smithers.glob("src/**/*.ts"), Smithers.glob("test/**/*.ts")] })
+const apiSchemas = Smithers.Filegroup({ cwd: "docs/api/openapi", srcs: [Smithers.glob("*.yaml")] })
+const workflowSources = Smithers.Filegroup({ cwd: ".github", srcs: [Smithers.glob("workflows/*.yml")] })
+const machineSources = Smithers.Filegroup({ cwd: "crates/smithers-machined", srcs: [Smithers.glob("**/*")] })
+const ffiSources = Smithers.Filegroup({ cwd: "crates/smithers-ffi", srcs: [Smithers.glob("src/**")] })
+
 const packDirectory = "dist/release-packs"
 
 const privateAdapterManifests = [
@@ -210,11 +218,10 @@ const toolchainPins = Smithers.NodeTest({
     Smithers.file("//flake.nix"),
     Smithers.file("//.node-version"),
     Smithers.file("//rust-toolchain.toml"),
-    Smithers.glob("//.github/workflows/*.yml"),
     Smithers.file("//PACKAGE.ts"),
     Smithers.file("//scripts/ci/cloud.sh")
   ],
-  deps: []
+  deps: [workflowSources]
 })
 
 /**
@@ -384,8 +391,8 @@ const conflictMarkersUnit = Smithers.NodeTest({
 // and that the committed bundle matches its sources.
 const openapiBundle = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/openapi-bundle.test.mjs")]),
-  srcs: [...sources, Smithers.glob("//docs/api/openapi/*.yaml"), Smithers.file("//docs/api/openapi.yaml")],
-  deps: []
+  srcs: [...sources, Smithers.file("//docs/api/openapi.yaml")],
+  deps: [apiSchemas]
 })
 
 // The product API client generator: naming, schema mapping, refusals, the
@@ -705,13 +712,11 @@ const issueClaim = Smithers.NodeTest({
     Smithers.file("//scripts/check-evidence.mjs"),
     Smithers.file("//scripts/check-run.mjs"),
     Smithers.file("//scripts/check-commands.json"),
-    Smithers.glob("//.specs/engineering/checks/*.md"),
     Smithers.file("//scripts/fixtures/check-receipts.mjs"),
     Smithers.file("//scripts/github-proxy.mjs"),
     Smithers.file("//scripts/github-app-auth.mjs"),
-    Smithers.glob("//packages/smithers/agent/integrations/src/**/*.ts")
   ],
-  deps: []
+  deps: [engineeringChecks, integrationSources]
 })
 
 /**
@@ -767,10 +772,8 @@ const mutationGate = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("//scripts/check-mutations.mjs")),
   srcs: [
     ...sources,
-    Smithers.glob("//packages/smithers/gateway/src/**/*.ts"),
-    Smithers.glob("//packages/smithers/gateway/test/**/*.ts")
   ],
-  deps: []
+  deps: [gatewaySources]
 })
 
 /** Deterministic scheduler and journal cost regressions, after output validation. */
@@ -804,12 +807,12 @@ const perfDiskWrite = Smithers.NodeTest({
 /** K1–K8 campaign keeps component evidence distinct from integrated proof. */
 const workingTogetherFaults = Smithers.Shell.Test({
   shell: "node scripts/working-together/faults.mjs",
-  data: [...sources, Smithers.glob("//crates/smithers-machined/**"), Smithers.glob("//crates/smithers-ffi/src/**"), Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock")],
+  data: [...sources, machineSources, ffiSources, Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock")],
   exclusive: true, timeout: "1h"
 })
 const workingTogetherComponents = Smithers.Shell.Test({
   shell: "node scripts/working-together/faults.mjs --components-only",
-  data: [...sources, Smithers.glob("//crates/smithers-machined/**"), Smithers.glob("//crates/smithers-ffi/src/**"), Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock")],
+  data: [...sources, machineSources, ffiSources, Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock")],
   exclusive: true, timeout: "1h"
 })
 
@@ -1099,6 +1102,7 @@ const packageDocs = Smithers.NodeTest({
 
 export const Package = Smithers.Package({
   targets: {
+    engineeringChecks, integrationSources, gatewaySources, apiSchemas, workflowSources, machineSources, ffiSources,
     gates,
     apiBaseline,
     conflictMarkers,

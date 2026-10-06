@@ -360,6 +360,28 @@ export const Package = S.Package({ targets: { docsFiles } })
     expect(missing.logs + missing.output).toContain("agent/PACKAGE.ts")
   })
 
+  it("validates a NodeTest dependency anchored in a sibling package", async () => {
+    const root = await fixture()
+    await write(root, "shared/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {} })
+`)
+    await write(root, "shared/src/source.ts", "export const value = 1\n")
+    await write(root, "PACKAGE.ts", packageModule().replace(
+      'const good =',
+      'const sharedInputs = S.Filegroup({ cwd: "shared", srcs: [S.glob("src/*.ts")] })\nconst consumer = S.NodeTest({ runner: S.entrypoint(S.file("//scripts/notes.mjs")), srcs: [], deps: [sharedInputs] })\nconst good ='
+    ).replace("all, good, notes, targetIndex", "sharedInputs, consumer, all, good, notes, targetIndex"))
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.logs + valid.output).toBe(0)
+    expect((await indexOf(root)).find((row) => row.label === "//:consumer")?.dependencies).toEqual(["//:sharedInputs"])
+    await Fs.rename(NodePath.join(root, "shared/src/source.ts"), NodePath.join(root, "shared/src/source.moved"))
+    const missing = await serve(root, ["lint", "//:targetIndex"])
+    expect(missing.exitCode).toBe(1)
+    expect(missing.logs + missing.output).toContain("shared/src/*.ts")
+    expect(missing.logs + missing.output).toContain("//:sharedInputs")
+    expect(missing.logs + missing.output).toContain("PACKAGE.ts")
+  })
+
   it("prints the same rows through the index verb", async () => {
     const root = await fixture()
     const listed = await serve(root, ["index", "//..."])

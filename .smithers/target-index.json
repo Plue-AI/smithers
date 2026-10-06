@@ -9156,17 +9156,14 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "scripts/*.mjs",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "flows/tsconfig.json"
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -9259,7 +9256,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -9328,7 +9327,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -9397,7 +9398,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -9851,7 +9854,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -9910,7 +9915,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -9979,7 +9986,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -10048,7 +10057,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -10502,7 +10513,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -11076,7 +11089,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -11153,7 +11168,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -11266,7 +11283,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -11904,7 +11923,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -12212,6 +12233,28 @@
       }
     ],
     "outputs": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//flows:scripts",
+    "package": "flows",
+    "name": "scripts",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/*.mjs",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
     "dependencies": [],
     "source": {
       "file": "flows/PACKAGE.ts"
@@ -12361,11 +12404,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "scripts/*.mjs",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "flows/review/flow.ts"
       },
@@ -12395,7 +12433,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:scripts"
+    ],
     "source": {
       "file": "flows/PACKAGE.ts"
     }
@@ -35746,6 +35786,26 @@
     }
   },
   {
+    "label": "//scripts:apiSchemas",
+    "package": "scripts",
+    "name": "apiSchemas",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "docs/api/openapi/*.yaml",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:benchmarkGate",
     "package": "scripts",
     "name": "benchmarkGate",
@@ -36171,6 +36231,46 @@
     }
   },
   {
+    "label": "//scripts:engineeringChecks",
+    "package": "scripts",
+    "name": "engineeringChecks",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": ".specs/engineering/checks/*.md",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:ffiSources",
+    "package": "scripts",
+    "name": "ffiSources",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-ffi/src/**",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:gates",
     "package": "scripts",
     "name": "gates",
@@ -36386,6 +36486,31 @@
     }
   },
   {
+    "label": "//scripts:gatewaySources",
+    "package": "scripts",
+    "name": "gatewaySources",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/test/**/*.ts",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:githubTriage",
     "package": "scripts",
     "name": "githubTriage",
@@ -36450,6 +36575,26 @@
     }
   },
   {
+    "label": "//scripts:integrationSources",
+    "package": "scripts",
+    "name": "integrationSources",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/integrations/src/**/*.ts",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:issueClaim",
     "package": "scripts",
     "name": "issueClaim",
@@ -36493,11 +36638,6 @@
         "path": "scripts/check-commands.json"
       },
       {
-        "kind": "glob",
-        "pattern": ".specs/engineering/checks/*.md",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "scripts/fixtures/check-receipts.mjs"
       },
@@ -36508,15 +36648,13 @@
       {
         "kind": "file",
         "path": "scripts/github-app-auth.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/integrations/src/**/*.ts",
-        "exclude": []
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:engineeringChecks",
+      "//scripts:integrationSources"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
@@ -36664,6 +36802,26 @@
     }
   },
   {
+    "label": "//scripts:machineSources",
+    "package": "scripts",
+    "name": "machineSources",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-machined/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:mutationGate",
     "package": "scripts",
     "name": "mutationGate",
@@ -36691,20 +36849,12 @@
         "kind": "glob",
         "pattern": "scripts/fixtures/**/*.json",
         "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/gateway/src/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/gateway/test/**/*.ts",
-        "exclude": []
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:gatewaySources"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
@@ -36932,17 +37082,14 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "docs/api/openapi/*.yaml",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "docs/api/openapi.yaml"
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:apiSchemas"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
@@ -37271,6 +37418,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/docs/reference/cli/README.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/docs/reference/cli/host.md"
       },
       {
         "kind": "file",
@@ -42200,11 +42351,6 @@
         "path": "rust-toolchain.toml"
       },
       {
-        "kind": "glob",
-        "pattern": ".github/workflows/*.yml",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "PACKAGE.ts"
       },
@@ -42214,7 +42360,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:workflowSources"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
@@ -42367,6 +42515,26 @@
     }
   },
   {
+    "label": "//scripts:workflowSources",
+    "package": "scripts",
+    "name": "workflowSources",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": ".github/workflows/*.yml",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:workingTogetherComponents",
     "package": "scripts",
     "name": "workingTogetherComponents",
@@ -42393,16 +42561,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "crates/smithers-machined/**",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "crates/smithers-ffi/src/**",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "Cargo.toml"
       },
@@ -42412,7 +42570,10 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:ffiSources",
+      "//scripts:machineSources"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
@@ -42444,16 +42605,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "crates/smithers-machined/**",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "crates/smithers-ffi/src/**",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "Cargo.toml"
       },
@@ -42463,7 +42614,10 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:ffiSources",
+      "//scripts:machineSources"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
