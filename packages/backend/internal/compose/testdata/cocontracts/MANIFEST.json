@@ -19,7 +19,7 @@
     "doc-unsupported-detail.bin": "88771414720c2ca72c8f6ebd3e7971bf14f61023fc37be9fab989dac399753ff",
     "doc-renamed.bin": "4d7cb8b7e4c58e5b9d1c40c62913b0fe6d74083e2d04b22ae594597b48964586"
   },
-  "protocol": 1,
+  "protocol": 2,
   "frames": [
     {
       "name": "hello_challenge",
@@ -902,9 +902,105 @@
       "expected": "ok",
       "local": false,
       "sha256": "543f4eb435b780c3d27d4fc2113f203823e206b508ebf325b1f100afc18d5a60"
+    },
+    {
+      "name": "hello_challenge_v2",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "478b6274a16d501cb51ecf3e61588e5ae1981c13b099d6d8243f59d2b2d19e58"
+    },
+    {
+      "name": "hello_host_proof_v2",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "33c4ae220d62e97657276fe56e6929966bab3a7c2f3046d2214536cccd0d2a41"
+    },
+    {
+      "name": "doc-input-v2",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "3fcb2b5c23ae998bbecc7c19e5842547873e065bc4218b9af1c88529282b0ad9"
+    },
+    {
+      "name": "doc-saved-v2",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "6049ba3951a33b321bddd930ee9335312d1e7771e16db1590e3dff07ae5c4a4a"
+    },
+    {
+      "name": "doc-input-v2-zero",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "375e4f4b63e06d22cbf7edde4320b9cd6f0ec89c87849a229ae115a5e2579629"
+    },
+    {
+      "name": "doc-saved-v2-max",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "3b1452b58813fd23e45afeaf83a44d6a0c2102f41f72194fc1a3d004d1461c45"
+    },
+    {
+      "name": "req_set_roster",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "b22b7b268d85354faefcdc772a2d059808b11675b109dce81328c7d8c1fdc83d"
+    },
+    {
+      "name": "req_set_roster_empty",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "c36cff4dd0975a6ffd18a34848c3ea6ac637c7f205e5371b2cf4b1ba2195f608"
+    },
+    {
+      "name": "res_set_roster",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "1ef7b962405fe72687ed32b352c9fcbc6823263ae57e5a774ae5d5309f049b26"
+    },
+    {
+      "name": "res_write_file_raced",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "7e9b822c3d8dc3feb39a4fe55347b074f5658db49861fb555d31bd44dc7427e7"
+    },
+    {
+      "name": "bad_roster_missing_uid",
+      "direction": "host-to-daemon",
+      "expected": "missing_field",
+      "local": false,
+      "sha256": "0326ecdee72230780ee5c370086adeda8a91a68401944ba9dde1c2f7c9db7891"
+    },
+    {
+      "name": "bad_raced_missing_digest",
+      "direction": "daemon-to-host",
+      "expected": "missing_field",
+      "local": false,
+      "sha256": "8f14ed4e8ca29d479af4b6485fe3aab6e208286afc612c7394b28b517de0acf9"
     }
   ],
   "sequences": {
+    "seq_working_together": [
+      "req_set_roster",
+      "res_set_roster",
+      "req_open_doc_s3",
+      "doc-epoch",
+      "doc-input-v2",
+      "doc-saved-v2",
+      "req_write_file",
+      "res_write_file_raced",
+      "req_set_roster_empty",
+      "res_set_roster"
+    ],
     "seq_handshake": [
       "hello_challenge",
       "hello_host_proof",
@@ -953,5 +1049,9 @@
       "obj_host_close",
       "req_wake_reconcile"
     ]
-  }
+  },
+  "document_protocol": 2,
+  "legacy_protocols": [
+    1
+  ]
 }

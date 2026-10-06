@@ -19,6 +19,7 @@ const (
 	OpenDoc
 	CloseDoc
 	AttachSession
+	SetRoster
 )
 
 // ErrorCode is an RPC refusal, distinct from a framing ProtocolError.

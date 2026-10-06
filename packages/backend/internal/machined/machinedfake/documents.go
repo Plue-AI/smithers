@@ -4,7 +4,7 @@ package machinedfake
 
 import (
 	"context"
-	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"sync"
 )
@@ -24,7 +24,7 @@ type Documents struct {
 	wireSent, controls [][]byte
 }
 
-func (d *Documents) OpenDocument(ctx context.Context, path string, actor []byte) (live.DocumentStream, error) {
+func (d *Documents) OpenDocument(ctx context.Context, path string, actor []byte) (machined.DocumentStream, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

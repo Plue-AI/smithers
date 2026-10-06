@@ -151,7 +151,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | --- | --- | --- | --- | --- |
 | 1 | `status` | — | `1 state: u8` (1 booting, 2 reconciling, 3 ready), `2 protocol: u16`, `3 version: str`, `4 outbox_depth: u32`, `5 acked_head: oid`?, `6 lock_queue: u16` | T-COL-03a |
 | 2 | `read_file` | `1 path: str`, `2 at: oid`? | `1 content: bytes`, `2 digest: digest`, `3 mode: u32` | T-COL-03a |
-| 3 | `write_file` | `1 path: str`, `2 base: Base`, `3 content: bytes`, `4 actor: Actor` | `1 post_digest: digest` | T-COL-03a |
+| 3 | `write_file` | `1 path: str`, `2 base: Base`, `3 content: bytes`, `4 actor: Actor` | `1 post_digest: digest`, `2 raced: Raced`? | T-COL-03a |
 | 4 | `capture` | — | `1 head: oid`, `2 tree: oid`, `3 flushed_documents: u16` (the flush phase's count; 0 until S3) | T-COL-03a |
 | 5 | `wake_reconcile` | `1 head: oid` | `1 outcome: union {1 unchanged {}, 2 moved {1 head: oid}, 3 conflict {1 paths: list<str>}}` | T-COL-03a |
 | 6 | `open_session` | `1 user: User`, `2 kind: u8` (1 pty, 2 exec, 3 sftp), `3 argv: list<str>`?, `4 size: Size`? | `1 session: u32` | T-TRM-07; `unsupported` |
@@ -161,13 +161,23 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | 10 | `register_run` | `1 run: str`, `2 session: u32` | — | T-COL-04; `unsupported` |
 | 11 | `rebase` | `1 onto: oid`, `2 actor: Actor` | `1 head: oid` | T-STK-08; `unsupported` |
 | 12 | `return_to_item` | `1 actor: Actor` | `1 head: oid` | T-COL-05; `unsupported` |
-| 13 | `open_doc` | `1 path: str` (T-COL-08b adds tags ≥ 2) | `1 stream: u32` | T-COL-08a (S3); `unsupported` |
+| 13 | `open_doc` | `1 path: str`, `2 actor: Actor.principal` | `1 stream: u32` | T-COL-08a (S3); `unsupported` |
 | 14 | `close_doc` | `1 stream: u32` | — | T-COL-08a (S3); `unsupported` |
 | 15 | `attach_session` | `1 session: u32`, `2 received: u64` | `1 received: u64` | T-TRM-07; `unsupported` |
+| 16 | `set_roster` | `1 members: list<User>` | — | working-together W5; `unsupported` until broker ready |
+
+`Raced := struct {1 path: str, 2 displaced_digest: digest}`. A write success
+without tag 2 is `applied`; with tag 2 it applied while preserving the displaced
+outside version. The existing `stale` error is unchanged. No rollback follows
+an exchange race. The roster is replaced atomically, including an empty roster;
+unlisted users' sessions are killed before the reply. Send it after Welcome,
+before ready, and after every roster change. A missing/unsupported roster hook
+must prevent session admission, not grant access. `set_roster` is host-only.
 
 `?` marks an optional field. `Base := union {1 digest {1 digest: digest}, 2 absent {}}`. `Size := struct {1 cols: u16, 2 rows: u16}`. `rebase` and `return_to_item` carry the actor the rewrite is attributed to ("Rebased onto Tk"). `attach_session` re-attaches a stream after a reconnect (§9.6.4): each side reports how many bytes it received and the other resends from there; unacknowledged bytes never exceed the 256 KiB credit, so that is all either side keeps.
 
-Until `wake_reconcile` succeeds on this boot, every method except `status` and `wake_reconcile` answers `not_ready`.
+Until `wake_reconcile` succeeds on this boot, every method except `status`, `wake_reconcile` and handshake roster synchronization
+(`set_roster`) answers `not_ready`.
 
 ```
 Error := struct { 1 code: u8, 2 detail: str?, 3 current_digest: digest?, 4 session: u32?,
@@ -341,21 +351,48 @@ fixed bodies follow `msg`; all fixed integers are big-endian. The existing
 
 | msg | direction | body |
 | --- | --- | --- |
-| 1 input sync | host → daemon | canonical `Actor.principal`, then unchanged y-protocols sync bytes |
+| 1 input sync | host → daemon | canonical `Actor.principal`, `seq: u64`, then unchanged y-protocols sync bytes |
 | 2 input awareness | host → daemon | canonical `Actor.principal`, then unchanged awareness bytes |
 | 3 sync | daemon → host | unchanged y-protocols sync bytes |
 | 4 awareness | daemon → host | unchanged awareness bytes |
 | 5 epoch | daemon → host | epoch `id128`, client id `u32` (nonzero) |
-| 6 saved | daemon → host | Unix milliseconds `u64`, then saved state-vector bytes |
+| 6 saved | daemon → host | Unix milliseconds `u64`, `through_seq: u64`, then saved state-vector bytes |
 | 7 gone | daemon → host | form `u8` (1 deleted, 2 renamed), `by: str`, then `to: str` for renamed |
 
 The actor comes exclusively from the host authorizer, never a browser payload.
 The daemon rejects client-id and authors-map spoofing before applying updates.
-Each browser subscription opens its own stream, allowing the daemon to bind
-its actor and client id; the daemon document remains shared by path. Epoch
-precedes sync; the relay cannot manufacture epoch, state vectors or saved.
-A browser gap closes that stream and requires resubscription and sync step 1;
-no queued update or save acknowledgment from the old stream is replayed.
+The host document host opens one stream per code path as the daemon's trusted
+peer. Browser subscriptions and their client ids belong to the host document
+host. Epoch precedes sync; the host never manufactures code durability receipts.
+Sequences are monotonic per stream; repeating a sequence with different update
+bytes is refused. `through_seq` covers every input through that sequence,
+including delete-only updates that do not advance a state vector. Reconnect
+requires resync and remapping pending browser receipts to the new stream.
+
 Document frame bodies retain the existing 4 MiB daemon framing maximum; the
 browser connection has the stricter 2 MiB unsent budget. Missing topology,
 authenticated connection or document handler returns unsupported.
+
+### Working-together I1 compatibility (2026-10-06)
+
+The amended document bodies above are **document protocol 2**. They have no
+in-band discriminator: do not guess the layout from length or Yjs bytes.
+Go `EncodeDocumentV2`/`DecodeDocumentV2` and Rust
+`Document::encode_v2`/`decode_v2` select it explicitly. Existing unversioned
+entry points continue decoding and encoding protocol 1 recordings byte for byte
+(actor then sync bytes; milliseconds then state-vector bytes). All other document
+messages and `open_doc{path, actor}` are unchanged. The optional actor accepted
+by the envelope decoder exists only to retain S2 recordings; a live document
+handler still requires the authenticated actor.
+
+The currently advertised connection protocol remains 1 until W1/W3 and W14/W15
+compose a ready sequenced peer. They must negotiate protocol 2 before selecting
+these entry points and fail closed on mismatches; never fall back to a protocol 1
+save receipt for pending sequenced edits. I1 supplies the codec contract and
+golden proof, not a readiness claim for the document host or daemon process.
+Control method 16 and optional write-result tag 2 are additive; old frame bytes,
+old malformed-frame outcomes, and old document interpretations are unchanged.
+
+The §10 I1 exact shape takes precedence over §3's shorthand `applied{raced:[path]}`:
+the single-file RPC carries one optional `Raced` record; I3 aggregates those
+records into `raced[]`, and I7 resolves the saved version for the HTTP reply.

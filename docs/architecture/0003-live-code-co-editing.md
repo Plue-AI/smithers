@@ -1,6 +1,22 @@
 # ADR 0003: Live code co-editing
 
-## Every write carries `base_digest`; stale is refused
+## Decision amendment (2026-10-06, working-together I1)
+
+The owner's working-together design §3 and §10 supersedes the earlier
+relay-or-mirror decision and exchange-and-rollback repair below. Those sections
+remain historical evidence, not instructions to extend the guest coordinator.
+
+Every Smithers write compares its base under the daemon's branch lock. A base
+already stale at comparison is refused without changing bytes. If an outside
+write wins between comparison and exchange, keep its displaced bytes, record
+`raced{path, displaced_digest}`, reconcile it into any open document as an
+outside write, and flag Compare. Never exchange back or delete unexpected
+bytes. Freezing belongs to rebases and Return to Tn, not each write: it cannot
+exclude services launched through external IPC or already submitted kernel I/O.
+The rollback-loss and moved-parent counterexamples below remain required
+regression fixtures; preserving bytes does not waive path confinement.
+
+## Historical contract: every write carries `base_digest`; stale is refused
 
 Every Smithers app and coding-agent file mutation carries the full-file SHA-256
 it was based on, encoded as 64 lowercase hexadecimal characters. `absent`
@@ -35,7 +51,21 @@ receipts and outside-replacement race evidence. The wiki retains Yjs
 
 ## Topology
 
-Decided by T-COL-11.
+One host document host plus one daemon peer per open code path. Browsers sync
+with the host's shared Yrs core over `/api/live`; fan-out does not traverse the
+VM. The host coalesces updates every 50 ms and forwards authenticated actor and
+monotonic stream sequence to the daemon. The daemon retains its Yrs replica,
+merges outside edits, owns the file and durable state record, and alone issues
+code `saved{unix_ms, through_seq, sv}` after durability. The host maps receipts
+to browser sequences; a state vector alone cannot acknowledge delete-only edits.
+After a restart the host rebuilds from the daemon before serving a code topic.
+Wiki uses the same host core, with PostgreSQL revision-checked persistence.
+
+`open_doc{path, actor}` is unchanged: the actor identifies the trusted host peer.
+Per-browser authorization and client-id admission happen at the document host;
+input actor envelopes still identify the authenticated editor. T-COL-11 remains
+a transport/save-budget measurement, not a topology decision or activation gate.
+See ADR 0004 for sequence layout and legacy decoding.
 
 ## S1 candidate qualification
 

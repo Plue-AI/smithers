@@ -295,8 +295,6 @@ func installCommandPolicy(command string) (CatalogPolicy, bool) {
 		command = "secrets.set"
 	case "branch.join":
 		command = "branch"
-	case "agent.turn":
-		command = "agent"
 	}
 	return OperationPolicy(command)
 }
@@ -373,12 +371,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 	}
 	if info.IsTokenAuth && !terminalProfile && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) {
-		scope := middleware.ScopeWriteRepository
-		switch command {
-		case "agent.turn", "self.read", "telemetry.report":
-			scope = middleware.ScopeReadUser
-		case "install.read", "install.scorecard", "confirmations.read", "repo.read", "wiki.read", "sync.read", "live", "issue.read", "todo.read", "agents.read", "flows.read", "proposals.read", "branches.read", "branch.read", "members.list", "secrets.read":
-			scope = middleware.ScopeReadRepository
+		scope := middleware.TokenScope(policy.CredentialScope)
+		if scope != middleware.ScopeWriteRepository && scope != middleware.ScopeReadRepository && scope != middleware.ScopeReadUser {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Unknown credential scope"}
 		}
 		if !info.Scopes.Has(scope) {
 			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Insufficient credential scope"}
@@ -430,11 +425,22 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		}
 		return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 	}
+	delegation, delegated := info.Delegation()
+	actor := ""
+	if delegated {
+		switch delegation.Via {
+		case "smithers":
+			actor = "app_agent"
+		case "cli", "terminal", "claude-code", "codex":
+			actor = "external_agent"
+		default:
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Unknown delegated actor"}
+		}
+	}
 	if policy.Agent == "never" {
 		return authorizePersonOnly(ctx, q, info, InstallRole(policy.MinimumRole))
 	}
-	delegation, delegated := info.Delegation()
-	fullDelegated := delegated && info.CredentialKind() == middleware.CredentialDelegated && !middleware.IsAgentAccount(info.User.UserType) && delegation.Profile == "" && delegation.Branch == "" && (delegation.Via == "smithers" || ValidExternalAgent(delegation.Via))
+	fullDelegated := delegated && info.CredentialKind() == middleware.CredentialDelegated && !middleware.IsAgentAccount(info.User.UserType) && delegation.Profile == "" && delegation.Branch == "" && actor != ""
 	_, terminal := info.TerminalDelegation()
 	if terminal {
 		// A member's terminal credential acts as that member (spec §8.11.1);
@@ -461,10 +467,6 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
 	}
 	if fullDelegated {
-		actor := "external_agent"
-		if delegation.Via == "smithers" {
-			actor = "app_agent"
-		}
 		if !slices.Contains(policy.Actors, actor) {
 			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available to this agent"}
 		}

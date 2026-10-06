@@ -76,8 +76,22 @@ const docs=JSON.parse(readFileSync(dir+'doc-daemon.json','utf8'));
 for(const d of docs.frames){const b=Buffer.from(d.hex,'hex');raw('doc-'+d.name,b,'ok',{kind:4,stream:9,payload:b.subarray(9).toString('hex'),local:false},d.msg===1||d.msg===2?'host-to-daemon':'daemon-to-host')}
 emit('req_open_doc_s3',1,req(13,f(1,str('retry.ts')),f(2,un(1,f(1,bytes(Buffer.from('Be')))))));
 emit('req_close_doc_s3',1,un(1,f(1,num(43,4)),f(2,un(14,f(1,num(9,4))))));
+// Working-together I1: protocol 2 document bodies; all old tables stay byte-identical.
+emit('hello_challenge_v2',0,un(1,f(1,num(0x534d4d44,4)),f(2,num(2,2)),f(3,id),f(4,digest)),0,'ok','daemon-to-host');
+emit('hello_host_proof_v2',0,un(2,f(1,num(2,2)),f(2,digest)));
+const sequence=0x0102030405060708n;
+emit('doc-input-v2',4,cat([1],un(1,f(1,bytes(Buffer.from('Be')))),num(sequence,8),[0,2,0]),9);
+emit('doc-saved-v2',4,cat([6],num(1791028800000,8),num(sequence,8),[1,42,1]),9,'ok','daemon-to-host');
+emit('doc-input-v2-zero',4,cat([1],un(1,f(1,bytes(Buffer.from('Be')))),num(0,8),[0,2,0]),9);
+emit('doc-saved-v2-max',4,cat([6],num(1791028800000,8),num(0xffffffffffffffffn,8),[1,42,1]),9,'ok','daemon-to-host');
+emit('req_set_roster',1,req(16,f(1,list(st(f(1,str('ben')),f(2,num(20001,4))),st(f(1,str('will')),f(2,num(20002,4)))))));
+emit('req_set_roster_empty',1,req(16,f(1,list())));
+emit('res_set_roster',1,res(16),0,'ok','daemon-to-host');
+emit('res_write_file_raced',1,res(3,f(1,digest),f(2,st(f(1,str('src/a.ts')),f(2,Buffer.alloc(32,0x55))))),0,'ok','daemon-to-host');
+emit('bad_roster_missing_uid',1,req(16,f(1,list(st(f(1,str('ben')))))),0,'missing_field');
+emit('bad_raced_missing_digest',1,res(3,f(1,digest),f(2,st(f(1,str('src/a.ts'))))),0,'missing_field','daemon-to-host');
 const previous=JSON.parse(readFileSync(dir+'MANIFEST.json','utf8'));
-const manifest={...previous,scope:"ADR 0004 daemon contract and T-COL-08b browser fixtures",protocol:1,pins:{...previous.pins,yrs:'=0.27.4'},frames:entries.map(e=>({name:e.name,direction:e.direction,expected:e.expected,local:e.value?.local??false,sha256:createHash('sha256').update(e.b).digest('hex')})),sequences:{seq_handshake:['hello_challenge','hello_host_proof','hello_machine','hello_welcome'],seq_write_stale:['req_write_file','err_stale'],seq_capture:['obj_data','obj_eof','ev_captured','ack_captured'],seq_missing_objects:['ack_missing_objects','obj_data','obj_eof','ev_burst','ack_applied'],seq_duplicate_receipt:['ev_burst','ack_duplicate'],seq_reconnect_replay:['hello_challenge','hello_host_proof','hello_machine','hello_welcome','ev_burst','ev_captured'],seq_reserved_doc_s2:['doc_reserved_sync','doc_refused_unsupported'],seq_newer_boot:['goodbye_superseded'],seq_wake_objects:['obj_host_data','obj_host_eof','obj_host_close','req_wake_reconcile']}};
+const manifest={...previous,scope:"ADR 0004 daemon contract and T-COL-08b browser fixtures",document_protocol:2,protocol:2,legacy_protocols:[1],pins:{...previous.pins,yrs:'=0.27.4'},frames:entries.map(e=>({name:e.name,direction:e.direction,expected:e.expected,local:e.value?.local??false,sha256:createHash('sha256').update(e.b).digest('hex')})),sequences:{seq_working_together:['req_set_roster','res_set_roster','req_open_doc_s3','doc-epoch','doc-input-v2','doc-saved-v2','req_write_file','res_write_file_raced','req_set_roster_empty','res_set_roster'],seq_handshake:['hello_challenge','hello_host_proof','hello_machine','hello_welcome'],seq_write_stale:['req_write_file','err_stale'],seq_capture:['obj_data','obj_eof','ev_captured','ack_captured'],seq_missing_objects:['ack_missing_objects','obj_data','obj_eof','ev_burst','ack_applied'],seq_duplicate_receipt:['ev_burst','ack_duplicate'],seq_reconnect_replay:['hello_challenge','hello_host_proof','hello_machine','hello_welcome','ev_burst','ev_captured'],seq_reserved_doc_s2:['doc_reserved_sync','doc_refused_unsupported'],seq_newer_boot:['goodbye_superseded'],seq_wake_objects:['obj_host_data','obj_host_eof','obj_host_close','req_wake_reconcile']}};
 function save(name,bytes){if(check){if(!readFileSync(dir+name).equals(Buffer.from(bytes)))throw Error('fixture drift: '+name)}else writeFileSync(dir+name,bytes)}
 for(const e of entries){save(e.name+'.bin',e.b);save(e.name+'.json',JSON.stringify(e.value??{expected:e.expected},null,2)+'\n')}
 save('MANIFEST.json',JSON.stringify(manifest,null,2)+'\n');

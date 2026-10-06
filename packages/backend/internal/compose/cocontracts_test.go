@@ -382,3 +382,24 @@ func TestMachinedFakeUnscriptedRefusal(t *testing.T) {
 		})
 	}
 }
+
+// I1's public boundary is the daemon wire. Replay the host/daemon exchange
+// through the production codecs on a duplex connection, including empty roster.
+func TestWorkingTogetherWireContract(t *testing.T) {
+	seq := wireFixtures(t).Sequences["seq_working_together"]
+	if len(seq) != 10 {
+		t.Fatal("missing working-together transcript")
+	}
+	replayFake(t, seq, func(n string) bool { return n == "doc-input-v2" || len(n) >= 4 && n[:4] == "req_" })
+	input, err := wire.DecodeDocumentV2(wireBytes(t, "doc-input-v2")[9:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := wire.DecodeDocumentV2(wireBytes(t, "doc-saved-v2")[9:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.Seq != 0x0102030405060708 || saved.ThroughSeq != input.Seq || !bytes.Equal(input.Actor, []byte("Be")) || !bytes.Equal(saved.Data, []byte{1, 42, 1}) {
+		t.Fatal("sequence receipt or actor changed", input, saved)
+	}
+}

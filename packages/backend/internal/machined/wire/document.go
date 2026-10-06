@@ -9,6 +9,9 @@ import (
 	"unicode/utf8"
 )
 
+// SequencedDocumentProtocol must be selected by a ready protocol-2 link.
+const SequencedDocumentProtocol = 2
+
 const (
 	DocumentInput          byte = 1
 	DocumentAwarenessInput byte = 2
@@ -23,21 +26,32 @@ const (
 // opaque host-resolved principal; only input messages carry it. Sync bytes
 // are the unchanged y-protocols payload, never interpreted by the host.
 type Document struct {
-	Msg            byte
-	Actor          []byte
-	Data           []byte
-	Epoch          [16]byte
-	ClientID       uint32
-	AtMS           uint64
-	Refusal        byte
-	RefusalBody    []byte
-	GoneKind       byte
-	GoneBy, GoneTo string
+	Msg             byte
+	Actor           []byte
+	Data            []byte
+	Epoch           [16]byte
+	ClientID        uint32
+	AtMS            uint64
+	Seq, ThroughSeq uint64
+	Refusal         byte
+	RefusalBody     []byte
+	GoneKind        byte
+	GoneBy, GoneTo  string
 }
 
 var ErrDocumentPayload = errors.New("bad document payload")
 
-func EncodeDocument(d Document) ([]byte, error) {
+// EncodeDocument preserves protocol 1 recordings.
+func EncodeDocument(d Document) ([]byte, error) { return encodeDocument(d, false) }
+
+// EncodeDocumentV2 requires a protocol 2 connection; never infer the layout from bytes.
+func EncodeDocumentV2(d Document) ([]byte, error) { return encodeDocument(d, true) }
+
+func encodeDocument(d Document, sequenced bool) ([]byte, error) {
+	// A caller must not silently drop a new receipt on a legacy connection.
+	if !sequenced && (d.Seq != 0 || d.ThroughSeq != 0) {
+		return nil, ErrDocumentPayload
+	}
 	b := []byte{d.Msg}
 	switch d.Msg {
 	case 0xff:
@@ -55,6 +69,9 @@ func EncodeDocument(d Document) ([]byte, error) {
 		}
 		// Canonical Actor.principal union: variant, struct length, tag, bytes.
 		b = append(b, Union(1, Field(1, Bytes(d.Actor)))...)
+		if sequenced && d.Msg == DocumentInput {
+			b = binary.BigEndian.AppendUint64(b, d.Seq)
+		}
 		b = append(b, d.Data...)
 	case DocumentSync, DocumentAwareness:
 		b = append(b, d.Data...)
@@ -83,6 +100,9 @@ func EncodeDocument(d Document) ([]byte, error) {
 		b = binary.BigEndian.AppendUint32(b, d.ClientID)
 	case DocumentSaved:
 		b = binary.BigEndian.AppendUint64(b, d.AtMS)
+		if sequenced {
+			b = binary.BigEndian.AppendUint64(b, d.ThroughSeq)
+		}
 		b = append(b, d.Data...)
 	default:
 		return nil, ErrDocumentPayload
@@ -93,7 +113,12 @@ func EncodeDocument(d Document) ([]byte, error) {
 	return b, nil
 }
 
-func DecodeDocument(b []byte) (Document, error) {
+func DecodeDocument(b []byte) (Document, error) { return decodeDocument(b, false) }
+
+// DecodeDocumentV2 decodes the explicitly selected protocol 2 layout.
+func DecodeDocumentV2(b []byte) (Document, error) { return decodeDocument(b, true) }
+
+func decodeDocument(b []byte, sequenced bool) (Document, error) {
 	if len(b) == 0 || len(b) > 4<<20 {
 		return Document{}, ErrDocumentPayload
 	}
@@ -116,7 +141,15 @@ func DecodeDocument(b []byte) (Document, error) {
 			return Document{}, ErrDocumentPayload
 		}
 		d.Actor = append([]byte(nil), p[10:10+int(n)]...)
-		d.Data = append([]byte(nil), p[10+int(n):]...)
+		tail := p[10+int(n):]
+		if sequenced && d.Msg == DocumentInput {
+			if len(tail) < 8 {
+				return Document{}, ErrDocumentPayload
+			}
+			d.Seq = binary.BigEndian.Uint64(tail[:8])
+			tail = tail[8:]
+		}
+		d.Data = append([]byte(nil), tail...)
 	case DocumentSync, DocumentAwareness:
 		d.Data = append([]byte(nil), p...)
 	case DocumentGone:
@@ -153,7 +186,15 @@ func DecodeDocument(b []byte) (Document, error) {
 			return Document{}, ErrDocumentPayload
 		}
 		d.AtMS = binary.BigEndian.Uint64(p[:8])
-		d.Data = append([]byte(nil), p[8:]...)
+		tail := p[8:]
+		if sequenced {
+			if len(tail) < 8 {
+				return Document{}, ErrDocumentPayload
+			}
+			d.ThroughSeq = binary.BigEndian.Uint64(tail[:8])
+			tail = tail[8:]
+		}
+		d.Data = append([]byte(nil), tail...)
 	default:
 		return Document{}, ErrDocumentPayload
 	}

@@ -315,7 +315,7 @@ func (c *cursor) value(typ string) error {
 	case "version":
 		width = 2
 		min = 1
-		max = 1
+		max = SequencedDocumentProtocol
 	case "state", "session_kind":
 		min = 1
 		max = 3

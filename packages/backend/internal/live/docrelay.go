@@ -45,19 +45,9 @@ func validID(id string) bool {
 	return id != "" && utf8.ValidString(id) && !strings.ContainsAny(id, ":/\\\x00") && strings.IndexFunc(id, unicode.IsSpace) < 0
 }
 
-// DocumentStream is a document stream on the authenticated daemon link. Close
-// sends close_doc(stream); implementations must unblock Receive on cancellation.
-type DocumentStream interface {
-	Send(context.Context, []byte) error
-	Receive(context.Context) ([]byte, error)
-	Close() error
-}
-
-// DocumentRPC is supplied by the machine connection, never a host-file fallback.
-// Open binds the principal to the daemon-allocated stream before returning it.
-type DocumentRPC interface {
-	OpenDocument(context.Context, string, []byte) (DocumentStream, error)
-}
+// Shared daemon contracts live in machined; aliases preserve existing consumers.
+type DocumentStream = machined.DocumentStream
+type DocumentRPC = machined.DocumentRPC
 
 type DocumentSource struct {
 	Open  func(context.Context) (DocumentStream, error)

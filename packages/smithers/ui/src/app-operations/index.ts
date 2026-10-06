@@ -29,6 +29,7 @@ export interface OperationMetadata<Capability extends string = string, Host exte
   readonly agent?: "run" | "confirm" | "never"
   readonly visibility?: "core" | "advanced" | "in-card" | "hidden"
   readonly actors?: ReadonlyArray<"person" | "app_agent" | "external_agent">
+  readonly credentialScope?: "read:user" | "read:repository" | "write:repository"
   readonly minimumRole?: "member" | "maintainer" | "owner"
   readonly slash?: string | null
   readonly cli?: ReadonlyArray<string> | null
@@ -134,7 +135,8 @@ export const operation = <const O extends Operation>(declared: O) => {
     slash: null, cli: null, http: null, journey: [] as ReadonlyArray<string>, group: "",
     visibility: declared.hidden === true && declared.discloseToAgent !== true ? "hidden" as const : "in-card" as const,
     actors: agent === "never" ? ["person"] as const : ["person", "app_agent"] as const,
-    minimumRole: "member" as const
+    minimumRole: "member" as const,
+    credentialScope: "write:repository" as const
   }
   return { ...defaults, ...declared, agent, ...(agent === "never" && declared.agentReason === undefined ? { agentReason: "Only a person can do this" } : {}) } as Omit<typeof defaults, keyof O> & O & { readonly agent: "run" | "confirm" | "never" }
 }

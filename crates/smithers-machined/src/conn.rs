@@ -318,7 +318,11 @@ impl<'a> Cursor<'a> {
             "u32" => (4, 0, 4294967295),
             "u64" => (8, 0, u64::MAX),
             "magic" => (4, 0x534d4d44, 0x534d4d44),
-            "version" => (2, 1, 1),
+            "version" => (
+                2,
+                1,
+                crate::document_payload::SEQUENCED_DOCUMENT_PROTOCOL as u64,
+            ),
             "state" | "session_kind" => (1, 1, 3),
             "change" => (1, 1, 4),
             "reconcile_outcome" => (1, 1, 2),
