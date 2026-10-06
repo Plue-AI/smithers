@@ -229,7 +229,7 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 		}
 		if kind == websocket.MessageBinary {
 			if len(raw) < 5 || (raw[0] != 1 && raw[0] != 2) || binary.BigEndian.Uint32(raw[1:5]) == 0 {
-				_ = conn.Close(websocket.StatusUnsupportedData, "malformed_frame")
+				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
 				return
 			}
 			id := binary.BigEndian.Uint32(raw[1:5])

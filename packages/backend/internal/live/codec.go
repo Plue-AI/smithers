@@ -32,8 +32,12 @@ func DecodeRequest(raw []byte) (Frame, error) {
 	if envelope.ID == 0 {
 		return Frame{}, errors.New("malformed_frame")
 	}
-	if envelope.T == "unsub" {
-		return Frame{T: envelope.T, ID: envelope.ID}, nil
+	if envelope.T == "presence" || envelope.T == "unsub" {
+		var reserved struct {
+			Where json.RawMessage `json:"where"`
+		}
+		_ = json.Unmarshal(raw, &reserved)
+		return Frame{T: envelope.T, ID: envelope.ID, Where: reserved.Where}, nil
 	}
 	var f Frame
 	if err := json.Unmarshal(raw, &f); err != nil {
