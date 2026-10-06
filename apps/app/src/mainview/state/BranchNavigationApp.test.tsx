@@ -1,3 +1,4 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import { verifyConversationHistoryPage } from "./ConversationHistory"
 import cutHistory from "./testdata/cut-history.json"
 import { LiveChannel, type LiveSocket } from "../runtime/LiveChannel"
@@ -18,7 +19,7 @@ import { branchTree } from "./seams/BranchNavigationSeam"
 
 const nativeFetch = globalThis.fetch.bind(globalThis)
 const NativeAbortController = globalThis.AbortController
-const serverFetch: typeof fetch = async (input, init) => {
+const serverFetch = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
   const abort = new NativeAbortController()
   const cancel = () => abort.abort()
   if (init?.signal?.aborted) cancel()
@@ -111,6 +112,9 @@ test("Earlier combines two browser archives with private journal replay without 
   })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "message.appended", actor: "system", text: "First browser archive" }).isPersisted.promise
+  for (const frame of cutHistory.replay.page.batches[0]!.frames) {
+    if (frame.type === "card") await store.dispatch({ type: "card.upsert", actor: "system", card: CardSchema.parse(frame.card) }).isPersisted.promise
+  }
   await store.dispatch({ type: "conversation.cleared", actor: "user", branchId: "local-two", notes: [] }).isPersisted.promise
   await store.dispatch({ type: "message.appended", actor: "system", text: "Second browser archive" }).isPersisted.promise
   await store.dispatch({ type: "conversation.cleared", actor: "user", branchId: "current", notes: [] }).isPersisted.promise
@@ -128,6 +132,12 @@ test("Earlier combines two browser archives with private journal replay without 
   expect(host.querySelector(".archive-entries")?.textContent).toContain("Legacy journal question")
   expect(host.querySelectorAll(".archive-entries button")).toHaveLength(0)
   expect(starts).toBe(0)
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-archive="branch-main"]')!.click())
+  await waitFor(() => host.querySelector(".archive-entries")?.textContent?.includes("First browser archive") === true)
+  for (const kind of ["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"]) expect(host.querySelector(".archive-entries")?.textContent).toContain(`Saved ${kind}`)
+  expect(host.querySelector(".archive-entries")?.textContent).not.toContain("private-body-canary")
+  expect(host.querySelector(".archive-entries")?.textContent).not.toContain("private-payload-canary")
+  expect(host.querySelector(".archive-entries button")).toBeNull()
   expect(requests).toEqual([
     { path: "/api/agent/conversations", method: "GET" },
     { path: "/api/agent/conversations/replay", method: "POST", body: { runId: "legacy-turn", legId: "legacy-leg" } }
@@ -184,7 +194,7 @@ test("Earlier verifies seven historical cut cards before decoding, persists titl
   let owner = "ben"
   const origin = process.env.SMITHERS_CUT_HISTORY_ORIGIN
   const history = createConversationHistory({ fetchImpl: async (input, init) => origin
-    ? serverFetch(`${origin}${input}`, { ...init, headers: { ...init?.headers,
+    ? serverFetch(`${origin}${input}`, { ...init, headers: { ...init?.headers, "X-Forwarded-Host": "127.0.0.1:4000",
       Authorization: `Bearer ${owner === "ben" ? process.env.SMITHERS_CUT_HISTORY_BEN : process.env.SMITHERS_CUT_HISTORY_ALICE}` } })
     : Response.json(owner === "alice" ? { status: "ok", conversations: [], next: null }
       : String(input).endsWith("/replay") ? cutHistory.replay : cutHistory.index) }).history
