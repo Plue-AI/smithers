@@ -46,7 +46,7 @@ import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc
 import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
 import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
-import { todoCard } from "@smthrs/rpc/TodoCommands"
+import { draftCard, parseTodoArgs, TodoNewInputSchema, todoCard } from "@smthrs/rpc/TodoCommands"
 import { Effect } from "effect"
 import { z } from "zod"
 import type { DurableChatGrant } from "./DurableChatProducer.ts"
@@ -479,6 +479,51 @@ const themeCommand = (row: CatalogDescriptor): Bind => grant => grant.api === un
   } catch { return { refusal: "Invalid arguments for theme; use light or dark." } }
 })
 
+const TodoNewInput = z.strictObject(TodoNewInputSchema.shape)
+
+/** What the model is told after a Draft is shown. */
+const DRAFTED =
+  "Drafted: the Draft is on the person's screen. Nothing is filed until they press Commit, so never say the TODO exists."
+
+/**
+ * `todo.new` asks the person: it shows its author a private Draft and files
+ * nothing. The Draft appends, the only place the install files a TODO at for
+ * now, so it carries no placement to choose from.
+ */
+const todoNew: Bind = (grant) => {
+  const author = grant.api?.author
+  if (author === undefined) return undefined
+  return (args, ordinal) =>
+    Effect.sync(() => {
+      const input = parseTodoArgs("text", false)(args)
+      if ("error" in input) return { refusal: input.error }
+      if ("cardId" in input.payload) return { refusal: "Only the person commits a Draft: they press Commit on it." }
+      const draft = TodoNewInput.safeParse(input.payload)
+      // The Draft's Commit key is the host's to choose, never the model's.
+      if (!draft.success || draft.data.idempotencyKey !== undefined) {
+        return { refusal: "todo.new takes the TODO's text, and optionally its title and acceptance." }
+      }
+      const { text = "", title, acceptance, before } = draft.data
+      if (before !== undefined) {
+        return { refusal: "A new TODO goes at the end of the stack for now: draft it without before." }
+      }
+      const card = draftCard(
+        {
+          id: `draft:${globalThis.crypto.randomUUID()}`,
+          author,
+          text,
+          title,
+          acceptance,
+          options: [],
+          idempotencyKey: globalThis.crypto.randomUUID()
+        },
+        ordinal,
+        Date.now()
+      )
+      return { cards: [card], value: DRAFTED }
+    })
+}
+
 /** The one descriptor-to-HTTP dispatch path; policy/confirmations stay on the server. */
 const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
   if (grant.api === undefined || row.http === null) return undefined
@@ -520,7 +565,20 @@ const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
       if (row.name === "stack") {
         const parsed = HomeCardSchema.safeParse(answer.body)
         if (!parsed.success) return { refusal: "Invalid stack response" }
-        return { cards: [], value: JSON.stringify(parsed.data) }
+        const cards: Array<Card> = []
+        const todo = catalogDescriptors.find((entry) => entry.name === "todo")!
+        for (const item of parsed.data.items) {
+          if (item.state === "merged" || item.state === "dropped") continue
+          const request = catalogRequest(todo, { n: item.n })
+          const detail = yield* api(request.path, request)
+          if ("code" in detail) return { refusal: detail.code }
+          const model = TodoCardSchema.safeParse(detail.body)
+          if (detail.status !== 200 || !model.success || model.data.n !== item.n) {
+            return { refusal: "Invalid TODO response" }
+          }
+          cards.push(todoCard(item.n, model.data, ordinal, now))
+        }
+        return { cards, value: JSON.stringify(parsed.data) }
       }
       if (row.name === "todo") {
         const parsed = TodoCardSchema.safeParse(answer.body)
@@ -541,10 +599,14 @@ interface Offered {
 const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): ReadonlyArray<Offered> =>
   catalogDescriptors.flatMap((row) => {
     if (
-      !row.actors.includes("app_agent") || row.visibility === "hidden" ||
+      !row.actors.includes("app_agent") || row.visibility === "hidden" || row.name === "merge" ||
       (row.agent !== "run" && row.agent !== "confirm")
     ) return []
-    const bind = row.name === "files.list" ? filesList : row.name === "files.read" ? filesRead : row.name === "theme" ? themeCommand(row) : catalogCommand(row)
+    const bind = row.name === "files.list" ? filesList
+      : row.name === "files.read" ? filesRead
+      : row.name === "todo.new" ? todoNew
+      : row.name === "theme" ? themeCommand(row)
+      : catalogCommand(row)
     const run = bind(grant, transport)
     const command: Offered["command"] = {
       name: row.name,
@@ -585,7 +647,10 @@ const hostInstructions = (offered: ReadonlyArray<Offered>): string => {
     ...offered.map(({ command: { args, ...command } }) =>
       agentCommandLine({
         ...command,
-        ...(command.name.startsWith("files.") && args !== undefined ? { args } : {})
+        ...(command.name === "todo" ? { args: "<Tn>" }
+          : command.name === "todo.new" ? { args: "[text]" }
+          : command.name.startsWith("files.") && args !== undefined ? { args }
+          : {})
       })
     ),
     "Call commands with action list to inspect payload schemas. HTTP commands accept a JSON object; TODO references also accept Tn.",

@@ -229,8 +229,16 @@ const toolOutputs = (provider: ReturnType<typeof model>): ReadonlyArray<string> 
 
 /** Literal TODO models, as the install's routes serve them: T12 queued, T13 merged, T14 dropped, T15 working. */
 const queued: TodoCard = fixtures.queued.model
+const stackHome = {
+  ...homeFixtures.fresh.model,
+  items: [
+    { ...homeFixtures.active.model.items[0]!, ...queued, branch: { id: "todo-12", name: "todo/12" } },
+    { ...homeFixtures.active.model.items[0]!, n: 13, state: "merged" as const },
+    { ...homeFixtures.active.model.items[0]!, n: 14, state: "dropped" as const }
+  ]
+}
 const stackRoutes = routes({
-  "/api/stack": [200, homeFixtures.fresh.model],
+  "/api/stack": [200, stackHome],
   "/api/todos/12": [200, queued],
   "/api/todos/99": [404, { code: "todo_not_found", class: "user", message: "TODO not found" }]
 })
@@ -265,7 +273,6 @@ const HOST_COMMANDS = [
   "issues",
   "learning.accept",
   "learning.dismiss",
-  "merge",
   "monitor",
   "run",
   "run.inspect",
@@ -914,7 +921,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     const lines = commandLines(systemText(provider.requests[0]))
     expect(lines).toContain("- /todo.stop — Pause a working TODO")
     expect(lines.find((line) => line.startsWith("- /todo.drop "))).toContain("asks the person")
-    expect(lines.find((line) => line.startsWith("- /merge "))).toContain("asks the person")
+    expect(lines.some((line) => line.startsWith("- /merge "))).toBe(false)
     expect(lines.filter((line) => line.startsWith("- /files."))).toEqual(FILES_LINES)
   })
 
@@ -1012,11 +1019,32 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     expect(journal.calls).toEqual([{
       authorization: "Bearer smithers_" + "a".repeat(40),
       body: { method: "GET", path: "/api/stack" }
+    }, {
+      authorization: "Bearer smithers_" + "a".repeat(40),
+      body: { method: "GET", path: "/api/todos/12" }
     }])
+    expect(journal.frames[1]).toMatchObject({ type: "card", card: { id: "todo:12", kind: "todo", payload: { n: 12, model: queued } } })
     expect(journal.reads).toEqual([])
-    expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "call.settled", "delta", "done"])
+    expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "card", "call.settled", "delta", "done"])
     for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
+    expect(JSON.parse(toolOutputs(provider)[0]!)).toMatchObject({ items: [{ n: 12 }, { n: 13 }, { n: 14 }] })
+  })
+
+  test("an empty stack needs no detail requests; a failed or mismatched detail refuses", async () => {
+    const empty = producer(path => file(path, JOURNEY), routes({ "/api/stack": [200, homeFixtures.fresh.model] }))
+    const provider = model([execute("stack")])
+    await run(install, provider, empty)
+    expect(empty.calls).toHaveLength(1)
+    expect(empty.frames.some(frame => frame.type === "card")).toBe(false)
     expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual(homeFixtures.fresh.model)
+    for (const detail of [[403, { code: "forbidden" }], [200, { ...queued, n: 99 }], [200, {}]] as const) {
+      const journal = producer(path => file(path, JOURNEY), routes({ "/api/stack": [200, stackHome], "/api/todos/12": detail }))
+      const provider = model([execute("stack")])
+      await run(install, provider, journal)
+      expect(journal.calls).toHaveLength(2)
+      expect(journal.frames.some(frame => frame.type === "card")).toBe(false)
+      expect(toolOutputs(provider)).toEqual(["failed: Invalid TODO response"])
+    }
   })
 
   test("/todo Tn reads one TODO and shows its TODO card", async () => {
@@ -1084,21 +1112,71 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
+  test("todo.new shows its author a private Draft and files nothing", async () => {
+    const journal = producer((path) => file(path, JOURNEY), stackRoutes)
+    const provider = model([
+      execute("todo.new", "Log retry counts\nin the worker"),
+      execute("todo.new", JSON.stringify({ text: "Retry", title: "Retry counts", acceptance: ["Counts log"] })),
+      execute("todo.new")
+    ])
+    await run(install, provider, journal)
+    // The Draft is the confirmation: no route is called, so no TODO exists until the person commits it.
+    expect(journal.calls).toEqual([])
+    expect(journal.frames.map((frame) => frame.type)).toEqual([
+      "call.started",
+      "card",
+      "call.settled",
+      "call.started",
+      "card",
+      "call.settled",
+      "call.started",
+      "card",
+      "call.settled",
+      "delta",
+      "done"
+    ])
+    for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
+    const drafts = journal.frames.flatMap((frame) =>
+      frame.type === "card" && frame.card.kind === "draft" ? [frame.card] : []
+    )
+    expect(drafts).toHaveLength(3)
+    expect(drafts[0]).toMatchObject({
+      kind: "draft",
+      audience_member_id: "ben",
+      title: "Log retry counts",
+      ordinal: 0,
+      payload: {
+        title: "Log retry counts",
+        prompt: "Log retry counts\nin the worker",
+        acceptance: [],
+        place: { mode: "append", options: [] },
+        private: true
+      }
+    })
+    expect(drafts[1]).toMatchObject({
+      audience_member_id: "ben",
+      title: "Retry counts",
+      ordinal: 1,
+      payload: { prompt: "Retry", acceptance: ["Counts log"], place: { mode: "append", options: [] } }
+    })
+    // An empty Draft is the person's to fill on the card.
+    expect(drafts[2]).toMatchObject({ title: "", payload: { title: "", prompt: "" } })
+    // Each Draft is its own entry with its own key.
+    expect(new Set(drafts.map((draft) => draft.id)).size).toBe(3)
+    expect(new Set(drafts.map((draft) => draft.payload.idempotencyKey)).size).toBe(3)
+    for (const draft of drafts) expect(draft.id).toMatch(/^draft:[0-9a-f-]{36}$/)
+    expect(toolOutputs(provider)).toEqual(
+      Array.from(
+        { length: 3 },
+        () =>
+          "Drafted: the Draft is on the person's screen. Nothing is filed until they press Commit, so never say the TODO exists."
+      )
+    )
+  })
+
   test("confirmation commands return pending status without copying the private Confirm into shared frames", async () => {
     const cases = [
       ["todo.drop", "T12", "/api/todos/12", { op: "drop" }],
-      ["merge", "T12", "/api/todos/12/merge", {}],
-      ["todo.new", "Log retry counts\nin the worker", "/api/todos", {
-        prompt: "Log retry counts\nin the worker",
-        place: { mode: "append" }
-      }],
-      [
-        "todo.new",
-        "{\"text\":\"Retry\",\"title\":\"Retry counts\",\"acceptance\":[\"Counts log\"],\"cardId\":\"forged\",\"idempotencyKey\":\"forged\"}",
-        "/api/todos",
-        { prompt: "Retry", title: "Retry counts", acceptance: ["Counts log"], place: { mode: "append" } }
-      ],
-      ["todo.new", undefined, "/api/todos", { place: { mode: "append" } }],
       ["issue.comment", "{\"number\":5,\"body\":\"Please check\"}", "/api/issues/5/comments", { body: "Please check" }]
     ] as const
     for (const [name, args, path, payload] of cases) {
@@ -1267,6 +1345,22 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
+  test("merge stays a person's action and forged Draft authority refuses", async () => {
+    for (const args of ['{"text":"x","cardId":"forged"}', '{"text":"x","idempotencyKey":"forged"}', '{"text":"x","before":12}']) {
+      const journal = producer(path => file(path, JOURNEY), stackRoutes)
+      const provider = model([execute("todo.new", args)])
+      await run(install, provider, journal)
+      expect(journal.calls).toEqual([])
+      expect(journal.frames.some(frame => frame.type === "card")).toBe(false)
+      expect(toolOutputs(provider)[0]).toMatch(/^failed:/)
+    }
+    const journal = producer(path => file(path, JOURNEY), stackRoutes)
+    const provider = model([execute("merge", "T12")])
+    await run(install, provider, journal)
+    expect(journal.calls).toEqual([])
+    expect(toolOutputs(provider)[0]).toContain("unknown-command")
+  })
+
   test("schema and argument errors refuse before transport", async () => {
     for (
       const [name, args] of [
@@ -1288,7 +1382,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       const provider = model([execute(name!, args)])
       await run(install, provider, journal)
       expect(journal.calls, `${name} ${args}`).toEqual([])
-      expect(toolOutputs(provider)).toEqual([`failed: Invalid arguments for ${name}; use its declared payload.`])
+      expect(toolOutputs(provider)).toEqual([name === "todo.new" ? "failed: todo.new takes the TODO's text, and optionally its title and acceptance." : `failed: Invalid arguments for ${name}; use its declared payload.`])
     }
   })
 
