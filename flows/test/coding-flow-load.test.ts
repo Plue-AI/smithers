@@ -12,6 +12,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import type { FlowVersion } from "../coding/flow-load.ts"
 import { bundle } from "../coding/build.mjs"
 
 const builtin = fileURLToPath(new URL("../todo/flow.ts", import.meta.url))
@@ -106,6 +107,21 @@ printf '%s' "$*" > installed
     "pnpm-lock.yaml": "lockfileVersion: 9\n",
     "package-lock.json": "{}\n"
   })
+  const semantic = await tree("semantic", {
+    "flows/todo/flow.ts": source.replace("Request.child(input)", "Request.child({ ...input, prompt: 123 })")
+  })
+  const helperTypeError = await tree("helper-type-error", {
+    "flows/todo/flow.ts": `import { label } from "../../lib/label.ts"\n${source}\nvoid label\n`,
+    "lib/label.ts": "export const label: string = 123\n"
+  })
+  const semanticCanary = await tree("semantic-canary", {
+    "flows/todo/flow.ts": importCanary("semantic").replace("Request.child(input)", "Request.child({ ...input, prompt: 123 })"),
+    "flows/healthy/flow.ts": source.replace('Flow.make("todo",', 'Flow.make("healthy",'),
+    "node_modules/@smthrs/coding/package.json": JSON.stringify({ name: "@smthrs/coding", types: "index.d.ts" }),
+    "node_modules/@smthrs/coding/index.d.ts": "export const Request: any; export const TodoDelivery: any; export const RequestInput: any; export const VibeDelivered: any;\n",
+    // A repository cannot disable the install's semantic gate.
+    "tsconfig.json": JSON.stringify({ compilerOptions: { noCheck: true, strict: false } })
+  })
   const none = await tree("none", { "README.md": "No flows here.\n" })
 
   const output = join(temporary, "host.mjs")
@@ -129,7 +145,10 @@ printf '%s' "$*" > installed
     otherLockMutated,
     canaryLoaded,
     undiscoverable,
-    rejectedAgain
+    rejectedAgain,
+    semantic,
+    helperTypeError,
+    semanticCanary
   ], {
     env: { ...process.env, CODING_TEST_MANAGER_PATH: manager + ":/usr/bin:/bin" },
     encoding: "utf8",
@@ -152,7 +171,10 @@ printf '%s' "$*" > installed
     atOtherLockMutated,
     atCanaryLoaded,
     atUndiscoverable,
-    atRejectedAgain
+    atRejectedAgain,
+    atSemantic,
+    atHelperTypeError,
+    atSemanticCanary
   ] = lines
 
   // The copy is the built-in version: the digest GET /api/flows serves as D1.
@@ -209,6 +231,14 @@ printf '%s' "$*" > installed
   assert.match(atUndiscoverable[0].digest, /^[0-9a-f]{64}$/)
   assert.equal(atRejectedAgain[0].status, "failed")
   assert.notEqual(atRejectedAgain[0].digest, atUndiscoverable[0].digest)
+  assert.equal(atSemantic[0].status, "failed")
+  assert.match(atSemantic[0].error, /flows\/todo\/flow\.ts:\d+: .*number.*string/)
+  assert.equal(atHelperTypeError[0].status, "failed")
+  assert.match(atHelperTypeError[0].error, /lib\/label\.ts:1: .*number.*string/)
+  assert.equal(atSemanticCanary.find((version: FlowVersion) => version.name === "healthy").status, "loaded")
+  assert.equal(atSemanticCanary.find((version: FlowVersion) => version.name === "todo").status, "failed")
+  assert.match(atSemanticCanary.find((version: FlowVersion) => version.name === "todo").error, /flows\/todo\/flow\.ts:\d+: .*number.*string/)
+  await assert.rejects(readFile(join(temporary, "import-semantic")), { code: "ENOENT" })
   const incomplete = await tree("incomplete", { "flows/flow.ts": source })
   // A partial scan cannot authorize removal of previously loaded entries.
   assert.throws(() => execFileSync(process.execPath, [...flags, output, incomplete], {

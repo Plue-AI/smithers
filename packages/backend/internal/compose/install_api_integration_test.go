@@ -145,6 +145,8 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	// Discovery and dependency refusals retain Active through the served route.
 	for _, loadError := range []string{
 		"flows/todo/flow.ts: Pinned flow dependencies could not be resolved",
+		"flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.",
+		"lib/label.ts:1: Type 'number' is not assignable to type 'string'.",
 		"flows/todo/flow.ts: Module flows require a literal description in the default Flow.make value",
 	} {
 		load.Versions, err = json.Marshal([]services.FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: strings.Repeat("c", 64), Status: "failed", Error: loadError}})

@@ -16,6 +16,7 @@ import * as Executable from "@smthrs/registry/Executable"
 import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { checkFlowTypes } from "./flow-typecheck.ts"
 import { bindFlowDependencies } from "./flow-version.ts"
 import { prepareFlowDependencies } from "./immutable-source.ts"
 import { CodingError, StackBase } from "./schema.ts"
@@ -108,9 +109,12 @@ export const loadRepositoryFlows = (
       })),
       Effect.result
     )
+    const typeFailures = dependenciesReady._tag === "Failure" ? new Map<string, string>() :
+      yield* Effect.try(() => checkFlowTypes(repositoryPath, descriptors.filter(entry => entry.body._tag === "Module").map(entry => entry.path)))
+    const loadable = Registry.Registry.of({ ...only, list: () => Effect.succeed(descriptors.filter(entry => !typeFailures.has(entry.path))) })
     const built = dependenciesReady._tag === "Failure" ?
       undefined :
-      yield* Executable.catalog({ delegates: [] }).pipe(Effect.provideService(Registry.Registry, only))
+      yield* Executable.catalog({ delegates: [] }).pipe(Effect.provideService(Registry.Registry, loadable))
     const versions: Array<FlowVersion> = []
     // Discovery refusals are still declarations, not removals. Omitting one
     // would make settlement retire its previous Active version.
@@ -164,6 +168,8 @@ export const loadRepositoryFlows = (
             error: `${relative}: ${dependenciesReady.failure.message}`,
             ...metadata
           } :
+          typeFailures.has(descriptor.path) ?
+          { name: descriptor.name, path: relative, digest, status: "failed", error: typeFailures.get(descriptor.path)!, ...metadata } :
           failure === undefined ?
           { name: descriptor.name, path: relative, digest, status: "loaded", ...metadata } :
           {
