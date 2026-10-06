@@ -121,7 +121,8 @@ describe("File states and co-editing", () => {
 test("file-written hints decode literal digests and replace the previous hint", () => {
   const event = { kind: "file_written", path: "src/retry.ts", post_digest: "digest-2", actor: { kind: "outside", color_index: 7 } }
   expect(FileWrittenSchema.parse(event)).toEqual(event)
-  expect(projectBranchFiles({ path: "old.ts" }, event)).toEqual(event)
+  expect(projectBranchFiles([{ path: "old.ts" }], event)).toEqual({ rows: [{ path: "old.ts" }], written: event })
+  expect(projectBranchFiles({ rows: [{ path: "old.ts" }], written: event }, [])).toEqual({ rows: [] })
   expect(FileWrittenSchema.safeParse({ ...event, actor: undefined }).success).toBe(false)
   expect(FileWrittenSchema.safeParse({ ...event, post_digest: 2 }).success).toBe(false)
   expect(() => projectBranchFiles(event, { ...event, kind: "untrusted" })).toThrow()

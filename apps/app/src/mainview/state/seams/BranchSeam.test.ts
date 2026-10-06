@@ -1,3 +1,4 @@
+import { projectBranchFiles } from "@smthrs/rpc/FileCard"
 import { expect, test } from "bun:test"
 import { branchModel, createBrowserPresence } from "./BranchSeam"
 const branch = { id: "b1", name: "Live branch", machine: { state: "asleep" as const }, presence: [], terminals: [], ssh_line: "ssh -p 2222 b1@localhost" }
@@ -26,4 +27,13 @@ test("presence uses the shared publisher on every move and every 10 seconds; dis
   heartbeat.move({ branch: "b2" })
   expect(calls).toEqual([{ branch: "b1" }, { branch: "b1", path: "a.ts", line: 3 }, { branch: "b1", path: "a.ts", line: 3 }, { branch: "b1", terminal: "term1" }])
   expect(cancelled).toBe(true)
+})
+
+test("file reload hints preserve the Branch card's changed-file rows", () => {
+  const writer = { kind: "outside", color_index: 7 } as const
+  const rows: NonNullable<ReturnType<typeof branchModel>>["changed_files"] = [{ path: "src/retry.ts", change: "modified", authors: [writer] }]
+  const topic = projectBranchFiles(rows, { kind: "file_written", path: "src/retry.ts", post_digest: "digest-2", actor: writer })
+  expect(branchModel(branch, [], topic, "b1")?.changed_files).toEqual(rows)
+  const next = projectBranchFiles(topic, [])
+  expect(branchModel(branch, [], next, "b1")?.changed_files).toEqual([])
 })

@@ -508,7 +508,7 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       if (!snapshot || snapshot.error || snapshot.cursor === cursor) return
       cursor = snapshot.cursor
       const data = snapshot.data
-      const events = Array.isArray(data) ? data : [data]
+      const events = isRecord(data) && data.written ? [data.written] : Array.isArray(data) ? data : [data]
       for (const event of events) {
         const parsed = FileWrittenSchema.safeParse(event)
         if (!parsed.success) continue

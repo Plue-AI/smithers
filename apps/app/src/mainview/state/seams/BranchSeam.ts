@@ -1,3 +1,4 @@
+import { branchFileRows } from "@smthrs/rpc/FileCard"
 import { z } from "zod"
 import { ActorSchema, MachineStateSchema, TodoStateSchema } from "@smthrs/rpc/CardPrimitives"
 import type { BranchCard } from "@smthrs/rpc/BranchCard"
@@ -18,7 +19,7 @@ const Activity = z.array(z.object({ id: z.string(), actor: ActorSchema, asked_by
 const Files = z.array(z.object({ path: z.string(), change: z.enum(["added", "modified", "deleted", "renamed"]), renamed_to: z.string().optional(), authors: z.array(ActorSchema) }))
 
 export function branchModel(branch: unknown, activity: unknown, files: unknown, id: string): BranchCard | undefined {
-  const facts = Branch.safeParse(branch), events = Activity.safeParse(activity), paths = Files.safeParse(files)
+  const facts = Branch.safeParse(branch), events = Activity.safeParse(activity), paths = Files.safeParse(branchFileRows(files))
   if (!facts.success || !events.success || !paths.success || facts.data.id !== id) return
   return { ...facts.data, presence: [...facts.data.presence].sort((a, b) => Number(a.actor.kind !== "person") - Number(b.actor.kind !== "person")),
     terminals: facts.data.terminals.map(terminal => ({ ...terminal, frozen: terminal.frozen || facts.data.rebase?.state === "rebasing" })),

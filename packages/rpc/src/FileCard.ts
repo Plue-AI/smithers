@@ -121,5 +121,10 @@ export const FileWrittenSchema = z.object({
   kind: z.literal("file_written"), path: z.string(), post_digest: z.string(), actor: ActorSchema
 })
 
-/** Hint topics replace the previous hint; they do not append an unbounded event log. */
-export const projectBranchFiles = (_previous: unknown, delta: unknown): unknown => FileWrittenSchema.parse(delta)
+/** The Branch card and File cards consume the same topic, including its changed-file rows. */
+export const branchFileRows = (value: unknown): unknown =>
+  value !== null && typeof value === "object" && "rows" in value ? value.rows : value
+
+/** Keep the latest hint beside the row projection, without appending an event log. */
+export const projectBranchFiles = (previous: unknown, delta: unknown): unknown =>
+  Array.isArray(delta) ? { rows: delta } : { rows: branchFileRows(previous), written: FileWrittenSchema.parse(delta) }
