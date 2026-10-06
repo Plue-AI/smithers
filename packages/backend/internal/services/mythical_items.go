@@ -1259,16 +1259,27 @@ func mythicalNextDue(before, after db.MythicalItem, now time.Time) time.Time {
 // steps on only to settle a GitHub operation it still owes (Drop's close)
 // and then to release its lane.
 func mythicalGitHubClosedAt(item db.MythicalItem) time.Time {
-	if at := mythicalChecksOf(item).GitHubClosedAt; at != nil {
-		return *at
+	checks := mythicalChecksOf(item)
+	if checks.GitHubClosedAt != nil {
+		return *checks.GitHubClosedAt
+	}
+	// Older local drops already persist their original timestamp. Updating the
+	// row while settling a close must not extend the reopen window.
+	if checks.Dropped != nil && item.State == "cancelled" {
+		return checks.Dropped.At
 	}
 	return item.UpdatedAt.Time
 }
 
-// Rejected PRs are retained in the polling set through the inclusive seven-day
-// reopen window. Polls must not move the close timestamp forward.
+func mythicalDroppedPull(item db.MythicalItem) bool {
+	return item.State == "rejected" || item.State == "cancelled" && mythicalChecksOf(item).Dropped != nil
+}
+
+// Dropped PRs remain followed through the inclusive seven-day reopen window.
+// A settled local close may already report open after a person's reopen.
+// Polls must not move the original drop/close timestamp forward.
 func mythicalReopenFollowed(item db.MythicalItem, now time.Time) bool {
-	if item.State != "rejected" || item.PRState != "closed" || !item.PRNumber.Valid {
+	if !mythicalDroppedPull(item) || !item.PRNumber.Valid || (item.PRState != "closed" && (item.PRState != "open" || item.State != "cancelled" || len(item.PendingOp) != 0)) {
 		return false
 	}
 	at := mythicalGitHubClosedAt(item)
@@ -1547,7 +1558,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
-	case "rejected":
+	case "rejected", "cancelled":
 		if mythicalReopenFollowed(item, st.now) {
 			next, err := st.follow(ctx, item)
 			return next, false, err
@@ -3223,7 +3234,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	next := item
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	answered := mythicalChecksOf(next)
-	if item.State == "rejected" && answered.GitHubClosedAt == nil {
+	if mythicalDroppedPull(item) && answered.GitHubClosedAt == nil {
 		at := mythicalGitHubClosedAt(item)
 		answered.GitHubClosedAt = &at
 	}
@@ -3245,7 +3256,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	case pull.State == "closed":
 
 		fact.Kind = "closed"
-	case item.State == "rejected" && pull.State == "open":
+	case mythicalDroppedPull(item) && pull.State == "open":
 		fact.Kind = "reopened"
 	default:
 		fact.Kind = "push"

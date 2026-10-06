@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -14,11 +16,75 @@ import (
 )
 
 func TestGitHubInboundCloseReopenProductionPoll(t *testing.T) {
-	f := newPublicationFixture(t, false)
-	first := f.todo("First", "first", f.main, "FIRST.txt", "first\n")
+	for _, mode := range []string{"GitHub close", "Smithers drop", "lost close response", "occupied position", "legacy drop", "expired drop"} {
+		t.Run(mode, func(t *testing.T) { testGitHubInboundCloseReopen(t, mode) })
+	}
+}
+
+func testGitHubInboundCloseReopen(t *testing.T, mode string) {
+	localDrop := mode != "GitHub close"
+	h := newMergeHarness(t)
+	f := h.publicationFixture
+	base := f.main
+	if mode != "lost close response" {
+		first := f.todo("First", "first", base, "FIRST.txt", "first\n")
+		f.wake()
+		base = first.CandidateHead
+	}
+	second := f.todo("Second", "second", base, "SECOND.txt", "second\n")
 	f.wake()
-	second := f.todo("Second", "second", first.CandidateHead, "SECOND.txt", "second\n")
-	f.wake()
+	var third db.MythicalItem
+	if mode != "lost close response" {
+		third = f.todo("Third", "third", second.CandidateHead, "THIRD.txt", "third\n")
+		f.wake()
+	}
+	for range 4 {
+		if len(f.item(second.Number.Int64).PendingOp) == 0 {
+			break
+		}
+		h.pass()
+	}
+	require.Empty(t, f.item(second.Number.Int64).PendingOp, "settle publication before Drop")
+	second = f.item(second.Number.Int64)
+	if third.Number.Valid {
+		third = f.item(third.Number.Int64)
+	}
+	if localDrop {
+		_, err := h.drop(second.Number.Int64, "drop-for-reopen")
+		require.NoError(t, err)
+		if mode == "lost close response" {
+			h.fake.LoseNextResponses(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", second.PRNumber.Int64), 1)
+		}
+		h.pass()
+		if mode == "lost close response" {
+			require.Equal(t, "close", h.operation(second.Number.Int64).Kind)
+			require.Equal(t, "unknown", h.operation(second.Number.Int64).State)
+			require.Equal(t, "closed", h.pull(second.PRNumber.Int64).State)
+		}
+		if mode != "lost close response" {
+			h.pass()
+		}
+		if mode != "lost close response" {
+			require.Empty(t, f.item(second.Number.Int64).PendingOp)
+			require.Equal(t, "closed", f.item(second.Number.Int64).PRState)
+		}
+		if mode == "occupied position" {
+			_, err = h.q.PlaceMythicalItem(h.ctx, third.ID, second.StackPosition.Int64)
+			require.NoError(t, err)
+		}
+	}
+	if mode == "legacy drop" || mode == "expired drop" {
+		dropped := f.item(second.Number.Int64)
+		checks := mythicalChecksOf(dropped)
+		checks.GitHubClosedAt = nil
+		checks.GitHubClosedPosition = 0
+		if mode == "expired drop" {
+			checks.Dropped.At = time.Now().Add(-8 * 24 * time.Hour)
+		}
+		dropped.Checks = checks.encode()
+		_, err := h.q.SaveMythicalItem(h.ctx, dropped)
+		require.NoError(t, err)
+	}
 	pool := f.pool.(*pgxpool.Pool)
 	ctx := context.Background()
 	require.NoError(t, f.credentials.SetInstallation(ctx, f.installation))
@@ -35,7 +101,7 @@ func TestGitHubInboundCloseReopenProductionPoll(t *testing.T) {
 	token, err := f.connections.CreateGitHubInstallationTokenForRepositoryOwner(ctx, f.userID, 0, "rehearsal-owner", "app", map[string]string{"pull_requests": "write"})
 	require.NoError(t, err)
 	patch := func(state string) {
-		req, err := http.NewRequest(http.MethodPatch, f.fake.URL+"/repos/rehearsal-owner/app/pulls/2", strings.NewReader(`{"state":"`+state+`"}`))
+		req, err := http.NewRequest(http.MethodPatch, f.fake.URL+fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", second.PRNumber.Int64), strings.NewReader(`{"state":"`+state+`"}`))
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer "+token.Token)
 		resp, err := f.fake.Client().Do(req)
@@ -43,24 +109,93 @@ func TestGitHubInboundCloseReopenProductionPoll(t *testing.T) {
 		require.Equal(t, 200, resp.StatusCode)
 		require.NoError(t, resp.Body.Close())
 	}
-	patch("closed")
-	require.NoError(t, synced.pollInstallPull(ctx, row, 2))
-	require.Eventually(t, func() bool { return f.item(second.Number.Int64).State == "rejected" }, 10*time.Second, 20*time.Millisecond)
-	dropped := f.item(second.Number.Int64)
-	require.Equal(t, "closed on GitHub", dropped.Reason)
-	require.NotNil(t, mythicalChecksOf(dropped).GitHubClosedAt)
-	require.NoError(t, synced.pollInstallPull(ctx, row, 2))
-	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_dropped'`))
+	if !localDrop {
+		patch("closed")
+		require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
+		require.Eventually(t, func() bool { return f.item(second.Number.Int64).State == "rejected" }, 10*time.Second, 20*time.Millisecond)
+		dropped := f.item(second.Number.Int64)
+		require.Equal(t, "closed on GitHub", dropped.Reason)
+		require.NotNil(t, mythicalChecksOf(dropped).GitHubClosedAt)
+		require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
+		require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_dropped'`))
+	}
+	if mode == "lost close response" {
+		stop()
+		patch("open")
+		require.Equal(t, "open", h.pull(second.PRNumber.Int64).State)
+		require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
+		var raw []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='github.fetched.consume'`).Scan(&raw))
+		var fact gitHubFetchedObject
+		require.NoError(t, json.Unmarshal(raw, &fact))
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		_, consumeErr := f.service.consumeGitHubPullTodos(ctx, tx, fact)
+		require.NoError(t, tx.Rollback(ctx))
+		require.Error(t, consumeErr, "reopen must wait for the uncertain close to settle")
+		require.Equal(t, "unknown", h.operation(second.Number.Int64).State)
+		require.Equal(t, "cancelled", h.item(second.Number.Int64).State)
+		require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
+		// Reconciliation proves the App close but observes the person's later
+		// reopen. It must leave the open PR followed, without another close.
+		h.pass()
+		require.Empty(t, f.item(second.Number.Int64).PendingOp)
+		require.Equal(t, "open", f.item(second.Number.Int64).PRState)
+	}
+	// Webhook hints and scheduled polling must retain the dropped PR.
+	followed, err := db.New(pool).ListMythicalOpenPullItems(ctx, f.repoID)
+	require.NoError(t, err)
+	found := false
+	for _, item := range followed {
+		if item.ID == second.ID {
+			found = true
+		}
+	}
+	if mode == "expired drop" {
+		require.False(t, found, "row updates must not renew an expired drop")
+		patch("open")
+		require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
+		require.Eventually(t, func() bool {
+			return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`) > 0
+		}, 10*time.Second, 20*time.Millisecond)
+		require.Equal(t, "cancelled", f.item(second.Number.Int64).State)
+		require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
+		return
+	}
+	require.True(t, found, "dropped PR must remain in the polling selection")
+	require.True(t, mythicalReopenFollowed(f.item(second.Number.Int64), time.Now()))
 	writes := len(f.writes())
-	patch("open")
-	require.NoError(t, synced.pollInstallPull(ctx, row, 2))
+	if mode == "lost close response" {
+		defer runFetchedFixture(t, synced)()
+	} else {
+		patch("open")
+	}
+	// Drive the existing stack worker's scheduled read as well as delivery.
+	f.wake()
 	require.Eventually(t, func() bool { return f.item(second.Number.Int64).State == "proposed" }, 10*time.Second, 20*time.Millisecond)
 	reopened := f.item(second.Number.Int64)
-	require.Equal(t, second.StackPosition.Int64, reopened.StackPosition.Int64)
+	if mode == "occupied position" {
+		require.Equal(t, second.StackPosition.Int64+1, reopened.StackPosition.Int64)
+	} else {
+		require.Equal(t, second.StackPosition.Int64, reopened.StackPosition.Int64)
+	}
 	require.Equal(t, second.Attempt, reopened.Attempt)
 	require.Equal(t, second.CandidateHead, reopened.CandidateHead)
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
-	require.Len(t, f.writes(), writes+1, "only the person's reopen, no consumer write")
-	require.NoError(t, synced.pollInstallPull(ctx, row, 2))
+	expectedWrites := writes + 1
+	if mode == "lost close response" {
+		expectedWrites = writes
+	}
+	require.Len(t, f.writes(), expectedWrites, "only the person's reopen, no consumer write")
+	require.Equal(t, second.Generation, reopened.Generation)
+	require.Equal(t, second.CandidateBase, reopened.CandidateBase)
+	require.Nil(t, mythicalChecksOf(reopened).GitHubClosedAt)
+	if localDrop {
+		require.NotNil(t, mythicalChecksOf(reopened).Dropped, "retain the original drop receipt")
+		_, err := h.drop(second.Number.Int64, "drop-for-reopen")
+		require.NoError(t, err, "replayed drop cannot drop the reopened TODO again")
+		require.Equal(t, "proposed", f.item(second.Number.Int64).State)
+	}
+	require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
 }

@@ -57,7 +57,7 @@ func (st *mythicalItemStep) followInstallPull(ctx context.Context, item db.Mythi
 		return nil, err
 	}
 	next := item
-	if item.State == "rejected" && mythicalChecksOf(item).GitHubClosedAt == nil {
+	if mythicalDroppedPull(item) && mythicalChecksOf(item).GitHubClosedAt == nil {
 		checks := mythicalChecksOf(item)
 		at := mythicalGitHubClosedAt(item)
 		checks.GitHubClosedAt = &at

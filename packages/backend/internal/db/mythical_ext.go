@@ -384,7 +384,11 @@ func (q *Queries) ListMythicalOpenPullItems(ctx context.Context, repositoryID in
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
  WHERE repository_id = $1 AND pr_number > 0
  AND (state NOT IN ('skipped', 'declined', 'cancelled', 'landed', 'rejected', 'blocked')
- OR (state='rejected' AND pr_state='closed' AND COALESCE((checks->>'githubClosedAt')::timestamptz, updated_at) >= clock_timestamp() - interval '7 days'))`, repositoryID)
+ OR (((state='rejected' AND pr_state='closed')
+      OR (state='cancelled' AND checks->'dropped' IS NOT NULL AND (pr_state='closed' OR (pr_state='open' AND pending_op IS NULL))))
+     AND COALESCE((checks->>'githubClosedAt')::timestamptz,
+       CASE WHEN state='cancelled' THEN (checks->'dropped'->>'at')::timestamptz END,
+       updated_at) >= clock_timestamp() - interval '7 days'))`, repositoryID)
 	return scanMythicalItems(rows, err)
 }
 

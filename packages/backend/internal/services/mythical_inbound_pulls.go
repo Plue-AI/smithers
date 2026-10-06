@@ -117,7 +117,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				}
 			case pull.State == "closed":
 				fact.Kind = "closed"
-			case item.State == "rejected":
+			case mythicalDroppedPull(item) && pull.State == "open":
 				fact.Kind = "reopened"
 			default:
 				fact.Kind = "push"
@@ -147,6 +147,12 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				}
 				next.PausedAt = pgtype.Timestamptz{}
 			case "in_review":
+				// Close reconciliation owns the pending slot, including an unknown
+				// response. Retain this delivery until it settles; never discard the
+				// close or let its later dispatch undo the person's reopen.
+				if len(item.PendingOp) != 0 {
+					return nil, &mythicalPRUnavailable{}
+				}
 				if !item.CandidateVerified || item.PRHead == "" || !mythicalTodoBranchValid(checks.Branch) {
 					return nil, &mythicalPRUnavailable{}
 				}
@@ -155,6 +161,9 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 					return nil, err
 				}
 				position := checks.GitHubClosedPosition
+				if position == 0 && item.State == "cancelled" {
+					position = item.StackPosition.Int64 // retained pre-upgrade drop
+				}
 				max := int64(0)
 				free := position > 0
 				for _, other := range order {
