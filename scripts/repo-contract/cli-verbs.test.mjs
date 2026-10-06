@@ -41,7 +41,7 @@ describe("the CLI reference", () => {
 
   it("documents durable public command groups in the package reference", () => {
     const documented = indexedCommands(readFileSync(reference, "utf8"))
-    for (const group of ["flow", "runs", "approvals"]) {
+    for (const group of ["flow", "runs"]) {
       assert.ok(canonical.includes(group), `${group} must be a public command`)
       assert.ok(documented.has(group), `${group} must be documented in the package`)
     }

@@ -10536,6 +10536,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-pinned-source.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-install-project.test.ts"
       },
       {
@@ -10625,6 +10629,10 @@
       {
         "kind": "file",
         "path": "flows/test/coding-candidate-equality.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-pinned-source.test.ts"
       },
       {
         "kind": "file",
@@ -36996,6 +37004,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/harness/docs/concepts.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/harness/docs/external-transcripts.md"
       },
       {
         "kind": "file",
