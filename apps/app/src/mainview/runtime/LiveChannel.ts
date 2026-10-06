@@ -224,32 +224,32 @@ export class LiveChannel {
     }
     const decoded = LiveReplySchema.safeParse(frame)
     if (!decoded.success) return
-    frame = decoded.data
-    if (frame.t === "gap") {
+    const reply = decoded.data
+    if (reply.t === "gap") {
       entry.awaitingSnapshot = true
       this.publish(entry, { topic, data: entry.snapshot.data })
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
-    if (frame.t === "err" && typeof frame.code === "string") {
+    if (reply.t === "err" && typeof reply.code === "string") {
       entry.awaitingSnapshot = true
-      this.publish(entry, { topic, error: frame.code })
+      this.publish(entry, { topic, error: reply.code })
       return
     }
-    if (frame.t !== "snap" && frame.t !== "delta") return
+    if (reply.t !== "snap" && reply.t !== "delta") return
     if (!("data" in frame)) return
-    if (!Number.isSafeInteger(frame.cursor) || (frame.cursor as number) < 0) return
-    const cursor = frame.cursor as number
-    if (frame.t === "delta" && entry.snapshot.cursor !== undefined && cursor <= entry.snapshot.cursor) return
-    if (frame.t === "delta" && entry.awaitingSnapshot) return
+    if (!Number.isSafeInteger(reply.cursor) || (reply.cursor as number) < 0) return
+    const cursor = reply.cursor as number
+    if (reply.t === "delta" && entry.snapshot.cursor !== undefined && cursor <= entry.snapshot.cursor) return
+    if (reply.t === "delta" && entry.awaitingSnapshot) return
     const project = this.projectors.get(topic) ?? (this.options.project ? (previous: unknown, delta: unknown) => this.options.project!(topic, previous, delta) : undefined)
-    if (frame.t === "delta" && !project) {
+    if (reply.t === "delta" && !project) {
       entry.awaitingSnapshot = true
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
     let data: unknown
-    try { data = frame.t === "snap" ? frame.data : project!(entry.snapshot.data, frame.data) }
+    try { data = reply.t === "snap" ? reply.data : project!(entry.snapshot.data, reply.data) }
     catch { entry.awaitingSnapshot = true; this.send({ t: "sub", id: entry.id, topic }); return }
     entry.awaitingSnapshot = false
     this.publish(entry, { topic, cursor, data })
