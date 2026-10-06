@@ -220,7 +220,7 @@ func (s *InstallSetupService) BindMachineProvider(sources workspaceapi.SourceFil
 		if err != nil {
 			return err
 		}
-		ready := InstallMachineReadyService{Sources: sources, Layers: images, Persistence: installReadinessSteps{setup: s, operation: lease.Claim().OperationID}}
+		ready := InstallMachineReadyService{Sources: sources, Layers: images, Persistence: installReadinessSteps{setup: s, claim: lease.Claim()}}
 		_, err = ready.Prepare(ctx, o+"/"+n)
 		return err
 	}
@@ -232,8 +232,8 @@ func (s *InstallSetupService) BindMachineProvider(sources workspaceapi.SourceFil
 // The held machine step stays running until it is done or failed, so a
 // concurrent POST can never start a second preparation.
 type installReadinessSteps struct {
-	setup     *InstallSetupService
-	operation string
+	setup *InstallSetupService
+	claim jobs.Claim
 }
 
 func (p installReadinessSteps) Update(ctx context.Context, _ string, mutate func(InstallReadiness) (InstallReadiness, error)) (InstallReadiness, error) {
@@ -254,8 +254,11 @@ func (p installReadinessSteps) Update(ctx context.Context, _ string, mutate func
 	if err != nil {
 		return InstallReadiness{}, err
 	}
-	if machine.OperationID == "" || machine.OperationID != p.operation {
+	if machine.OperationID == "" || machine.OperationID != p.claim.OperationID {
 		return InstallReadiness{}, jobs.ErrClaimLost
+	}
+	if err = p.setup.Jobs.FenceInTx(ctx, tx, p.claim); err != nil {
+		return InstallReadiness{}, err
 	}
 	current := InstallReadiness{Source: installReadinessOf(source), Machine: installReadinessOf(machine),
 		Revision: machine.Revision, LayerKey: machine.LayerKey, Attempt: machine.ReadinessAttempt}
