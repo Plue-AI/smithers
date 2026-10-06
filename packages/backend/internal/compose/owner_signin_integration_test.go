@@ -89,6 +89,15 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 				&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
 				routerExtras{GitHubAppSetup: &routes.GitHubAppSetupHandler{Sessions: setup, Owners: q, Origins: middleware.FixedOrigins(tc.saved)}},
 			)
+			wrongExchange := httptest.NewRecorder()
+			wrongRequest := httptest.NewRequest(http.MethodGet, origin+"/setup?token=wrong-token", nil)
+			wrongRequest.RemoteAddr = "127.0.0.1:1234"
+			router.ServeHTTP(wrongExchange, wrongRequest)
+			require.Equal(t, http.StatusUnauthorized, wrongExchange.Code)
+			require.Empty(t, wrongExchange.Result().Cookies())
+			var ownersBeforeClaim int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM self_host_owners`).Scan(&ownersBeforeClaim))
+			require.Zero(t, ownersBeforeClaim)
 			exchangeRequest := httptest.NewRequest(http.MethodGet, origin+"/setup?token="+url.QueryEscape(u.Query().Get("token")), nil)
 			exchangeRequest.RemoteAddr = "127.0.0.1:1234"
 			exchange := httptest.NewRecorder()
