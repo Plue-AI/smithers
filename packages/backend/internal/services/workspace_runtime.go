@@ -187,10 +187,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunning(ctx context.Context, ro
 	})
 	if err != nil && s.machineAdmission != nil {
 		if runtime, ok := s.runtime.(interface{ CancelFailedAdmission(string, string) }); ok {
-			actor := machineQueueHolder(row.ID)
-			if requesterID != row.UserID {
-				actor = fmt.Sprintf("person:%d", requesterID)
-			}
+			_, actor := machineDemand(ctx, row, requesterID)
 			runtime.CancelFailedAdmission(machineQueueHolder(row.ID), actor)
 		}
 	}
@@ -338,10 +335,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 	defer func() {
 		if resultErr != nil && s.machineAdmission != nil {
 			if runtime, ok := s.runtime.(interface{ CancelFailedAdmission(string, string) }); ok {
-				actor := machineQueueHolder(row.ID)
-				if requesterID != row.UserID {
-					actor = fmt.Sprintf("person:%d", requesterID)
-				}
+				_, actor := machineDemand(ctx, row, requesterID)
 				runtime.CancelFailedAdmission(machineQueueHolder(row.ID), actor)
 			}
 		}

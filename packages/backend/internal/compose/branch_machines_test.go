@@ -173,7 +173,7 @@ esac
 	observed, err := runtime.InspectWorkspace(ctx, row.ID)
 	require.NoError(t, err)
 	require.Equal(t, workspace.WorkspaceStopped, observed.State)
-	svc := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)))
+	svc := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())), services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)))
 	cfg := testConfigAllFlagsOn()
 	server := httptest.NewUnstartedServer(nil)
 	t.Cleanup(server.Close)
@@ -230,6 +230,43 @@ esac
 	runtime.CancelAdmission(holder, holder, time.Now())
 	read(0)
 	require.Zero(t, runtime.InUse(), "reads never wake machines")
+	// A failed owner terminal wake must withdraw its person demand, preserving
+	// a TODO on the same branch and the other person's queue position. This is
+	// the existing workspace-session HTTP door, not a full C-MCH-11 journey.
+	_, err = q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "suspended"})
+	require.NoError(t, err)
+	svc.EnableMachineAdmission(nil) // unavailable disk provider refuses before VM boot
+	_, err = runtime.Request("todo", holder, holder, "machine")
+	require.NoError(t, err)
+	_, err = runtime.Request("person", "workspace:other", "person:2", "terminal")
+	require.NoError(t, err)
+	request := httptest.NewRequest("POST", origin+"/api/repos/admissionowner/fixture/workspace/sessions", strings.NewReader(fmt.Sprintf(`{"workspace_id":%q}`, row.ID)))
+	request.RemoteAddr = "127.0.0.1:1234"
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", origin)
+	request.Header.Set("X-CSRF-Token", "csrf")
+	request.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+	request.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	require.Equal(t, 503, response.Code, response.Body.String())
+	rows := runtime.AdmissionSnapshot()
+	require.Len(t, rows, 3)
+	require.Equal(t, "waiting", rows[0].State)
+	require.Equal(t, 2, rows[0].Position)
+	require.Equal(t, "waiting", rows[1].State)
+	require.Equal(t, 1, rows[1].Position)
+	require.Equal(t, fmt.Sprintf("person:%d", owner.ID), rows[2].Actor)
+	require.Equal(t, "cancelled", rows[2].State)
+	_, err = q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "starting"})
+	require.NoError(t, err)
+	read(2)
+	runtime.CancelAdmission("workspace:other", "person:2", time.Now())
+	read(1)
+	runtime.CancelAdmission(holder, holder, time.Now())
+	read(0)
+	require.Zero(t, runtime.InUse(), "failed terminal wake never boots a VM")
+
 	// The Home card uses the same owner capacity and runtime accounting as
 	// admission, rather than counting only the machines visible on TODO cards.
 	header := http.Header{"Origin": []string{origin}, "Cookie": []string{"smithers_session=" + token}}
