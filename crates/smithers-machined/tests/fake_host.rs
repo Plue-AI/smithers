@@ -289,13 +289,20 @@ fn document_dispatch_rejects_untrusted_envelopes_before_provider() {
         assert_eq!(output, [0, 0, 0, 7, 4, 0, 0, 0, 9, 255, 0, 0, 0, 2, 1, 2]);
     }
     assert!(provider.0.lock().unwrap().is_empty());
-    for name in ["doc-input", "doc-awareness-input"] {
+    // Retained v1 records still decode, but cannot enter a live v2 provider.
+    let legacy = fixture("doc-input");
+    Frame::decode(&legacy).unwrap();
+    let mut output = vec![];
+    rpc::serve_one(&mut Cursor::new(legacy), &mut output, &mut cx).unwrap();
+    assert_eq!(output, [0, 0, 0, 7, 4, 0, 0, 0, 9, 255, 0, 0, 0, 2, 1, 2]);
+    assert!(provider.0.lock().unwrap().is_empty());
+    for name in ["doc-input-v2", "doc-awareness-input"] {
         let mut output = vec![];
         rpc::serve_one(&mut Cursor::new(fixture(name)), &mut output, &mut cx).unwrap();
     }
     let seen = provider.0.lock().unwrap();
     assert_eq!(seen.len(), 2);
-    assert_eq!(seen[0], Frame::decode(&fixture("doc-input")).unwrap());
+    assert_eq!(seen[0], Frame::decode(&fixture("doc-input-v2")).unwrap());
     assert_eq!(
         seen[1],
         Frame::decode(&fixture("doc-awareness-input")).unwrap()
