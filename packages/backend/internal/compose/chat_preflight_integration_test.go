@@ -64,7 +64,7 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 	defer provider.Close()
 	sum := sha256.Sum256([]byte("composed-context-session"))
 	credential := middleware.Credential{SessionHash: hex.EncodeToString(sum[:])}
-	var revision string
+	var revision, itemRevision string
 	var memberID int64
 	local := startConfiguredLocalChat(t, func(local *localChat, options *chat.RuntimeOptions) {
 		q := db.New(local.pool)
@@ -79,8 +79,8 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 		require.NoError(t, local.pool.QueryRow(local.ctx, `INSERT INTO users(username,lower_username) VALUES('ben','ben') RETURNING id`).Scan(&memberID))
 		_, err = local.pool.Exec(local.ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, local.repoID, memberID)
 		require.NoError(t, err)
-		reader, commit := composedContextSources(t, local)
-		revision = commit
+		reader, commit, candidate := composedContextSources(t, local)
+		revision, itemRevision = commit, candidate
 		options.ContextRepository = reader.Read
 		seedComposedContextHistory(t, local, memberID)
 	})
@@ -263,11 +263,76 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 	var machines int
 	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, local.repoID).Scan(&machines))
 	require.Zero(t, machines, "source reads must never admit a machine")
+	// The sleeping item has an older workspace head, but its accepted candidate
+	// names different bytes. Read that candidate through the same public route.
+	workspaceID, itemID := uuid.NewString(), uuid.NewString()
+	_, err = local.pool.Exec(local.ctx, `INSERT INTO workspaces(id,repository_id,user_id,status,target_bookmark,head_commit_id)
+      VALUES($1,$2,$3,'stopped','smithers/retry',$4)`, workspaceID, local.repoID, memberID, revision)
+	require.NoError(t, err)
+	_, err = local.pool.Exec(local.ctx, `INSERT INTO mythical_items(id,repository_id,source,title,state,workspace_id,candidate_base,candidate_head,candidate_verified,revisions)
+      VALUES($1,$2,'todo','Repair retries','waiting',$3,$4,$5,true,'[]')`, itemID, local.repoID, workspaceID, revision, itemRevision)
+	require.NoError(t, err)
+	_, err = local.pool.Exec(local.ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES($1,$2,$3,'coding')`, workspaceID, local.repoID, itemID)
+	require.NoError(t, err)
+	for _, snapshot := range []bool{true, false} {
+		if !snapshot {
+			_, err = local.pool.Exec(local.ctx, `UPDATE mythical_items SET candidate_head='',candidate_base='',candidate_verified=false WHERE id=$1`, itemID)
+			require.NoError(t, err)
+		}
+		payload, _ := json.Marshal(map[string]string{"prompt": "Where do we retry webhooks?", "idempotencyKey": fmt.Sprintf("item-snapshot-%t", snapshot)})
+		response, err := client.Post(public.URL+"/api/conversations/"+workspaceID+"/prompt", "application/json", strings.NewReader(string(payload)))
+		require.NoError(t, err)
+		raw, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, http.StatusAccepted, response.StatusCode, string(raw))
+		var admitted struct {
+			TurnID string `json:"turnId"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &admitted))
+		require.Eventually(t, func() bool {
+			var terminal bool
+			err := local.pool.QueryRow(local.ctx, `SELECT terminal,state FROM chat_turns WHERE id=$1`, admitted.TurnID).Scan(&terminal, &state)
+			return err == nil && terminal
+		}, 20*time.Second, 20*time.Millisecond)
+		require.Equal(t, "completed", state)
+		require.Len(t, calls, 2)
+		selection, answer := <-calls, <-calls
+		require.Equal(t, "coding", selection.role)
+		require.Equal(t, "answer", answer.role)
+		require.NotContains(t, selection.body, "export const retries = 3")
+		require.NotContains(t, answer.body, "export const retries = 3")
+		shared, err := local.composition.runtime.Handler.Store.SharedEntries(local.ctx, chat.Scope{UserID: memberID, RepositoryID: local.repoID, Owner: "ben"}, workspaceID)
+		require.NoError(t, err)
+		entry := shared.Entries[len(shared.Entries)-1]
+		require.NotNil(t, entry.Context)
+		if snapshot {
+			require.Contains(t, answer.body, "export const retries = 7")
+			require.Len(t, *entry.Context, 1)
+			require.JSONEq(t, `{"kind":"file","label":"retry.ts","ref":"src/webhooks/retry.ts","revision":"`+itemRevision+`","reason":"Retry implementation"}`, string((*entry.Context)[0]))
+		} else {
+			require.NotContains(t, selection.body, "export const retries = 7")
+			require.NotContains(t, answer.body, "export const retries = 7")
+			for _, raw := range *entry.Context {
+				var item struct {
+					Kind string `json:"kind"`
+				}
+				require.NoError(t, json.Unmarshal(raw, &item))
+				require.NotEqual(t, "file", item.Kind)
+			}
+		}
+		var machineState string
+		require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT status FROM workspaces WHERE id=$1`, workspaceID).Scan(&machineState))
+		require.Equal(t, "stopped", machineState)
+		require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, local.repoID).Scan(&machines))
+		require.Equal(t, 1, machines, "snapshot reads must not create another machine")
+	}
+
 }
 
 // Reuse the composed chat harness and create its real repository-store input.
 // jj captures ordinary bytes; no repository tool, plugin or guest is executed.
-func composedContextSources(t *testing.T, local *localChat) (services.InstallContext, string) {
+func composedContextSources(t *testing.T, local *localChat) (services.InstallContext, string, string) {
 	t.Helper()
 	library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	if library == "" {
@@ -310,6 +375,12 @@ func composedContextSources(t *testing.T, local *localChat) (services.InstallCon
 	jj("bookmark", "create", "main", "-r", "@")
 	revision := jj("log", "--no-graph", "-r", "@", "-T", "commit_id")
 	require.Regexp(t, `^[a-f0-9]{40}$`, revision)
+	jj("new", "@")
+	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "src/webhooks/retry.ts"), []byte("export const retries = 7"), 0644))
+	jj("describe", "-m", "Accepted item candidate fixture")
+	candidate := jj("log", "--no-graph", "-r", "@", "-T", "commit_id")
+	require.Regexp(t, `^[a-f0-9]{40}$`, candidate)
+	require.NotEqual(t, revision, candidate)
 	server, err := repohostserver.NewWithFFI(cfg, native)
 	require.NoError(t, err)
 	httpServer := httptest.NewServer(server.Handler())
@@ -329,7 +400,8 @@ func composedContextSources(t *testing.T, local *localChat) (services.InstallCon
 	require.NoError(t, err)
 	_, err = wiki.CreateWikiPage(private, local.actor, "chatowner", "chatrepo", services.CreateWikiPageInput{Title: "Private page", Slug: "private", Body: "private-wiki-canary"})
 	require.NoError(t, err)
-	return services.InstallContext{Source: services.InstallSource{Pool: local.pool, Repos: services.NewRepoService(q, client, ""), Members: identity.NewMemberBoundary(q)}, Wiki: wiki}, revision
+	branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(local.pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)))
+	return services.InstallContext{Source: services.InstallSource{Pool: local.pool, Repos: services.NewRepoService(q, client, ""), Members: identity.NewMemberBoundary(q)}, Wiki: wiki, Branches: branches}, revision, candidate
 }
 
 func seedComposedContextHistory(t *testing.T, local *localChat, author int64) {

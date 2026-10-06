@@ -331,3 +331,81 @@ func TestInstallContextRechecksItemAccessAndRejectsMutableHeads(t *testing.T) {
 	require.Nil(t, raw)
 	require.Equal(t, 2, calls)
 }
+
+func TestInstallContextItemCandidateBindingAndInvalidation(t *testing.T) {
+	f, reader, credential := nativeContext(t)
+	ctx := t.Context()
+	const workspace = "a3039070-cfd0-4530-9f66-ed39ed449118"
+	const item = "d477d7cc-f831-4895-a4bf-100b48a068fd"
+	reader.Branches = contextBranches(func(context.Context, string, int64, int64) (db.Workspace, error) {
+		return db.Workspace{ID: workspace, TargetBookmark: "smithers/retry", Status: "stopped", HeadCommitID: f.commit}, nil
+	})
+	_, err := f.pool.Exec(ctx, `INSERT INTO mythical_items(id,repository_id,source,title,state,workspace_id,candidate_base,candidate_head,candidate_verified,revisions)
+      VALUES($1,$2,'todo','Retry','queued',$3,$4,$4,true,'[]')`, item, f.mirror, workspace, f.commit)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES($1,$2,$3,'coding')`, workspace, f.mirror, item)
+	require.NoError(t, err)
+	read := func() (json.RawMessage, error) { return reader.Read(ctx, credential, f.member.ID, f.mirror, workspace) }
+	raw, err := read()
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "JOURNEY.md")
+	for _, test := range []struct {
+		name, sql string
+		want      error
+	}{
+		{"unverified", `UPDATE mythical_items SET candidate_verified=false WHERE id=$1`, nil},
+		{"missing", `UPDATE mythical_items SET candidate_head='' WHERE id=$1`, nil},
+		{"mutable head", `UPDATE mythical_items SET candidate_head='main' WHERE id=$1`, ErrSourceNotReady},
+		{"mutable base", `UPDATE mythical_items SET candidate_base='main' WHERE id=$1`, ErrSourceNotReady},
+		{"other attempt", `UPDATE mythical_items SET workspace_id='other' WHERE id=$1`, ErrSourceForbidden},
+		{"non TODO", `UPDATE mythical_items SET source='chat' WHERE id=$1`, ErrSourceForbidden},
+		{"retired lane", `UPDATE mythical_lanes SET retired_at=now() WHERE item_id=$1`, ErrSourceForbidden},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := f.pool.Exec(ctx, test.sql, item)
+			require.NoError(t, err)
+			raw, err := read()
+			if test.want == nil {
+				require.NoError(t, err)
+				require.NotContains(t, string(raw), "JOURNEY.md", "missing candidate must not use workspace head")
+			} else {
+				require.ErrorIs(t, err, test.want)
+				require.Nil(t, raw)
+			}
+			_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET source='todo',workspace_id=$2,candidate_base=$3,candidate_head=$3,candidate_verified=true WHERE id=$1`, item, workspace, f.commit)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=NULL WHERE item_id=$1`, item)
+			require.NoError(t, err)
+		})
+	}
+	host := &contextPinnedHost{Client: reader.Source.Repos.repoHost.(*repohost.Client)}
+	reader.Source.Repos.repoHost = host
+	host.firstPage = func() {
+		_, err := f.pool.Exec(ctx, `UPDATE mythical_items SET candidate_verified=false WHERE id=$1`, item)
+		require.NoError(t, err)
+	}
+	raw, err = read()
+	require.ErrorIs(t, err, ErrSourceNotReady, "candidate invalidated during IO must not escape the callback")
+	require.Nil(t, raw)
+	for _, table := range []string{"mythical_lanes", "mythical_items"} {
+		t.Run("other repository "+table, func(t *testing.T) {
+			key := "id"
+			if table == "mythical_lanes" {
+				key = "item_id"
+			}
+			// Table and key are fixed test literals, never request input.
+			_, err := f.pool.Exec(ctx, "UPDATE "+table+" SET repository_id=$2 WHERE "+key+"=$1", item, f.other)
+			require.NoError(t, err)
+			raw, err := read()
+			require.ErrorIs(t, err, ErrSourceForbidden)
+			require.Nil(t, raw)
+			_, err = f.pool.Exec(ctx, "UPDATE "+table+" SET repository_id=$2 WHERE "+key+"=$1", item, f.mirror)
+			require.NoError(t, err)
+		})
+	}
+	_, err = f.pool.Exec(ctx, `DELETE FROM mythical_lanes WHERE item_id=$1`, item)
+	require.NoError(t, err)
+	raw, err = read()
+	require.Error(t, err, "a missing lane must refuse rather than return its workspace head")
+	require.Nil(t, raw)
+}

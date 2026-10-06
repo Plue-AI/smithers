@@ -51,9 +51,12 @@ func (s InstallContext) Read(ctx context.Context, credential middleware.Credenti
 			return nil, e
 		}
 		state = branchMachineState(row)
-		// Never substitute main or source_commit for a missing captured item head.
-		// The snapshot's commit is read from the repository store, not a live guest.
-		revision = row.HeadCommitID
+		// A TODO's accepted candidate is separate from its workspace head.
+		// Never substitute that head, source_commit or main when it is missing.
+		revision, err = s.branchRevision(ctx, row, repository.ID)
+		if err != nil {
+			return nil, err
+		}
 		if revision != "" && !immutableCommitSHA(revision) {
 			return nil, ErrSourceNotReady
 		}
@@ -106,11 +109,50 @@ func (s InstallContext) Read(ctx context.Context, credential middleware.Credenti
 		return nil, err
 	}
 	if branch != "main" {
-		if _, err = s.Branches.PresenceBranch(ctx, branch, repository.ID, userID); err != nil {
-			return nil, err
+		row, e := s.Branches.PresenceBranch(ctx, branch, repository.ID, userID)
+		if e != nil {
+			return nil, e
+		}
+		current, e := s.branchRevision(ctx, row, repository.ID)
+		if e != nil {
+			return nil, e
+		}
+		if current != revision {
+			return nil, ErrSourceNotReady
 		}
 	}
 	return json.Marshal(map[string]any{"state": state, "candidates": candidates, "tokenBudget": budget})
+}
+
+// branchRevision reuses the stack's accepted candidate for S1 item branches.
+// Candidate verification and immutable object reads are the same prerequisites
+// used by TODOBranchDiff. A missing candidate contributes no file context.
+func (s InstallContext) branchRevision(ctx context.Context, row db.Workspace, repositoryID int64) (string, error) {
+	if branchKind(row.TargetBookmark) != "item" {
+		return row.HeadCommitID, nil
+	}
+	q := db.New(s.Source.Pool)
+	lane, err := q.GetMythicalLane(ctx, row.ID)
+	if err != nil {
+		return "", err
+	}
+	if lane.RepositoryID != repositoryID || lane.RetiredAt.Valid {
+		return "", ErrSourceForbidden
+	}
+	item, err := q.GetMythicalItem(ctx, lane.ItemID)
+	if err != nil {
+		return "", err
+	}
+	if item.RepositoryID != repositoryID || item.WorkspaceID != row.ID || item.Source != "todo" || !item.Number.Valid {
+		return "", ErrSourceForbidden
+	}
+	if !item.CandidateVerified || item.CandidateHead == "" {
+		return "", nil
+	}
+	if !immutableCommitSHA(item.CandidateHead) || !immutableCommitSHA(item.CandidateBase) {
+		return "", ErrSourceNotReady
+	}
+	return item.CandidateHead, nil
 }
 
 func (s InstallContext) files(ctx context.Context, owner string, repository db.Repository, member *db.User, revision string) ([]map[string]any, error) {
