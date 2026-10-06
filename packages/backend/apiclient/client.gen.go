@@ -1227,6 +1227,28 @@ type ExternalSessionReadOwner struct {
 	Name  string `json:"name"`
 }
 
+// NamedFlowRunRequest is generated from docs/api/openapi.yaml.
+type NamedFlowRunRequest struct {
+	Name        *string                    `json:"name,omitempty"`
+	WorkspaceID string                     `json:"workspaceId"`
+	Input       map[string]json.RawMessage `json:"input,omitempty"`
+}
+
+// FlowRunRequest is generated from docs/api/openapi.yaml.
+type FlowRunRequest = json.RawMessage
+
+// FlowRunReceipt is generated from docs/api/openapi.yaml.
+type FlowRunReceipt struct {
+	OperationID string    `json:"operationId"`
+	RequestID   string    `json:"requestId"`
+	Kind        string    `json:"kind"`
+	State       string    `json:"state"`
+	AcceptedAt  time.Time `json:"acceptedAt"`
+	RunID       *string   `json:"runId,omitempty"`
+	Code        *string   `json:"code,omitempty"`
+	Class       *string   `json:"class,omitempty"`
+}
+
 // FlowCard is generated from docs/api/openapi.yaml.
 type FlowCard struct {
 	Name     string                 `json:"name"`
@@ -3026,10 +3048,31 @@ func (c *Client) GetAPIFlows(ctx context.Context) ([]FlowCard, error) {
 	return out, err
 }
 
+// PostAPIFlows calls POST /api/flows.
+func (c *Client) PostAPIFlows(ctx context.Context, idempotencyKey string, body any) (FlowRunReceipt, error) {
+	var out FlowRunReceipt
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/flows", nil, body, &out)
+	return out, err
+}
+
 // GetAPIFlowsName calls GET /api/flows/{name}.
 func (c *Client) GetAPIFlowsName(ctx context.Context, name string) (FlowCard, error) {
 	var out FlowCard
 	err := c.do(ctx, "GET", "/api/flows/"+url.PathEscape(name), nil, nil, &out)
+	return out, err
+}
+
+// PostAPIFlowsNameRun calls POST /api/flows/{name}/run.
+func (c *Client) PostAPIFlowsNameRun(ctx context.Context, name string, idempotencyKey string, body NamedFlowRunRequest) (FlowRunReceipt, error) {
+	var out FlowRunReceipt
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/flows/"+url.PathEscape(name)+"/run", nil, body, &out)
+	return out, err
+}
+
+// GetAPIFlowsRunsID calls GET /api/flows/runs/{id}.
+func (c *Client) GetAPIFlowsRunsID(ctx context.Context, id string) (FlowRunReceipt, error) {
+	var out FlowRunReceipt
+	err := c.do(ctx, "GET", "/api/flows/runs/"+url.PathEscape(id), nil, nil, &out)
 	return out, err
 }
 
