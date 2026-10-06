@@ -25,6 +25,12 @@ import (
 // Uses the existing compiled test-backend entry and real production composition.
 // The process runtime is tests-only; this never qualifies VM recipe isolation.
 func TestInstallSetupCompiledHostRestart(t *testing.T) {
+	for _, boundary := range []string{"running admission", "address effect"} {
+		t.Run(boundary, func(t *testing.T) { testInstallSetupCompiledHostRestart(t, boundary) })
+	}
+}
+
+func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	if os.Getenv("SMITHERS_FFI_LIBRARY_PATH") == "" {
 		t.Skip("SMITHERS_FFI_LIBRARY_PATH required for compiled host restart")
 	}
@@ -126,14 +132,20 @@ func TestInstallSetupCompiledHostRestart(t *testing.T) {
 	response, err := client.Get(origin + setupURL.RequestURI())
 	require.NoError(t, err)
 	response.Body.Close()
-	// Hold completion's transaction after the external address action, using
-	// a test-owned PostgreSQL lock. Running admission has already committed.
+	// Hold the selected crash boundary using a test-owned PostgreSQL lock.
+	// Running admission commits before either worker claim or completion.
 	lock, err := pool.Acquire(ctx)
 	require.NoError(t, err)
 	defer lock.Release()
 	_, err = lock.Exec(ctx, `SELECT pg_advisory_lock(90345506)`)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `CREATE FUNCTION hold_setup_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.key='setup.step.address' AND NEW.value->>'status'='done' THEN PERFORM pg_advisory_xact_lock(90345506); END IF; RETURN NEW; END $$; CREATE TRIGGER hold_setup_completion BEFORE UPDATE ON install_settings FOR EACH ROW EXECUTE FUNCTION hold_setup_completion()`)
+	barrierTable := "install_settings"
+	if boundary == "running admission" {
+		barrierTable = "product_job_dispatches"
+		_, err = pool.Exec(ctx, `CREATE FUNCTION hold_setup_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.claim_token IS NOT NULL THEN PERFORM pg_advisory_xact_lock(90345506); END IF; RETURN NEW; END $$; CREATE TRIGGER hold_setup_completion BEFORE UPDATE ON product_job_dispatches FOR EACH ROW EXECUTE FUNCTION hold_setup_completion()`)
+	} else {
+		_, err = pool.Exec(ctx, `CREATE FUNCTION hold_setup_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.key='setup.step.address' AND NEW.value->>'status'='done' THEN PERFORM pg_advisory_xact_lock(90345506); END IF; RETURN NEW; END $$; CREATE TRIGGER hold_setup_completion BEFORE UPDATE ON install_settings FOR EACH ROW EXECUTE FUNCTION hold_setup_completion()`)
+	}
 	require.NoError(t, err)
 	post := func(key string) jobs.RequestReceipt {
 		request, err := http.NewRequestWithContext(ctx, "POST", origin+"/api/install/setup/address", strings.NewReader(`{"bind":"","origins":["http://localhost:4000"]}`))
@@ -160,13 +172,25 @@ func TestInstallSetupCompiledHostRestart(t *testing.T) {
 		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=90345506 AND NOT granted)`).Scan(&held)
 		return err == nil && held
 	}, 10*time.Second, 20*time.Millisecond)
+	var before struct {
+		Status      string `json:"status"`
+		OperationID string `json:"operation_id"`
+	}
+	var stored []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT value FROM install_settings WHERE key='setup.step.address'`).Scan(&stored))
+	require.NoError(t, json.Unmarshal(stored, &before))
+	require.Equal(t, "running", before.Status)
+	require.Equal(t, admitted.OperationID, before.OperationID)
+	var externalStarted bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT external_started_at IS NOT NULL FROM product_job_dispatches WHERE operation_id=$1`, admitted.OperationID).Scan(&externalStarted))
+	require.Equal(t, boundary == "address effect", externalStarted)
 	require.NoError(t, command.Process.Kill())
 	require.Error(t, command.Wait())
 	_, err = lock.Exec(ctx, `SELECT pg_advisory_unlock(90345506)`)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `DROP TRIGGER hold_setup_completion ON install_settings; DROP FUNCTION hold_setup_completion()`)
+	_, err = pool.Exec(ctx, `DROP TRIGGER hold_setup_completion ON `+barrierTable+`; DROP FUNCTION hold_setup_completion()`)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE operation_id=$1`, admitted.OperationID)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE operation_id=$1 AND status='claimed'`, admitted.OperationID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb(clock_timestamp()-interval '1 second')) WHERE key='setup.step.address'`)
 	require.NoError(t, err)
