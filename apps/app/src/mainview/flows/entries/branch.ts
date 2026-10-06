@@ -6,6 +6,8 @@
  */
 import { Schema } from "effect"
 import { TodoPlacementSchema } from "@smthrs/rpc/CardAction"
+import { copyText } from "@smthrs/ui"
+import type { CommandGesture } from "../CommandGesture"
 import { z } from "zod"
 import { flow, type CommandActions, type CommandResult } from "./Declare"
 import type { FlowEntry } from "../registry"
@@ -113,18 +115,25 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
       } }),
     flow({ name: "ssh", agent: "never",   slash: "/ssh", cli: null, journey: ["J3"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: null, summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), input: BranchInput,
-      handler: ({ branch }) => {
+      handler: async ({ branch }, _signal, _call, gesture?: CommandGesture) => {
+        const copy = async (result: CommandResult): Promise<CommandResult> => {
+          if (result && typeof result === "object" && "value" in result && (gesture?.copyText || typeof document !== "undefined")) {
+            const copied = await copyText(result.value, gesture?.copyText)
+            if (!copied.ok) return "Copy failed"
+          }
+          return result
+        }
         if (actions.live || actions.bootstrap?.capabilities.includes("install")) {
           const snapshot = actions.live?.getSnapshot(`branch:${branch}`)
           const decoded = !snapshot?.error && z.object({ id: z.literal(branch), ssh_line: z.string().min(1) }).safeParse(snapshot?.data)
-          if (decoded && decoded.success) return { value: decoded.data.ssh_line }
-          if (!snapshot?.error && actions.branchSshLine) return actions.branchSshLine(branch)
+          if (decoded && decoded.success) return copy({ value: decoded.data.ssh_line })
+          if (!snapshot?.error && actions.branchSshLine) return copy(await actions.branchSshLine(branch, _signal))
           if (actions.design.enabled === false || actions.bootstrap?.capabilities.includes("install")
             || (snapshot?.error && snapshot.error !== "unsupported" && snapshot.error !== "unknown_topic")) return "Branch unavailable"
         }
         if (actions.design.enabled === false) return "Branch unavailable"
         const target = branchOf(branch)
-        return target === undefined ? `No branch ${branch}` : { value: designSshLine(design.world(), target) }
+        return copy(target === undefined ? `No branch ${branch}` : { value: designSshLine(design.world(), target) })
       } })
   ]
 }

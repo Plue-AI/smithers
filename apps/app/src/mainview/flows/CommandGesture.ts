@@ -47,7 +47,7 @@ export const reserveBrowserCommandGesture = (name: string): CommandGesture | und
       release: () => { if (!consumed) popup?.close() }
     }
   }
-  if (name !== "chat.copy-message") return undefined
+  if (name !== "chat.copy-message" && name !== "ssh") return undefined
   const reserved = reserveCopyText()
   return reserved ? { name, ...reserved } : undefined
 }

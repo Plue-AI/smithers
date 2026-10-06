@@ -43,7 +43,7 @@ test("missing provider or malformed metadata never attaches or writes", () => {
 
 test("discovery ignores unavailable, malformed, stale identity and disposed branch reads", async () => {
   const { createTerminalSource } = await import("./TerminalSeam")
-  for (const response of [new Response("denied", { status: 403 }), Response.json({ branches: [{ id: "b1" }] }), Response.json([{ id: "" }])]) {
+  for (const response of [new Response("denied", { status: 403 }), Response.json({ branches: [{ id: "b1" }] }), Response.json([{ id: "" }]), Response.json([{ name: "smithers/retry", machine: { id: "" } }])]) {
     let subscriptions = 0
     const provider = createTerminalSource({ repo: () => "o/r", viewer: () => "ben", http: async () => response,
       live: { subscribe: () => { subscriptions++; return () => {} }, getSnapshot: () => undefined } })
