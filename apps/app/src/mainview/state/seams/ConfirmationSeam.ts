@@ -64,6 +64,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
     const row = rows().find(row => row.id === id)
     if (ctx.actor() !== "user" || !scope || !row || row.state !== "pending" || presses.has(id)) return
     const mine = generation, abort = new AbortController()
+    let admitted = false
     presses.set(id, abort)
     // One decision operation per immutable confirmation; retry/reload retains
     // its key. The server additionally binds that key to the browser session.
@@ -85,13 +86,21 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
     void (async () => {
       try {
         const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/confirmations/${encodeURIComponent(id)}/${decision === "approved" ? "approve" : "deny"}`, {
-          method: "POST", credentials: "same-origin", headers: { "Idempotency-Key": key }, signal: abort.signal
+          method: "POST", credentials: "same-origin", headers: { "Idempotency-Key": key, "Content-Type": "application/json" }, signal: abort.signal,
+          body: JSON.stringify({ subject: row.payload.card.subject, revision: row.revision })
         })
         const body: unknown = await response.json()
         if (!current(mine) || abort.signal.aborted) return
         if (!response.ok) {
           const message = body && typeof body === "object" && "message" in body && typeof body.message === "string" ? body.message : "Confirmation unavailable"
           fail(message); return
+        }
+        if (response.status === 202 && body && typeof body === "object" && "id" in body && body.id === id && "state" in body && body.state === "pending") {
+          // Admission is neither failure nor completion. Keep this press and
+          // its running toast until the private topic observes settlement.
+          admitted = true
+          receive()
+          return
         }
         if (!body || typeof body !== "object" || !("id" in body) || body.id !== id || !("state" in body) || body.state !== (decision === "approved" ? "approved" : "rejected")) {
           fail("Confirmation response unavailable"); return
@@ -106,7 +115,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
       } catch (error) {
         if (current(mine) && !abort.signal.aborted) { ctx.report?.("confirmations.press", error); fail("Confirmation unavailable") }
       } finally {
-        if (presses.get(id) === abort) presses.delete(id)
+        if (!admitted && presses.get(id) === abort) presses.delete(id)
       }
     })()
   }

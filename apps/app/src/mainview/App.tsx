@@ -1,3 +1,4 @@
+import { useTodoRole } from "./cards/TodoCard"
 import { accountOwnerOf } from "./state/AccountOwner"
 import { renderHomeCard, renderConfirmCard } from "./cards/CardRenderers"
 import { memberConfirmations, memberConfirmCardProps } from "./cards/ApprovalCard"
@@ -148,6 +149,7 @@ function AppContent() {
   const identity = identityRows[0]
   const confirmations = useTopic(identity?.state === "signed-in" && identity.memberId && controller.live
     ? `confirmations:${identity.memberId}` : undefined, controller.live)
+  const confirmationRole = useTodoRole()
   const privateConfirms = confirmations?.error ? [] : memberConfirmations(confirmations?.data)
 
   // The door is already mounted. Restore focus in this gesture, before the
@@ -497,7 +499,7 @@ function AppContent() {
                 if ((tag === "approval.approve" || tag === "approval.deny") && input && "cardId" in input) {
                   controller.runCommand(tag, flowArgs(tag, { cardId: String(input.cardId) }))
                 }
-              }))}
+              }, confirmationRole !== "member"))}
             </MessageScrollerItem>)}
             {!earlier && typing && <ChatMessage role="assistant" pending pendingLabel="Smithers is responding" />}
             </MessageScrollerContent>

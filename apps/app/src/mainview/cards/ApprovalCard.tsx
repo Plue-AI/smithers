@@ -28,15 +28,15 @@ export const memberConfirmations = (data: unknown): readonly MemberConfirmation[
 }
 
 /** The initiating tag is presentation only; the press always uses a person decision flow. */
-export const memberConfirmCardProps = (row: MemberConfirmation, dispatch: CardCommandDispatch): ConfirmViewProps => {
+export const memberConfirmCardProps = (row: MemberConfirmation, dispatch: CardCommandDispatch, mayMerge = false): ConfirmViewProps => {
   let model = row.payload.card
   if (row.state === "expired") {
     const by = model.asked_by.kind === "person" ? model.asked_by : model.asked_by.kind === "agent" ? model.asked_by.for_member : undefined
     if (by) model = { ...model, receipt: { by, result: "expired", at: row.decided_at ?? row.expires_at, text: "Expired" } }
   }
   const pending = row.state === "pending" && !model.receipt
-  const disabled = model.kind === "review_merge" && model.review?.merge.state !== "ready"
-    ? { reason: model.review?.merge.reason === "rechecking" ? "Checks running" : "Merge unavailable" } : undefined
+  const disabled = model.kind === "review_merge" && (!mayMerge || model.review?.merge.state !== "ready")
+    ? { reason: mayMerge ? "" : "A maintainer merges" } : undefined
   return { model, view: { maximized: false }, onView: () => {},
     ...cardActions(dispatch, pending ? [
       { tag: "approval.approve", label: model.action.verb, primary: true, command_input: { cardId: `confirmation:${row.id}` }, ...(disabled ? { disabled } : {}) },

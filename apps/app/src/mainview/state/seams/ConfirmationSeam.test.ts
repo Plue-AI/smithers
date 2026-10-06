@@ -120,3 +120,42 @@ test.each([{}, { id: "another", state: "approved" }, { id, state: "pending" }])(
   try { h.seam.decide(id, "approved"); await waitFor(() => h.outcomes.length === 1); expect(h.outcomes[0]).toMatchObject({ status: "failed" }); expect(h.observed).toEqual([]) }
   finally { h.seam.dispose() }
 })
+
+test("202 admission keeps the mounted card's press running until the private subject observation", async () => {
+  const { memberConfirmCardProps } = await import("../../cards/ApprovalCard")
+  let calls = 0
+  const h = await harness(async (_path, init) => {
+    calls++
+    expect(JSON.parse(String(init?.body))).toEqual({ subject: { kind: "todo", ref: "T12", revision: "item:2" }, revision: "item:2" })
+    return Response.json({ id, state: "pending" }, { status: 202 })
+  })
+  try {
+    const props = memberConfirmCardProps(pending, (tag, input) => {
+      expect(String(tag)).toBe("approval.approve")
+      expect(input as unknown).toEqual({ cardId: `confirmation:${id}` })
+      h.seam.decide(id, "approved")
+    })
+    props.onAction("approval.approve")
+    await waitFor(() => h.store.collections.toasts.size === 1)
+    await settle()
+    props.onAction("approval.approve")
+    expect(calls).toBe(1)
+    expect(h.outcomes).toEqual([])
+    expect(h.observed).toEqual([])
+    h.publish({ topic: "confirmations:17", data: [{ ...pending, state: "approved", payload: { ...pending.payload, effect: { todo: 12, request: `confirmation:${id}` } } }] })
+    await waitFor(() => h.observed.length === 1)
+    // The existing TODO observer, not the admission response, owns completion.
+    expect(h.outcomes).toEqual([])
+  } finally { h.seam.dispose() }
+})
+
+test.each(["todo", "branch", "flow", "agent", "wiki"] as const)("%s press carries the exact subject and bound revision", async kind => {
+  let body: unknown
+  const h = await harness(async (_path, init) => { body = JSON.parse(String(init?.body)); return Response.json({ id, state: "pending" }, { status: 202 }) })
+  try {
+    h.publish({ topic: "confirmations:17", data: [{ ...pending, payload: { ...pending.payload, card: { ...pending.payload.card, subject: { kind, ref: "subject", revision: "revision-2" } } } }] })
+    h.seam.decide(id, "approved")
+    await waitFor(() => body !== undefined)
+    expect(body).toEqual({ subject: { kind, ref: "subject", revision: "revision-2" }, revision: "item:2" })
+  } finally { h.seam.dispose() }
+})

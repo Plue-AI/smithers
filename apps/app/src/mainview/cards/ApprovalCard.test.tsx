@@ -126,3 +126,20 @@ test("legacy rows stay unmounted even when a decision callback exists", () => {
   expect(approvalCardFamily.approval.render(card, actions)).toBeNull()
   expect(effects).toBe(0)
 })
+
+test("Review & merge requires the viewer role and the server's readiness, including optional failures", () => {
+  const id = "10000000-0000-4000-8000-000000000001"
+  const model = fixtures.review_merge.model
+  for (const mayMerge of [false, true]) for (const ready of [false, true]) {
+    const [row] = memberConfirmations([{ id, state: "pending", command: "merge", revision: "generation-2:head", expires_at: "2099-01-01T00:00:00Z", payload: { input: {}, card: {
+      ...model, review: { ...model.review!, merge: ready ? { state: "ready", on_github: true } : { state: "waiting", reason: "rechecking", on_github: true },
+        evidence: { ...model.review!.evidence, items: [
+          { kind: "github_check", name: "required-ci", required: true, state: ready ? "passed" : "pending", url: "https://github.com/acme/api/actions/runs/1" },
+          { kind: "github_check", name: "optional-ci", required: false, state: "failed", url: "https://github.com/acme/api/actions/runs/2" }
+        ] } }
+    } } }])
+    const props = memberConfirmCardProps(row!, () => {}, mayMerge)
+    expect(props.actions[0]?.disabled === undefined).toBe(mayMerge && ready)
+    expect(props.actions[1]?.tag).toBe("approval.deny")
+  }
+})
