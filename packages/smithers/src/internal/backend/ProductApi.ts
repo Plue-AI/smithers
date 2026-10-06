@@ -1852,10 +1852,7 @@ export const postApiConfirmations = (transport: Transport, input: PostApiConfirm
 
 export type PostApiConfirmationsIdApproveResponse = {
   id: string
-  state: "approved"
-} | {
-  id: string
-  state: "pending"
+  state: "approved" | "pending"
 }
 
 export interface PostApiConfirmationsIdApproveInput {

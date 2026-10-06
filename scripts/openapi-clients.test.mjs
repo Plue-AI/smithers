@@ -121,6 +121,21 @@ test("malformed operations are refused", () => {
   refuse({ "/a": { get: { operationId: "x", responses: { "200": { $ref: "#/components/responses/Missing" } } } } }, /x 200 is missing/)
 })
 
+test("JSON success variants retain typed shared fields and union different shapes", () => {
+  const reply = state => ({type:"object",required:["id","state"],properties:{id:{type:"string"},state:{type:"string",enum:[state]}}})
+  const fixture = document({"/approve":{post:{operationId:"approve",responses:{"200":json(reply("approved")),"202":json(reply("pending"))}}}})
+  const merged = operations(fixture)[0].success.schema
+  assert.deepEqual(merged.properties.state.enum,["approved","pending"])
+  assert.match(typescript(fixture), /"approved" \| "pending"/)
+  assert.match(go(fixture), /type ApproveResponse struct/)
+  const variants = document({"/variants":{get:{operationId:"variants",responses:{"200":json({type:"string"}),"201":json({type:"integer"}),"204":{description:"empty"}}}}})
+  assert.deepEqual(operations(variants)[0].success,{kind:"json",schema:{anyOf:[{type:"string"},{type:"integer"}]},empty:true})
+  assert.match(typescript(variants), /string \| number/)
+  assert.match(go(variants), /json.RawMessage/)
+  const same = document({"/same":{get:{operationId:"same",responses:{"200":json(reply("approved")),"202":json(reply("approved"))}}}})
+  assert.deepEqual(operations(same)[0].success.schema,reply("approved"))
+})
+
 const sample = document({
   "/api/keys/{id}": {
     get: {
@@ -297,8 +312,8 @@ test("approval clients describe both completed and pending JSON success bodies",
   const approved = { type: "object", required: ["state"], properties: { state: { enum: ["approved"] } } }
   const pending = { type: "object", required: ["state"], properties: { state: { enum: ["pending"] } } }
   const doc = document({ "/approve": { post: { operationId: "approve", responses: { "200": json(approved), "202": json(pending) } } } })
-  assert.deepEqual(operations(doc)[0].success.schema, { anyOf: [approved, pending] })
+  assert.deepEqual(operations(doc)[0].success.schema, { type: "object", required: ["state"], properties: { state: { enum: ["approved", "pending"] } } })
   assert.match(typescript(doc), /state: "approved"/)
-  assert.match(typescript(doc), /state: "pending"/)
-  assert.match(go(doc), /json.RawMessage/)
+  assert.match(typescript(doc), /state: "approved" \| "pending"/)
+  assert.match(go(doc), /State string/)
 })

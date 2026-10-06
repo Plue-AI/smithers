@@ -1981,6 +1981,12 @@ type GetAPIBranchesBFilesResponseItem struct {
 	Size *int64 `json:"size,omitempty"`
 }
 
+// PostAPIConfirmationsIDApproveResponse is generated from docs/api/openapi.yaml.
+type PostAPIConfirmationsIDApproveResponse struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
 // GetAPIExternalSessionsParams is the query of GET /api/external/sessions.
 type GetAPIExternalSessionsParams struct {
 	Agent   string
@@ -3164,8 +3170,8 @@ func (c *Client) PostAPIConfirmations(ctx context.Context, idempotencyKey string
 }
 
 // PostAPIConfirmationsIDApprove calls POST /api/confirmations/{id}/approve.
-func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) (json.RawMessage, error) {
-	var out json.RawMessage
+func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) (PostAPIConfirmationsIDApproveResponse, error) {
+	var out PostAPIConfirmationsIDApproveResponse
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/approve", nil, nil, &out)
 	return out, err
 }
