@@ -777,7 +777,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       view: z.enum(["issues", "metrics"]).optional()
     })
   }),
-  z.object({ ...cardBaseShape, kind: z.literal("branch"), payload: z.object({ id: z.string() }) }),
+  z.object({ ...cardBaseShape, kind: z.literal("branch"), payload: z.object({ id: z.string(), tab: z.enum(["activity", "files", "terminals"]).optional() }) }),
   z.object({ ...cardBaseShape, kind: z.literal("terminal"), payload: z.object({ id: z.string() }) }),
   z.object({
     ...cardBaseShape,
@@ -802,6 +802,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
   z.object({ ...cardBaseShape, kind: z.literal("run"), payload: z.object({ id: z.string() }) }),
   z.object({ ...cardBaseShape, kind: z.literal("flow"), payload: z.object({ name: z.string(), version: z.string().optional(), proposal: z.object({ request: z.string(), diff: z.string() }).optional() }) }),
   /* card-kinds.md L5: subject-only kinds; the card file reads its data (T-APP-03, T-APP-06, T-UI-14). */
+  z.object({ ...cardBaseShape, kind: z.literal("setup"), payload: z.object({}) }),
   z.object({ ...cardBaseShape, kind: z.literal("settings"), payload: z.object({}) }),
   z.object({ ...cardBaseShape, kind: z.literal("members"), payload: z.object({}) }),
   z.object({ ...cardBaseShape, kind: z.literal("commands"), payload: z.object({}) }),

@@ -35,10 +35,10 @@ while (!existsSync(join(root, ".jj")) && !existsSync(join(root, ".git"))) {
   if (parent === root) throw new Error("Run commit inside a jj or Git checkout.")
   root = parent
 }
-const run = (command, argv, capture = false) => {
-  const result = spawnSync(command, argv, { cwd: root, encoding: "utf8", stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit" })
+const run = (command, argv, capture = false, environment = process.env) => {
+  const result = spawnSync(command, argv, { cwd: root, encoding: "utf8", env: environment, stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit" })
   if (result.error) throw result.error
-  if (result.status !== 0) throw new Error(`${command} ${argv[0]} failed (${result.status})${capture ? `: ${result.stderr}` : ""}`)
+  if (result.status !== 0) throw new Error(`${command} ${argv[0]} failed (${result.status})${capture ? `: ${result.stdout}${result.stderr}` : ""}`)
   return result.stdout?.trim() ?? ""
 }
 
@@ -50,18 +50,34 @@ try { mkdirSync(lock) } catch (error) {
   throw error
 }
 try {
+  const gateEnvironment = { ...process.env }
+  for (const key of Object.keys(gateEnvironment)) {
+    if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY/.test(key) ||
+        ["SMITHERS_GITHUB_PROXY", "BASH_ENV", "ENV", "NODE_OPTIONS", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES"].includes(key) ||
+        key.startsWith("BASH_FUNC_") || key.startsWith("GIT_CONFIG_")) delete gateEnvironment[key]
+  }
+  // A home credential store cannot be hidden by changing HOME: absolute reads
+  // remain possible. Refuse execution until the invoking checkout is isolated.
+  if (push && (!process.env.HOME || existsSync(join(process.env.HOME, ".config/issue-claim")))) {
+    throw new Error("Engineering gates require an isolated home without ~/.config/issue-claim.")
+  }
   for (const command of tests) {
-    const result = spawnSync("bash", ["-o", "pipefail", "-c", command], { cwd: root, stdio: "inherit" })
+    const result = spawnSync("bash", ["-o", "pipefail", "-c", command], { cwd: root, stdio: "inherit", env: gateEnvironment })
     if (result.error || result.status !== 0) throw new Error(`Test command failed: ${command} (${result.error?.message ?? result.status})`)
   }
   if (push) {
     // Mandatory even with --no-test; shared by both publication paths.
-    run("go", ["test", "-run", "TestMigrationGate|TestMigrationRegistry", "./packages/backend/db/product/"])
+    run("go", ["test", "-run", "TestMigrationGate|TestMigrationRegistry", "./packages/backend/db/product/"], false, gateEnvironment)
     if (!existsSync(join(root, "scripts/check-sqlc-drift.sh"))) throw new Error("Required sqlc drift gate is unavailable")
-    run("bash", ["scripts/check-sqlc-drift.sh"])
+    run("bash", ["scripts/check-sqlc-drift.sh"], false, gateEnvironment)
   }
-  run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true)
-  if (push) run("smthrs", ["lint", "//:driftCi", "//:targetIndex", "//:ci", "//scripts:trackedHygiene", "//scripts:conflictMarkers"])
+  run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true, gateEnvironment)
+  if (push) {
+    const result = spawnSync("pnpm", ["exec", "smthrs", "lint", "//:driftCi", "//:targetIndex", "//:ci", "//scripts:trackedHygiene", "//scripts:conflictMarkers"], {
+      cwd: root, stdio: "inherit", env: gateEnvironment
+    })
+    if (result.error || result.status !== 0) throw new Error(`Mandatory drift gates failed (${result.error?.message ?? result.status})`)
+  }
   if (existsSync(join(root, ".jj"))) {
     const eligible = run("jj", ["log", "-r", "main & (@ | @-)", "--no-graph", "-T", "commit_id"], true)
     if (!eligible) throw new Error("The shared checkout must be on main or its working-copy child.")

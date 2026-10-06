@@ -922,6 +922,11 @@ export type TodoCard = {
     name: string
     avatar_url: string
   }
+  flow_version?: {
+    flow_name: string
+    source_commit: string
+    digest: string
+  }
   place?: number
   prompt_revisions: Array<{
     text: string
@@ -4243,25 +4248,49 @@ export interface GetApiReposOwnerRepoWorkspacesIdFilesInput {
 export const getApiReposOwnerRepoWorkspacesIdFiles = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdFilesInput): Promise<GetApiReposOwnerRepoWorkspacesIdFilesResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files`) as Promise<GetApiReposOwnerRepoWorkspacesIdFilesResponse>
 
-export type GetApiReposOwnerRepoWorkspacesIdFilesContentResponse = AnyJSON
+export type GetApiReposOwnerRepoWorkspacesIdFilesContentResponse = {
+  name: string
+  path: string
+  type: "file"
+  encoding: "utf-8" | "base64"
+  content: string
+  size: number
+  digest: string
+}
 
 export interface GetApiReposOwnerRepoWorkspacesIdFilesContentInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+  readonly query: { readonly path: string }
 }
 
 /** GET /api/repos/{owner}/{repo}/workspaces/{id}/files/content */
 export const getApiReposOwnerRepoWorkspacesIdFilesContent = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdFilesContentInput): Promise<GetApiReposOwnerRepoWorkspacesIdFilesContentResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content`) as Promise<GetApiReposOwnerRepoWorkspacesIdFilesContentResponse>
+  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content${search({ path: input.query.path })}`) as Promise<GetApiReposOwnerRepoWorkspacesIdFilesContentResponse>
 
-export type PutApiReposOwnerRepoWorkspacesIdFilesContentResponse = AnyJSON
+export type PutApiReposOwnerRepoWorkspacesIdFilesContentBody = {
+  content: string
+  base_digest: string
+}
+
+export type PutApiReposOwnerRepoWorkspacesIdFilesContentResponse = {
+  name: string
+  path: string
+  type: "file"
+  encoding: "utf-8" | "base64"
+  content: string
+  size: number
+  digest: string
+}
 
 export interface PutApiReposOwnerRepoWorkspacesIdFilesContentInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+  readonly query: { readonly path: string }
+  readonly body: PutApiReposOwnerRepoWorkspacesIdFilesContentBody
 }
 
 /** PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content */
 export const putApiReposOwnerRepoWorkspacesIdFilesContent = (transport: Transport, input: PutApiReposOwnerRepoWorkspacesIdFilesContentInput): Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse> =>
-  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content`) as Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse>
+  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content${search({ path: input.query.path })}`, input.body) as Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse>
 
 export type GetApiReposOwnerRepoWorkspacesIdOperationsOpIdUndoPreviewResponse = AnyJSON
 

@@ -626,6 +626,8 @@ BranchCard is a TypeScript props contract; the existing stories are retained.
 T-APP-10 owns HTTP/storage decoding. §14.3 defines
 machine, item/scratch, rebase, moved-off, presence, terminals, activity,
 changed_files and ssh_line. `view.tab` selects activity, files or terminals.
+The container persists this selection as `payload.tab` through the shared card
+transition, for both live and seeded cards.
 Buttons render supplied actions in order; activity actions retain burst ids.
 Scratch Done carries conflict_change and onto_revision in its supplied args
 (§8.5.2b). Sleep/Wake/Retry use the retained box.suspend/box.resume controls.

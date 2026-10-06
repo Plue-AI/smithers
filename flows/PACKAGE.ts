@@ -276,6 +276,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-project-defaults.test.ts"),
     Smithers.file("//flows/test/coding-build-only.test.ts"),
+    Smithers.file("//flows/test/coding-candidate-equality.test.ts"),
     Smithers.file("//flows/test/coding-install-project.test.ts"),
     Smithers.file("//flows/test/coding-steering.test.ts"),
     Smithers.file("//flows/test/coding-request-coordinator.test.ts"),
@@ -297,6 +298,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-landing-config.test.ts"),
     Smithers.file("//flows/test/coding-check-environment.test.ts"),
     Smithers.file("//flows/test/coding-check-output.test.ts"),
+    Smithers.file("//flows/test/coding-candidate-equality.test.ts"),
     Smithers.file("//flows/test/coding-vibe-landing.test.ts"),
     Smithers.file("//flows/test/coding-source-publication.test.ts"),
     Smithers.file("//flows/test/coding-dispatch.test.ts")

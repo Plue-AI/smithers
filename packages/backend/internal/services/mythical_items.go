@@ -132,14 +132,9 @@ func (s *MythicalService) SetLauncher(launcher mythicalLauncher) { s.launcher = 
 // it; hosted composition does not, so no fresh attempt starts there.
 func (s *MythicalService) EnableTodoAdmission() { s.todoAdmission = true }
 
-// SetTodoFlow supplies the Active todo flow's execution digest at a main
-// source commit, which a fresh TODO attempt pins with that commit (T-FLW-11,
-// spec §11.4.1), and so opens owner TODO admission. Production composition
-// leaves it unset, so admission stays dark (TestProductionCompositionLeaves
-// TodoAdmissionDark), until one joint change binds it with every provider the
-// composition needs: isolated guest dispatch (T-FLW-01), retained wake
-// (T-MCH-14), candidate authorization (T-STK-12), outbound recovery (T-GH-09),
-// validated root startup (T-SEC-01) and pinned-source loading (T-FLW-03/04).
+// SetTodoFlow supplies the Active todo execution digest for a fresh attempt.
+// Install composition binds the existing version store; dispatch still requires
+// the source pin and the isolated guest host, with no host execution fallback.
 func (s *MythicalService) SetTodoFlow(active func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error)) {
 	s.todoFlow = active
 }
@@ -455,7 +450,8 @@ type mythicalProjection struct {
 }
 
 // ProjectFlowRuntime records a lane run's id and terminal outcome on its item
-// and wakes the worker. A projection of an older generation changes nothing.
+// and wakes the worker. Generation-scoped phase runs reject old generations;
+// the attempt-bound composition can continue across candidate generations.
 func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
 	var projection mythicalProjection
 	if json.Unmarshal(update.Checkpoint.Projection, &projection) != nil {
@@ -495,7 +491,15 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if (item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined") && !update.State.Terminal() {
 				return nil
 			}
-			if item.Generation != projection.Generation || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
+			// Candidate capture/rebase advances generation without replacing the
+			// attempt's composition. Its already-bound run can attach again
+			// without replaying a first step. Never use this exception to bind
+			// an unknown run or a prior attempt; engine phase runs stay scoped
+			// to the generation whose candidate they checked.
+			boundAttempt := mythicalTodo(item) && item.Attempt > 0 && projection.Attempt == item.Attempt &&
+				(projection.Phase == "todo" || projection.Phase == "request") && item.RequestRunID != "" &&
+				update.Checkpoint.RunID == item.RequestRunID
+			if (item.Generation != projection.Generation && !boundAttempt) || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
 				return nil
 			}
 			// A pinned attempt counts only launches of exactly its pin, and only
@@ -569,6 +573,19 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				}
 			}
 			if stack, err := q.GetMythicalStack(ctx, saved.RepositoryID); err == nil {
+				// A message can commit after the launch payload but before its
+				// run ID is known. Attach its durable intent with that binding,
+				// in this transaction; replay uses the same message ID.
+				if s.todoSteering && projection.Phase == "todo" && pinned &&
+					!mythicalChecksOf(item).RunAttached && mythicalChecksOf(saved).RunAttached {
+					for _, feedback := range mythicalChecksOf(saved).Steers {
+						if feedback.ReleasePending && feedback.Attempt == saved.Attempt {
+							if err := s.admitTodoSteerIntent(ctx, tx, stack, saved, feedback); err != nil {
+								return err
+							}
+						}
+					}
+				}
 				s.itemChanged(ctx, q, stack, saved.ID)
 			}
 			return nil
@@ -1679,6 +1696,11 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 				if !active {
 					continue
 				}
+				feedback.ReleasePending = false
+			}
+			// Inputs included in this launch payload must not be sent again
+			// when the host attaches. Later arrivals remain release-pending.
+			if feedback.Attempt <= item.Attempt {
 				feedback.ReleasePending = false
 			}
 			retained = append(retained, feedback)
@@ -3826,8 +3848,15 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || (lane.Status != "running" && lane.Status != "suspended" && lane.Status != "stopped") {
 		return flowhost.Authority{}, mythicalLaneNotRunning(lane, err)
 	}
-	return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
-		CatalogKey: flowhost.CatalogCoding}, nil
+	authority := flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
+		CatalogKey: flowhost.CatalogCoding}
+	if pin, pinned := mythicalPinOf(item); pinned {
+		authority.SourceRevision = pin.SourceCommit
+		authority.ExecutionPin = &pin
+	} else if item.FlowDigest.Valid {
+		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_pin_invalid"}
+	}
+	return authority, nil
 }
 
 // mythicalLaneNotRunning is why a lane cannot host a launch: a lane whose

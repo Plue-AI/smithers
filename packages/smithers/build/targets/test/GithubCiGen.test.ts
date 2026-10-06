@@ -14,6 +14,7 @@ import { tmpdir } from "node:os"
 import * as NodePath from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Yaml from "yaml"
+import * as Input from "../src/Input.ts"
 import * as CiToolchain from "../src/CiToolchain.ts"
 import {
   actionlintImages,
@@ -1539,6 +1540,23 @@ describe("GithubCiGen target wiring", () => {
     expect(metadata.inputs.map((input) => (input as { readonly path: string }).path))
       .toContain("//.github/workflows/ci.yml")
     expect(metadata.cacheable).toBe(true)
+  })
+
+  it("declares exactly the Actionlint workflow list as file inputs", () => {
+    const target = GithubCiGen({
+      ...goldenAttrs,
+      jobs: [{
+        ...goldenAttrs.jobs[0]!,
+        toolchain: CiToolchain.Needs({
+          workflowLint: CiToolchain.Actionlint({
+            release: "1.7.11",
+            workflows: [".github/workflows/custom.yml", ".github/workflows/extra-*.yml"]
+          })
+        })
+      }]
+    })
+    expect(Target.metadata(target).inputs).toContainEqual(Input.file("//.github/workflows/custom.yml"))
+    expect(Target.metadata(target).inputs).toContainEqual(Input.glob("//.github/workflows/extra-*.yml"))
   })
 
   it("maps the lint verb of a writing target to the checking form", () => {

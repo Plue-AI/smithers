@@ -1,4 +1,4 @@
-import { SetupCard, type SetupCardProps } from "./SetupCard"
+import { SetupCard, setupCardFamily, type SetupCardProps } from "./SetupCard"
 import { SetupView } from "./views/SetupView"
 import { HomeCard } from "./HomeContainer"
 import { runTraceCardFamily } from "./RunTraceCard"
@@ -73,6 +73,7 @@ export const isRetiredCard = (card: Card): card is Extract<Card, { kind: "retire
 
 /** The families in registration order; the test reads this list to prove the slices are disjoint. */
 export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
+  setupCardFamily,
   settingsCardFamily,
   membersCardFamily,
   commandsCardFamily,
@@ -116,6 +117,7 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
 
 /** One entry per card kind. Written as a literal so a missing kind fails to compile. */
 export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
+  ...setupCardFamily,
   ...settingsCardFamily,
   ...membersCardFamily,
   ...commandsCardFamily,

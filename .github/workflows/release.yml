@@ -65,18 +65,20 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: rustup toolchain install
       - run: brew install postgresql@18 skopeo zig
-      - name: Assemble server bundle
+      - name: Assemble and qualify relocated server bundle
+        env:
+          SMITHERS_SERVER_BUNDLE_RECEIPT: ${{ runner.temp }}/C-INS-05.json
         run: |
-          SMITHERS_NODE_BINARY="$(command -v node)" SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" SMITHERS_POSTGRES_BUNDLE_DIR="$(brew --prefix postgresql@18)" bun apps/app/scripts/build-native.ts
-      - name: Verify relocated bundle
-        run: |
-          mkdir -p "$RUNNER_TEMP/smithers-server"
-          tar -xzf apps/app/.native-archive/smithers-server.tar.gz -C "$RUNNER_TEMP/smithers-server"
-          bun apps/app/scripts/server-bundle-manifest.ts "$RUNNER_TEMP/smithers-server"
+          SMITHERS_NODE_BINARY="$(command -v node)" SMITHERS_POSTGRES_BUNDLE_DIR="$(brew --prefix postgresql@18)" SMITHERS_SERVER_BUNDLE_INTEGRATION=1 bun test --isolate apps/app/scripts/server-bundle.integration.test.ts --test-name-pattern 'production target assembles'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: server-bundle-darwin-arm64
           path: apps/app/.native-archive/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: server-bundle-relocation-receipt
+          path: ${{ runner.temp }}/C-INS-05.json
           if-no-files-found: error
   native-helper:
     name: native helper (${{ matrix.platform }})

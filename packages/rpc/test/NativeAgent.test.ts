@@ -21,6 +21,7 @@ describe("AgentTurnFrame — proxy family", () => {
   const accepted: ReadonlyArray<readonly [string, unknown]> = [
     ["delta", { runId: "r1", type: "delta", kind: "text", text: "hi" }],
     ["done", { runId: "r1", type: "done", reason: "stop" }],
+    ["author revoked", { runId: "r1", type: "done", reason: "cancelled", code: "author_revoked" }],
     ["done, cancelled with an error", {
       runId: "r1",
       type: "done",
@@ -53,6 +54,7 @@ describe("AgentTurnFrame — proxy family", () => {
 
   const rejected: ReadonlyArray<readonly [string, unknown]> = [
     ["a frame without runId", { type: "delta", kind: "text", text: "hi" }],
+    ["done with an unknown code", { runId: "r1", type: "done", reason: "cancelled", code: "unknown" }],
     ["done with an unknown reason", { runId: "r1", type: "done", reason: "abandoned" }],
     ["done with negative usage", { runId: "r1", type: "done", usage: { inputTokens: -1 } }],
     ["done with fractional usage", { runId: "r1", type: "done", usage: { outputTokens: 1.5 } }],

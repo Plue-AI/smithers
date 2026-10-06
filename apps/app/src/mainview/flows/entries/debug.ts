@@ -87,7 +87,7 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
 export const debugApiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   const available = typeof actions.debugApi?.available === "function" && actions.debugApi.available()
   return ["debug.api", "debug-api"].map(name => flow({ ...debugApiOperation, name,
-    slash: name === "debug-api" ? "/debug-api" : null, cli: null, http: null, journey: [], group: "Advanced",
+    slash: name === "debug-api" ? "/debug-api" : null, cli: name === "debug.api" ? ["debug", "api"] : null, http: null, journey: [], group: "Advanced",
     visibility: name === "debug-api" && available ? "advanced" : "hidden", actors: ["person"], minimumRole: "member",
     summary: "Call the documented API", args: "[operationId]",
     hidden: name === "debug.api" || !available,

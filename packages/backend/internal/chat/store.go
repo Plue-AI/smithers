@@ -533,6 +533,20 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 		return ProducerGrant{}, err
 	}
 	now := s.now().UTC()
+	inactive, err := inactiveAuthor(ctx, tx, turn.ID)
+	if err != nil {
+		return ProducerGrant{}, err
+	}
+	if inactive {
+		if err = s.appendTerminalTx(ctx, tx, &turn, authorRevokedFrame(turn.RunID), StateCancelled, now); err != nil {
+			return ProducerGrant{}, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return ProducerGrant{}, err
+		}
+		s.signals.notify(turn.ID)
+		return ProducerGrant{}, ErrTerminal
+	}
 	if turn.ProducerLeaseExpiresAt != nil && turn.ProducerLeaseExpiresAt.After(now) {
 		return ProducerGrant{}, ErrProducerBusy
 	}
@@ -565,8 +579,8 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 
 func (s *Store) MarkProviderStarted(ctx context.Context, grant ProducerGrant) error {
 	now := s.now().UTC()
-	result, err := s.pool.Exec(ctx, `UPDATE chat_turns SET producer_started_at=COALESCE(producer_started_at,$4),updated_at=$4
-		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND producer_lease_expires_at>$4`,
+	result, err := s.pool.Exec(ctx, `UPDATE chat_turns t SET producer_started_at=COALESCE(producer_started_at,$4),updated_at=$4
+		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND producer_lease_expires_at>$4 AND NOT (`+inactiveInstallAuthor+`)`,
 		grant.TurnID, grant.Generation, hashToken(grant.Token), now)
 	if err != nil {
 		return err
@@ -584,8 +598,8 @@ func (s *Store) RenewProducer(ctx context.Context, grant ProducerGrant, lease ti
 		return time.Time{}, ErrInvalidRequest
 	}
 	expiresAt := s.now().UTC().Add(lease)
-	result, err := s.pool.Exec(ctx, `UPDATE chat_turns SET producer_lease_expires_at=$4
-		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal`,
+	result, err := s.pool.Exec(ctx, `UPDATE chat_turns t SET producer_lease_expires_at=$4
+		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal AND NOT (`+inactiveInstallAuthor+`)`,
 		grant.TurnID, grant.Generation, hashToken(grant.Token), expiresAt)
 	if err != nil {
 		return time.Time{}, err
@@ -628,9 +642,9 @@ func (s *Store) Producer(ctx context.Context, turnID string, generation int64, t
 		return ProducerTurn{}, ErrProducerFenced
 	}
 	var turn ProducerTurn
-	err := s.pool.QueryRow(ctx, `SELECT user_id,repository_id,run_id,leg_id FROM chat_turns
+	err := s.pool.QueryRow(ctx, `SELECT user_id,repository_id,run_id,leg_id FROM chat_turns t
 		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal
-		AND cancel_requested_at IS NULL AND producer_lease_expires_at>$4`,
+		AND cancel_requested_at IS NULL AND producer_lease_expires_at>$4 AND NOT (`+inactiveInstallAuthor+`)`,
 		turnID, generation, hashToken(token), s.now().UTC()).Scan(&turn.UserID, &turn.RepositoryID, &turn.RunID, &turn.LegID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProducerTurn{}, ErrProducerFenced
@@ -868,6 +882,13 @@ func (s *Store) Commit(ctx context.Context, input CommitInput) (CommitResult, er
 		return CommitResult{}, err
 	}
 	if turn.ProducerGeneration != input.Generation || turn.ProducerTokenHash == nil || !equalSecret(*turn.ProducerTokenHash, hashToken(input.Token)) {
+		return CommitResult{}, ErrProducerFenced
+	}
+	inactive, err := inactiveAuthor(ctx, tx, turn.ID)
+	if err != nil {
+		return CommitResult{}, err
+	}
+	if inactive {
 		return CommitResult{}, ErrProducerFenced
 	}
 	_, head, err := checkHead(turn)

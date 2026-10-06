@@ -9,7 +9,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | --- | --- | --- | --- |
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
-| C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | fixme-before-implementation | T-APP-03 |
+| C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | passing: mounted install seam, live readiness, reload, squash/image fixes; reference Mac/LAN/OAuth evidence pending | T-APP-03 |
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | fixme-before-implementation | T-APP-15 |
 | C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | fixme-before-implementation | T-APP-02 |
 | C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
@@ -91,7 +91,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts) | fixme-before-implementation | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Settings phase passing Chromium: HTTP click/Enter/Space, HTTPS/loopback hidden hint, non-owner, bundled heading; missing dependencies covered through real dispatcher integration. Full C-UI-09 passes on isolated retry (2026-10-06), including agent docs.read; combined docs run: 8 pass, 1 HTTP-turn recovery failure. Anchor navigation now uses the shared transcript read target. | T-APP-20, T-APP-24 |
-| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection; reference-install role effects separate | T-APP-21 |
+| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection, complete operation inventory and secret form fields; reference-install role effects separate | T-APP-21 |
 | C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
@@ -121,7 +121,7 @@ C-COL-05 also has a passing projection for the mounted Branch Files panel:
 no changed rows before a write, and Alice's presence opens readable file content
 by keyboard and retains it across reload. Watcher faults remain fixme.
 
-| C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts) | passing UI projection (2026-10-05; isolated Chromium fixture) | T-CUT-01, T-CUT-03 |
+| C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts) | passing UI projection (2026-10-06; isolated Chromium fixture); Appendix B Cut registry/catalog regression passes | T-CUT-01, T-CUT-03 |
 | C-CUT-02 | [C-CUT-02.spec.ts](C-CUT-02.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
 | C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
@@ -370,6 +370,8 @@ The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets
 | C-UI-12 Debug API | [Debug API stories](../view-stories.spec.ts) | passed: all 15 states, light/dark, 1280/1440/390, axe/overflow; Enter/Space selection and Send; POST/PUT/PATCH/DELETE confirmation, disabled/absent actions, inert response/failure text | T-UI-22 |
 | C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; install activation remains T-APP-20 | T-UI-21 |
 | C-UI-12 Secrets | [Secrets stories](../view-stories.spec.ts) | passed: 11 stories, light/dark, 1440/390, axe/overflow; Add/Replace/Cancel clear Value, redacted callbacks, absent/disabled actions, optional Hosts, inert names, keyboard Delete | T-UI-18 |
-| C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Open branch from REST TODO through the composed app provider to the live Branch card; 1 passed | T-UI-04 |
+| C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Open branch from REST TODO through the composed app provider to the live Branch card; Branch tabs survive reload; 1 passed | T-UI-04 |
 
 T-MCH-08 scratch Diff has a passing install HTTP contract and browser projection in [scratch-diff.spec.ts](../scratch-diff.spec.ts): fork revision, unresolved read, duplicate input and reload. C-J7-02 remains pending for Add to stack/Confirm/Drop; C-MCH-08 remains pending for real capture and source boot continuity.
+
+T-UI-15 pass 3: Branch states pass at 1440/390 px in light/dark; Enter/Space controls, tabs/SSH and missing/disabled/hostile cases pass (5 browser tests). Live Branch tab selection also passes keyboard and reload through the install app fixture (1 browser test). These fixtures do not establish machine execution or design-owner acceptance.

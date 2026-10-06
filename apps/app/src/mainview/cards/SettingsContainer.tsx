@@ -57,9 +57,12 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
   const definitions: CardActionDefinition[] = owner && model ? [
     /* Each control sits on its row (SettingsView rowFor reads args.field) with its own input, so a press changes the value. */
     ...addressActions(model.address),
+    { tag: "image.add", label: "Add to machine image", command_input: { name: "" },
+      input: [{ name: "name", label: "Package", kind: "text", required: true }],
+      resolve_input: input => ({ name: input.name ?? "" }) },
     ...(needsHttps && docsAvailable() ? [{ tag: "docs" as const, label: "Notifications need HTTPS ↗",
       args: { page: "quickstart#put-https-in-front" }, command_input: { page: "quickstart#put-https-in-front" } }] : []),
-    { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "1", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
+    { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "0", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
       input: [{ name: "value", label: "Machines", kind: "text", required: true, value: String(model.capacity) }],
       resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) },
     ...(model.parallel === undefined ? [] : [{ tag: "settings.parallel" as const, label: "At once", args: { field: "parallel", min: "1", max: "8" }, command_input: { parallel: model.parallel },

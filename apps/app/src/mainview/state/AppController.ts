@@ -547,7 +547,7 @@ export interface AppController extends IssueFlowsController {
   readonly live?: LiveTopics
   /** Opens a subject-only card (card-kinds.md L5) once per conversation; its card file reads the data. */
   /** With a `subject` (Branch, Terminal: card-kinds.md L5) the card is `${kind}:${subject}` with payload `{ id: subject }`. */
-  readonly presentCard: (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
+  readonly presentCard: (kind: "setup" | "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
   /** Opens (or reveals) the Run card for run `id`; `maximize` is Inspect. */
   readonly presentRun: (id: string, title: string, maximize: boolean) => Promise<string>
   /** Opens (or reveals) the Flow card for flow `name`, at `version` when given. */
@@ -895,6 +895,7 @@ export const createAppController = (
     quietWithoutInstall: true }))
   ctx.onDispose(installSeam.dispose)
   const installHost = services.bootstrap?.capabilities.includes("install") === true
+  const setupEntry = typeof window !== "undefined" && window.location.pathname === "/setup"
   if (installHost) void installSeam.showSetup()
   const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
@@ -950,7 +951,7 @@ export const createAppController = (
     const refused = await membersSeam.mutate(tag, tag === "members.remove" ? { login } : { login, role: role ?? "member" })
     return refused ? refused.message : { value: tag === "members.add" ? `Added ${login}` : tag === "members.role" ? `${login}: ${role ?? "member"}` : `Removed ${login}` }
   }
-  const presentCard = async (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
+  const presentCard = async (kind: "setup" | "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
     if (kind === "commands" && installHost) { membersSeam.start(); await membersSeam.read() }
     if (kind === "commands" && commands.viewerCatalog() === undefined) return "Commands unavailable"
     const id = subject === undefined ? kind : `${kind}:${subject}`
@@ -1162,6 +1163,9 @@ export const createAppController = (
   let installStepsDone: readonly string[] | undefined
   ctx.onDispose(installSeam.snapshots.subscribe(() => {
     const model = installSeam.snapshots.get().model
+    if (model && (model.steps.some(step => step.state !== "done") || setupEntry) && !store.collections.cards.has("setup")) {
+      void presentCard("setup", "Setup").catch(cause => ctx.failures.report("seam.failure", cause, "setup"))
+    }
     if (!installHost || model === undefined || !model.github.signed_in) return
     const done = model.steps.flatMap(step => step.state === "done" ? [step.id] : [])
     if (done.join() === installStepsDone?.join()) return

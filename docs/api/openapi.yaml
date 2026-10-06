@@ -1327,12 +1327,17 @@ paths:
         - bearerAuth: []
       responses:
         '200':
-          description: The authenticated member's saved state, or an empty object.
+          description: The authenticated member's conversation state and global toast preference.
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+                required:
+                  - toasts_hidden
+                properties:
+                  toasts_hidden:
+                    type: boolean
         '403':
           $ref: '#/components/responses/Forbidden'
         '503':
@@ -1352,14 +1357,23 @@ paths:
             schema:
               type: object
               additionalProperties: true
+              properties:
+                toasts_hidden:
+                  type: boolean
+                  description: Global for this member; omission preserves the current preference.
       responses:
         '200':
-          description: The authenticated member's saved state.
+          description: The authenticated member's conversation state and global toast preference.
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+                required:
+                  - toasts_hidden
+                properties:
+                  toasts_hidden:
+                    type: boolean
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -14588,6 +14602,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -14598,7 +14617,16 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: object
+                required: [name, path, type, encoding, content, size, digest]
+                properties:
+                  name: {type: string}
+                  path: {type: string}
+                  type: {type: string, const: file}
+                  encoding: {type: string, enum: [utf-8, base64]}
+                  content: {type: string}
+                  size: {type: integer}
+                  digest: {type: string, pattern: '^[0-9a-f]{64}$'}
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -14634,7 +14662,25 @@ paths:
           required: true
           schema:
             type: string
-      x-smithers-opaque-body: true
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [content, base_digest]
+              properties:
+                content:
+                  type: string
+                base_digest:
+                  type: string
+                  pattern: '^(absent|[0-9a-f]{64})$'
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -14645,7 +14691,28 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: object
+                required: [name, path, type, encoding, content, size, digest]
+                properties:
+                  name: {type: string}
+                  path: {type: string}
+                  type: {type: string, const: file}
+                  encoding: {type: string, enum: [utf-8, base64]}
+                  content: {type: string}
+                  size: {type: integer}
+                  digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        '409':
+          description: The current file does not match base_digest; no bytes changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, current_digest]
+                properties:
+                  code: {type: string, const: stale}
+                  current_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
+        '503':
+          description: Qualified isolated compare-and-write provider unavailable.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -25030,6 +25097,13 @@ components:
             login: {type: string}
             name: {type: string}
             avatar_url: {type: string}
+        flow_version:
+          type: object
+          required: [flow_name, source_commit, digest]
+          properties:
+            flow_name: {type: string}
+            source_commit: {type: string, pattern: '^[a-f0-9]{40}$'}
+            digest: {type: string, pattern: '^[a-f0-9]{64}$'}
         place: {type: integer, minimum: 1}
         prompt_revisions:
           type: array

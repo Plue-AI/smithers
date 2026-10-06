@@ -12,8 +12,8 @@ interface CatalogDescriptor {
   payload: { schema: Record<string, any>; definitions?: Record<string, any> };
   http: { method: string; path: string; body?: Record<string, string>; defaults?: Record<string, unknown>; query?: Record<string, string> } | null
 }
-export const catalogCommands = (catalog.operations as CatalogDescriptor[]).filter(row => row.cli !== null && row.actors.includes("external_agent") &&
-  (row.visibility === "core" || row.visibility === "advanced"))
+export const catalogCommands = (catalog.operations as CatalogDescriptor[]).filter(row => row.cli !== null && (row.agent === "never" || (row.actors.includes("external_agent") &&
+  (row.visibility === "core" || row.visibility === "advanced"))))
 
 const valueSchema = (schema: Record<string, any>): z.ZodType => {
   const decoded = z.fromJSONSchema(schema)
@@ -58,6 +58,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
       description: `${row.summary}${row.agent === "confirm" ? "; waits for the person's confirmation" : ""}`,
       args: z.object(args), options: z.object(options),
       run: (context: any) => Presentation.guard(context, async () => {
+        if (row.agent === "never") throw new Refused({ fault: "policy", code: "never", class: "never", message: "Only a person can do this in the app" })
         if (row.http === null) throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })
         const supplied = { ...context.args, ...context.options }
         const requestId = randomUUID()

@@ -120,16 +120,12 @@ func TestInstallCompositionAdmitsOwnerTodos(t *testing.T) {
 	require.Equal(t, []todoAdmissionCall{{file: "packages/backend/internal/compose/main.go", singleOwner: true}}, calls["EnableTodoAdmission"])
 }
 
-// Hosted composition (Plue) leaves TODO admission off: no production call
-// of EnableTodoAdmission is reachable outside the single-owner branch. The
-// pinned todo composition stays the unreached destination: nothing in
-// production supplies its flow digest (SetTodoFlow) until pinned-source
-// loading (T-FLW-03/04) and stopping a machine whose host ignores a cancel
-// exist (flowdispatch refusePin).
+// Hosted composition leaves TODO admission and pinned-flow selection off.
+// Both providers are installed only in the single-owner composition.
 func TestHostedCompositionLeavesOwnerTodosOff(t *testing.T) {
 	calls := scanTodoAdmissionCalls(t)
 	for _, call := range calls["EnableTodoAdmission"] {
 		require.True(t, call.singleOwner, "%s admits owner TODOs outside the single-owner composition", call.file)
 	}
-	require.Empty(t, calls["SetTodoFlow"], "no production code pins TODO attempts to the todo composition yet")
+	require.Equal(t, []todoAdmissionCall{{file: "packages/backend/internal/compose/main.go", singleOwner: true}}, calls["SetTodoFlow"])
 }

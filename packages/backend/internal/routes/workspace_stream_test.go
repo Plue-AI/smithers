@@ -47,7 +47,7 @@ func (m *mockWorkspaceStreamService) ReadWorkspaceFile(context.Context, string, 
 	return services.WorkspaceFileContent{}, nil
 }
 
-func (m *mockWorkspaceStreamService) WriteWorkspaceFile(context.Context, string, int64, int64, string, string) (services.WorkspaceFileContent, error) {
+func (m *mockWorkspaceStreamService) WriteWorkspaceFile(context.Context, string, int64, int64, string, string, string) (services.WorkspaceFileContent, error) {
 	return services.WorkspaceFileContent{}, nil
 }
 

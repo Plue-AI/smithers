@@ -483,6 +483,19 @@ type WorkspaceFiles interface {
 	RemoveFile(ctx context.Context, workspaceID, path string) error
 }
 
+// WorkspaceCompareWriter is the qualified mutation capability. Implementations
+// compare the full SHA-256 (or "absent") at the mutation boundary and must leave
+// all bytes unchanged on refusal, including under outside-writer races.
+// A runtime without this capability must never fall back to WriteFile.
+type WorkspaceCompareWriter interface {
+	CompareWriteFile(ctx context.Context, workspaceID, path, baseDigest string, content []byte, mode fs.FileMode) error
+}
+
+// StaleFileError reports the version that refused a compare-and-write.
+type StaleFileError struct{ CurrentDigest string }
+
+func (e *StaleFileError) Error() string { return "stale workspace file: " + e.CurrentDigest }
+
 // WorkspaceRuntime is the common execution contract. Deployments may expose
 // narrower facets to services that do not need every operation. Optional
 // capabilities such as WorkspaceSnapshots remain separate interfaces.

@@ -134,3 +134,21 @@ test("release secret request fields match the literal install fixture", async ()
     ])
   } finally { seam.dispose() }
 })
+
+test("every documented install request form matches the committed literal fields", async () => {
+  const forms = (await import("./install-fields.fixture.json")).default
+  let effects = 0
+  const seam = createDebugApiSeam({ document: async () => document,
+    gates: () => ({ view: true, catalog: true, authorizer: true }), origin: "http://mini.local",
+    fetch: async () => { effects++; throw Error("Selection cannot send") } })
+  try {
+    await seam.open()
+    expect(seam.get().model.operations.map(operation => operation.id)).toEqual(forms.map(form => form.id))
+    for (const form of forms) {
+      seam.select(form.id)
+      expect(seam.get().fields as unknown, form.id).toEqual(form.fields)
+      expect(seam.get().model.exchange).toBeUndefined()
+    }
+    expect(effects).toBe(0)
+  } finally { seam.dispose() }
+})

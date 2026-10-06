@@ -42,13 +42,12 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo.ID)
 	require.NoError(t, err)
-	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "running", Checks: []byte(`{"todo":true,"runLaunched":true,"runAttached":true}`)})
+	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "running", Checks: []byte(`{"todo":true,"run_launched":true,"run_attached":false}`)})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=1,owner_id=$2,attempt=1,request_run_id='run-1',title='Interrupted',stack_position=1 WHERE id=$1`, item.ID, owner.ID)
 	require.NoError(t, err)
 	service := services.NewMythicalService(pool, nil)
 	projection, _ := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16]), "generation": item.Generation, "attempt": 1, "phase": "request"})
-	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateUncertain, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: "run-1"}}))
 	raw := "interrupted-session"
 	hash := sha256.Sum256([]byte(raw))
 	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES($1,$2,'owner',NOW()+interval '1 hour')`, hex.EncodeToString(hash[:]), owner.ID)
@@ -78,7 +77,58 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&value))
 		return res.StatusCode, value
 	}
+	// Re-admission after a candidate generation change continues the same
+	// bound attempt without a first-step event. Wrong identities are inert.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, item.ID)
+	require.NoError(t, err)
 	status, card := call("GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "starting", card["state"])
+	var beforeEvents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&beforeEvents))
+	for _, run := range []string{"", "wrong-run"} {
+		require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: run}}))
+	}
+	var wrongAttempt map[string]any
+	require.NoError(t, json.Unmarshal(projection, &wrongAttempt))
+	wrongAttempt["attempt"] = 2
+	stale, err := json.Marshal(wrongAttempt)
+	require.NoError(t, err)
+	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: stale, RunID: "run-1"}}))
+	var afterEvents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, beforeEvents, afterEvents)
+	status, card = call("GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "starting", card["state"])
+	// Failure after saving the item but before recording its fact must roll
+	// back the attachment, including the optimistic version increment.
+	before, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_attachment_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'attachment fact failure'; END $$`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `CREATE TRIGGER refuse_attachment_fact BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_attachment_fact()`)
+	require.NoError(t, err)
+	require.ErrorContains(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: "run-1"}}), "attachment fact failure")
+	after, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, beforeEvents, afterEvents)
+	_, err = pool.Exec(ctx, `DROP TRIGGER refuse_attachment_fact ON product_job_events`)
+	require.NoError(t, err)
+	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: "run-1"}}))
+	status, card = call("GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "working", card["state"])
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, beforeEvents+1, afterEvents)
+	// Replayed attachment produces no second lifecycle fact.
+	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: "run-1"}}))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, beforeEvents+1, afterEvents)
+	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateUncertain, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, RunID: "run-1"}}))
+	status, card = call("GET", "", "")
 	require.Equal(t, 200, status, card)
 	require.Equal(t, "failed", card["state"])
 	require.Equal(t, map[string]any{"step": "runtime", "class": "interrupted", "message": "Interrupted", "retryable": true}, card["failure"])

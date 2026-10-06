@@ -144,6 +144,8 @@ func installStepCanStart(step InstallStep, now time.Time) bool {
 
 type InstallSetupService struct {
 	Obsidian         *InstallObsidianSettings
+	SyncHealth       func(context.Context) (GitHubSyncHealth, error)
+	GitHubBudget     *BudgetTracker
 	CodingDefaults   func(context.Context, string) error
 	Now              func() time.Time
 	Pool             *pgxpool.Pool
@@ -877,6 +879,11 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		}
 		result["wiki_sync"] = snapshot
 	}
+	health, err := s.SettingsHealth(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result["health"] = health
 	repository, err := q.GetInstallSetting(ctx, "repository")
 	if err == nil {
 		var slug string

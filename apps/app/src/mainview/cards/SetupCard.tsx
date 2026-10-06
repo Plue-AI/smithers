@@ -91,3 +91,17 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
   if (!model || !allowed) return null
   return <View model={setupCardModel(model)} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
+
+import { useController } from "../ControllerContext"
+import { SetupView } from "./views/SetupView"
+import type { CardFamily, CardActions } from "./CardFamily"
+
+const SetupBody = ({ presentation }: { readonly presentation: CardActions["presentation"] }) => {
+  const controller = useController()
+  return <SetupCard View={SetupView} install={controller.installSnapshots} allowed
+    view={{ maximized: presentation === "maximized" }} onView={() => {}}
+    dispatch={(name, payload, gesture) => controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })} />
+}
+export const setupCardFamily: CardFamily<"setup"> = {
+  setup: { render: (_card, { presentation }) => <SetupBody presentation={presentation} />, pill: () => "" }
+}

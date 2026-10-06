@@ -15,6 +15,13 @@ const SYNC_HEALTH = ["fresh", "stale", "limited", "refused"] as const
 const ready = fixtures.ready.model
 
 describe("Settings", () => {
+  test("unknown GitHub rate headers remain absent while Settings health is readable", () => {
+    const { rate_remaining, rate_limit, ...github } = ready.health.github
+    const parsed = SettingsCardSchema.parse({ ...ready, health: { ...ready.health, github } })
+    expect(parsed.health.github).not.toHaveProperty("rate_remaining")
+    expect(parsed.health.github).not.toHaveProperty("rate_limit")
+    expect(parsed.health.github.health).toBe("fresh")
+  })
   test("parallel is absent in S1 and present from S2", () => {
     expect(fixtures.ready.model).not.toHaveProperty("parallel")
     expect(fixtures.ready.actions.map((action) => action.label)).not.toContain("TODOs at once")

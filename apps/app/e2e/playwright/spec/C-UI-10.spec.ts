@@ -1,6 +1,7 @@
 import { expect, test } from "../browserTest"
 import { say } from "./j1-fixtures"
 import { installCloudFixture } from "../cloudFixture"
+import operations from "../../../src/debugApi/install-operations.fixture.json"
 
 // Browser projection receipt. PostgreSQL role effects are checked separately
 // by debug-api/local-own-read.ts on the reference install.
@@ -24,6 +25,8 @@ test("C-UI-10: API playground requires confirmation and preserves member rights"
   await help.getByRole("button", { name: /debug-api/ }).click()
   const card = page.getByRole("article", { name: "Debug API", exact: true })
   await expect(card).toBeVisible({ timeout: 60_000 })
+  const shownOperations = await card.getByRole("navigation", { name: "Operations" }).locator("button code").allTextContents()
+  expect(shownOperations.sort()).toEqual(operations.map(operation => `${operation.method} ${operation.path}`).sort())
   const beforeSelection = reads
   await card.getByRole("button", { name: /^GET \/api\/todos(?: |$)/ }).click()
   await expect(card.getByRole("region", { name: "Exchange" })).toHaveCount(0)
@@ -33,6 +36,10 @@ test("C-UI-10: API playground requires confirmation and preserves member rights"
   await expect(card).toContainText("T8")
   expect(reads).toBe(beforeSelection + 1)
   await card.getByRole("button", { name: /^POST \/api\/repos\/\{owner\}\/\{repo\}\/secrets POST/ }).click()
+  expect(await card.locator("input:not([type=hidden]), textarea").evaluateAll(elements => elements.map(element => {
+    const id = element.id
+    return Array.from(document.querySelectorAll("label")).find(label => label.htmlFor === id)?.textContent?.trim()
+  }))).toEqual(["owner", "repo", "JSON"])
   await card.getByLabel("owner", { exact: true }).fill("smithersai")
   await card.getByLabel("repo", { exact: true }).fill("smithers")
   await card.getByLabel("JSON", { exact: true }).fill('{"name":"TEST_KEY","value":"canary"}')

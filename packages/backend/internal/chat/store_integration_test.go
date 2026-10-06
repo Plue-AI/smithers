@@ -34,17 +34,12 @@ const dbWait = 10 * time.Second
 
 var scopeID atomic.Int64
 
-var chatSuite = postgresfixture.Suite{Empty: true}
+// Author rechecks use the real install membership tables alongside the journal.
+var chatSuite = postgresfixture.Suite{}
 
 func TestMain(m *testing.M) {
 	os.Exit(chatSuite.Run(m, func(ctx context.Context, pool *pgxpool.Pool) error {
-		schema, err := Schema()
-		if err != nil {
-			return err
-		}
-		if _, err := pool.Exec(ctx, string(schema)); err != nil {
-			return err
-		}
+		var err error
 		testStore, err = NewStore(pool)
 		return err
 	}))

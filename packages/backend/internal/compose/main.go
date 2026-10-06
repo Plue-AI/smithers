@@ -1364,6 +1364,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		invokedFlowService.SetFlowDispatcher(flow.dispatcher)
 		mythicalService.SetLauncher(flow.dispatcher)
 		if config.IsSingleOwner(cfg.Auth) {
+			mythicalService.SetTodoFlow(func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error) {
+				return services.ActiveFlowDigest(ctx, queries, repositoryID, "todo")
+			})
 			mythicalService.EnableTodoSteering()
 		}
 		if options.topology.workers() {
@@ -1633,7 +1636,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var gitHubAppSetup *routes.GitHubAppSetupHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs}
+		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs, SyncHealth: gitHubMainPullService.SyncHealth, GitHubBudget: gitHubBudgetTracker}
 		installSetup.CodingDefaults = func(ctx context.Context, slug string) error {
 			owner, name, err := splitRepositorySlug(slug)
 			if err != nil {
@@ -1691,6 +1694,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			presence.dispatcher = flow.dispatcher
 		}
 		topics := &liveTopics{capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+
+		if chatService != nil {
+			topics.viewState = chatService.runtime.Handler.Store.ReadMemberViewState
+		}
 
 		topics.documents = options.DocumentRelay
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}

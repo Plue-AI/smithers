@@ -440,7 +440,7 @@ const driftCi = Smithers.GithubCiGen({
     name: "Per-commit drift",
     runsOn: ubuntu,
     timeoutMinutes: 10,
-    toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun], apt: bubblewrap }),
+    toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun] }),
     steps: [
       { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
       { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
@@ -450,7 +450,8 @@ const driftCi = Smithers.GithubCiGen({
       { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
       { name: "Conflict markers", verb: Smithers.Verb.Lint, pattern: "//scripts:conflictMarkers" },
       { name: "Tracked file hygiene", verb: Smithers.Verb.Lint, pattern: "//scripts:trackedHygiene" },
-      { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" }
+      { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" },
+      { name: "Generated CI workflow", verb: Smithers.Verb.Lint, pattern: "//:ci" }
     ]
   }]
 })

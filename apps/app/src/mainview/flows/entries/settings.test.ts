@@ -133,7 +133,7 @@ describe("T-APP-03 settings command doors", () => {
       const seeded = h.controller.design.world().repo.setup.addresses
       const address = { listen: "network", bind: "0.0.0.0:4000", origins: ["https://maya-mini.tail1234.ts.net"] }
       expect((await h.controller.commands.submit({ name: "settings.address", actor: "user", payload: address })).status).toBe("executed"); await tick()
-      expect(h.requests.filter(request => request.path === "/api/install" && request.method === "PUT").map(request => JSON.parse(request.body!))).toEqual([{ address }])
+      expect(h.requests.filter(request => request.path === "/api/install" && request.method === "PUT").map(request => JSON.parse(request.body!))).toEqual([{ bind: address.bind, origins: address.origins }])
       expect(h.controller.design.world().repo.setup.addresses).toEqual(seeded)
     } finally { await h.controller.dispose() }
   })

@@ -10,7 +10,6 @@ import {
   statSync,
   writeFileSync
 } from "node:fs"
-import { tmpdir } from "node:os"
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path"
 import { bundlePostgres } from "./bundle-postgres"
 import { foreignLibraries } from "./system-linkage"
@@ -179,15 +178,20 @@ await run("Linux arm64 guest target", ["rustup", "target", "add", linuxTarget])
 // image's 2.41. The wrapper drops the Cortex-A53 erratum flag rustc passes and
 // cc-rs's --target spelling, which zig does not accept, and raises the
 // descriptor limit zig's linker exhausts on jj at macOS's default.
-const zigWrapper = mkdtempSync(join(tmpdir(), "smithers-zigcc-"))
+const zigWrapperScript = `#!/bin/sh\nulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null\n` +
+  `for a; do shift; case "$a" in -Wl,--fix-cortex-a53-843419|--target=*) ;; *) set -- "$@" "$a";; esac; done\n` +
+  `exec '${zig.replaceAll("'", "'\\''")}' cc -target aarch64-linux-gnu.2.36 "$@"\n`
+// Cargo fingerprints the linker path. A random temporary path invalidates
+// every guest crate on each assembly. Bind the path to the compiler bytes and
+// wrapper instead, preserving reuse only for the same compiler and flags.
+const zigWrapperIdentity = createHash("sha256")
+  .update(readFileSync(realpathSync(zig)))
+  .update(zigWrapperScript)
+  .digest("hex")
+const zigWrapper = join(cargoTargetDir, ".smithers-zigcc", zigWrapperIdentity)
+mkdirSync(zigWrapper, { recursive: true })
 const zigcc = join(zigWrapper, "zigcc")
-writeFileSync(
-  zigcc,
-  `#!/bin/sh\nulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null\n` +
-    `for a; do shift; case "$a" in -Wl,--fix-cortex-a53-843419|--target=*) ;; *) set -- "$@" "$a";; esac; done\n` +
-    `exec '${zig.replaceAll("'", "'\\''")}' cc -target aarch64-linux-gnu.2.36 "$@"\n`,
-  { mode: 0o755 }
-)
+writeFileSync(zigcc, zigWrapperScript, { mode: 0o755 })
 const linuxEnvironment = { CC_aarch64_unknown_linux_gnu: zigcc, CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: zigcc }
 const requireLinuxArm64 = (path: string, label: string): void => {
   const header = readFileSync(path).subarray(0, 20)

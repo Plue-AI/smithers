@@ -21,6 +21,7 @@ export const SettingsCardSchema = SetupCardSchema.extend({
     /** Origins served over plain HTTP at a non-loopback host, which the View marks "unencrypted" (spec §17.6). @since 1.0.0 */
     origins_unencrypted: z.array(z.string()).optional()
   }),
+  callback_fixes: z.array(z.object({ settings_url: z.string().url(), add_url: z.string().url() })).optional(),
   capacity: z.number().int().nonnegative(),
   parallel: z.number().int().nonnegative().optional(),
   todo_daily_admissions: z.number().int().positive().optional(),
@@ -34,8 +35,8 @@ export const SettingsCardSchema = SetupCardSchema.extend({
       health: SyncHealthSchema,
       cause: z.string().optional(),
       retry_at: z.string().optional(),
-      rate_remaining: z.number().int().nonnegative(),
-      rate_limit: z.number().int().nonnegative()
+      rate_remaining: z.number().int().nonnegative().optional(),
+      rate_limit: z.number().int().nonnegative().optional()
     })
   }),
   obsidian: z.object({ path: z.string(), last_sync_at: z.string().optional(), error: z.string().optional() })

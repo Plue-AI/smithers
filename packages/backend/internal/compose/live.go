@@ -39,6 +39,7 @@ type liveTopics struct {
 	documents *live.DocRelay
 	capacity  *services.InstallCapacityService
 	presence  *branchPresence
+	viewState func(context.Context, int64, string) (json.RawMessage, error)
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -121,12 +122,16 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			return json.Marshal(rows)
 		}}, ""
 	case "view":
-		// Member topics refuse every other person (§7.2.2); none is served yet.
-		owner, _, _ := strings.Cut(rest, ":")
-		if owner != strconv.FormatInt(member, 10) {
+		owner, branch, hasBranch := strings.Cut(rest, ":")
+		if member <= 0 || owner != strconv.FormatInt(member, 10) {
 			return live.Source{}, live.Forbidden
 		}
-		return live.Source{}, live.Unsupported
+		if !hasBranch || branch == "" || repository <= 0 || t.viewState == nil {
+			return live.Source{}, live.Unsupported
+		}
+		return live.Source{Key: topic, Hints: []string{"view_" + strconv.FormatInt(repository, 10) + "_" + owner}, Every: liveRefreshEvery, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
+			return t.viewState(ctx, member, branch)
+		}}, ""
 	case "install":
 		if topic != "install" || t.install == nil {
 			return live.Source{}, live.Unsupported

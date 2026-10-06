@@ -814,10 +814,11 @@ const FIXTURES: Record<
   },
   /* Confirm (T-APP-04): the card names its subject; the card file reads the confirmation. */
   confirm: { minimal: { id: "act:act-1" }, full: { id: "merge:t-stripe" } },
-  branch: { minimal: { id: "b-retry" }, full: { id: "b-retry" } },
+  branch: { minimal: { id: "b-retry" }, full: { id: "b-retry", tab: "activity" } },
   terminal: { minimal: { id: "term-1" }, full: { id: "term-1" } },
   run: { minimal: { id: "run-1" }, full: { id: "run-1" } },
   flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", proposal: { request: "request-1", diff: "diff-1" } } },
+  setup: { minimal: {}, full: {} },
   settings: { minimal: {}, full: {} },
   members: { minimal: {}, full: {} },
   commands: { minimal: {}, full: {} },

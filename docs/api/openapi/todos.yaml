@@ -442,6 +442,13 @@ components:
             login: {type: string}
             name: {type: string}
             avatar_url: {type: string}
+        flow_version:
+          type: object
+          required: [flow_name, source_commit, digest]
+          properties:
+            flow_name: {type: string}
+            source_commit: {type: string, pattern: '^[a-f0-9]{40}$'}
+            digest: {type: string, pattern: '^[a-f0-9]{64}$'}
         place: {type: integer, minimum: 1}
         prompt_revisions:
           type: array

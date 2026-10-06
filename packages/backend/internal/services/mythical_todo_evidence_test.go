@@ -140,14 +140,14 @@ func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 		}}, Review: &mythicalReview{Head: "old", Verdict: "approve"},
 	}.encode()}
 	evidence := currentTodoEvidence(item)
-	require.Equal(t, []map[string]any{{"kind": "check", "name": "unit", "state": "passed", "took_s": float64(0)}, {"kind": "flow", "name": "todo", "version": "pin"}}, evidence.Items)
+	require.Equal(t, []map[string]any{{"kind": "check", "name": "unit", "state": "passed", "took_s": float64(0)}, {"kind": "flow", "name": "todo", "version": "pin", "source_commit": ""}}, evidence.Items)
 	archived := retainTodoAttemptEvidence(item)
 	first, _ := json.Marshal(mythicalChecksOf(archived).Attempts[0])
 	require.Equal(t, archived, retainTodoAttemptEvidence(archived), "replayed snapshot is identical")
 	// Candidate movement hides stale receipts and review rather than reattributing them.
 	moved := archived
 	moved.CandidateHead = "different"
-	require.Equal(t, []map[string]any{{"kind": "flow", "name": "todo", "version": "pin"}}, currentTodoEvidence(moved).Items)
+	require.Equal(t, []map[string]any{{"kind": "flow", "name": "todo", "version": "pin", "source_commit": ""}}, currentTodoEvidence(moved).Items)
 	checks := mythicalChecksOf(moved)
 	checks.Review = &mythicalReview{Head: "different", Verdict: "request-changes"}
 	moved.Checks = checks.encode()

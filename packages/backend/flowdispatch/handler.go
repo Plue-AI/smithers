@@ -62,6 +62,13 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if (payload.Pin != nil && !payload.Pin.Valid()) || !todoLaunchAllowed(payload.FlowID, payload.Target, payload.Pin) {
 		return service.fail(lease, "todo_requires_stack_admission", checkpoint)
 	}
+	if payload.Pin != nil && payload.FlowID == payload.Pin.Flow && checkpoint.RunID == "" {
+		if checkpoint.ExecutionDigest != "" && checkpoint.ExecutionDigest != payload.Pin.ExecutionDigest {
+			return service.fail(lease, "checkpoint_pin_mismatch", checkpoint)
+		}
+		// Persist the admitted identity before asking the host to load source.
+		checkpoint.ExecutionDigest = payload.Pin.ExecutionDigest
+	}
 	// No external checkpoint means Control has never seen this launch. A
 	// cancellation already present on the claim can therefore settle locally;
 	// it must not wait for (or accidentally start) an unavailable host.
@@ -116,7 +123,9 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	}
 	checkpoint.PlanID = result.PlanID
 	checkpoint.PlanDigest = result.PlanDigest
-	checkpoint.ExecutionDigest = result.ExecutionDigest
+	if payload.Pin == nil || payload.FlowID != payload.Pin.Flow {
+		checkpoint.ExecutionDigest = result.ExecutionDigest
+	}
 	checkpoint.Envelope = result.Envelope
 	checkpoint.Approval = result.Approval
 	checkpoint.Receipt = &result.Receipt

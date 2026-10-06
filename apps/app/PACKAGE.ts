@@ -20,6 +20,7 @@ const cwd = "apps/app"
  * which cross-builds the Linux arm64 guest helper from the same commit.
  */
 const serverBundle = Smithers.Shell.Build({
+  cache: false,
   shell: 'SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" bun apps/app/scripts/build-native.ts',
   data: [Smithers.glob("//apps/app/scripts/**/*"), Smithers.glob("//apps/app/src/**/*"),
     Smithers.file("//packages/smithers/src/internal/backend/HostService.ts"), Smithers.glob("//distribution/**/*"), Smithers.glob("//crates/**/*"),

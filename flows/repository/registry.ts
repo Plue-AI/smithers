@@ -175,7 +175,9 @@ const checkBody = (check: BuiltinCheck) =>
     "---",
     `description: ${JSON.stringify(`Run the detected command ${check.argv.join(" ")}.`)}`,
     "flows: [coding/CommandCheck]",
-    `capabilities: ${JSON.stringify(["fs:read:**", ...(check.argv.length === 0 ? [] : [`proc:spawn:${check.argv.join(" ")}`])])}`,
+    `capabilities: ${
+      JSON.stringify(["fs:read:**", ...(check.argv.length === 0 ? [] : [`proc:spawn:${check.argv.join(" ")}`])])
+    }`,
     "---",
     JSON.stringify({ argv: check.argv, cwd: ".", timeoutMs: check.timeoutMs }),
     ""
@@ -455,13 +457,14 @@ export const bindRepositoryRegistry = (
   base: Registry.Registry,
   builtins: Registry.Registry,
   policy: string,
-  systemFlows: ReadonlyArray<string>
+  systemFlows: ReadonlyArray<string>,
+  expectedTodoDigest?: string
 ): Registry.Registry => {
   // The `todo` composition (flows/todo/flow.ts) runs only from stack admission
   // with the real pinned-source and current-attempt providers (T-FLW-03/04,
   // T-FLW-11). Until they bind a launch to its attempt, no generic route may
   // reach it: refuse before module import, packaged or repository alike.
-  const dark = (name: string) => name === "todo"
+  const dark = (name: string) => name === "todo" && expectedTodoDigest === undefined
   const names = new Set(systemFlows)
   const bundled = (name: string) => names.has(name)
   // Legacy packaged delegates retain their codecs and policy fence. These
@@ -517,7 +520,11 @@ export const bindRepositoryRegistry = (
   const loadBody: Registry.Registry["loadBody"] = (name, expected) =>
     Effect.gen(function*() {
       const registry = yield* owned(name), original = yield* registry.get(name), descriptor = derived(original)
-      if (expected !== undefined && Descriptor.executionDigest(descriptor) !== expected) {
+      const admitted = name === "todo" ? expectedTodoDigest : expected
+      if (
+        (admitted !== undefined && Descriptor.executionDigest(descriptor) !== admitted) ||
+        (expected !== undefined && Descriptor.executionDigest(descriptor) !== expected)
+      ) {
         return yield* registryError({
           code: "execution_changed",
           method: "loadBody",

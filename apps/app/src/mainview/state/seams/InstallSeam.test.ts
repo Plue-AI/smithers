@@ -129,6 +129,26 @@ describe("T-APP-03 install seam", () => {
     gate.resolve(Response.json(installFixture())); await h.idle()
     expect(h.presentations).toEqual(["settings"]); expect(h.toasts[0]?.outcome).toBe(true)
   })
+  test("shared install frames retain the browser's authenticated Settings authority and callback fixes", async () => {
+    const model = installFixture()
+    model.callback_fixes = [{ settings_url: "https://github.com/settings/apps/smithers", add_url: "http://mini.lan:4000/api/auth/github/callback" }]
+    const h = await harness(() => Response.json(model))
+    await h.seam.readInstall()
+    const { can_assign_models, callback_fixes, ...shared } = model
+    h.receive({ ...shared, capacity: 1 })
+    expect(h.seam.snapshots.get().model?.capacity).toBe(1)
+    expect(h.seam.snapshots.get().model?.can_assign_models).toBe(true)
+    expect(h.seam.snapshots.get().model?.callback_fixes).toEqual(callback_fixes)
+    h.seam.dispose()
+  })
+  test("a shared frame cannot grant a member the owner's model controls", async () => {
+    const model = installFixture(); model.can_assign_models = false
+    const h = await harness(() => Response.json(model))
+    await h.seam.readInstall()
+    h.receive({ ...model, can_assign_models: true })
+    expect(h.seam.snapshots.get().model?.can_assign_models).toBe(false)
+    h.seam.dispose()
+  })
   test("source and machine progress are independent; malformed topic data retains the projection", async () => {
     const h = await harness(() => Response.json(installFixture())); await h.seam.readInstall()
     const live = installFixture(); live.steps[6] = { id: "machine", state: "running", pct: 20 }; h.receive(live)
@@ -171,13 +191,15 @@ describe("T-APP-03 install seam", () => {
   })
   test("limits reject invalid values before transport and allow both boundaries", async () => {
     const h = await harness(() => Response.json(installFixture())); await h.seam.readInstall()
-    for (const n of [0, -1, 3.5, NaN, Infinity, 4]) expect(typeof h.seam.setInstallCapacity(n)).toBe("string")
+    for (const n of [-1, 3.5, NaN, Infinity, 4]) expect(typeof h.seam.setInstallCapacity(n)).toBe("string")
     for (const n of [0, -1, 2.5, NaN, Infinity, 9]) expect(typeof h.seam.setInstallParallel(n)).toBe("string")
     expect(h.requests).toHaveLength(1)
     h.seam.setInstallCapacity(3); await h.idle()
     expect(JSON.parse(String(h.requests[1]?.init?.body))).toEqual({ capacity: 3 })
     h.seam.setInstallParallel(8); await h.idle()
     expect(JSON.parse(String(h.requests[2]?.init?.body))).toEqual({ parallel: 8 })
+    h.seam.setInstallCapacity(0); await h.idle()
+    expect(JSON.parse(String(h.requests[3]?.init?.body))).toEqual({ capacity: 0 })
   })
   test("a done Address is sent again while setup is unfinished, and never once setup is done", async () => {
     const input = { step: "address" as const, bind: "0.0.0.0:4000", origins: ["http://williams-mac-mini.local:4000"] }
@@ -195,13 +217,41 @@ describe("T-APP-03 install seam", () => {
     expect(finished.seam.setupStep(input)).toEqual({ value: "Requested" }); await finished.idle()
     expect(finished.requests.filter(row => row.init?.method === "POST")).toEqual([])
   })
+  test("Settings Address sends the flat install contract and refreshes the saved origins", async () => {
+    const model = installFixture()
+    const address = { listen: "network" as const, bind: "0.0.0.0:4000", origins: ["http://mini.lan:4000"] }
+    const h = await harness((_path, init) => {
+      if (init?.method === "PUT") {
+        expect(JSON.parse(String(init.body))).toEqual({ bind: address.bind, origins: address.origins })
+        model.address = address
+      }
+      return Response.json(model)
+    })
+    await h.seam.readInstall()
+    expect(h.seam.setInstallAddress(address)).toEqual({ value: "Requested" })
+    await h.idle()
+    expect(h.seam.snapshots.get().model?.address).toEqual(address)
+    expect(h.toasts.at(-1)?.outcome).toBe(true)
+    h.seam.dispose()
+  })
   test("refused origins stay inactive and writes remain retryable", async () => {
     const h = await harness((_path, init) => init?.method === "PUT" ? Response.json(failure(), { status: 422 }) : Response.json(installFixture()))
     await h.seam.readInstall(); const address = { listen: "network" as const, bind: "0.0.0.0:4000", origins: ["http://refused.test"] }
     h.seam.setInstallAddress(address); await h.idle()
     expect(h.seam.snapshots.get().model?.address.origins).not.toContain("http://refused.test")
     expect(h.seam.snapshots.get().error).toEqual(failure())
+    expect(h.seam.snapshots.get().model?.address.change_failed).toEqual({ from: "http://localhost:4000", to: "http://refused.test", reason: "Address refused" })
     h.seam.setInstallAddress(address); await h.idle(); expect(h.toasts).toHaveLength(2)
+  })
+  test("a transient address refusal retains the host's literal reason on the Settings row", async () => {
+    const refusal = { code: "address_unavailable", class: "transient" as const, message: "Install listener unavailable" }
+    const h = await harness((_path, init) => init?.method === "PUT" ? Response.json(refusal, { status: 503 }) : Response.json(installFixture()))
+    await h.seam.readInstall()
+    h.seam.setInstallAddress({ listen: "network", bind: "0.0.0.0:4000", origins: ["http://mini.lan:4000"] })
+    await h.idle()
+    expect(h.seam.snapshots.get().error).toEqual(refusal)
+    expect(settingsCardModel(h.seam.snapshots.get().model!, "http://localhost:4000").address.failed?.reason.message).toBe("Install listener unavailable")
+    h.seam.dispose()
   })
   test("a refused setup write fails its own step and keeps the Setup card (gh-setup-walk-2)", async () => {
     // The walk's laptop: POST /install/setup/app answered 403 and the whole card vanished.

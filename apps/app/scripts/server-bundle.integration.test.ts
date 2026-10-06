@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { constants, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { constants, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -9,10 +9,15 @@ import { join, resolve } from "node:path"
 // Opt in on the reference builder with Zig installed: the assembler
 // cross-builds the Linux arm64 guest helper (scripts/README.md).
 test.skipIf(process.env.SMITHERS_SERVER_BUNDLE_INTEGRATION !== "1")("production target assembles a digest-matched relocatable server bundle", async () => {
+  expect(process.platform).toBe("darwin")
+  expect(process.arch).toBe("arm64")
+  expect(process.getuid!()).not.toBe(0)
+  const receipt = process.env.SMITHERS_SERVER_BUNDLE_RECEIPT
+  if (receipt) rmSync(receipt, { force: true })
   const root = resolve(import.meta.dir, "../../..")
   let firstDigest = ""
   for (let build = 0; build < 2; build++) {
-    const child = Bun.spawn(["pnpm", "exec", "smthrs", "build", "//apps/app:serverBundle"], { cwd: root, stdout: "inherit", stderr: "inherit" })
+    const child = Bun.spawn(["pnpm", "exec", "smthrs", "build", "//apps/app:serverBundle", "--no-cache"], { cwd: root, stdout: "inherit", stderr: "inherit" })
     expect(await child.exited).toBe(0)
     const digest = createHash("sha256").update(readFileSync(join(root, "apps/app/.native-archive/smithers-server.tar.gz"))).digest("hex")
     if (build === 0) firstDigest = digest
@@ -37,10 +42,16 @@ test.skipIf(process.env.SMITHERS_SERVER_BUNDLE_INTEGRATION !== "1")("production 
     const commands = [...readme.matchAll(/^\.\/(bin\/\S+)/gm)]
     expect(commands.length).toBe(3)
     for (const command of commands) expect(existsSync(join(relocated, command[1]!))).toBe(true)
-    const paths = ["README.md", "bin/smthrs", "bin/smithers-server", "bin/smithers-backend", "bin/msb", "bin/node", "bin/git", "bin/jj", "bin/smithers-coding-host", "bin/smithers-model-host", "bin/linux-arm64/smithers-jj-export", `postgres/${postgres.bin}/postgres`, "lib/libkrunfw.5.dylib", "views/mainview/index.html", "share/microsandbox/smithers-guest.py", "share/microsandbox/base-image.oci.tar", "share/microsandbox/base-image.json"]
+    const paths = ["README.md", "bin/smthrs", "bin/smithers-server", "bin/smithers-backend", "bin/msb", "bin/node", "licenses/node-LICENSE", "bin/git", "bin/jj", "bin/smithers-coding-host", "bin/smithers-model-host", "bin/flow-hosts.json", "bin/libsmithers_ffi.dylib", "bin/smithers-jj-export", "bin/linux-arm64/smithers-jj-export", "bin/linux-arm64/jj", `postgres/${postgres.bin}/postgres`, "lib/libkrunfw.5.dylib", "views/mainview/index.html", "share/microsandbox/smithers-guest.py", "share/microsandbox/base-image.oci.tar", "share/microsandbox/base-image.json"]
     const manifest = JSON.parse(readFileSync(join(relocated, "manifest.json"), "utf8"))
     const files = Object.fromEntries(manifest.files.map((entry: { path: string; sha256: string }) => [entry.path, entry]))
     expect(manifest.platform).toBe("darwin-arm64")
+    expect(manifest.revision).toBe(spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim())
+    // Independently hash every relocated payload, including files outside the
+    // minimum layout below. The production verifier is an additional check.
+    for (const entry of manifest.files) {
+      expect(entry.sha256).toBe(createHash("sha256").update(readFileSync(join(relocated, entry.path))).digest("hex"))
+    }
     for (const path of paths) {
       expect(existsSync(join(relocated, path))).toBe(true)
       expect(files[path].sha256).toBe(createHash("sha256").update(readFileSync(join(relocated, path))).digest("hex"))
@@ -54,6 +65,25 @@ test.skipIf(process.env.SMITHERS_SERVER_BUNDLE_INTEGRATION !== "1")("production 
     for (const line of new TextDecoder().decode(linkage.stdout).trim().split("\n").slice(1)) expect(line.trim()).toMatch(/^\/(System\/Library|usr\/lib)\//)
     const check = Bun.spawnSync(["bun", "apps/app/scripts/server-bundle-manifest.ts", relocated], { cwd: root, stdout: "pipe", stderr: "pipe" })
     expect(check.exitCode).toBe(0)
+    const versions: Record<string, string> = {}
+    for (const [path, release] of [
+      ["bin/node", /^v26\.(?:[4-9]|[1-9]\d+)\./],
+      ["bin/git", /^git version /],
+      ["bin/jj", /^jj 0\.44\.0-47589ada70c12b3e829b5c98ab32503abad49eac$/],
+      [`postgres/${postgres.bin}/postgres`, /PostgreSQL\)?\s+18\./]
+    ] as const) {
+      const result = spawnSync(join(relocated, path), ["--version"], { encoding: "utf8" })
+      expect(result.error).toBeUndefined()
+      expect(result.status).toBe(0)
+      versions[path] = result.stdout.trim()
+      expect(versions[path]).toMatch(release)
+    }
+    if (receipt) writeFileSync(receipt, JSON.stringify({
+      check: "C-INS-05", scope: "assembly and relocation", passed: true,
+      revision: manifest.revision, uid: process.getuid!(), platform: process.platform,
+      arch: process.arch, archiveSha256: firstDigest, builds: 2,
+      relocatedFiles: manifest.files.length, versions, completedAt: new Date().toISOString()
+    }, null, 2) + "\n")
   } finally { rmSync(destination, { recursive: true, force: true }) }
 }, 7_200_000)
 

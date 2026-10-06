@@ -108,7 +108,7 @@ test("without install capability the seeded Setup and Settings remain usable (#3
   expect(renderToStaticMarkup(renderSetupCard({ ...props, allowed: true }))).toContain("Cerebras")
   const settings = renderToStaticMarkup(<SettingsContainer {...props} View={SettingsView} owner origin="http://localhost:4000" />)
   expect(settings).toContain("Machines")
-  expect(settings).not.toContain("Cerebras")
+  expect(settings).toContain("Cerebras")
   expect(controller.installSnapshots.get().model).toBeUndefined()
   expect(install.get().seed).toBe(true)
 })
@@ -156,4 +156,39 @@ test("Setup model rows save three keys and the coding model through their real c
     for (let n = 0; n < 30 && host.querySelector('[data-step="models"]')?.getAttribute("data-state") !== "done"; n++) await settled()
     expect(controller.installSnapshots.get().model?.steps[4]?.state).toBe("done")
   } finally { flushSync(() => root.unmount()); host.remove() }
+})
+
+
+test("Setup keeps both readiness receipts when the last step completes and after reopening", async () => {
+  const { installFixture } = await import("./seams/InstallFixtures.test-support")
+  const model = installFixture()
+  model.steps[6] = { id: "machine", state: "running", pct: 80 }
+  const storage = memoryStorage()
+  const bootstrap = { apiVersion: 1 as const, host: "local" as const, version: "test", buildSha: "test", authFlow: "none" as const, sandbox: null, capabilities: ["install" as const] }
+  const store = await createAppStore({ kind: "localStorage", storage })
+  let receive: (() => void) | undefined
+  let liveModel: typeof model | undefined
+  const controller = createAppController(store, silentAgent, { bootstrap,
+    live: { subscribe: (topic, callback) => { if (topic === "install") receive = callback; return () => {} },
+      getSnapshot: topic => topic === "install" && liveModel ? { topic, cursor: 2, data: liveModel } : undefined },
+    fetchImpl: async input => String(input).endsWith("/api/install") ? Response.json(model) : new Response("", { status: 404 }) })
+  await settled()
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+  try {
+    await settled()
+    expect(store.collections.cards.get("setup")?.kind).toBe("setup")
+    expect(host.textContent).toContain("Source ready")
+    expect(host.textContent).not.toContain("Machine ready")
+    model.steps[6] = { id: "machine", state: "done" }
+    liveModel = model
+    receive?.()
+    await settled()
+    expect(host.textContent).toContain("Source ready")
+    expect(host.textContent).toContain("Machine ready")
+    expect(host.querySelectorAll('.setup-view[data-kind="setup"]')).toHaveLength(1)
+    const reopened = await createAppStore({ kind: "localStorage", storage })
+    expect(reopened.collections.cards.get("setup")?.kind).toBe("setup")
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })

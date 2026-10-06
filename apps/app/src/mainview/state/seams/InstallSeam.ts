@@ -112,7 +112,13 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     if (parsed.data.github.signed_in && !shared.stop && !shared.subscribing && options.topic) {
       shared.subscribing = true
       try {
-        const stop = options.topic.subscribe("install", receive, failure => {
+        const stop = options.topic.subscribe("install", data => {
+          // The shared topic carries install facts. Viewer authority and App
+          // callback fixes belong to this browser's authenticated HTTP read.
+          receive(typeof data === "object" && data !== null ? { ...data,
+            can_assign_models: shared.authoritative?.can_assign_models,
+            callback_fixes: shared.authoritative?.callback_fixes } : data)
+        }, failure => {
           shared.generation++
           if (failure.class === "permission") revoke(failure)
           else publish({ ...shared.snapshot, error: failure })
@@ -240,8 +246,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           if (result.class === "permission" && !setup) revoke(result)
           else {
             const model = shared.snapshot.model
-            const address = path === "/install" && typeof body === "object" && body !== null && "address" in body
-              ? body.address as InstallAddress : undefined
+            const address = path === "/install" && typeof body === "object" && body !== null && "bind" in body && "origins" in body
+              ? body as Pick<InstallAddress, "bind" | "origins"> : undefined
             const failedStep = setup ? (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId : undefined
             publish({ ...shared.snapshot, error: result, model: model && address ? { ...model, address: { ...model.address,
               change_failed: { from: model.address.origins[0] ?? "", to: address.origins[0] ?? "", reason: result.message } } }
@@ -325,7 +331,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   }
   const setInstallCapacity = (capacity: number) => {
     const model = shared.snapshot.model
-    if (!Number.isInteger(capacity) || capacity < 1 || (model && capacity > model.this_mac.capacity)) return "Machines exceed this Mac"
+    if (!Number.isInteger(capacity) || capacity < 0 || (model && capacity > model.this_mac.capacity)) return "Machines exceed this Mac"
     return write("capacity", "/install", { capacity })
   }
   const setInstallParallel = (parallel: number) => {
@@ -411,7 +417,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   }
   return {
     snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
-    setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { address: input }),
+    setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { bind: input.bind, origins: input.origins }),
     setInstallCapacity, setInstallParallel, setInstallObsidian, saveInstallModelKey,
     dispose: () => { shared.disposed = true; shared.generation++; shared.stop?.(); shared.stop = undefined
       if (shared.installPoll !== undefined) clearTimeout(shared.installPoll)

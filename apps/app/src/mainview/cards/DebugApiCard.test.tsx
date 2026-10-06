@@ -237,8 +237,9 @@ test("Debug API requests never enter the network ring: neither /debug.net door s
   expect(transcript).toContain("Network tap")
   expect(transcript).not.toContain(PRIVATE)
   const agent = await controller.commands.runForAgent("debug.net")
-  expect(agent.status).toBe("executed")
-  expect(agent.status === "executed" ? agent.value : "").not.toContain(PRIVATE)
+  // Raw diagnostics are hidden from the app agent by the shared catalog.
+  expect(agent.status).toBe("failed")
+  expect(JSON.stringify(agent)).not.toContain(PRIVATE)
 })
 
 test("the shipped install bootstrap activates slash, Advanced and Send without test gates", async () => {

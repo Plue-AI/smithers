@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/buildcache"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -248,6 +249,15 @@ func (h *Handler) publicScope(w http.ResponseWriter, r *http.Request) (Scope, bo
 	if err != nil {
 		writeProblem(w, http.StatusForbidden, "forbidden")
 		return Scope{}, false
+	}
+	// Public install routes have no /repos prefix and therefore no RepoContext.
+	// Bind their durable queue to the installed repository, never a body field.
+	if scope.RepositoryID == 0 {
+		err = h.Store.pool.QueryRow(r.Context(), `SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository'`).Scan(&scope.RepositoryID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			publicError(w, err)
+			return Scope{}, false
+		}
 	}
 	return scope, true
 }
