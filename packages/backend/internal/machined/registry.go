@@ -22,6 +22,7 @@ var (
 // The zero value is usable; host restart requires fresh boot registration.
 type Registry struct {
 	mu         sync.Mutex
+	closed     bool
 	branches   map[string]*boot
 	boots      map[[16]byte]*boot
 	rosterSync func(context.Context, string) error
@@ -58,6 +59,10 @@ func (r *Registry) BindBoot(branch, machine string, id [16]byte, credential []by
 		return ErrUnauthorized
 	}
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return ErrNotReady
+	}
 	if r.branches == nil {
 		r.branches = make(map[string]*boot)
 		r.boots = make(map[[16]byte]*boot)
@@ -78,6 +83,27 @@ func (r *Registry) BindBoot(branch, machine string, id [16]byte, credential []by
 		_ = old.closeStream()
 	}
 	return nil
+}
+
+// Close fences every boot before closing transport streams. A reader exiting
+// during shutdown cannot restore authority or evict a replacement registry.
+func (r *Registry) Close() error {
+	r.mu.Lock()
+	r.closed = true
+	var connections []*Connection
+	for _, b := range r.branches {
+		if b.connection != nil {
+			connections = append(connections, b.connection)
+			b.connection = nil
+		}
+	}
+	clear(r.branches)
+	r.mu.Unlock()
+	var errs []error
+	for _, c := range connections {
+		errs = append(errs, c.closeStream())
+	}
+	return errors.Join(errs...)
 }
 
 // Admit is called only after the wire handshake verifies the host nonce proof.
