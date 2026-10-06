@@ -133,8 +133,13 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		return nil, ErrUnauthorized
 	}
 	lease.boot.link = l
+	l.objectImporter = r.objects
 	r.mu.Unlock()
 	admitted = true
+	if l.objectImporter != nil {
+		l.objectQueue = make(chan struct{}, 1)
+		go l.importObjects()
+	}
 	go l.read()
 	return l, nil
 }
@@ -156,6 +161,13 @@ type Link struct {
 	presence         chan wire.Frame
 	done             chan struct{}
 	once             sync.Once
+	objectQueue      chan struct{}
+	objectData       []byte
+	objectImporter   ObjectImporter
+	objectStream     uint32
+	objectPending    int
+	objectEOF        bool
+	objectSeen       map[uint32]bool
 }
 
 func (l *Link) Close() error {
@@ -264,6 +276,10 @@ func (l *Link) read() {
 			select {
 			case queue <- append([]byte(nil), f.Payload...):
 			default:
+				return
+			}
+		case wire.Objects:
+			if !l.receiveObject(f) {
 				return
 			}
 		default:
