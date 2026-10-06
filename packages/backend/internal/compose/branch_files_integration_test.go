@@ -13,7 +13,8 @@ import (
 )
 
 // Uses the production install composer, native mirror and real PostgreSQL.
-// No workspace is provisioned: setup stops after Source ready.
+// The external image builder is held after Source ready; reads must provision
+// no workspace while the owner's admitted build remains running.
 func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_BRANCH_FILES_INTEGRATION", "C-J1-03", "branch-files-")
 	seed := filepath.Join(r.gitRoot, "seed")
@@ -34,6 +35,11 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	if !r.setupSource() {
 		return
 	}
+	_, err = r.expect("POST", "/api/install/setup/machine", `{}`, 202)
+	require.NoError(t, err)
+	building, err := r.expect("GET", "/api/install", "", 200)
+	require.NoError(t, err)
+	require.Contains(t, string(building), `"id":"machine","state":"running"`)
 	// An authenticated install member still needs repository read authority.
 	ben, err := r.member("ben", 8, "write")
 	require.NoError(t, err)
@@ -65,6 +71,9 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	}
 	require.True(t, fileRead, "the registered files.read flow must settle")
 	require.True(t, fileCard, "the answer must include a mirrored File card")
+	var afterQuestion int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM workspaces`).Scan(&afterQuestion))
+	require.Equal(t, before, afterQuestion, "the question must not create a workspace")
 	for _, item := range []struct{ path, text string }{
 		{"JOURNEY.md", "Add a greeting to JOURNEY.md\n"},
 		{".smithers/machine.json", machine},
