@@ -65,3 +65,15 @@ LEFT JOIN LATERAL (
   ORDER BY transition.sequence DESC LIMIT 1
 ) AS receipt ON true
 WHERE i.state = 'landed' AND (i.source = 'todo' OR i.checks->>'todo' = 'true');
+
+-- T-COL-06's completed continuous visits. Keep metadata as data: parsing in
+-- the reader lets malformed legacy receipts fail coverage without aborting
+-- the snapshot. An audit row is the session identity, not a socket identity.
+-- name: ScorecardPresence :many
+SELECT id::text AS id, actor_id, target_name, metadata
+FROM audit_log
+WHERE event_type = 'presence' AND target_type = 'branch' AND action = 'visit';
+
+-- Immutable setup initialization receipt; never install_settings.updated_at.
+-- name: ScorecardInstallStart :many
+SELECT value FROM install_settings WHERE key = 'setup.started_at';

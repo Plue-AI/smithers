@@ -82,6 +82,19 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 		present[relation.Name] = relation.Present
 	}
 	facts := scorecardFacts{Coverage: make(map[string]bool), IncompleteStates: make(map[string]bool)}
+	if present["install_settings"] {
+		rows, err := queries.ScorecardInstallStart(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		if len(rows) == 1 {
+			var started time.Time
+			if json.Unmarshal(rows[0], &started) == nil && !started.IsZero() {
+				facts.InstallStart = &started
+				facts.Coverage["T-INS-06"] = true
+			}
+		}
+	}
 	if present["mythical_items"] && present["product_job_events"] {
 		rows, err := queries.ScorecardTODOs(ctx)
 		if err != nil {
@@ -127,6 +140,34 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 			facts.Coverage["T-APP-16"] = true
 			facts.FirstAnswer = &answer.AnsweredAt
 		}
+	}
+	if present["audit_log"] {
+		rows, err := queries.ScorecardPresence(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		// Empty legacy audit tables do not establish producer coverage. Once
+		// the visit writer has persisted its contract, windows with no matching
+		// visits can return zero. Invalid receipts leave this source missing.
+		complete := len(rows) > 0
+		for _, row := range rows {
+			var visit struct {
+				Branch string    `json:"branch"`
+				Member int64     `json:"member"`
+				Via    string    `json:"via"`
+				Start  time.Time `json:"start"`
+				End    time.Time `json:"end"`
+			}
+			if json.Unmarshal(row.Metadata, &visit) != nil || !row.ActorID.Valid || row.ActorID.Int64 <= 0 ||
+				visit.Member != row.ActorID.Int64 || visit.Via != "app" || visit.Branch == "" ||
+				visit.Branch != row.TargetName || visit.Start.IsZero() || visit.End.Sub(visit.Start) < 2*time.Minute {
+				complete = false
+				continue
+			}
+			facts.Presence = append(facts.Presence, scorecardPresence{ID: row.ID, Branch: visit.Branch,
+				Person: fmt.Sprint(visit.Member), From: visit.Start, To: visit.End})
+		}
+		facts.Coverage["T-COL-06"] = complete
 	}
 	out := aggregateScorecard(window, facts)
 	if err := tx.Commit(ctx); err != nil {

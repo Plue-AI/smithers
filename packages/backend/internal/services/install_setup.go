@@ -174,6 +174,18 @@ func (s *InstallSetupService) Initialize(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Only a fresh setup has a known start. Never backfill a legacy install
+	// from restart time or from mutable step/settings update timestamps.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(345506)`); err != nil {
+		return err
+	}
+	started, _ := json.Marshal(setupNow(s.Now).UTC())
+	if _, err = tx.Exec(ctx, `INSERT INTO install_settings(key,value)
+ SELECT 'setup.started_at',$1::jsonb WHERE NOT EXISTS
+ (SELECT 1 FROM install_settings WHERE key LIKE 'setup.step.%')
+ ON CONFLICT DO NOTHING`, started); err != nil {
+		return err
+	}
 	for _, id := range InstallStepIDs {
 		value, _ := json.Marshal(InstallStep{ID: id, Status: InstallPending})
 		if _, err = tx.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES($1,$2) ON CONFLICT DO NOTHING`, "setup.step."+id, value); err != nil {
