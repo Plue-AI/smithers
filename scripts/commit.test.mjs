@@ -27,7 +27,7 @@ for (const vcs of ["git", "jj"]) {
       ok(directory, "git", ["init", "-b", "main"])
       ok(directory, "git", ["config", "user.name", "Commit test"])
       ok(directory, "git", ["config", "user.email", "test@example.com"])
-      writeFileSync(join(directory, ".gitignore"), ".env\n")
+      writeFileSync(join(directory, ".gitignore"), ".env\nnode_modules\n.flows/\n")
       ok(directory, "git", ["add", ".gitignore", "scripts/check-tracked-hygiene.mjs"])
       ok(directory, "git", ["commit", "-m", "initial"])
       ok(remote, "git", ["init", "--bare", "-b", "main"])

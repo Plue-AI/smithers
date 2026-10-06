@@ -13,7 +13,7 @@ const tests = []
 let noTest
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--help") {
-    console.log("Usage: pnpm commit [--message <message>] [--push] [--test <command> ... | --no-test <reason>]\nCommits ALL nonignored edits, including other contributors' work, on main.\nUses jj when available in this checkout, otherwise Git. --push publishes main to origin.\nAfter validation and pushing, use pnpm deploy to publish production.")
+    console.log("Usage: pnpm commit [--message <message>] [--push] [--test <command> ... | --no-test <reason>]\nCommits ALL nonignored edits, including other contributors' work, on main.\nUses jj when available in this checkout, otherwise Git. --push publishes main to origin.\nPush always requires the DB-free migration gate, sqlc drift, and all five landing drift targets; --no-test does not skip them.\nAfter validation and pushing, use pnpm deploy to publish production.")
     process.exit(0)
   } else if (args[i] === "--push") push = true
   else if (args[i] === "--test" && args[i + 1]?.trim()) tests.push(args[++i])
@@ -61,6 +61,7 @@ try {
     run("bash", ["scripts/check-sqlc-drift.sh"])
   }
   run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true)
+  if (push) run("smthrs", ["lint", "//:driftCi", "//:targetIndex", "//:ci", "//scripts:trackedHygiene", "//scripts:conflictMarkers"])
   if (existsSync(join(root, ".jj"))) {
     const eligible = run("jj", ["log", "-r", "main & (@ | @-)", "--no-graph", "-T", "commit_id"], true)
     if (!eligible) throw new Error("The shared checkout must be on main or its working-copy child.")

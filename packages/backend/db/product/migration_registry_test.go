@@ -226,13 +226,13 @@ func migrationGate(files map[string]string, registry []migrationSpec, owners map
 					pos += 2
 				}
 				if create {
-					if pos+1 < len(stmt) && stmt[pos] == "partition" && stmt[pos+1] == "of" {
-						break
-					}
 					if created[name] {
 						return fmt.Errorf("duplicate CREATE TABLE %s", name)
 					}
 					created[name] = true
+					if pos+1 < len(stmt) && stmt[pos] == "partition" && stmt[pos+1] == "of" {
+						break
+					}
 					live[name] = true
 					row, ok := owners[name]
 					if ok && row.owner == "private" {
@@ -309,6 +309,7 @@ func TestMigrationGateFixtures(t *testing.T) {
 		{"dropped", "CREATE TABLE things(id int); DROP TABLE things;", "things,product,installed", "", true},
 		{"removed", "CREATE TABLE things(id int); DROP TABLE things;", "", "", false},
 		{"partition", "CREATE TABLE things(id int) PARTITION BY RANGE(id); CREATE TABLE child PARTITION OF things FOR VALUES FROM(0) TO(1);", "things,product,installed", "", false},
+		{"duplicate partition", "CREATE TABLE things(id int) PARTITION BY RANGE(id); CREATE TABLE child PARTITION OF things FOR VALUES FROM(0) TO(1); CREATE TABLE IF NOT EXISTS child PARTITION OF things FOR VALUES FROM(1) TO(2);", "things,product,installed", "", true},
 		{"missing parent", "CREATE TABLE things(id int) PARTITION BY RANGE(id); CREATE TABLE child PARTITION OF things FOR VALUES FROM(0) TO(1);", "child,product,installed", "", true},
 		{"comments and bodies", "-- CREATE TABLE bad(x int);\nCREATE TABLE things(id int); DO $$ BEGIN CREATE TABLE hidden(id int); END $$; /* DROP TABLE things; */", "things,product,installed", "", false},
 		{"quoted", "CREATE TABLE public.\"things\"(id int);", "things,product,installed", "", false},
