@@ -1,5 +1,5 @@
 import { DurableEngineState } from "@smthrs/engine-store"
-import { Action } from "@smthrs/flow"
+import { Action, Fault } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import { Cause, Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
 import assert from "node:assert/strict"
@@ -54,6 +54,80 @@ const plan: Plan = {
 const implementation = (index: number, parent: Revision): Implementation => {
   const change = plan.changes[index]!, head = revision(change.id, index === 0 ? "base" : plan.changes[index - 1]!.id)
   return { change: change.id, parent, atoms: [head], head, reads: [], writes: [`${change.id}.txt`] }
+}
+
+for (
+  const [code, faultClass] of [
+    ["invalid_plan", "factory"],
+    ["source_changed", "user"],
+    ["execution", "infra"],
+    ["isolation_required", "dependency"],
+    ["check_modified_tree", "user"]
+  ] as const
+) {
+  test(`correction retains ${code} through cold replay`, { timeout: 60_000 }, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "coding-correction-typed-fault-"))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    execFileSync("jj", ["git", "init", root], { stdio: "pipe" })
+    await writeFile(join(root, ".gitignore"), ".flows/\n")
+    const failure = new CodingError({ code, message: `Implementation refused: ${code}`, route: "bug" })
+    let implementations = 0, checks = 0
+    const runtime = NodeRuntime.layerHost(
+      {
+        filename: join(root, ".flows", "engine.db"),
+        workspaceRoot: root,
+        owner: { hostId: "correction-typed-fault-test" },
+        signals: []
+      },
+      Layer.mergeAll(
+        policyLayers,
+        correctionLayers,
+        Implement.toLayer(() =>
+          Effect.suspend(() => {
+            implementations++
+            return Effect.fail(failure)
+          })
+        ),
+        RunCheck.toLayer(() =>
+          Effect.suspend(() => {
+            checks++
+            return Effect.die("Checks cannot run after a failed implementation")
+          })
+        )
+      ).pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provide(Layer.succeed(NativeCoding, {
+          sourcePublication: "local-only",
+          read: () => Effect.die("a first round never reads native history"),
+          apply: () => Effect.die("a first round never edits native history"),
+          publishOriginalSource: () => Effect.die("failed implementation never publishes source")
+        }))
+      )
+    ).pipe(
+      Layer.provide(Layer.succeed(NodeJj.StartupTimeoutMs, 30_000)),
+      Layer.provideMerge(MemoryStore.layerNoop())
+    )
+    const input = { plan: { ...plan, changes: [plan.changes[0]!] }, maxRounds: 2 }
+    for (const phase of ["fresh", "reopened"]) {
+      const host = ManagedRuntime.make(runtime)
+      try {
+        const result = await host.runPromise(
+          CorrectPlan.execute(input, { executionId: `correction-typed-${code}` }).pipe(Effect.exit)
+        )
+        assert.ok(Exit.isFailure(result), `${phase}: typed failures must not become successful blocked results`)
+        const reason = result.cause.reasons.find(Cause.isFailReason)
+        assert.ok(reason?.error instanceof CodingError, Cause.pretty(result.cause))
+        assert.equal(reason.error.code, code)
+        assert.equal(reason.error.message, failure.message)
+        assert.equal(reason.error.route, "bug")
+        assert.deepEqual(Fault.of(reason.error), { class: faultClass, tag: `coding/Error/${code}` })
+        assert.equal(implementations, 1, `${phase}: do not rerun failed work or spend a correction round`)
+        assert.equal(checks, 0)
+      } finally {
+        await host.dispose()
+      }
+    }
+  })
 }
 
 for (const mode of ["fast-infra", "slow-infra", "real-red"] as const) {
@@ -132,7 +206,7 @@ for (const mode of ["owner", "source", "digest"] as const) {
       execFileSync("jj", ["git", "init", root], { stdio: "pipe" })
       await writeFile(join(root, ".gitignore"), ".flows/\n")
       const executionId = `feedback-invalid-${mode}-held-writer`
-      const events: string[] = []
+      const events: Array<string> = []
       let releaseTip!: () => void, enterTip!: () => void
       const tipReleased = new Promise<void>((resolve) => {
         releaseTip = resolve
@@ -294,7 +368,7 @@ for (
     t.after(() => rm(root, { recursive: true, force: true }))
     execFileSync("jj", ["git", "init", root], { stdio: "pipe" })
     await writeFile(join(root, ".gitignore"), ".flows/\n")
-    const events: string[] = []
+    const events: Array<string> = []
     let released = 0
     let findingReady!: () => void
     const finding = new Promise<void>((resolve) => {

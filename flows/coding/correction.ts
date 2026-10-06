@@ -551,16 +551,11 @@ export const correctionLayers = Layer.mergeAll(
         Effect.map((result): Pass => ({ result, blocked: null })),
         Effect.catchCause((cause) => {
           if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
-          // Preserve check faults across the composition boundary. An outage
-          // retries the same attempt; a real red gate spends a factory attempt.
-          // Turning either into a blocked result loses that distinction when
-          // delivery correctly refuses the unvalidated request.
+          // Preserve declared coding failures and their recovery class. Turning
+          // them into a blocked result makes delivery replace the original fault
+          // with invalid_receipt when it refuses the unvalidated request.
           for (const reason of cause.reasons) {
-            if (
-              Cause.isFailReason(reason) && reason.error instanceof CodingError &&
-              (reason.error.code === "check_infra" || reason.error.code === "check_modified_tree" ||
-                reason.error.code === "fast_gate")
-            ) return Effect.fail(reason.error)
+            if (Cause.isFailReason(reason) && reason.error instanceof CodingError) return Effect.fail(reason.error)
           }
           const early = cause.reasons.find((reason) =>
             Cause.isFailReason(reason) && reason.error instanceof EarlyFeedback
