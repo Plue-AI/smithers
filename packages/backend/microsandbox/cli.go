@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -277,6 +279,13 @@ func (c *cli) qualify(ctx context.Context) error {
 	if version != RequiredVersion {
 		return fmt.Errorf("%w: msb %s is installed; this backend is qualified with msb %s", ErrUnavailable, version, RequiredVersion)
 	}
+	// msb doctor checks host support, but reports ready even when its own
+	// executable lacks the entitlement required by Hypervisor.framework.
+	if runtime.GOOS == "darwin" {
+		if err := c.hypervisorEntitlement(ctx); err != nil {
+			return err
+		}
+	}
 	stdout, stderr, err := c.runFull(ctx, nil, "doctor")
 	if err != nil {
 		return fmt.Errorf("%w: msb doctor failed: %v", ErrUnavailable, err)
@@ -331,4 +340,55 @@ func (c *cli) removeSnapshot(ctx context.Context, name string) error {
 		return fmt.Errorf("remove snapshot %s: %w", name, err)
 	}
 	return nil
+}
+
+// Check the signed executable, not the manifest's descriptive signature flags.
+func (c *cli) hypervisorEntitlement(ctx context.Context) error {
+	for _, args := range [][]string{
+		{"--verify", "--strict", c.binary},
+		{"--display", "--entitlements", ":-", c.binary},
+	} {
+		command := exec.CommandContext(ctx, "/usr/bin/codesign", args...)
+		command.Env = []string{"PATH=/usr/bin:/bin"}
+		output, err := command.Output()
+		if err != nil {
+			return fmt.Errorf("%w: verify msb hypervisor entitlement: %v", ErrUnavailable, err)
+		}
+		if args[0] == "--display" && !hasHypervisorEntitlement(output) {
+			return fmt.Errorf("%w: msb lacks com.apple.security.hypervisor entitlement", ErrUnavailable)
+		}
+	}
+	return nil
+}
+
+func hasHypervisorEntitlement(data []byte) bool {
+	var plist struct {
+		XMLName xml.Name `xml:"plist"`
+		Dict    struct {
+			Entries []struct {
+				XMLName xml.Name
+				Value   string `xml:",chardata"`
+			} `xml:",any"`
+		} `xml:"dict"`
+	}
+	if xml.Unmarshal(data, &plist) != nil {
+		return false
+	}
+	entries := plist.Dict.Entries
+	found := false
+	if len(entries)%2 != 0 {
+		return false
+	}
+	for i := 0; i < len(entries); i += 2 {
+		if entries[i].XMLName.Local != "key" {
+			return false
+		}
+		if entries[i].Value == "com.apple.security.hypervisor" {
+			if found || entries[i+1].XMLName.Local != "true" || strings.TrimSpace(entries[i+1].Value) != "" {
+				return false
+			}
+			found = true
+		}
+	}
+	return found
 }
