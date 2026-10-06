@@ -13,6 +13,7 @@ type Frame struct {
 	Topic  string          `json:"topic,omitempty"`
 	Cursor *int64          `json:"cursor,omitempty"`
 	Data   json.RawMessage `json:"data,omitempty"`
+	Where  json.RawMessage `json:"where,omitempty"`
 	Code   string          `json:"code,omitempty"`
 }
 type frame = Frame
@@ -31,7 +32,11 @@ func DecodeRequest(raw []byte) (Frame, error) {
 		return Frame{}, errors.New("malformed_frame")
 	}
 	if envelope.T == "presence" || envelope.T == "unsub" {
-		return Frame{T: envelope.T, ID: envelope.ID}, nil
+		var payload struct {
+			Where json.RawMessage `json:"where"`
+		}
+		err := json.Unmarshal(raw, &payload)
+		return Frame{T: envelope.T, ID: envelope.ID, Where: payload.Where}, err
 	}
 	var f Frame
 	if err := json.Unmarshal(raw, &f); err != nil {
