@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/stretchr/testify/require"
 )
 
@@ -239,4 +240,45 @@ func TestGitHubInboundQueuedOpenCannotUndoDrop(t *testing.T) {
 			require.Len(t, h.writes(), writes)
 		})
 	}
+}
+
+func TestGitHubInboundReopenWithSamePayloadAfterDrop(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, pr := h.first("Rapid reopen")
+	before := h.item(n)
+	original := h.pull(pr)
+	synced, row := configureInboundPullPolling(t, h.publicationFixture)
+	ctx := context.Background()
+	pool := h.pool.(*pgxpool.Pool)
+	defer runFetchedFixture(t, synced)()
+	require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+	require.Eventually(t, func() bool {
+		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	originalVersion, err := synced.cachedPullVersion(ctx, pool, row.ID, pr)
+	require.NoError(t, err)
+	_, err = h.drop(n, "drop-rapid")
+	require.NoError(t, err)
+	h.fake.LoseNextResponses(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), 1)
+	h.pass()
+	require.Equal(t, "unknown", h.operation(n).State)
+	require.Equal(t, "closed", h.pull(pr).State)
+	h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) {
+		p.State = "open"
+		p.UpdatedAt = original.UpdatedAt // same-second source payload returns exactly
+	})
+	h.pass()
+	require.Empty(t, h.item(n).PendingOp)
+	require.Equal(t, "open", h.item(n).PRState)
+	writes := len(h.writes())
+	h.pass()
+	require.Eventually(t, func() bool { return h.item(n).State == "proposed" }, 5*time.Second, 10*time.Millisecond)
+	currentVersion, err := synced.cachedPullVersion(ctx, pool, row.ID, pr)
+	require.NoError(t, err)
+	require.Equal(t, originalVersion, currentVersion, "exercise the identical-payload case")
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume'`))
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
+	require.Equal(t, before.Attempt, h.item(n).Attempt)
+	require.Equal(t, before.CandidateHead, h.item(n).CandidateHead)
+	require.Len(t, h.writes(), writes, "fresh evidence performs no GitHub write")
 }

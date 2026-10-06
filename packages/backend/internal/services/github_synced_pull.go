@@ -16,7 +16,11 @@ import (
 // pollInstallPull is called by the existing TODO follow loop, not a second
 // scheduler. It stores detail responses in the same pull cache as list reads
 // and admits the same durable, versioned consumer delivery.
-func (s *GitHubSyncedRepoService) pollInstallPull(ctx context.Context, row db.GithubSyncedRepo, number int64) (err error) {
+func (s *GitHubSyncedRepoService) pollInstallPull(ctx context.Context, row db.GithubSyncedRepo, number int64) error {
+	return s.pollInstallPullRead(ctx, row, number, false)
+}
+
+func (s *GitHubSyncedRepoService) pollInstallPullRead(ctx context.Context, row db.GithubSyncedRepo, number int64, fresh bool) (err error) {
 	if err = s.authorizeFetched(ctx, row); err != nil {
 		return err
 	}
@@ -41,6 +45,14 @@ func (s *GitHubSyncedRepoService) pollInstallPull(ctx context.Context, row db.Gi
 	// Respect a pause before the fetcher can mint an installation token.
 	if at := s.budget.StreamRetryAt(row.InstallationID.Int64, "pulls"); at.After(s.now()) {
 		return GitHubRateLimitError(http.StatusTooManyRequests, http.Header{"Retry-After": {at.UTC().Format(http.TimeFormat)}}, s.now())
+	}
+	var after int64
+	if fresh {
+		previous, err := latestPullObservation(ctx, s.install.pool, row, number)
+		if err != nil {
+			return err
+		}
+		after = previous.PullObservation
 	}
 	// List reads or another detail read may have replaced the cache. ETags are
 	// usable only while the exact representation they validated is still there.
@@ -94,7 +106,7 @@ func (s *GitHubSyncedRepoService) pollInstallPull(ctx context.Context, row db.Gi
 			if err := json.Unmarshal(canonical, &header); err != nil || header.ID <= 0 {
 				return gitHubFetchUnavailable()
 			}
-			return s.admitFetchedObject(ctx, tx, row, GitHubRepoMetadataPulls, header.ID, number, canonical)
+			return s.admitFetchedObjectAfter(ctx, tx, row, GitHubRepoMetadataPulls, header.ID, number, canonical, after)
 		}
 		var pull mythicalGitHubPull
 		if json.Unmarshal(page.Body, &pull) != nil || pull.Number != number || pull.Head.SHA == "" || (pull.State != "open" && pull.State != "closed") {
@@ -116,6 +128,15 @@ func (s *GitHubSyncedRepoService) pollInstallPull(ctx context.Context, row db.Gi
 		}
 		if version != expected {
 			version = ""
+			if fresh {
+				return gitHubFetchUnavailable()
+			}
+		} else if fresh {
+			var header gitHubIssueHeader
+			if err := json.Unmarshal(page.Body, &header); err != nil {
+				return err
+			}
+			return s.admitFetchedObjectAfter(ctx, tx, row, GitHubRepoMetadataPulls, header.ID, number, json.RawMessage(canonical), after)
 		}
 		return nil
 	})

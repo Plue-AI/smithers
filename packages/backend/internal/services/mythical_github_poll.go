@@ -18,12 +18,12 @@ func (s *MythicalService) UseInstallGitHubPolling(synced *GitHubSyncedRepoServic
 	s.installGitHubPolling, s.installGitHubSync = true, synced
 	s.installPullHints = &mythicalPullHints{pending: make(map[pgtype.UUID]mythicalPullHint), wake: make(chan struct{}, 1)}
 	if synced != nil && synced.install != nil {
-		synced.install.consumers[gitHubIssueEvents] = s.consumeGitHubTodoLabels
 		synced.install.pullFacts = true
 		synced.install.requestPulls = s.requestInstallPulls
 		synced.install.requiredPulls = s.requiredInstallPulls
 		synced.install.requiredPullFacts = s.requiredInstallPullResources
 		if synced.install.consumers != nil {
+			synced.install.consumers[gitHubIssueEvents] = s.consumeGitHubTodoLabels
 			synced.install.consumers[GitHubRepoMetadataPulls] = s.consumeGitHubPullTodos
 		}
 	}
@@ -56,7 +56,9 @@ func (st *mythicalItemStep) followInstallPull(ctx context.Context, item db.Mythi
 	st.s.installPullHints.mu.Lock()
 	delete(st.s.installPullHints.pending, item.ID)
 	st.s.installPullHints.mu.Unlock()
-	if err := synced.pollInstallPull(ctx, row, item.PRNumber.Int64); err != nil {
+	checks := mythicalChecksOf(item)
+	freshDropRead := item.State == "cancelled" && checks.Dropped != nil && len(item.PendingOp) == 0 && !checks.GitHubDropRead.matches(row)
+	if err := synced.pollInstallPullRead(ctx, row, item.PRNumber.Int64, freshDropRead); err != nil {
 		return nil, err
 	}
 	next := item

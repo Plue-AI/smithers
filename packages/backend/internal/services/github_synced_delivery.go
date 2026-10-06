@@ -182,6 +182,12 @@ func (s *GitHubSyncedRepoService) commitFetchedIssue(ctx context.Context, tx pgx
 }
 
 func (s *GitHubSyncedRepoService) admitFetchedObject(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, resource string, id, number int64, canonical json.RawMessage) error {
+	return s.admitFetchedObjectAfter(ctx, tx, row, resource, id, number, canonical, 0)
+}
+
+// after is a PR observation that predates a required fresh read. Even an
+// identical response must have a later receipt across that lifecycle boundary.
+func (s *GitHubSyncedRepoService) admitFetchedObjectAfter(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, resource string, id, number int64, canonical json.RawMessage, after int64) error {
 	hash := sha256.Sum256(canonical)
 	version := hex.EncodeToString(hash[:])
 	fact := gitHubFetchedObject{GitHubRepository: row.GithubRepositoryID.Int64, Installation: row.InstallationID.Int64, Repo: row.ID, Resource: resource, Number: number, Version: version, Object: canonical}
@@ -193,7 +199,7 @@ func (s *GitHubSyncedRepoService) admitFetchedObject(ctx context.Context, tx pgx
 		if err != nil {
 			return err
 		}
-		if previous.PullObservation > 0 && previous.Version == version {
+		if previous.PullObservation > after && previous.Version == version {
 			return nil
 		}
 		fact.PullObservation = previous.PullObservation + 1

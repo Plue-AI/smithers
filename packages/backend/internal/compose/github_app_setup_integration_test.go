@@ -481,6 +481,8 @@ func TestGitHubFetchedInstallWebhookBoundary(t *testing.T) {
 			}
 			service := services.NewGitHubWebhookService(pool, fetchedWebhookSecret{}, services.WithGitHubWebhookSyncedRepos(synced))
 			cfg := testConfigAllFlagsOn()
+			cfg.Server.PublicURL = "https://factory.example"
+			cfg.Server.AllowedOrigins = []string{"https://factory.example"}
 			if install {
 				cfg.Auth.Mode = "selfhost"
 			}
@@ -489,7 +491,7 @@ func TestGitHubFetchedInstallWebhookBoundary(t *testing.T) {
 			mac := hmac.New(sha256.New, []byte("fetched-test-secret"))
 			_, err = mac.Write(payload)
 			require.NoError(t, err)
-			request := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(payload))
+			request := httptest.NewRequest(http.MethodPost, "https://factory.example/webhooks/github", bytes.NewReader(payload))
 			request.Header.Set("X-GitHub-Delivery", uuid.NewString())
 			request.Header.Set("X-GitHub-Event", "issues")
 			request.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
