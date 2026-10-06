@@ -534,7 +534,7 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
     }
 }
 #[cfg(all(feature = "killpoints", debug_assertions))]
-fn killpoint(point: &str) {
+pub(crate) fn killpoint(point: &str) {
     if std::env::var("SMITHERS_MACHINED_KILL_AT").ok().as_deref() == Some(point) {
         std::process::exit(73);
     }
