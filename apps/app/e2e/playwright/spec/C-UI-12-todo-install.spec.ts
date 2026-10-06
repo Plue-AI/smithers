@@ -137,3 +137,64 @@ for (const conflict of [false, true]) test(`C-UI-12 TODO: Discard confirms the d
   await expect(todo).not.toContainText("Alice pushed")
   await expect(todo.getByRole("button", { name: "Discard", exact: true })).toHaveCount(0)
 })
+
+
+test("C-UI-12 TODO: simultaneous repair waits retain their order and Resolve reaches the install Branch", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.setViewportSize({ width: 390, height: 844 })
+  const hostile = '<img src=x onerror="window.__repairExecuted=1">'
+  const model = {
+    n: 24, title: "Repair the install branch", state: "needs_you",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    branch: { id: "b-repair", name: "smithers/repair", machine: { state: "asleep" } },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [],
+    waits: [
+      { id: "conflict-24", kind: "conflict", prompt: "Resolve conflict", since: "2026-10-06T12:00:00Z",
+        paths: ["src/repair.ts", hostile], ssh_line: "ssh repair@mac-mini.local",
+        actions: [{ tag: "branch", label: "Resolve" }] },
+      { id: "moved-24", kind: "moved_off", prompt: "Branch moved off T24", since: "2026-10-06T12:01:00Z",
+        actions: [{ tag: "branch", label: "Resolve" }, { tag: "todo.keep-moved", label: "Keep for now" }] },
+      { id: "foreign-24", kind: "foreign_push", prompt: "Outside push", since: "2026-10-06T12:02:00Z",
+        sha: "1111111111111111111111111111111111111111", by: { kind: "github", login: hostile, color_index: 7 },
+        actions: [{ tag: "branch.bring-in", label: "Bring in" }] }
+    ],
+    merge: { state: "waiting", reason: "attention", on_github: false }
+  }
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model }))
+  const reads: string[] = []
+  await page.route("**/api/branches/smithers%2Frepair", route => {
+    reads.push(route.request().method())
+    return route.fulfill({ json: { name: "smithers/repair", machine: { id: "b-repair" } } })
+  })
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub") return
+    const data = frame.topic === "branch:b-repair" ? {
+      id: "b-repair", name: "smithers/repair", machine: { state: "asleep" },
+      item: { n: 24, title: "Repair the install branch", state: "needs_you", place: 1 },
+      presence: [], terminals: [], ssh_line: "ssh repair@mac-mini.local"
+    } : frame.topic === "branch:b-repair:activity" || frame.topic === "branch:b-repair:files" ? [] : undefined
+    socket.send(JSON.stringify(data === undefined ? { t: "err", id: frame.id, code: "unsupported" } : { t: "snap", id: frame.id, cursor: 1, data }))
+  }))
+  await page.goto("/")
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible({ timeout: 120_000 })
+  await say(page, "/todo T24")
+  const todo = page.getByRole("article", { name: "TODO T24", exact: true })
+  await expect(todo.locator(".todo-wait")).toHaveCount(3)
+  expect(await todo.locator(".todo-wait").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-wait-id")))).toEqual(["conflict-24", "moved-24", "foreign-24"])
+  const conflict = todo.locator('[data-wait-id="conflict-24"]')
+  await expect(conflict).toContainText("src/repair.ts")
+  await expect(conflict).toContainText(hostile)
+  await expect(conflict).toContainText("ssh repair@mac-mini.local")
+  await expect(todo.locator(".todo-conflict-terminal, script, img[src=x]")).toHaveCount(0)
+  expect(await page.evaluate(() => Reflect.get(window, "__repairExecuted"))).toBeUndefined()
+  for (const label of ["Stop", "Bring in", "Keep for now", "Done"]) await expect(todo.getByRole("button", { name: label, exact: true })).toHaveCount(0)
+  expect(await todo.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+  await conflict.getByRole("button", { name: "Resolve", exact: true }).press("Enter")
+  await expect(page.getByTestId("card-branch:b-repair")).toContainText("smithers/repair")
+  await todo.locator('[data-wait-id="moved-24"]').getByRole("button", { name: "Resolve", exact: true }).press("Space")
+  await expect.poll(() => reads).toEqual(["GET", "GET"])
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+})
