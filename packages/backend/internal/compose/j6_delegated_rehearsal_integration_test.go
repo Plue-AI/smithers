@@ -102,8 +102,8 @@ func (r *rehearsal) stackFacts(t1 int64) (string, error) {
 // in it answers through `smthrs todo answer` with the terminal's delegated
 // credential, so the answer is by "Claude Code for" the terminal's member;
 // that credential is refused everything else its profile does not name,
-// forged headers change none of it, and its TODO draft needs its member
-// to press the private Confirm card before a TODO exists. The member is
+// forged headers change none of it, and its TODO draft is refused with
+// confirm_in_app while the app serves no Confirm card for it. The member is
 // the owner until Ben can open a branch session (row 17).
 func (r *rehearsal) delegatedRows(t1, t2 int64, filed error) {
 	var d *delegatedTerminal
@@ -269,7 +269,7 @@ func (r *rehearsal) delegatedRows(t1, t2 int64, filed error) {
 			seen, err := d.refuse(forged, []refusal{
 				{"POST", fmt.Sprintf("/api/todos/%d/merge", t2), `{"reviewed_head_sha":"` + strings.Repeat("a", 40) + `"}`, cannot},
 				{"POST", fmt.Sprintf("/api/todos/%d/answer", t1), `{"wait":"q-0123456789abcdef","answer":"x"}`, other},
-				{"POST", "/api/todos", `{"title":"Forged","prompt":"Add a farewell","place":{"mode":"before"}}`, cannot},
+				{"POST", "/api/todos", `{"title":"Forged","prompt":"Add a farewell","place":{"mode":"append"}}`, "Confirm in the app"},
 				{"GET", "/api/install", "", cannot},
 			})
 			if err != nil {
@@ -295,98 +295,27 @@ func (r *rehearsal) delegatedRows(t1, t2 int64, filed error) {
 			}
 			return nil
 		})
-	r.step("14 Confirm terminal follow-up", "terminal POST /api/todos; owner POST /api/confirmations/{id}/approve",
-		"202 private pending receipt; forged headers preserve it; terminal cannot approve; repeated owner press appends one TODO", "T-ACC-04, T-APP-04", func() error {
+	r.step("14 Missing card path", "POST /api/todos with T2's terminal credential (Claude Code's TODO draft, Append)",
+		"403 permission/confirm_in_app, 'Confirm in the app'; no TODO, approval or other change", "T-ACC-04", func() error {
 			if d == nil || d.token == "" {
 				return fmt.Errorf("blocked by row 11: no terminal credential")
 			}
-			counts := func() (int, int, error) {
-				var items, approvals int
-				err := r.pool.QueryRow(r.ctx, `SELECT (SELECT count(*) FROM mythical_items), (SELECT count(*) FROM approvals)`).Scan(&items, &approvals)
-				return items, approvals, err
-			}
-			itemsBefore, approvalsBefore, err := counts()
+			before, err := r.stackFacts(t1)
 			if err != nil {
 				return err
 			}
-			const draft = `{"title":"Follow-up from Claude Code","prompt":"Add a farewell to t2.md","place":{"mode":"append"}}`
-			requestHeaders := map[string]string{"Idempotency-Key": r.keyPrefix + "terminal-follow-up"}
-			id := ""
-			for attempt := 0; attempt < 2; attempt++ {
-				if attempt == 1 {
-					for key, value := range forged {
-						requestHeaders[key] = value
-					}
-				}
-				status, envelope, err := d.call("POST", "/api/todos", draft, requestHeaders)
-				if err != nil {
-					return err
-				}
-				got, ok := envelope["confirmation"].(string)
-				if status != 202 || !ok || got == "" || envelope["state"] != "pending" || len(envelope) != 2 {
-					return fmt.Errorf("terminal draft %d: HTTP %d %v, want only confirmation id and pending state", attempt, status, envelope)
-				}
-				if attempt == 1 && got != id {
-					return fmt.Errorf("forged replay changed confirmation %s to %s", id, got)
-				}
-				id = got
-				items, approvals, err := counts()
-				if err != nil {
-					return err
-				}
-				if items != itemsBefore || approvals != approvalsBefore+1 {
-					return fmt.Errorf("draft/replay made %d TODOs and %d confirmations, want 0 and 1", items-itemsBefore, approvals-approvalsBefore)
-				}
-			}
-			var member, state, command, revision string
-			var subject json.RawMessage
-			if err = r.pool.QueryRow(r.ctx, `SELECT u.lower_username,a.state,a.command,a.subject,a.revision FROM approvals a JOIN users u ON u.id=a.member_id WHERE a.id=$1`, id).Scan(&member, &state, &command, &subject, &revision); err != nil {
-				return err
-			}
-			if member != "rehearsal-owner" || state != "pending" || command != "todo.new" || len(subject) == 0 || revision == "" {
-				return fmt.Errorf("confirmation is not bound to the terminal's member and append command: %s %s %s", member, state, command)
-			}
-			press, err := json.Marshal(map[string]any{"subject": subject, "revision": revision})
+			seen, err := d.refuse(nil, []refusal{{"POST", "/api/todos", `{"title":"Follow-up from Claude Code","prompt":"Add a farewell to t2.md","place":{"mode":"append"}}`, "Confirm in the app"}})
 			if err != nil {
 				return err
 			}
-			path := "/api/confirmations/" + id + "/approve"
-			status, envelope, err := d.call("POST", path, string(press), forged)
-			if err != nil || status != 403 || envelope["class"] != "permission" {
-				return fmt.Errorf("terminal press: HTTP %d %v %v, want permission refusal", status, envelope, err)
-			}
-			items, approvals, err := counts()
+			after, err := r.stackFacts(t1)
 			if err != nil {
 				return err
 			}
-			if items != itemsBefore || approvals != approvalsBefore+1 {
-				return fmt.Errorf("refused terminal press changed TODO or confirmation counts")
+			r.actual = fmt.Sprintf("%s; %s", strings.Join(seen, ", "), after)
+			if before != after {
+				return fmt.Errorf("the refused draft changed the stack: %s → %s", before, after)
 			}
-			for attempt := 0; attempt < 2; attempt++ {
-				status, data, err := r.keyed("POST", path, string(press), r.keyPrefix+"owner-follow-up-press")
-				if err != nil {
-					return err
-				}
-				var receipt struct{ ID, State string }
-				if err = json.Unmarshal(data, &receipt); err != nil || status != 200 || receipt.ID != id || receipt.State != "approved" {
-					return fmt.Errorf("owner press %d: HTTP %d %s %v", attempt, status, data, err)
-				}
-				items, approvals, err = counts()
-				if err != nil {
-					return err
-				}
-				if items != itemsBefore+1 || approvals != approvalsBefore+1 {
-					return fmt.Errorf("owner press/replay made %d TODOs and %d confirmations, want 1 each", items-itemsBefore, approvals-approvalsBefore)
-				}
-			}
-			var appended int
-			if err = r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items WHERE title='Follow-up from Claude Code' AND stack_position=(SELECT max(stack_position) FROM mythical_items)`).Scan(&appended); err != nil {
-				return err
-			}
-			if appended != 1 {
-				return fmt.Errorf("approved follow-up was not appended exactly once")
-			}
-			r.actual = "202 pending; forged replay kept the private receipt; terminal press 403; duplicate owner presses 200 with one appended TODO"
 			return nil
 		})
 }
