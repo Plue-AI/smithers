@@ -7,7 +7,7 @@
  * launches in one directory never trade sessions.
  */
 import { lstat, readdir, realpath } from "node:fs/promises"
-import { userInfo } from "node:os"
+import { homedir, userInfo } from "node:os"
 import { spawn as spawnProcess } from "node:child_process"
 import { readChunk, regularPath } from "./ExternalSessions"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
@@ -87,28 +87,28 @@ const dayDirectories = (root: string, since: number, now: number): string[] => [
 )]
 
 /** Claude Code files a session in one directory per project under `projects`. */
-const projectDirectories = async (root: string): Promise<string[]> => {
-  if (!(await regularPath(root, root).catch(() => undefined))?.isDirectory()) return []
+const projectDirectories = async (root: string, home: string): Promise<string[]> => {
+  if (!(await regularPath(root, root, home).catch(() => undefined))?.isDirectory()) return []
   return (await readdir(root).catch(() => [] as string[])).map(name => join(root, name))
 }
 
 /** The starts of the sessions `agent` wrote since `since`, under every sessions root. */
-export async function sessionStartsSince(agent: LaunchAgent, roots: ReadonlyArray<string>, since: number, now = Date.now()): Promise<SessionStart[]> {
+export async function sessionStartsSince(agent: LaunchAgent, roots: ReadonlyArray<string>, since: number, now = Date.now(), home = homedir()): Promise<SessionStart[]> {
   const directories = agent === "codex" ? roots.flatMap(root => dayDirectories(root, since, now))
-    : (await Promise.all(roots.map(projectDirectories))).flat()
+    : (await Promise.all(roots.map(root => projectDirectories(root, home)))).flat()
   const starts: SessionStart[] = []
   for (const directory of directories) {
     const root = roots.find(root => {
       const below = relative(resolve(root), resolve(directory))
       return below !== ".." && !below.startsWith(`..${sep}`)
     })
-    if (root === undefined || !(await regularPath(directory, root).catch(() => undefined))?.isDirectory()) continue
+    if (root === undefined || !(await regularPath(directory, root, home).catch(() => undefined))?.isDirectory()) continue
     for (const name of await readdir(directory).catch(() => [] as string[])) {
       if (!name.endsWith(".jsonl") || (agent === "codex" && !name.startsWith("rollout-"))) continue
       const path = join(directory, name)
-      const info = await regularPath(path, root).catch(() => undefined)
+      const info = await regularPath(path, root, home).catch(() => undefined)
       if (!info?.isFile() || info.mtimeMs < since - START_SKEW_MS) continue
-      const chunk = await readChunk(path, root, 0, info)
+      const chunk = await readChunk(path, root, 0, info, home)
       if ("refusal" in chunk) continue
       const lines = chunk.text.split("\n").filter(Boolean)
       const start = agent === "codex" ? codexSessionStart(lines[0] ?? "") : claudeSessionStart(basename(name, ".jsonl"), lines)
@@ -317,7 +317,7 @@ export function agentLauncher(options: AgentLauncherOptions) {
     for (;;) {
       // An exit seen before the read means the read saw everything the CLI wrote.
       const exited = exit
-      const session = launchedSession(await sessionStartsSince(agent, roots, launch.launchedAt, now()), launch, claimed)
+      const session = launchedSession(await sessionStartsSince(agent, roots, launch.launchedAt, now(), home), launch, claimed)
       if (disposed || admitted !== epoch) {
         await stopChild(child)
         return disposed ? { error: `${name} stopped: this host is stopping.`, reason: "stopping" } : cancelled()

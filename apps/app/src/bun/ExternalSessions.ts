@@ -4,8 +4,9 @@
  * /api/external/sessions, the contract packages/backend/internal/externalsessions
  * serves on an install. A session is found by id or unique prefix under the
  * running user's own agent home only (CODEX_HOME else ~/.codex, CLAUDE_CONFIG_DIR
- * else ~/.claude), never by path; other seats' homes stay private, and a link in
- * any component of a path is refused, so a linked home shows no sessions. A read
+ * else ~/.claude), never by path. A root may link only inside the running user's
+ * real home, excluding <home>/.smithers/accounts; links beneath it are refused.
+ * The root is re-resolved on every lookup and read. A read
  * answers the file's complete lines from a byte offset. The app decodes them,
  * so nothing here parses a record. Every failed check answers no-session.
  */
@@ -34,29 +35,42 @@ export async function sessionRoots(agent: ExternalAgent, home = homedir(), env: 
   return agent === "codex" ? [join(env.CODEX_HOME || join(home, ".codex"), "sessions")] : [join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "projects")]
 }
 
-/** `path`'s metadata, refusing a link in any of its components and a path outside `root`. */
-export async function regularPath(path: string, root: string) {
+const within = (root: string, path: string): boolean => {
+  const below = relative(root, path)
+  return below !== ".." && !below.startsWith(`..${sep}`) && !below.startsWith(sep)
+}
+
+/** Resolve root links afresh, allowing only the user's real home outside other seats; never follow a link beneath it. */
+export async function regularPath(path: string, root: string, home = homedir()) {
   const absolute = resolve(path)
-  let component: string = sep
-  for (const name of absolute.split(sep).filter(Boolean)) {
+  const lexicalRoot = resolve(root)
+  if (!within(lexicalRoot, absolute)) throw new Error("Outside transcript root")
+  const resolvedRoot = await realpath(lexicalRoot)
+  if (resolvedRoot !== lexicalRoot) {
+    const resolvedHome = await realpath(home)
+    if (!within(resolvedHome, resolvedRoot) || within(join(resolvedHome, ".smithers", "accounts"), resolvedRoot)) {
+      throw new Error("Unsafe transcript root link")
+    }
+  }
+  let component = lexicalRoot
+  for (const name of relative(lexicalRoot, absolute).split(sep).filter(Boolean)) {
     component = join(component, name)
     if ((await lstat(component)).isSymbolicLink()) throw new Error("Symlink transcript path")
   }
-  const below = relative(await realpath(root), await realpath(absolute))
-  if (below === ".." || below.startsWith(`..${sep}`)) throw new Error("Outside transcript root")
-  return lstat(absolute)
+  if (!within(resolvedRoot, await realpath(absolute))) throw new Error("Outside transcript root")
+  return lstat(absolute === lexicalRoot ? resolvedRoot : absolute)
 }
 
 const ROLLOUT = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]+)\.jsonl$/
 
 /** Codex keeps rollouts in dated directories at any depth; Claude Code keeps one file per session in each project's directory. */
-async function* sessionFiles(agent: ExternalAgent, directory: string, root: string, depth = 0): AsyncGenerator<{ readonly id: string; readonly path: string }> {
+async function* sessionFiles(agent: ExternalAgent, directory: string, root: string, home: string, depth = 0): AsyncGenerator<{ readonly id: string; readonly path: string }> {
   try {
-    if (!(await regularPath(directory, root)).isDirectory()) return
+    if (!(await regularPath(directory, root, home)).isDirectory()) return
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name)
-      const info = await regularPath(path, root).catch(() => undefined)
-      if (info?.isDirectory() && (agent === "codex" || depth === 0)) yield* sessionFiles(agent, path, root, depth + 1)
+      const info = await regularPath(path, root, home).catch(() => undefined)
+      if (info?.isDirectory() && (agent === "codex" || depth === 0)) yield* sessionFiles(agent, path, root, home, depth + 1)
       else if (info?.isFile()) {
         const id = agent === "codex" ? ROLLOUT.exec(entry.name)?.[1] : depth === 1 && entry.name.endsWith(".jsonl") ? entry.name.slice(0, -".jsonl".length) : undefined
         if (id !== undefined && SESSION_ID.test(id)) yield { id, path }
@@ -68,10 +82,10 @@ async function* sessionFiles(agent: ExternalAgent, directory: string, root: stri
 export type Found = { readonly id: string; readonly path: string; readonly root: string } | { readonly refusal: Refusal }
 
 /** The session whose id starts with `prefix`, the copy written last when there are several. */
-export async function findSession(agent: ExternalAgent, prefix: string, roots: readonly string[]): Promise<Found> {
+export async function findSession(agent: ExternalAgent, prefix: string, roots: readonly string[], home = homedir()): Promise<Found> {
   if (!SESSION_ID.test(prefix)) return refusal(400, "invalid_request", `A ${agentName(agent)} session id or a prefix of at least four characters is required.`)
   const matches: Array<{ id: string; path: string; root: string; modified: number }> = []
-  for (const root of roots) for await (const file of sessionFiles(agent, root, root)) {
+  for (const root of roots) for await (const file of sessionFiles(agent, root, root, home)) {
     if (file.id.startsWith(prefix)) matches.push({ ...file, root, modified: (await lstat(file.path)).mtimeMs })
   }
   const ids = [...new Set(matches.map(match => match.id))].sort()
@@ -94,13 +108,13 @@ export interface Identity { readonly dev: number; readonly ino: number }
  * LINE_LIMIT. The file is opened without following a link and must be the one `root` holds at `path` now and, when
  * `found` is given, the one found there.
  */
-export async function readChunk(path: string, root: string, offset: number, found?: Identity): Promise<Chunk | { readonly refusal: Refusal }> {
+export async function readChunk(path: string, root: string, offset: number, found?: Identity, home = homedir()): Promise<Chunk | { readonly refusal: Refusal }> {
   const gone = refusal(404, "source_not_found", "The session file is gone.")
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => undefined)
   if (file === undefined) return gone
   try {
     const opened = await file.stat()
-    const current = await regularPath(path, root).catch(() => undefined)
+    const current = await regularPath(path, root, home).catch(() => undefined)
     const same = (other: Identity | undefined) => other !== undefined && opened.dev === other.dev && opened.ino === other.ino
     if (!opened.isFile() || !same(current) || (found !== undefined && !same(found))) return gone
     const size = opened.size
@@ -148,27 +162,28 @@ export interface SessionRead extends Chunk {
  */
 export function externalSessions(
   roots: (agent: ExternalAgent) => Promise<readonly string[]> = agent => sessionRoots(agent),
-  options: { readonly find?: typeof findSession } = {}
+  options: { readonly find?: typeof findSession; readonly home?: string } = {}
 ) {
+  const home = options.home ?? homedir()
   const find = options.find ?? findSession
   const found = new Map<string, { readonly id: string; readonly path: string; readonly root: string } & Identity>()
   const read = async (agent: ExternalAgent, prefix: string, offset: number): Promise<SessionRead | { readonly refusal: Refusal }> => {
     const key = `${agent}:${prefix}`
     let session = found.get(key)
-    const info = session === undefined ? undefined : await regularPath(session.path, session.root).catch(() => undefined)
+    const info = session === undefined ? undefined : await regularPath(session.path, session.root, home).catch(() => undefined)
     if (session !== undefined && (info?.isFile() !== true || info.dev !== session.dev || info.ino !== session.ino)) {
       found.delete(key)
       session = undefined
     }
     if (session === undefined) {
-      const looked = await find(agent, prefix, await roots(agent))
+      const looked = await find(agent, prefix, await roots(agent), home)
       if ("refusal" in looked) return looked
-      const identity = await regularPath(looked.path, looked.root)
+      const identity = await regularPath(looked.path, looked.root, home)
       if (!identity.isFile()) return unknown(agent, prefix)
       session = { ...looked, dev: identity.dev, ino: identity.ino }
       found.set(key, session)
     }
-    const chunk = await readChunk(session.path, session.root, offset, session)
+    const chunk = await readChunk(session.path, session.root, offset, session, home)
     if ("refusal" in chunk && chunk.refusal.status === 404) {
       found.delete(key)
       return unknown(agent, prefix)
