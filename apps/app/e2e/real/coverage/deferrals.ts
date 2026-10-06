@@ -96,6 +96,8 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "branch.fork",
     "branch.rebase",
     "confirm.cancel",
+    // DARK (#3504): activation awaits the T-APP-16 context provider (#3446).
+    "context.inspect",
     "debug-api",
     "debug.api",
     "diff",
@@ -121,6 +123,8 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "members.remove",
     "members.role",
     "merge",
+    // DARK (#3558): activation awaits the T-APP-07 entry provider and synchronous person dispatch.
+    "notifications.allow",
     "pr",
     "review",
     "run",
