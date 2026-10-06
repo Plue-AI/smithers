@@ -372,3 +372,60 @@ func TestRealMicroVMLostMachineRefusesWithoutHostFallback(t *testing.T) {
 	require.NoError(t, restarted.DeleteWorkspace(ctx, "microvm-lost"))
 	require.NoError(t, restarted.Close())
 }
+
+// This reference-host campaign measures real stopped disks, not model usage or
+// TODO admission. Run separately from conformance: twenty 32 GiB sparse disks
+// are retained simultaneously while at most one guest runs.
+func TestRealMicroVMTwentyRetainedDisks(t *testing.T) {
+	if os.Getenv("SMITHERS_TWENTY_DISK_CHECK") != "1" {
+		t.Skip("set SMITHERS_TWENTY_DISK_CHECK=1 for the reference-host campaign")
+	}
+	binary := os.Getenv("SMITHERS_MICROSANDBOX_BIN")
+	require.NotEmpty(t, binary)
+	r, err := New(context.Background(), Config{Binary: binary, Root: t.TempDir(), CPUs: 2, MemoryMiB: 2048, DiskMiB: 32768, MaxRunningVMs: 1})
+	require.NoError(t, err)
+	t.Cleanup(func() { sweepOwner(t, r) })
+	ctx, cancel := context.WithTimeout(operation("twenty-retained-disks"), 15*time.Minute)
+	defer cancel()
+	var allocated, private int64
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("held-todo-%02d", i)
+		_, err := r.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
+		require.NoError(t, err)
+		content := []byte(fmt.Sprintf("uncommitted notes for TODO %02d\n", i))
+		require.NoError(t, r.WriteFile(ctx, id, "notes.txt", content, 0o600))
+		require.NoError(t, r.StopWorkspace(ctx, id))
+		observed, err := r.InspectWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, workspaceapi.WorkspaceStopped, observed.State)
+		r.mu.Lock()
+		machine := r.workspaces[id].Machine
+		r.mu.Unlock()
+		directory := machineDirectory(r.cli.home, machine)
+		info, err := os.Stat(directory)
+		require.NoError(t, err)
+		require.True(t, info.IsDir())
+		a, p := allocatedBytes(directory), privateBytes(directory)
+		require.Positive(t, a)
+		allocated += a
+		private += p
+		t.Logf("disk=%s logical_capacity_bytes=%d allocated_bytes=%d private_bytes=%d", id, int64(32)<<30, a, p)
+	}
+	t.Logf("retained_disks=20 allocated_bytes=%d private_bytes=%d; allocated blocks can double-count APFS clones; excludes shared images and layers", allocated, private)
+	require.NoError(t, r.Close())
+	reopened, err := New(context.Background(), r.config)
+	require.NoError(t, err)
+	t.Cleanup(func() { sweepOwner(t, reopened) })
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("held-todo-%02d", i)
+		observed, err := reopened.InspectWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, workspaceapi.WorkspaceStopped, observed.State)
+		_, err = reopened.StartWorkspace(ctx, id)
+		require.NoError(t, err)
+		content, err := reopened.ReadFile(ctx, id, "notes.txt")
+		require.NoError(t, err)
+		require.Equal(t, fmt.Sprintf("uncommitted notes for TODO %02d\n", i), string(content))
+		require.NoError(t, reopened.StopWorkspace(ctx, id))
+	}
+}
