@@ -170,7 +170,7 @@ export class LiveChannel {
         for (const [topic, entry] of this.topics) {
           if (topic.startsWith("confirmations:")) {
             entry.awaitingSnapshot = true
-            this.publish(topic, entry, { topic })
+            this.publish(entry, { topic })
           }
           if (topic.startsWith("doc:") || (topic === "members" || topic === "secrets")) entry.awaitingSnapshot = true
           if (topic.startsWith("doc:")) {
