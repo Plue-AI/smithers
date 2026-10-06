@@ -154,3 +154,38 @@ test('selected production gate returns nonzero for literal SQL and ownership vio
   } finally {rmSync(dir, { recursive: true, force: true })}
  }
 })
+
+test('production helper isolates Go and sqlc from database and publication credentials', () => {
+ const dir = fixture();const tools = mkdtempSync(join(tmpdir(), 'prc02-env-'))
+ try {
+  pending(dir)
+  const log = join(tools, 'isolated.log')
+  const realSQLC = ok(dir, 'which', ['sqlc'])
+  for (const [name, real] of [['go', go], ['sqlc', realSQLC]]) {
+   writeFileSync(join(tools, name), `#!/bin/sh\nfor key in DATABASE_URL SMITHERS_TEST_DATABASE_URL PGPASSWORD PGPASSFILE PGSERVICE PGSERVICEFILE GITHUB_TOKEN; do\n if printenv "$key" >/dev/null; then echo "credential inherited: $key" >&2; exit 97; fi\ndone\nprintf '%s\\n' '${name}' >> '${log}'\nexec '${real}' "$@"\n`, { mode: 0o755 })
+  }
+  // PGSERVICE/PGPASSFILE survive the outer fixture launcher. The production
+  // helper, rather than the test harness, must remove them for both generators.
+  ok(dir, 'node', ['scripts/renumber-migration.mjs', 'packages/backend/db/product/migrations/0009_reserved.sql'], {
+   PATH: `${tools}:${process.env.PATH}`, SMITHERS_MIGRATION_TICKET: 'T-TEST-01',
+   PGSERVICE: 'live-service-canary', PGSERVICEFILE: '/live-service-canary', PGPASSFILE: '/live-password-canary',
+  })
+  assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), ['sqlc', 'go', 'sqlc', 'go'])
+  assert.match(readFileSync(join(dir, 'packages/backend/internal/db/models.go'), 'utf8'), /type Reserved struct/)
+ } finally {rmSync(dir, { recursive: true, force: true });rmSync(tools, { recursive: true, force: true })}
+})
+
+test('production helper refuses a live home credential store before repository mutation', () => {
+ const dir = fixture()
+ try {
+  pending(dir)
+  const credentials = join(dir, '.git/test-home/.config/issue-claim')
+  mkdirSync(credentials, { recursive: true })
+  writeFileSync(join(credentials, 'app.json'), '{"canary":"must remain unread"}\n')
+  const before = bytes(dir)
+  const result = invoke(dir, 'node', ['scripts/renumber-migration.mjs', 'packages/backend/db/product/migrations/0009_reserved.sql'], { SMITHERS_MIGRATION_TICKET: 'T-TEST-01' })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /isolated home/)
+  assert.deepEqual(bytes(dir), before)
+ } finally {rmSync(dir, { recursive: true, force: true })}
+})
