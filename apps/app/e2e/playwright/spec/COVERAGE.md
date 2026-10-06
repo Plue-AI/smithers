@@ -1,6 +1,6 @@
 # Spec UI coverage
 
-T-APP-10 wave 2 contract coverage: [Branch live](../branch-live.spec.ts) exercises the production `/branch T2` door with captured sleeping facts, durable burst and changed-file wire payloads, Files tab selection without mutation, missing optional streams, terminal-row navigation from machine-id branch topics, `/ssh T2` resolving the authorized branch to its subscribed SSH line, and the authorized Fork binding. [Branch tree](../branch-navigation.spec.ts) exercises live presence from `branch:<machine-id>` and persisted navigation. These are test-only HTTP/WebSocket contracts; C-J3-01/C-J3-03/C-J3-09/C-J7-03/C-J10-04 and the legacy renderer cutover remain pending their composed providers and reference-host receipts.
+T-APP-10 wave 2 contract coverage: [Branch live](../branch-live.spec.ts) exercises the production `/branch T2` door with captured sleeping facts, durable burst and changed-file wire payloads, Files tab selection without mutation, missing optional streams, terminal-row navigation from machine-id branch topics, standalone `/ssh T2` reading and copying the authorized live SSH line before opening a card, and the authorized Fork binding. [Branch tree](../branch-navigation.spec.ts) exercises live presence from `branch:<machine-id>` and persisted navigation. These are test-only HTTP/WebSocket contracts; C-J3-01/C-J3-03/C-J3-09/C-J7-03/C-J10-04 and the legacy renderer cutover remain pending their composed providers and reference-host receipts.
 
 T-APP-10 member attribution: composed PostgreSQL/live tests resolve durable numeric member IDs through the existing roster; the Branch browser fixture verifies the resolved SSH actor in Activity and Files. Five composed tests and two browser tests pass; guest burst ingestion still needs reference-host evidence.
 
@@ -338,7 +338,7 @@ Cycle 33: plan preview, factory agent configuration, install settings, secrets a
 
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
-| A-SSH | [A-SSH.spec.ts](A-SSH.spec.ts) | fixme-before-implementation | T-TRM-03, T-APP-10 |
+| A-SSH | [A-SSH.spec.ts](A-SSH.spec.ts) | passing | T-TRM-03, T-APP-10 |
 | A-SIGN-IN | [A-SIGN-IN.spec.ts](A-SIGN-IN.spec.ts) | fixme-before-implementation | T-ACC-02, T-REL-02 |
 | A-SIGN-OUT | [A-SIGN-OUT.spec.ts](A-SIGN-OUT.spec.ts) | fixme-before-implementation | T-ACC-02, T-REL-02 |
 | A-THEME | [A-THEME.spec.ts](A-THEME.spec.ts) | passing | T-REL-02 |
