@@ -11,7 +11,7 @@ describe("generated catalog tags", () => {
     "todo.return-to-item",
     "todo.preapprove",
     "todo.unapprove",
-    "settings.preapproval",
+    "settings.preapprove-default",
     "merge.confirm",
     "background.retry",
     "notifications.allow",

@@ -2032,39 +2032,6 @@
       }
     },
     {
-      "name": "change.land",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "confirm",
-      "summary": "Land a change (its landing request, or its changeset atomically)",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "changeId": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "changeId"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "change.pins",
       "slash": null,
       "cli": null,

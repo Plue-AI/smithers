@@ -204,7 +204,7 @@ test("a supplied conflict terminal and Done retain their wait through the Contai
 test("one actions row: Open branch, Fork, Inspect, Steer and Amend as plain buttons, Drop; the only form is the wait's Answer", () => {
   const model = { ...fixtures.needs_you.model, first_answer: undefined }
   const h = mount(model)
-  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "branch.fork", "run.inspect", "todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "branch.fork", "run.inspect", "todo.steer", "todo.amend", "todo.drop", "todo.preapprove"])
   expect(h.props.actions.every(action => action.input === undefined)).toBe(true)
   h.props.onAction("todo.steer")
   h.props.onAction("todo.amend")

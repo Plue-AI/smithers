@@ -493,6 +493,6 @@ expire the standing approval. A definitive dispatch refusal is retained and
 requires removing and granting approval again at that head; recovery never
 blindly repeats an uncertain send.
 
-The owner sets `PUT /api/install {new_todos_preapproved: boolean}`. Only TODOs
+The owner sets `PUT /api/install {todo_preapprove_default: boolean}`. Only TODOs
 created afterwards inherit that owner's approval; disabling the default changes
 no existing TODO. Settings and TODO cards read these persisted projections.

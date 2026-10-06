@@ -1601,7 +1601,7 @@ func (v *TodoCard) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
 		return err
 	}
-	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "flow_version", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
+	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "flow_version", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "preapproval", "merge", "present")
 }
 
 // MarshalJSON writes AdditionalProperties beside the declared members of TodoCard.

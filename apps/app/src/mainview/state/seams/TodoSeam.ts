@@ -317,6 +317,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move", "takeover"].includes(request.operation)
     const route = ["discard-foreign", "bring-in"].includes(request.operation) ? `/api/branches/${encodeURIComponent(String(request.body.branch))}`
       : request.operation === "create" ? TODOS_PATH
+      : ["preapprove", "unapprove"].includes(request.operation) ? `${todoPath(request.n!)}/preapproval`
       : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
       let response: Response

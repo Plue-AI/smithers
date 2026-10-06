@@ -27,13 +27,14 @@ export async function firstTodo(page: Page, prompt: string) {
 
 /** Browser session and served install identity for owner-only TODO controls. */
 export async function mergeOwner(page: Page, defaultWrites: boolean[] = []) {
-  await owner(page)
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.route("**/api/members", route => route.fulfill({ json: { members: [{ login: "benortiz", name: "Ben", avatar_url: "https://example.com/ben.png", color_index: 0, role: "owner", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/smithers-mvp-canary/node/settings/access" } }))
   let preapproved = false
   // This action requires a maintainer; the shared browser identity has no roster role.
   await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "benortiz", is_admin: false } }))
   await page.route("**/api/install", route => {
     if (route.request().method() === "PUT") {
-      preapproved = route.request().postDataJSON().new_todos_preapproved
+      preapproved = route.request().postDataJSON().todo_preapprove_default
       defaultWrites.push(preapproved)
     }
     return route.fulfill({ json: {
@@ -44,6 +45,6 @@ export async function mergeOwner(page: Page, defaultWrites: boolean[] = []) {
     health: { process: "ok", postgres_bytes: 1024, disk_free_gb: 200,
       github: { health: "fresh", rate_remaining: 4900, rate_limit: 5000 } },
     models: ["fast", "coding", "jev"].map(role => ({ role, provider: "OpenAI", key: "saved" })),
-    chatgpt: false, capacity: 4, new_todos_preapproved: preapproved, can_assign_models: true
+    chatgpt: false, capacity: 4, todo_preapprove_default: preapproved, can_assign_models: true
   } }) })
 }
