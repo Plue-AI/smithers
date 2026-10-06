@@ -137,7 +137,7 @@ test("unavailable Compare and Reapply refuse in the production dispatcher withou
     const world = JSON.stringify(controller.design.world())
     requests.length = 0
     for (const name of ["file.compare", "file.reapply", "file.restore-deleted", "file.follow-rename"]) {
-      expect((await controller.runCommandForResult(name, JSON.stringify({ path: "retry.ts", version: "retained-17" }))).status).toBe(name === "file.reapply" ? "unknown-command" : "failed")
+      expect((await controller.runCommandForResult(name, JSON.stringify({ path: "retry.ts", version: "retained-17" }))).status).toBe("failed")
     }
     expect([...store.collections.cards.values()]).toEqual(cards)
     expect(JSON.stringify(controller.design.world())).toBe(world)
@@ -342,4 +342,24 @@ test("a closed authorized socket disables the registered File editor and retains
   expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
   expect(host.querySelector(".cm-content")?.textContent).toBe("const retry = 1!")
   expect(host.querySelector(".code-saved")?.textContent).toBe("Saved to the machine")
+})
+
+test("outside_change metadata projects and clears without replacing live text", async () => {
+  const { LiveDocProvider } = await import("../runtime/LiveDocProvider")
+  const { liveFileModel } = await import("./liveDoc")
+  let receive!: (event: import("../runtime/LiveDocProvider").DocumentEvent) => void
+  const provider = new LiveDocProvider("doc:code:T12:retry.ts", { subscribeDocument(_topic, callback) {
+    receive = callback; return { send() {}, release() {} }
+  } }, { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true })
+  try {
+    receive({ kind: "assigned", epoch: "00000000000000000000000000000001", clientId: 42 })
+    receive({ kind: "sync", payload: Uint8Array.from([1, 2, 0, 0]) })
+    provider.doc.getText("content").insert(0, "Alice's live edit")
+    const model = { ...fileModel(fileCard("retry.ts", "old disk text").payload), branch: "T12" }
+    provider.setFile({ ...model, outside: { version: "outside-17", at: "2026-10-05T12:00:00Z" } })
+    expect(liveFileModel(model, provider)).toMatchObject({ content: { kind: "text", text: "Alice's live edit" }, outside: { version: "outside-17", at: "2026-10-05T12:00:00Z" } })
+    provider.setFile(model)
+    expect(liveFileModel(model, provider).outside).toBeUndefined()
+    expect(provider.doc.getText("content").toString()).toBe("Alice's live edit")
+  } finally { provider.dispose() }
 })

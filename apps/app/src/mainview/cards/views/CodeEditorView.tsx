@@ -10,10 +10,10 @@ import { formatBytes } from "./formatBytes"
 
 /** App-only snapshot bytes; the container loads and binds the named revision. */
 export type FileComparison = { readonly version: string; readonly text: string }
-export type CodeEditorViewProps = FileEditorProps & { readonly binding?: EditorBinding; readonly comparison?: FileComparison }
+export type CodeEditorViewProps = FileEditorProps & { readonly binding?: EditorBinding; readonly comparison?: FileComparison; readonly onCopy?: () => Promise<boolean> }
 
 /** File presentation. The card supplies authority; content changes keep the same CodeMirror instance. */
-export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding, comparison }: CodeEditorViewProps) => {
+export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding, comparison, onCopy }: CodeEditorViewProps) => {
   const comparing = !!view.compare && !model.gone && model.content.kind === "text" && !!model.outside && comparison?.version === model.outside.version
   const live = !comparing && !!binding && model.mode === "live" && model.content.kind === "text" && !model.gone
   const visualBinding = useMemo<EditorBinding | undefined>(() => live && binding ? {
@@ -33,7 +33,7 @@ export const CodeEditorView = ({ model, view, actions, gestures, onAction, onVie
         <div className="code-file-notice"><TriangleAlert size={14} aria-hidden="true" /><span>{model.gone.kind === "deleted" ? <>Deleted by {actorName(model.gone.by)}</> : <>Renamed to <code title={model.gone.to}>{model.gone.to.split("/").at(-1)}</code> by {actorName(model.gone.by)}</>}</span>{controls}</div>
         <div className="code-snapshot-cap"><History size={12} aria-hidden="true" />Snapshot</div>
       </> : model.outside ? <div className="code-file-notice code-notice" data-tone="outside"><FolderSync size={14} aria-hidden="true" /><span>Changed outside Smithers</span>{!model.unsaved && actions.length ? <span className="code-notice-actions">{buttons}</span> : null}</div> : null}
-      {model.unsaved ? <div className="code-notice" data-tone="attention"><span>{model.unsaved.count} {model.unsaved.count === 1 ? "edit wasn't" : "edits weren't"} saved</span><span className="code-notice-actions"><button type="button" onClick={async () => { const result = await copyText(model.unsaved!.text); setCopyFailed(!result.ok) }}>Copy</button>{!model.gone ? buttons : null}</span><pre>{model.unsaved.text}</pre>{copyFailed ? <span role="status">Copy failed</span> : null}</div> : null}
+      {model.unsaved ? <div className="code-notice" data-tone="attention"><span>{model.unsaved.count} {model.unsaved.count === 1 ? "edit wasn't" : "edits weren't"} saved</span><span className="code-notice-actions"><button type="button" onClick={async () => { const copied = onCopy ? await onCopy() : (await copyText(model.unsaved!.text)).ok; setCopyFailed(!copied) }}>Copy</button>{!model.gone ? buttons : null}</span><pre>{model.unsaved.text}</pre>{copyFailed ? <span role="status">Copy failed</span> : null}</div> : null}
       {!model.gone && !model.outside && !model.unsaved ? controls : null}
       <div className={comparing ? "code-compare" : undefined}>
       <div className="code-file-current">

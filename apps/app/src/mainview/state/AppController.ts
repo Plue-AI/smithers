@@ -1,3 +1,6 @@
+import { FileDocuments } from "../runtime/FileDocuments"
+import type { DocumentPrerequisites } from "../runtime/LiveDocProvider"
+import type { LiveChannel } from "../runtime/LiveChannel"
 import type { TerminalCardSource } from "./seams/TerminalSeam"
 import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { bundledOpenApi } from "../../debugApi/bundled"
@@ -558,6 +561,8 @@ export interface AppController extends IssueFlowsController {
   /** A branch's commits and one commit (seams/CommitsSeam.ts). */
   readonly listCommits: CommitsSeam["listCommits"]
   readonly readCommit: CommitsSeam["readCommit"]
+  readonly fileDocuments: FileDocuments | undefined
+  readonly recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string) => Promise<string | { value: string } | undefined>
   readonly branchFiles: FilesSeam["branchFiles"]
   readonly listFiles: FilesSeam["listFiles"]
   readonly branchDiff: ReturnType<typeof createDiffFilesSeam>["branchDiff"]
@@ -651,6 +656,7 @@ export interface AppController extends IssueFlowsController {
  */
 export interface AppServices {
   /** Host-owned branch authority and provider receipts; absent keeps S2 files dark. */
+  readonly documentOptions?: { channel: LiveChannel; prerequisites: DocumentPrerequisites }
   readonly branchOptions?: BranchFileOptions
   /** The page's `/api/live` channel; production supplies the tab's one channel, and a controller without it subscribes to no topic. */
   readonly live?: LiveTopics
@@ -1029,6 +1035,19 @@ export const createAppController = (
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
   const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
   const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles))
+  const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles) : undefined
+  ctx.onDispose(() => fileDocuments?.dispose())
+  const { recoverFile } = actors.pair(seamCtx, context => ({
+    recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string) => fileDocuments?.has(path) ? fileDocuments.recover(tag, path, async (file, from) => {
+      const old = [...store.collections.cards.values()].find(card => card.kind === "file" && card.payload.ref === file.branch && card.payload.path === from)
+      if (old?.kind !== "file") return
+      await context.dispatch({ type: "card.navigated", actor: context.actor(), card: { ...old, title: `${file.path} · ${old.payload.repo}`, payload: {
+        ...old.payload, path: file.path, ref: file.branch, digest: file.digest,
+        content: file.content.kind === "binary" ? "" : file.content.text, binary: file.content.kind === "binary", truncated: false,
+        readAt: undefined, line: undefined, column: undefined, hover: undefined, diagnostics: undefined, diagnosticsTotal: undefined, intel: undefined
+      } } }).isPersisted.promise
+    }) : Promise.resolve(undefined)
+  }))
   const repoTreeSeam = actors.pair(seamCtx, (context) => createRepoTreeSeam(context))
 
   const gitHubSeam = actors.pair(seamCtx, (context) => createGitHubSeam(context, {
@@ -1708,6 +1727,7 @@ export const createAppController = (
    * embedded cards and record via:"agent", never user chrome.
    */
   const commandActions: CommandActions = {
+    recoverFile,
     live: services.live,
     design,
     presentCard,
@@ -2196,6 +2216,7 @@ export const createAppController = (
   const { snapshot: _snapshot, ...sharedActions } = commandActions
   return {
     ...sharedActions,
+    fileDocuments,
     store,
     privacyNotices: privacyActions.notices,
     controlFocus,

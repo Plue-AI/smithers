@@ -11,6 +11,10 @@ export interface FlowInput {
   readonly "docs.read": { readonly page: string }
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
   readonly "flow.create": { readonly description: string; readonly repo: string }
+  readonly "file.compare": { readonly path: string }
+  readonly "file.restore-deleted": { readonly path: string }
+  readonly "file.follow-rename": { readonly path: string }
+  readonly "file.reapply": { readonly path: string }
   readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
   readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
   readonly "commits.read": { readonly ref: string; readonly repo: string }
@@ -237,6 +241,10 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "debug.api": payload => JSON.stringify(payload),
   "docs": payload => token(payload, "page") ?? "",
   "docs.read": payload => token(payload, "page") ?? "",
+  "file.compare": payload => JSON.stringify(payload),
+  "file.restore-deleted": payload => JSON.stringify(payload),
+  "file.follow-rename": payload => JSON.stringify(payload),
+  "file.reapply": payload => JSON.stringify(payload),
   "files.read": (payload) => fileArgs(
     [payload.path, payload.line, payload.column].filter((value) => value !== undefined).join(":"),
     payload.repo as string | undefined,

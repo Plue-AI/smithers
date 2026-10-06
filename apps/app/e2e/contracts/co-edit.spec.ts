@@ -152,7 +152,12 @@ test("two File cards opened through files.read converge on literal 1000-edit pac
       expect(peer.editor.dom.querySelector("script, .cm-ySelection")).toBeNull()
     }
     expect((globalThis as Record<string, unknown>).__coeditExecuted).toBeUndefined()
-    const a = peers[0]!
+    const a = peers[0]!, b = peers[1]!
+    flushSync(() => a.editor.dispatch({ selection: { anchor: 1 } }))
+    const awareness = a.socket.frames.at(-1) as Uint8Array
+    expect([...awareness.subarray(0, 5)]).toEqual([2, 0, 0, 0, 1])
+    b.socket.receive(awareness)
+    expect(b.provider.awareness.getStates().get(42)).toEqual({ actor: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.com/alice", color_index: 0 }, colour: "var(--lane-0)", line: 1 })
     a.socket.close(); a.socket.onclose?.()
     const resumed = a.reconnect()
     resumed.receive('{"t":"snap","id":1,"cursor":1,"data":{"epoch":"00112233445566778899aabbccddeeff","client_id":42}}')
@@ -172,4 +177,152 @@ test("two File cards opened through files.read converge on literal 1000-edit pac
     expect(a.provider.doc.getText("content").toString()).toBe(fixture.outsideExpected)
     expect(resumed.frames.length).toBe(count)
   } finally { for (const dispose of resources.reverse()) dispose() }
-}, 30_000)
+}, 180_000)
+
+test("File recovery buttons cross the registered dispatcher and branch transport without S2 writes", async () => {
+  const { createAppStore } = await import("../../src/mainview/state/AppStore")
+  const { createAppController } = await import("../../src/mainview/state/AppController")
+  const { memoryStorage } = await import("../../src/mainview/state/TestFixtures")
+  const { ControllerContext } = await import("../../src/mainview/ControllerContext")
+  const { fileModel } = await import("../../src/mainview/cards/FileCards")
+  const seed = (JSON.parse(readFileSync(new URL("./co-edit.frames.json", import.meta.url), "utf8")) as { seed: number[] }).seed
+  const socket = new Socket()
+  const channel = new LiveChannel({ documentFrames: true, socket: () => socket })
+  const calls: Array<[string, unknown]> = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const model = { ...fileModel(card.payload), digest: "digest-17" }
+  const controller = createAppController(store, {
+    available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {}
+  }, {
+    live: channel, documentOptions: { channel, prerequisites: ready },
+    branchOptions: { ready: () => true, scope: () => ({ branch: "T12", member: "alice", revision: 1, sleeping: false }) },
+    fetchImpl: async (input, init) => {
+      calls.push([String(input), init?.body ? JSON.parse(String(init.body)) : null])
+      if (String(input).includes("/contents/retry.ts")) return Response.json({ path: "retry.ts", content: "seed fallback", encoding: "", size: 13 })
+      if (init?.method === "POST") return Response.json({ code: "stale", message: "stale" }, { status: 409 })
+      if (String(input).includes("compare=")) return Response.json({ before: "Maya's outside text", current: "Alice's live text" })
+      return Response.json({ ...model, path: "src/renamed.ts" })
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "acme/repo", org: "acme", ownerKind: "org", name: "repo", head: { bookmark: "main", changeId: "change-12", commitId: "commit-12" } }] }).isPersisted.promise
+    expect((await controller.commands.run("files.read", "retry.ts acme/repo --ref T12")).status).toBe("executed")
+    const opened = [...store.collections.cards.values()].find(item => item.kind === "file")!
+    expect(calls).toEqual([["/api/repos/acme/repo/contents/.smithers/factory.json", null], ["/api/repos/acme/repo/home", null], ["/api/repos/acme/repo/contents/retry.ts?ref=T12", null]])
+    calls.length = 0
+    const resource = controller.fileDocuments!.resolve("T12", "retry.ts")!
+    socket.open()
+    socket.receive('{"t":"snap","id":1,"cursor":0,"data":{"epoch":"00000000000000000000000000000001","client_id":42}}')
+    socket.receive(new LiveDocRelay([seed]).next())
+    resource.provider.doc.getText("content").insert(0, "Alice's retained document")
+    const dispatches: Promise<unknown>[] = []
+    const mountedActions = { ...actions, onRunCommand: (name: string, args?: string) => { dispatches.push(controller.runCommandForResult(name, args)) } }
+    flushSync(() => root.render(createElement(ControllerContext.Provider, { value: controller }, renderCardBody(opened, mountedActions))))
+    for (let i = 0; i < 100 && !host.querySelector(".cm-editor"); i++) await new Promise(resolve => setTimeout(resolve, 10))
+    const editor = EditorView.findFromDOM(host.querySelector(".cm-editor")!)!
+    flushSync(() => editor.dispatch({ selection: { anchor: 3 } }))
+    expect(socket.frames.at(-1) instanceof Uint8Array).toBe(true)
+    expect(resource.provider.awareness.getLocalState()).toEqual({ actor: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.com/alice", color_index: 0 }, colour: "var(--lane-0)", line: 1 })
+    socket.receive(JSON.stringify({ t: "snap", id: 2, cursor: 0, data: [{ path: "first.ts", change: "added", authors: [] }, { ...model, change: "modified", outside: { version: "outside-17", at: "2026-10-05T12:00:00Z" } }, { path: "last.ts", change: "deleted", authors: [] }] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    flushSync(() => root.render(createElement(ControllerContext.Provider, { value: controller }, renderCardBody(opened, mountedActions))))
+    host.querySelector<HTMLButtonElement>('[data-flow="file.compare"]')!.click()
+    await Promise.all(dispatches.splice(0))
+    expect(calls).toEqual([["/api/branches/T12/files/retry.ts?compare=outside-17", null]])
+    expect(editor.state.doc.toString()).toBe("Alice's retained document")
+    expect(host.querySelector('[aria-label="Live and outside versions"]')?.textContent).toContain("Maya's outside text")
+    expect(resource.provider.comparison).toEqual({ version: "outside-17", text: "Maya's outside text" })
+    socket.receive('{"t":"delta","id":2,"cursor":1,"data":{"path":"retry.ts","saved_digest":"digest-17","saved_at":"2026-10-05T12:01:00Z","outside_change":{"version":"outside-18","by":{"outside":true}}}}')
+    expect(resource.provider.file?.outside).toEqual({ version: "outside-18", at: "2026-10-05T12:01:00Z" })
+    expect(resource.provider.saved).toBe("saving")
+    expect(channel.getSnapshot("branch:T12:files")?.data).toMatchObject([{ path: "first.ts", change: "added", authors: [] }, { path: "retry.ts", change: "modified", authors: [] }, { path: "last.ts", change: "deleted", authors: [] }])
+    socket.receive('{"t":"delta","id":2,"cursor":2,"data":{"path":"retry.ts"}}')
+    expect(resource.provider.file?.outside).toBeUndefined()
+    expect(resource.provider.comparison).toBeUndefined()
+    resource.provider.setFile({ ...model, gone: { kind: "deleted", by: { kind: "outside", color_index: 7 } } })
+    flushSync(() => root.render(createElement(ControllerContext.Provider, { value: controller }, renderCardBody(opened, mountedActions))))
+    expect(resource.provider.editable).toBe(false)
+    host.querySelector<HTMLButtonElement>('[data-flow="file.restore-deleted"]')!.click()
+    await Promise.all(dispatches.splice(0))
+    expect(calls.at(-1)).toEqual(["/api/branches/T12/files/retry.ts", { action: "restore-deleted", text: "Alice's retained document", base_digest: "absent" }])
+    expect(calls.length).toBe(2)
+    resource.provider.setFile({ ...model, gone: { kind: "renamed", to: "src/renamed.ts", by: { kind: "outside", color_index: 7 } } })
+    flushSync(() => root.render(createElement(ControllerContext.Provider, { value: controller }, renderCardBody(opened, mountedActions))))
+    host.querySelector<HTMLButtonElement>('[data-flow="file.follow-rename"]')!.click()
+    await Promise.all(dispatches.splice(0))
+    expect(calls.at(-1)).toEqual(["/api/branches/T12/files/src/renamed.ts", null])
+    expect(store.collections.cards.get(opened.id)).toMatchObject({ kind: "file", payload: { path: "src/renamed.ts", ref: "T12", content: "seed fallback" } })
+    expect(socket.frames).toContain('{"t":"sub","id":3,"topic":"doc:code:T12:src/renamed.ts"}')
+    resource.provider.setFile(model)
+    socket.receive('{"t":"snap","id":1,"cursor":1,"data":{"epoch":"00000000000000000000000000000002","client_id":42}}')
+    socket.receive(new LiveDocRelay([seed]).next())
+    expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
+    expect(await resource.provider.copy(async () => ({ ok: false, code: "clipboard-write-failed", cause: "denied" }))).toBe(false)
+    expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
+    flushSync(() => root.render(createElement(ControllerContext.Provider, { value: controller }, renderCardBody(opened, mountedActions))))
+    host.querySelector<HTMLButtonElement>('[data-flow="file.reapply"]')!.click()
+    await Promise.all(dispatches.splice(0))
+    expect(resource.provider.doc.getText("content").toString()).toBe("Alice's retained document")
+    expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
+    // Client 42 inserted 25 retained characters in the new epoch; only the covering vector clears recovery.
+    socket.receive('{"t":"saved","id":1,"sv":"ASoA","at":"2026-10-05T12:02:00Z"}')
+    expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
+    socket.receive('{"t":"saved","id":1,"sv":"ASoZ","at":"2026-10-05T12:02:01Z"}')
+    expect(resource.provider.unsaved).toBeUndefined()
+    resource.provider.setFile({ ...model, gone: { kind: "deleted", by: { kind: "outside", color_index: 7 } } })
+    socket.receive('{"t":"err","id":2,"code":"forbidden"}')
+    const requestsBeforeRevokedRestore = calls.length
+    expect((await controller.runCommandForResult("file.restore-deleted", '{"path":"retry.ts"}')).status).toBe("failed")
+    expect(calls.length).toBe(requestsBeforeRevokedRestore)
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose(); channel.dispose() }
+})
+
+test("the mounted Copy control retains recovery on failure and clears it only after clipboard success", async () => {
+  const seed = (JSON.parse(readFileSync(new URL("./co-edit.frames.json", import.meta.url), "utf8")) as { seed: number[] }).seed
+  const { fileDocument } = await import("../../src/mainview/cards/liveDoc")
+  const socket = new Socket(), channel = new LiveChannel({ documentFrames: true, socket: () => socket })
+  const provider = new LiveDocProvider(topic, channel, ready), resource = fileDocument(provider)
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard")
+  let fail = true
+  const copied: string[] = []
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => {
+    if (fail) throw new Error("denied")
+    copied.push(text)
+  } } })
+  try {
+    socket.open()
+    socket.receive('{"t":"snap","id":1,"cursor":0,"data":{"epoch":"00000000000000000000000000000001","client_id":42}}')
+    socket.receive(new LiveDocRelay([seed]).next())
+    provider.doc.getText("content").insert(0, "retained bytes")
+    socket.receive('{"t":"snap","id":1,"cursor":1,"data":{"epoch":"00000000000000000000000000000002","client_id":42}}')
+    socket.receive(new LiveDocRelay([seed]).next())
+    const mount = () => flushSync(() => root.render(createElement(LiveFileContext.Provider, { value: { resolve: () => resource } }, renderCardBody(card, actions))))
+    mount()
+    for (let i = 0; i < 100 && !host.querySelector(".cm-editor"); i++) await new Promise(resolve => setTimeout(resolve, 10))
+    const copies = () => [...host.querySelectorAll<HTMLButtonElement>("button")].filter(button => button.textContent === "Copy")
+    expect(copies().length).toBe(1)
+    const frames = socket.frames.length
+    copies()[0]!.click()
+    await new Promise(resolve => setTimeout(resolve, 0)); mount()
+    expect(provider.unsaved).toEqual({ count: 1, text: "retained bytes" })
+    expect(host.textContent).toContain("Copy failed")
+    expect(copied).toEqual([])
+    expect(socket.frames.length).toBe(frames)
+    fail = false
+    copies()[0]!.click()
+    await new Promise(resolve => setTimeout(resolve, 0)); mount()
+    expect(copied).toEqual(["retained bytes"])
+    expect(provider.unsaved).toBeUndefined()
+    expect(copies().length).toBe(0)
+    expect(socket.frames.length).toBe(frames)
+  } finally {
+    if (previous) Object.defineProperty(navigator, "clipboard", previous)
+    else Reflect.deleteProperty(navigator, "clipboard")
+    flushSync(() => root.unmount()); host.remove(); resource.dispose(); channel.dispose()
+  }
+}, 180_000)

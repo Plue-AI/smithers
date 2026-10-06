@@ -17,6 +17,16 @@ export const namespace: Namespace = { id: "files", label: "Files", summary: "Rea
 
 /** `files.list` and `files.read`. */
 export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+  ...(["file.reapply"] as const).map(name => flow({
+    name, summary: "Reapply unsaved edits",
+    grammar: args => {
+      const value = args?.trim() ?? ""
+      if (!value) return { payload: {} }
+      if (value.startsWith("{")) { try { return { payload: JSON.parse(value) } } catch { return { error: "Enter a path" } } }
+      return { payload: { path: value } }
+    },
+    args: "<path>", input: Schema.Struct({ path: Schema.String }), handler: async ({ path }) => (await actions.recoverFile(name, path)) ?? "File recovery is unavailable."
+  })),
   flow({ name: "files.open-diff", summary: "Read a file at the diff revision in its frame", args: "<cardId> <path>",
     input: Schema.Struct({ cardId: Schema.String, path: Schema.String }), handler: ({ cardId, path }) => actions.openDiffFile(cardId, path) }),
   flow({

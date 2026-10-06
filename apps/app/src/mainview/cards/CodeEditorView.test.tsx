@@ -133,7 +133,7 @@ test("keyboard diagnostics exposes the literal type error and its line", () => {
   const { host } = render({ ...model, diagnostics: [{ line: 5, col: 7, severity: "error", message: "Argument of type 'string' is not assignable to parameter of type 'number'." }] })
   const content = host.querySelector<HTMLElement>(".cm-content")!
   content.focus()
-  const key = new KeyboardEvent("keydown", { key: "M", code: "KeyM", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })
+  const key = new KeyboardEvent("keydown", { key: "M", code: "KeyM", ctrlKey: process.platform !== "darwin", metaKey: process.platform === "darwin", shiftKey: true, bubbles: true, cancelable: true })
   Object.defineProperty(key, "keyCode", { value: 77 })
   content.dispatchEvent(key)
   expect(host.querySelector(".cm-diagnosticText")?.textContent).toBe("Argument of type 'string' is not assignable to parameter of type 'number'.")

@@ -422,6 +422,7 @@ export interface BranchFileOperations {
   readonly action: (tag: "file.restore" | "file.restore-deleted" | "file.compare" | "file.follow-rename", path: string, branch?: string) => Promise<string | { value: string }>
 
   readonly read: (branch: string, path: string, digest?: string) => Promise<BranchFileAnswer<FileCard>>
+  readonly restoreDocument: (file: FileCard, text: string) => Promise<BranchFileAnswer<unknown>>
   readonly reload: (file: FileCard, event: { path: string; post_digest: string; actor: FileCard["last_writer"] }) => Promise<BranchFileAnswer<FileCard> | undefined>
   readonly restore: (file: FileCard, burst: { version: string; post_digest: string }, deleted?: boolean) => Promise<BranchFileAnswer<FileCard> | { readonly compare: unknown }>
   readonly compare: (file: FileCard, version: string) => Promise<BranchFileAnswer<unknown>>
@@ -601,8 +602,20 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       return "Could not restore the file."
     },
     read, compare,
+    restoreDocument: async (file, text) => {
+      const scope = scopeFor(file.branch, file.path, true)
+      if ("error" in scope) return scope
+      if (file.gone?.kind !== "deleted") return { error: "The file was not deleted." }
+      try {
+        const response = await ctx.http(url(file.branch, file.path), { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "restore-deleted", text, base_digest: "absent" }) })
+        if (!current(scope)) return { error: "Branch access was removed." }
+        if (!response.ok) return { error: await readErrorMessage(response, "Could not restore the file.") }
+        return { ok: await response.json() }
+      } catch { return { error: "Could not restore the file." } }
+    },
     reload: async (file, event) => {
-      if (event.path !== file.path || event.post_digest === file.digest) return undefined
+      if (file.mode === "live" || event.path !== file.path || event.post_digest === file.digest) return undefined
       const scope = scopeFor(file.branch, file.path)
       if ("error" in scope) return scope
       const key = JSON.stringify([scope.member, scope.revision, scope.sleeping, scope.capturedHead, file.branch, file.path])
@@ -619,6 +632,7 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
     },
     follow: file => file.gone?.kind === "renamed" ? read(file.branch, file.gone.to) : Promise.resolve({ error: "The file was not renamed." }),
     restore: async (file, burst, deleted = false) => {
+      if (file.mode === "live") return { error: "Use document recovery." }
       const scope = scopeFor(file.branch, file.path, true)
       if ("error" in scope) return scope
       try {

@@ -71,20 +71,21 @@ export function documentEditors(states: ReadonlyMap<number, unknown>, local: num
 export function liveFileModel(model: import("@smthrs/rpc/FileCard").FileCard,
   provider: import("../runtime/LiveDocProvider").LiveDocProvider,
   awareness: ReadonlyMap<number, unknown> = new Map(), context: ActorContext = {}) {
+  model = provider.file ?? model
   if (!provider.editable || model.content.kind !== "text" || model.gone) {
-    return { ...model, mode: "read_only" as const, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
+    return { ...model, content: model.gone && model.content.kind === "text" ? { kind: "text" as const, text: provider.doc.getText("content").toString() } : model.content, mode: "read_only" as const, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
   }
   const text = provider.doc.getText("content").toString(), bytes = new TextEncoder().encode(text).length
   if (bytes > LiveFileMaxBytes) return { ...model, mode: "read_only" as const, content: { kind: "too_large" as const, bytes, text } }
   const ranges = documentAuthors(provider.doc, context)
   return { ...model, mode: "live" as const, content: { kind: "text" as const, text },
     authors: [...new Map(ranges.map(range => [JSON.stringify(range.actor), range.actor])).values()],
-    editors: documentEditors(awareness, provider.doc.clientID, context), saved: provider.saved }
+    editors: documentEditors(awareness, provider.doc.clientID, context), saved: provider.saved, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
 }
 
 /** Host-owned resource port, beside the seeded read model. No default subscribes or enables edits. */
 export interface FileDocumentBinding { readonly provider: import("../runtime/LiveDocProvider").LiveDocProvider; readonly binding: EditorBinding }
-export const LiveFileContext = createContext<{ resolve(branch: string, path: string): FileDocumentBinding | undefined } | null>(null)
+export const LiveFileContext = createContext<{ resolve(branch: string, path: string, initial?: import("@smthrs/rpc/FileCard").FileCard): FileDocumentBinding | undefined } | null>(null)
 
 /** Own one binding per document identity, including the replacement after an epoch reset. */
 export function fileDocument(provider: import("../runtime/LiveDocProvider").LiveDocProvider, context: ActorContext = {}): FileDocumentBinding & { dispose(): void } {

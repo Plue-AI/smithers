@@ -105,7 +105,9 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     ...(["file.compare", "file.restore-deleted", "file.follow-rename"] as const).map(name => flow({
       name, summary: name === "file.compare" ? "Compare" : name === "file.restore-deleted" ? "Restore" : "Follow", hidden: true, discloseToAgent: true,
       grammar: positional("path"), input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String) }),
-      handler: ({ path, branch }) => {
+      handler: async ({ path, branch }) => {
+        const document = await actions.recoverFile(name, path)
+        if (document !== undefined) return document
         if (realFiles()) return actions.branchFiles.action(name, path, branch)
         const file = findFile(design.world(), path, branch, design.viewer())
         if (!file) return `No file ${path}`

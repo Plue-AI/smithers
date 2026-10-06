@@ -60,12 +60,18 @@ export class LiveDocProvider {
     this.subscription = channel.subscribeDocument(topic, event => this.receive(event))
     if (this.assigned) this.restart()
   }
-  get editable() { return this.assigned && this.synced && !this.disposed && !this.recovery }
+  comparison?: { version: string; text: string }
+  revoke() { this.receive({ kind: "refused" }) }
+  setComparison(value: { version: string; text: string }) { this.comparison = value; this.publish() }
+  file?: import("@smthrs/rpc/FileCard").FileCard
+  setFile(file: import("@smthrs/rpc/FileCard").FileCard | undefined) { this.file = file; if (this.comparison?.version !== file?.outside?.version) this.comparison = undefined; this.publish() }
+  get available() { return this.assigned && this.synced && !this.disposed }
+  get editable() { return !this.file?.gone && this.available && !this.recovery }
   get saved(): "saving" | "saved" { return !this.acknowledged || this.pending.length || this.recovery || !covered(this.localClocks, this.savedClocks) ? "saving" : "saved" }
   get unsaved() { return this.recovery && { ...this.recovery } }
   private publish() {
     const previous = this.collection.get("document")
-    const signature = JSON.stringify([this.epoch, this.doc.clientID, [...this.doc.getMap("authors")], [...this.awareness.getStates()]])
+    const signature = JSON.stringify([this.comparison, this.file, this.epoch, this.doc.clientID, [...this.doc.getMap("authors")], [...this.awareness.getStates()]])
     const unsaved = this.unsaved
     if (previous?.editable === this.editable && previous.saved === this.saved && previous.signature === signature &&
       previous.unsaved?.count === unsaved?.count && previous.unsaved?.text === unsaved?.text) return
@@ -112,6 +118,7 @@ export class LiveDocProvider {
         this.assigned = false; this.retain(); return
       }
       this.epoch = event.epoch; this.doc.clientID = event.clientId
+      if (this.awareness.clientID !== event.clientId) { this.awareness.destroy(); this.awareness = new Awareness(this.doc) }
       if (this.awareness.clientID !== event.clientId) { this.awareness.destroy(); this.awareness = new Awareness(this.doc) }
       this.assigned = true; this.synced = false; this.restart(); return
     }

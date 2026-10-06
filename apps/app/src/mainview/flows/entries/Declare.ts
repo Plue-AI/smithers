@@ -34,6 +34,8 @@ export type CommandActions =
   & Omit<
     AppController,
     | "store"
+    // Document resources are card data, never command actions.
+    | "fileDocuments"
     // Control focus is the composition root's DOM-owned projection, never a flow's act.
     | "controlFocus"
     | "formFocus"
