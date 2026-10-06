@@ -1,4 +1,5 @@
 import type { ConfirmationUnavailable } from "../../cards/ApprovalCard"
+import type { CodeIntelUnavailable } from "../seams/CodeIntelSeam"
 import { refusalCopy, type RefusalDoor } from "@smthrs/rpc/RefusalCopy"
 import {
   presentUserFailure,
@@ -15,6 +16,7 @@ import type { SweepRequestTooLargeError } from "./ConversationSweep"
 /** Every tagged failure a controller act can throw at a person. */
 export type AppTaggedFailure =
   | ConfirmationUnavailable
+  | CodeIntelUnavailable
   | StateTaggedFailure
   | ApplicationClientError
   | RepositorySignInRequired
@@ -39,6 +41,7 @@ const clientRefusalCopy = (failure: ApplicationClientError): UserFailureCopy => 
 export const APP_FAILURE_COPY: UserFailureRegistry<AppTaggedFailure> = {
   ...STATE_FAILURE_COPY,
   ConfirmationUnavailable: { fault: "infra", sentence: "Confirmation is not available in this session.", actions: [] },
+  CodeIntelUnavailable: { fault: "infra", sentence: "This host cannot run code intelligence yet.", actions: [] },
   ApplicationClientError: clientRefusalCopy,
   RepositorySignInRequired: { fault: "user", sentence: "Sign in to continue.", actions: ["sign-in"] },
   SweepRequestTooLargeError: {

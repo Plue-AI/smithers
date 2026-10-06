@@ -1,4 +1,5 @@
 import { ConfirmationUnavailable } from "../../cards/ApprovalCard"
+import { CodeIntelUnavailable } from "../seams/CodeIntelSeam"
 import { describe, expect, test } from "bun:test"
 import { USER_FAILURE_ACTIONS } from "@smthrs/rpc/UserFailure"
 import { DurableStorageConflictError, StaleDurableMutationError } from "../../chain/DurableCollection"
@@ -31,6 +32,7 @@ import { presentAppFailure } from "./AppFailure"
 
 const every = (): ReadonlyArray<Error & { readonly _tag: string }> => [
   new ConfirmationUnavailable(),
+  new CodeIntelUnavailable(),
   new StorageDecoderError("non-json"),
   new StorageDecoderError("unstable"),
   new UnknownPersistenceBackendError(),
