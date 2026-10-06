@@ -484,7 +484,7 @@ describe("repo home over local HTTP server", () => {
     }
   })
 
-  it("keeps deferred repo home out of install help while listing flow doors", async () => {
+  it("describes remote repo home separately from local smthrs flow list", async () => {
     let requests = 0
     const f = await homeFixture((_req, res) => {
       requests++
@@ -492,14 +492,16 @@ describe("repo home over local HTTP server", () => {
     })
     try {
       const home = await f.run(["repo", "home", "--help"])
-      const ls = await f.run(["flows", "--help"])
+      const ls = await f.run(["flow", "list", "--help"])
       expect(home.code, home.output + home.error).toBe(0)
       expect(ls.code, ls.output + ls.error).toBe(0)
-      expect(home.output).toContain("Usage: smthrs")
-      expect(home.output).not.toContain("repo home")
-      expect(home.output).not.toContain("remote homepage blocks")
-      expect(ls.output).toContain("List the repository's flows")
-      expect(ls.output).not.toContain("remote homepage blocks")
+      expect(home.output).toContain("repo home")
+      expect(home.output).toMatch(/homepage|home page/i)
+      expect(home.output).toContain("--repo")
+      expect(home.output).toContain("local smthrs flow list")
+      expect(home.output).toContain("saved login")
+      expect(ls.output).toContain("List project flows")
+      expect(ls.output).not.toContain("repository homepage")
       expect(requests).toBe(0)
     } finally {
       await f.close()
