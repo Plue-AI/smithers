@@ -77,6 +77,18 @@ func (m *mockWorkspaceRouteService) ReadWorkspaceFile(ctx context.Context, works
 	return services.WorkspaceFileContent{}, nil
 }
 
+func (m *mockWorkspaceRouteService) WriteWorkspaceFiles(ctx context.Context, id string, repo, user int64, changes []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error) {
+	if m.writeWorkspaceFileFn == nil {
+		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
+	}
+	change := changes[0]
+	value, err := m.writeWorkspaceFileFn(ctx, id, repo, user, change.Path, string(change.Content), change.BaseDigest)
+	if err != nil {
+		return nil, err
+	}
+	return &services.WorkspaceFileWriteResult{Paths: []services.WorkspaceFileMutationResult{{Path: value.Path, Digest: value.Digest}}, Raced: []services.WorkspaceFileRace{}}, nil
+}
+
 func (m *mockWorkspaceRouteService) WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content, baseDigest string) (services.WorkspaceFileContent, error) {
 	if m.writeWorkspaceFileFn != nil {
 		return m.writeWorkspaceFileFn(ctx, workspaceID, repositoryID, userID, path, content, baseDigest)
@@ -415,7 +427,7 @@ func TestWorkspaceHandler_ReadAndWriteWorkspaceFile(t *testing.T) {
 			assert.Equal(t, int64(7), userID)
 			assert.Equal(t, "README.md", filePath)
 			assert.Equal(t, "new", content)
-			return services.WorkspaceFileContent{Name: "README.md", Path: filePath, Type: "file", Encoding: "utf-8", Content: content, Size: 3}, nil
+			return services.WorkspaceFileContent{Name: "README.md", Path: filePath, Type: "file", Encoding: "utf-8", Content: content, Size: 3, Digest: "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"}, nil
 		},
 	}
 	h := &WorkspaceHandler{Service: service}
@@ -435,9 +447,7 @@ func TestWorkspaceHandler_ReadAndWriteWorkspaceFile(t *testing.T) {
 	writeRec := httptest.NewRecorder()
 	h.WriteWorkspaceFile(writeRec, writeReq)
 	require.Equal(t, http.StatusOK, writeRec.Code)
-	var result services.WorkspaceFileContent
-	require.NoError(t, json.Unmarshal(writeRec.Body.Bytes(), &result))
-	assert.Equal(t, "new", result.Content)
+	require.JSONEq(t, `{"paths":[{"path":"README.md","post_digest":"11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"}],"raced":[]}`, writeRec.Body.String())
 }
 
 func TestWorkspaceHandler_WorkspaceServices(t *testing.T) {

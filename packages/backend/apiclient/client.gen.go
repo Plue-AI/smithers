@@ -978,6 +978,15 @@ type SecretMetadata struct {
 	MatchHeaders      []string `json:"match_headers"`
 }
 
+// AuthorizationRefusal is generated from docs/api/openapi.yaml.
+type AuthorizationRefusal = json.RawMessage
+
+// ConfirmationReceipt is generated from docs/api/openapi.yaml.
+type ConfirmationReceipt struct {
+	Confirmation string `json:"confirmation"`
+	State        string `json:"state"`
+}
+
 // AdminCreditGrantRequest is generated from docs/api/openapi.yaml.
 type AdminCreditGrantRequest struct {
 	Login        string  `json:"login"`
@@ -1804,12 +1813,6 @@ type PostAPIBranchesBBody struct {
 	Revision string `json:"revision"`
 }
 
-// PostAPIBranchesBResponse is generated from docs/api/openapi.yaml.
-type PostAPIBranchesBResponse struct {
-	State *string `json:"state,omitempty"`
-	N     *int64  `json:"n,omitempty"`
-}
-
 // GetAPIBranchFileParams is the query of GET /api/branches/{b}/files/{path}.
 type GetAPIBranchFileParams struct {
 	At *string
@@ -1826,6 +1829,12 @@ type GetAPIBranchesBFilesResponseItem struct {
 	Path string `json:"path"`
 	Type string `json:"type"`
 	Size *int64 `json:"size,omitempty"`
+}
+
+// PostAPIConfirmationsIDApproveResponse is generated from docs/api/openapi.yaml.
+type PostAPIConfirmationsIDApproveResponse struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
 }
 
 // PostAPIGatewaysHostFileWriteGrantsBody is generated from docs/api/openapi.yaml.
@@ -2012,6 +2021,24 @@ type PutAPIReposOwnerRepoWorkspacesIDFilesContentParams struct {
 	Path *string
 }
 
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse struct {
+	Paths []PutAPIReposOwnerRepoWorkspacesIDFilesContentResponsePathsItem `json:"paths"`
+	Raced []PutAPIReposOwnerRepoWorkspacesIDFilesContentResponseRacedItem `json:"raced"`
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentResponsePathsItem is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponsePathsItem struct {
+	Path       string `json:"path"`
+	PostDigest string `json:"post_digest"`
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentResponseRacedItem is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponseRacedItem struct {
+	Path    string `json:"path"`
+	Version string `json:"version"`
+}
+
 // PostAPIReposOwnerRepoMythicalItemsIDMergeBody is generated from docs/api/openapi.yaml.
 type PostAPIReposOwnerRepoMythicalItemsIDMergeBody struct {
 	ReviewedHeadSHA string `json:"reviewed_head_sha"`
@@ -2134,13 +2161,6 @@ type PostAPITodosBodyPlace struct {
 	N    *int64 `json:"n,omitempty"`
 }
 
-// PostAPITodosResponse is generated from docs/api/openapi.yaml.
-type PostAPITodosResponse struct {
-	State string `json:"state"`
-	N     int64  `json:"n"`
-	Rev   int64  `json:"rev"`
-}
-
 // GetAPITodosNEventsParams is the query of GET /api/todos/{n}/events.
 type GetAPITodosNEventsParams struct {
 	Cursor *int64
@@ -2162,25 +2182,10 @@ type PostAPITodosNBody struct {
 	Direction *string `json:"direction,omitempty"`
 }
 
-// PostAPITodosNResponse is generated from docs/api/openapi.yaml.
-type PostAPITodosNResponse struct {
-	State   string `json:"state"`
-	Attempt *int64 `json:"attempt,omitempty"`
-	Lessons *int64 `json:"lessons,omitempty"`
-}
-
 // PatchAPITodosNBody is generated from docs/api/openapi.yaml.
 type PatchAPITodosNBody struct {
 	Prompt     string   `json:"prompt"`
 	Acceptance []string `json:"acceptance,omitempty"`
-}
-
-// PatchAPITodosNResponse is generated from docs/api/openapi.yaml.
-type PatchAPITodosNResponse struct {
-	State   string `json:"state"`
-	N       int64  `json:"n"`
-	Rev     int64  `json:"rev"`
-	Attempt *int64 `json:"attempt,omitempty"`
 }
 
 // PostAPITodosNMergeBody is generated from docs/api/openapi.yaml.
@@ -2890,8 +2895,8 @@ func (c *Client) GetAPIBranchesB(ctx context.Context, b string) (Branch, error) 
 }
 
 // PostAPIBranchesB calls POST /api/branches/{b}.
-func (c *Client) PostAPIBranchesB(ctx context.Context, b string, idempotencyKey string, body PostAPIBranchesBBody) (PostAPIBranchesBResponse, error) {
-	var out PostAPIBranchesBResponse
+func (c *Client) PostAPIBranchesB(ctx context.Context, b string, idempotencyKey string, body PostAPIBranchesBBody) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/branches/"+url.PathEscape(b), nil, body, &out)
 	return out, err
 }
@@ -2950,13 +2955,17 @@ func (c *Client) GetAPIConfirmations(ctx context.Context) error {
 }
 
 // PostAPIConfirmations calls POST /api/confirmations.
-func (c *Client) PostAPIConfirmations(ctx context.Context, idempotencyKey string) error {
-	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations", nil, nil, nil)
+func (c *Client) PostAPIConfirmations(ctx context.Context, idempotencyKey string) (ConfirmationReceipt, error) {
+	var out ConfirmationReceipt
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations", nil, nil, &out)
+	return out, err
 }
 
 // PostAPIConfirmationsIDApprove calls POST /api/confirmations/{id}/approve.
-func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) error {
-	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/approve", nil, nil, nil)
+func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) (PostAPIConfirmationsIDApproveResponse, error) {
+	var out PostAPIConfirmationsIDApproveResponse
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/approve", nil, nil, &out)
+	return out, err
 }
 
 // PostAPIConfirmationsIDDeny calls POST /api/confirmations/{id}/deny.
@@ -3644,15 +3653,15 @@ func (c *Client) GetAPIProposals(ctx context.Context) ([]LearningProposalCard, e
 }
 
 // PostAPIProposalsIDAccept calls POST /api/proposals/{id}/accept.
-func (c *Client) PostAPIProposalsIDAccept(ctx context.Context, id string) (LearningProposalCard, error) {
-	var out LearningProposalCard
+func (c *Client) PostAPIProposalsIDAccept(ctx context.Context, id string) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.do(ctx, "POST", "/api/proposals/"+url.PathEscape(id)+"/accept", nil, nil, &out)
 	return out, err
 }
 
 // PostAPIProposalsIDDismiss calls POST /api/proposals/{id}/dismiss.
-func (c *Client) PostAPIProposalsIDDismiss(ctx context.Context, id string) (LearningProposalCard, error) {
-	var out LearningProposalCard
+func (c *Client) PostAPIProposalsIDDismiss(ctx context.Context, id string) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.do(ctx, "POST", "/api/proposals/"+url.PathEscape(id)+"/dismiss", nil, nil, &out)
 	return out, err
 }
@@ -4861,12 +4870,12 @@ func (c *Client) GetAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Contex
 }
 
 // PutAPIReposOwnerRepoWorkspacesIDFilesContent calls PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
-func (c *Client) PutAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string, params PutAPIReposOwnerRepoWorkspacesIDFilesContentParams, body any) (json.RawMessage, error) {
+func (c *Client) PutAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string, params PutAPIReposOwnerRepoWorkspacesIDFilesContentParams, body any) (PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse, error) {
 	query := url.Values{}
 	if params.Path != nil {
 		query.Set("path", *params.Path)
 	}
-	var out json.RawMessage
+	var out PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse
 	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", query, body, &out)
 	return out, err
 }
@@ -5638,8 +5647,8 @@ func (c *Client) GetAPITodos(ctx context.Context) ([]TodoCard, error) {
 }
 
 // PostAPITodos calls POST /api/todos.
-func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body PostAPITodosBody) (PostAPITodosResponse, error) {
-	var out PostAPITodosResponse
+func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body PostAPITodosBody) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos", nil, body, &out)
 	return out, err
 }
@@ -5668,22 +5677,24 @@ func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
 }
 
 // PostAPITodosN calls POST /api/todos/{n}.
-func (c *Client) PostAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNBody) (PostAPITodosNResponse, error) {
-	var out PostAPITodosNResponse
+func (c *Client) PostAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNBody) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, body, &out)
 	return out, err
 }
 
 // PatchAPITodosN calls PATCH /api/todos/{n}.
-func (c *Client) PatchAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PatchAPITodosNBody) (PatchAPITodosNResponse, error) {
-	var out PatchAPITodosNResponse
+func (c *Client) PatchAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PatchAPITodosNBody) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "PATCH", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, body, &out)
 	return out, err
 }
 
 // PostAPITodosNMerge calls POST /api/todos/{n}/merge.
-func (c *Client) PostAPITodosNMerge(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNMergeBody) error {
-	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/merge", nil, body, nil)
+func (c *Client) PostAPITodosNMerge(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNMergeBody) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/merge", nil, body, &out)
+	return out, err
 }
 
 // PostAPITodosNAnswer calls POST /api/todos/{n}/answer.

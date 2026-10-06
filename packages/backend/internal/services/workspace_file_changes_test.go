@@ -69,7 +69,9 @@ func TestWorkspaceService_FileBatch(t *testing.T) {
 	}
 	got, err := svc.WriteWorkspaceFiles(context.Background(), "ws-1", 101, 1, changes)
 	require.NoError(t, err)
-	require.Equal(t, []WorkspaceFileMutationResult{{Path: "old", Digest: "absent"}, {Path: "new", Digest: "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"}, {Path: "empty", Digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}, got)
+	require.Equal(t, []WorkspaceFileMutationResult{{Path: "old", Digest: "absent"}, {Path: "new", Digest: "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"}, {Path: "empty", Digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}, got.Paths)
+	require.NotNil(t, got.Raced)
+	require.Empty(t, got.Raced)
 	require.Len(t, runtime.writes, 1)
 	require.Equal(t, changes, runtime.writes[0])
 	require.Equal(t, "1", runtime.operations[0].PrincipalID)
@@ -133,7 +135,7 @@ func TestWorkspaceService_FileBatchValidation(t *testing.T) {
 			changes[0].Content = make([]byte, MaxWorkspaceFileBytes)
 			got, err := svc.WriteWorkspaceFiles(context.Background(), "ws-1", 101, 1, changes)
 			require.NoError(t, err)
-			require.Len(t, got, count)
+			require.Len(t, got.Paths, count)
 			require.Equal(t, changes, runtime.writes[0])
 		})
 	}

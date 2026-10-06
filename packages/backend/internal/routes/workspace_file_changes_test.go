@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,10 +18,10 @@ import (
 // The recording service tests HTTP decoding/dispatch, not guest atomicity.
 type fileBatchRouteService struct {
 	mockWorkspaceRouteService
-	write func(context.Context, string, int64, int64, []workspaceapi.FileMutation) ([]services.WorkspaceFileMutationResult, error)
+	write func(context.Context, string, int64, int64, []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error)
 }
 
-func (s *fileBatchRouteService) WriteWorkspaceFiles(ctx context.Context, id string, repo, actor int64, changes []workspaceapi.FileMutation) ([]services.WorkspaceFileMutationResult, error) {
+func (s *fileBatchRouteService) WriteWorkspaceFiles(ctx context.Context, id string, repo, actor int64, changes []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error) {
 	return s.write(ctx, id, repo, actor, changes)
 }
 
@@ -36,7 +37,7 @@ func fileBatchRequest(body, query string, authenticated bool) *http.Request {
 func TestWorkspaceHandler_FileBatchDispatch(t *testing.T) {
 	const digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	calls := 0
-	h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(_ context.Context, id string, repo, actor int64, changes []workspaceapi.FileMutation) ([]services.WorkspaceFileMutationResult, error) {
+	h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(_ context.Context, id string, repo, actor int64, changes []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error) {
 		calls++
 		require.Equal(t, "ws-batch", id)
 		require.NotZero(t, repo)
@@ -47,18 +48,18 @@ func TestWorkspaceHandler_FileBatchDispatch(t *testing.T) {
 			{Path: "empty", BaseDigest: "absent", Content: []byte{}},
 			{Path: " text ", BaseDigest: digest, Content: []byte("é\n")},
 		}, changes)
-		return []services.WorkspaceFileMutationResult{{Path: "old", Digest: "absent"}, {Path: "empty", Digest: digest}}, nil
+		return &services.WorkspaceFileWriteResult{Paths: []services.WorkspaceFileMutationResult{{Path: "old", Digest: "absent"}, {Path: "empty", Digest: digest}}, Raced: []services.WorkspaceFileRace{{Path: "empty", Version: "outside-version"}}}, nil
 	}}}
 	r := fileBatchRequest(`{"changes":[{"path":"old","base_digest":"`+digest+`","content":null},{"path":"new","base_digest":"absent","content":"AP+A","encoding":"base64"},{"path":"empty","base_digest":"absent","content":"","encoding":"base64"},{"path":" text ","base_digest":"`+digest+`","content":"é\n","encoding":"utf-8"}]}`, "", true)
 	w := httptest.NewRecorder()
 	h.WriteWorkspaceFile(w, r)
 	require.Equal(t, 200, w.Code, w.Body.String())
-	require.JSONEq(t, `{"changes":[{"path":"old","digest":"absent"},{"path":"empty","digest":"`+digest+`"}]}`, w.Body.String())
+	require.JSONEq(t, `{"paths":[{"path":"old","post_digest":"absent"},{"path":"empty","post_digest":"`+digest+`"}],"raced":[{"path":"empty","version":"outside-version"}]}`, w.Body.String())
 	require.Equal(t, 1, calls, "one batch dispatch, never per-file writes")
 }
 
 func TestWorkspaceHandler_FileBatchRejectsMalformed(t *testing.T) {
-	h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(context.Context, string, int64, int64, []workspaceapi.FileMutation) ([]services.WorkspaceFileMutationResult, error) {
+	h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(context.Context, string, int64, int64, []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error) {
 		t.Fatal("invalid input reached service")
 		return nil, nil
 	}}}
@@ -121,7 +122,7 @@ func TestWorkspaceHandler_FileBatchErrors(t *testing.T) {
 		{"unqualified", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "unqualified"), 503},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(context.Context, string, int64, int64, []workspaceapi.FileMutation) ([]services.WorkspaceFileMutationResult, error) {
+			h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(context.Context, string, int64, int64, []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error) {
 				return nil, tt.err
 			}}}
 			w := httptest.NewRecorder()
@@ -153,11 +154,40 @@ func TestWorkspaceHandler_FileBatchMaximumCount(t *testing.T) {
 	require.NoError(t, err)
 	// Path uniqueness belongs to the service. This test isolates the decoder's
 	// inclusive entry limit; service tests exercise duplicates and ancestors.
-	h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(_ context.Context, _ string, _, _ int64, changes []workspaceapi.FileMutation) ([]services.WorkspaceFileMutationResult, error) {
+	h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(_ context.Context, _ string, _, _ int64, changes []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error) {
 		require.Len(t, changes, 256)
 		return nil, nil
 	}}}
 	w := httptest.NewRecorder()
 	h.WriteWorkspaceFile(w, fileBatchRequest(string(body), "", true))
 	require.Equal(t, 200, w.Code)
+}
+
+// Both input forms expose the same receipt, including a retained outside version.
+func TestWorkspaceHandler_FileWriteReceipt(t *testing.T) {
+	const digest = "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+	for _, raced := range []bool{false, true} {
+		for _, single := range []bool{false, true} {
+			t.Run(fmt.Sprintf("single=%t/raced=%t", single, raced), func(t *testing.T) {
+				receipt := &services.WorkspaceFileWriteResult{Paths: []services.WorkspaceFileMutationResult{{Path: "a", Digest: digest}}, Raced: []services.WorkspaceFileRace{}}
+				expected := `{"paths":[{"path":"a","post_digest":"` + digest + `"}],"raced":[]}`
+				if raced {
+					receipt.Raced = append(receipt.Raced, services.WorkspaceFileRace{Path: "a", Version: "retained-outside"})
+					expected = `{"paths":[{"path":"a","post_digest":"` + digest + `"}],"raced":[{"path":"a","version":"retained-outside"}]}`
+				}
+				h := &WorkspaceHandler{Service: &fileBatchRouteService{write: func(_ context.Context, _ string, _, _ int64, changes []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error) {
+					require.Equal(t, []workspaceapi.FileMutation{{Path: "a", BaseDigest: "absent", Content: []byte("new")}}, changes)
+					return receipt, nil
+				}}}
+				body, query := `{"changes":[{"path":"a","base_digest":"absent","content":"new"}]}`, ""
+				if single {
+					body, query = `{"base_digest":"absent","content":"new"}`, "?path=a"
+				}
+				w := httptest.NewRecorder()
+				h.WriteWorkspaceFile(w, fileBatchRequest(body, query, true))
+				require.Equal(t, 200, w.Code, w.Body.String())
+				require.JSONEq(t, expected, w.Body.String())
+			})
+		}
+	}
 }

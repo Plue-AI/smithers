@@ -256,7 +256,19 @@ base64 -w0 -- "$resolved"`, workspaceExecNotFound, MaxWorkspaceFileBytes, worksp
 // Digest is "absent" for a removal, otherwise the full SHA-256 of the new bytes.
 type WorkspaceFileMutationResult struct {
 	Path   string `json:"path"`
-	Digest string `json:"digest"`
+	Digest string `json:"post_digest"`
+}
+
+// WorkspaceFileWriteResult is the write receipt shared by single-file and batch requests.
+// Version identifies the retained outside bytes for Compare, not the applied bytes.
+type WorkspaceFileWriteResult struct {
+	Paths []WorkspaceFileMutationResult `json:"paths"`
+	Raced []WorkspaceFileRace           `json:"raced"`
+}
+
+type WorkspaceFileRace struct {
+	Path    string `json:"path"`
+	Version string `json:"version"`
 }
 
 // WriteWorkspaceFile uses the same transaction as a multi-file patch.
@@ -270,7 +282,7 @@ func (s *WorkspaceService) WriteWorkspaceFile(ctx context.Context, workspaceID s
 
 // WriteWorkspaceFiles authorizes once and submits the complete patch to a
 // qualified provider. No per-file dispatch or unconditional fallback is safe.
-func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, changes []workspaceapi.FileMutation) ([]WorkspaceFileMutationResult, error) {
+func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, changes []workspaceapi.FileMutation) (*WorkspaceFileWriteResult, error) {
 	if len(changes) == 0 || len(changes) > MaxWorkspaceFileChanges {
 		return nil, pkgerrors.BadRequest("changes must contain 1 to 256 files")
 	}
@@ -342,7 +354,7 @@ func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID 
 	if err != nil {
 		return nil, err
 	}
-	return results, nil
+	return &WorkspaceFileWriteResult{Paths: results, Raced: []WorkspaceFileRace{}}, nil
 }
 
 // ListWorkspaceServices returns services declared as persistent units by the

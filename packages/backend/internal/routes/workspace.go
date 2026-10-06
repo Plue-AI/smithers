@@ -31,7 +31,6 @@ type WorkspaceRouteService interface {
 	ListUserWorkspacesAcrossRepos(ctx context.Context, userID int64, page, perPage int) (services.UserWorkspaceListResult, error)
 	ListWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, path string) ([]services.WorkspaceFileEntry, error)
 	ReadWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path string) (services.WorkspaceFileContent, error)
-	WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content, baseDigest string) (services.WorkspaceFileContent, error)
 	ListWorkspaceServices(ctx context.Context, workspaceID string, repositoryID, userID int64) ([]services.WorkspaceManagedService, error)
 	ManageWorkspaceService(ctx context.Context, workspaceID string, repositoryID, userID int64, serviceName, action string) (services.WorkspaceManagedService, error)
 	GetWorkspaceSSHConnectionInfo(ctx context.Context, workspaceID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error)
@@ -476,30 +475,20 @@ func (h *WorkspaceHandler) WriteWorkspaceFile(w http.ResponseWriter, r *http.Req
 	if !decodeStrictJSONBody(w, r, &request) {
 		return
 	}
-	var content any
-	var svcErr error
+	var changes []workspaceapi.FileMutation
+	var decodeErr *pkgerrors.APIError
 	if request.Changes != nil {
 		if request.Content != nil || request.BaseDigest != nil || request.Encoding != nil || r.URL.Query().Has("path") {
 			pkgerrors.WriteError(w, pkgerrors.BadRequest("changes cannot be combined with single-file fields or path"))
 			return
 		}
-		changes, decodeErr := decodeWorkspaceFileChanges(request.Changes)
+		changes, decodeErr = decodeWorkspaceFileChanges(request.Changes)
 		if decodeErr != nil {
 			pkgerrors.WriteError(w, decodeErr)
 			return
 		}
-		service, ok := h.Service.(workspaceFileBatchRouteService)
-		if !ok {
-			pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable"))
-			return
-		}
-		var results []services.WorkspaceFileMutationResult
-		results, svcErr = service.WriteWorkspaceFiles(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, changes)
-		content = struct {
-			Changes []services.WorkspaceFileMutationResult `json:"changes"`
-		}{results}
 	} else {
-		// Single-file callers keep their existing response and text-only request.
+		// Single-file input shares the same write receipt as a batch.
 		if request.Encoding != nil {
 			pkgerrors.WriteError(w, pkgerrors.BadRequest("encoding requires changes"))
 			return
@@ -509,8 +498,14 @@ func (h *WorkspaceHandler) WriteWorkspaceFile(w http.ResponseWriter, r *http.Req
 			pkgerrors.WriteError(w, decodeErr)
 			return
 		}
-		content, svcErr = h.Service.WriteWorkspaceFile(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, change.Path, string(change.Content), change.BaseDigest)
+		changes = []workspaceapi.FileMutation{change}
 	}
+	service, ok := h.Service.(workspaceFileBatchRouteService)
+	if !ok {
+		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable"))
+		return
+	}
+	content, svcErr := service.WriteWorkspaceFiles(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, changes)
 	if svcErr != nil {
 		var stale *workspaceapi.StaleFileError
 		if errors.As(svcErr, &stale) {
