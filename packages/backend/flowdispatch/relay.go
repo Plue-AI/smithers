@@ -58,6 +58,9 @@ func (service *Service) classifyRelay(ctx context.Context, target flowruntime.Ta
 		if IsTodoFlow(flowID) {
 			return call, ErrTodoOutsideStack
 		}
+		if engineOnlyFlow(flowID) {
+			return call, ErrEngineFlowOutsideStack
+		}
 		return call, nil
 	case "Approval.Submit":
 		decided, err := exactObject(fields["target"])
@@ -103,6 +106,8 @@ func (service *Service) refuseRelayPlan(ctx context.Context, target flowruntime.
 		return ErrRelayPlanUnknown
 	case IsTodoFlow(flowID):
 		return ErrTodoOutsideStack
+	case engineOnlyFlow(flowID):
+		return ErrEngineFlowOutsideStack
 	}
 	return nil
 }
@@ -136,6 +141,9 @@ func (service *Service) refuseTodoRun(ctx context.Context, runtime flowruntime.R
 	}
 	if IsTodoFlow(observation.Run.FlowID) {
 		return ErrTodoOutsideStack
+	}
+	if engineOnlyFlow(observation.Run.FlowID) {
+		return ErrEngineFlowOutsideStack
 	}
 	return nil
 }

@@ -27,7 +27,8 @@ var (
 	ErrNotLaunchOperation  = errors.New("flow dispatch: operation is not a Flow launch")
 	// ErrTodoOutsideStack refuses the todo composition on any route other
 	// than the stack's pinned launch of an owner's TODO attempt.
-	ErrTodoOutsideStack = errors.New("flow dispatch: the todo flow runs only from stack admission of a filed TODO")
+	ErrTodoOutsideStack       = errors.New("flow dispatch: the todo flow runs only from stack admission of a filed TODO")
+	ErrEngineFlowOutsideStack = errors.New("flow dispatch: coding request, delivery, verification and review are engine-only flows")
 	// ErrRelayPayload refuses a relayed call whose payload the relay cannot
 	// classify exactly: not one object, a duplicate key, or a missing or
 	// mistyped field the call needs.
@@ -57,6 +58,18 @@ func IsTodoFlow(flowID string) bool {
 		name = strings.TrimSuffix(inner, "/flow.ts")
 	}
 	return name == TodoFlow
+}
+
+func engineOnlyFlow(flowID string) bool {
+	name := path.Clean(strings.TrimSpace(flowID))
+	if inner, ok := strings.CutPrefix(name, "flows/"); ok {
+		name = strings.TrimSuffix(inner, "/flow.ts")
+	}
+	switch name {
+	case "coding/request", "coding/vibe", "coding/verify", "review/change":
+		return true
+	}
+	return false
 }
 
 // todoLaunchAllowed is the one route to the todo composition: a stack item

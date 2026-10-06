@@ -98,6 +98,8 @@ func browserFlowRelayRefused(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, flowdispatch.ErrTodoOutsideStack):
 		browserFlowTodoRefused(w)
+	case errors.Is(err, flowdispatch.ErrEngineFlowOutsideStack):
+		browserFlowTyped(w, http.StatusForbidden, "engine_only_flow", "File a TODO.")
 	case errors.Is(err, flowdispatch.ErrRelayPlanUnknown):
 		browserFlowTyped(w, http.StatusConflict, "plan_unknown", "Plan again.")
 	default:
@@ -275,6 +277,10 @@ func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) 
 	}
 	if errors.Is(err, flowdispatch.ErrTodoOutsideStack) {
 		browserFlowTodoRefused(w)
+		return
+	}
+	if errors.Is(err, flowdispatch.ErrEngineFlowOutsideStack) {
+		browserFlowTyped(w, http.StatusForbidden, "engine_only_flow", "File a TODO.")
 		return
 	}
 	slog.Error("browser Flow RPC unavailable", "error", err, "procedure", procedure)

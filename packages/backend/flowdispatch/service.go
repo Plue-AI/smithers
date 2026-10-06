@@ -219,6 +219,9 @@ func launchAdmission(request LaunchRequest) (jobs.Admission, error) {
 	if !todoLaunchAllowed(request.FlowID, request.Target, request.Pin) {
 		return jobs.Admission{}, ErrTodoOutsideStack
 	}
+	if engineOnlyFlow(request.FlowID) && request.Target.BindingKind != StackBindingKind {
+		return jobs.Admission{}, ErrEngineFlowOutsideStack
+	}
 	if len(request.Projection) == 0 {
 		request.Projection = json.RawMessage(`{}`)
 	}

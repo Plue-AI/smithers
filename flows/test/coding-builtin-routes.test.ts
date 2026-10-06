@@ -211,6 +211,20 @@ const boundary = async (
   return { catalog, write, repositoryPath }
 }
 
+test("legacy coding doors and engine verification/review are absent from model commands", async (t) => {
+  const names = ["coding/request", "coding/vibe", "coding/verify", "review/change"]
+  const { catalog } = await boundary(t, names, names)
+  const { registry } = await catalog()
+  const visible = await Effect.runPromise(registry.visible())
+  assert.deepEqual(visible.filter((entry) => names.includes(entry.name)), [])
+  // Retained engine execution still resolves the packaged implementation.
+  for (const name of names) {
+    const entry = await Effect.runPromise(registry.get(name))
+    assert.equal(entry.name, name)
+    assert.equal(entry.modelInvocable, false)
+  }
+})
+
 test("a system-name collision is refused before importing its top-level canary and the packaged flow survives", async (t) => {
   const { catalog, write, repositoryPath } = await boundary(t)
   const marker = join(repositoryPath, "reserved-imported")

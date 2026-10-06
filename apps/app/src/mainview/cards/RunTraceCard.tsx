@@ -182,7 +182,6 @@ export const selectedSpan = (card: RunTraceCard, model: TraceModel): TraceSpan =
 export const RunTraceBody = ({
   card,
   onRunCommand: sendRunCommand,
-  workflowCatalogs,
   flowDurations,
   fileCards,
   childCards,
@@ -273,7 +272,7 @@ export const RunTraceBody = ({
         null}
       {<RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />}
       {result !== null ? <RunResult result={result} technical={repositoryRun} /> : null}
-      <CodingPlanBody model={whole} card={card} onRunCommand={onRunCommand} workflowCatalogs={workflowCatalogs} />
+      <CodingPlanBody model={whole} card={card} onRunCommand={onRunCommand} />
       <CodingPocBody card={card} onRunCommand={onRunCommand} />
       <CodingVibeBody card={card} onRunCommand={onRunCommand} />
       {/* The run's progress words (payload.steps, a short tail the pump and replays write), newest last. */}

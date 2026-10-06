@@ -463,6 +463,10 @@ export const bindRepositoryRegistry = (
       ? { input: JobInput, output: JobResult }
       : undefined
   const derived = (descriptor: Descriptor.FlowDescriptor) => {
+    // Retained executors are engine bindings, never model command doors.
+    if (["coding/request", "coding/vibe", "coding/verify", "review/change"].includes(descriptor.name)) {
+      descriptor = new Descriptor.FlowDescriptor({ ...descriptor, modelInvocable: false })
+    }
     const schemas = reservedSchemas(descriptor)
     return schemas !== undefined ?
       new Descriptor.FlowDescriptor({

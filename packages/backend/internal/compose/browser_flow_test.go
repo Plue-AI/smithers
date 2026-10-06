@@ -113,6 +113,10 @@ func TestBrowserFlowRelayRefusesTheTodoComposition(t *testing.T) {
 		status                   int
 	}{
 		"todo":                                 {"Plan", `{"flowId":"todo","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},
+		"legacy request":                       {"Plan", `{"flowId":"coding/request","input":{}}`, "engine_only_flow", http.StatusForbidden},
+		"legacy delivery":                      {"Plan", `{"flowId":"flows/coding/vibe/flow.ts","input":{}}`, "engine_only_flow", http.StatusForbidden},
+		"engine verification":                  {"Plan", `{"flowId":"coding/verify","input":{}}`, "engine_only_flow", http.StatusForbidden},
+		"engine review":                        {"Plan", `{"flowId":"review/change","input":{}}`, "engine_only_flow", http.StatusForbidden},
 		"flows/todo/flow.ts":                   {"Plan", `{"flowId":"flows/todo/flow.ts","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},
 		"./flows/todo/flow.ts":                 {"Plan", `{"flowId":"./flows/todo/flow.ts","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},
 		"todo beside a lower-case key":         {"Plan", `{"flowId":"todo","flowid":"coding/dispatch","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},

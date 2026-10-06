@@ -11,7 +11,7 @@ import { memoryStorage } from "../state/TestFixtures"
 import { phasePins, PROTOTYPE_BANNER, RunTraceBody, traceOf } from "./RunTraceCard"
 import { WorkflowRunCardBody } from "./RunTraceCard"
 import { CODING_PLAN } from "./fixtures/CodingPlan"
-import { completedRequestCard, vibeCatalog, CODING_REQUEST_ID, publicationVibeCard } from "./fixtures/CodingVibe"
+import { completedRequestCard, vibeCatalog, publicationVibeCard } from "./fixtures/CodingVibe"
 import { blockedCodingJournal, earlyCodingJournal, preparedCodingJournal } from "./fixtures/CodingJournal"
 import { traceFromJournal, turnNarratives } from "./RunTrace"
 
@@ -668,19 +668,17 @@ describe("retained prototype card", () => {
 })
 
 
-test("the completed Request card reuses source-qualified flow launch and catalog refresh", () => {
+test("retained Request cards show evidence without a legacy delivery door", () => {
   const card = completedRequestCard(), sent: Array<{ name: string; args?: string }> = []
   const dispatch: Parameters<typeof RunTraceBody>[0]["onRunCommand"] = (name, args) => sent.push({ name, args })
-  const host = render(<RunTraceBody card={card} onRunCommand={dispatch} workflowCatalogs={[vibeCatalog()]} />)
-  const button = [...host.querySelectorAll("button")].find(element => element.textContent === "Vibe this change")!
-  expect(button).toBeDefined()
-  click(button)
-  expect(sent).toEqual([{ name: "flow.run", args: `sourceCard=${card.id} coding/vibe ${JSON.stringify({ requestExecutionId: CODING_REQUEST_ID })}` }])
-  const absent = render(<RunTraceBody card={card} onRunCommand={dispatch} />)
-  expect(absent.textContent).toContain("Vibe is not available in this workspace's recorded flows.")
-  expect(absent.textContent).not.toContain("Vibe this change")
-  click([...absent.querySelectorAll("button")].find(element => element.textContent === "Check available flows")!)
-  expect(sent.at(-1)).toEqual({ name: "flow.list", args: `sourceCard=${card.id}` })
+  for (const workflowCatalogs of [[], [vibeCatalog()]]) {
+    const host = render(<RunTraceBody card={card} onRunCommand={dispatch} workflowCatalogs={workflowCatalogs} />)
+    expect(host.textContent).toContain("Validated")
+    expect(host.textContent).not.toContain("Vibe this change")
+    expect(host.textContent).not.toContain("Check available flows")
+    expect(host.textContent).not.toContain("Vibe is not available")
+  }
+  expect(sent).toEqual([])
 })
 
 
