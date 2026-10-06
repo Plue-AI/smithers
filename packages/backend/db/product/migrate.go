@@ -167,6 +167,7 @@ var migrationRegistry = []migrationSpec{
 	{129, "migrations/0129_model_usage_step.sql"},
 	{130, "migrations/0130_learning_receipts.sql"},
 	{131, "migrations/0131_github_comment_sources.sql"},
+	{132, "migrations/0132_machine_event_receipts.sql"},
 }
 
 type migration struct {

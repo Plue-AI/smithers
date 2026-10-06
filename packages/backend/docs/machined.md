@@ -35,10 +35,18 @@ main-pinned packaged binary and T-MCH-11's trusted guest identities/no-sudo
 image. There is no activation entry point in this increment.
 
 No root step is added. No boot file or credential is written to a guest.
-The proposed `machine_event_receipts,product,planned:T-COL-03 owner:smithers-3f`
-reservation awaits T-PRC-02's planned-row support and owner acceptance; the
-current ownership checker treats it as an absent installed table. There is no
-migration or transaction/ack implementation yet. Unit tests cover registry
+Working-together I6 installs `machine_event_receipts(workspace_id, event_id,
+outcome, at)` with a primary key on `(workspace_id, event_id)`, and
+`burst_files(event_id, path, change, before_blob, after_blob, post_digest,
+renamed_to)` keyed by `(event_id, path)`. File rows reference the canonical
+`product_job_events.event_id`; receipts survive activity retention and are
+removed only with their workspace. Ingest must claim the receipt and insert
+activity plus file rows in one transaction before acknowledgment. The tables
+alone do not activate ingest or prove producer coverage. W3 and W6 own that
+composition. The install migration command and migration replay constraints
+are tested against PostgreSQL.
+
+Unit tests cover registry
 leases, revocation, reconnect admission and concurrent replacement; they are
 not C-COL-01, C-COL-04 or C-DUR-04 acceptance receipts.
 
