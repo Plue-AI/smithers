@@ -152,3 +152,129 @@ func TestCleanupRetainsMachineWhenOwnerLookupFails(t *testing.T) {
 	require.ErrorIs(t, svc.destroyWorkspace(context.Background(), row), failed)
 	require.ErrorIs(t, svc.deleteWorkspaceRefs(context.Background(), row), failed)
 }
+
+// The neighboring capture lifecycle has not landed. This test-only authority
+// holds its fence across removal; it cannot authorize production deletion.
+type captureReclaimAuthority struct {
+	ids     []string
+	capture WorkspaceDiskReclaimCapture
+	before  func()
+	fenced  bool
+	failure error
+}
+
+func (a *captureReclaimAuthority) Candidates(context.Context) ([]string, error) { return a.ids, nil }
+func (a *captureReclaimAuthority) WithFinalCapture(_ context.Context, _ db.Workspace, remove func(WorkspaceDiskReclaimCapture) error) error {
+	if a.failure != nil {
+		return a.failure
+	}
+	a.fenced = true
+	defer func() { a.fenced = false }()
+	if a.before != nil {
+		a.before()
+	}
+	return remove(a.capture)
+}
+
+type authorizedReclaimRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	authority *captureReclaimAuthority
+	reclaimed []string
+	failure   error
+}
+
+func (r *authorizedReclaimRuntime) ReclaimWorkspaceDisk(_ context.Context, id string) error {
+	if !r.authority.fenced {
+		panic("capture fence lost")
+	}
+	r.reclaimed = append(r.reclaimed, id)
+	return r.failure
+}
+func TestWorkspaceCleanerAtomicFinalCaptureReclaim(t *testing.T) {
+	for _, name := range []string{"verified", "unsettled", "busy", "missing capture", "wrong workspace", "wrong candidate", "unverified ref", "resumed", "rebound", "missing head", "capture failure", "runtime failure"} {
+		t.Run(name, func(t *testing.T) {
+			row := db.Workspace{ID: "settled", VmID: "machine", Status: "suspended", HeadCommitID: "pinned"}
+			authority := &captureReclaimAuthority{ids: []string{row.ID}, capture: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", CaptureID: "complete-notes-capture", Settled: true, Quiet: true}}
+			switch name {
+			case "unsettled":
+				authority.capture.Settled = false
+			case "busy":
+				authority.capture.Quiet = false
+			case "missing capture":
+				authority.capture.CaptureID = ""
+			case "wrong workspace":
+				authority.capture.WorkspaceID = "other"
+			case "wrong candidate":
+				authority.capture.CandidateHead = "other"
+			case "unverified ref":
+				authority.capture.RetainedHead = "other"
+			case "resumed":
+				authority.before = func() { row.Status = "running" }
+			case "rebound":
+				authority.before = func() { row.VmID = "replacement" }
+			case "missing head":
+				row.HeadCommitID = ""
+			case "capture failure":
+				authority.failure = errors.New("capture unavailable")
+			}
+			runtime := &authorizedReclaimRuntime{authority: authority}
+			if name == "runtime failure" {
+				runtime.failure = errors.New("runtime unavailable")
+			}
+			q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return row, nil }}
+			svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime), WithWorkspaceDiskReclaimAuthority(authority))
+			// Drive the production cleaner's complete tick, not a helper invocation.
+			store := &darkCleanupStore{WorkspaceService: svc, tick: make(chan struct{}, 1)}
+			cleaner := cleanup.NewWorkspaceCleaner(store, 100*time.Millisecond)
+			cleaner.Start(context.Background())
+			select {
+			case <-store.tick:
+			case <-time.After(time.Second):
+				t.Fatal("cleaner did not tick")
+			}
+			cleaner.Stop()
+			if name == "verified" || name == "runtime failure" {
+				require.Equal(t, []string{row.ID}, runtime.reclaimed)
+			} else {
+				require.Empty(t, runtime.reclaimed)
+			}
+			require.False(t, authority.fenced)
+		})
+	}
+}
+
+func TestFinalCaptureReclaimWaitsForLifecycleAndReReads(t *testing.T) {
+	row := db.Workspace{ID: "waiting", Status: "suspended", HeadCommitID: "pinned"}
+	authority := &captureReclaimAuthority{ids: []string{row.ID}, before: func() { t.Error("resumed workspace reached capture") }}
+	runtime := &authorizedReclaimRuntime{authority: authority}
+	q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return row, nil }}
+	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime), WithWorkspaceDiskReclaimAuthority(authority))
+	unlock := svc.lockRuntimeWorkspace(row.ID)
+	started, done := make(chan struct{}), make(chan error, 1)
+	go func() { close(started); done <- svc.CleanupStoppedAgentWorkspaceDisks(context.Background()) }()
+	<-started
+	row.Status = "running"
+	unlock()
+	require.NoError(t, <-done)
+	require.Empty(t, runtime.reclaimed)
+}
+
+func TestFinalCaptureReclaimPropagatesFailures(t *testing.T) {
+	failure := errors.New("capture or removal unavailable")
+	for _, stage := range []string{"capture", "runtime"} {
+		t.Run(stage, func(t *testing.T) {
+			row := db.Workspace{ID: "settled", Status: "suspended", HeadCommitID: "pinned"}
+			a := &captureReclaimAuthority{ids: []string{row.ID}, capture: WorkspaceDiskReclaimCapture{WorkspaceID: row.ID, CandidateHead: "pinned", RetainedHead: "pinned", CaptureID: "capture", Settled: true, Quiet: true}}
+			r := &authorizedReclaimRuntime{authority: a}
+			if stage == "capture" {
+				a.failure = failure
+			} else {
+				r.failure = failure
+			}
+			q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return row, nil }}
+			svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(r), WithWorkspaceDiskReclaimAuthority(a))
+			require.ErrorIs(t, svc.CleanupStoppedAgentWorkspaceDisks(context.Background()), failure)
+			require.False(t, a.fenced)
+		})
+	}
+}
