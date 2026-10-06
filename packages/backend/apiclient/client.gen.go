@@ -1411,8 +1411,10 @@ type InstallIssueLabelsItem struct {
 
 // InstallIssueThread is generated from docs/api/openapi.yaml.
 type InstallIssueThread struct {
-	Issue    InstallIssue                     `json:"issue"`
-	Comments []InstallIssueThreadCommentsItem `json:"comments"`
+	IssueDigest     *string                          `json:"issue_digest,omitempty"`
+	MakeTodoAllowed *bool                            `json:"make_todo_allowed,omitempty"`
+	Issue           InstallIssue                     `json:"issue"`
+	Comments        []InstallIssueThreadCommentsItem `json:"comments"`
 }
 
 // InstallIssueThreadCommentsItem is generated from docs/api/openapi.yaml.

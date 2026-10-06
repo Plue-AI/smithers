@@ -23,6 +23,7 @@ export interface TodoReceipt {
 }
 /** What Make TODO drafts from: one GitHub issue and its discussion, as its issue card read them. */
 export interface IssueDraftSource {
+  readonly digest?: string | undefined
   readonly number: number
   readonly title: string
   readonly body: string
@@ -388,7 +389,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       && !row.payload.committed && row.payload.issue?.number === source.number)
     if (open) return { value: "Drafted" }
     let digest: string
-    try { digest = issueDigest(source.title, source.body) } catch { return "This issue's text cannot be read." }
+    try { digest = source.digest ?? issueDigest(source.title, source.body) } catch { return "This issue's text cannot be read." }
     const id = `draft:${randomUuid()}`
     await write(draftCard({ id, author: owner()!, text: issuePrompt(source), title: source.title, options: placeOptions(),
       issue: { number: source.number, title: source.title, url: source.url, fixes: true }, issueDigest: digest,

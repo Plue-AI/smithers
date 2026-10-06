@@ -5,8 +5,8 @@
  */
 
 import { z } from "zod"
-import { BillingPlanSchema, SandboxEntitlementSchema } from "./BillingPlans.ts"
 import { AGENT_ROLES, AgentRoleModelSchema } from "./AgentRoles.ts"
+import { BillingPlanSchema, SandboxEntitlementSchema } from "./BillingPlans.ts"
 import {
   ChangeAnalyzerRunSchema,
   ChangeCheckSchema,
@@ -709,7 +709,19 @@ const IssueLastCommentSchema = z.object({
 const TodoRequestSchema = z.object({
   key: z.string(),
   owner: z.string(),
-  operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop", "merge", "move"]),
+  operation: z.enum([
+    "create",
+    "amend",
+    "answer",
+    "steer",
+    "stop",
+    "resume",
+    "retry",
+    "retry-current-flow",
+    "drop",
+    "merge",
+    "move"
+  ]),
   body: z.record(z.string(), z.unknown()),
   n: z.number().int().positive().optional(),
   state: z.enum(["requested", "accepted", "failed"]),
@@ -775,7 +787,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
   z.object({ ...cardBaseShape, kind: z.literal("branch"), payload: z.object({ id: z.string() }) }),
   z.object({ ...cardBaseShape, kind: z.literal("terminal"), payload: z.object({ id: z.string() }) }),
   /* An agent CLI started from this conversation (M-38): the session the conversation shows read-only. */
-  z.object({ ...cardBaseShape, kind: z.literal("agent-session"), payload: z.object({ agent: z.enum(["codex", "claude-code"]), session: z.string() }) }),
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("agent-session"),
+    payload: z.object({ agent: z.enum(["codex", "claude-code"]), session: z.string() })
+  }),
   z.object({
     ...cardBaseShape,
     kind: z.literal("todo"),
@@ -794,15 +810,23 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: DraftPayloadSchema
   }),
   /* Confirm (card-kinds.md Confirm, T-APP-04): A✓ or Review & merge, private to the person who presses it; the card file reads its subject. */
-  z.object({ ...cardBaseShape, kind: z.literal("confirm"), audience_member_id: z.string().nullable(), payload: z.object({ id: z.string() }) }),
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("confirm"),
+    audience_member_id: z.string().nullable(),
+    payload: z.object({ id: z.string() })
+  }),
   /* L5 subject references: the Run card (T-FLW-07) names its run; the Flow card (T-APP-05) its flow and chosen version. */
   z.object({ ...cardBaseShape, kind: z.literal("run"), payload: z.object({ id: z.string() }) }),
-  z.object({ ...cardBaseShape, kind: z.literal("flow"), payload: z.object({ name: z.string(), version: z.string().optional() }) }),
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("flow"),
+    payload: z.object({ name: z.string(), version: z.string().optional() })
+  }),
   /* card-kinds.md L5: subject-only kinds; the card file reads its data (T-APP-03, T-APP-06, T-UI-14). */
   z.object({ ...cardBaseShape, kind: z.literal("settings"), payload: z.object({}) }),
   z.object({ ...cardBaseShape, kind: z.literal("members"), payload: z.object({}) }),
   z.object({ ...cardBaseShape, kind: z.literal("commands"), payload: z.object({}) }),
-
 
   // Identity-only tombstones keep historical frames and journals loadable.
   z.object({
@@ -1590,6 +1614,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       state: z.enum(["open", "fixed", "verified", "closed"]),
       author: z.string().nullable(),
       issueBody: z.string(),
+      issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+      makeTodoAllowed: z.boolean().optional(),
       source: z.enum(["smithers-cloud", "github"]).optional(),
       htmlUrl: HttpUrlSchema.optional(),
       conversation: z.object({ branchId: z.string(), owner: z.string(), creationKey: z.string() }).optional(),
@@ -1803,7 +1829,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
    * request is fields and questions, the answer is numbers and option names
    * or the generated text, and no value exists on this payload.
    */
-
 
   /*
    * The account card (factory mock 21, design session §6c): who is signed in
@@ -2802,7 +2827,9 @@ const retiredFlows = new Set<string>([
   "feature.prototype",
   "system.recommend",
   "issue-sweep",
-  "integrations.admit", "integrations.list", "issues.sync.resolve",
+  "integrations.admit",
+  "integrations.list",
+  "issues.sync.resolve",
   /* The experimental mocks' switch and prop setter left with the mocks. */
   "app.experimental",
   "experimental.set",
@@ -2875,7 +2902,9 @@ export type CardSchemaOptions = typeof CurrentCardSchema.options
  * @since 1.0.0
  * @category schemas
  */
-export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> & { readonly options: CardSchemaOptions } = Object.assign(
+export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> & {
+  readonly options: CardSchemaOptions
+} = Object.assign(
   z.preprocess((value: unknown) => {
     if (typeof value !== "object" || value === null) return value
     const row = value as Record<string, unknown>

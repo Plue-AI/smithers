@@ -17,13 +17,15 @@ import (
 // (Server.labels); every App write still passes the token boundary and the
 // permanent write log.
 type issue struct {
-	Number      int64
-	Title, Body string
-	Author      string
-	State       string
-	StateReason string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Number                      int64
+	Title, Body                 string
+	Author                      string
+	State                       string
+	StateReason                 string
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	BodyEditor, TitleEditor     string
+	BodyEditedAt, TitleEditedAt time.Time
 }
 
 // IssueEvent is one event on an issue's timeline: labeled, unlabeled or
@@ -71,6 +73,30 @@ func (s *Server) OpenIssue(repo, login, title, body string) int64 {
 	now := time.Now().UTC()
 	s.opened[issueKey(repo, number)] = &issue{Number: number, Title: title, Body: body, Author: login, State: "open", CreatedAt: now, UpdatedAt: now}
 	return number
+}
+
+// EditIssue applies a person's edit, retaining the writers and edit times
+// returned by GitHub's GraphQL provenance read.
+func (s *Server) EditIssue(repo string, number int64, login, title, body string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	issue := s.opened[issueKey(repo, number)]
+	if issue == nil {
+		return false
+	}
+	now := time.Now().UTC()
+	if issue.Title != title {
+		issue.Title = title
+		issue.TitleEditor = login
+		issue.TitleEditedAt = now
+	}
+	if issue.Body != body {
+		issue.Body = body
+		issue.BodyEditor = login
+		issue.BodyEditedAt = now
+	}
+	issue.UpdatedAt = now
+	return true
 }
 
 // LabelIssue applies label to repo#number as the person login, as on
@@ -382,9 +408,27 @@ func (s *Server) issueText(installationID int64, body []byte) (int, any) {
 		if opened == nil {
 			break
 		}
+		edits, renames := []any{}, []any{}
+		graphQLActor := func(login string) map[string]string {
+			kind := "User"
+			if strings.HasSuffix(login, "[bot]") {
+				kind = "Bot"
+			}
+			return map[string]string{"__typename": kind, "login": login}
+		}
+		var lastEditedAt any
+		if !opened.BodyEditedAt.IsZero() {
+			lastEditedAt = opened.BodyEditedAt
+		}
+		if opened.BodyEditor != "" {
+			edits = append(edits, map[string]any{"editor": graphQLActor(opened.BodyEditor)})
+		}
+		if opened.TitleEditor != "" {
+			renames = append(renames, map[string]any{"createdAt": opened.TitleEditedAt, "actor": graphQLActor(opened.TitleEditor)})
+		}
 		return 200, map[string]any{"data": map[string]any{"repository": map[string]any{"issueOrPullRequest": map[string]any{
-			"title": opened.Title, "body": opened.Body, "author": map[string]string{"__typename": "User", "login": opened.Author},
-			"userContentEdits": map[string]any{"nodes": []any{}}, "timelineItems": map[string]any{"nodes": []any{}}}}}}
+			"title": opened.Title, "body": opened.Body, "lastEditedAt": lastEditedAt, "author": graphQLActor(opened.Author),
+			"userContentEdits": map[string]any{"nodes": edits}, "timelineItems": map[string]any{"nodes": renames}}}}}
 	}
 	return 200, map[string]any{"data": map[string]any{"repository": nil}, "errors": []map[string]string{{"message": fmt.Sprintf("Could not resolve to an issue or pull request with the number of %d.", input.Variables.Number)}}}
 }

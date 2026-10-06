@@ -2,12 +2,21 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // The install's GitHub issues (J2 steps 1 and 2, mvp.md §6.3): the issue
@@ -64,8 +73,10 @@ type InstallIssueComment struct {
 
 // InstallIssueThread is one issue and its comments, oldest first.
 type InstallIssueThread struct {
-	Issue    InstallIssue          `json:"issue"`
-	Comments []InstallIssueComment `json:"comments"`
+	IssueDigest     string                `json:"issue_digest,omitempty"`
+	MakeTodoAllowed *bool                 `json:"make_todo_allowed,omitempty"`
+	Issue           InstallIssue          `json:"issue"`
+	Comments        []InstallIssueComment `json:"comments"`
 }
 
 // gitHubListedIssue is an entry of GitHub's issues API, which lists pull
@@ -208,5 +219,118 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 	if !found {
 		return InstallIssueThread{}, &TodoControlError{http.StatusNotFound, "not_found", "user", fmt.Sprintf("Issue #%d was not found", number)}
 	}
+	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil && !info.IsTokenAuth {
+		decision, err := Authorize(ctx, s.queries(), "issue.read")
+		if err != nil {
+			return InstallIssueThread{}, err
+		}
+		issue := mythicalIssue{Number: number, Title: thread.Issue.Title, Body: thread.Issue.Body, URL: thread.Issue.HTMLURL, State: thread.Issue.State}
+		team, err := s.todoIssueTeamText(ctx, repositoryID, gh, issue)
+		if err != nil {
+			return InstallIssueThread{}, err
+		}
+		thread.IssueDigest = todoIssueSnapshotDigest(thread)
+		allowed := team || decision.Role.rank() >= InstallMaintainer.rank()
+		thread.MakeTodoAllowed = &allowed
+		{
+			payload, _ := json.Marshal(map[string]any{"issue": number, "digest": thread.IssueDigest, "thread": thread, "outsider": !team, "read_at": s.now().UTC()})
+			err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+				_, err := jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: strconv.FormatInt(repositoryID, 10), PrincipalID: fmt.Sprintf("issue-read:%d", info.User.ID)}, uuid.NewString(), "issue.read", "completed", payload)
+				return err
+			})
+			if err != nil {
+				return InstallIssueThread{}, err
+			}
+		}
+	}
 	return thread, nil
+}
+
+func todoIssueSnapshotDigest(thread InstallIssueThread) string {
+	snapshot, _ := json.Marshal(struct {
+		Issue    InstallIssue
+		Comments []InstallIssueComment
+	}{thread.Issue, thread.Comments})
+	sum := sha256.Sum256(snapshot)
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *MythicalService) todoLabelMember(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, actor gitHubActor) (string, error) {
+	if !gitHubPerson(&actor) {
+		return "", nil
+	}
+	if actor.ID <= 0 {
+		api, ok := s.github.(*mythicalGitHubAPI)
+		if !ok {
+			return "", issueTodoUnavailable()
+		}
+		var account gitHubActor
+		status, err := api.api.request(ctx, gh.Token, http.MethodGet, "/users/"+url.PathEscape(actor.Login), nil, &account)
+		if err != nil {
+			return "", err
+		}
+		if status == http.StatusNotFound {
+			return "", nil
+		}
+		if status != http.StatusOK || account.ID <= 0 {
+			return "", errGitHubIssueTextUnavailable
+		}
+		actor.ID = account.ID
+	}
+	var role string
+	err := s.store.QueryRow(ctx, `SELECT role FROM (
+ SELECT 'owner' AS role FROM self_host_owners o JOIN oauth_accounts a ON a.user_id=o.user_id AND a.provider IN ('github','workos') WHERE a.provider_user_id=$2::text
+ UNION ALL SELECT c.permission FROM collaborators c LEFT JOIN users u ON u.id=c.user_id
+ WHERE c.repository_id=$1 AND c.suspended_at IS NULL AND c.github_id=$2::bigint
+ AND c.permission IN ('admin','write')) roles ORDER BY CASE role WHEN 'owner' THEN 3 WHEN 'admin' THEN 2 ELSE 1 END DESC LIMIT 1`, repositoryID, strconv.FormatInt(actor.ID, 10)).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	push, err := s.github.MaintainerNow(ctx, gh, actor)
+	if err != nil || !push {
+		return "", err
+	}
+	return role, nil
+}
+
+func (s *MythicalService) todoIssueWriter(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, actor gitHubActor) (bool, error) {
+	if !gitHubPerson(&actor) {
+		if api, ok := s.github.(*mythicalGitHubAPI); ok && api.credentials != nil {
+			app, err := api.credentials.Load(ctx)
+			if err != nil {
+				return false, err
+			}
+			return strings.EqualFold(actor.Login, app.Slug+"[bot]"), nil
+		}
+		return false, nil
+	}
+	role, err := s.todoLabelMember(ctx, repositoryID, gh, actor)
+	return role != "", err
+}
+
+func (s *MythicalService) todoIssueTeamText(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
+	api, ok := s.github.(*mythicalGitHubAPI)
+	if !ok {
+		return s.github.IssueTextByMaintainer(ctx, gh, issue)
+	}
+	text, err := api.text.IssueText(ctx, gh.Token, gh.Owner, gh.Name, issue.Number)
+	if err != nil {
+		return false, err
+	}
+	if text.Title != issue.Title || text.Body != issue.Body {
+		return false, errGitHubIssueTextUnavailable
+	}
+	for _, writer := range []*gitHubActor{text.Author, text.TitleWriter, text.BodyWriter} {
+		if writer == nil {
+			return false, nil
+		}
+		trusted, err := s.todoIssueWriter(ctx, repositoryID, gh, *writer)
+		if err != nil || !trusted {
+			return false, err
+		}
+	}
+	return true, nil
 }

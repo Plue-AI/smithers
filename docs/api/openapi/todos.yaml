@@ -63,7 +63,7 @@ paths:
                   type: integer
                   minimum: 1
                 issue_digest:
-                  description: SHA-256 hex of the issue's title, a NUL byte and its body, as the Draft read them. An issue changed since is refused with issue_changed.
+                  description: The server-issued issue_digest from GET /api/issues/{n}, bound to the drafting member and that exact issue discussion. Commit preserves the read snapshot after remote edits; unknown or another member's digest is refused with issue_snapshot_unknown.
                   type: string
                   pattern: '^[0-9a-f]{64}$'
                 fixes:

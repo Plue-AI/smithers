@@ -846,6 +846,8 @@ export type InstallIssue = {
 }
 
 export type InstallIssueThread = {
+  issue_digest?: string
+  make_todo_allowed?: boolean
   issue: InstallIssue
   comments: Array<{
     id: number

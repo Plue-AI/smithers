@@ -55,5 +55,15 @@ test("Make TODO on a GitHub issue card opens its author's Draft and files nothin
     expect(draft?.kind === "draft" && draft.payload).toMatchObject({ title: "Webhooks fail on 502", prompt: "Webhooks fail on 502\n\n@alice:\n> retry at most 5 times",
       issue: { number: 7, url: "https://github.com/owner/repo/issues/7", fixes: true }, private: true })
     expect(writes).toEqual([])
+
+    await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "issue-github-owner/repo-8", kind: "issue", title: "Outsider", status: "active", createdAt: 2, ordinal: 2,
+      payload: { ...issue, number: 8, makeTodoAllowed: false } } }).isPersisted.promise
+    const count = store.collections.cards.size
+    expect(await controller.runCommandForResult("todo.from-issue", "8 owner/repo")).toEqual({ status: "failed", error: "Only a maintainer can make a TODO from this issue." })
+    const delegated = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: "8 owner/repo" }) })
+    expect(delegated).toContain("Only a maintainer can make a TODO from this issue")
+    expect(delegated).not.toContain("asked the user to confirm")
+    expect(store.collections.cards.size).toBe(count)
+    expect(writes).toEqual([])
   } finally { await controller.dispose() }
 })

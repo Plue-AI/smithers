@@ -38,7 +38,7 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 		{Number: 10, Title: "A pull request", Body: "", URL: "https://github.com/acme/app/pull/10", State: "open", TextByMaintainer: true, PullRequest: true},
 	}}
 	s := NewMythicalService(pool, nil)
-	s.github = gh
+	s.github = &snapshotIssueGitHub{gh}
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "will-session"})
 	refused := func(t *testing.T, input MythicalTodoInput, status int, code string) {
 		t.Helper()
@@ -54,9 +54,15 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 		return n
 	}
 	seven, eight := int64(7), int64(8)
-	read := mythicalIssueDigest(gh.issues[0])
-	// The app computes the same digest (TodoSeam.test.ts pins this literal).
-	require.Equal(t, "4babb1e1dd0eee80b2bc65f0117d7ac639a2914627f7a0569119d42379ce3d37", read)
+	for _, n := range []int64{7, 8, 9} {
+		_, err := s.InstallIssue(ctx, repoID, n)
+		require.NoError(t, err)
+	}
+	snapshot, err := s.InstallIssue(ctx, repoID, 7)
+	require.NoError(t, err)
+	read := snapshot.IssueDigest
+	// The server binds this digest to the entire authorized issue discussion.
+	require.Len(t, read, 64)
 	prompt := "Webhooks fail on 502\n\n@alice:\n> retry at most 5 times with jittered backoff\n\nLog each retry."
 	draft := MythicalTodoInput{Title: "Retry webhooks", Prompt: prompt, Acceptance: []string{"a 502 is retried 5 times"},
 		Issue: &seven, IssueDigest: read, Request: "draft-7"}
@@ -66,6 +72,8 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &seven, Request: "half-2"}, 400, "invalid_todo")
 	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &seven, IssueDigest: "ABC", Request: "half-3"}, 400, "invalid_todo")
 
+	// Editing GitHub after the authorized read cannot replace the Draft's snapshot.
+	gh.issues[0].Body = "Changed remotely before commit"
 	first, err := s.FileTodo(ctx, repoID, userID, draft)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, first.Number)
@@ -77,6 +85,8 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	require.EqualValues(t, 7, item.IssueNumber.Int64)
 	require.Equal(t, read, item.IssueDigest)
 	require.Equal(t, read, item.ApprovedDigest)
+	require.Contains(t, todoPrompt(item), "Webhooks fail on 502")
+	require.NotContains(t, todoPrompt(item), "Changed remotely before commit")
 	require.True(t, item.FixesIssue)
 	require.False(t, item.Outsider)
 	require.Equal(t, "Retry webhooks", item.Title.String)
@@ -142,31 +152,38 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	require.JSONEq(t, string(item.Revisions), string(kept.Revisions))
 	require.Equal(t, read, kept.IssueDigest)
 
-	// A new Draft holding the old digest names text GitHub no longer has.
+	// A new commit with the original authorized snapshot keeps its context, but the active TODO prevents a second admission.
 	stale := draft
 	stale.Request = "draft-7-stale"
-	refused(t, stale, 409, "issue_changed")
+	refused(t, stale, 409, "issue_has_todo")
 	// A digest nobody read is refused the same way.
 	unknown := draft
 	unknown.Request, unknown.IssueDigest = "draft-7-unknown", mythicalIssueDigest(mythicalIssue{Title: "made up", Body: "text"})
-	refused(t, unknown, 409, "issue_changed")
+	refused(t, unknown, 409, "issue_snapshot_unknown")
 	// A fresh read while T1 is unmerged: one unmerged TODO per issue.
 	fresh := draft
 	fresh.Request, fresh.IssueDigest = "draft-7-fresh", mythicalIssueDigest(gh.issues[0])
+	snapshot, err = s.InstallIssue(ctx, repoID, 7)
+	require.NoError(t, err)
+	fresh.IssueDigest = snapshot.IssueDigest
 	refused(t, fresh, 409, "issue_has_todo")
 
 	// Closed issues, pull requests and issues GitHub does not answer admit nothing.
 	nine, ten, eleven := int64(9), int64(10), int64(11)
-	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &nine, IssueDigest: mythicalIssueDigest(gh.issues[2]), Request: "nine"}, 409, "issue_closed")
-	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &ten, IssueDigest: mythicalIssueDigest(gh.issues[3]), Request: "ten"}, 400, "invalid_todo")
-	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &eleven, IssueDigest: read, Request: "eleven"}, 503, "github_unavailable")
+	closed, err := s.InstallIssue(ctx, repoID, 9)
+	require.NoError(t, err)
+	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &nine, IssueDigest: closed.IssueDigest, Request: "nine"}, 409, "issue_closed")
+	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &ten, IssueDigest: mythicalIssueDigest(gh.issues[3]), Request: "ten"}, 409, "issue_snapshot_unknown")
+	refused(t, MythicalTodoInput{Title: "x", Prompt: "y", Issue: &eleven, IssueDigest: read, Request: "eleven"}, 409, "issue_snapshot_unknown")
 	require.Equal(t, 1, count())
 
 	// The owner may make a TODO from an outsider's text; it is marked
 	// outsider, and fixes off is kept.
+	outsiderSnapshot, err := s.InstallIssue(ctx, repoID, 8)
+	require.NoError(t, err)
 	off := false
 	outsider, err := s.FileTodo(ctx, repoID, userID, MythicalTodoInput{Title: "Fix the crash", Prompt: "It crashes.", Issue: &eight,
-		IssueDigest: mythicalIssueDigest(gh.issues[1]), Fixes: &off, Request: "draft-8"})
+		IssueDigest: outsiderSnapshot.IssueDigest, Fixes: &off, Request: "draft-8"})
 	require.NoError(t, err)
 	require.EqualValues(t, 2, outsider.Number)
 	second, err := q.GetMythicalItemByNumber(ctx, repoID, 2)
@@ -189,4 +206,29 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	require.False(t, stored.IssueNumber.Valid)
 	require.False(t, stored.FixesIssue)
 	require.Equal(t, "No issue", stored.IssueBody)
+}
+
+// This admission fixture reads literal issue snapshots; execution fixtures stay independent.
+type snapshotIssueGitHub struct{ *fakeMythicalGitHub }
+
+func (g *snapshotIssueGitHub) IssuePage(context.Context, mythicalGitHubRepo, string, int) ([]InstallIssue, error) {
+	return nil, nil
+}
+func (g *snapshotIssueGitHub) IssueThread(ctx context.Context, gh mythicalGitHubRepo, n int64) (InstallIssueThread, bool, error) {
+	issue, err := g.Issue(ctx, gh, n)
+	if err != nil {
+		return InstallIssueThread{}, false, err
+	}
+	if issue.PullRequest {
+		return InstallIssueThread{}, false, nil
+	}
+	return InstallIssueThread{Issue: InstallIssue{Number: n, Title: issue.Title, Body: issue.Body, State: issue.State, HTMLURL: issue.URL, User: &InstallIssuePerson{Login: issue.Author.Login}}, Comments: []InstallIssueComment{}}, true, nil
+}
+
+func (g *snapshotIssueGitHub) IssueTextByMaintainer(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
+	stored, err := g.Issue(ctx, gh, issue.Number)
+	if err != nil {
+		return false, err
+	}
+	return g.fakeMythicalGitHub.IssueTextByMaintainer(ctx, gh, stored)
 }
