@@ -83,3 +83,10 @@ func TestTodoPrimaryWaitLiteralOrder(t *testing.T) {
 	}
 	require.Equal(t, []string{"moved_off", "conflict", "foreign_push", "approval", "question"}, kinds)
 }
+
+func TestTodoQueuedRetryDoesNotProjectThePreviousRunOrPR(t *testing.T) {
+	for _, attached := range []bool{false, true} {
+		item := db.MythicalItem{State: "queued", Attempt: 1, PRState: "open", Checks: mythicalChecks{RunLaunched: true, RunAttached: attached, Retries: []todoRetry{{Attempt: 2}}}.encode()}
+		require.Equal(t, "queued", todoState(item))
+	}
+}

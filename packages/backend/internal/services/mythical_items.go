@@ -2177,6 +2177,37 @@ func (s *MythicalService) keepsLane(ctx context.Context, r *mythicalRun, item db
 	return s.lanes.Placed(ctx, item.WorkspaceID, placement)
 }
 
+// activeTodoPin resolves one whole Active version through the existing version
+// registry. Active may remain on an older successful load after main advances;
+// the source commit is part of its immutable identity, alongside the digest.
+func (s *MythicalService) activeTodoPin(ctx context.Context, q *db.Queries, repository int64, source string) (flowruntime.Pin, error) {
+	if s.todoFlow == nil {
+		return flowruntime.Pin{}, todoControlUnavailable()
+	}
+	digest, err := s.todoFlow(ctx, repository, source)
+	if err != nil {
+		return flowruntime.Pin{}, err
+	}
+	versions, err := q.ListFlowVersions(ctx, repository)
+	if err != nil {
+		return flowruntime.Pin{}, err
+	}
+	for _, version := range versions {
+		if version.Name == "todo" && version.Digest.Valid && version.Digest.String == digest {
+			if !version.SourceCommit.Valid {
+				return flowruntime.Pin{}, todoControlUnavailable()
+			}
+			source = version.SourceCommit.String
+			break
+		}
+	}
+	pin := flowruntime.Pin{Flow: flowdispatch.TodoFlow, SourceCommit: source, ExecutionDigest: digest}
+	if !pin.Valid() {
+		return pin, todoControlUnavailable()
+	}
+	return pin, nil
+}
+
 // startPinned opens a lane for a fresh attempt of an owner's TODO and launches the
 // todo composition on it, pinned to one Active todo flow digest: the TODO is
 // starting until its host accepts the run (ProjectFlowRuntime). The first
@@ -2191,18 +2222,24 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	// The first attempt pins the Active todo flow at main's mirrored commit,
 	// the one this stack folded; Retry and Resume keep that pin unchanged.
 	pin, pinned := mythicalPinOf(item)
+	// An explicit current-flow Retry recorded its next attempt's pin at
+	// acceptance. The preceding attempt's fields stay unchanged until launch.
+	for _, retry := range mythicalChecksOf(item).Retries {
+		if retry.Attempt == item.Attempt+1 && retry.Pin != nil {
+			if !retry.Pin.Valid() {
+				return todoAdmissionUnavailable(item, "the retry flow pin is invalid", st.now), false, nil
+			}
+			pin, pinned = *retry.Pin, true
+		}
+	}
 	if item.FlowDigest.Valid && !pinned {
 		return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
 	}
 	if !pinned {
-		source := r.row.LandedMain
-		active, err := s.todoFlow(ctx, r.row.RepositoryID, source)
+		var err error
+		pin, err = s.activeTodoPin(ctx, s.queries(), r.row.RepositoryID, r.row.LandedMain)
 		if err != nil {
 			return todoAdmissionUnavailable(item, err.Error(), st.now), false, nil
-		}
-		pin = flowruntime.Pin{Flow: flowdispatch.TodoFlow, SourceCommit: source, ExecutionDigest: active}
-		if !pin.Valid() {
-			return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
 		}
 	}
 	if hold := st.launchable(ctx, item); hold != nil {

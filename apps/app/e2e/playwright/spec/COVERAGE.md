@@ -69,7 +69,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | fixme-before-implementation | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | fixme-before-implementation | T-STK-03 |
-| C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts) | fixme-before-implementation | T-STK-05 |
+| C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts), [current-flow Retry](todo-current-flow.spec.ts) | current-flow Retry passes; Stop/Resume pending | T-STK-05 |
 | C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | fixme-before-implementation | T-GH-03 |
 | C-STK-05 | [C-STK-05.spec.ts](C-STK-05.spec.ts) | fixme-before-implementation | T-MCH-14 |
 | C-STK-06 | [C-STK-06.spec.ts](C-STK-06.spec.ts) | fixme-before-implementation | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |
