@@ -230,3 +230,50 @@ test("revoked topic discards cached data and cursor, ignores deltas, and reconne
   expect(channel.collection.get("view:Ben:main")?.error).toBeUndefined()
   channel.dispose()
 })
+
+test("presence uses one socket, an independent frame id, the latest location, and stops at last close", () => {
+  const { channel, sockets, timers } = harness()
+  const closeTopic = channel.subscribe("branch:b1", () => {})
+  const first = channel.trackPresence({ branch: "b1" })
+  sockets[0]!.open()
+  expect(sockets[0]!.frames).toEqual([
+    { t: "sub", id: 1, topic: "branch:b1" },
+    { t: "presence", id: 2, where: { branch: "b1" } }
+  ])
+  first.move({ branch: "b1", path: "retry.ts", line: 12 })
+  expect(sockets[0]!.frames.at(-1)).toEqual({ t: "presence", id: 2, where: { branch: "b1", path: "retry.ts", line: 12 } })
+  expect(timers[0]!.ms).toBe(10000)
+  timers[0]!.run()
+  expect(sockets[0]!.frames.at(-1)).toEqual({ t: "presence", id: 2, where: { branch: "b1", path: "retry.ts", line: 12 } })
+  const second = channel.trackPresence({ branch: "b1", terminal: "terminal-2" })
+  second.release(); second.release()
+  expect(sockets[0]!.frames.at(-1)).toEqual({ t: "presence", id: 2, where: { branch: "b1", path: "retry.ts", line: 12 } })
+  // A provider's presence refusal cannot discard the card's topic subscription.
+  sockets[0]!.receive({ t: "err", id: 2, code: "unsupported" })
+  expect(channel.getSnapshot("branch:b1")?.error).toBeUndefined()
+  first.release()
+  expect(timers.at(-1)!.cancelled).toBe(true)
+  const count = sockets[0]!.frames.length
+  timers.at(-1)!.run(); first.move({ branch: "b2" })
+  expect(sockets[0]!.frames).toHaveLength(count)
+  closeTopic(); channel.dispose()
+})
+
+test("presence reconnects with the latest move and disposal cancels all heartbeats", () => {
+  const { channel, sockets, timers } = harness()
+  channel.subscribe("branch:b1", () => {})
+  const lease = channel.trackPresence({ branch: "b1" })
+  sockets[0]!.open(); sockets[0]!.drop()
+  lease.move({ branch: "b1", run: "run-1", step: "verify" })
+  timers.find(timer => timer.ms === 250)!.run()
+  sockets[1]!.open()
+  expect(sockets[1]!.frames).toEqual([
+    { t: "sub", id: 1, topic: "branch:b1" },
+    { t: "presence", id: 2, where: { branch: "b1", run: "run-1", step: "verify" } }
+  ])
+  channel.dispose()
+  const count = sockets[1]!.frames.length
+  for (const timer of timers) if (timer.ms === 10000) timer.run()
+  lease.move({ branch: "b2" }); lease.release()
+  expect(sockets[1]!.frames).toHaveLength(count)
+})

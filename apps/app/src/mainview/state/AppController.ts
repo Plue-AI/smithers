@@ -516,6 +516,7 @@ export interface AppController extends IssueFlowsController {
   /** The flows /flow, /flows and /flow.edit read: GET /api/flows on an install (undefined when it is not served); elsewhere the seeded flows (MOCK SEAM, DesignWorld/run.ts). */
   readonly flowCards: () => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
   /** branch.fork on an install: POST /api/branches {from, name?} (spec §8.5); its value is the new scratch branch. A string is the refusal. Absent off an install, where the flow acts on the seeded world. */
+  readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
@@ -881,6 +882,22 @@ export const createAppController = (
   /* Flows (T-APP-05): an install reads its catalog from GET /api/flows; the seeded flows stand in only off an install. */
   const flowsSeam = createFlowsSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
   ctx.onDispose(flowsSeam.dispose)
+  const openBranch: AppController["openBranch"] = installHost ? async target => {
+    try {
+      let name = target
+      if (/^T[1-9][0-9]*$/.test(target)) {
+        const todo = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/todos/${target.slice(1)}`, { credentials: "same-origin" })
+        const body = await todo.json() as { branch?: { name?: unknown }; message?: unknown }
+        if (!todo.ok || typeof body.branch?.name !== "string" || !body.branch.name) return typeof body.message === "string" ? body.message : "Branch unavailable"
+        name = body.branch.name
+      }
+      const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(name)}`, { credentials: "same-origin" })
+      const body = await response.json() as { name?: unknown; machine?: { id?: unknown }; message?: unknown }
+      if (!response.ok || typeof body.name !== "string" || typeof body.machine?.id !== "string") return typeof body.message === "string" ? body.message : "Branch unavailable"
+      await presentCard("branch", body.name, body.machine.id)
+      return { value: `Opened ${body.name}` }
+    } catch { return "Branch unavailable" }
+  } : undefined
   const forkBranch: AppController["forkBranch"] = installHost ? async input => {
     try {
       const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches`, { credentials: "same-origin", method: "POST",
@@ -1704,6 +1721,7 @@ export const createAppController = (
     showMembers,
     changeMembers,
     flowCards,
+    ...(openBranch ? { openBranch } : {}),
     ...(forkBranch ? { forkBranch } : {}),
     promptStorageRecovery,
     exportStorageRecovery,

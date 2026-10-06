@@ -15,7 +15,7 @@ import type { AppController } from "../state/AppController"
 import { cardActions } from "../flows/cardActions"
 import { branchOf, createDesignWorld, MAYA, todoOf, type DesignTimers, type DesignWorld } from "../state/seams/DesignWorld"
 import { designBranchModel } from "../state/seams/DesignWorld/branch"
-import { branchActionDefinitions, changeActionDefinitions } from "./BranchCard"
+import { branchActionDefinitions, changeActionDefinitions, liveBranchActionDefinitions } from "./BranchCard"
 import { CARD_RENDERERS } from "./CardRenderers"
 
 /** Timers that never fire: the seeded script stays where the seed left it. */
@@ -190,3 +190,25 @@ test("a branch opened from seeded Home keeps its seed until the real provider an
   }
 })
 type CardOfBranch = Extract<Card, { kind: "branch" }>
+
+
+test("live presses refuse each missing provider and dispatch only the bound TODO and branch source", () => {
+  const model = definitionsOf(make(), "b-retry").model
+  const providers = new Set<CatalogTag>(["todo.answer", "todo.steer", "branch.fork"])
+  const definitions = liveBranchActionDefinitions(model, providers)
+  expect(buttons(definitions)).toEqual(["Answer", "Steer", "Fork"])
+  for (const missing of providers) {
+    const available = new Set(providers); available.delete(missing)
+    const { calls, dispatch } = recorder()
+    cardActions(dispatch, liveBranchActionDefinitions(model, available)).onAction(missing)
+    expect(calls).toEqual([])
+  }
+  const { calls, dispatch } = recorder()
+  const bindings = cardActions(dispatch, definitions)
+  bindings.onAction("todo.answer", { answer: "Use the helper" })
+  bindings.onAction("todo.steer", { text: "Keep the tests" })
+  bindings.onAction("branch.fork")
+  expect(calls).toEqual([["todo.answer", { n: 9, answer: "Use the helper" }], ["todo.steer", { n: 9, text: "Keep the tests" }], ["branch.fork", { from: "T9" }]])
+  expect(buttons(liveBranchActionDefinitions({ ...model, machine: { state: "closed" } }, providers))).toEqual(["Fork"])
+  expect(liveBranchActionDefinitions({ ...model, item: undefined, name: "scratch/ben/try" }, providers)).toEqual([])
+})

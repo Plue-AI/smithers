@@ -1,4 +1,5 @@
 import { decodeLiveDocBinary, encodeLiveDocBinary, LiveDocReply, parseLiveDocTopic } from "@smthrs/rpc/LiveDoc"
+import { createBrowserPresence, type BrowserWhere } from "../state/seams/BranchSeam"
 import type { DocumentEvent } from "./LiveDocProvider"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 
@@ -41,6 +42,39 @@ export class LiveChannel {
     const existing = this.projectors.get(topic)
     if (existing && existing !== project) throw new Error(`Projection already registered: ${topic}`)
     this.projectors.set(topic, project)
+  }
+  private presenceId?: number
+  private readonly presenceOwners = new Map<symbol, BrowserWhere>()
+  private readonly heartbeat = createBrowserPresence({
+    presence: where => this.presence(where),
+    schedule: (callback, ms) => (this.options.schedule ?? setTimeout)(callback, ms),
+    cancel: timer => (this.options.cancel ?? (value => clearTimeout(value as ReturnType<typeof setTimeout>)))(timer)
+  })
+  /** Locations never include identity: the server binds the socket's member. */
+  presence(where: BrowserWhere): void {
+    if (this.disposed || this.socket?.readyState !== 1) return
+    this.presenceId ??= this.nextId++
+    this.send({ t: "presence", id: this.presenceId, where })
+  }
+  /** A mounted reader owns a lease; the latest move wins within this browser tab. */
+  trackPresence(where: BrowserWhere): { move(where: BrowserWhere): void; release(): void } {
+    const owner = Symbol()
+    const move = (next: BrowserWhere) => {
+      if (this.disposed) return
+      this.presenceOwners.delete(owner)
+      this.presenceOwners.set(owner, { ...next })
+      this.heartbeat.move(next)
+    }
+    move(where)
+    let released = false
+    return { move: next => { if (!released) move(next) }, release: () => {
+      if (released) return
+      released = true
+      this.presenceOwners.delete(owner)
+      const remaining = [...this.presenceOwners.values()].at(-1)
+      if (remaining) this.heartbeat.move(remaining)
+      else this.heartbeat.pause()
+    } }
   }
   private socket?: LiveSocket
   private timer?: unknown
@@ -130,6 +164,8 @@ export class LiveChannel {
         if (this.socket !== socket) return
         this.attempt = 0
         for (const [topic, entry] of this.topics) this.sub(topic, entry)
+        const where = [...this.presenceOwners.values()].at(-1)
+        if (where) this.presence(where)
       }
       socket.onmessage = event => { if (this.socket === socket) this.receive(event.data) }
       socket.onclose = () => {
@@ -221,7 +257,7 @@ export class LiveChannel {
     if (socket) { socket.onopen = null; socket.onclose = null; socket.onmessage = null; socket.close() }
     this.attempt = 0
   }
-  dispose() { this.disposed = true; for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear(); this.collection.cleanup() }
+  dispose() { this.disposed = true; this.heartbeat.dispose(); this.presenceOwners.clear(); for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear(); this.collection.cleanup() }
 }
 
 /** Lazy module singleton: exactly one channel for the browser tab. */

@@ -30,6 +30,7 @@ export const shellFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     grammar: name,
     input: Schema.Struct({ name: Schema.String }),
     handler: async ({ name: target }) => {
+      if (actions.openBranch) return actions.openBranch(target)
       if (actions.design.enabled === false) return "Branch unavailable"
       const result = goToBranch(actions.design, actions.design.viewer(), target)
       if (!result.ok) return result.refusal

@@ -2,7 +2,7 @@
 import { useState } from "react"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
-import { useTopic } from "../state/useTopic"
+import { useBranchPresence, useTopic } from "../state/useTopic"
 import { branchModel } from "../state/seams/BranchSeam"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
@@ -44,6 +44,26 @@ export const branchActionDefinitions = (world: DesignWorldRows, branch: DesignBr
   return definitions
 }
 
+/** Only composed providers bind live presses; topic payloads carry no command authority. */
+export const liveBranchActionDefinitions = (model: BranchModel, providers: ReadonlySet<CatalogTag>): Definition[] => {
+  const definitions: Definition[] = []
+  const n = model.item?.n
+  if (model.machine.state !== "closed" && n !== undefined) {
+    const question = [...model.activity].reverse().find(entry => entry.kind === "question" || entry.kind === "answer")
+    if (model.item?.state === "needs_you" && question?.kind === "question") definitions.push({
+      tag: "todo.answer", label: "Answer", primary: true,
+      input: [{ name: "answer", label: "Answer the coding agent", kind: "text", required: true, multiline: true }],
+      command_input: { n, answer: "" }, resolve_input: input => ({ n, answer: input.answer ?? "" })
+    })
+    definitions.push({ tag: "todo.steer", label: "Steer",
+      input: [{ name: "text", label: "Steer the coding agent", kind: "text", required: true, multiline: true }],
+      command_input: { n, text: "" }, resolve_input: input => ({ n, text: input.text ?? "" }) })
+  }
+  // The current Fork provider accepts main or a TODO. A scratch branch must not silently fork main.
+  if (n !== undefined || model.name === "main") definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from: n === undefined ? "main" : `T${n}` } })
+  return definitions.filter(definition => providers.has(definition.tag))
+}
+
 /** Each change burst's Diff; the burst id rides as `args` so the View tells rows apart. */
 export const changeActionDefinitions = (model: BranchModel): CardActionDefinition[] =>
   model.activity.filter(entry => entry.kind === "change")
@@ -82,10 +102,18 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   const files = useTopic(topic && `${topic}:files`, controller.live)
   const model = branch?.error || activity?.error || files?.error ? undefined
     : branchModel(branch?.data, activity?.data, files?.data, card.payload.id)
+  useBranchPresence(model?.id, controller.live)
   // Outside an install, an unanswered or absent provider keeps the existing seed visible.
   if (controller.design.enabled !== false && branch?.data === undefined
     && (branch?.error === undefined || branch.error === "unknown_topic" || branch.error === "unsupported")) return <DesignBranchBody card={card} actions={actions} />
-  const bindings = cardActions(() => {}, [])
+  const providers = new Set<CatalogTag>()
+  if (controller.forkBranch) providers.add("branch.fork")
+  if (controller.answerTodo) providers.add("todo.answer")
+  if (controller.steerTodo) providers.add("todo.steer")
+  const dispatch: CardCommandDispatch = (tag, input) => controller.commands.submit({
+    name: tag, payload: { branch: card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
+  })
+  const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers) : [])
   if (!model) return null
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
     onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized" }} onView={() => {}} />

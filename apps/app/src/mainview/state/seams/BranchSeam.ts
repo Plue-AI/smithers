@@ -45,6 +45,7 @@ export function createBrowserPresence(options: {
       options.presence(where)
       if (timer === undefined) timer = (options.schedule ?? setTimeout)(beat, 10000)
     },
+    pause: () => { where = undefined; if (timer !== undefined) (options.cancel ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>)))(timer); timer = undefined },
     dispose: () => { disposed = true; if (timer !== undefined) (options.cancel ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>)))(timer) }
   }
 }
