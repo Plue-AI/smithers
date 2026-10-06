@@ -487,6 +487,13 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if (item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined") && !update.State.Terminal() {
 				return nil
 			}
+			// The failed composition is ended. A delayed live checkpoint cannot
+			// attach it again or open a run question while a person decides Retry.
+			// Final evidence still belongs to this attempt; a fresh admitted
+			// attempt leaves blocked before its host can report attachment.
+			if item.State == "blocked" && (projection.Phase == "todo" || projection.Phase == "request") && !update.State.Terminal() {
+				return nil
+			}
 			// Candidate capture/rebase advances generation without replacing the
 			// attempt's composition. Its already-bound run can attach again
 			// without replaying a first step. Never use this exception to bind

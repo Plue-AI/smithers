@@ -134,6 +134,27 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	require.Equal(t, 200, status, card)
 	require.Equal(t, "failed", card["state"])
 	require.Equal(t, map[string]any{"step": "runtime", "class": "interrupted", "message": "Interrupted", "retryable": true}, card["failure"])
+	// A delayed nonterminal checkpoint of the failed run cannot open a new
+	// question or change the failed attempt while a person decides Retry.
+	failed, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	var failureEvents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&failureEvents))
+	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting,
+		Scope: jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)},
+		Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "coding/request", Projection: projection, RunID: "run-1", Run: &flowruntime.Run{
+			RunID: "run-1", PendingWaits: []flowruntime.PendingWait{{RunID: "request-step", Token: "late-question", Name: "choice",
+				Request: []byte(`{"kind":"ask","prompt":"Too late?"}`)}},
+		}}}))
+	unchanged, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, failed, unchanged)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, failureEvents, afterEvents)
+	status, card = call("GET", "", "")
+	require.Equal(t, 200, status)
+	require.Equal(t, "failed", card["state"])
+	require.NotContains(t, card, "needs_you")
 	status, receipt := call("POST", `{"op":"retry"}`, "retry-1")
 	require.Equal(t, 202, status, receipt)
 	status, card = call("GET", "", "")
