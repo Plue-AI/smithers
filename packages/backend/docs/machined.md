@@ -76,7 +76,8 @@ uses cumulative consumer-delivered offsets, recovers lost windows and returns
 only the remaining bytes without charging credit again. Offsets outside the
 retained range fail without changing the buffer. Closing discards replay and
 refuses further reads and reattachment. This module is not yet wired into a
-running daemon; it does not implement a disconnect timer or session lifecycle.
+running daemon. The separate broker lifetime module owns disconnect deadlines
+and session lifecycle; transport mounting remains pending.
 
 ### Activation prerequisites
 
@@ -89,8 +90,20 @@ a registered run. A host-interface test cannot prove these properties.
 
 The broker must create processes only after privilege drop, retain lingering
 cgroups after close, confirm `populated 0` before kill responses, and clear all
-sessions before daemon restart. These operations, stream-frame dispatch and
-the 30-second grace timer remain unimplemented in this slice. Terminal and SSH
+sessions before daemon restart. The production library now provides the session registry, per-session 30-second
+grace timer, immutable agent-run bindings and restart cleanup ordering in
+`broker/sessions.rs`. Closed and exited entries remain available for watcher
+attribution until confirmed cleanup. Reconnecting the host does not reattach
+omitted sessions. `broker/cgroups.rs` holds protected cgroup-v2 directory
+descriptors, writes `cgroup.kill`, and waits for `populated 0` against one
+five-second deadline before removing each registry entry. Retained cgroups
+are cleaned before restart; invalid retained names refuse startup.
+
+The crate is now a buildable workspace library, including the existing credit,
+replay, document and outbox components. It is not a runnable daemon. Spawn,
+PTY allocation, signals, authenticated RPC/local-socket dispatch and transport
+adaptation remain unavailable. The cgroup implementation has Linux cross-build
+evidence only; no real-root integration acceptance is claimed. Terminal and SSH
 cutover require C-COL-04 and C-J3-06 evidence; no root code from this branch is
 installed or executed.
 

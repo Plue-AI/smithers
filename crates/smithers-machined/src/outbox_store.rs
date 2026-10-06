@@ -394,7 +394,10 @@ mod tests {
             for ack in [false, true] {
                 let mut child = std::process::Command::new(std::env::current_exe().unwrap());
                 child
-                    .args(["--exact", "tests::crash_child"])
+                    .args([
+                        "--exact",
+                        &format!("{}::crash_child", module_path!().split_once("::").unwrap().1),
+                    ])
                     .env("MACHINED_STORE_CRASH_FIXTURE", &fixture.state)
                     .env_remove("MACHINED_STORE_CRASH_ACK")
                     .stdout(std::process::Stdio::null());
