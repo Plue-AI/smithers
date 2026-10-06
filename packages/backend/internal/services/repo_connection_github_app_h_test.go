@@ -289,6 +289,7 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 		wantStatus   int
 		wantContains string
 	}{
+		{"installation gone", http.StatusNotFound, `{}`, http.StatusNotFound, "github installation is not installed"},
 		{"forbidden message", http.StatusForbidden, `{"message":"denied"}`, http.StatusForbidden, "github refused the installation token request"},
 		{"server fallback", http.StatusInternalServerError, `{}`, http.StatusInternalServerError, "github installation token request was rejected"},
 		{"missing token", http.StatusCreated, `{"expires_at":"2026-07-07T15:00:00Z"}`, http.StatusInternalServerError, "github installation token response was invalid"},

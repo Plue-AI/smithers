@@ -71,7 +71,7 @@ func TestRosterTokenComesFromTheOneMinterAtMetadataRead(t *testing.T) {
 	require.Equal(t, "minted-token", token)
 	require.Equal(t, []int64{91}, minter.installations)
 	require.Equal(t, []GitHubTokenScope{wantMemberScope}, minter.scopes)
-	role, err := m.permission(context.Background(), token, repo, "writer")
+	role, err := m.permission(context.Background(), token, repo, "writer", 102)
 	require.NoError(t, err)
 	require.Equal(t, "write", role)
 	require.Equal(t, []string{
@@ -112,7 +112,7 @@ func TestRosterReadsShareTheInstallationBudget(t *testing.T) {
 	m := &Members{Credentials: memberCredentials{}, Minter: minter, Budget: tracker}
 	token, err := m.memberToken(context.Background(), 91)
 	require.NoError(t, err)
-	_, err = m.permission(context.Background(), token, memberRepository{Owner: "acme", Name: "app", ID: 5}, "writer")
+	_, err = m.permission(context.Background(), token, memberRepository{Owner: "acme", Name: "app", ID: 5}, "writer", 102)
 	require.NoError(t, err)
 	require.Equal(t, 4321, tracker.Status(91).Remaining)
 	writes := server.Writes()

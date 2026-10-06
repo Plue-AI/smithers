@@ -2,15 +2,19 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 // GitHubSyncHealth projects T-GH-02's persisted required-stream receipts; it
 // replaces the install's per-repository pull status, without another store.
 type GitHubSyncHealth struct {
+	staleAt       time.Time
 	State         string     `json:"state"`
 	LastSuccessAt *time.Time `json:"last_success_at"`
 	Cause         string     `json:"cause,omitempty"`
@@ -21,6 +25,7 @@ type GitHubSyncHealth struct {
 // A transport failure leaves LastSuccessAt intact; only permission and
 // not_installed are refusals. RetryAt includes the shared budget pause.
 type GitHubSyncStream struct {
+	Target        time.Duration
 	LastSuccessAt *time.Time
 	Cause         string
 	RetryAt       *time.Time
@@ -61,6 +66,21 @@ func (g gitHubMainPullStreams) RequiredStreams(ctx context.Context) ([]GitHubSyn
 			stream.LastSuccessAt = &at
 		}
 		streams = append(streams, stream)
+	}
+	// The permission worker uses the same required-stream health projection.
+	if settings, ok := g.receipts.(interface {
+		GetInstallSetting(context.Context, string) (db.InstallSetting, error)
+	}); ok {
+		setting, e := settings.GetInstallSetting(ctx, "github.permissions.health")
+		if e == nil {
+			var stream GitHubSyncStream
+			if e = json.Unmarshal(setting.Value, &stream); e != nil {
+				return nil, e
+			}
+			streams = append(streams, stream)
+		} else if !errors.Is(e, pgx.ErrNoRows) {
+			return nil, e
+		}
 	}
 	return streams, nil
 }
@@ -171,12 +191,26 @@ func (s *GitHubMainPullService) RetrySync(ctx context.Context) error {
 func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHubSyncHealth {
 	health := GitHubSyncHealth{State: "fresh"}
 	missing, refused := len(streams) == 0, false
+	stale := false
 	for _, stream := range streams {
 		if stream.LastSuccessAt == nil {
 			missing = true
 		} else if health.LastSuccessAt == nil || stream.LastSuccessAt.Before(*health.LastSuccessAt) {
 			at := *stream.LastSuccessAt
 			health.LastSuccessAt = &at
+		}
+		if stream.LastSuccessAt != nil {
+			target := stream.Target
+			if target <= 0 {
+				target = 60 * time.Second
+			}
+			boundary := stream.LastSuccessAt.Add(2*target + time.Nanosecond)
+			if health.staleAt.IsZero() || boundary.Before(health.staleAt) {
+				health.staleAt = boundary
+			}
+			if !now.Before(boundary) {
+				stale = true
+			}
 		}
 		if stream.RetryAt != nil && stream.RetryAt.After(now) && (health.RetryAt == nil || stream.RetryAt.After(*health.RetryAt)) {
 			at := *stream.RetryAt
@@ -201,7 +235,7 @@ func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHub
 		health.State = "refused"
 	case health.RetryAt != nil:
 		health.State = "limited"
-	case missing || now.Sub(*health.LastSuccessAt) > 120*time.Second:
+	case missing || stale:
 		health.State = "stale"
 	}
 	return health
@@ -227,7 +261,7 @@ func (s *GitHubMainPullService) WatchSyncHealth(ctx context.Context, changes <-c
 		var boundary <-chan time.Time
 		var next time.Time
 		if health.State == "fresh" && health.LastSuccessAt != nil {
-			next = health.LastSuccessAt.Add(120*time.Second + time.Nanosecond)
+			next = health.staleAt
 		} else if health.RetryAt != nil {
 			// Persisted pauses expire even when the stream worker stops polling.
 			next = *health.RetryAt

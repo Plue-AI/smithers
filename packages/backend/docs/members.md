@@ -108,7 +108,16 @@ card shows them suspended. Write access again clears the suspension, and the
 person signs in again. An installation failure or a failed lookup changes
 nothing.
 
-A permission-endpoint 404 is confirmed as loss only after the account lookup
-and the same installation token's repository read succeed. Unresolved 404s,
-malformed replies and unknown permission values preserve member state and
-refuse sign-in.
+Rechecks resolve each stored numeric GitHub ID with `GET /user/{id}` before
+using its current login. Renames update the roster login; reassigned logins
+never grant another account's permission. A missing roster GitHub ID is a
+data defect and fails the recheck. Add writes the ID before creating the row;
+legacy repository collaborators may lack one, while owner rows are excluded.
+
+A permission-endpoint 404 confirms member loss only after resolving the
+expected account ID and proving that the same installation token lists the
+repository's numeric GitHub ID. A confirmed missing account also suspends.
+Installation refusals preserve every member row and persist the permission
+stream's refusal in the existing GitHub sync health projection. Transient or
+malformed replies preserve state; a complete successful recheck clears the
+refusal. Explicit read or none suspends even with a contradictory role name.

@@ -2,12 +2,14 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 // MemberRecheckInterval is how often the install rechecks every member's
@@ -20,59 +22,113 @@ const MemberRecheckInterval = time.Hour
 // suspended member GitHub reports with write again is restored; old
 // credentials stay revoked, so they sign in again. An unbound repository,
 // an installation failure or a failed lookup changes nothing.
-func (m *Members) Recheck(ctx context.Context) error {
+func (m *Members) Recheck(ctx context.Context) (result error) {
 	if m == nil || m.Pool == nil {
 		return nil
 	}
+	defer func() { result = errors.Join(result, m.recordPermissionHealth(ctx, result)) }()
 	repo, err := m.repository(ctx)
 	if err != nil {
-		return nil
+		return err
 	}
 	token, err := m.installationAccess(ctx, repo)
 	if err != nil {
-		return fmt.Errorf("members recheck: %w", err)
+		return err
+	}
+	if err = m.confirmInstallationRepository(ctx, token, repo); err != nil {
+		return err
 	}
 	type row struct {
 		id        int64
+		githubID  *int64
 		login     string
 		user      *int64
 		suspended bool
+		role      string
 	}
-	rows, err := m.Pool.Query(ctx, `SELECT c.id,coalesce(c.github_login,u.username),c.user_id,c.suspended_at IS NOT NULL
- FROM collaborators c LEFT JOIN users u ON u.id=c.user_id CROSS JOIN self_host_owners o
- WHERE c.repository_id=$1 AND c.user_id IS DISTINCT FROM o.user_id AND coalesce(c.github_login,u.username) IS NOT NULL ORDER BY c.id`, repo.ID)
+	rows, err := m.Pool.Query(ctx, `SELECT c.id,c.github_id,c.user_id,c.suspended_at IS NOT NULL
+ FROM collaborators c CROSS JOIN self_host_owners o WHERE c.repository_id=$1 AND c.user_id IS DISTINCT FROM o.user_id ORDER BY c.id`, repo.ID)
 	if err != nil {
 		return err
 	}
 	members, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (row, error) {
 		var out row
-		return out, r.Scan(&out.id, &out.login, &out.user, &out.suspended)
+		err := r.Scan(&out.id, &out.githubID, &out.user, &out.suspended)
+		return out, err
 	})
 	if err != nil {
 		return err
 	}
 	var failed []error
-	for _, member := range members {
-		role, err := m.permission(ctx, token, repo, member.login)
+	// Stage all reads: an installation refusal must change no member, even
+	// when a preceding member's lookup would otherwise revoke or restore.
+	for i := range members {
+		member := &members[i]
+		if member.githubID == nil || *member.githubID <= 0 {
+			return fmt.Errorf("member %d data defect: missing github_id", member.id)
+		}
+		member.login, err = m.memberAccount(ctx, token, *member.githubID)
+		if err == nil && member.login != "" {
+			member.role, err = m.permission(ctx, token, repo, member.login, *member.githubID)
+		}
 		if err != nil {
-			failed = append(failed, fmt.Errorf("%s: %w", member.login, err))
-			continue
+			failed = append(failed, fmt.Errorf("member %d: %w", member.id, err))
+		}
+	}
+	if len(failed) > 0 {
+		return errors.Join(failed...)
+	}
+	for _, member := range members {
+		if member.login != "" {
+			_, err = m.Pool.Exec(ctx, `UPDATE collaborators SET github_login=$2 WHERE id=$1 AND github_id=$3`, member.id, member.login, *member.githubID)
+			if err != nil {
+				return err
+			}
 		}
 		switch {
-		case role == "" && !member.suspended:
+		case member.role == "" && !member.suspended:
 			err = m.suspend(ctx, repo.ID, member.id, member.user)
-		case role != "" && member.suspended:
+		case member.role != "" && member.suspended:
 			err = m.restore(ctx, member.id, member.user)
 		default:
 			continue
 		}
 		if err != nil {
-			failed = append(failed, fmt.Errorf("%s: %w", member.login, err))
-		} else {
-			slog.InfoContext(ctx, "members.recheck", "login", member.login, "suspended", role == "")
+			return err
 		}
+		slog.InfoContext(ctx, "members.recheck", "login", member.login, "suspended", member.role == "")
 	}
-	return errors.Join(failed...)
+	return nil
+}
+
+// Persist this required stream in install settings and project it through
+// the existing GitHubSyncStreams aggregation, retaining the last success.
+func (m *Members) recordPermissionHealth(ctx context.Context, err error) error {
+	q := db.New(m.Pool)
+	var stream GitHubSyncStream
+	setting, readErr := q.GetInstallSetting(ctx, "github.permissions.health")
+	if readErr == nil {
+		if e := json.Unmarshal(setting.Value, &stream); e != nil {
+			return e
+		}
+	} else if !errors.Is(readErr, pgx.ErrNoRows) {
+		return readErr
+	}
+	stream.Target = MemberRecheckInterval
+	var refusal *memberInstallationRefusal
+	if errors.As(err, &refusal) {
+		stream.Cause = refusal.cause
+	} else if err == nil {
+		now := time.Now().UTC()
+		stream.LastSuccessAt = &now
+		stream.Cause = ""
+		stream.RetryAt = nil
+	}
+	value, e := json.Marshal(stream)
+	if e != nil {
+		return e
+	}
+	return q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.permissions.health", Value: value})
 }
 
 // suspend marks the row and revokes the member's credentials in one

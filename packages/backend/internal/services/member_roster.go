@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
 var memberLoginPattern = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9]|-(?:[a-z0-9])){0,38}$`)
@@ -75,11 +76,18 @@ func (m *Members) installationAccess(ctx context.Context, repo memberRepository)
 		ID int64 `json:"id"`
 	}
 	status, err := api.request(ctx, jwt, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/installation", nil, &installation)
+	if err == nil && status != http.StatusOK {
+		return "", memberGitHubFailure(status)
+	}
 	if err != nil || status != http.StatusOK || installation.ID <= 0 {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	token, err := m.memberToken(ctx, installation.ID)
 	if err != nil {
+		var upstream *pkgerrors.APIError
+		if errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403 || upstream.Status == 404) {
+			return "", memberGitHubFailure(upstream.Status)
+		}
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	return token, nil
@@ -89,6 +97,9 @@ func (m *Members) installationAccess(ctx context.Context, repo memberRepository)
 // permission reports maintain as write, so role_name decides: admin or
 // maintain is a Maintainer (collaborators admin), write a Member.
 func githubMemberRole(permission, role string) string {
+	if permission == "read" || permission == "none" {
+		return ""
+	}
 	if permission == "admin" || role == "admin" || role == "maintain" {
 		return "admin"
 	}
@@ -98,49 +109,144 @@ func githubMemberRole(permission, role string) string {
 	return ""
 }
 
-func (m *Members) permission(ctx context.Context, token string, repo memberRepository, login string) (string, error) {
+type memberInstallationRefusal struct{ cause string }
+
+func (e *memberInstallationRefusal) Unwrap() error {
+	return memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
+}
+func (e *memberInstallationRefusal) Error() string { return "GitHub installation " + e.cause }
+func memberGitHubFailure(status int) error {
+	if status == 401 || status == 403 {
+		return &memberInstallationRefusal{cause: "permission"}
+	}
+	if status == 404 {
+		return &memberInstallationRefusal{cause: "not_installed"}
+	}
+	return memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
+}
+
+// Confirm installation access by immutable repository ID. Public metadata alone
+// never authorizes a member change. All pages use the same installation token.
+func (m *Members) confirmInstallationRepository(ctx context.Context, token string, repo memberRepository) error {
+	api := m.api(15 * time.Second)
+	var metadata struct {
+		ID       int64  `json:"id"`
+		FullName string `json:"full_name"`
+	}
+	status, err := api.request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name), nil, &metadata)
+	if err != nil {
+		return err
+	}
+	if status != 200 {
+		return memberGitHubFailure(status)
+	}
+	if metadata.ID <= 0 || !strings.EqualFold(metadata.FullName, repo.Owner+"/"+repo.Name) {
+		return memberGitHubFailure(0)
+	}
+	for page := 1; ; page++ {
+		var listing struct {
+			Total        int `json:"total_count"`
+			Repositories []struct {
+				ID int64 `json:"id"`
+			} `json:"repositories"`
+		}
+		status, err = api.request(ctx, token, http.MethodGet, "/installation/repositories?per_page=100&page="+strconv.Itoa(page), nil, &listing)
+		if err != nil {
+			return err
+		}
+		if status != 200 {
+			return memberGitHubFailure(status)
+		}
+		if listing.Repositories == nil || listing.Total < 0 {
+			return memberGitHubFailure(0)
+		}
+		for _, r := range listing.Repositories {
+			if r.ID == metadata.ID {
+				return nil
+			}
+		}
+		if len(listing.Repositories) < 100 || page*100 >= listing.Total {
+			return &memberInstallationRefusal{cause: "not_installed"}
+		}
+	}
+}
+
+// Resolve the immutable account before ever using its mutable login.
+func (m *Members) memberAccount(ctx context.Context, token string, id int64) (string, error) {
+	if id <= 0 {
+		return "", errors.New("member data defect: missing github_id")
+	}
+	var user struct {
+		ID    int64  `json:"id"`
+		Login string `json:"login"`
+	}
+	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, "/user/"+strconv.FormatInt(id, 10), nil, &user)
+	if err != nil {
+		return "", err
+	}
+	if status == 404 {
+		return "", nil
+	}
+	if status != 200 {
+		return "", memberGitHubFailure(status)
+	}
+	if user.ID != id || !ValidMemberLogin(user.Login) {
+		return "", memberGitHubFailure(0)
+	}
+	return user.Login, nil
+}
+
+func (m *Members) permission(ctx context.Context, token string, repo memberRepository, login string, id int64) (string, error) {
 	var out struct {
 		Permission string `json:"permission"`
 		Role       string `json:"role_name"`
 	}
 	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/collaborators/"+login+"/permission", nil, &out)
-	unavailable := func() (string, error) {
-		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
-	}
 	if err != nil {
-		return unavailable()
+		return "", err
 	}
-	if status == http.StatusNotFound {
-		// A permission 404 can hide an installation refusal. Confirm both
-		// the account and this token's repository access before revoking.
+	if status == 404 {
+		// A stale or reassigned login cannot provide another account's permission.
+		current, err := m.memberAccount(ctx, token, id)
+		if err != nil {
+			return "", err
+		}
+		if err = m.confirmInstallationRepository(ctx, token, repo); err != nil {
+			return "", err
+		}
+		if current == "" {
+			return "", nil
+		}
+		if !strings.EqualFold(current, login) {
+			return m.permission(ctx, token, repo, current, id)
+		}
 		var user struct {
 			ID    int64  `json:"id"`
 			Login string `json:"login"`
 		}
-		api := m.api(15 * time.Second)
-		status, err = api.request(ctx, token, http.MethodGet, "/users/"+login, nil, &user)
-		if err != nil || status != http.StatusOK || user.ID <= 0 || !strings.EqualFold(user.Login, login) {
-			return unavailable()
+		status, err = m.api(15*time.Second).request(ctx, token, http.MethodGet, "/users/"+current, nil, &user)
+		if err != nil {
+			return "", err
 		}
-		var repository struct {
-			FullName string `json:"full_name"`
+		if status == 404 {
+			return "", nil
 		}
-		status, err = api.request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name), nil, &repository)
-		if err != nil || status != http.StatusOK || !strings.EqualFold(repository.FullName, repo.Owner+"/"+repo.Name) {
-			return unavailable()
+		if status != 200 {
+			return "", memberGitHubFailure(status)
+		}
+		if user.ID != id || !strings.EqualFold(user.Login, current) {
+			return "", memberGitHubFailure(0)
 		}
 		return "", nil
 	}
-	if status != http.StatusOK {
-		return unavailable()
+	if status != 200 {
+		return "", memberGitHubFailure(status)
 	}
-	// An empty, truncated or unfamiliar response is not confirmed loss.
 	switch out.Permission {
 	case "admin", "write", "read", "none":
 		return githubMemberRole(out.Permission, out.Role), nil
-	default:
-		return unavailable()
 	}
+	return "", memberGitHubFailure(0)
 }
 
 // AdmitGitHub runs before a sign-in writes any identity: the GitHub account
@@ -179,7 +285,7 @@ func (m *Members) AdmitGitHub(ctx context.Context, id int64, login string) error
 	if err != nil {
 		return err
 	}
-	role, err := m.permission(ctx, token, repo, login)
+	role, err := m.permission(ctx, token, repo, login, id)
 	if err != nil {
 		return err
 	}
@@ -230,7 +336,7 @@ func (m *Members) Add(ctx context.Context, login string) error {
 	if status == http.StatusNotFound || user.ID <= 0 || !ValidMemberLogin(user.Login) {
 		return memberError(http.StatusNotFound, "user", "unknown_github_user", "Unknown GitHub user")
 	}
-	role, err := m.permission(ctx, token, repo, user.Login)
+	role, err := m.permission(ctx, token, repo, user.Login, user.ID)
 	if err != nil {
 		return err
 	}

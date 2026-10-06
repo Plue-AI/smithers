@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -41,6 +42,8 @@ type rosterGitHub struct {
 	permissionStatus   int
 	permissionBody     string
 	repositoryStatus   int
+	renamed            bool
+	missingID          bool
 }
 
 func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
@@ -57,12 +60,39 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/app/installations/91/access_tokens":
 		w.WriteHeader(201)
 		fmt.Fprint(w, `{"token":"installation-token","expires_at":"2099-01-01T00:00:00Z"}`)
+	case strings.HasPrefix(r.URL.Path, "/user/") && r.URL.Path != "/user/emails":
+		requireToken := r.Header.Get("Authorization") == "Bearer installation-token"
+		if !requireToken {
+			w.WriteHeader(500)
+			return
+		}
+		if r.URL.Path == "/user/102" && g.missingID {
+			w.WriteHeader(404)
+			return
+		}
+		login := ""
+		for _, name := range []string{"writer", "maintainer", "admin", "reader"} {
+			if r.URL.Path == fmt.Sprintf("/user/%d", rosterGitHubID(name)) {
+				login = name
+			}
+		}
+		if login == "writer" && g.renamed {
+			login = "renamed"
+		}
+		if login == "" {
+			w.WriteHeader(404)
+			return
+		}
+		id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/user/"), 10, 64)
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "login": login})
 	case r.URL.Path == "/repos/acme/app":
+		fmt.Fprint(w, `{"id":500,"full_name":"acme/app"}`)
+	case r.URL.Path == "/installation/repositories":
 		if g.repositoryStatus != 0 {
 			w.WriteHeader(g.repositoryStatus)
 			return
 		}
-		fmt.Fprint(w, `{"full_name":"acme/app"}`)
+		fmt.Fprint(w, `{"total_count":1,"repositories":[{"id":500}]}`)
 	case strings.HasPrefix(r.URL.Path, "/repos/acme/app/collaborators/"):
 		if g.permissionStatus != 0 {
 			w.WriteHeader(g.permissionStatus)
@@ -81,6 +111,10 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]string{"permission": permission, "role_name": role})
 	case strings.HasPrefix(r.URL.Path, "/users/"):
+		if r.URL.Path == "/users/renamed" {
+			json.NewEncoder(w).Encode(map[string]any{"id": 102, "login": "renamed"})
+			return
+		}
 		login := strings.TrimPrefix(r.URL.Path, "/users/")
 		if _, ok := g.roles[login]; !ok {
 			w.WriteHeader(404)
@@ -315,4 +349,28 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	status, _ = request("GET", "/api/members", "", "writer-cookie-2")
 	require.Equal(t, 401, status, "restoring never revives a revoked session")
 	login("writer", 302)
+	// The old login can now belong to a writer with a different ID. The
+	// original account resolves to its renamed login and has lost permission.
+	createSession(writer, "writer-cookie-3")
+	github.mu.Lock()
+	github.renamed = true
+	github.roles["writer"] = "write"
+	github.permissionStatus = 0
+	github.permissionBody = ""
+	github.mu.Unlock()
+	require.NoError(t, members.Recheck(ctx))
+	status, _ = request("GET", "/api/members", "", "writer-cookie-3")
+	require.Equal(t, 401, status, "confirmed permission 404 rejects the old session")
+	var currentLogin string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT github_login,suspended_at IS NOT NULL FROM collaborators WHERE github_id=102`).Scan(&currentLogin, &suspended))
+	require.Equal(t, "renamed", currentLogin)
+	require.True(t, suspended)
+	github.mu.Lock()
+	github.permissionStatus = 0
+	github.roles["renamed"] = "write"
+	github.mu.Unlock()
+	require.NoError(t, members.Recheck(ctx))
+	status, _ = request("GET", "/api/members", "", "writer-cookie-3")
+	require.Equal(t, 401, status, "recovery never revives a confirmed-404 session")
+
 }
