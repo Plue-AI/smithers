@@ -195,12 +195,12 @@ func TestGitHubAppSetupBeginRefusesUntrustedOriginsAndMalformedBody(t *testing.T
 			r.AddCookie(&http.Cookie{Name: GitHubAppSetupSessionCookie, Value: strings.Repeat("s", 64)})
 			r.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
 			r.Header.Set("X-CSRF-Token", "csrf")
+			if r.RemoteAddr == "192.0.2.1:1234" && strings.Contains(r.Host, "localhost") {
+				r.RemoteAddr = "127.0.0.1:1234"
+			}
 			origin, ok := h.requestOrigin(r)
 			if ok {
 				r.Header.Set("Origin", origin)
-			}
-			if r.RemoteAddr == "192.0.2.1:1234" && strings.Contains(r.Host, "localhost") {
-				r.RemoteAddr = "127.0.0.1:1234"
 			}
 			w := httptest.NewRecorder()
 			h.Begin(w, r)
