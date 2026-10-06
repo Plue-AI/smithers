@@ -1,6 +1,16 @@
 import { expect, test } from "./browserTest"
 import { installFixture } from "../../src/mainview/state/seams/InstallFixtures.test-support"
-import { owner, say } from "./spec/j1-fixtures"
+import { owner as signedInOwner, say } from "./spec/j1-fixtures"
+
+// Native install hosts disable DesignWorld: every Settings row below must
+// come from InstallSeam's HTTP projection, including the image.add door.
+async function owner(page: import("@playwright/test").Page) {
+  await signedInOwner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test",
+    capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null
+  } }))
+}
 
 test("Settings Address saves the install contract without blocking Chat", async ({ page }) => {
   await owner(page)
