@@ -2,6 +2,9 @@ package services
 
 import (
 	"encoding/json"
+	"github.com/smithersai/smithers/packages/backend/internal/diffview"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -55,4 +58,36 @@ func TestTODOBranchDiffMissingFactsNeverReturnsPartialFiles(t *testing.T) {
 			require.Nil(t, result.Files)
 		})
 	}
+}
+
+func TestAcceptedTreeDiffUsesRecordedBaseAndControlledGit(t *testing.T) {
+	f := newMythicalFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(f.root, "old.txt"), []byte("same\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(f.root, "earlier.txt"), []byte("prefix\n"), 0600))
+	f.run("add", ".")
+	f.run("commit", "-qm", "prefix")
+	base := f.run("rev-parse", "HEAD")
+	f.run("mv", "old.txt", "new.txt")
+	require.NoError(t, os.WriteFile(filepath.Join(f.root, "item.txt"), []byte("item\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(f.root, "asset.bin"), []byte{0, 1, 2}, 0600))
+	f.run("add", ".")
+	f.run("commit", "-qm", "item")
+	head := f.run("rev-parse", "HEAD")
+	canary := filepath.Join(f.root, "host-canary")
+	f.run("config", "diff.external", "touch "+canary)
+	reader := acceptedTreeDiffReader{g: f.git, base: base, head: head}
+	diff, err := diffview.BuildChangeDiff(t.Context(), reader, "", "", head, diffview.BuildOptions{})
+	require.NoError(t, err)
+	require.Len(t, diff.FileDiffs, 3)
+	require.Equal(t, "asset.bin", diff.FileDiffs[0].Path)
+	require.True(t, diff.FileDiffs[0].IsBinary)
+	require.Contains(t, diff.FileDiffs[1].Patch, "+item\n")
+	require.Equal(t, "renamed", diff.FileDiffs[2].ChangeType)
+	require.Equal(t, "old.txt", diff.FileDiffs[2].OldPath)
+	_, err = os.Stat(canary)
+	require.True(t, os.IsNotExist(err))
+	blob, err := reader.GetFileAtChange(t.Context(), "", "", head, "asset.bin")
+	require.NoError(t, err)
+	require.Equal(t, "base64", blob.Encoding)
+	require.Equal(t, "AAEC", blob.Content)
 }
