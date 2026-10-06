@@ -172,13 +172,13 @@ describe("§3 the keyboard contract", () => {
     expect(rows(view.host)).not.toContain("cloud.sign-in")
   })
 
-  test("an unknown /help stays visible with a refusal and never submits a metered turn", async () => {
+  test("an unknown /no-such-command stays visible with a refusal and never submits a metered turn", async () => {
     const view = await mount()
     await press(view, "k", { meta: true })
-    await view.act(() => view.controller.changeDraft('/help'))
+    await view.act(() => view.controller.changeDraft('/no-such-command'))
     await press(view, 'Enter')
-    expect(view.store.session().draft).toBe('/help')
-    expect(palette(view.host)?.textContent).toContain('There is no /help flow.')
+    expect(view.store.session().draft).toBe('/no-such-command')
+    expect(palette(view.host)?.textContent).toContain('There is no /no-such-command flow.')
     expect(invoked(view.store).some(row => row.name === 'chat.send')).toBe(false)
   })
 
@@ -499,12 +499,12 @@ describe("§3 the keyboard contract", () => {
 
   test("the slash tree stays the / mode of the same overlay", async () => {
     const view = await mount()
-    await view.act(() => view.controller.changeDraft("/app"))
+    await view.act(() => view.controller.changeDraft("/age"))
     expect(palette(view.host)?.dataset["mode"]).toBe("flows")
     expect(rows(view.host)[0]).toBe("")
-    expect(view.host.querySelector("[data-testid='palette'] [data-namespace='appearance']")).not.toBeNull()
+    expect(view.host.querySelector("[data-testid='palette'] [data-namespace='agent']")).not.toBeNull()
     await press(view, "ArrowRight")
-    expect(view.store.session().draft).toBe("/appearance.")
+    expect(view.store.session().draft).toBe("/agent.")
   })
 })
 
