@@ -244,67 +244,77 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		require.Equal(t, 400, response.StatusCode)
 	})
 
-	t.Run("attempt logs keep bytes and refuse unrelated digests", func(t *testing.T) {
-		disk, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: origin, SigningKey: bytes.Repeat([]byte{0x42}, 32)})
-		require.NoError(t, err)
-		defer disk.Close()
-		logs := &todoCountingLogStore{Store: disk}
-		mythical.SetTodoLogStore(logs)
-		payload := "literal check stdout\n"
-		hash := sha256.Sum256([]byte(payload))
-		digest := hex.EncodeToString(hash[:])
-		require.NoError(t, blob.Put(ctx, logs, "repos/"+strconv.FormatInt(repo.ID, 10)+"/todo-logs/"+digest, "text/plain", strings.NewReader(payload)))
-		oldChecks := before.Checks
-		retained, _ := json.Marshal(map[string]any{"attempts": []any{map[string]any{"attempt": 1, "revision": "old", "items": []any{map[string]any{"kind": "check", "name": "build", "log_digest": digest}}}}})
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=2,checks=$2 WHERE id=$1`, before.ID, retained)
-		require.NoError(t, err)
-		defer func() {
-			_, err := pool.Exec(ctx, `UPDATE mythical_items SET attempt=$2,checks=$3 WHERE id=$1`, before.ID, before.Attempt, oldChecks)
+	for _, previous := range []bool{false, true} {
+		name := "attempt logs keep bytes and refuse unrelated digests"
+		if previous {
+			name = "previous revision logs keep bytes and refuse unrelated digests"
+		}
+		t.Run(name, func(t *testing.T) {
+			disk, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: origin, SigningKey: bytes.Repeat([]byte{0x42}, 32)})
 			require.NoError(t, err)
-		}()
-		for _, tc := range []struct {
-			attempt, digest string
-			status          int
-		}{{"1", digest, 200}, {"2", digest, 404}, {"1", strings.Repeat("a", 64), 404}} {
-			request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/attempts/"+tc.attempt+"/logs/"+tc.digest, nil)
-			require.NoError(t, err)
-			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
-			response, err := http.DefaultClient.Do(request)
-			require.NoError(t, err)
-			raw, err := io.ReadAll(response.Body)
-			require.NoError(t, err)
-			response.Body.Close()
-			require.Equal(t, tc.status, response.StatusCode, string(raw))
-			require.Equal(t, int64(1), logs.reads.Load(), "unrelated digests and attempts never invoke blob retrieval")
-			if tc.status == 200 {
-				require.Equal(t, payload, string(raw))
-				require.Equal(t, "nosniff", response.Header.Get("X-Content-Type-Options"))
+			defer disk.Close()
+			logs := &todoCountingLogStore{Store: disk}
+			mythical.SetTodoLogStore(logs)
+			payload := "literal check stdout\n"
+			hash := sha256.Sum256([]byte(payload))
+			digest := hex.EncodeToString(hash[:])
+			require.NoError(t, blob.Put(ctx, logs, "repos/"+strconv.FormatInt(repo.ID, 10)+"/todo-logs/"+digest, "text/plain", strings.NewReader(payload)))
+			oldChecks := before.Checks
+			evidence := map[string]any{"attempt": 1, "revision": "old", "items": []any{map[string]any{"kind": "check", "name": "build", "log_digest": digest}}}
+			if previous {
+				evidence = map[string]any{"attempt": 1, "revision": "new", "items": []any{}, "previous": map[string]any{"revision": "old", "items": evidence["items"]}}
 			}
-		}
+			retained, _ := json.Marshal(map[string]any{"attempts": []any{evidence}})
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=2,checks=$2 WHERE id=$1`, before.ID, retained)
+			require.NoError(t, err)
+			defer func() {
+				_, err := pool.Exec(ctx, `UPDATE mythical_items SET attempt=$2,checks=$3 WHERE id=$1`, before.ID, before.Attempt, oldChecks)
+				require.NoError(t, err)
+			}()
+			for _, tc := range []struct {
+				attempt, digest string
+				status          int
+			}{{"1", digest, 200}, {"2", digest, 404}, {"1", strings.Repeat("a", 64), 404}} {
+				request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/attempts/"+tc.attempt+"/logs/"+tc.digest, nil)
+				require.NoError(t, err)
+				request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+				response, err := http.DefaultClient.Do(request)
+				require.NoError(t, err)
+				raw, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				response.Body.Close()
+				require.Equal(t, tc.status, response.StatusCode, string(raw))
+				require.Equal(t, int64(1), logs.reads.Load(), "unrelated digests and attempts never invoke blob retrieval")
+				if tc.status == 200 {
+					require.Equal(t, payload, string(raw))
+					require.Equal(t, "nosniff", response.Header.Get("X-Content-Type-Options"))
+				}
+			}
 
-		// The canonical snapshot still references its log when the current card
-		// has no measured candidate. Rendering is not an authorization oracle.
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1 WHERE id=$1`, before.ID)
-		require.NoError(t, err)
-		{
-			request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/attempts/1/logs/"+digest, nil)
+			// The canonical snapshot still references its log when the current card
+			// has no measured candidate. Rendering is not an authorization oracle.
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1 WHERE id=$1`, before.ID)
 			require.NoError(t, err)
-			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
-			response, err := http.DefaultClient.Do(request)
-			require.NoError(t, err)
-			raw, err := io.ReadAll(response.Body)
+			{
+				request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/attempts/1/logs/"+digest, nil)
+				require.NoError(t, err)
+				request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+				response, err := http.DefaultClient.Do(request)
+				require.NoError(t, err)
+				raw, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				response.Body.Close()
+				require.Equal(t, http.StatusOK, response.StatusCode, string(raw))
+				require.Equal(t, payload, string(raw))
+				require.Equal(t, int64(2), logs.reads.Load())
+			}
+			response, err := http.Get(origin + "/api/todos/" + strconv.FormatInt(filed.Number, 10) + "/attempts/1/logs/" + digest)
 			require.NoError(t, err)
 			response.Body.Close()
-			require.Equal(t, http.StatusOK, response.StatusCode, string(raw))
-			require.Equal(t, payload, string(raw))
-			require.Equal(t, int64(2), logs.reads.Load())
-		}
-		response, err := http.Get(origin + "/api/todos/" + strconv.FormatInt(filed.Number, 10) + "/attempts/1/logs/" + digest)
-		require.NoError(t, err)
-		response.Body.Close()
-		require.Equal(t, http.StatusUnauthorized, response.StatusCode)
-		require.Equal(t, int64(2), logs.reads.Load(), "unauthenticated requests never retrieve blob bytes")
-	})
+			require.Equal(t, http.StatusUnauthorized, response.StatusCode)
+			require.Equal(t, int64(2), logs.reads.Load(), "unauthenticated requests never retrieve blob bytes")
+		})
+	}
 	itemID := uuid.UUID(before.ID.Bytes).String()
 	numbered := func(target string) string { return "/api/todos/" + target + "/merge" }
 	repository := func(target string) string { return "/api/repos/merge-owner/app/mythical/items/" + target + "/merge" }
