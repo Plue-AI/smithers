@@ -54,6 +54,16 @@ func TestForkCompletedRequestInstall(t *testing.T) {
 		_, err := jobs.RecordFactInTx(ctx, tx, scope, id, "branch.fork.completed", "completed", fact)
 		return err
 	}))
+
+	// A prior process committed intent, then died before completion. Changed
+	// input must be refused at the install boundary before any source lookup.
+	interruptedID := uuid.NewSHA1(namespace, []byte(scope.TenantID+"\x00"+scope.PrincipalID+"\x00branch.fork\x00interrupted-fork")).String()
+	intentID := uuid.NewSHA1(namespace, []byte(interruptedID+"\x00intended")).String()
+	intent, _ := json.Marshal(map[string]any{"input": input, "ref": "main", "commit": original.Head, "base": original.Head, "pin": "refs/smithers/keep/" + original.Head})
+	require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		_, err := jobs.RecordFactInTx(ctx, tx, scope, intentID, "branch.fork.intended", "intended", intent)
+		return err
+	}))
 	handler := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
 	call := func(body, session string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches", strings.NewReader(body))
@@ -85,6 +95,19 @@ func TestForkCompletedRequestInstall(t *testing.T) {
 		require.Equal(t, 400, response.Code, response.Body.String())
 	}
 	require.Equal(t, 401, call(`{"from":"main","name":"retry"}`, "").Code)
+	interruptedRequest := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches", strings.NewReader(`{"from":"T2","name":"retry"}`))
+	interruptedRequest.RemoteAddr = "127.0.0.1:12345"
+	interruptedRequest.Header.Set("Content-Type", "application/json")
+	interruptedRequest.Header.Set("Idempotency-Key", "interrupted-fork")
+	interruptedRequest.Header.Set("Origin", "http://127.0.0.1:4000")
+	interruptedRequest.Header.Set("X-CSRF-Token", "fork-csrf")
+	interruptedRequest.AddCookie(&http.Cookie{Name: "__csrf", Value: "fork-csrf"})
+	interruptedRequest.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+	interruptedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(interruptedResponse, interruptedRequest)
+	require.Equal(t, 409, interruptedResponse.Code, interruptedResponse.Body.String())
+	require.Contains(t, interruptedResponse.Body.String(), "idempotency_mismatch")
+
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces`).Scan(&count))
 	require.Zero(t, count, "replay and malformed requests never start provisioning")
