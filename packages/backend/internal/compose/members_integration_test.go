@@ -188,6 +188,28 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 		require.NoError(t, err)
 		return res.StatusCode, string(data)
 	}
+	delegatedToken := "smithers_" + strings.Repeat("d", 40)
+	delegatedSum := sha256.Sum256([]byte(delegatedToken))
+	delegatedHash := hex.EncodeToString(delegatedSum[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "owner-delegated", TokenHash: delegatedHash, TokenLastEight: delegatedHash[len(delegatedHash)-8:], Scopes: "all", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
+	// Eligible delegated callers are refused before reads or membership effects.
+	for _, door := range []struct{ method, path, body string }{
+		{"GET", "/api/members", ""}, {"POST", "/api/members", `{"login":"writer"}`},
+		{"PATCH", "/api/members/owner", `{"role":"member"}`}, {"DELETE", "/api/members/owner", ""},
+	} {
+		req, err := http.NewRequest(door.method, origin+door.path, strings.NewReader(door.body))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+delegatedToken)
+		req.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 403, response.StatusCode, string(body))
+		require.JSONEq(t, `{"class":"never","code":"never","message":"Only a person can do this"}`, string(body))
+	}
 	// Missing composition providers refuse all doors without changing the roster.
 	for _, missing := range []string{"pool", "credentials", "minter"} {
 		original := *members
@@ -227,6 +249,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 		{"POST", "/api/members", `{"login":"admin"}`, 204, ""},
 		{"PATCH", "/api/members/owner", `{"role":"member"}`, 403, "owner_immutable"},
 		{"DELETE", "/api/members/owner", "", 403, "owner_immutable"},
+		{"PATCH", "/api/members/writer", `{"role":"owner"}`, 403, "owner_immutable"},
 	} {
 		status, body := request(fixture.method, fixture.path, fixture.body, "owner-cookie")
 		require.Equal(t, fixture.status, status, body)

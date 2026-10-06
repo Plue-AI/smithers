@@ -1,6 +1,13 @@
 import { expect, test } from "../browserTest"
 import { installCloudFixture } from "../cloudFixture"
-import { say } from "./j1-fixtures"
+import type { Page } from "../browserTest"
+
+const say = async (page: Page, text: string) => {
+  const input = page.getByTestId("composer-input")
+  if (!await input.isVisible()) await page.getByRole("button", { name: "Chat", exact: true }).press("Enter")
+  await input.fill(text)
+  await input.press("Enter")
+}
 
 // The mounted install card uses the production dispatcher, MembersSeam and View.
 // Provider doubles here do not replace the real-host GitHub/LAN qualification.
