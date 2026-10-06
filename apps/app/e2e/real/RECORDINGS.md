@@ -34,3 +34,11 @@ This review is a human attestation about retention, not an authenticated check
 receipt or automated proof of redaction. It does not approve reference-host
 mappings. Successful per-step traces/videos and complete journey recordings
 remain required for release; this spec does not supply those automatically.
+
+Keyboard evidence uses `installKeyboardOnly` before constructing locators and
+`recordKeyboardFocus` after each app action and again after its asynchronous
+card/live update settles. Finalize both logs with `assertKeyboardOnly` and
+`assertKeyboardFocus`; catching an earlier refusal cannot clear it. Focus logs
+contain only UTC time, element tag and computed ring properties, never field
+values, labels or setup URLs. The focus helper's Chromium/WebKit DOM regression
+tests are supplemental coverage; they do not complete C-UI-01 or any journey.
