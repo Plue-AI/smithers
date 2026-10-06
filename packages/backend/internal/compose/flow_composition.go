@@ -109,7 +109,11 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("repository job Flow host targets: %w", err)
 	}
-	additionalTargets := []flowhost.TargetResolver{browserFlowTarget{queries: db.New(pool)}}
+	browserTarget := browserFlowTarget{queries: db.New(pool)}
+	if config.IsSingleOwner(cfg.Auth) {
+		browserTarget.install = db.New(pool)
+	}
+	additionalTargets := []flowhost.TargetResolver{browserTarget}
 	projectors := []flowdispatch.Projector{agents, repositoryJobs}
 	maxObservationDelay := time.Duration(0)
 	if len(presence) > 0 && presence[0] != nil {
