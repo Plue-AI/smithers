@@ -91,6 +91,16 @@ func (st *mythicalItemStep) followInstallPull(ctx context.Context, item db.Mythi
 		next.Checks = checks.encode()
 	}
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
+	// Fetched delivery owns GitHub lifecycle facts; the stack still owns the
+	// candidate's prefix. An unchanged PR snapshot must not leave a reviewed
+	// candidate verified against an obsolete main (or predecessor) forever.
+	// This only schedules rebuilding: execution retains its presence checks,
+	// and publication retains its fresh verification and remote-head lease.
+	if next.State == "proposed" && next.PRState == "open" && !next.PausedAt.Valid &&
+		len(next.PendingOp) == 0 && mythicalChecksOf(next).ForeignHead == "" &&
+		next.CandidateHead != "" && next.CandidateBase != "" && next.CandidateBase != st.prefix(next) {
+		return st.invalidatePrefix(next), nil
+	}
 	// The fetched consumer owns PR state, foreign-head and merge effects, with
 	// its receipt in one transaction. A successful fetch cannot run the old gate.
 	return &next, nil

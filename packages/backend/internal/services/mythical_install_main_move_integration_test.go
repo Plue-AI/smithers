@@ -3,6 +3,7 @@ package services
 import (
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 )
@@ -48,6 +49,10 @@ func TestReviewedTodoMainMoveSchedulesRebuild(t *testing.T) {
 			// schedule the rebuild and advance it to another execution state.
 			step := &mythicalItemStep{s: h.service, q: h.q, now: h.service.now(),
 				r: &mythicalRun{row: stack, mainTip: main}, items: []db.MythicalItem{before}}
+			checks := mythicalChecksOf(before)
+			checks.Land = &mythicalLand{Head: head, Generation: before.Generation}
+			before.Checks = checks.encode()
+			writes := len(h.writes())
 			after, err := step.follow(t.Context(), before)
 			require.NoError(t, err)
 			require.NotNil(t, after)
@@ -58,6 +63,41 @@ func TestReviewedTodoMainMoveSchedulesRebuild(t *testing.T) {
 			require.Equal(t, before.CandidateHead, after.CandidateHead, "retain the captured edit until rebuild")
 			require.NotNil(t, mythicalChecksOf(*after).Rebase)
 			require.Equal(t, main, mythicalChecksOf(*after).Rebase.Onto)
+			require.Nil(t, mythicalChecksOf(*after).Land, "a previous head's approval cannot survive rebuilding")
+			require.Equal(t, head, mythicalChecksOf(*after).ApprovalCleared)
+			require.Len(t, h.writes(), writes, "scheduling cannot write to GitHub")
+			if !install {
+				return
+			}
+			for _, held := range []string{"foreign push", "pending merge", "pending push", "paused", "same base"} {
+				t.Run(held, func(t *testing.T) {
+					input := before
+					switch held {
+					case "foreign push":
+						checks := mythicalChecksOf(input)
+						checks.ForeignHead = main
+						input.Checks = checks.encode()
+					case "pending merge":
+						input.PendingOp = []byte(`{"kind":"merge","state":"unknown"}`)
+					case "pending push":
+						input.PendingOp = []byte(`{"kind":"push","state":"unknown"}`)
+					case "paused":
+						input.PausedAt = pgtype.Timestamptz{Time: step.now, Valid: true}
+					case "same base":
+						input.CandidateBase = main
+					}
+					next, err := step.follow(t.Context(), input)
+					require.NoError(t, err)
+					require.NotNil(t, next)
+					require.Equal(t, "proposed", next.State)
+					require.Equal(t, input.CandidateVerified, next.CandidateVerified)
+					require.Equal(t, input.CandidateHead, next.CandidateHead)
+					require.Equal(t, input.PendingOp, next.PendingOp)
+					require.Nil(t, mythicalChecksOf(*next).Rebase)
+					require.Equal(t, mythicalChecksOf(input).Land, mythicalChecksOf(*next).Land)
+					require.Len(t, h.writes(), writes)
+				})
+			}
 		})
 	}
 }
