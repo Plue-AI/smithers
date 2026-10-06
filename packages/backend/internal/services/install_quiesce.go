@@ -109,7 +109,7 @@ func (g *QuiesceGate) marker() (bool, error) {
 	if g.StateDir == "" {
 		return false, errors.New("quiesce STATE directory unavailable")
 	}
-	_, err := os.Stat(filepath.Join(g.StateDir, ".upgrade-incomplete"))
+	_, err := os.Lstat(filepath.Join(g.StateDir, ".upgrade-incomplete"))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -162,6 +162,9 @@ type InstallQuiesce struct {
 }
 
 func (s *InstallQuiesce) Reopen(ctx context.Context, op string) error {
+	if s == nil || s.Gate == nil || s.Gate.Store == nil {
+		return errors.New("quiesce authority unavailable")
+	}
 	return s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
 		marker, err := s.Gate.marker()
 		if err != nil {
@@ -182,6 +185,25 @@ func (s *InstallQuiesce) Reopen(ctx context.Context, op string) error {
 func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freeze *QuiesceFreeze, err error) {
 	if op == "" {
 		return nil, errors.New("quiesce op required")
+	}
+	// Check composition before writing the durable freeze. An unavailable
+	// provider is not an empty queue, and must not briefly close admissions.
+	if s == nil || s.Gate == nil || s.Gate.Store == nil {
+		return nil, errors.New("quiesce authority unavailable")
+	}
+	machines := s.Machines
+	switch machines.(type) {
+	case nil, UnavailableMachineQuiescer, *UnavailableMachineQuiescer:
+		return nil, &QuiesceDependencyError{"T-MCH-07"}
+	}
+	if s.Admission == nil {
+		return nil, &QuiesceDependencyError{"T-MCH-06"}
+	}
+	if s.Host == nil {
+		return nil, &QuiesceDependencyError{"T-INS-08"}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	fresh := false
 	err = s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
@@ -233,20 +255,6 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 			}))
 		}
 	}()
-	machines := s.Machines
-	if machines == nil {
-		machines = UnavailableMachineQuiescer{}
-	}
-	// Missing dependencies refuse before touching live execution.
-	if _, missing := machines.(UnavailableMachineQuiescer); missing {
-		return nil, machines.CaptureAndStop(ctx)
-	}
-	if s.Admission == nil {
-		return nil, &QuiesceDependencyError{"T-MCH-06"}
-	}
-	if s.Host == nil {
-		return nil, &QuiesceDependencyError{"T-INS-08"}
-	}
 	drain, cancel := context.WithTimeout(ctx, 60*time.Second)
 	err = s.Admission.Drain(drain)
 	cancel()

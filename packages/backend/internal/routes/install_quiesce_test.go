@@ -120,7 +120,7 @@ func TestInstallQuiesceHTTPGate(t *testing.T) {
 		if w.Code != want {
 			t.Fatalf("%s %d", method, w.Code)
 		}
-		if want == 503 && !strings.Contains(w.Body.String(), `"class":"quiesced"`) {
+		if want == 503 && !strings.Contains(w.Body.String(), `"class":"infra"`) {
 			t.Fatal(w.Body.String())
 		}
 	}

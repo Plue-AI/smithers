@@ -1,5 +1,5 @@
-// Package hostbackup validates and publishes quiescent host snapshots. It has no
-// runtime or command wiring; callers must supply already quiesced trees.
+// Package hostbackup validates and publishes quiescent host snapshots.
+// Callers must supply already quiesced trees.
 package hostbackup
 
 import (
@@ -11,9 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -134,25 +132,8 @@ func syncDir(dir string) error {
 	return f.Sync()
 }
 
-var releasePattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
-
-func release(v string) ([3]uint64, error) {
-	var parts [3]uint64
-	matches := releasePattern.FindStringSubmatch(v)
-	if matches == nil {
-		return parts, &Error{Code: WrongVersion, Path: v}
-	}
-	for i := range parts {
-		n, err := strconv.ParseUint(matches[i+1], 10, 64)
-		if err != nil {
-			return parts, &Error{Code: WrongVersion, Path: v}
-		}
-		parts[i] = n
-	}
-	return parts, nil
-}
 func metadata(m Manifest) error {
-	if _, err := release(m.Version); err != nil {
+	if _, _, err := releaseParts(m.Version); err != nil {
 		return err
 	}
 	if m.SchemaVersion < 1 || m.PostgresMajor < 1 || m.QuiesceOp == "" || m.QuiesceTime.IsZero() {
@@ -163,11 +144,16 @@ func metadata(m Manifest) error {
 	}
 	for _, raw := range []json.RawMessage{m.Stack, m.BranchHeads, m.MachineDisks, m.RunJournals} {
 		if len(raw) == 0 {
-			continue
+			return &Error{Code: WrongVersion, Path: "incomplete summary"}
 		}
 		var value any
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return &Error{Code: WrongVersion, Path: "summary"}
+		}
+		switch value.(type) {
+		case []any, map[string]any:
+		default:
+			return &Error{Code: WrongVersion, Path: "incomplete summary"}
 		}
 		if err := relativeSummary(value); err != nil {
 			return err
@@ -221,19 +207,20 @@ func inventory(dir string) ([]File, error) {
 	if !info.IsDir() {
 		return nil, &Error{Code: UnsafePath, Path: dir}
 	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
 	var files []File
-	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+	err = fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if path == dir {
+		if path == "." {
 			return nil
 		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
+		rel := filepath.ToSlash(path)
 		if !safePath(rel) {
 			return &Error{Code: UnsafePath, Path: rel}
 		}
@@ -246,7 +233,7 @@ func inventory(dir string) ([]File, error) {
 		if rel == "MANIFEST.json" {
 			return nil
 		}
-		f, err := os.Open(path)
+		f, err := root.Open(rel)
 		if err != nil {
 			return err
 		}
@@ -266,15 +253,19 @@ func inventory(dir string) ([]File, error) {
 }
 func readManifest(dir string) (Manifest, error) {
 	var m Manifest
-	path := filepath.Join(dir, "MANIFEST.json")
-	info, err := os.Lstat(path)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return m, &Error{Code: MissingFile, Path: "MANIFEST.json"}
+	}
+	defer root.Close()
+	info, err := root.Lstat("MANIFEST.json")
 	if err != nil {
 		return m, &Error{Code: MissingFile, Path: "MANIFEST.json"}
 	}
 	if !info.Mode().IsRegular() || info.Size() > 16<<20 {
 		return m, &Error{Code: UnsafePath, Path: "MANIFEST.json"}
 	}
-	f, err := os.Open(path)
+	f, err := root.Open("MANIFEST.json")
 	if err != nil {
 		return m, err
 	}
@@ -290,78 +281,90 @@ func readManifest(dir string) (Manifest, error) {
 	return m, nil
 }
 
+// VerifySnapshot validates the recorded version and all bytes without asserting
+// installed compatibility. Native upgrade uses it to bind a pre-upgrade backup.
+func VerifySnapshot(dir string) (Manifest, error) {
+	return verifiedManifest(dir, nil)
+}
+
 // VerifyManifest accepts newer installed releases, but never a downgrade or a
 // different PostgreSQL major. The directory name binds the recorded release.
 func VerifyManifest(dir string, installed Version) error {
+	_, err := VerifiedManifest(dir, installed)
+	return err
+}
+
+// VerifiedManifest returns the validated metadata for restore and upgrade.
+func VerifiedManifest(dir string, installed Version) (Manifest, error) {
+	return verifiedManifest(dir, &installed)
+}
+
+func verifiedManifest(dir string, installed *Version) (Manifest, error) {
+	var m Manifest
 	if strings.HasPrefix(filepath.Base(dir), ".partial-") {
-		return &Error{Code: Partial, Path: dir}
+		return m, &Error{Code: Partial, Path: dir}
 	}
-	m, err := readManifest(dir)
+	var err error
+	m, err = readManifest(dir)
 	if err != nil {
-		return err
+		return m, err
 	}
 	if err := metadata(m); err != nil {
-		return err
+		return m, err
 	}
 	if filepath.Base(dir) != backupName(m) {
-		return &Error{Code: WrongVersion, Path: filepath.Base(dir)}
+		return m, &Error{Code: WrongVersion, Path: filepath.Base(dir)}
 	}
-	want, err := release(m.Version)
+	if installed == nil {
+		installed = &Version{Release: m.Version, Schema: m.SchemaVersion, PostgresMajor: m.PostgresMajor}
+	}
+	order, err := CompareRelease(installed.Release, m.Version)
 	if err != nil {
-		return err
+		return m, err
 	}
-	have, err := release(installed.Release)
-	if err != nil {
-		return err
-	}
-	for i := range have {
-		if have[i] < want[i] {
-			return &Error{Code: OlderVersion, Path: installed.Release}
-		}
-		if have[i] > want[i] {
-			break
-		}
+	if order < 0 {
+		return m, &Error{Code: OlderVersion, Path: installed.Release}
 	}
 	if m.SchemaVersion > installed.Schema {
-		return &Error{Code: NewerSchema, Path: m.Version}
+		return m, &Error{Code: NewerSchema, Path: m.Version}
 	}
 	if m.PostgresMajor != installed.PostgresMajor {
-		return &Error{Code: WrongVersion, Path: "postgres major"}
+		return m, &Error{Code: WrongVersion, Path: "postgres major"}
 	}
 	expected := make(map[string]File, len(m.Files))
 	for _, f := range m.Files {
 		if !safePath(f.Path) || f.Path == "MANIFEST.json" {
-			return &Error{Code: UnsafePath, Path: f.Path}
+			return m, &Error{Code: UnsafePath, Path: f.Path}
 		}
 		if _, ok := expected[f.Path]; ok {
-			return &Error{Code: ExtraFile, Path: f.Path}
+			return m, &Error{Code: ExtraFile, Path: f.Path}
 		}
 		expected[f.Path] = f
 	}
 	if !hasDump(m.Files) {
-		return &Error{Code: MissingDump, Path: "postgres.dump"}
+		return m, &Error{Code: MissingDump, Path: "postgres.dump"}
 	}
 	if _, err = os.Lstat(filepath.Join(dir, "postgres.dump")); os.IsNotExist(err) {
-		return &Error{Code: MissingDump, Path: "postgres.dump"}
+		return m, &Error{Code: MissingDump, Path: "postgres.dump"}
 	}
 	actual, err := inventory(dir)
 	if err != nil {
-		return err
+		return m, err
 	}
 	for _, f := range actual {
 		e, ok := expected[f.Path]
 		if !ok {
-			return &Error{Code: ExtraFile, Path: f.Path}
+			return m, &Error{Code: ExtraFile, Path: f.Path}
 		}
 		if e.Size != f.Size || e.SHA256 != f.SHA256 {
-			return &Error{Code: HashMismatch, Path: f.Path}
+			return m, &Error{Code: HashMismatch, Path: f.Path}
 		}
 		delete(expected, f.Path)
 	}
 	for path := range expected {
-		return &Error{Code: MissingFile, Path: path}
+		return m, &Error{Code: MissingFile, Path: path}
 	}
-	return nil
+	return m, nil
 }
 
 // Prune retains completed snapshots by manifest time without reading payloads.

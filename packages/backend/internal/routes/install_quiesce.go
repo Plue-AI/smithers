@@ -58,7 +58,7 @@ func (h *InstallQuiesceHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 func quiesceResponse(w http.ResponseWriter, err error) {
-	body := map[string]any{"code": "install_quiesced", "class": "quiesced", "message": err.Error()}
+	body := map[string]any{"code": "install_quiesced", "class": "infra", "message": err.Error()}
 	var frozen *services.InstallQuiescedError
 	if errors.As(err, &frozen) {
 		body["retry_at"] = frozen.RetryAt
