@@ -10,7 +10,6 @@ import { packageVersion } from "../../packages/smithers/src/Version.ts"
 import { layer as checkReceiptLayer } from "../repository/check-receipt.ts"
 import { remoteLayer } from "../repository/remote.ts"
 import { consume as consumeCheckEnvironment } from "./check-environment.ts"
-import * as FileGrants from "./file-grants.ts"
 import { share } from "./host-modules.ts"
 import { layer, operatorSeats, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
 import { prepareFlowDependencies, withPinnedSource } from "./immutable-source.ts"
@@ -185,18 +184,8 @@ if (parsed.values.version) {
           ]).pipe(
             Effect.flatMap(([planning, landing, models]) =>
               Effect.gen(function*() {
-                const fs = yield* FileSystem.FileSystem
-                const mutationProvider = landing === undefined ? undefined : yield* FileGrants.make({
-                  root: yield* fs.realPath(root),
-                  apiBaseUrl: landing.apiBaseUrl,
-                  repositorySlug: landing.repositorySlug,
-                  workspaceId: landing.workspaceId,
-                  gatewayId: options.gatewayId,
-                  credential: options.credential ?? ""
-                })
                 return yield* Serve.host(bind, root).pipe(Effect.provide(layer(platform, {
                   ...options,
-                  mutationProvider,
                   flowSourceRoot,
                   flowSourceRevision,
                   ...models,

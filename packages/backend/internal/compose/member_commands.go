@@ -28,6 +28,14 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r)
 				return
 			}
+			// AuthLoader has already confined this issuer-owned credential to its
+			// exact file PUT body. The workspace service rechecks membership,
+			// write authority and the live token/host fence through the mutation.
+			// It does not authorize the generic branch-join command.
+			if binding, ok := middleware.CodingFileCredential(info); ok && command == "branch.join" && middleware.CodingFileBatchVerified(info, binding.BatchDigest) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			if command == "todo.new" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 				if err != nil {

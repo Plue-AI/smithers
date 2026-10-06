@@ -1,258 +1,197 @@
 /** Private coding policy around the existing guarded standard file tools. */
-import { Preconditions, type VersionedFileSystem } from "@smthrs/std/Read"
-import { StdError } from "@smthrs/std/StdError"
-import { Effect, type FileSystem, PlatformError, Sink } from "effect"
-import type { ChildProcessSpawner } from "effect/unstable/process"
-import { createHash } from "node:crypto"
-import { isAbsolute, relative, resolve, sep } from "node:path"
+import { Cause, Effect, type FileSystem, PlatformError, Schema, Sink, Stream } from "effect"
+import { ChildProcess, type ChildProcessSpawner } from "effect/unstable/process"
+import { basename, isAbsolute, relative, resolve, sep } from "node:path"
+import { helperPath } from "./helper.ts"
 import type { NativeOptions } from "./native.ts"
 
-const denied = (method: string) =>
+const Eligibility = Schema.Union([
+  Schema.Struct({ eligible: Schema.Literal(true) }),
+  Schema.Struct({ eligible: Schema.Literal(false), reason: Schema.String })
+])
+const denied = (method: string, description: string) =>
   PlatformError.systemError({
     _tag: "PermissionDenied",
     module: "FileSystem",
     method,
-    description: "Authenticated atomic file mutation provider unavailable"
+    description
   })
-const refusal = (method: string) => Effect.fail(denied(method))
-const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
-const unavailable = () =>
-  new StdError({
-    code: "provider_unavailable",
-    message: "Authenticated atomic file mutation provider unavailable"
-  })
-const invalid = (message: string) => new StdError({ code: "invalid_input", message })
-const stale = (path: string, base: string, current: string) =>
-  new StdError({
-    code: "stale_read",
-    path,
-    base_digest: base,
-    current_digest: current,
-    message: `stale_read: ${path}; base_digest=${base}; current_digest=${current}. Re-read before retrying`
-  })
+const refusal = (method: string) =>
+  Effect.fail(denied(method, "This file mutation has no native JJ compensation policy in the configured coding host"))
 
-/** Operator-only seam for the existing workspace batch API. The implementation
- * must authorize this exact root and logical run at commit time, enforce the
- * run's write permissions, and compare every base under guest-wide exclusion.
- * A host credential or caller-side filesystem lock does not meet this contract.
- * No production provider is composed until the machine/security gates pass.
- */
-export interface MutationProvider {
-  readonly compareWrite: (request: {
-    readonly root: string
-    readonly session: string
-    readonly changes: ReadonlyArray<{
-      readonly path: string
-      readonly base_digest: string
-      readonly content: Uint8Array | null
-    }>
-  }) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly digest: string }>, StdError>
-}
-
-/** One policy instance per coding tool host. Recomposition/resume starts with no read bases.
- * No host compare followed by rename can qualify as an atomic mutation provider.
- * Without a qualified authenticated guest/daemon provider, mutations fail closed.
+/** Keep the guarded filesystem and the privileged eligibility process separate.
+ * The latter can invoke only the packaged helper's fixed native operation.
  */
 export const make = (
   options: NativeOptions,
   fs: FileSystem.FileSystem,
-  _spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
-  canonicalRoot: string,
-  provider?: MutationProvider
-): VersionedFileSystem => {
+  spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
+  canonicalRoot: string
+): FileSystem.FileSystem => {
   const root = resolve(options.repositoryPath)
   const pinnedRoot = resolve(canonicalRoot)
-  // Entry identity also fences reads racing a commit: settlement must not
-  // overwrite a newer model-facing read, even when its bytes happen to match.
-  const ledgers = new Map<string, Map<string, { readonly digest: string }>>()
   const inside = (path: string) => path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+  // Preserve owns exclusive sibling files only until rename/cleanup. This is
+  // transient process state, not another durable source of file ownership.
+  const temporaries = new Set<string>()
+  // Standard file tools acquire exclusive sibling directories for the complete
+  // mutation. A failed mkdir must never grant cleanup of another writer's lock.
+  const locks = new Set<string>()
+  // The already-guarded filesystem supplies its pinned real root. Preserve can
+  // return that spelling; normalize only the root alias, never child symlinks.
+  // Native requests still carry the exact provisioned repositoryPath.
   const key = (path: string) => {
     const absolute = resolve(root, path)
     const suffix = relative(root, absolute)
     return inside(suffix) ? resolve(pinnedRoot, suffix) : absolute
   }
-  const identity = (path: string) =>
-    fs.realPath(key(path)).pipe(
-      Effect.catch((error) => error.reason._tag === "NotFound" ? Effect.succeed(key(path)) : Effect.fail(error)),
-      Effect.flatMap((value) =>
-        inside(relative(pinnedRoot, value)) && value !== pinnedRoot
-          ? Effect.succeed(value) :
-          refusal("filePreconditions")
-      ),
-      Effect.mapError(() => new StdError({ code: "permission_denied", message: `Permission denied: ${path}`, path }))
-    )
-  const capture = (paths: ReadonlyArray<string>, session: string | undefined) =>
+  const temporary = (path: string, flag: FileSystem.OpenFlag | undefined) =>
+    flag === "wx" &&
+    /^\.smithers-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/.test(basename(path))
+  const eligible = (method: string, path: string, byteLength: number) =>
     Effect.gen(function*() {
-      const ledger = new Map(session === undefined ? undefined : ledgers.get(session))
-      const inputs = [...paths]
-      if (inputs.length === 0 || inputs.length > 256 || new Set(inputs).size !== inputs.length) {
-        return yield* Effect.fail(invalid("A file mutation requires 1–256 distinct paths"))
+      const target = relative(pinnedRoot, key(path))
+      if (
+        target === "" || !inside(target) ||
+        !Number.isSafeInteger(byteLength) || byteLength < 0
+      ) return yield* refusal(method)
+      const request = JSON.stringify({
+        repositoryPath: root,
+        operation: "eligible",
+        path: target.split(sep).join("/"),
+        byteLength
+      })
+      const child = yield* spawner.spawn(
+        ChildProcess.make(helperPath(options), ["--engine"], {
+          cwd: root,
+          stdin: Stream.make(new TextEncoder().encode(request))
+        })
+      )
+      const capture = (stream: typeof child.stdout) =>
+        Stream.runFoldEffect(stream, () => ({ bytes: 0, text: "", decoder: new TextDecoder() }), (state, chunk) => {
+          if (state.bytes + chunk.length > 64 * 1024) return refusal(method)
+          return Effect.succeed({
+            bytes: state.bytes + chunk.length,
+            text: state.text + state.decoder.decode(chunk, { stream: true }),
+            decoder: state.decoder
+          })
+        }).pipe(Effect.map((state) => state.text + state.decoder.decode()))
+      const [output, , exit] = yield* Effect.all([capture(child.stdout), capture(child.stderr), child.exitCode], {
+        concurrency: "unbounded"
+      })
+      if (exit !== 0) return yield* Effect.fail(denied(method, "Native JJ file eligibility could not be verified"))
+      const result = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Eligibility))(output)
+      if (!result.eligible) {
+        return yield* Effect.fail(denied(method, `Native JJ cannot compensate this path: ${result.reason}`))
       }
-      const snapshots = new Map<string, {
-        readonly target: string
-        readonly relative: string
-        readonly base: string
-        readonly entry: { readonly digest: string } | undefined
-        readonly bytes: Uint8Array | null
-      }>()
-      for (const path of inputs) {
-        if (path.includes("\0") || Buffer.from(path, "utf8").toString("utf8") !== path) {
-          return yield* Effect.fail(invalid("Invalid file path encoding"))
-        }
-        const name = relative(pinnedRoot, key(path)).split(sep).join("/")
-        if (
-          Buffer.byteLength(name, "utf8") > 4096 ||
-          [...snapshots.values()].some((other) =>
-            other.relative === name || other.relative.startsWith(`${name}/`) || name.startsWith(`${other.relative}/`)
-          )
-        ) return yield* Effect.fail(invalid("File mutation paths overlap or exceed the path limit"))
-        const target = yield* identity(path)
-        // Sending a resolved alias could bypass the permissions on the requested
-        // path or change the file a later symlink swap addresses. Refuse aliases.
-        if (target !== key(path)) {
-          return yield* Effect.fail(
-            new StdError({
-              code: "permission_denied",
-              message: `Symlink mutation refused: ${path}`,
-              path
-            })
-          )
-        }
-        const bytes = yield* fs.readFile(target).pipe(
-          Effect.map((value) => new Uint8Array(value)),
-          Effect.catch((error) => error.reason._tag === "NotFound" ? Effect.succeed(null) : Effect.fail(error)),
-          Effect.mapError(() =>
-            new StdError({ code: "permission_denied", message: `Permission denied: ${path}`, path })
-          )
+    }).pipe(
+      Effect.scoped,
+      Effect.timeout("4 minutes"),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
+        const error = Cause.squash(cause)
+        return Effect.fail(
+          error instanceof PlatformError.PlatformError
+            ? error
+            : denied(method, "Native JJ file eligibility could not be verified")
         )
-        const current = bytes === null ? "absent" : digest(bytes)
-        const entry = ledger.get(target)
-        const base = entry?.digest ?? (bytes === null ? "absent" : "unread")
-        if (base !== current) return yield* Effect.fail(stale(path, base, current))
-        snapshots.set(path, { target, relative: name, base, entry, bytes })
+      })
+    )
+  const fileSize = (method: string, path: string) =>
+    fs.stat(path).pipe(Effect.flatMap((info) =>
+      info.type === "File" && info.size <= BigInt(Number.MAX_SAFE_INTEGER)
+        ? Effect.succeed(Number(info.size)) :
+        refusal(method)
+    ))
+  const write = (
+    method: string,
+    path: string,
+    size: number,
+    flag: FileSystem.OpenFlag | undefined,
+    action: Effect.Effect<void, PlatformError.PlatformError>
+  ) =>
+    Effect.suspend(() => {
+      if (temporary(path, flag)) {
+        temporaries.add(key(path))
+        return action.pipe(Effect.tapError((error) =>
+          Effect.sync(() => {
+            if (error.reason._tag === "AlreadyExists") temporaries.delete(key(path))
+          })
+        ))
       }
-      return snapshots
+      if (flag !== undefined && flag !== "w" && flag !== "wx") return refusal(method)
+      return eligible(method, path, size).pipe(Effect.andThen(action))
     })
   return {
     ...fs,
-    [Preconditions]: {
-      record: (path, bytes, session) =>
-        Effect.gen(function*() {
-          const target = yield* identity(path)
-          if (session === undefined) return
-          const ledger = ledgers.get(session) ?? new Map<string, { readonly digest: string }>()
-          ledger.set(target, { digest: digest(bytes) })
-          ledgers.set(session, ledger)
-        }),
-      validate: (paths, session) =>
-        Effect.gen(function*() {
-          yield* capture(paths, session)
-          if (provider === undefined || session === undefined || session.length === 0) {
-            return yield* Effect.fail(unavailable())
-          }
-        }),
-      prepare: (paths, session) =>
-        Effect.gen(function*() {
-          const snapshots = yield* capture(paths, session)
-          if (provider === undefined || session === undefined || session.length === 0) {
-            return yield* Effect.fail(unavailable())
-          }
-          let attempted = false
-          return {
-            read: (path) =>
-              Effect.suspend(() => {
-                const snapshot = snapshots.get(path)
-                if (snapshot === undefined) return Effect.fail(invalid("Read is outside the prepared file batch"))
-                if (snapshot.bytes === null) {
-                  return Effect.fail(
-                    new StdError({
-                      code: "not_found",
-                      message: `File not found: ${path}`,
-                      path
-                    })
-                  )
-                }
-                return Effect.succeed(new Uint8Array(snapshot.bytes))
-              }),
-            commit: (changes) =>
-              Effect.gen(function*() {
-                if (attempted) return yield* Effect.fail(invalid("A prepared file batch can be submitted only once"))
-                attempted = true
-                if (
-                  changes.length !== snapshots.size || new Set(changes.map((change) =>
-                      change.path
-                    )).size !== changes.length ||
-                  changes.some((change) => !snapshots.has(change.path))
-                ) {
-                  return yield* Effect.fail(invalid("Commit must contain exactly the prepared file paths"))
-                }
-                if (changes.reduce((size, change) => size + (change.content?.length ?? 0), 0) > 1024 * 1024) {
-                  return yield* Effect.fail(invalid("File mutation exceeds the batch byte limit"))
-                }
-                // Copy before yielding: callers and concurrent reads cannot change
-                // submitted content, captured bases, or expected acknowledgments.
-                const batch = changes.map((change) => ({
-                  path: snapshots.get(change.path)!.relative,
-                  base_digest: snapshots.get(change.path)!.base,
-                  content: change.content === null ? null : new Uint8Array(change.content)
-                }))
-                const expected = new Map(
-                  batch.map((change) => [change.path, change.content === null ? "absent" : digest(change.content)])
-                )
-                const receipt = yield* provider.compareWrite({ root: pinnedRoot, session, changes: batch }).pipe(
-                  Effect.mapError((error) => {
-                    if (error.code !== "stale_read") return error
-                    const snapshot = [...snapshots.entries()].find(([, value]) => value.relative === error.path)
-                    return snapshot !== undefined && /^(absent|[0-9a-f]{64})$/.test(error.current_digest ?? "")
-                      ? stale(snapshot[0], snapshot[1].base, error.current_digest!) :
-                      unavailable()
-                  })
-                )
-                if (
-                  receipt.length !== expected.size || new Set(receipt.map((entry) =>
-                      entry.path
-                    )).size !== expected.size ||
-                  receipt.some((entry) => !expected.has(entry.path) || expected.get(entry.path) !== entry.digest)
-                ) {
-                  return yield* Effect.fail(unavailable())
-                }
-                const ledger = ledgers.get(session) ?? new Map<string, { readonly digest: string }>()
-                for (const snapshot of snapshots.values()) {
-                  if (ledger.get(snapshot.target) === snapshot.entry) {
-                    ledger.set(snapshot.target, { digest: expected.get(snapshot.relative)! })
-                  }
-                }
-                ledgers.set(session, ledger)
-              })
-          }
-        })
-    },
     makeDirectory: (path, options) =>
+      fs.makeDirectory(path, options).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            if (
+              !options?.recursive && options?.mode === 0o700 && /^\.smithers-[0-9a-f]{1,8}\.lock$/.test(basename(path))
+            ) {
+              locks.add(key(path))
+            }
+          })
+        ),
+        Effect.uninterruptible
+      ),
+    writeFile: (path, bytes, options) =>
+      write("writeFile", path, bytes.byteLength, options?.flag, fs.writeFile(path, bytes, options)),
+    writeFileString: (path, text, options) =>
+      write(
+        "writeFileString",
+        path,
+        new TextEncoder().encode(text).byteLength,
+        options?.flag,
+        fs.writeFileString(path, text, options)
+      ),
+    rename: (from, to) =>
       Effect.gen(function*() {
-        // A write's existing parent needs no mutation. Do not create user directories
-        // before discovering that the atomic provider is unavailable.
-        if (options?.recursive) {
-          const info = yield* fs.stat(path)
-          if (info.type === "Directory") return
-          return yield* refusal("makeDirectory")
+        const size = yield* fileSize("rename", from)
+        if (!temporaries.has(key(from))) yield* eligible("rename", from, 0)
+        // Always validate the final path, even when the exclusive sibling itself
+        // is ignored. Never infer user-file eligibility from a temporary suffix.
+        yield* eligible("rename", to, size)
+        yield* fs.rename(from, to)
+        temporaries.delete(key(from))
+      }),
+    remove: (path, options) =>
+      Effect.gen(function*() {
+        if (locks.has(key(path))) {
+          // A lock is empty protocol state, never permission to remove user data.
+          if ((yield* fs.readDirectory(path)).length !== 0) return yield* refusal("remove")
+          yield* fs.remove(path, options)
+          locks.delete(key(path))
+          return
         }
-        return yield* refusal("makeDirectory")
-      }).pipe(Effect.uninterruptible),
-    remove: () => refusal("remove"),
-    writeFile: () => refusal("writeFile"),
-    writeFileString: () => refusal("writeFileString"),
-    rename: () => refusal("rename"),
-    copyFile: () => refusal("copyFile"),
+        if (temporaries.has(key(path))) {
+          yield* fs.remove(path, options)
+          temporaries.delete(key(path))
+          return
+        }
+        if (options?.recursive) return yield* refusal("remove")
+        if (!(yield* fs.exists(path)) && options?.force) return yield* fs.remove(path, options)
+        yield* fileSize("remove", path)
+        yield* eligible("remove", path, 0)
+        yield* fs.remove(path, options)
+      }),
+    copyFile: (from, to) =>
+      fileSize("copyFile", from).pipe(
+        Effect.flatMap((size) => eligible("copyFile", to, size)),
+        Effect.andThen(fs.copyFile(from, to))
+      ),
     copy: () => refusal("copy"),
     open: (path, options) =>
       options?.flag === undefined || options.flag === "r" ? fs.open(path, options) : refusal("open"),
-    sink: () => Sink.fail(denied("sink")),
+    sink: () => Sink.fail(denied("sink", "Streaming writes have no native JJ compensation policy")),
     truncate: () => refusal("truncate"),
     link: () => refusal("link"),
     symlink: () => refusal("symlink"),
     utimes: () => refusal("utimes"),
-    chmod: () => refusal("chmod"),
-    chown: () => refusal("chown"),
+    chmod: (path, mode) => temporaries.has(key(path)) ? fs.chmod(path, mode) : refusal("chmod"),
+    chown: (path, uid, gid) => temporaries.has(key(path)) ? fs.chown(path, uid, gid) : refusal("chown"),
     makeTempDirectory: () => refusal("makeTempDirectory"),
     makeTempDirectoryScoped: () => refusal("makeTempDirectoryScoped"),
     makeTempFile: () => refusal("makeTempFile"),

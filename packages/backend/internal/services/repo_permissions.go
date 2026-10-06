@@ -366,6 +366,27 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: middleware.UnauthenticatedMessage(ctx)}
 	}
+	// The provisioned delivery credential reads the stack before preparing its
+	// candidate. Its whole-repository path binding is not browser authority.
+	// Keep unbound system tokens and narrower path tokens out of this read.
+	paths := middleware.ParseTokenPathRestrictions(info.RawScopes)
+	if command == "repo.read" && info.IsTokenAuth && info.TokenSystemIssued &&
+		info.CredentialKind() == middleware.CredentialAgentRun &&
+		info.Scopes.Has(middleware.ScopeWriteRepository) &&
+		middleware.ParseTokenLandingWorkspace(info.RawScopes) != "" &&
+		len(paths) == 1 && paths[0] == "**" && info.RepositoryRestriction() > 0 {
+		repository, err := InstallRepositoryID(ctx, q)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		role, err := InstallRoleOf(ctx, q, info.User.ID)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if repository == info.RepositoryRestriction() && role == InstallOwner {
+			return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+		}
+	}
 	_, terminalProfile := info.TerminalDelegation()
 	if terminalProfile && !terminalCommands[command] {
 		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}

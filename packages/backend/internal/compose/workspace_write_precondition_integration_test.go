@@ -125,7 +125,8 @@ func TestWorkspaceWritePreconditionsInstall(t *testing.T) {
 	}
 	const batch = `{"changes":[{"path":"a.txt","base_digest":"absent","content":"new"}]}`
 	digest := sha256.Sum256([]byte(batch))
-	subject := fmt.Sprintf(`{"run_id":"Run-A","batch_digest":"%x"}`, digest)
+	runID := strings.Repeat("a", 64) + "/coding/" + strings.Repeat("b", 64) + "/coding/edit-atom@" + strings.Repeat("c", 64) + ":1#0"
+	subject := fmt.Sprintf(`{"run_id":%q,"batch_digest":"%x"}`, runID, digest)
 	issuerPath := "/api/gateways/" + hostID + "/file-write-grants"
 	for _, bearer := range []string{"", "invalid"} {
 		status, data := call("POST", issuerPath, bearer, subject)
@@ -137,6 +138,7 @@ func TestWorkspaceWritePreconditionsInstall(t *testing.T) {
 	require.Equal(t, 201, status, string(data))
 	var grant services.CodingFileGrant
 	require.NoError(t, json.Unmarshal(data, &grant))
+	require.Equal(t, runID, grant.RunID)
 	writePath := "/api/repos/digestowner/demo/workspaces/" + id + "/files/content"
 	for _, attempt := range []struct {
 		method, path, body string

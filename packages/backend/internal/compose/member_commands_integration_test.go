@@ -185,6 +185,27 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)
 	}
+	// The real provisioned landing shape retains its scoped stack read, but
+	// never gains chat, merge or any other person command.
+	landingScopes := strings.Join(append([]string{"write:repository", middleware.RepositoryRestrictionScope(repo.ID), middleware.LandingWorkspaceScope("11111111-1111-4111-a111-111111111111")}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE user_id=$1`, owner.ID, landingScopes)
+	require.NoError(t, err)
+	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+	require.Equal(t, http.StatusOK, status)
+	for _, path := range []string{"/api/agent/turn", "/api/todos/1/merge"} {
+		status, _ = call("POST", path, "", ownerToken)
+		require.Equal(t, http.StatusForbidden, status, path)
+	}
+	for _, scopes := range []string{
+		strings.Replace(landingScopes, middleware.RepositoryRestrictionScope(repo.ID), middleware.RepositoryRestrictionScope(repo.ID+1), 1),
+		strings.Replace(landingScopes, "write:repository", "read:user", 1),
+		strings.Replace(landingScopes, middleware.PathRestrictionScopes([]string{"**"})[0], middleware.PathRestrictionScopes([]string{"docs"})[0], 1),
+	} {
+		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE user_id=$1`, owner.ID, scopes)
+		require.NoError(t, err)
+		status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+		require.Equal(t, http.StatusForbidden, status, scopes)
+	}
 	// An ordinary role downgrade after the request's bound decision does
 	// not change that in-flight decision. The next request sees the new role.
 	downgradeAfterDecision = true

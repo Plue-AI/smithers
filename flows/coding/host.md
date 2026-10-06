@@ -156,17 +156,16 @@ create or describe another planned JJ change. Privileged snapshot subprocesses
 use the existing contained spawner and Control journal process ledger. Standard
 agent tools keep their existing guarded spawner and native journal process ledger.
 
-`filesystem.ts` holds full-file read digests separately for each authenticated
-standard-flow session. Only a successful model-facing `read` refreshes a base;
-internal mutation reads cannot authorize overwriting a changed or unread file.
-The standard mutation policy validates every affected path before any patch hunk.
-Stale bases return `stale_read` with the path and both digests.
+`filesystem.ts` retains the native eligibility policy over the kernel-guarded
+filesystem. Standard writes use their existing cooperative mutation locks and
+preserve permissions; ignored paths and mutation forms the native helper cannot
+compensate are refused. These locks do not claim atomicity against outside writers.
 
-The authenticated atomic daemon writer is not yet composed. Fresh mutations
-return `provider_unavailable`; direct filesystem mutations also refuse. The
-previous native JJ eligibility check followed by unconditional write/rename is
-removed because eligibility does not provide a compare-and-write boundary.
-An unavailable provider refuses before even creating mutation lock directories.
+The authenticated daemon compare-and-write rollout (#3508) is deferred until an
+installed runtime implements its qualified capability. The coding host does not
+mount that unavailable replacement or create unused batch grants. The standard
+library's versioned-host contract and the backend's exact-batch authorization
+remain independently enforced for their callers.
 
 Explicitly enabled Wiki planning also registers the private `coding/WikiCheck` delegate.
 Projects opt into continuous semantic backpressure by declaring `checks/wiki`

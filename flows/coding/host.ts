@@ -4,7 +4,6 @@ import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
 import { HumanTask, Interpreter } from "@smthrs/flow"
-import { GrantStore } from "@smthrs/kernel/GrantStore"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Context, Effect, FileSystem, Layer } from "effect"
@@ -42,7 +41,6 @@ import { checkDelegate, checkLayers } from "./checks.ts"
 import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
 import { dispatchRegistration } from "./dispatch/flow.ts"
-import * as FileGrants from "./file-grants.ts"
 import * as CodingFileSystem from "./filesystem.ts"
 import { loadFlowsLayer } from "./flow-load.ts"
 import FlowLoad from "./flow-load/flow.ts"
@@ -85,8 +83,6 @@ import { dependencyPagesLayer, wikiRefreshRegistration } from "./wiki-route.ts"
 
 /** Operator configuration, never accepted from a workflow or gateway request. */
 export interface Options extends NativeOptions {
-  /** Qualified, run-authorized workspace writer. Never supplied by a flow request. */
-  readonly mutationProvider?: CodingFileSystem.MutationProvider | undefined
   /** Exact system names from the backend's packaged flow catalog. */
   readonly systemFlows: ReadonlyArray<string>
   /** Machine-local immutable export of the server-authorized source commit. */
@@ -505,15 +501,11 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
       filesystem: (root, fs, spawner) =>
         Effect.gen(function*() {
           const canonicalRoot = yield* fs.realPath(root)
-          const grants = yield* Effect.serviceOption(GrantStore)
           return CodingFileSystem.make(
             { ...options, repositoryPath: root },
             fs,
             spawner,
-            canonicalRoot,
-            options.mutationProvider === undefined
-              ? undefined
-              : FileGrants.protect(options.mutationProvider, canonicalRoot, grants)
+            canonicalRoot
           )
         }).pipe(Effect.orDie)
     },

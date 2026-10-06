@@ -132,3 +132,19 @@ func TestCodingFileCredentialAdmitsOnlyExactBoundedBody(t *testing.T) {
 		require.NotContains(t, recorder.Body.String(), "private reader failure")
 	}
 }
+
+func TestCodingFileCredentialKeepsDurableActionIdentity(t *testing.T) {
+	for _, run := range []string{"parent/coding/digest/coding/edit-atom@digest:1#0", strings.Repeat("a", 256)} {
+		info, binding := fileGrantFixture()
+		binding.RunID = run
+		info.RawScopes = strings.Join(CodingFileScopes(binding), ",")
+		actual, ok := CodingFileCredential(info)
+		require.True(t, ok)
+		require.Equal(t, run, actual.RunID)
+	}
+	for _, run := range []string{"", "run,admin", "run\nother", "run other", "run\x00", strings.Repeat("a", 257)} {
+		_, binding := fileGrantFixture()
+		binding.RunID = run
+		require.False(t, binding.Valid(), "%q", run)
+	}
+}
