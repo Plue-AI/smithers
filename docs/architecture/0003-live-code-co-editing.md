@@ -124,16 +124,34 @@ I/O-failure tests cover preparation, directory creation, replacement, deletion,
 rollback and settlement. The supplemental Linux `testdata/mutation_batch/` probe
 holds an actual competing writer while exercising stale refusal and recovery.
 
-This worker has no production caller. Its exclusion is a caller precondition,
-supplied manually by the supplemental probe, not an assertion that descriptor
-operations alone prevent outside writes. The installed coordinator still needs
-to preserve freezing and the pending fence across worker/supervisor death and
-machine restart, drop the worker's credentials, and settle before thawing or
-delivering a response to a frozen caller. The actual working-copy filesystem and
-path-alias behavior also require qualification. Authenticated app/coding transport
-and fresh/retained security receipts remain outstanding. The old failing exchange
-candidate is retained only for the diagnostic counterexamples until this repair
-replaces it; neither candidate is exposed by the production write gate.
+The private coordinator candidate now holds the exclusive admission lock and a
+root-owned recovery directory. It grants only an inner journal descriptor to a
+worker outside the frozen writer tree. Saved uid/gid and supplementary groups
+are dropped and checked; dumpability is refused across the credential transition.
+The worker consumes input before signalling readiness, then waits for freezing
+before comparing or changing files. Only a durable settled signal allows thaw;
+the potentially blocking response follows thaw. Recovery collects an orphan
+worker before inspecting its journal as the dropped identity. Interrupted cleanup
+keeps the pending fence. Root handles fixed metadata and control bytes, not journal
+payloads or branch data.
+
+The existing `kill-all` cancellation entry also collects the worker outside the
+writer tree. It preserves the pending fence and freeze; cancellation does not
+decide whether a partial transaction is safe to thaw.
+
+The supplemental `testdata/mutation_coordinator/` probe runs this coordinator
+with real Linux cgroups and pipes. A caller sends and receives more than a pipe
+buffer; coordinator death during input, partial mutation, settled-before-thaw and
+after-thaw recovers without the old supervisor. An outside save after thaw survives.
+Root ownership and credential transitions are instrumented for ordinary-user
+delegation, so this does not qualify privileged journal isolation or machine reboot.
+
+There is still no CLI/runtime caller. Installed input/response adapters, startup
+recovery, authenticated app/coding transport, the actual working-copy filesystem
+and path-alias behavior, external-service/kernel-I/O exclusion, and fresh/retained
+security receipts remain outstanding. The old failing exchange candidate is
+retained only for diagnostic counterexamples until repair cutover; neither
+candidate is exposed by the production write gate.
 
 The supplemental probe in
 `packages/backend/microsandbox/testdata/compare_write_freezer/` checks queued

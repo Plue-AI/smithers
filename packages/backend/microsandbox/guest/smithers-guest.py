@@ -41,6 +41,7 @@ import pwd
 import re
 import secrets
 import select
+import select
 import signal
 import socket
 import stat
@@ -50,6 +51,8 @@ import time
 
 CGROUP_ROOT = "/sys/fs/cgroup/smithers"
 WRITER_COORDINATOR = ("var", "lib", "smithers", "writer-coordinator")
+MUTATION_CGROUP_ROOT = "/sys/fs/cgroup/smithers-mutations"
+MUTATION_TIMEOUT = 60
 EXIT_TRAILER = b"\x00SMITHERS-EXIT %d\x00"
 ENV_FILE = "/opt/smithers/env.json"
 SECRET_ENV_DIR = "/run/smithers"
@@ -292,13 +295,14 @@ def load_secret_environment():
         os.close(parent)
 
 
-def cgroup_kill(path):
+def cgroup_kill(path, *, mutation=False, collect=True):
     """Only fixed root-owned cgroups can be addressed, through held descriptors."""
     name = os.path.basename(path)
-    if os.path.dirname(path) != CGROUP_ROOT or not valid_id(name):
+    root = MUTATION_CGROUP_ROOT if mutation else CGROUP_ROOT
+    if os.path.dirname(path) != root or not valid_id(name):
         fail(3, "invalid cgroup path")
     try:
-        parent = safe_directory(CGROUP_ROOT, trusted=True, create=False)
+        parent = safe_directory(root, trusted=True, create=False)
     except FileNotFoundError:
         return
     group = None
@@ -324,14 +328,25 @@ def cgroup_kill(path):
                     if "populated 0" in handle.read(4096):
                         break
             except OSError as error:
+                if isinstance(error, FileNotFoundError):
+                    # Another collector may already have removed this cgroup.
+                    # Do not confuse its replacement at the same name with the
+                    # held inode, or delete that replacement during cleanup.
+                    try:
+                        current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                    except FileNotFoundError:
+                        return
+                    if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                        return
                 raise RuntimeError("command cgroup termination could not be confirmed") from error
             if time.monotonic() >= deadline:
                 raise RuntimeError("command cgroup remains populated after cancellation")
             time.sleep(0.02)
-        try:
-            os.rmdir(name, dir_fd=parent)
-        except OSError:
-            pass
+        if collect:
+            try:
+                os.rmdir(name, dir_fd=parent)
+            except OSError:
+                pass
     finally:
         if group is not None:
             os.close(group)
@@ -408,6 +423,262 @@ def writer_admission():
             # journal here, nor treats a stale lock age as permission to resume.
             fail(125, "workspace mutation recovery required")
         yield
+
+
+def mutation_account():
+    entry = assigned_identity("agent", 19999)
+    team = grp.getgrnam("team")
+    if team.gr_gid != 20000:
+        fail(125, "mutation team identity is unavailable")
+    return entry, team.gr_gid
+
+
+def drop_mutation_identity(entry, gid):
+    # Credential changes reset dumpability to this kernel policy. Refuse a
+    # retained image that could expose the journal in the transition window.
+    fd = os.open("/proc/sys/fs/suid_dumpable", os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as handle:
+        if handle.read(32).strip() != b"0":
+            fail(125, "mutation credential transition would be dumpable")
+    os.setgroups([])
+    os.setresgid(gid, gid, gid)
+    os.setresuid(entry.pw_uid, entry.pw_uid, entry.pw_uid)
+    if (os.getresuid() != (entry.pw_uid,) * 3 or os.getresgid() != (gid,) * 3
+            or os.getgroups() or os.geteuid() == 0 or os.getegid() == 0):
+        fail(125, "mutation credential drop failed")
+    # A live same-uid caller must not ptrace the input worker or reopen its
+    # private journal descriptor while that caller is still sending input.
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(4, 0, 0, 0, 0) != 0 or libc.prctl(3, 0, 0, 0, 0) != 0:
+        fail(125, "mutation worker is dumpable")
+    os.umask(0o002)
+
+
+def mutation_control(fd, accepted):
+    if not select.select([fd], [], [], MUTATION_TIMEOUT)[0]:
+        fail(125, "mutation worker timed out")
+    value = os.read(fd, 1)
+    if value not in accepted or len(value) != 1:
+        fail(125, "mutation worker control failed")
+    return value
+
+
+def mutation_freeze(writers, frozen):
+    fd = os.open("cgroup.freeze", os.O_WRONLY | os.O_NOFOLLOW, dir_fd=writers)
+    try:
+        os.write(fd, b"1" if frozen else b"0")
+    finally:
+        os.close(fd)
+    expected = "frozen 1" if frozen else "frozen 0"
+    deadline = time.monotonic() + MUTATION_TIMEOUT
+    while True:
+        fd = os.open("cgroup.events", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=writers)
+        with os.fdopen(fd, "r") as handle:
+            if expected in handle.read(4096).splitlines():
+                return
+        if time.monotonic() >= deadline:
+            fail(125, "mutation writer freeze did not settle")
+        time.sleep(0.01)
+
+
+def mutation_pending(store, entry, gid):
+    """Only fixed metadata is inspected by root; journal bytes stay private."""
+    try:
+        os.mkdir("pending", 0o700, dir_fd=store)
+        os.fsync(store)
+    except FileExistsError:
+        pass
+    pending = os.open("pending", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=store)
+    journal = None
+    try:
+        info = os.fstat(pending)
+        if info.st_uid != ROOT_UID or stat.S_IMODE(info.st_mode) != 0o700:
+            fail(125, "untrusted mutation recovery directory")
+        try:
+            os.mkdir("journal", 0o700, dir_fd=pending)
+        except FileExistsError:
+            pass
+        journal = os.open("journal", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=pending)
+        info = os.fstat(journal)
+        if info.st_uid == ROOT_UID and ROOT_UID != entry.pw_uid:
+            # A crash may precede the initial chown. Root does not enumerate or
+            # parse its contents; rmdir proves it is still an empty fresh grant.
+            os.rmdir("journal", dir_fd=pending)
+            os.close(journal)
+            journal = None
+            os.mkdir("journal", 0o700, dir_fd=pending)
+            journal = os.open("journal", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=pending)
+            os.fchown(journal, entry.pw_uid, gid)
+            info = os.fstat(journal)
+        if (info.st_uid != entry.pw_uid or info.st_gid != gid
+                or stat.S_IMODE(info.st_mode) != 0o700):
+            fail(125, "untrusted mutation journal grant")
+        os.fsync(journal)
+        os.fsync(pending)
+        os.fsync(store)
+        return pending, journal
+    except BaseException:
+        if journal is not None:
+            os.close(journal)
+        os.close(pending)
+        raise
+
+
+def mutation_cleanup(journal):
+    # Called only by the dropped worker after durable commit/abort and thaw.
+    # Remove state last, so interrupted cleanup cannot reveal prepared history.
+    for name in os.listdir(journal):
+        if name == "state.json":
+            continue
+        if name != "state.next" and not re.fullmatch(r"base-[0-9]+", name):
+            fail(125, "unexpected mutation journal entry")
+        os.unlink(name, dir_fd=journal)
+    try:
+        os.unlink("state.json", dir_fd=journal)
+    except FileNotFoundError:
+        pass
+    os.fsync(journal)
+
+
+def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
+    """Private coordinator candidate; no CLI/runtime enablement yet.
+
+    prepare/emit are fixed installed callbacks, never supplied by a request.
+    Only the dropped worker calls them. Root sees fixed control bytes, trusted
+    account metadata and kernel cgroup state; it never opens journal payloads.
+    """
+    if os.geteuid() != 0 or type(limit) is not int or not 0 < limit <= 64 << 20:
+        fail(125, "mutation coordinator requires trusted root envelope")
+    entry, gid = mutation_account()
+    with writer_coordinator(exclusive=True) as store:
+        try:
+            os.stat("pending", dir_fd=store, follow_symlinks=False)
+            recovering = True
+        except FileNotFoundError:
+            recovering = False
+        if recover_only and not recovering:
+            return 0
+        # Recovery runs before admitting a new request. A killed input worker
+        # may still hold a stream, and a killed apply worker may have partial data.
+        phases = [True] if recover_only else ([True, False] if recovering else [False])
+        for recovery in phases:
+            worker_group = os.path.join(MUTATION_CGROUP_ROOT, "active")
+            cgroup_kill(worker_group, mutation=True)
+            pending, journal = mutation_pending(store, entry, gid)
+            writers = group = None
+            descriptors = []
+            child = None
+            reaped = False
+            try:
+                writers = safe_directory(CGROUP_ROOT, trusted=True)
+                if recovery:
+                    mutation_freeze(writers, True)
+                group = safe_directory(worker_group, trusted=True)
+                state_r, state_w = os.pipe()
+                descriptors = [state_r, state_w]
+                command_r, command_w = os.pipe()
+                descriptors.extend((command_r, command_w))
+                child = os.fork()
+                if child == 0:
+                    code = 125
+                    try:
+                        # Join before closing the inherited admission lock. A
+                        # replacement coordinator cannot miss a late-joining child.
+                        fd = os.open("cgroup.procs", os.O_WRONLY | os.O_NOFOLLOW, dir_fd=group)
+                        with os.fdopen(fd, "w") as handle:
+                            handle.write(str(os.getpid()))
+                        keep = {0, 1, 2, journal, state_w, command_r}
+                        for name in os.listdir("/proc/self/fd"):
+                            fd = int(name)
+                            if fd not in keep:
+                                try:
+                                    os.close(fd)
+                                except OSError:
+                                    pass
+                        drop_mutation_identity(entry, gid)
+                        # No branch path or bytes are consumed above this point.
+                        root = safe_directory("/workspace", create=False)
+                        changes = None if recovery else prepare()
+                        os.write(state_w, b"R")
+                        mutation_control(command_r, (b"G",))
+                        error, result = None, None
+                        if recovery:
+                            phase = recover_mutation(root, journal, limit)
+                        else:
+                            try:
+                                result = apply_mutation_batch(root, journal, changes, limit)
+                                phase = "committed"
+                            except BaseException as failure:
+                                error = failure
+                                phase = recover_mutation(root, journal, limit)
+                        os.write(state_w, b"C" if phase == "committed" else b"A")
+                        mutation_control(command_r, (b"T",))
+                        try:
+                            if error is not None:
+                                raise error
+                            if not recovery:
+                                emit(result)
+                            code = 0
+                        finally:
+                            mutation_cleanup(journal)
+                    except SystemExit as error:
+                        code = error.code if type(error.code) is int and 0 <= error.code <= 255 else 125
+                    except BaseException as error:
+                        sys.stderr.write("smithers-guest: mutation worker: %s\n" % error)
+                        code = 125
+                    finally:
+                        try:
+                            sys.stdout.flush()
+                            sys.stderr.flush()
+                        except OSError:
+                            code = 125
+                        os._exit(code)
+                os.close(state_w)
+                os.close(command_r)
+                descriptors = [state_r, command_w]
+                mutation_control(state_r, (b"R",))
+                mutation_freeze(writers, True)
+                os.write(command_w, b"G")
+                mutation_control(state_r, (b"C", b"A"))
+                # Never thaw from an error/finally path. The worker has durably
+                # committed or rolled back before it sends this fixed signal.
+                mutation_freeze(writers, False)
+                os.write(command_w, b"T")
+                deadline = time.monotonic() + MUTATION_TIMEOUT
+                while True:
+                    pid, status = os.waitpid(child, os.WNOHANG)
+                    if pid:
+                        reaped = True
+                        break
+                    if time.monotonic() >= deadline:
+                        fail(125, "mutation response did not finish")
+                    time.sleep(.01)
+                cgroup_kill(worker_group, mutation=True)
+                # rmdir is the only root inspection of the worker's cleanup.
+                # If it was interrupted, pending stays and recovery rechecks it.
+                os.rmdir("journal", dir_fd=pending)
+                os.fsync(pending)
+                os.rmdir("pending", dir_fd=store)
+                os.fsync(store)
+                code = os.waitstatus_to_exitcode(status)
+                if code:
+                    return 128 - code if code < 0 else code
+            finally:
+                try:
+                    if child is not None and not reaped:
+                        try:
+                            os.kill(child, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        cgroup_kill(worker_group, mutation=True)
+                        os.waitpid(child, 0)
+                finally:
+                    for fd in descriptors:
+                        os.close(fd)
+                    for fd in (group, writers, journal, pending):
+                        if fd is not None:
+                            os.close(fd)
+        return 0
 
 
 def run_managed_child(exec_id, action, *, privileged=False):
@@ -1855,6 +2126,13 @@ def main(args):
         cgroup_kill(os.path.join(CGROUP_ROOT, args[1]))
         return
     if command == "kill-all":
+        # The mutation worker intentionally lives outside the frozen writer
+        # tree. Cancellation must collect it too, without thawing or clearing
+        # the journal fence; recovery owns that decision.
+        # Only the coordinator holding the exclusive lock removes/reuses this
+        # fixed name. A concurrent cancellation may kill, but must not rmdir a
+        # later transaction's replacement after the original worker is gone.
+        cgroup_kill(os.path.join(MUTATION_CGROUP_ROOT, "active"), mutation=True, collect=False)
         try:
             parent = safe_directory(CGROUP_ROOT, trusted=True, create=False)
         except FileNotFoundError:

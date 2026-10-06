@@ -1,0 +1,38 @@
+{
+  "uid": 1000,
+  "kernel": "7.0.0-38-generic",
+  "helper_sha256": "77a5353539ae6fd499da097e1361f711607863bb11184800cd9439a7b0d77cc1",
+  "results": [
+    {
+      "case": "streaming-caller",
+      "input_bytes": 280000,
+      "reply_bytes": 320000,
+      "passed": true
+    },
+    {
+      "case": "coordinator-death-input",
+      "passed": true,
+      "recovered_without_old_supervisor": true
+    },
+    {
+      "case": "coordinator-death-partial",
+      "passed": true,
+      "recovered_without_old_supervisor": true
+    },
+    {
+      "case": "coordinator-death-settled-before-thaw",
+      "passed": true,
+      "recovered_without_old_supervisor": true
+    },
+    {
+      "case": "coordinator-death-after-thaw",
+      "passed": true,
+      "recovered_without_old_supervisor": true
+    },
+    {
+      "case": "coordinator-death-kill-all",
+      "passed": true,
+      "recovered_without_old_supervisor": true
+    }
+  ]
+}
