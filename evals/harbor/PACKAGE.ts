@@ -7,6 +7,8 @@
  */
 import { Smithers } from "@smthrs/targets"
 
+const pythonInputs = Smithers.Filegroup({ cwd: "evals/harbor", srcs: [Smithers.glob("*.py")] })
+
 const offline = Smithers.Shell.Test({
   summary: "Check the Harbor adapter's prompt, environment, journal fold and trajectory without docker or a model.",
   script: Smithers.file("verify.sh"),
@@ -128,5 +130,6 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { offline, ...securityReview }
+  targets: {
+    pythonInputs, offline, ...securityReview }
 })

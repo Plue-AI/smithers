@@ -1382,6 +1382,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		visits := &presenceVisits{audit: auditService, now: time.Now}
 		go visits.run(ctx)
 		presence = &branchPresence{startedAt: time.Now(), visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
+		bindRebasePresence(mythicalService, presence)
 	}
 	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, presence)
 	if err != nil {
@@ -1709,9 +1710,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			return fmt.Errorf("initialize install setup: %w", err)
 		}
 		gitHubAppSetup = &routes.GitHubAppSetupHandler{
-			Setup:   installSetup,
-			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins, services.WithGitHubAppManifestBudget(gitHubBudgetTracker)),
-			Store:   gitHubAppStore, Owners: queries, Roster: queries,
+			SetTodoPreapprovalDefault: mythicalService.SetTodoPreapprovalDefault,
+			Setup:                     installSetup,
+			Service:                   services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins, services.WithGitHubAppManifestBudget(gitHubBudgetTracker)),
+			Store:                     gitHubAppStore, Owners: queries, Roster: queries,
 			Origins:  installAddress.Origins,
 			Sessions: authService.InstallSetup,
 			// GitHub returns the owner here after an install or a repository

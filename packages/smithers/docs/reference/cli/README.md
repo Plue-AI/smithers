@@ -434,6 +434,8 @@ when a requested resource exceeds its configured cap.
 
 ## macOS host service
 
+The [host command reference](host.md) is generated from the source CLI schemas.
+
 Build the stage-1 server bundle with `smthrs build //apps/app:serverBundle`,
 then run `smthrs host start --bundle <output-directory>` in your macOS login
 session. Start verifies every manifest digest before registering the service.

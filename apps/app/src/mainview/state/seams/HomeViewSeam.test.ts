@@ -23,7 +23,7 @@ test("Home filters persist through the member API without overwriting conversati
       { scroll_anchor: "entry-8", last_seen_seq: 12, card_view: { todo: "maximized" }, toasts_hidden: true, home: { filter: "working" } },
       { scroll_anchor: "entry-8", last_seen_seq: 12, card_view: { todo: "maximized" }, toasts_hidden: true, home: { filter: null } }
     ])
-    expect(seam.get()).toEqual({ maximized: false, on_screen: true, filter: undefined })
+    expect(seam.get()).toEqual({ maximized: false, on_screen: true, filter: undefined, menu: undefined })
     expect(errors).toEqual([])
   } finally { stop(); seam.dispose() }
 })
@@ -60,5 +60,29 @@ test("a refused write keeps the committed filter and reports failure", async () 
     seam.onView({ filter: "working" })
     await waitFor(() => errors.length === 1)
     expect(seam.get().filter).toBe("queued")
+  } finally { stop(); seam.dispose() }
+})
+
+
+test("Home menu persists with the filter, closes durably, and refuses invalid rows", async () => {
+  let saved: Record<string, unknown> = { home: { filter: "queued", menu: 8 }, last_seen_seq: 12 }
+  const writes: unknown[] = []
+  const seam = createHomeViewSeam({ owner: () => "Ben", subscribeOwner: () => () => {}, report: error => { throw error },
+    http: async (_path, init) => {
+      if (init?.method === "PUT") { saved = JSON.parse(init.body as string); writes.push(saved) }
+      return Response.json(saved)
+    } })
+  const stop = seam.subscribe(() => {})
+  try {
+    await waitFor(() => seam.get().menu === 8)
+    seam.onView({ menu: 9 }); seam.onView({ menu: undefined })
+    await waitFor(() => writes.length === 2)
+    expect(writes).toEqual([
+      { home: { filter: "queued", menu: 9 }, last_seen_seq: 12 },
+      { home: { filter: "queued", menu: null }, last_seen_seq: 12 }
+    ])
+    expect(seam.get().menu).toBeUndefined()
+    expect(seam.get().filter).toBe("queued")
+    expect(() => seam.onView({ menu: -1 })).toThrow("Invalid Home menu")
   } finally { stop(); seam.dispose() }
 })

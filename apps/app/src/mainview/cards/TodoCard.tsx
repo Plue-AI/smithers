@@ -88,6 +88,8 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
       resolve_input: input => ({ n, text: input.text ?? revision?.text ?? "", acceptance: (input.acceptance ?? revision?.acceptance.join("\n") ?? "").split("\n").filter(line => line.trim().length > 0) }) })
   } else definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" } })
   definitions.push({ tag: "todo.drop", label: "Drop", command_input: { n } })
+  if (live && role !== "member") definitions.push({ tag: model.preapproval ? "todo.unapprove" : "todo.preapprove",
+    label: model.preapproval ? "Remove pre-approval" : "Pre-approve", command_input: { n } })
   if (model.pr && model.state === "in_review") {
     // The served merge block is the one readiness rule; dispatch reads GitHub's head, checks, reviews and draft again.
     // Evidence names the verified candidate, and the PR head is its publication: another commit with the same tree.
@@ -192,7 +194,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
 // POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
 // Branch navigation is supplied when its install provider is composed.
 // Stop/Resume, Bring in and conflict repair/terminal providers remain gated until their composition lands.
-const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.discard-foreign"]
+const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.discard-foreign", "todo.preapprove", "todo.unapprove"]
 
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }

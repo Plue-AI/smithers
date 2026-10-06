@@ -7,6 +7,7 @@ pub mod credit;
 pub mod doc;
 pub mod freeze;
 pub mod hooks;
+pub mod local_stream;
 pub mod lock;
 pub mod msg;
 pub mod outbox_store;

@@ -38,7 +38,7 @@ export const todoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     agent: "run", input: Schema.Struct({ n: N, answer: Text, wait: Schema.optional(Text) }), grammar: parseTodoArgs("answer"), form: form("Answer"),
     handler: ({ n, answer, wait }) => actions.answerTodo(n, answer, wait) }),
   flow({ name: "todo.steer",   slash: "/todo.steer", cli: ["todo","steer"], journey: ["J3","J4"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",body:{steer:"text"}}, summary: "Send the agent a correction", args: "<Tn> <text>",
-    agent: "run", input: Schema.Struct({ n: N, text: Text }), grammar: parseTodoArgs("text"), form: form("Steer"),
+    agent: "run", input: Schema.Struct({ n: N, text: Text, idempotencyKey: Schema.optional(Text) }), grammar: parseTodoArgs("text"), form: form("Steer"),
     handler: ({ n, text }) => actions.steerTodo(n, text) }),
   flow({ name: "todo.amend",   slash: "/todo.amend", cli: ["todo","amend"], journey: ["J7"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"PATCH","path":"/api/todos/{n}",body:{prompt:"text",acceptance:"acceptance"}}, summary: "Change an unmerged TODO's prompt", args: "<Tn> <text>",
     agent: "confirm", input: TodoAmendInput, grammar: parseTodoArgs("text"), form: form("Amend"), confirm: "amend this TODO",

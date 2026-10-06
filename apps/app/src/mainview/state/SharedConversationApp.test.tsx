@@ -6,7 +6,7 @@ import App from "../App"
 import { ControllerTestProvider } from "../ControllerContext"
 import { createAppStore } from "./AppStore"
 import { createAppController } from "./AppController"
-import { memoryStorage, silentAgent, waitFor } from "./TestFixtures"
+import { memoryStorage, silentAgent, waitFor, writeLegacyCollection } from "./TestFixtures"
 
 GlobalRegistrator.register()
 afterAll(async () => { await new Promise(resolve => setTimeout(resolve, 20)); await GlobalRegistrator.unregister() })
@@ -268,4 +268,70 @@ test("private host theme instructions use the typed flow once and never cross me
     expect(store.session().theme).toBe("light")
     expect(writes).toEqual([])
   } finally { await controller.dispose() }
+})
+
+test("install conversation binds imported snapshots through the shared renderer and replaces replay", async () => {
+  const { default: imported } = await import("./testdata/external-conversations.json")
+  const storage = memoryStorage()
+  writeLegacyCollection(storage, "app-messages", imported)
+  const store = await createAppStore({ kind: "localStorage", storage })
+  let entries: unknown[] = imported
+  let available = true
+  let reads = 0
+  const topics = new Map<string, Set<() => void>>()
+  const live = { getSnapshot: () => undefined, subscribe: (topic: string, notify: () => void) => {
+    const listeners = topics.get(topic) ?? new Set<() => void>(); topics.set(topic, listeners); listeners.add(notify)
+    return () => { listeners.delete(notify) }
+  } }
+  let starts = 0
+  const controller = createAppController(store, { ...silentAgent, startTurn: async () => { starts++; return { status: "started" } } }, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    live,
+    fetchImpl: async input => {
+      if (String(input) === "/api/conversations/main") { reads++; return available ? Response.json({ id: "main", entries }) : Response.json({ code: "unavailable", class: "infra", message: "Conversation unavailable" }, { status: 503 }) }
+      return Response.json({})
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 4)
+    expect(host.textContent).toContain("Claude Code for Ben")
+    expect(host.textContent).toContain("Codex for Ben")
+    expect(host.textContent).toContain("Tests failed")
+    expect([...host.querySelectorAll('article[data-origin="external"]')].map(row => row.getAttribute("data-participant-id"))).toEqual(["participant-claude", "participant-claude", "participant-claude", "participant-codex"])
+    for (const row of host.querySelectorAll('article[data-origin="external"]')) expect([...row.querySelectorAll("button")].map(button => button.dataset.flow)).toEqual(["chat.copy-message"])
+    const beforeReplay = reads
+    expect(topics.get("conversation:main")?.size).toBe(1)
+    for (const notify of topics.get("conversation:main")!) notify()
+    await waitFor(() => reads > beforeReplay)
+    expect(host.querySelectorAll('article[data-origin="external"]')).toHaveLength(4)
+    expect(starts).toBe(0)
+    // Each incomplete identity refuses the entire delivery, never a Smithers fallback.
+    for (const field of ["origin", "agent_kind", "format_version", "source_id", "session_id", "participant_id", "actor", "read_only"]) {
+      const invalid = { ...imported[0] } as Record<string, unknown>; delete invalid[field]
+      entries = [invalid]
+      await controller.sharedConversation!.read()
+      await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 0)
+      expect(host.textContent).toContain("Conversation unavailable")
+    }
+    entries = [{ ...ben, read_only: true, session_id: "external-session" }]
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelectorAll('[data-shared-turn]').length === 0)
+    expect(host.textContent).toContain("Conversation unavailable")
+    entries = [ben, ...imported]
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 4)
+    available = false
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 0)
+    expect(host.textContent).toContain("Conversation unavailable")
+    expect(store.session().queuedPrompts ?? []).toHaveLength(0)
+    available = true
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 4)
+    expect(host.textContent).toContain("One changed test")
+    expect(starts).toBe(0)
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })

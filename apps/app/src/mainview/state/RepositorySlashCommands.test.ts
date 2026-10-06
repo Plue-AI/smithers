@@ -2,7 +2,7 @@
  * The smithers repository's own flows are slash commands (#1964): every row
  * of the checked-in `.smithers/factory.json` projection becomes a leaf
  * (flows/entries/flow.ts repositoryFlowLeaves), beside the app's built-in
- * change and stack commands. The rows are the real file, not a copy.
+ * stack command. The rows are the real file, not a copy.
  */
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
@@ -16,7 +16,7 @@ const projection = JSON.parse(readFileSync(new URL("../../../../../.smithers/fac
   readonly flows: Parameters<typeof repositoryFlowsOf>[0]
 }
 
-test("the smithers repository's declared flows and the built-in change and stack commands are all slash commands", async () => {
+test("the smithers repository's declared flows and the built-in stack command are slash commands without retired aliases", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, unavailableAgent, {
     openExternal: async () => true,
@@ -32,6 +32,7 @@ test("the smithers repository's declared flows and the built-in change and stack
     const entry = controller.commands.find(name)
     expect({ name, grammar: typeof entry?.metadata.grammar }).toEqual({ name, grammar: "function" })
   }
-  expect(controller.commands.find("history.show")).toBeDefined()
+  expect(controller.commands.find("stack")).toBeDefined()
+  expect(controller.commands.find("history.show")).toBeUndefined()
   expect(controller.commands.find("change.request")).toBeUndefined()
 })

@@ -70,7 +70,7 @@ export interface ChangeSeam {
   readonly sinceMyReview: (changeId: string, repo?: string) => Outcome
   /** `change.checks <changeId> <seq>`: the Checks facet's revision picker. */
   readonly checksAt: (changeId: string, seq: number, repo?: string) => Outcome
-  /** `change.land <changeId>`: land the carrying landing request (queued). */
+  /** Internal Plue landing; no app flow or card exposes this operation. */
   readonly landChange: (changeId: string, repo?: string) => Outcome
   /** `change.resolve <changeId> <path>`: dispatch an agent session on the conflict; a degraded sign-in can't. */
   readonly resolveConflict: (changeId: string, path: string, repo?: string) => Outcome

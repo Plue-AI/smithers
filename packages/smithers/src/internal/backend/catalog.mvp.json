@@ -2126,39 +2126,6 @@
       }
     },
     {
-      "name": "change.land",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "confirm",
-      "summary": "Land a change (its landing request, or its changeset atomically)",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "changeId": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "changeId"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "change.pins",
       "slash": null,
       "cli": null,
@@ -6088,7 +6055,7 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Close an issue",
       "http": null,
       "payload": {
@@ -6143,7 +6110,7 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Comment on an issue",
       "http": null,
       "payload": {
@@ -6202,7 +6169,7 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Create an issue, or a private conversation with --kind conversation",
       "http": null,
       "payload": {
@@ -6336,7 +6303,7 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Reopen a closed issue",
       "http": null,
       "payload": {
@@ -6798,7 +6765,10 @@
       "summary": "Review and merge the next item",
       "http": {
         "method": "POST",
-        "path": "/api/todos/{n}/merge"
+        "path": "/api/todos/{n}/merge",
+        "body": {
+          "reviewed_head_sha": "reviewed_head_sha"
+        }
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -6810,6 +6780,16 @@
               "minimum": 1
             },
             "reviewed_head_sha": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "idempotencyKey": {
               "anyOf": [
                 {
                   "type": "string"
@@ -12171,6 +12151,17 @@
             "text": {
               "type": "string",
               "minLength": 1
+            },
+            "idempotencyKey": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [

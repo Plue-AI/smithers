@@ -435,12 +435,24 @@ zero. The old repository config write and `history.parallel` door are removed.
 `PUT /api/install` reads and writes the requested value through the shared
 owner-only person policy. The service refuses writes without that provider.
 The composed engine uses the effective value for its launch limit, and Home
-reports that value to the owner. On an install a fresh TODO attempt
-launches `coding/request` on its own lane (`EnableTodoAdmission`); hosted
-composition refuses it. Ordered runtime demands, holder release accounting and
-live queue positions require the ordering, scheduler and machine-execution
-providers and C-STK-02.
-No admission queue, root operation or host execution fallback is added.
+reports that value to the owner. Install TODO attempts use their bound branch
+machines and the composed launcher; hosted composition refuses fresh work.
+
+The install counts pending launches and runtime-owned machines, including
+cancelled grants awaiting an observed stop. Unknown runtime ownership refuses
+new launches. Publishing for review retains the branch machine; publication
+alone cannot establish safe-idle. The runtime's existing safe-idle lifecycle
+must observe safety, capture and confirm stop before the slot becomes free.
+
+Existing ungranted workspace demands are reordered in the runtime queue by
+stack position, without changing grants or person priority. TODO projections
+preserve scheduler positions, including waiting person requests. Repeated reads
+of unchanged order do not invalidate a concurrent grant. TODOs without a bound
+workspace still use the retained stack-list projection: pre-workspace demand
+and reservation handoff need the scheduler's branch-authority integration.
+Production safe-idle observation providers and the complete C-STK-02 journey
+remain required. No second queue, root operation or host execution fallback is
+added.
 
 ## Placement and order
 
@@ -465,3 +477,22 @@ winner; the stale press returns `409 conflict`. A merging target or neighbor
 returns `409 merging`. Restricted `terminal_s1` credentials cannot place Before
 or Move. Append returns `403 permission/confirm_in_app` while the delegated
 confirmation consumer is unavailable; no TODO is created by that refusal.
+## Standing pre-approval
+
+An owner or maintainer browser session uses `POST /api/todos/{n}/preapproval`
+and `DELETE /api/todos/{n}/preapproval`. These change `checks.Automerge` and its attributed standing
+approval, retaining add/remove history. Agent, run, machine and delegated
+credentials cannot change them. `checks.Land` remains the separate
+revision-bound Review & merge receipt.
+
+The existing stack worker evaluates standing approvals through MergeReady and
+the same sha-bound squash intent, claim, lookup and containment settlement as
+Review & merge. Required checks, reviews, order, pending work and current
+maintainer authority still apply. An expired granting browser session does not
+expire the standing approval. A definitive dispatch refusal is retained and
+requires removing and granting approval again at that head; recovery never
+blindly repeats an uncertain send.
+
+The owner sets `PUT /api/install {todo_preapprove_default: boolean}`. Only TODOs
+created afterwards inherit that owner's approval; disabling the default changes
+no existing TODO. Settings and TODO cards read these persisted projections.

@@ -336,7 +336,7 @@ func (s *WorkspaceService) withBranchMachineMutation(ctx context.Context, row db
 	if err != nil {
 		return fmt.Errorf("%w: %w", errBranchMachineAdmission, err)
 	}
-	return fn(context.WithValue(ctx, workspaceMutationAuthorityKey{}, authority))
+	return commitWorkspaceMutation(ctx, tx, authority, fn)
 }
 
 // RevokeBranchMachineShare composes with T-ACC-02's authorized member-removal

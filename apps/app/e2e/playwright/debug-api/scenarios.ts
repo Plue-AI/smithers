@@ -115,10 +115,26 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
-      "App agent and descriptor-generated smthrs debug api refuse locally; authenticated delegated reference-install fixture still required.")
-    pending("repository-flow execution with isolation unavailable refuses before execution with no host process",
-      "Production flow composition refuses missing isolation before startup. The documented POST /api/repos/{owner}/{repo}/invoke exists, but local-own always supplies trusted-process isolation; a production install refusal/process fixture is still required.")
+    test("eligible delegated app-agent and smthrs dispatch refuse debug.api with zero API and SQL effects", async () => {
+      test.setTimeout(300_000)
+      const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIEligibleDelegatedDispatchPostgres$", "-count=1", "-v"], {
+        cwd: resolve("../../packages/backend"), env: process.env,
+        timeout: 270_000, maxBuffer: 8 * 1024 * 1024
+      })
+      expect(result.stdout).toContain("--- PASS: TestDebugAPIEligibleDelegatedDispatchPostgres")
+      await test.info().attach("delegated-dispatch-http-sql", { body: result.stdout, contentType: "text/plain" })
+    })
+    pending("delegated app-agent and CLI scope/role failures retain precedence over debug.api person-only refusal",
+      "T-CAT-01 shared dispatcher must carry credential/role decisions before its local never guard: flows/Commands.ts runForAgent and smithers/src/internal/backend/Catalog.ts. The eligible production MintForTurn receipt now passes separately.")
+    test("repository-flow execution with isolation unavailable refuses before execution with no host process", async () => {
+      test.setTimeout(300_000)
+      const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIInvokeWithoutIsolationPostgres$", "-count=1", "-v"], {
+        cwd: resolve("../../packages/backend"), env: process.env,
+        timeout: 270_000, maxBuffer: 8 * 1024 * 1024
+      })
+      expect(result.stdout).toContain("--- PASS: TestDebugAPIInvokeWithoutIsolationPostgres")
+      await test.info().attach("missing-isolation-http-sql", { body: result.stdout, contentType: "text/plain" })
+    })
     pending("available repository-flow execution runs only in a branch machine",
       "T-FLW-01 guest composition and POST /api/repos/{owner}/{repo}/invoke exist; this Linux local-own fixture has no qualified microVM bundle. Reference-host branch-machine receipts are still required.")
     for (const missing of ["catalog", "authorizer", "view"] as const) {

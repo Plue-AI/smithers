@@ -146,11 +146,6 @@ github_repo_listings,product,product baseline
 sandbox_golden_snapshots,private,Plue private migration 000001
 sandbox_environment_images,private,Plue private migration 000001
 file_drafts,product,product baseline
-app_timelines,product,product baseline
-app_timeline_members,product,product baseline
-app_timeline_events,product,product baseline
-app_timeline_branches,product,product baseline
-app_timeline_snapshots,product,product baseline
 anon_sandboxes,product,product baseline
 repository_provisioning_control,private,Plue private migration 000001; dropped by Plue private migration 000023
 repository_provisioning_operations,private,Plue private migration 000001

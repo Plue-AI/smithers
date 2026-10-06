@@ -399,3 +399,12 @@ func branchPersonActor(person db.User, color int) map[string]any {
 	}
 	return map[string]any{"kind": "person", "login": person.Username, "name": name, "avatar_url": avatar, "color_index": color}
 }
+
+// bindRebasePresence installs the same authenticated lease reader used by live
+// browser sessions. Bind even a missing reader so install startup cannot enable
+// the legacy automatic rebase path while providers are reconstructing.
+func bindRebasePresence(stack interface {
+	SetRebasePresence(func(context.Context, int64, string) (services.RebasePresence, error))
+}, presence *branchPresence) {
+	stack.SetRebasePresence(presence.rebasePresence)
+}

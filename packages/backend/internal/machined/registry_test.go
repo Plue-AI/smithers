@@ -184,3 +184,29 @@ func TestPresenceScopeRequiresAdmittedConnection(t *testing.T) {
 	_, err = connection.PresenceScope("branch")
 	expectError(t, err, ErrUnauthorized)
 }
+
+func TestRegistryShutdownFencesBoots(t *testing.T) {
+	var r Registry
+	authority, err := r.MintBoot("branch", "machine")
+	expectError(t, err, nil)
+	stream := new(testStream)
+	connection, err := r.Admit(authority.ID, []byte(authority.Credential), stream)
+	expectError(t, err, nil)
+	expectError(t, connection.Reconciled(), nil)
+	expectError(t, r.Close(), nil)
+	expectError(t, connection.RequireReady("branch"), ErrUnauthorized)
+	expectError(t, connection.Reconciled(), ErrUnauthorized)
+	expectError(t, connection.Close(), nil)
+	expectError(t, r.Close(), nil)
+	if stream.closed.Load() != 1 {
+		t.Fatal("shutdown must close each transport exactly once")
+	}
+	_, err = r.MintBoot("branch", "machine")
+	expectError(t, err, ErrNotReady)
+	bad := new(testStream)
+	_, err = r.Admit(authority.ID, []byte(authority.Credential), bad)
+	expectError(t, err, ErrUnauthorized)
+	if bad.closed.Load() != 1 {
+		t.Fatal("closed registry leaked newcomer")
+	}
+}

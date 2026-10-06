@@ -88,3 +88,19 @@ under both perf and C-PERF-04 check directories. No real-stack pass is claimed.
 `//scripts:perfRebaseHold` select C-PERF-02, 05 and 06 respectively. They are
 availability reports (exit 2), not measurements; their absent production
 measurement drivers remain explicitly listed in the evidence.
+
+`smthrs test //scripts:workingTogetherCodeFaults` runs the five composed
+code-document link/recovery boundaries ten times each. HTTP authentication,
+live transport, native document state and PostgreSQL are real; the remote daemon
+is a scripted test peer. This is host-boundary evidence, never a K7 full-check
+pass. Raw Go JSON and host metadata are retained under C-DUR-04. Each named
+test must execute ten run/pass lifecycles and its package must complete; skips,
+failures, duplicate passes and unrelated-package output cannot qualify.
+
+Both code and wiki fault targets read the untracked
+`.artifacts/working-together-host.json` fixture with `databaseUrl` (dedicated test
+PostgreSQL) and `libraryPath` (absolute unprivileged native FFI library path).
+Set `lane` to the lane namespace when the target runner filters ambient LANE;
+otherwise they preserve the caller's LANE. They use the shared Go cache. The complete
+K1–K8 target remains incomplete pending executable guest composition and the
+writer/head/row/client evidence matrix.

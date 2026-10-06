@@ -366,3 +366,65 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.Equal(t, 1, count)
 
 }
+
+// Literal worker receipts drive the real install projection. No HTTP admission
+// or fake transport answer is accepted as a confirmed merge.
+func TestConfirmationMergeSettlementInstallBoundaryPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := db.New(pool)
+	ctx := t.Context()
+	person, err := q.CreateUser(ctx, db.CreateUserParams{Username: "merge-owner", LowerUsername: "merge-owner"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: person.ID, Valid: true}, Name: "demo", LowerName: "demo", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, person.ID)
+	require.NoError(t, err)
+	binding := []byte(fmt.Sprintf(`{"owner_login":"merge-owner","repository_name":"demo","repository_id":%d}`, repo.ID))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(fmt.Sprintf(`{"owner_login":"merge-owner","repository_name":"demo","repository_id":%d,"last_access_check_at":%q}`, repo.ID, time.Now().UTC().Format(time.RFC3339Nano)))}))
+	raw := "merge-owner-session"
+	sum := sha256.Sum256([]byte(raw))
+	session := hex.EncodeToString(sum[:])
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: person.ID, Username: person.Username, SessionKey: session, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	item, err := q.InsertMythicalTodo(ctx, repo.ID, person.ID, "Merge this TODO", "Exact prompt", json.RawMessage(`[]`), json.RawMessage(`{"todo":true}`))
+	require.NoError(t, err)
+	id := uuid.NewString()
+	head := strings.Repeat("a", 40)
+	itemID := uuid.UUID(item.ID.Bytes).String()
+	payload := fmt.Sprintf(`{"input":{"reviewed_head_sha":%q},"card":{"kind":"review_merge"},"effect":{"todo":%d,"request":%q},"merge_request":"merge-press","merge_by":{"login":"merge-owner","name":"Owner","avatar_url":"https://github.com/merge-owner.png"}}`, head, item.Number.Int64, "confirmation:"+id)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',generation=4,pr_head=$2,pr_merge_commit='',checks=$3 WHERE id=$1`, item.ID, head, fmt.Sprintf(`{"todo":true,"land":{"session":%q,"request":"merge-press","head":%q,"generation":4}}`, session, head))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO approvals(id,repository_id,member_id,credential_id,command,subject,revision,kind,state,title,payload,expires_at,generation,reviewed_head_sha,decision_credential,decision_key) VALUES($1,$2,$3,'agent','merge',$4,$5,'review_merge','pending','Merge this TODO',$6,now()+interval '24 hours',4,$7,$8,'press')`, id, repo.ID, person.ID, fmt.Sprintf(`{"kind":"todo","ref":"T%d"}`, item.Number.Int64), itemID+":4:"+head, payload, head, session)
+	require.NoError(t, err)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Auth.SessionCookieName = "session"
+	cfg.Server.PublicURL = "http://127.0.0.1:4000"
+	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+	router := githubAppSetupComposeRouter(cfg, pool, nil)
+	get := func() string {
+		r := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/confirmations", nil)
+		r.RemoteAddr = "127.0.0.1:51000"
+		r.AddCookie(&http.Cookie{Name: "session", Value: raw})
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		require.Equal(t, 200, w.Code, w.Body.String())
+		return w.Body.String()
+	}
+	require.Contains(t, get(), `"state":"pending"`)
+	// GitHub merge transport receipt without confirmed main containment stays pending.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_merge_commit=$2 WHERE id=$1`, item.ID, strings.Repeat("b", 40))
+	require.NoError(t, err)
+	require.Contains(t, get(), `"state":"pending"`)
+	// Even a confirmed different generation cannot approve the reviewed one.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='landed',generation=5 WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	require.Contains(t, get(), `"state":"pending"`)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET generation=4 WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	body := get()
+	require.Contains(t, body, `"state":"approved"`)
+	require.Contains(t, body, `"text":"Merged"`)
+	require.Contains(t, get(), `"state":"approved"`)
+}

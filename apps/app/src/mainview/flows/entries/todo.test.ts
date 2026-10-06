@@ -32,7 +32,7 @@ const boot = async (install = false) => {
 const agent = (controller: Awaited<ReturnType<typeof boot>>["controller"], name: string, args?: string) => controller.commands.executeForAgent({
   name: "commands", arguments: JSON.stringify({ action: "execute", name, args })
 })
-test("all TODO commands register slash, button and agent doors; amend/drop and commit confirm", async () => {
+test("TODO controls share the catalog and browser agent writes require the conversation host", async () => {
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => nameOf(entry) === "todo" || nameOf(entry).startsWith("todo."))
@@ -44,15 +44,15 @@ test("all TODO commands register slash, button and agent doors; amend/drop and c
         expect(entry.metadata.form).toBeDefined()
       }
     }
-    await agent(h.controller, "todo.drop", "T12")
-    await agent(h.controller, "todo.amend", "T12 Amend the prompt")
+    expect(await agent(h.controller, "todo.drop", "T12")).toBe("failed: this command runs on the conversation host")
+    expect(await agent(h.controller, "todo.amend", "T12 Amend the prompt")).toBe("failed: this command runs on the conversation host")
     expect(h.mutations).toEqual([])
-    expect([...h.store.collections.messages.values()].filter(message => message.action?.flow === "todo.drop" || message.action?.flow === "todo.amend")).toHaveLength(2)
+    expect([...h.store.collections.messages.values()].filter(message => message.action?.flow === "todo.drop" || message.action?.flow === "todo.amend")).toHaveLength(0)
     await h.controller.runCommandForResult("todo.new", "A draft")
     const draft = [...h.store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry
-    await agent(h.controller, "todo.new", JSON.stringify({ text: "A draft", cardId: draft.id }))
+    expect(await agent(h.controller, "todo.new", JSON.stringify({ text: "A draft", cardId: draft.id }))).toBe("failed: this command runs on the conversation host")
     expect(h.mutations).toEqual([])
-    expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "todo.new")).toBe(true)
+    expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "todo.new")).toBe(false)
   } finally { h.controller.dispose() }
 })
 test("missing input opens a form for just the missing fields, preserving Tn", async () => {
@@ -170,7 +170,7 @@ test("Retry with the current flow is an agent-invocable card control with its st
     const entry = h.controller.commands.entries().find(row => nameOf(row) === "todo.retry-current-flow")!
     expect(entry.metadata.hidden).toBe(true)
     expect(entry.metadata.discloseToAgent).toBe(true)
-    expect(modelInvocable(entry)).toBe(true)
+    expect(modelInvocable(entry)).toBe(!["todo.takeover", "todo.preapprove", "todo.unapprove"].includes(nameOf(entry)))
     /* MOCK SEAM: while the design seed is mounted the control lands on its T10, stopped first, not on /api/todos. */
     await h.controller.runCommandForResult("todo.stop", "T10")
     expect(await h.controller.runCommandForResult("todo.retry-current-flow", JSON.stringify({ n: 10, text: " First\nmessage " })))
@@ -438,15 +438,11 @@ test("on an install, person's slash and card Drop wait for confirmation and only
   } finally { h.controller.dispose() }
 })
 
-test("on an install, an agent Drop needs exactly one person's confirmation", async () => {
+test("on an install, browser agent Drop refuses without a host confirmation or write", async () => {
   const h = await boot(true)
   try {
-    await agent(h.controller, "todo.drop", "T12")
-    const pending = [...h.store.collections.messages.values()].find(message => message.action?.flow === "todo.drop")!
+    expect(await agent(h.controller, "todo.drop", "T12")).toBe("failed: this command runs on the conversation host")
     expect(h.mutations).toEqual([])
-    await h.controller.commands.confirm(pending.id, pending.action!.revision!)
-    await waitFor(() => h.mutations.length === 1)
-    expect(h.mutations[0]).toEqual({ path: "/api/todos/12", body: { op: "drop" } })
-    expect([...h.store.collections.messages.values()].filter(message => message.action?.flow === "todo.drop")).toHaveLength(1)
+    expect([...h.store.collections.messages.values()].filter(message => message.action?.flow === "todo.drop")).toHaveLength(0)
   } finally { h.controller.dispose() }
 })

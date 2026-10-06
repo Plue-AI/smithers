@@ -112,15 +112,23 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 		require.Equal(t, &services.WikiGeneratedSource{ID: "runtime", InputDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SourceRevision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, page.Generated)
 		require.Equal(t, int64(1), page.Revision)
 		require.Equal(t, "0590d40eefc0d1d5a9a5c8d407e4acfcb1cae6de15729033c56dc64ddb9abe47", page.ContentDigest)
+		// Legacy receipts stored the source ref once on the publication.
+		_, err = pool.Exec(ctx, `UPDATE mythical_wikis SET published_commit=$2, pages=pages #- '{0,ref}' WHERE repository_id=$1`, repo.ID, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+		require.NoError(t, err)
+		read = request("GET", "/generated-runtime", ownerToken, "", "")
+		require.Equal(t, 200, read.Code, read.Body.String())
+		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &page))
+		require.Equal(t, &services.WikiGeneratedSource{ID: "runtime", InputDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SourceRevision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, page.Generated)
 		changed := request("PATCH", "/generated-runtime", ownerToken, `{"body":"Decision: retryFixed(5000).","expected_revision":1}`, "application/json")
 		require.Equal(t, 200, changed.Code, changed.Body.String())
 		read = request("GET", "/generated-runtime", ownerToken, "", "")
 		require.Equal(t, 200, read.Code, read.Body.String())
 		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &page))
-		// Decode into a fresh value: JSON omits stale freshness metadata entirely.
+		// The API explicitly classifies the person's revision as authored.
 		var edited services.WikiPageResponse
 		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &edited))
 		require.Nil(t, edited.Generated)
+		require.Contains(t, read.Body.String(), `"generated":null`)
 		require.Equal(t, int64(2), edited.Revision)
 		require.Equal(t, "0b2889240d13d49add99a1daef222ddce288814a94826dbce1fbf456f03adc6b", edited.ContentDigest)
 		removed := request("DELETE", "/generated-runtime", ownerToken, "", "")

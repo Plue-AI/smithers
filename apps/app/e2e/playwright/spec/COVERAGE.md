@@ -79,9 +79,9 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | fixme-before-implementation | T-GH-03 |
 | C-STK-05 | [C-STK-05.spec.ts](C-STK-05.spec.ts) | fixme-before-implementation | T-MCH-14 |
 | C-STK-06 | [C-STK-06.spec.ts](C-STK-06.spec.ts) | passing install REST/live seam: rebased checks hold, retained review, reload, displayed-head merge; guest/tree/reference-host receipts separate | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |
-| C-STK-07 | [C-STK-07.spec.ts](C-STK-07.spec.ts) | fixme-before-implementation | T-STK-04 |
+| C-STK-07 | [C-STK-07.spec.ts](C-STK-07.spec.ts) | passing REST seam UI; complete folded backend and reference-host receipts remain separate | T-STK-04 |
 | C-STK-08 | [C-STK-08.spec.ts](C-STK-08.spec.ts) | fixme-before-implementation | T-STK-01 |
-| C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | fixme-before-implementation | T-STK-04 |
+| C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | passing REST seam UI; complete folded backend and reference-host receipts remain separate | T-STK-04 |
 | C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | passing mounted install seam; explicit writer recovery on reload; real GitHub/LAN/reference-host receipts pending | T-GH-01 |
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | HTTP seam: ten PRs, automatic refresh, responsive Chat; backend/native receipts separate | T-GH-02 |
@@ -97,7 +97,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | projection, pinned wiki keyboard/mouse opening and reload pass with journal fixture; authenticated branch prompt/SharedEntries acceptance remains fixme | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Wave 2 Chromium (2026-10-06): combined run 7 pass, 1 fail. Settings click/Enter/Space, origin exclusions, owner refusal and docs reload pass. Every-door case waits for T-APP-16 host-turn fixture integration: the retired HTTP agent fixture now yields a seeded answer instead of docs.read (line 28). Targeted docs/Settings suites: 45 pass, 0 fail. macOS WebKit and reference-install qualification pending. | T-APP-20, T-APP-24 |
-| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection and local-own real-backend browser/SQL roles; complete operation inventory and install PUT /api/secrets form; independent production app dependency guards with zero transport/SQL effects and live 201 write controls; delegated and branch-machine evidence pending | T-APP-21 |
+| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection and local-own real-backend browser/SQL roles; complete operation inventory and install PUT /api/secrets form; independent production app dependency guards with zero transport/SQL effects and live 201 write controls; missing-isolation composed HTTP/SQL refusal; authenticated eligible app-agent/CLI refusal; delegated scope/role precedence and positive branch-machine evidence pending | T-APP-21 |
 | C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
@@ -105,10 +105,10 @@ ordered steps, Address admission, product words and reload. The full install che
 
 C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 
-| C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts), [Draft and shell cases](../view-stories.spec.ts) | T-UI-01 primitives, T-UI-07 shell, T-UI-10 Flow, T-UI-15 Branch states/recovery, T-UI-16 read-only Compare, T-UI-17 terminal states (owner bytes, watcher/frozen input suppression, both themes at 1440/390) and T-UI-19 co-editing active; Draft passed (light/dark, 1440/390, keyboard); T-UI-04 TODO conflict/mobile/keyboard, Fork/Add to stack and real-seam question active; T-UI-08 shell passes light/dark at 1,179/1,180 px with pointer/Tab + Enter/Space; remaining View matrix fixme | T-UI-01..T-UI-17, T-UI-19 |
+| C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts), [Draft and shell cases](../view-stories.spec.ts) | T-UI-01 primitives, T-UI-07 shell, T-UI-10 Flow, T-UI-15 Branch states/recovery, T-UI-16 read-only Compare and recovery keyboard doors (light/dark, 1440/390), T-UI-17 terminal states (owner bytes, watcher/frozen input suppression, both themes at 1440/390) and T-UI-19 co-editing active; Draft passed (light/dark, 1440/390, keyboard); T-UI-04 TODO conflict/mobile/keyboard, Fork/Add to stack and real-seam question active; T-UI-08 shell passes light/dark at 1,179/1,180 px with pointer/Tab + Enter/Space; remaining View matrix fixme | T-UI-01..T-UI-17, T-UI-19 |
 | C-UI-13 | [C-UI-13.spec.ts](C-UI-13.spec.ts) | Card doors passed: Stack, TODO, Branch, Flow, Wiki, Settings, Members, Commands, Agent (seed and served HTTP providers); Setup and Run selection passed; Confirm passed (composed install, private live, keyboard/reload) | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |
 | C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | passing | T-CAT-01 |
-| C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | 3 card doors pass; source CLI TODO create/read/Drop, named pending result, private keyboard approval and reload pass against real PostgreSQL; merge consumer remains fixme | T-CAT-01 |
+| C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | 3 card doors and private Merge delivery/reload/keyboard cancellation pass; source CLI TODO create/read/Drop/steer plus Merge pending/replay and person-only admission pass against composed PostgreSQL and GitHub fake; real-host merge settlement remains separate | T-CAT-01 |
 | C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | installed generated skill and visible Commands pass; literal installed path/agent/excluded-group inventory passes in SkillsInstall.test.ts; real delegated TODO create/read/Drop and private approval pass | T-CAT-01 |
 | C-UI-12 · Flow | [Flow browser case](C-UI-12.spec.ts), `FlowCard.install.test.tsx`, `compose/flow_reserved_catalog_integration_test.go` | Passed locally: keyboard version selection and Source/Plan/Run/Edit callbacks, failure disclosure, absent/disabled actions, Paper focus and overflow in light/dark at 1440/390; install `/flow` uses the real HTTP seam and persists member selection; authenticated composed `/api/flows` serves built-in and failed repository versions. CI receipt at the landed SHA remains outstanding. | T-UI-10 |
 | C-UI-12 · Home | [Home cases](../home.spec.ts) | passing: sync health, keyboard menu, absent/disabled actions and hostile text in light/dark at 1440/390 | T-UI-06 |
@@ -117,7 +117,7 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 C-UI-13 also has a passing UI projection for the mounted Setup
 View; full reachability and remaining fixtures await their wiring tickets.
 
-| C-AGT-02 | [C-AGT-02.spec.ts](C-AGT-02.spec.ts) | fixme-before-implementation | T-AGT-02, T-AGT-03 |
+| C-AGT-02 | [C-AGT-02.spec.ts](C-AGT-02.spec.ts) | mounted-install contract fake: light/dark × 1280/390; real sessions and authenticated refusal pending T-AGT-02 | T-AGT-02, T-AGT-03 |
 | C-COL-01 | [C-COL-01.spec.ts](C-COL-01.spec.ts) | fixme-before-implementation | T-COL-10, T-COL-03r, T-COL-08a, T-COL-08b, T-APP-14a |
 | C-COL-02 | [C-COL-02.spec.ts](C-COL-02.spec.ts) | fixme-before-implementation | T-COL-02 |
 | C-COL-03 | [C-COL-03.spec.ts](C-COL-03.spec.ts) | fixme-before-implementation | T-COL-03r, T-COL-03a, T-COL-03, T-STK-08, T-APP-14a |
@@ -257,7 +257,7 @@ Cycle 26: production TODO admission, issue drafts, question answers, steers and 
 | A-TODO-RETRY | [A-TODO-RETRY.spec.ts](A-TODO-RETRY.spec.ts) | fixme-before-implementation | T-STK-05 |
 | A-TODO-DROP | [A-TODO-DROP.spec.ts](A-TODO-DROP.spec.ts) | partial: mounted Drop confirms; durable capture/fold journey remains fixme | T-STK-05 |
 | A-STACK-MOVE | [A-STACK-MOVE.spec.ts](A-STACK-MOVE.spec.ts) | fixme-before-implementation | T-STK-02 |
-| A-MERGE | [A-MERGE.spec.ts](A-MERGE.spec.ts) | fixme-before-implementation | T-STK-04 |
+| A-MERGE | [A-MERGE.spec.ts](A-MERGE.spec.ts) | passing REST seam UI; complete folded backend and reference-host receipts remain separate | T-STK-04 |
 
 Cycle 27: TODO pause, resume, retry, drop, stack reorder and merge await durable production journey projections. Hermetic scenarios do not replace machine, GitHub or reference-host receipts.
 
@@ -369,13 +369,16 @@ Commands stories pass keyboard disclosure (Tab, Enter, Space, visible focus),
 muted policy marks, inert metadata, fixture screenshots and edited action input.
 The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets.
 
+T-UI-14 wave 2 (2026-10-06): both C-UI-13 `/help` browser cases passed again,
+including live repository rows, inline/maximized/reload, light/dark and 1440/390 px.
+
 
 | Check subset | Spec | Status | Ticket |
 | --- | --- | --- | --- |
 | C-UI-13 Commands | [C-UI-13.spec.ts](C-UI-13.spec.ts) | passed: /help, registry and repository rows, inline/maximized/reload, light/dark, 1440/390 | T-UI-14 |
 | C-UI-12 Commands | [Commands stories](../view-stories.spec.ts) | passed: keyboard disclosure/focus, policies, inert text, action input | T-UI-14 |
 | C-UI-12 Debug API | [Debug API stories](../view-stories.spec.ts) | passed: all 15 states, light/dark, 1280/1440/390, axe/overflow; Enter/Space selection and Send; POST/PUT/PATCH/DELETE confirmation, disabled/absent actions, inert response/failure text | T-UI-22 |
-| C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; install activation remains T-APP-20 | T-UI-21 |
+| C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; absent/disabled navigation also removes native link targets and restores keyboard links when enabled; production mounting is active (C-UI-09 agent fixture remains blocked on T-APP-16) | T-UI-21 |
 | C-UI-12 Secrets | [Secrets stories](../view-stories.spec.ts) | passed: 11 stories, light/dark, 1440/390, axe/overflow; Add/Replace/Cancel clear Value, redacted callbacks, absent/disabled actions, optional Hosts, inert names, keyboard Delete | T-UI-18 |
 | C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Fork submits the displayed TODO source through the real app flow to POST /api/branches; keyboard Open branch from REST TODO through the composed app provider to the live Branch card; Branch tabs survive reload; keyboard item title returns through the real TODO flow/REST seam; owner Discard confirms the displayed wait/head, persists an idempotent request while HTTP is unresolved and settles from the served projection; stale Discard refreshes the newer push and reconfirms with its SHA; simultaneous conflict/moved-off/outside-push waits retain order, inert paths/actors and mobile layout; Enter/Space Resolve opens the real Branch seam; unavailable execution controls stay absent; 4 passed | T-UI-04, T-GH-06 |
 | C-UI-12 Proposal | [Proposal stories](../view-stories.spec.ts) | passed: open/accepted/dismissed/read-only, hostile refs, zero/one/multiple lessons, keyboard callbacks; light/dark, 1440/390, axe and overflow | T-UI-20; install mounting and lessons source await T-FLW-06 |
@@ -389,7 +392,7 @@ T-UI-15 pass 5: the Branch matrix checks serious/critical axe violations and sav
 T-APP-16 wave 2 browser receipts: `entry-row.spec.ts` covers prompt/answer EntryRow rendering and reload; `branch-navigation.spec.ts` covers the served nested branch tree, retired Branches card removal, Earlier, durable view selection on reload, and a literal journal archive with no turn admission. These do not replace the full C-APP-04 shared-host acceptance.
 T-APP-04 Confirm proof: `TestConfirmationsBrowserPostgres` drives [the browser journey](../../real/confirm-merge.browser.ts) against PostgreSQL and the default install router, without browser API mocks. Passed 2026-10-06: private audience, Commit/Drop keyboard presses, admission toast through queued work and reload, other-member refusal, delegated id/state-only results. Review & merge remains pending its transactional consumer and recovery acceptance.
 
-T-APP-04 additional Confirm coverage: [install contract cases](C-UI-13-confirm-install.spec.ts) passed (6): keyboard Commit, Amend, Bring in and Discard with a 202 keeps progress running until the subject settles, suppresses repeated presses, and leaves chat usable; Review & merge respects member role, current head, required checks and failed optional checks. Amend reconnects using the admitted prompt revision and settles only when its exact text is observed. Bring in and Discard reconnect to the admitted branch wait and settles only when that wait disappears. Retry restores running progress after an unavailable response and remains deduplicated while a successful admission awaits private live delivery. These use test-only live/HTTP fixtures; the PostgreSQL browser journey above remains the production composition proof.
+T-APP-04 additional Confirm coverage: [install contract cases](C-UI-13-confirm-install.spec.ts) passed (7): keyboard Commit, Amend, Bring in and Discard with a 202 keeps progress running until the subject settles, suppresses repeated presses, and leaves chat usable; Review & merge respects member role, current head, required checks and failed optional checks. Amend reconnects using the admitted prompt revision and settles only when its exact text is observed. Bring in and Discard reconnect to the admitted branch wait and settles only when that wait disappears. Retry restores running progress after an unavailable response and remains deduplicated while a successful admission awaits private live delivery. These use test-only live/HTTP fixtures; the PostgreSQL browser journey above remains the production composition proof.
 T-APP-16 shared read receipt: `shared-conversation.spec.ts` renders the install HTTP projection with author attribution and reload. `SharedConversationApp.test.tsx` fences pending reads across account/branch changes; `TestBranchConversationQueueMutationInstall` verifies the additive author login through the authenticated PostgreSQL router. Composer cutover remains pending.
 
 T-APP-16 prompt receipt: install composer uses only the canonical prompt body, acknowledges persisted requests before unresolved admission, deduplicates, retains progress through host completion and reconnects after reload. Mounted tests cover server queue PATCH/DELETE/restore, own-turn Stop, and retry after refusal. The legacy non-install executor and Bun route deletion remain pending.
@@ -405,3 +408,5 @@ T-APP-03 rerun: C-UI-13 now runs each card door independently without fixme. Flo
 
 | C-UI-12 Confirm | [Confirm stories](../view-stories.spec.ts) | Keyboard approval/Cancel forward supplied revision bindings; disabled/absent actions, stale approval and receipts; light/dark at 1440/390; View DOM tests pass. Install activation remains T-APP-04. | T-UI-05 |
 T-APP-03 pass 3: the image Draft uses the ticket title “Add figlet to the machine image”. C-APP-03 asserts the literal one-file recipe diff and private browser isolation, including independent Settings refusal, creation and discard. Settings retains a saved daily allowance when an older GET completes during its PUT; the seam regression also retains newer live-frame fencing. These are app-boundary receipts with test-only HTTP providers, not guest, merge, OAuth or reference-install qualification.
+
+T-APP-04 merge admission additionally passes the Confirm browser contract: a person press receives 202 pending, disables repeated presses while merging, survives reload without another merge request, and ends only from the confirmed TODO/private approval projection. PostgreSQL/GitHub-fake service tests and composed install HTTP tests cover the separate admission and settlement boundaries; reference-host recovery and the full C-ACC-02 browser journey remain pending.

@@ -187,6 +187,9 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect(third.getByRole("menuitem", { name: "Move up", exact: true })).toBeVisible()
   await expect(third.getByRole("menuitem", { name: "Move down", exact: true })).toHaveCount(0)
   await expect(third.getByRole("menuitem", { name: "Drop", exact: true })).toBeVisible()
+  await expect.poll(() => memberViews.ben?.home).toEqual({ filter: null, menu: 3 })
+  await page.reload()
+  await expect(third.getByRole("menuitem", { name: "Move up", exact: true })).toBeVisible()
   await expect(home).not.toContainText("Stripe")
   await third.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter")
   await expect.poll(() => moves.length).toBe(1)
@@ -204,10 +207,11 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   expect(drops[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
   await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
 
+  viewWrites.length = 0
   const reviewFilter = home.locator('[data-filter="in_review"]')
   await reviewFilter.click()
   await expect.poll(() => viewWrites.length).toBe(1)
-  expect(viewWrites[0]).toEqual({ login: "ben", body: { scroll_anchor: "entry-8", last_seen_seq: 12, home: { filter: "in_review" }, toasts_hidden: false } })
+  expect(viewWrites[0]).toEqual({ login: "ben", body: { scroll_anchor: "entry-8", last_seen_seq: 12, home: { filter: "in_review", menu: null }, toasts_hidden: false } })
   await page.reload()
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
   login = "alice"
@@ -216,7 +220,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect(home.getByText("T2", { exact: true })).toHaveCount(0)
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "false")
-  expect(memberViews.ben?.home).toEqual({ filter: "in_review" })
+  expect(memberViews.ben?.home).toEqual({ filter: "in_review", menu: null })
   login = "maya"
   await page.reload()
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(1)

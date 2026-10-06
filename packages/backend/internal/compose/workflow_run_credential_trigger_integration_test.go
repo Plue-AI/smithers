@@ -154,9 +154,13 @@ func TestRunCredentialCannotStartCacheSavingWorkflowRunsPostgres(t *testing.T) {
 	assert.Equal(t, before, runCount(), "a run credential replayed a run")
 }
 
-func buildWorkflowTriggerRouter(q *db.Queries, pool *pgxpool.Pool, workflow *routes.WorkflowHandler) http.Handler {
+func buildWorkflowTriggerRouter(q *db.Queries, pool *pgxpool.Pool, workflow *routes.WorkflowHandler, configs ...*config.Config) http.Handler {
+	cfg := testConfigAllFlagsOn()
+	if len(configs) > 0 {
+		cfg = configs[0]
+	}
 	return buildRouter(
-		testConfigAllFlagsOn(), q, pool,
+		cfg, q, pool,
 		&routes.RepoHandler{},
 		nil, // mirrorSyncHandler
 		&routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{},

@@ -53,6 +53,15 @@ func (h *ConfirmationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, err)
 		return
 	}
+	if err := h.Service.RefreshConfirmationCards(r.Context(), member, rows); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	rows, err = h.Queries.ListMemberConfirmations(r.Context(), member)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	info := middleware.AuthInfoFromContext(r.Context())
@@ -127,6 +136,9 @@ func (h *ConfirmationsHandler) decide(w http.ResponseWriter, r *http.Request, de
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if receipt.State == "pending" {
+		w.WriteHeader(http.StatusAccepted)
+	}
 	_ = json.NewEncoder(w).Encode(map[string]string{"id": receipt.ID, "state": receipt.State})
 }
 

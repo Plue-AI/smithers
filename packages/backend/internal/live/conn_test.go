@@ -373,6 +373,7 @@ func TestLivePresenceCoalescesWithoutBlockingSocket(t *testing.T) {
 				require.Empty(t, locations)
 			}
 		})
+	}
 }
 
 func TestLivePresenceDoesNotUnsubscribeExistingID(t *testing.T) {

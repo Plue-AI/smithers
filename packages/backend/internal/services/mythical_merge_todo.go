@@ -35,12 +35,13 @@ type MythicalMergeInput struct {
 // refusal that cleared its merge fence; the approval stays as that receipt
 // and is never retried until another press replaces it.
 type mythicalLand struct {
-	By         string    `json:"by"`
-	Account    int64     `json:"account"`
-	Generation int64     `json:"generation,omitempty"`
-	Session    string    `json:"session,omitempty"`
-	Head       string    `json:"head"`
-	At         time.Time `json:"at"`
+	StandingUser int64     `json:"standing_user,omitempty"`
+	By           string    `json:"by"`
+	Account      int64     `json:"account"`
+	Generation   int64     `json:"generation,omitempty"`
+	Session      string    `json:"session,omitempty"`
+	Head         string    `json:"head"`
+	At           time.Time `json:"at"`
 	// Request is the Idempotency-Key of the press that recorded it.
 	Request string                `json:"request,omitempty"`
 	Refused *mythicalMergeRefusal `json:"refused,omitempty"`
@@ -474,7 +475,10 @@ func (e *MythicalStaleHeadError) Unwrap() error { return &e.TodoControlError }
 // until T-GH-03 syncs them, ready rests on the PostgreSQL rows.
 func (s *MythicalService) todoMerge(ctx context.Context, item db.MythicalItem) (map[string]any, error) {
 	block := map[string]any{"on_github": item.PRNumber.Valid}
-	land := mythicalChecksOf(item).Land
+	land := mythicalMergeApproval(item)
+	if failure := mythicalChecksOf(item).PreapprovalFailure; failure != nil && failure.Head == item.PRHead && failure.Generation == item.Generation {
+		land = failure
+	}
 	switch {
 	case item.State == "landed":
 		block["state"] = "done"
@@ -557,8 +561,8 @@ func (s *MythicalService) mergeGitHub(ctx context.Context, item db.MythicalItem,
 // fence and keeps it on the approval. Any other error keeps the fence for
 // the next pass.
 func (s *MythicalService) MergeDecision(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (mythicalMergeDecided, error) {
-	land := mythicalChecksOf(item).Land
-	if op.Kind != "merge" || land == nil || land.Session == "" || land.Refused != nil || land.Head != op.Desired || land.Generation != item.Generation {
+	land := mythicalMergeApproval(item)
+	if op.Kind != "merge" || land == nil || (land.Session == "" && land.StandingUser == 0) || land.Refused != nil || land.Head != op.Desired || land.Generation != item.Generation {
 		return mythicalMergeDecided{}, mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
 	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
@@ -597,9 +601,17 @@ func (s *MythicalService) MergeDecision(ctx context.Context, item db.MythicalIte
 // approved, and answers that account as GitHub names it. A stored approval
 // is never current authorization by itself.
 func (s *MythicalService) mergeAuthority(ctx context.Context, item db.MythicalItem, land mythicalLand) (gitHubActor, error) {
-	_, account, _, err := s.mergeApprover(ctx, item.RepositoryID, land.Session)
+	var account gitHubActor
+	var err error
+	if land.StandingUser != 0 {
+		if _, err = s.standingMergePerson(ctx, s.store, land.StandingUser); err == nil {
+			_, account, err = s.maintainerPerson(ctx, item.RepositoryID, land.StandingUser, "merge a pre-approved TODO")
+		}
+	} else {
+		_, account, _, err = s.mergeApprover(ctx, item.RepositoryID, land.Session)
+	}
 	if err != nil {
-		return gitHubActor{}, err
+		return gitHubActor{}, mythicalAuthorityRefusal(err)
 	}
 	if account.ID != land.Account {
 		return gitHubActor{}, mythicalMergeAccountMoved()
@@ -792,6 +804,10 @@ func (s *MythicalService) mergeChecks(ctx context.Context, gh mythicalGitHubRepo
 	if err != nil {
 		return err
 	}
+	return mythicalMergeCheckFacts(facts)
+}
+
+func mythicalMergeCheckFacts(facts []mythicalHeadCheck) error {
 	sort.SliceStable(facts, func(i, j int) bool { return facts[i].Name < facts[j].Name })
 	for _, fact := range facts {
 		if fact.Required && fact.State != mythicalCIGreen {
@@ -941,8 +957,8 @@ func mythicalNoCIDirectives(text string) string {
 // mythicalMergeExpiry at now's time, or one recorded before approvals
 // carried their time. A fence with no approval is MergeDecision's to refuse.
 func mythicalMergeExpired(item db.MythicalItem, now func() time.Time) bool {
-	land := mythicalChecksOf(item).Land
-	return land != nil && (land.At.IsZero() || now().Sub(land.At) >= mythicalMergeExpiry)
+	land := mythicalMergeApproval(item)
+	return land != nil && land.StandingUser == 0 && (land.At.IsZero() || now().Sub(land.At) >= mythicalMergeExpiry)
 }
 
 // mythicalMergeUnfinished is the receipt of a merge mythicalMergeExpiry
@@ -1026,7 +1042,9 @@ func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalIt
 	// This receipt distinguishes a returned delayed request from a killed
 	// process. Commit it before another pass can consider recovery dispatch.
 	checks := mythicalChecksOf(claimed)
-	checks.Land.Unanswered = false
+	if checks.Land != nil {
+		checks.Land.Unanswered = false
+	}
 	claimed.Checks = checks.encode()
 	claimed, err = st.q.SaveMythicalItemUnderLease(ctx, claimed, st.r.row.Claim)
 	if err != nil {
@@ -1059,17 +1077,20 @@ func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalIt
 // row after it waits for the claim, and a row inserted after it orders
 // after it: neither recalls the request.
 func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp, decided mythicalMergeDecided, binding mythicalMergeBinding) (db.MythicalItem, error) {
-	land := mythicalChecksOf(item).Land
+	land := mythicalMergeApproval(item)
 	if land == nil {
 		return db.MythicalItem{}, mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
 	}
 	var claimed db.MythicalItem
 	err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
-		if err := lockMergeFacts(ctx, tx, item, land.Session, binding); err != nil {
+		if err := lockMergeFacts(ctx, tx, item, land.Session, land.StandingUser, binding); err != nil {
 			return err
 		}
 		q := db.New(tx)
 		standing, err := readMergeStanding(ctx, tx, land.Session)
+		if land.StandingUser != 0 {
+			standing, err = st.s.standingMergePerson(ctx, tx, land.StandingUser)
+		}
 		if err != nil {
 			return err
 		}
@@ -1107,7 +1128,11 @@ func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem
 		}
 		next := item
 		checks := mythicalChecksOf(next)
-		checks.Land.Unanswered = op.State != "unknown"
+		if op.Precondition == "preapproved" {
+			checks.PreapprovalSent = land
+		} else {
+			checks.Land.Unanswered = op.State != "unknown"
+		}
 		next.Checks = checks.encode()
 		op.State = "unknown"
 		next.PendingOp, _ = json.Marshal(op)
@@ -1128,7 +1153,7 @@ func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem
 // writer outside this order makes by aborting one transaction: an aborted
 // claim records nothing and sends nothing, and the next pass decides
 // again.
-func lockMergeFacts(ctx context.Context, tx pgx.Tx, item db.MythicalItem, session string, b mythicalMergeBinding) error {
+func lockMergeFacts(ctx context.Context, tx pgx.Tx, item db.MythicalItem, session string, standingUser int64, b mythicalMergeBinding) error {
 	destinations := []any{strings.ToLower(b.githubOwner), strings.ToLower(b.githubRepo), strings.ToLower(b.owner), strings.ToLower(b.name)}
 	for _, lock := range []struct {
 		sql  string
@@ -1137,13 +1162,15 @@ func lockMergeFacts(ctx context.Context, tx pgx.Tx, item db.MythicalItem, sessio
 		{`SELECT 1 FROM repositories WHERE id = $1 FOR SHARE`, []any{item.RepositoryID}},
 		{`SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, []any{item.RepositoryID}},
 		{`SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, []any{item.ID}},
-		{`SELECT 1 FROM users WHERE id IN ((SELECT user_id FROM auth_sessions WHERE session_key = $1), $2) ORDER BY id FOR SHARE`, []any{session, b.repoUser}},
+		{`SELECT 1 FROM users WHERE id IN ((SELECT user_id FROM auth_sessions WHERE session_key = $1), $2, $3) ORDER BY id FOR SHARE`, []any{session, b.repoUser, standingUser}},
 		{`SELECT 1 FROM auth_sessions WHERE session_key = $1 FOR SHARE`, []any{session}},
+		{`SELECT 1 FROM collaborators WHERE user_id IN ((SELECT user_id FROM auth_sessions WHERE session_key = $1), $2) FOR SHARE`, []any{session, standingUser}},
+		{`SELECT 1 FROM install_settings WHERE key = 'github.repository' FOR SHARE`, nil},
 		{`SELECT 1 FROM github_app WHERE singleton FOR SHARE`, nil},
 		{`SELECT 1 FROM github_app_installation_repositories WHERE (owner_login_lower, repo_name_lower) IN (($1, $2), ($3, $4)) FOR SHARE`, destinations},
 		{`SELECT 1 FROM github_synced_repos WHERE LOWER(mirror_owner) = $1 AND LOWER(mirror_repo) = $2 FOR SHARE`, destinations[2:]},
 		{`SELECT 1 FROM import_jobs WHERE repository_id = $1 AND status = 'ready' FOR SHARE`, []any{item.RepositoryID}},
-		{`SELECT 1 FROM oauth_accounts WHERE user_id = (SELECT user_id FROM auth_sessions WHERE session_key = $1) FOR SHARE`, []any{session}},
+		{`SELECT 1 FROM oauth_accounts WHERE user_id IN ((SELECT user_id FROM auth_sessions WHERE session_key = $1), $2) FOR SHARE`, []any{session, standingUser}},
 		{`SELECT 1 FROM org_members WHERE organization_id = $1 FOR SHARE`, []any{b.repoOrg}},
 		{`SELECT 1 FROM organizations WHERE id = $1 FOR SHARE`, []any{b.repoOrg}},
 		{`SELECT 1 FROM repo_connections WHERE (repo_owner_lower, repo_name_lower) IN (($1, $2), ($3, $4)) FOR SHARE`, destinations},
@@ -1168,6 +1195,15 @@ func (st *mythicalItemStep) mergedOffMain(ctx context.Context, item db.MythicalI
 	next := item
 	next.PRState, next.State, next.Reason = "closed", "rejected", "merged into "+base+" on GitHub, not main"
 	checks := mythicalChecksOf(next)
+	if op.Precondition == "preapproved" {
+		checks.PreapprovalSent = nil
+	}
+	if op.Precondition == "preapproved" && checks.Preapproval != nil {
+		failure := *checks.Preapproval
+		failure.Head, failure.Generation = op.Desired, item.Generation
+		failure.Refused = &mythicalMergeRefusal{Code: refusal.Code, Class: refusal.Class, Message: refusal.Message, At: st.now}
+		checks.PreapprovalFailure = &failure
+	}
 	if checks.Land != nil && checks.Land.Head == op.Desired {
 		checks.Land.Refused = &mythicalMergeRefusal{Code: refusal.Code, Class: refusal.Class, Message: refusal.Message, At: st.now}
 	}
@@ -1194,7 +1230,7 @@ func (st *mythicalItemStep) mergedOffMain(ctx context.Context, item db.MythicalI
 func (st *mythicalItemStep) refuseMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp, err error, unsent bool) (*db.MythicalItem, error) {
 	var refusal *TodoControlError
 	if !errors.As(err, &refusal) {
-		land := mythicalChecksOf(item).Land
+		land := mythicalMergeApproval(item)
 		if !unsent || land == nil || errors.Is(err, errMythicalMergedOnGitHub) {
 			return nil, err
 		}
@@ -1204,6 +1240,15 @@ func (st *mythicalItemStep) refuseMerge(ctx context.Context, item db.MythicalIte
 	}
 	next := item
 	checks := mythicalChecksOf(next)
+	if op.Precondition == "preapproved" {
+		checks.PreapprovalSent = nil
+	}
+	if op.Precondition == "preapproved" && checks.Preapproval != nil {
+		failure := *checks.Preapproval
+		failure.Head, failure.Generation = op.Desired, item.Generation
+		failure.Refused = &mythicalMergeRefusal{Code: refusal.Code, Class: refusal.Class, Message: refusal.Message, At: st.now}
+		checks.PreapprovalFailure = &failure
+	}
 	if checks.Land != nil && checks.Land.Head == op.Desired {
 		checks.Land.Refused = &mythicalMergeRefusal{Code: refusal.Code, Class: refusal.Class, Message: refusal.Message, At: st.now}
 	}

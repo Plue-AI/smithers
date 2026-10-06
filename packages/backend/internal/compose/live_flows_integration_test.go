@@ -2,7 +2,10 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +32,7 @@ func TestLiveFlowsRepairsMissedHintAndKeepsActive(t *testing.T) {
 	var repository int64
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name,default_bookmark,is_public) VALUES ($1,'app','app','main',false) RETURNING id`, user.ID).Scan(&repository))
 	active, failed := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("1", 40), active, "loaded", "", json.RawMessage(`{"steps":[]}`))
+	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("1", 40), active, "loaded", "", json.RawMessage(`{"steps":[{"id":"changelog","label":"Changelog"}]}`))
 	require.NoError(t, err)
 	_, err = q.ActivateFlowVersion(ctx, repository, "todo", active)
 	require.NoError(t, err)
@@ -67,6 +71,7 @@ func TestLiveFlowsRepairsMissedHintAndKeepsActive(t *testing.T) {
 	var cards []services.FlowCard
 	require.NoError(t, json.Unmarshal(first.Data, &cards))
 	require.Equal(t, active, cards[0].Versions[0].ID)
+	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
 	_, err = q.RequestMythicalBootstrap(ctx, repository, user.ID, 100, false)
 	require.NoError(t, err)
 	load, err := q.EnsureFlowLoad(ctx, repository)
@@ -82,8 +87,60 @@ func TestLiveFlowsRepairsMissedHintAndKeepsActive(t *testing.T) {
 	require.Greater(t, *changed.Cursor, *first.Cursor)
 	require.NoError(t, json.Unmarshal(changed.Data, &cards))
 	require.Equal(t, active, cards[0].Versions[0].ID)
+	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
 	require.Equal(t, "active", cards[0].Versions[0].State)
 	require.Equal(t, failed, cards[0].Versions[1].ID)
 	require.Equal(t, "merged-failed", cards[0].Versions[1].State)
 	require.Equal(t, "flows/todo/flow.ts:12: invalid type", cards[0].Versions[1].Error)
+}
+
+// The person-facing install route reads the same persisted version metadata
+// across fresh compositions; it never replaces it with built-in steps.
+func TestInstallFlowsServesPersistedGuestSteps(t *testing.T) {
+	_, _, pool := splitProcessDatabase(t)
+	ctx := t.Context()
+	q := db.New(pool)
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "flow-owner", LowerUsername: "flow-owner"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
+	var repository int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name,default_bookmark,is_public) VALUES ($1,'app','app','main',false) RETURNING id`, owner.ID).Scan(&repository))
+	binding := fmt.Sprintf(`{"owner_login":"flow-owner","repository_name":"app","repository_id":%d,"last_access_check_at":"%s"}`, repository, time.Now().UTC().Format(time.RFC3339))
+	for key, value := range map[string]string{"github.repository": binding, "owner.access": binding} {
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(value)}))
+	}
+	const cookie = "flow-cookie"
+	hash := sha256.Sum256([]byte(cookie))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: hex.EncodeToString(hash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	digest := strings.Repeat("a", 64)
+	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("1", 40), digest, "loaded", "", json.RawMessage(`{"steps":[{"id":"changelog","label":"Changelog"}]}`))
+	require.NoError(t, err)
+	_, err = q.ActivateFlowVersion(ctx, repository, "todo", digest)
+	require.NoError(t, err)
+	runtime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	for attempt := range 2 {
+		t.Run(fmt.Sprint(attempt), func(t *testing.T) {
+			server := httptest.NewUnstartedServer(nil)
+			origin := "http://" + server.Listener.Addr().String()
+			t.Setenv("SMITHERS_PUBLIC_URL", origin)
+			server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Workspace: runtime, ChatHost: unusedChatHost{}})
+			server.Start()
+			req, err := http.NewRequest("GET", server.URL+"/api/flows", nil)
+			require.NoError(t, err)
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response, err := server.Client().Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, response.StatusCode)
+			var cards []services.FlowCard
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&cards))
+			require.NoError(t, response.Body.Close())
+			server.Close()
+			require.Equal(t, digest, cards[0].Versions[0].ID)
+			require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
+		})
+	}
 }

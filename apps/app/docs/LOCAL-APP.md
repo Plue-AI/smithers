@@ -321,12 +321,10 @@ Lane `change` (ADR 0003) makes the change the unit of review:
   only when an artifact exists, leading when the current revision came from
   an agent session and the change touches more than 20 files and otherwise
   sitting after History; Owners closes the strip only when the change GET
-  carried ownership. The footer acts: Land (the carrying landing request:
-  queued, never "merged"; `Land 1 → N` for a stack, `Retry land` for a failed
-  one, the changeset's own atomic route when one carries the change, a 409
-  re-reads, and a blocked gate names its reason beside the button), Split
-  ready while the changeset can still land, Revert on a landed change, and
-  Full diff. A `degraded` sign-in reads a change freely; dispatching the
+  carried ownership. The footer opens Full diff and lets a person request
+  another review from a reviewer who requested changes. TODOs merge through
+  their own Review & merge control or a maintainer's standing pre-approval.
+  A `degraded` sign-in reads a change freely; dispatching the
   resolve agent refuses with the "sign in again to enable" wording.
 - **`diff`** (`/change.diff <changeId> [from] [to] [path]`) renders one from →
   to pair pinned at the change's commit (`parent → rev 2 · pinned at rev 2 ·

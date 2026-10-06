@@ -393,7 +393,7 @@ describe("box.open recovery grammar", () => {
 })
 
  test("confirmation cancellation refuses scalar JSON before form dispatch", () => {
-  const entry = baseFlows({} as CommandActions).find(row => nameOf(row) === "confirm.cancel")!
+  const entry = baseFlows(inertActions).find(row => nameOf(row) === "confirm.cancel")!
   for (const value of ["7", "0", '"hello world"', "500000", "null", "[]"]) {
     expect(payloadFor("confirm.cancel", value, entry.metadata.grammar)).toEqual({ error: "Invalid confirmation input" })
   }
@@ -401,7 +401,7 @@ describe("box.open recovery grammar", () => {
 
 test("restored model forms refuse scalar JSON before dispatch", () => {
   for (const name of ["agent.model", "model.save"]) {
-    const entry = baseFlows({} as CommandActions).find(row => nameOf(row) === name)!
+    const entry = baseFlows(inertActions).find(row => nameOf(row) === name)!
     for (const value of ["7", "0", '"hello world"', "500000", "null", "[]"]) expect(payloadFor(name, value, entry.metadata.grammar)).toEqual({ error: "Input must be a JSON object" })
   }
 })

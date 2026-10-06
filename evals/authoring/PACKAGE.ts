@@ -32,9 +32,7 @@ const validatorTests = Smithers.file("//evals/authoring/validate.test.ts")
 const dataset = Smithers.file("//evals/authoring/data/pilot-sft.jsonl")
 const workspaceManifests = [
   Smithers.file("//package.json"),
-  Smithers.glob("//packages/**/package.json"),
-  Smithers.glob("//apps/**/package.json"),
-  Smithers.glob("//evals/**/package.json"),
+  Smithers.pnpmWorkspace("//pnpm-workspace.yaml"),
   Smithers.file("//examples/package.json"),
   Smithers.file("//flows/package.json")
 ]

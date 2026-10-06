@@ -16,7 +16,8 @@ export const pendingControlFlows = (actions: CommandActions) => bind(pendingCont
         form: { submitLabel: operation.summary, args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) },
         preflight: (_payload: unknown, invoker?: "user" | "agent" | "system") => invoker === "agent" || invoker === "system" ? "Confirmation execution unavailable." : undefined }
     : operation),
-  Object.fromEntries(pendingControls.map(operation => [operation.name, operation.name === "todo.takeover" ? (input: { n: number }) => actions.controlTodo(input.n, "takeover")
+  Object.fromEntries(pendingControls.map(operation => [operation.name, operation.name === "todo.preapprove" || operation.name === "todo.unapprove" ? (input: { n: number }) => actions.preapproveTodo(input.n, operation.name === "todo.preapprove")
+    : operation.name === "todo.takeover" ? (input: { n: number }) => actions.controlTodo(input.n, "takeover")
     : operation.name === "branch.bring-in" ? (input: { branch: string; id: string; revision: string }) => actions.bringIn(input.branch, input.id, input.revision)
     : operation.name === "branch.discard-foreign" ? (input: { branch: string; id: string; revision: string }) => actions.discardForeign(input.branch, input.id, input.revision)
     : operation.name === "learning.accept" ? (input: { id: string }) => actions.resolveProposal(input.id, "accept")

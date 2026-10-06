@@ -2,7 +2,10 @@ package compose
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"net"
@@ -107,6 +110,107 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	git("-C", store, "gc", "--prune=now")
 	require.Equal(t, "captured bytes", git("-C", store, "show", head+":retry.ts"))
 	require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
+	// Verify capture retention on the authenticated link used below by the
+	// composed browser document route. A host rewrite wins over replay, while
+	// the displaced snapshot remains readable. This does not activate ingest.
+	branch := "11111111-1111-4111-8111-111111111111"
+	headRef := "refs/smithers/branches/" + branch + "/head"
+	git("-C", store, "update-ref", headRef, base)
+	captures := machined.GitCaptureObjects{Resolve: func(_ context.Context, id string) (string, error) {
+		if id != branch {
+			return "", machined.ErrUnauthorized
+		}
+		return store, nil
+	}}
+	capture := wire.Captured{Head: head, Tree: git("-C", store, "rev-parse", head+"^{tree}"), Base: base}
+	// The production capture writer shares this browser's authenticated link.
+	// PostgreSQL and Git are real; only the pending/rebase adapter is a fixture.
+	pool := docDatabase(t)
+	var user, repository int64
+	require.NoError(t, pool.QueryRow(t.Context(), `INSERT INTO users(username,lower_username) VALUES('capture-owner','capture-owner') RETURNING id`).Scan(&user))
+	require.NoError(t, pool.QueryRow(t.Context(), `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'capture','capture') RETURNING id`, user).Scan(&repository))
+	_, err = pool.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,name) VALUES($1,$2,$3,'capture')`, branch, repository, user)
+	require.NoError(t, err)
+	failProjection := true
+	projections := 0
+	writer := &machined.CaptureIngest{Objects: captures, Reconcile: func(ctx context.Context, tx pgx.Tx, id string, got wire.Captured, applied bool) error {
+		require.Equal(t, branch, id)
+		require.Equal(t, capture, got)
+		if failProjection {
+			return errors.New("projection interrupted")
+		}
+		projections++
+		return nil
+	}}
+	ingestor := &machined.Ingestor{Pool: pool, Write: writer.Write}
+	payload := func(c wire.Captured) []byte {
+		h, _ := hex.DecodeString(c.Head)
+		tree, _ := hex.DecodeString(c.Tree)
+		base, _ := hex.DecodeString(c.Base)
+		return wire.Union(2, wire.Field(1, h), wire.Field(2, tree), wire.Field(3, base))
+	}
+	// Missing objects leave neither a receipt nor a projection, so the same
+	// outbox item remains retryable after object transfer.
+	missingCapture := capture
+	missingCapture.Head = strings.Repeat("ab", 20)
+	missingEvent := machined.Event{Seq: 3, EventID: [16]byte{3}, Payload: payload(missingCapture)}
+	missingAck, missingErr := ingestor.Commit(t.Context(), link.Connection, branch, missingEvent)
+	require.NoError(t, missingErr)
+	require.Equal(t, machined.AckMissingObjects, missingAck.Outcome)
+	require.Equal(t, []string{missingCapture.Head}, missingAck.OIDs)
+	refused := &machined.Ingestor{Pool: pool, Write: (&machined.CaptureIngest{Objects: captures}).Write}
+	_, missingErr = refused.Commit(t.Context(), link.Connection, branch, missingEvent)
+	require.ErrorIs(t, missingErr, machined.ErrNotReady)
+	event := machined.Event{Seq: 1, EventID: [16]byte{1}, Payload: payload(capture)}
+	_, err = ingestor.Commit(t.Context(), link.Connection, branch, event)
+	require.ErrorContains(t, err, "projection interrupted")
+	var count int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts`).Scan(&count))
+	require.Zero(t, count)
+	require.Equal(t, head, git("-C", store, "rev-parse", headRef))
+	failProjection = false
+	dispatchCtx, stopDispatch := context.WithCancel(t.Context())
+	dispatched := make(chan error, 1)
+	go func() { dispatched <- ingestor.Dispatch(dispatchCtx, link, branch) }()
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Events, Payload: wire.Union(1, wire.Field(1, wire.U64(event.Seq)), wire.Field(2, event.EventID[:]), wire.Field(3, event.Payload))}))
+	appliedFrame, err := wire.Read(guest)
+	require.NoError(t, err)
+	require.Equal(t, wire.Frame{Kind: wire.Events, Payload: wire.Union(3, wire.Field(1, wire.U64(1)), wire.Field(2, []byte{1}))}, appliedFrame)
+	t.Cleanup(func() {
+		stopDispatch()
+		require.ErrorIs(t, <-dispatched, context.Canceled)
+	})
+	ack, err := ingestor.Commit(t.Context(), link.Connection, branch, event)
+	require.NoError(t, err)
+	require.Equal(t, machined.AckDuplicate, ack.Outcome)
+	require.Equal(t, 1, projections)
+	var projectedHead string
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT head_commit_id FROM workspaces WHERE id=$1`, branch).Scan(&projectedHead))
+	require.Equal(t, head, projectedHead)
+	git("-C", store, "update-ref", headRef, base)
+	_, err = pool.Exec(t.Context(), `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, branch, base)
+	require.NoError(t, err)
+	capture.Base = head
+	event.Seq = 2
+	event.EventID[0] = 2
+	event.Payload = payload(capture)
+	ack, err = ingestor.Commit(t.Context(), link.Connection, branch, event)
+	require.NoError(t, err)
+	require.Equal(t, machined.AckStaleBase, ack.Outcome)
+	ack, err = ingestor.Commit(t.Context(), link.Connection, branch, event)
+	require.NoError(t, err)
+	require.Equal(t, machined.AckStaleBase, ack.Outcome)
+	require.Equal(t, 2, projections)
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT head_commit_id FROM workspaces WHERE id=$1`, branch).Scan(&projectedHead))
+	require.Equal(t, base, projectedHead)
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts`).Scan(&count))
+	require.Equal(t, 2, count)
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='branch.captured'`).Scan(&count))
+	require.Equal(t, 2, count)
+	git("-C", store, "update-ref", "-d", "refs/smithers/branches/"+branch+"/incoming/"+head)
+	git("-C", store, "gc", "--prune=now")
+	require.Equal(t, base, git("-C", store, "rev-parse", headRef))
+	require.Equal(t, "captured bytes", git("-C", store, "show", "refs/smithers/branches/"+branch+"/captures/"+head+":retry.ts"))
 	// Dependency readiness is separate from the transport. A fresh authenticated
 	// link is refused by the public subscription before reconciliation completes.
 	f.relay.Connection = func(_ context.Context, branch string) (*machined.Connection, live.DocumentRPC) {

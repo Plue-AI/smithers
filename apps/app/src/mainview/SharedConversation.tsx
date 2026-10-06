@@ -2,6 +2,7 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { useSyncExternalStore } from "react"
 import { Markdown, MessageScrollerItem } from "@smthrs/ui"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
+import { TranscriptMessage } from "./TranscriptMessage"
 import { EntryRow } from "./EntryRow"
 import { CardView } from "./ChatCards"
 import { controllerCardActions } from "./cards/controllerCardActions"
@@ -22,6 +23,8 @@ export function SharedConversation({ source }: { source: SharedConversationSeam 
     {snapshot.error ? <p role="status">{snapshot.error}</p> : null}
     {requests.map(row => <EntryRow key={row.id} kind="prompt" private author={{ kind: "person", login: row.owner, name: row.owner, avatar_url: PlaceholderAvatarUrl, color_index: 0 }} title="" tone={row.state === "failed" ? "failed" : "quiet"} card={<div data-prompt-request={row.id}><Markdown content={row.prompt} /><p role="status">{row.error ?? "Requested"}</p></div>} onAction={() => {}} />)}
     {snapshot.conversation?.entries.map(turn => {
+      if ("origin" in turn && turn.origin === "external" && "role" in turn) return <MessageScrollerItem key={turn.id} messageId={turn.id} style={{ contentVisibility: "visible" }}><TranscriptMessage entry={{ kind: "message", message: turn }} streamingMessageId={undefined} /></MessageScrollerItem>
+      if (!("frames" in turn)) return null
       const person = { login: turn.authorLogin, name: turn.authorLogin, avatar_url: PlaceholderAvatarUrl }
       const frames = turn.frames.filter(frame => frame.runId === turn.runId)
       const text = frames.flatMap(frame => frame.type === "delta" && frame.kind === "text" ? [frame.text] : []).join("")

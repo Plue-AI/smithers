@@ -15,11 +15,11 @@ const pack = Smithers.NodeTest({
 
 const cwd = "flows"
 const sources = Smithers.glob("//flows/**/*.ts")
-const scripts = Smithers.glob("//scripts/*.mjs")
+const scripts = Smithers.Filegroup({ cwd: "scripts", srcs: [Smithers.glob("*.mjs")] })
 
 const check = Smithers.Typecheck({
-  srcs: [sources, scripts],
-  deps: [],
+  srcs: [sources],
+  deps: [scripts],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
   incremental: false,
@@ -33,6 +33,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/release-operations.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
     Smithers.file("//flows/test/review-flow.test.ts"),
+    Smithers.file("//flows/test/coding-wiki-relay.test.ts"),
     Smithers.file("//flows/test/host-jev-routing.test.ts"),
     Smithers.file("//flows/test/system-flow-catalog.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
@@ -42,7 +43,6 @@ const suite = Smithers.NodeTest({
   ]),
   srcs: [
     sources,
-    scripts,
     Smithers.file("//flows/review/flow.ts"),
     Smithers.file("//packages/backend/internal/services/flow_catalog.go"),
     Smithers.file("//packages/backend/internal/services/builtin_flows.json"),
@@ -51,7 +51,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/rollout/refuse-unqualified.mjs"),
     Smithers.file("//apps/bug-worker/package.json")
   ],
-  deps: [],
+  deps: [scripts],
   cwd
 })
 
@@ -192,7 +192,7 @@ const codingBackend = codingPackages.map((cwd) =>
     srcs: [Smithers.glob("src/**"), Smithers.file("package.json"), Smithers.file("tsconfig.json")]
   })
 )
-const codingScripts = Smithers.Filegroup({ cwd: "scripts", srcs: [Smithers.glob("*.mjs")] })
+const codingScripts = scripts
 const codingWiki = Smithers.Filegroup({ cwd: "flows/wiki", srcs: [Smithers.glob("**/*.ts")] })
 const codingFiles = [
   sources,
@@ -273,6 +273,8 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-planning-answers.test.ts"),
     Smithers.file("//flows/test/coding-project-memory.test.ts"),
     Smithers.file("//flows/test/coding-stack-base.test.ts"),
+    Smithers.file("//flows/test/coding-stack-reserved.test.ts"),
+    Smithers.file("//flows/test/coding-wiki-relay.test.ts"),
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-project-defaults.test.ts"),
     Smithers.file("//flows/test/coding-build-only.test.ts"),
@@ -700,6 +702,7 @@ const securityReview = Smithers.SecurityReview({
 
 export const Package = Smithers.Package({
   targets: {
+    scripts,
     codingHostInputs,
     coding,
     codingPolicy,

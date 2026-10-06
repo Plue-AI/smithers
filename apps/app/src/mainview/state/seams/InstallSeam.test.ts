@@ -739,13 +739,13 @@ test("the card lists the repository installed on GitHub without a reload, then s
   let served = blocked
   const h = await harness(() => Response.json(served), { installPollMs: 5 })
   await h.seam.readInstall()
-  await Bun.sleep(40)
+  await until(() => h.requests.length > 2)
   const waiting = h.requests.length
   expect(waiting).toBeGreaterThan(2)
   expect(h.seam.snapshots.get().model?.repositories).toEqual([])
   // GitHub returned the person in another tab; this card reads the install on its own.
   served = installed
-  await Bun.sleep(40)
+  await until(() => h.seam.snapshots.get().model?.repositories?.[0] === "smithersai/smithers")
   expect(h.seam.snapshots.get().model?.repositories).toEqual(["smithersai/smithers"])
   expect(h.seam.snapshots.get().model?.steps.find(step => step.id === "repository")?.state).toBe("pending")
   const settled = h.requests.length
@@ -765,4 +765,16 @@ test("a blocked repository step stops reading the install on dispose", async () 
   const count = h.requests.length
   await Bun.sleep(30)
   expect(h.requests.length).toBe(count)
+})
+
+test("the owner default posts the requested value and preserves it in Settings", async () => {
+  const h = await harness((_path, init) => Response.json({ ...installFixture(), todo_preapprove_default: init?.method === "PUT" }))
+  await h.seam.readInstall()
+  expect(h.seam.setInstallPreapproveDefault(true)).toEqual({ value: "Requested" })
+  await h.idle()
+  const write = h.requests.find(row => row.init?.method === "PUT")!
+  expect(write.path).toBe("/api/install")
+  expect(JSON.parse(String(write.init?.body))).toEqual({ todo_preapprove_default: true })
+  expect(h.seam.snapshots.get().model?.todo_preapprove_default).toBe(true)
+  h.seam.dispose()
 })

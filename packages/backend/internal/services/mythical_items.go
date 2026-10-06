@@ -1075,6 +1075,7 @@ type mythicalItemStep struct {
 	// maxParallel: every launch that takes a new lane asks slot first.
 	busy        int
 	maxParallel int
+	machineHeld map[[16]byte]bool
 	// inFlight names the items with a run in flight, each holding
 	// mythicalRunTokenReserve of the daily budget: those found running when
 	// the pass began and those it launched.
@@ -1176,12 +1177,21 @@ func mythicalRunInFlight(item db.MythicalItem) bool {
 // freeLane supplies identity only; people use runtime admission, not a lane reserve.
 func (st *mythicalItemStep) slot(item db.MythicalItem) bool {
 	busy := st.busy
-	if mythicalHoldsLane(item) || item.State == "proposed" && item.WorkspaceID != "" {
+	if st.holdsMachine(item) {
 		// The item gives up the workspace it holds (its coding workspace,
 		// counted while it was proposed) for the new one.
 		busy--
 	}
 	return busy < st.maxParallel && st.launches < mythicalLaunchesPerRun
+}
+
+// holdsMachine uses runtime ownership on the install. Legacy drains retain
+// their historical accounting when no install provider is required.
+func (st *mythicalItemStep) holdsMachine(item db.MythicalItem) bool {
+	if st.machineHeld != nil {
+		return st.machineHeld[item.ID.Bytes]
+	}
+	return mythicalHoldsLane(item) || item.State == "proposed" && item.WorkspaceID != ""
 }
 
 // freeLane answers the lowest lane index no other unsettled item holds, so
@@ -1282,10 +1292,34 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			step.issues = append(step.issues, fmt.Sprintf("#%d %s", item.IssueNumber.Int64, item.IssueTitle))
 		}
 	}
+	if s.installParallelRequired {
+		ownership, ok := s.lanes.(interface {
+			MachineHeld(context.Context, string) (bool, error)
+		})
+		step.machineHeld = map[[16]byte]bool{}
+		if !ok {
+			step.maxParallel = 0
+			s.logger.Warn("mythical.machine_ownership_unavailable")
+		}
+		for _, item := range items {
+			if item.WorkspaceID == "" {
+				continue
+			}
+			held := true
+			var err error
+			if ok {
+				held, err = ownership.MachineHeld(ctx, item.WorkspaceID)
+			}
+			if err != nil {
+				held = true
+				step.maxParallel = 0
+				s.logger.Warn("mythical.machine_ownership_failed", "error", err)
+			}
+			step.machineHeld[item.ID.Bytes] = held
+		}
+	}
 	for _, item := range items {
-		// Every workspace a phase occupies counts, so reviews, retained
-		// coding workspaces and new requests together stay within the cap.
-		if mythicalHoldsLane(item) {
+		if step.holdsMachine(item) {
 			step.busy++
 		}
 	}
@@ -1294,6 +1328,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		return items[i].StackPosition.Int64 < items[j].StackPosition.Int64
 	})
 	step.items = items
+	s.orderTodoMachines(items)
 	defer s.sweepLanes(ctx, r)
 	// An item that waits for a lane may get one when another item moves.
 	waitsForLane, moved := false, false
@@ -1357,8 +1392,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if next == nil {
 			continue
 		}
-		if !mythicalHoldsLane(item) && mythicalHoldsLane(*next) {
+		if !step.holdsMachine(item) && mythicalHoldsLane(*next) {
 			step.busy++
+			if step.machineHeld != nil {
+				step.machineHeld[item.ID.Bytes] = true
+			}
 		}
 		result := *next
 		if !saved {
@@ -1479,6 +1517,14 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 // pinned, so nothing depends on it. A failed release is retried next claim.
 // It answers the item as saved, so a step that follows works on it.
 func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
+	// On the install, review is a retained branch machine. Only the runtime's
+	// safe-idle observer may sleep it; publication is not a safety observation.
+	if s.installParallelRequired {
+		state := todoState(item)
+		if !mythicalSettledStates[item.State] || state == "paused" || state == "needs_you" || state == "in_review" {
+			return item
+		}
+	}
 	if s.lanes == nil || item.WorkspaceID == "" || !r.row.ActorUserID.Valid {
 		return item
 	}
@@ -1735,7 +1781,15 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// and nothing gates on what GitHub did not say.
 			return next, false, nil
 		}
-		if err != nil || next == nil || next.State != "proposed" {
+		// Unchanged GitHub facts need no row update, but a newly granted
+		// standing approval still has to evaluate this ready TODO.
+		if err == nil && next == nil && mythicalChecksOf(item).Preapproval != nil {
+			next = &item
+		}
+		if err == nil && next != nil && next.State == "proposed" && mythicalChecksOf(*next).Preapproval != nil {
+			return st.merge(ctx, *next), false, nil
+		}
+		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -4130,33 +4184,50 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 	return r.g.git(ctx, "diff", "--no-color", "--no-ext-diff", "--no-textconv", item.CandidateBase, item.PRHead)
 }
 
-// merge merges an automerge TODO's pull request at exactly the approved
-// head, once GitHub CI on that head is green: the Change's affected checks
-// are fast feedback, not proof, and GitHub itself may require nothing. It
-// waits while CI runs and never merges on red. A refusal (the branch moved)
-// is retried later; the pull request stays open for a person meanwhile.
+// merge prepares a standing person's approval through the same fenced outbound path.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
-	// Review & merge dispatches through the outbound merge (MergeDecision).
-	// Pre-approval does not reach this shared decision through gate() yet
-	// (§10.6.2d), so only reads may settle an already-applied merge here.
-	// Old labels cannot authorize one.
-	if st.s.github == nil || st.gh == nil {
+	// A person may already have merged on GitHub. Preserve the existing read
+	// recovery, which settles only when main contains the commit and sends no PUT.
+	if st.s.github == nil {
 		return mythicalLater(item, "merge recovery is unavailable", st.now)
+	}
+	// Install follow uses the fetched-fact service and deliberately leaves
+	// the outbound binding unresolved. Reuse publication's canonical binding.
+	if st.gh == nil {
+		if _, err := st.publicationGitHub(ctx); err != nil {
+			return mythicalLater(item, "merge recovery is unavailable", st.now)
+		}
 	}
 	pull, err := st.s.github.Pull(ctx, *st.gh, item.PRNumber.Int64)
 	if err != nil {
 		return mythicalLater(item, "GitHub did not answer for merge recovery", st.now)
 	}
 	if pull.Merged {
-		// Reuse follow’s GitHub fact and OnMain containment decision. A PR
-		// merge receipt alone must never project Merged.
 		next, err := st.follow(ctx, item)
 		if err != nil {
 			return mythicalLater(item, "GitHub did not answer for merge containment", st.now)
 		}
 		return next
 	}
-	return mythicalLater(item, "Waiting for merge readiness integration", st.now)
+	checks := mythicalChecksOf(item)
+	if !checks.Automerge || checks.Preapproval == nil || len(item.PendingOp) != 0 || checks.PreapprovalFailure != nil && checks.PreapprovalFailure.Head == item.PRHead && checks.PreapprovalFailure.Generation == item.Generation {
+		return &item
+	}
+	before, err := mythicalMergeAfter(ctx, st.s.store, item)
+	if err != nil || mythicalMergeReady(item, before, item.PRHead, false) != nil {
+		return &item
+	}
+	op := MythicalOutboundOp{Kind: "merge", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Desired: item.PRHead, Precondition: "preapproved", State: "intended"}
+	candidate := item
+	candidate.PendingOp, _ = json.Marshal(op)
+	if err := st.s.mergeDispatchReady(ctx, candidate); err != nil {
+		return &item
+	}
+	if _, err := st.s.MergeDecision(ctx, candidate, op); err != nil {
+		return &item
+	}
+	candidate.NextAttemptAt = pgtype.Timestamptz{}
+	return &candidate
 }
 
 // pin keeps a commit reachable from the control plane's own namespace.
@@ -4875,9 +4946,13 @@ type mythicalChecks struct {
 	// AutoTodo is why the factory made the issue a TODO without the label;
 	// OptedOut records a maintainer taking todo off such an issue, after
 	// which the factory never makes it one again on its own.
-	AutoTodo  string `json:"autoTodo,omitempty"`
-	OptedOut  bool   `json:"optedOut,omitempty"`
-	Automerge bool   `json:"automerge,omitempty"`
+	AutoTodo           string                     `json:"autoTodo,omitempty"`
+	OptedOut           bool                       `json:"optedOut,omitempty"`
+	Automerge          bool                       `json:"automerge,omitempty"`
+	PreapprovalSent    *mythicalLand              `json:"preapproval_sent,omitempty"`
+	PreapprovalFailure *mythicalLand              `json:"preapproval_failure,omitempty"`
+	Preapproval        *mythicalLand              `json:"preapproval,omitempty"`
+	PreapprovalEvents  []mythicalPreapprovalEvent `json:"preapproval_events,omitempty"`
 	// Land is the current Review & merge approval (§10.6.2c);
 	// MergeRequests are the identities of every press that recorded one,
 	// so a repeated request answers its receipt (§6.2.1).

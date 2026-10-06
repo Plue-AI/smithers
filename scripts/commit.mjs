@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /** Commit the entire shared checkout to main, using jj when present. */
+import { engineeringGateEnvironment, requireEngineeringGateHome } from "./engineering-gate-environment.mjs"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs"
@@ -50,17 +51,10 @@ try { mkdirSync(lock) } catch (error) {
   throw error
 }
 try {
-  const gateEnvironment = { ...process.env }
-  for (const key of Object.keys(gateEnvironment)) {
-    if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY/.test(key) ||
-        ["SMITHERS_GITHUB_PROXY", "BASH_ENV", "ENV", "NODE_OPTIONS", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES"].includes(key) ||
-        key.startsWith("BASH_FUNC_") || key.startsWith("GIT_CONFIG_")) delete gateEnvironment[key]
-  }
+  const gateEnvironment = engineeringGateEnvironment(process.env)
   // A home credential store cannot be hidden by changing HOME: absolute reads
   // remain possible. Refuse execution until the invoking checkout is isolated.
-  if (push && (!process.env.HOME || existsSync(join(process.env.HOME, ".config/issue-claim")))) {
-    throw new Error("Engineering gates require an isolated home without ~/.config/issue-claim.")
-  }
+  if (push) requireEngineeringGateHome(process.env)
   for (const command of tests) {
     const result = spawnSync("bash", ["-o", "pipefail", "-c", command], { cwd: root, stdio: "inherit", env: gateEnvironment })
     if (result.error || result.status !== 0) throw new Error(`Test command failed: ${command} (${result.error?.message ?? result.status})`)

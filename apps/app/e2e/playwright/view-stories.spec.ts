@@ -749,8 +749,17 @@ test("Docs missing and disabled navigation stay on the page", async ({ page }) =
       Object.assign(window, { docsReceipts: [] })
       window.addEventListener("story-callback", event => (window as unknown as { docsReceipts: unknown[] }).docsReceipts.push((event as CustomEvent).detail))
     })
-    await page.locator(".mvp-docs .sui-md a").click()
+    const link = page.locator(".mvp-docs .sui-md a")
+    await expect(link).not.toHaveAttribute("href")
+    await expect(link).toHaveAttribute("tabindex", "-1")
+    for (const entry of await page.locator(".mvp-docs nav a").all()) {
+      await expect(entry).not.toHaveAttribute("href")
+      await entry.click({ button: "middle" })
+    }
+    await link.click({ button: "middle" })
+    await link.click()
     expect(page.url()).toBe(url)
+    expect(page.context().pages()).toHaveLength(1)
     expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([])
   }
 })

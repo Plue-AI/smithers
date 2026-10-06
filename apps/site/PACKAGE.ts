@@ -13,6 +13,7 @@
  * @since 1.0.0
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as scriptPackage } from "../../scripts/PACKAGE.ts"
 import { Package as examplesPackage } from "../../examples/PACKAGE.ts"
 import { Package as errorsPackage } from "../../packages/errors/PACKAGE.ts"
 import { Package as chainPackage } from "../../packages/smithers/agent/chain/PACKAGE.ts"
@@ -355,14 +356,12 @@ const installPageTest = Smithers.Shell.Test({
     Smithers.glob("src/pages/**/*.astro"),
     Smithers.glob("docs/**/*"),
     Smithers.file("public/_redirects"),
-    Smithers.glob("//apps/app/src/docs/pages/*.md"),
     ...["T-INS-04", "T-INS-05", "T-INS-08"].map(name => Smithers.file(`//.specs/engineering/tickets/${name}.md`)),
     Smithers.file("astro.config.mjs"),
     Smithers.file("src/data/project.json"),
     Smithers.glob("src/content/docs/docs/**/*"),
-    Smithers.glob("//packages/smithers/src/**/*"),
-    Smithers.glob("//packages/smithers/build/build-cli/src/**/*"),
-    cliPackage.docsSources
+    cliPackage.docsSources,
+    scriptPackage.repositoryInputs
   ]
 })
 
@@ -452,8 +451,8 @@ const docsRuntimeTests = Smithers.Shell.Test({
   data: [
     Smithers.file("scripts/deployment.test.mjs"),
     Smithers.file("package.json"),
-    Smithers.glob("//apps/*/wrangler.jsonc"),
-    Smithers.glob("//apps/*/alchemy.run.ts"),
+    Smithers.file("//apps/server/wrangler.jsonc"),
+    Smithers.file("//apps/bug-worker/alchemy.run.ts"),
     Smithers.file("//apps/server/scripts/canary/workers-manifest.ts"),
     Smithers.file("//apps/bug-worker/README.md"),
     Smithers.file("//apps/bug-worker/package.json"),

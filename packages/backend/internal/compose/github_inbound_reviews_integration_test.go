@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,13 +61,39 @@ func (r *reviewFixtureReceiver) Steer(_ context.Context, input flowruntime.Steer
 }
 
 func TestGitHubCommentSteerThroughComposedInstall(t *testing.T) {
+	testGitHubCommentSteerThroughComposedInstall(t, "")
+}
+
+func TestGitHubCommentSteerRecoversUnavailableRuntime(t *testing.T) {
+	testGitHubCommentSteerThroughComposedInstall(t, "runtime-restored")
+}
+
+func TestGitHubCommentSteerRevokedBeforeWake(t *testing.T) {
+	for _, revocation := range []string{"removed", "suspended", "login-disabled"} {
+		t.Run(revocation, func(t *testing.T) {
+			testGitHubCommentSteerThroughComposedInstall(t, revocation)
+		})
+	}
+}
+
+type reviewWakeUnavailable struct{}
+
+func (reviewWakeUnavailable) Error() string              { return "review runtime unavailable" }
+func (reviewWakeUnavailable) FlowRuntimeCode() string    { return "runtime_unavailable" }
+func (reviewWakeUnavailable) FlowRuntimeRetryable() bool { return true }
+
+var reviewFixtureInstallation atomic.Int64
+
+func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation string) {
+	// Token caches span service instances. Each fake installation owns its token.
+	installationID := 9000 + reviewFixtureInstallation.Add(1)
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	credentials := services.GitHubAppCredentials{ID: 42, Slug: "review-install", OwnerLogin: "owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "review-hook", InstallationID: 91, PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
-	upstream, err := githubfake.New(githubfake.Config{AppID: 42, Slug: credentials.Slug, OwnerLogin: "owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: credentials.WebhookSecret, PrivateKeyPEM: credentials.PEM, Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "owner/app"}}}}})
+	credentials := services.GitHubAppCredentials{ID: 42, Slug: "review-install", OwnerLogin: "owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "review-hook", InstallationID: installationID, PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
+	upstream, err := githubfake.New(githubfake.Config{AppID: 42, Slug: credentials.Slug, OwnerLogin: "owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: credentials.WebhookSecret, PrivateKeyPEM: credentials.PEM, Installations: []githubfake.Installation{{ID: installationID, Repositories: []githubfake.Repository{{ID: 100, FullName: "owner/app"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(upstream.Close)
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", upstream.URL)
@@ -106,10 +133,19 @@ func TestGitHubCommentSteerThroughComposedInstall(t *testing.T) {
 	receiver := &reviewFixtureReceiver{messages: map[string]flowruntime.Steer{}}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil }), SteerAuthorizer: stack, Projector: stack})
+	var wakeAvailable atomic.Bool
+	var wakeCalls atomic.Int64
+	wakeAvailable.Store(revocation == "")
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		wakeCalls.Add(1)
+		if !wakeAvailable.Load() {
+			return nil, reviewWakeUnavailable{}
+		}
+		return receiver, nil
+	}), SteerAuthorizer: stack, Projector: stack})
 	require.NoError(t, err)
 	stack.SetLauncher(dispatcher)
-	_, err = assembled.synced.EnrollGitHubRepo(ctx, services.EnrollGitHubRepoInput{Owner: "owner", Repo: "app", InstallationID: 91, GitHubRepositoryID: 100, MetadataOnly: true})
+	_, err = assembled.synced.EnrollGitHubRepo(ctx, services.EnrollGitHubRepoInput{Owner: "owner", Repo: "app", InstallationID: installationID, GitHubRepositoryID: 100, MetadataOnly: true})
 	require.NoError(t, err)
 	// Only the signed hint is admitted; its forged comment body cannot steer.
 	hooks := services.NewGitHubWebhookService(pool, source, services.WithGitHubWebhookSyncedRepos(assembled.synced))
@@ -145,7 +181,7 @@ func TestGitHubCommentSteerThroughComposedInstall(t *testing.T) {
 		}
 	})
 	hint := func() {
-		payload := []byte(fmt.Sprintf(`{"action":"created","installation":{"id":91},"repository":{"id":100,"name":"app","owner":{"login":"owner"}},"issue":{"number":1,"pull_request":{}},"comment":{"id":%d,"body":"FORGED WEBHOOK BODY"}}`, comment))
+		payload := []byte(fmt.Sprintf(`{"action":"created","installation":{"id":%d},"repository":{"id":100,"name":"app","owner":{"login":"owner"}},"issue":{"number":1,"pull_request":{}},"comment":{"id":%d,"body":"FORGED WEBHOOK BODY"}}`, installationID, comment))
 		mac := hmac.New(sha256.New, []byte(credentials.WebhookSecret))
 		_, _ = mac.Write(payload)
 		request := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(payload))
@@ -159,6 +195,51 @@ func TestGitHubCommentSteerThroughComposedInstall(t *testing.T) {
 	t0 := time.Now()
 	hint()
 	hint()
+	if revocation != "" {
+
+		// Admission and the unavailable-runtime checkpoint are committed before
+		// revocation. The real dispatcher must recheck authority before retrying wake.
+		require.Eventually(t, func() bool {
+			var count int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_dispatches d JOIN product_job_requests r ON r.id=d.operation_id WHERE r.operation='flow.runtime.steer' AND d.external_receipt->>'failureCode'='runtime_unavailable'`).Scan(&count)
+			return err == nil && count == 1
+		}, 10*time.Second, 10*time.Millisecond)
+		receiver.mu.Lock()
+		require.Empty(t, receiver.messages, "missing runtime cannot fall back to host execution")
+		receiver.mu.Unlock()
+		if revocation == "runtime-restored" {
+			wakeAvailable.Store(true)
+		} else {
+			switch revocation {
+			case "removed":
+				_, err = pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner.ID)
+			case "suspended":
+				_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner.ID)
+			case "login-disabled":
+				_, err = pool.Exec(ctx, `UPDATE users SET prohibit_login=true WHERE id=$1`, owner.ID)
+			}
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				var count int
+				err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND state='failed' AND terminal_receipt->>'errorCode'='steer_author_revoked'`).Scan(&count)
+				return err == nil && count == 1
+			}, 10*time.Second, 10*time.Millisecond)
+			calls := wakeCalls.Load()
+			require.Positive(t, calls)
+			wakeAvailable.Store(true)
+			hint()
+			var intents, events int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&intents))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input'`).Scan(&events))
+			require.Equal(t, 1, intents)
+			require.Equal(t, 1, events, "revocation preserves recorded activity")
+			require.Equal(t, calls, wakeCalls.Load(), "revoked input cannot retry wake")
+			receiver.mu.Lock()
+			require.Empty(t, receiver.messages)
+			receiver.mu.Unlock()
+			return
+		}
+	}
 	require.Eventually(t, func() bool { receiver.mu.Lock(); defer receiver.mu.Unlock(); return len(receiver.messages) == 1 }, 15*time.Second, 20*time.Millisecond)
 	require.Less(t, time.Since(t0), 60*time.Second)
 	require.Eventually(t, func() bool {

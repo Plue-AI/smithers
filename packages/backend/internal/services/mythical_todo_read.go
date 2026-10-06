@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -76,6 +77,14 @@ func (s *MythicalService) todoQueuePosition(ctx context.Context, item db.Mythica
 // todoCard is the TodoCard projection of item. items is the repository's
 // ListMythicalItems page when the caller already holds it, else nil.
 func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, items []db.MythicalItem) (map[string]any, error) {
+	if items == nil {
+		var err error
+		items, err = s.queries().ListMythicalItems(ctx, item.RepositoryID, 500)
+		if err != nil {
+			return nil, err
+		}
+	}
+	s.orderTodoMachines(items)
 	var owner db.User
 	var err error
 	if item.OwnerID.Valid {
@@ -128,6 +137,13 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		if role == "" {
 			card["owner_removed"] = true
 		}
+	}
+	approval := mythicalChecksOf(item).Preapproval
+	if item.State == "landed" {
+		approval = mythicalChecksOf(item).PreapprovalSent
+	}
+	if approval != nil && (mythicalChecksOf(item).Automerge || item.State == "landed") {
+		card["preapproval"] = map[string]any{"by": approval.By, "at": approval.At.UTC().Format(time.RFC3339Nano)}
 	}
 	if todoState(item) == "merged" {
 		var count *int
@@ -206,7 +222,7 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	}
 	// A queued TODO waits for a lane machine; the card says so and where it is
 	// in line (mvp.md §4.1), never the stack's internal outage text.
-	if card["state"] == "queued" {
+	if card["state"] == "queued" && card["queue"] == nil {
 		position, err := s.todoQueuePosition(ctx, item, items)
 		if err != nil {
 			return nil, err

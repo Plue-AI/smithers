@@ -317,3 +317,24 @@ func TestMachineStartsUseExistingPolicyHook(t *testing.T) {
 	require.Nil(t, intent.granted)
 	require.Error(t, policy.AuthorizeSandboxStart(context.WithValue(t.Context(), machineStartIntentKey{}, &machineStartIntent{}), 7))
 }
+
+func TestTodoMachineOwnershipRefusesUnknownRelease(t *testing.T) {
+	svc, store := machineQueueService(t, "T1")
+	lanes := NewWorkspaceMythicalLanes(svc)
+	held, err := lanes.MachineHeld(t.Context(), "T1")
+	require.NoError(t, err)
+	require.True(t, held, "pending boot holds the TODO launch slot")
+	store.update("T1", func(row *db.Workspace) { row.Status = "running" })
+	held, err = lanes.MachineHeld(t.Context(), "T1")
+	require.ErrorContains(t, err, "unconfirmed")
+	require.True(t, held, "missing runtime metadata is not an observed stop")
+	_, err = svc.runtime.(workspaceMachineQueue).Request("todo", "workspace:T1", "workspace:T1", "machine")
+	require.NoError(t, err)
+	held, err = lanes.MachineHeld(t.Context(), "T1")
+	require.ErrorContains(t, err, "unconfirmed")
+	require.True(t, held, "waiting demand is not a release receipt")
+	store.update("T1", func(row *db.Workspace) { row.Status = "stopped" })
+	held, err = lanes.MachineHeld(t.Context(), "T1")
+	require.NoError(t, err)
+	require.False(t, held)
+}

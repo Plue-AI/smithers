@@ -2198,8 +2198,18 @@ describe("DocsView", () => {
     for (const gestures of [{}, { open: { ...props.gestures.open!, disabled: { reason: "Unavailable" } } }]) {
       const rendered = await mounted({ name: "inert", expect: [], render: callbacks => <DocsView {...props} gestures={gestures} {...callbacks} /> })
       try {
+        for (const link of rendered.host.querySelectorAll<HTMLAnchorElement>(".sui-md a")) {
+          expect(link.getAttribute("href")).toBeNull()
+          expect(link.tabIndex).toBe(-1)
+        }
         for (const link of rendered.host.querySelectorAll("a")) { const event = new MouseEvent("click", { bubbles: true, cancelable: true }); await act(async () => link.dispatchEvent(event)); expect(event.defaultPrevented).toBe(true) }
         expect(rendered.onAction).toHaveBeenCalledTimes(0)
+        await act(async () => rendered.root.render(<DocsView {...props} onAction={rendered.onAction} onView={rendered.onView} />))
+        const restored = rendered.host.querySelector<HTMLAnchorElement>(".sui-md a")!
+        expect(restored.getAttribute("href")).toBe("../todos.md#review")
+        expect(restored.tabIndex).toBe(0)
+        await act(async () => restored.click())
+        expect(rendered.onAction.mock.calls).toEqual([["docs", { source: "docs-card", page: "todos#review" }]])
       } finally { await rendered.close() }
     }
   })
@@ -2569,8 +2579,25 @@ test("Secrets stories keep minimal product copy and redact submitted values", as
 import { fixtures as homeFixtures } from "@smthrs/rpc/fixtures/Home"
 import type { HomeViewProps } from "@smthrs/rpc/HomeCard"
 import { HomeView } from "./HomeView"
+import { StoryHome } from "./HomeView.stories"
 import { useState } from "react"
 describe("HomeView", () => {
+  test("Home menu is projected from persisted props and only requests view patches", async () => {
+    const host = document.createElement("div"); document.body.append(host)
+    const root = createRoot(host), onView = mock((_patch: Record<string, unknown>) => {})
+    const props = { ...homeFixtures.active, onAction: () => {}, onView }
+    try {
+      await act(async () => root.render(<HomeView {...props} view={{ maximized: false, menu: 8 }} />))
+      const trigger = host.querySelector<HTMLButtonElement>('[aria-label="Order Persist merge requests"]')!
+      expect(trigger.getAttribute("aria-expanded")).toBe("true")
+      await act(async () => trigger.click())
+      expect(onView.mock.calls).toEqual([[{ menu: undefined }]])
+      expect(trigger.getAttribute("aria-expanded")).toBe("true")
+      await act(async () => root.render(<HomeView {...props} view={{ maximized: false }} />))
+      expect(host.querySelector('[role="menu"]')).toBeNull()
+    } finally { await act(async () => root.unmount()); host.remove() }
+  })
+
   const withBranch = (): HomeViewProps["model"] => {
     const base = homeFixtures.active.model
     const row = base.items[0]!
@@ -2603,7 +2630,7 @@ describe("HomeView", () => {
   test("HomeView preserves order controls, closes on Escape, and omits unsupplied reset", async () => {
     const host = document.createElement("div"); document.body.append(host)
     const root = createRoot(host), onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock((_patch: Record<string, unknown>) => {})
-    const draw = (model: HomeViewProps["model"], actions: Action[]) => act(async () => root.render(<HomeView model={model} actions={actions} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
+    const draw = (model: HomeViewProps["model"], actions: Action[]) => act(async () => root.render(<StoryHome model={model} actions={actions} gestures={{}} view={{ maximized: false }} onAction={onAction} onView={onView} />))
     const row = homeFixtures.active.model.items[0]!
     const model: HomeViewProps["model"] = { ...homeFixtures.fresh.model, attention: [{ kind: "order", text: "Order changed", actions: [] }],
       items: [{ ...row, title: "Unavailable TODO", actions: [] }], background_runs: [{ id: "failed", title: "Refresh wiki", state: "failed", actions: [] }] }
@@ -2631,7 +2658,7 @@ describe("HomeView", () => {
         await act(async () => { button.click(); button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })) })
       }
       expect(onAction).toHaveBeenCalledTimes(0)
-      expect(onView).toHaveBeenCalledTimes(0)
+      expect(onView.mock.calls).toEqual([[{ menu: 8 }]])
       await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
       expect(host.querySelector('[role="menu"]')).toBeNull()
       expect(document.activeElement).toBe(trigger)
@@ -2643,7 +2670,7 @@ describe("HomeView", () => {
 
   test("HomeView menu supports keyboard navigation and outside dismissal with opaque tags", async () => {
     const model = withBranch(), row = model.items[0]!
-    const story: ViewStory = { name: "menu", expect: [], render: callbacks => <HomeView {...homeFixtures.fresh} {...callbacks} model={{ ...model, items: [{ ...row, actions: [
+    const story: ViewStory = { name: "menu", expect: [], render: callbacks => <StoryHome {...homeFixtures.fresh} {...callbacks} model={{ ...model, items: [{ ...row, actions: [
       { tag: "wiki.page", label: "Move up", args: { n: "8", direction: "up" } },
       { tag: "files", label: "Move down", disabled: { reason: "Last item" } },
       { tag: "terminal", label: "Drop", args: { n: "8" } },
@@ -2672,7 +2699,7 @@ describe("HomeView", () => {
       expect(document.activeElement?.textContent).toBe("Drop")
       await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })))
       expect(h.host.querySelector('[role="menu"]')).toBeNull()
-      expect(h.onView).toHaveBeenCalledTimes(0)
+      expect(h.onView.mock.calls).toEqual([[{ menu: 8 }], [{ menu: undefined }], [{ menu: 8 }], [{ menu: undefined }]])
     } finally { await h.close() }
   })
 

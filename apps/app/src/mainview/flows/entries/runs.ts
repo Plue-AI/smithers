@@ -7,7 +7,7 @@ import { Schema } from "effect"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
 import { flow, type CommandActions } from "./Declare"
-import type { Grammar } from "../SlashPayload"
+import { carriedPayload, type Grammar } from "../SlashPayload"
 import { activeTraces } from "../../state/seams/DesignWorld/run"
 
 /** The `runs` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
@@ -31,7 +31,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   // The doors share the install's authenticated run topic, retained preflight
   // evidence, and the design provider outside an install.
   return [
-  flow({ name: "run.view", summary: "Select a run detail", args: "<cardId> [JSON view]",
+  flow({ name: "run.view", summary: "Select a run detail", args: "<JSON view>", grammar: carriedPayload("run.view"),
     input: Schema.Struct({ cardId: Schema.String, selected: Schema.optional(Schema.String),
       at: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
       tab: Schema.optional(Schema.Literals(["run", "journal", "custom"])) }),

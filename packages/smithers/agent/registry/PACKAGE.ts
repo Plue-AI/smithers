@@ -6,11 +6,14 @@ import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
  */
 import { Smithers } from "@smthrs/targets"
 
+const migratedFixture = Smithers.Filegroup({
+  srcs: [Smithers.file("//packages/smithers/migrate/test/fixtures/jsx-single.migrated/flows/simple-workflow/flow.ts")]
+})
+
 const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
-  deps: [],
   cwd: "packages/smithers/agent/registry",
   // ModuleMetadata.test.ts projects migrate's emitted module; a change to it must rerun the test.
-  testData: ["//packages/smithers/migrate/test/fixtures/jsx-single.migrated/flows/simple-workflow/flow.ts"]
+  deps: [migratedFixture],
 })
 
 const securityReview = Smithers.SecurityReview({
@@ -126,5 +129,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { check, circular, docs, docsFiles, fmt, lib, lint, test, ...securityReview }
+  targets: { migratedFixture, check, circular, docs, docsFiles, fmt, lib, lint, test, ...securityReview }
 })

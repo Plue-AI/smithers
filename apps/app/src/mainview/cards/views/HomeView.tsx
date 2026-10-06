@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useRef } from "react"
 import { GitBranch, MoreHorizontal } from "lucide-react"
 import { useClock } from "@smthrs/ui/clock"
 import type { Action } from "@smthrs/rpc/CardAction"
@@ -24,8 +24,9 @@ function HomeFilter({ state, count, view, onView }: { state: TodoState; count: n
 const mergeWords = { state: "Not in review yet", order: "Merges after", attention: "Needs you", merging: "Merging", rechecking: "Checks running", pending_work: "Pending work", stale_head: "Rebase pending", checks: "Checks", review_required: "Review required", github: "GitHub" }
 const ORDER = new Set(["Move up", "Move down", "Drop"])
 
-function HomeRow({ item, onAction, now }: { item: HomeItem; now: number } & Pick<HomeViewProps, "onAction">) {
-  const [open, setOpen] = useState(false)
+function HomeRow({ item, onAction, now, view, onView }: { item: HomeItem; now: number } & Pick<HomeViewProps, "onAction" | "view" | "onView">) {
+  const open = view.menu === item.n
+  const setOpen = (value: boolean) => onView({ menu: value ? item.n : undefined })
   const trigger = useRef<HTMLButtonElement>(null)
   const menuItems = useRef<HTMLButtonElement[]>([])
   const clockBase = useRef({ at: now, elapsed: item.elapsed_s, state: item.state })
@@ -116,7 +117,7 @@ export function HomeView({ model, actions, view, onAction, onView }: HomeViewPro
   const syncControls = [], otherControls = [], rows = [], runs = []
   for (const [index, action] of syncActions.entries()) syncControls.push(<HomeAction key={index} action={action} onAction={onAction} />)
   for (const [index, action] of otherActions.entries()) otherControls.push(<HomeAction key={index} action={action} onAction={onAction} />)
-  for (const item of model.items) if (!view.filter || item.state === view.filter || (view.filter === "working" && item.state === "starting")) rows.push(<HomeRow key={item.n} item={item} now={now} onAction={onAction} />)
+  for (const item of model.items) if (!view.filter || item.state === view.filter || (view.filter === "working" && item.state === "starting")) rows.push(<HomeRow key={item.n} item={item} now={now} onAction={onAction} view={view} onView={onView} />)
   for (const run of model.background_runs) {
     const controls = []
     for (const [index, action] of run.actions.entries()) controls.push(<HomeAction key={index} action={action} onAction={onAction} />)

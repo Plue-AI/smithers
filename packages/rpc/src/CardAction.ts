@@ -167,6 +167,8 @@ export interface CardCommandInput {
   readonly "todo.stop": { readonly n: number }
   readonly "todo.resume": { readonly n: number }
   readonly "todo.retry": { readonly n: number }
+  readonly "todo.preapprove": { readonly n: number }
+  readonly "todo.unapprove": { readonly n: number }
   readonly "todo.drop": { readonly n: number }
   readonly "stack.move": { readonly n: number; readonly direction: "up" | "down" }
   readonly "merge": { readonly n: number }

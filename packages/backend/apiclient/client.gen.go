@@ -1606,6 +1606,7 @@ type TodoCard struct {
 	Waits                []map[string]json.RawMessage  `json:"waits"`
 	Steers               []map[string]json.RawMessage  `json:"steers"`
 	Evidence             []map[string]json.RawMessage  `json:"evidence"`
+	Preapproval          *TodoCardPreapproval          `json:"preapproval,omitempty"`
 	Merge                TodoCardMerge                 `json:"merge"`
 	Present              []map[string]json.RawMessage  `json:"present"`
 	AdditionalProperties map[string]json.RawMessage    `json:"-"`
@@ -1617,7 +1618,7 @@ func (v *TodoCard) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
 		return err
 	}
-	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "flow_version", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
+	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "flow_version", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "preapproval", "merge", "present")
 }
 
 // MarshalJSON writes AdditionalProperties beside the declared members of TodoCard.
@@ -1679,6 +1680,12 @@ type TodoCardPr struct {
 	Draft         bool    `json:"draft"`
 	DraftAfter    *int64  `json:"draft_after,omitempty"`
 	IncludedItems []int64 `json:"included_items"`
+}
+
+// TodoCardPreapproval is generated from docs/api/openapi.yaml.
+type TodoCardPreapproval struct {
+	By string    `json:"by"`
+	At time.Time `json:"at"`
 }
 
 // TodoCardMerge is generated from docs/api/openapi.yaml.
@@ -1853,12 +1860,6 @@ type GetAPIBranchesBFilesResponseItem struct {
 	Path string `json:"path"`
 	Type string `json:"type"`
 	Size *int64 `json:"size,omitempty"`
-}
-
-// PostAPIConfirmationsIDApproveResponse is generated from docs/api/openapi.yaml.
-type PostAPIConfirmationsIDApproveResponse struct {
-	ID    string `json:"id"`
-	State string `json:"state"`
 }
 
 // GetAPIExternalSessionsParams is the query of GET /api/external/sessions.
@@ -2068,6 +2069,22 @@ type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponsePathsItem struct {
 type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponseRacedItem struct {
 	Path    string `json:"path"`
 	Version string `json:"version"`
+}
+
+// PostAPIReposOwnerRepoInvokeBody is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoInvokeBody struct {
+	Flow  string                     `json:"flow"`
+	Input map[string]json.RawMessage `json:"input,omitempty"`
+}
+
+// PostAPIReposOwnerRepoInvokeResponse is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoInvokeResponse struct {
+	ID                   int64  `json:"id"`
+	RunID                int64  `json:"run_id"`
+	WorkflowDefinitionID int64  `json:"workflow_definition_id"`
+	Flow                 string `json:"flow"`
+	Path                 string `json:"path"`
+	Status               string `json:"status"`
 }
 
 // PostAPIReposOwnerRepoMythicalItemsIDMergeBody is generated from docs/api/openapi.yaml.
@@ -2930,8 +2947,8 @@ func (c *Client) PostAPIConfirmations(ctx context.Context, idempotencyKey string
 }
 
 // PostAPIConfirmationsIDApprove calls POST /api/confirmations/{id}/approve.
-func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) (PostAPIConfirmationsIDApproveResponse, error) {
-	var out PostAPIConfirmationsIDApproveResponse
+func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/approve", nil, nil, &out)
 	return out, err
 }
@@ -5007,9 +5024,9 @@ func (c *Client) PostAPIReposOwnerRepoHooksIDTests(ctx context.Context, owner st
 }
 
 // PostAPIReposOwnerRepoInvoke calls POST /api/repos/{owner}/{repo}/invoke.
-func (c *Client) PostAPIReposOwnerRepoInvoke(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/invoke", nil, nil, &out)
+func (c *Client) PostAPIReposOwnerRepoInvoke(ctx context.Context, owner string, repo string, body PostAPIReposOwnerRepoInvokeBody) (PostAPIReposOwnerRepoInvokeResponse, error) {
+	var out PostAPIReposOwnerRepoInvokeResponse
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/invoke", nil, body, &out)
 	return out, err
 }
 
@@ -5697,6 +5714,16 @@ func (c *Client) PostAPITodosNAnswer(ctx context.Context, n int64, body PostAPIT
 	var out PostAPITodosNAnswerResponse
 	err := c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/answer", nil, body, &out)
 	return out, err
+}
+
+// PostAPITodosNPreapproval calls POST /api/todos/{n}/preapproval.
+func (c *Client) PostAPITodosNPreapproval(ctx context.Context, n int64) error {
+	return c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/preapproval", nil, nil, nil)
+}
+
+// DeleteAPITodosNPreapproval calls DELETE /api/todos/{n}/preapproval.
+func (c *Client) DeleteAPITodosNPreapproval(ctx context.Context, n int64) error {
+	return c.do(ctx, "DELETE", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/preapproval", nil, nil, nil)
 }
 
 // DeleteAPIUserConnectionsID calls DELETE /api/user/connections/{id}.

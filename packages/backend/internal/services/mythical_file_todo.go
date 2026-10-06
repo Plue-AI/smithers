@@ -174,6 +174,17 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		if issue != nil {
 			checks.IssueContext = issue.Context
 		}
+		if setting, readErr := q.GetInstallSetting(ctx, todoPreapprovalDefaultKey); readErr == nil {
+			if err := json.Unmarshal(setting.Value, &checks.Preapproval); err != nil {
+				return err
+			}
+			if checks.Preapproval != nil {
+				checks.Automerge = true
+				checks.PreapprovalEvents = []mythicalPreapprovalEvent{{By: checks.Preapproval.By, User: checks.Preapproval.StandingUser, Approved: true, Via: "default", At: s.now().UTC()}}
+			}
+		} else if !errors.Is(readErr, pgx.ErrNoRows) {
+			return readErr
+		}
 		item, err = q.InsertMythicalIssueTodo(ctx, repositoryID, userID, input.Title, input.Prompt, revision, checks.encode(), issue)
 		if issue != nil && errors.Is(err, pgx.ErrNoRows) {
 			held, _ := q.GetActiveMythicalItemByIssue(ctx, repositoryID, issue.Number)

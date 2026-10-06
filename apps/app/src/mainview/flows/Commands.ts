@@ -356,7 +356,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
   const items = (): ReadonlyArray<CatalogItem> => entries().map(entry => {
     const item = itemOf(entry)
     return (item.name === "debug.api" || item.name === "debug-api") && !actions.debugApi.available()
-      ? { ...item, hidden: true } : item
+      ? { ...item, visibility: "hidden", hidden: true } : item
   })
 
   const listingItems = (): ReadonlyArray<CatalogItem> => {

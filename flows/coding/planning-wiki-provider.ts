@@ -58,13 +58,15 @@ export const relayWikiProvider = (options: {
             ) throw unavailable()
             // Generated pages require metadata bound to these same revision bytes;
             // wikiMemory checks their declared inputs inside the machine.
-            const generated = page.generated as Record<string, unknown> | undefined
+            // Explicit null means authored, including a person-edited generated
+            // page. Older APIs without classification cannot enable planning.
+            if (!Object.hasOwn(page, "generated")) throw unavailable()
+            const generated = page.generated === null ? undefined : page.generated as Record<string, unknown>
             if (
               generated !== undefined && (generated === null || typeof generated.id !== "string" ||
                 typeof generated.inputDigest !== "string" || !/^[0-9a-f]{64}$/.test(generated.inputDigest) ||
                 typeof generated.sourceRevision !== "string" || !generated.sourceRevision)
             ) throw unavailable()
-            if (slug.startsWith("generated-") && generated === undefined) throw unavailable()
             return {
               pageID: String(page.id),
               slug,

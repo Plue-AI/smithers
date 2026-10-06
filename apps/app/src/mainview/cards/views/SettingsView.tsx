@@ -22,7 +22,7 @@ export function SettingsView({ model, actions: suppliedActions, onAction, view, 
     ...action, label: row === "obsidian" ? "Change" : action.label,
     input: action.input?.map(field => value === undefined ? field : { ...field, value: String(value) })
   }))
-  const hasRow = (action: Action) => ["address", "health", "capacity", "obsidian",
+  const hasRow = (action: Action) => ["address", "health", "capacity", "obsidian", "preapproval",
     ...(model.parallel !== undefined ? ["parallel"] : []), ...(model.todo_daily_admissions !== undefined ? ["todo_daily_admissions"] : []),
     ...(model.notifications_need_https ? ["notifications"] : [])].includes(rowFor(action) ?? "")
   /* mvp.md J1 2.1 / §6.15: This Mac only, or Network with the bind and the addresses teammates use. The choice is member view state. */

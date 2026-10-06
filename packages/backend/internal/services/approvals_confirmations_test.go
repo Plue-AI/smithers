@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -508,4 +509,196 @@ func TestConfirmationCancelUnavailableConsumerPostgres(t *testing.T) {
 		require.Equal(t, "rejected", receipt.State)
 	}
 	require.Zero(t, f.count("mythical_items"))
+}
+
+func newMergeConfirmation(t *testing.T) (*mergeHarness, *ApprovalsService, context.Context, ConfirmationInput, int64) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Confirm one merge")
+	sum := sha256.Sum256([]byte("confirmation-merge-agent"))
+	hash := hex.EncodeToString(sum[:])
+	_, err := h.q.CreateAccessToken(h.ctx, db.CreateAccessTokenParams{UserID: h.userID, Name: "agent", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], Scopes: "read:repository,write:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
+	info, err := middleware.ReloadCredential(h.ctx, h.q, middleware.Credential{TokenHash: hash}, time.Now())
+	require.NoError(t, err)
+	require.True(t, middleware.BindInstallCredential(info))
+	agent := middleware.ContextWithAuthInfo(t.Context(), info)
+	service := NewApprovalsService(h.q, WithConfirmationTodos(h.pool, h.service))
+	input := ConfirmationInput{Command: "merge", Subject: json.RawMessage(fmt.Sprintf(`{"kind":"todo","ref":"T%d"}`, n)), Payload: json.RawMessage(fmt.Sprintf(`{"reviewed_head_sha":%q}`, head)), Key: "request-merge"}
+	return h, service, agent, input, n
+}
+
+func TestConfirmationMergeConfirmedOnlyPostgres(t *testing.T) {
+	h, service, agent, input, n := newMergeConfirmation(t)
+	_ = n
+	row, err := service.RequestConfirmation(agent, input)
+	require.NoError(t, err)
+	require.Equal(t, "pending", row.State)
+	require.Empty(t, h.merges())
+	_, err = service.DecideConfirmation(agent, row.ID, "approve", "bad")
+	requireConfirmationCode(t, err, "permission")
+	h.fake.HoldMain()
+	receipt, err := service.DecideConfirmation(h.ctx, row.ID, "approve", "person-press")
+	require.NoError(t, err)
+	require.Equal(t, "pending", receipt.State)
+	require.Empty(t, h.merges())
+	receipt, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "person-press")
+	require.NoError(t, err)
+	require.Equal(t, "pending", receipt.State)
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "deny", "cancel-in-flight")
+	requireConfirmationCode(t, err, "merging")
+	rows, err := h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "pending", rows[0].State)
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	rows, err = h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	require.Equal(t, "pending", rows[0].State)
+	h.fake.ReleaseMain()
+	h.pass()
+	rows, err = h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	require.Equal(t, "approved", rows[0].State)
+	require.Contains(t, string(rows[0].Payload), `"text": "Merged"`)
+	receipt, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "person-press")
+	require.NoError(t, err)
+	require.Equal(t, "approved", receipt.State)
+	h.pass()
+	require.Len(t, h.merges(), 1)
+}
+
+func TestConfirmationMergeRefusalRetryPostgres(t *testing.T) {
+	h, service, agent, input, n := newMergeConfirmation(t)
+	row, err := service.RequestConfirmation(agent, input)
+	require.NoError(t, err)
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "first-press")
+	require.NoError(t, err)
+	pr := h.item(n).PRNumber.Int64
+	h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.MergeableState = "blocked" })
+	h.pass()
+	rows, err := h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	require.Equal(t, "pending", rows[0].State)
+	require.NotContains(t, string(rows[0].Payload), `"effect"`)
+	require.Contains(t, string(rows[0].Payload), `"merge_attempt": 1`)
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "first-press")
+	requireConfirmationCode(t, err, "github")
+	h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.MergeableState = "clean" })
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "second-press")
+	require.NoError(t, err)
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "first-press")
+	requireConfirmationCode(t, err, "github")
+	h.pass()
+	rows, err = h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	require.Equal(t, "approved", rows[0].State)
+	require.Len(t, h.merges(), 1)
+}
+
+func TestConfirmationMergeGenerationAndRollbackPostgres(t *testing.T) {
+	for _, change := range []string{"generation", "remote-head", "approval-write"} {
+		t.Run(change, func(t *testing.T) {
+			h, service, agent, input, n := newMergeConfirmation(t)
+			row, err := service.RequestConfirmation(agent, input)
+			require.NoError(t, err)
+			if change == "generation" {
+				h.exec(`UPDATE mythical_items SET generation=generation+1 WHERE repository_id=$1 AND number=$2`, h.repoID, n)
+			} else if change == "remote-head" {
+				h.push(n, "Moved after review")
+			} else {
+				h.exec(`CREATE FUNCTION fail_merge_confirmation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.decision_key IS NOT NULL THEN RAISE EXCEPTION 'fail approval write'; END IF; RETURN NEW; END $$`)
+				h.exec(`CREATE TRIGGER fail_merge_confirmation BEFORE UPDATE ON approvals FOR EACH ROW EXECUTE FUNCTION fail_merge_confirmation()`)
+			}
+			_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "press")
+			require.Error(t, err)
+			require.Empty(t, h.merges())
+			require.Empty(t, h.item(n).PendingOp)
+			saved, err := h.q.GetMemberConfirmation(h.ctx, row.ID, h.userID)
+			require.NoError(t, err)
+			if change != "approval-write" {
+				require.Equal(t, "expired", saved.State)
+			} else {
+				require.Equal(t, "pending", saved.State)
+				h.exec(`DROP TRIGGER fail_merge_confirmation ON approvals`)
+				_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "press")
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestConfirmationMergeRefreshChecksAndGenerationPostgres(t *testing.T) {
+	h, service, agent, input, n := newMergeConfirmation(t)
+	var request MythicalMergeInput
+	require.NoError(t, json.Unmarshal(input.Payload, &request))
+	h.fake.RequireCheck("unit")
+	h.fake.SetCheck("rehearsal-owner/app", request.Head, "unit", "in_progress", "")
+	h.fake.SetCheck("rehearsal-owner/app", request.Head, "lint", "completed", "failure")
+	row, err := service.RequestConfirmation(agent, input)
+	require.NoError(t, err)
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "blocked-press")
+	requireConfirmationCode(t, err, "checks")
+	require.Empty(t, h.item(n).PendingOp)
+	require.Empty(t, h.merges())
+	rows, err := h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	require.Contains(t, string(rows[0].Payload), `"state": "pending"`)
+	h.fake.SetCheck("rehearsal-owner/app", request.Head, "unit", "completed", "success")
+	require.NoError(t, service.RefreshConfirmationCards(h.ctx, h.userID, rows))
+	rows, err = h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	var saved struct {
+		Card struct {
+			AskedBy map[string]any `json:"asked_by"`
+			Review  struct {
+				Merge struct {
+					State string `json:"state"`
+				} `json:"merge"`
+				Evidence struct {
+					Items []map[string]any `json:"items"`
+				} `json:"evidence"`
+			} `json:"review"`
+		} `json:"card"`
+	}
+	require.NoError(t, json.Unmarshal(rows[0].Payload, &saved))
+	require.Equal(t, "ready", saved.Card.Review.Merge.State)
+	require.Contains(t, saved.Card.Review.Evidence.Items, map[string]any{"kind": "github_check", "name": "lint", "required": false, "state": "failed", "url": fmt.Sprintf("https://github.com/rehearsal-owner/app/pull/%d/checks", h.item(n).PRNumber.Int64)})
+	require.Equal(t, "agent", saved.Card.AskedBy["kind"])
+	h.exec(`UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, h.item(n).ID)
+	require.NoError(t, service.RefreshConfirmationCards(h.ctx, h.userID, rows))
+	savedRow, err := h.q.GetMemberConfirmation(h.ctx, row.ID, h.userID)
+	require.NoError(t, err)
+	require.Equal(t, "expired", savedRow.State)
+	require.Empty(t, h.merges())
+}
+
+func TestConfirmationMergeGitHubRefusalPostgres(t *testing.T) {
+	h, service, agent, input, n := newMergeConfirmation(t)
+	row, err := service.RequestConfirmation(agent, input)
+	require.NoError(t, err)
+	h.fake.RefuseNextMerge("rehearsal-owner/app", h.item(n).PRNumber.Int64, githubfake.Refusal{Status: 405, Message: "Base changed; review again"})
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "refused-press")
+	require.NoError(t, err)
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	require.Equal(t, 405, h.merges()[0].Status)
+	rows, err := h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	require.Equal(t, "pending", rows[0].State)
+	require.Contains(t, string(rows[0].Payload), "Base changed; review again")
+	require.NotContains(t, string(rows[0].Payload), `"effect"`)
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "refused-press")
+	requireConfirmationCode(t, err, "github_refused")
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "fresh-person-press")
+	require.NoError(t, err)
+	h.pass()
+	require.Len(t, h.merges(), 2)
+	rows, err = h.q.ListMemberConfirmations(h.ctx, h.userID)
+	require.NoError(t, err)
+	require.Equal(t, "approved", rows[0].State)
+	_, err = service.DecideConfirmation(h.ctx, row.ID, "approve", "refused-press")
+	requireConfirmationCode(t, err, "github_refused")
 }

@@ -92,6 +92,7 @@ test("the pinned credential-minting list", () => {
     "get_api_auth_auth0_callback", "get_api_auth_github_callback", "get_api_auth_github_cli", "get_api_auth_github_cli_consent", "get_api_oauth2_authorize",
     "get_api_repos_owner_repo_workspace_sessions_id_ssh", "get_api_repos_owner_repo_workspaces_id_ssh", "get_api_user_emails_verify_token",
     "post_api_auth_github_cli_consent", "post_api_auth_github_token_exchange", "post_api_auth_sse_ticket", "post_api_install_setup_app", "post_api_install_setup_models",
+    "post_api_gateways_host_file_write_grants", "delete_api_gateways_host_file_write_grants_token",
     "post_api_model_credential", "post_api_oauth2_authorize", "post_api_oauth2_token", "post_api_orgs_org_provider_connections",
     "post_api_repos_owner_repo_build_cache_tokens", "post_api_user_emails_verify_token", "post_api_user_provider_connections",
     "post_api_user_provider_connections_codex_device", "post_api_user_provider_connections_codex_device_id", "post_api_user_provider_connections_id_refresh",
@@ -149,5 +150,37 @@ test("every documented install request form matches the committed literal fields
       expect(seam.get().model.exchange).toBeUndefined()
     }
     expect(effects).toBe(0)
+  } finally { seam.dispose() }
+})
+
+test("the invocation form documents the existing flow payload and durable run handle", () => {
+  const operation = document.paths!["/api/repos/{owner}/{repo}/invoke"]!.post!
+  expect(operation.requestBody).toEqual({ required: true, content: { "application/json": { schema: {
+    type: "object", required: ["flow"], properties: {
+      flow: { type: "string" }, input: { type: "object", additionalProperties: true }
+    }
+  } } } })
+  expect(operation.responses?.["201"]).toEqual({ description: "Queued flow run", content: { "application/json": { schema: {
+    type: "object", required: ["id", "run_id", "workflow_definition_id", "flow", "path", "status"], properties: {
+      id: { type: "integer" }, run_id: { type: "integer" }, workflow_definition_id: { type: "integer" },
+      flow: { type: "string" }, path: { type: "string" }, status: { type: "string" }
+    }
+  } } } })
+})
+
+test("branch file grant credentials and confirmation drafts are withheld", async () => {
+  const canary = "private-file-grant-canary"
+  const seam = createDebugApiSeam({ document: async () => document,
+    gates: () => ({ view: true, catalog: true, authorizer: true }), origin: "http://mini.local",
+    fetch: async () => Response.json({ token: canary }) })
+  try {
+    const operationId = "post_api_gateways_host_file_write_grants"
+    await seam.open(operationId)
+    const values = { "path:hostID": "host-1", body: '{"path":"source.ts"}' }
+    await seam.send({ intent: "send", operationId, values })
+    expect(seam.get().fields).toEqual([])
+    await seam.send({ intent: "confirm", operationId, values, confirmation: seam.get().confirmation })
+    expect(JSON.stringify(seam.get())).not.toContain(canary)
+    expect(seam.get().model.exchange?.response?.body).toBe("[withheld]")
   } finally { seam.dispose() }
 })

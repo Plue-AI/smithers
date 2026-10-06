@@ -540,6 +540,9 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 					if !tc.accepted {
 						require.Equal(t, 409, status, receipt)
 						require.Equal(t, "conflict", receipt["class"])
+						require.Equal(t, "todo_transition_refused", receipt["code"])
+						require.Equal(t, expected, receipt["from"])
+						require.Equal(t, "drop", receipt["trigger"])
 						require.Equal(t, before, after)
 						require.Equal(t, countBefore, countAfter)
 						refused++

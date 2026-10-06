@@ -986,6 +986,8 @@ func buildRouter(
 			r.Post("/todos/{n}", todos.Control)
 			r.Patch("/todos/{n}", todos.Amend)
 			r.Post("/todos/{n}/merge", todos.Merge)
+			r.Post("/todos/{n}/preapproval", todos.Preapprove)
+			r.Delete("/todos/{n}/preapproval", todos.Unapprove)
 			r.Post("/todos/{n}/answer", todos.Answer)
 			proposals, _ := extras.Mythical.Service.(routes.LearningProposalRoutes)
 			handler := &routes.LearningProposalsHandler{Queries: queries, Service: proposals}

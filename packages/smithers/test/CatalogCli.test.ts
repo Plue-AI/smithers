@@ -72,6 +72,40 @@ async function fixture(status = 200, response: unknown = { state: "accepted" }, 
 }
 
 describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
+  it("audits the actual install discovery tree against literal Appendix A and B.6 paths", async () => {
+    const { installCommandPaths } = await import("../src/internal/backend/InstallDiscovery.ts")
+    const { auditCliPaths } = await import("../../../scripts/catalog-policy.ts")
+    const paths = installCommandPaths(makeCli())
+    expect(paths).toEqual([...fixtureCases.commands.map(row => row.path), ...fixtureCases.b6].sort())
+    expect(auditCliPaths(paths)).toEqual([])
+    expect(auditCliPaths([...paths, "history todo", "host invented"])).toEqual([
+      { id: "history todo", reason: "unlisted" }, { id: "host invented", reason: "unlisted" }
+    ])
+    expect(() => installCommandPaths({})).toThrow("CLI install discovery is unavailable")
+  })
+  it("B.6 host doors resolve through the installed parser without executing maintenance", async () => {
+    const f = await fixture()
+    try {
+      const paths = fixtureCases.b6.filter(path => path.startsWith("host "))
+      expect(paths).toHaveLength(6)
+      for (const path of paths) {
+        const result = await f.invoke([...path.split(" "), "--schema"])
+        expect(result.exitCode, result.stdout).toBe(0)
+        const schema = JSON.parse(result.stdout)
+        expect(schema.options.properties).toHaveProperty("verbose")
+        if (path === "host restore") expect(schema.args.required).toEqual(["directory"])
+        if (path === "host start") expect(Object.keys(schema.options.properties).sort()).toEqual(["bind", "bundle", "origin", "verbose"])
+      }
+      expect(f.seen).toEqual([])
+    } finally { await f.close() }
+  })
+  it("the generated host reference is fresh and contains exactly the literal B.6 host paths", async () => {
+    const { generateHostReference } = await import("../../../scripts/catalog-host.ts")
+    const reference = await readFile(new URL("../docs/reference/cli/host.md", import.meta.url), "utf8")
+    expect(reference).toBe(generateHostReference())
+    expect([...reference.matchAll(/\| `smthrs (host [a-z]+)/g)].map(match => match[1]).sort())
+      .toEqual(fixtureCases.b6.filter(path => path.startsWith("host ")).sort())
+  })
   it("every external-agent command has a literal request or unavailable-provider case", () => {
     const argv = [...cases.map(row => row.argv), ...fixtureCases.unavailable]
     for (const command of fixtureCases.commands) {
@@ -180,6 +214,25 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       expect(f.seen).toHaveLength(1)
     } finally { await f.close() }
   })
+  it.each([
+    { state: "pending" },
+    { state: "pending", confirmation: null },
+    { state: "pending", confirmation: "" },
+    { state: "pending", confirmation: "   " },
+    { state: "pending", confirmation: 12 },
+    { confirmation: "confirm-1" },
+    { state: "requested", confirmation: "confirm-1" },
+    { state: "completed", confirmation: "confirm-1" }
+  ])("refuses malformed confirmation metadata without claiming success: %j", async receipt => {
+    const f = await fixture(202, receipt)
+    try {
+      const result = await f.invoke(["todo", "new", "--text", "Retry"])
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ code: "backend_protocol" })
+      expect(result.stdout).not.toContain("Waiting for")
+      expect(f.seen).toHaveLength(1)
+    } finally { await f.close() }
+  })
   it("uses the supplied request identity for retried TODO creation", async () => {
     const f = await fixture()
     try {
@@ -189,6 +242,28 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       expect(f.idempotencyKeys).toEqual(["stable-create", "stable-create"])
     } finally { await f.close() }
   })
+  it("preserves a supplied steering identity across retries without sending it as feedback", async () => {
+    const f = await fixture()
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect((await f.invoke(["todo", "steer", "T1", "Use retries", "--idempotencyKey", "stable-steer"])).exitCode).toBe(0)
+      }
+      expect(f.idempotencyKeys).toEqual(["stable-steer", "stable-steer"])
+      expect(f.seen).toEqual([0, 1].map(() => ({ method: "POST", path: "/api/todos/1", body: { steer: "Use retries" }, via: "codex" })))
+    } finally { await f.close() }
+  })
+  it("replays merge confirmation with its supplied request identity and no transport field in the body", async () => {
+    const f = await fixture()
+    try {
+      for (let i = 0; i < 2; i++) {
+        await f.invoke(["merge", "T1", "--reviewed_head_sha", "a".repeat(40), "--idempotencyKey", "stable-merge"])
+      }
+      expect(f.idempotencyKeys).toEqual(["stable-merge", "stable-merge"])
+      expect(f.seen).toHaveLength(2)
+      expect(f.seen).toEqual(Array.from({ length: 2 }, () => ({ method: "POST", path: "/api/todos/1/merge", body: { reviewed_head_sha: "a".repeat(40) }, via: "codex" })))
+    } finally { await f.close() }
+  })
+
   it("retains pending identity and uses an exit distinct from success or refusal", async () => {
     const f = await fixture(202, { confirmation: "confirm-1", state: "pending" })
     try {

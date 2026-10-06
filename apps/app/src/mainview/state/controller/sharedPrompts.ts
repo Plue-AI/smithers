@@ -56,7 +56,7 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
           if (branch() === row.branch) await source.read()
           const turn = conversation.entries.find(entry => entry.id === row.turnId)
           if (ctx.store.session().sharedPrompts?.find(item => item.id === row.id)?.state === "requested") continue
-          if (turn && ["completed", "failed", "cancelled", "uncertain"].includes(turn.state)) {
+          if (turn && "state" in turn && ["completed", "failed", "cancelled", "uncertain"].includes(turn.state)) {
             if (turn.state !== "completed") throw new Error(turn.state === "cancelled" ? "Prompt stopped" : "Prompt failed")
             await save({ ...row, state: "completed" })
             return
@@ -89,8 +89,8 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
   }
   const stop = () => {
     const login = ctx.store.collections.identitySessions.get("identity")?.login
-    const turn = source.get().conversation?.entries.find(row => row.authorLogin === login && ["accepted", "running"].includes(row.state))
-    if (!turn) return
+    const turn = source.get().conversation?.entries.find(row => "authorLogin" in row && row.authorLogin === login && ["accepted", "running"].includes(row.state))
+    if (!turn || !("state" in turn)) return
     void ctx.withToast(`stop-${turn.id}`, "Stop", "Stop", async () => {
       await request(`${url(branch())}/turns/${encodeURIComponent(turn.id)}/stop`, "POST")
       await source.read()

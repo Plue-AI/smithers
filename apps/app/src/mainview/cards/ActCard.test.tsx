@@ -55,7 +55,7 @@ test("on an install, Review & merge of a served TODO whose evidence names the ca
   try {
     await act(async () => root.render(<ControllerTestProvider controller={stub as unknown as AppController}>{confirmCardFamily.confirm.render({ id: "confirm:merge:todo:12",
       kind: "confirm", title: "Merge T12 into main?", status: "active", createdAt: 2, ordinal: 2, audience_member_id: "maya", payload: { id: "merge:todo:12" } }, { presentation: "embedded" } as never)}</ControllerTestProvider>))
-    expect(host.textContent).toContain(`rev ${candidate}`)
+    expect(host.textContent).toContain(`rev ${published}`)
     const merge = host.querySelector<HTMLButtonElement>('button[data-flow="merge"]')!
     expect(merge.disabled).toBe(false)
     await act(async () => merge.click())

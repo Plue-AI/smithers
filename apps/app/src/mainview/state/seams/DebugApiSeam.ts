@@ -11,7 +11,7 @@ export const presentDebugApiFailure = (value: unknown): string => presentUserFai
   DebugApiInputRefused: refusal => ({ fault: "user", sentence: refusal.sentence, actions: [] })
 }, value, { unknown: { fault: "infra", sentence: "The API request failed.", actions: [] } }).sentence
 
-export interface ApiSchema { $ref?: string; type?: string; format?: string; enum?: string[]; properties?: Record<string, ApiSchema>; items?: ApiSchema; required?: string[] }
+export interface ApiSchema { $ref?: string; type?: string; format?: string; enum?: string[]; properties?: Record<string, ApiSchema>; items?: ApiSchema; required?: string[]; additionalProperties?: boolean | ApiSchema }
 export interface ApiParameter { name: string; in: string; required?: boolean; schema?: ApiSchema; $ref?: string }
 export interface ApiOperation {
   operationId?: string; summary?: string; tags?: string[]; "x-composition"?: string;
@@ -59,6 +59,8 @@ export const CREDENTIAL_OPERATIONS: ReadonlySet<string> = new Set([
   "post_api_install_setup_app", "post_api_install_setup_models", "post_api_model_credential",
   "post_api_user_provider_connections", "post_api_orgs_org_provider_connections", "post_api_user_provider_connections_codex_device",
   "post_api_user_provider_connections_codex_device_id", "post_api_user_provider_connections_id_refresh",
+  // Branch-bound file write grants
+  "post_api_gateways_host_file_write_grants", "delete_api_gateways_host_file_write_grants_token",
   // Token mints and SSH access
   "post_api_user_tokens", "post_api_repos_owner_repo_build_cache_tokens", "get_api_user_emails_verify_token", "post_api_user_emails_verify_token",
   "get_api_repos_owner_repo_workspace_sessions_id_ssh", "get_api_repos_owner_repo_workspaces_id_ssh",

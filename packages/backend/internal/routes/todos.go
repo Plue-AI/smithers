@@ -440,3 +440,45 @@ func DecodeTodoControl(reader io.Reader) (services.TodoControlInput, string, err
 	}
 	return input, command, nil
 }
+
+// Preapprove accepts only the maintainer's own browser session.
+func (h *TodoHandler) Preapprove(w http.ResponseWriter, r *http.Request) { h.preapproval(w, r, true) }
+func (h *TodoHandler) Unapprove(w http.ResponseWriter, r *http.Request)  { h.preapproval(w, r, false) }
+func (h *TodoHandler) preapproval(w http.ResponseWriter, r *http.Request, approved bool) {
+	if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
+		var refusal *services.TodoControlError
+		if errors.As(err, &refusal) && refusal.Status == http.StatusForbidden {
+			err = &services.TodoControlError{Status: 403, Code: "permission", Class: "permission", Message: "Pre-approval requires an owner or maintainer browser session"}
+		}
+		todoRouteError(w, err)
+		return
+	}
+	command := "todo.unapprove"
+	if approved {
+		command = "todo.preapprove"
+	}
+	repo, user, ok := h.authorize(w, r, command)
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_todo", Message: "Invalid TODO number"})
+		return
+	}
+	service, ok := h.Service.(interface {
+		PreapproveTodo(context.Context, int64, int64, int64, bool) (services.MythicalItemView, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	_, err = service.PreapproveTodo(r.Context(), repo, user, n, approved)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]string{"state": "accepted"})
+}

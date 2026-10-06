@@ -112,8 +112,10 @@ export const operations = (document) => {
         }
         if (types.includes("application/json")) {
           if (success.kind === "raw") fail(`${id} mixes JSON and non-JSON success responses`)
-          if (success.kind === "json") fail(`${id} declares more than one JSON success response`)
-          success = { kind: "json", schema: content["application/json"].schema ?? {} }
+          const schema = content["application/json"].schema ?? {}
+          success = { kind: "json", schema: success.kind === "json"
+            ? { anyOf: [success.schema, schema] }
+            : schema }
         } else {
           if (success.kind === "json") fail(`${id} mixes JSON and non-JSON success responses`)
           success = { kind: "raw", accept: types.join(", ") }

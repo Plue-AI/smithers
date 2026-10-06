@@ -220,6 +220,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         ? [row.payload.request] : [])].map(request => [request.key, request])).values()]
     const observed: TodoReceipt[] = pending.flatMap<TodoReceipt>(request => {
       if (request.state !== "accepted" || receipts.some(receipt => receipt.key === request.key)) return []
+      if (request.operation === "preapprove" || request.operation === "unapprove") return Boolean(model.preapproval) === (request.operation === "preapprove")
+        ? [{ key: request.key, outcome: { status: "ok" as const, detail: request.operation === "preapprove" ? "Pre-approved" : "Pre-approval removed" } }] : []
       if (request.operation === "merge") return model.state === "merged"
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
       if (request.operation === "amend") {
@@ -316,6 +318,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move", "takeover"].includes(request.operation)
     const route = ["discard-foreign", "bring-in"].includes(request.operation) ? `/api/branches/${encodeURIComponent(String(request.body.branch))}`
       : request.operation === "create" ? TODOS_PATH
+      : ["preapprove", "unapprove"].includes(request.operation) ? `${todoPath(request.n!)}/preapproval`
       : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
       let response: Response
@@ -340,7 +343,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
           : request.operation === "steer" ? { steer: request.body.steer ?? request.body.text }
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
-          method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
+          method: request.operation === "unapprove" ? "DELETE" : request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
           headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(body)
         })
       } catch (error) {
@@ -692,19 +695,27 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const observingConfirmations = new Set<string>()
   const observeConfirmation = async (confirmation: MemberConfirmation): Promise<void> => {
     const effect = confirmation.payload.effect
-    if (ctx.actor() !== "user" || signedIn() || confirmation.state !== "approved" || !effect ||
-      !["todo.new", "todo.drop", "todo.amend", "branch.bring-in", "branch.discard-foreign"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
+    if (confirmation.command === "merge" && confirmation.state === "pending" && !effect && (confirmation.payload.merge_attempt ?? 0) > 0 && ctx.actor() === "user" && !signedIn()) {
+      const key = `confirmation:${confirmation.id}`
+      for (const row of ctx.store.collections.cards.values()) {
+        if (row.kind === "todo" && row.payload.requests.some(request => request.key === key)) await write({ ...row, payload: { ...row.payload, requests: row.payload.requests.filter(request => request.key !== key) } }, "system")
+      }
+      return
+    }
+    const observedId = confirmation.command === "merge" ? `${confirmation.id}:${confirmation.payload.merge_attempt ?? 0}` : confirmation.id
+    if (ctx.actor() !== "user" || signedIn() || (confirmation.state !== "approved" && !(confirmation.command === "merge" && confirmation.state === "pending")) || !effect ||
+      !["todo.new", "todo.drop", "todo.amend", "branch.bring-in", "branch.discard-foreign", "merge"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
     const row = entry(effect.todo) ?? blank(effect.todo)
-    if (row.payload.observedConfirmations?.includes(confirmation.id)) return
+    if (row.payload.observedConfirmations?.includes(observedId)) return
     observingConfirmations.add(confirmation.id)
     const login = owner()!, revision = identity()?.ownerRevision ?? identity()?.revision
     try {
       const request: Request = { key: effect.request, owner: login,
-        operation: confirmation.command === "branch.bring-in" ? "bring-in" : confirmation.command === "branch.discard-foreign" ? "discard-foreign" : confirmation.command === "todo.new" ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
+        operation: confirmation.command === "merge" ? "merge" : confirmation.command === "branch.bring-in" ? "bring-in" : confirmation.command === "branch.discard-foreign" ? "discard-foreign" : confirmation.command === "todo.new" ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
         ...(effect.revision === undefined ? {} : { revision: effect.revision }),
         body: ["branch.bring-in", "branch.discard-foreign"].includes(confirmation.command) ? { ...confirmation.payload.input as object, branch: confirmation.payload.card.subject.ref } : confirmation.payload.input, n: effect.todo, state: "accepted" }
       await write({ ...row, title: confirmation.payload.card.summary, payload: { ...row.payload,
-        observedConfirmations: [...row.payload.observedConfirmations ?? [], confirmation.id],
+        observedConfirmations: [...row.payload.observedConfirmations ?? [], observedId],
         requests: [...row.payload.requests.filter(old => old.key !== request.key), request] } }, "system")
       if (current(login, revision)) { showNotice(request, row.title); watch(effect.todo) }
     } finally { observingConfirmations.delete(confirmation.id) }
@@ -722,7 +733,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     if (matches.length !== 1) return "Could not open the TODO."
     return request(matches[0]!.n, operation, { branch, id, revision })
   }
-  return { list, observeConfirmation,
+  return { list, observeConfirmation, preapproveTodo: (n: number, approved: boolean) => request(n, approved ? "preapprove" : "unapprove", {}),
     bringIn: (branch: string, id: string, revision: string) => answerForeign("bring-in", branch, id, revision),
     discardForeign: (branch: string, id: string, revision: string) => answerForeign("discard-foreign", branch, id, revision), mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, newFlowSourceTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>, path: string) => {
       const refusal = signedIn(); if (refusal) return refusal

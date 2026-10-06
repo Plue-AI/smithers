@@ -75,8 +75,8 @@ func requireConfirmation(info *middleware.AuthInfo, command string, decision Ins
 }
 
 // WithConfirmationTodos composes the existing TODO service as the transactional
-// consumer. Missing consumers stay unavailable, including Merge's external
-// dispatch until its own recovery contract supplies a qualified consumer.
+// consumer. Merge uses its durable outbound admission and confirmed settlement;
+// missing consumers refuse before any confirmation or subject effect.
 func WithConfirmationTodos(store MythicalStore, todos *MythicalService) ApprovalsServiceOption {
 	return func(s *ApprovalsService) { s.confirmationStore, s.confirmationTodos = store, todos }
 }
@@ -237,11 +237,16 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 		}
 		var existingCommand, existingSubject, existingInput, state, revision string
 		var expires time.Time
-		err = tx.QueryRow(bound, `SELECT command,subject::text,payload->>'input',state,revision,expires_at FROM approvals WHERE id=$1 AND member_id=$2 FOR UPDATE`, id, fresh.User.ID).
-			Scan(&existingCommand, &existingSubject, &existingInput, &state, &revision, &expires)
+		var mergeAdmitted bool
+		err = tx.QueryRow(bound, `SELECT command,subject::text,payload->>'input',state,revision,expires_at,command='merge' AND payload ? 'effect' FROM approvals WHERE id=$1 AND member_id=$2 FOR UPDATE`, id, fresh.User.ID).
+			Scan(&existingCommand, &existingSubject, &existingInput, &state, &revision, &expires, &mergeAdmitted)
 		if err == nil {
 			if existingCommand != input.Command || !jsonEqual([]byte(existingSubject), prepared.subject) || !jsonEqual([]byte(existingInput), prepared.input) {
 				return todoRequestMismatch()
+			}
+			if state == "pending" && mergeAdmitted {
+				receipt = ConfirmationReceipt{ID: id, State: state}
+				return nil
 			}
 			stale := !expires.After(time.Now())
 			if state == "pending" && !stale {
@@ -267,9 +272,18 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 		if err != nil {
 			return err
 		}
+		kind := "one_click"
+		var generation any
+		var head any
+		if input.Command == "merge" {
+			kind = "review_merge"
+			parts := strings.Split(prepared.revision, ":")
+			generation, _ = strconv.ParseInt(parts[1], 10, 64)
+			head = parts[2]
+		}
 		payload, _ := json.Marshal(map[string]any{"input": json.RawMessage(prepared.input), "card": prepared.card})
-		_, err = tx.Exec(bound, `INSERT INTO approvals(id,repository_id,member_id,credential_id,command,subject,revision,kind,state,title,payload,expires_at)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,'one_click','pending',$8,$9,clock_timestamp()+interval '24 hours')`, id, repository, fresh.User.ID, credential, input.Command, prepared.subject, prepared.revision, prepared.title, payload)
+		_, err = tx.Exec(bound, `INSERT INTO approvals(id,repository_id,member_id,credential_id,command,subject,revision,kind,state,title,payload,expires_at,generation,reviewed_head_sha)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$10,'pending',$8,$9,clock_timestamp()+interval '24 hours',$11,$12)`, id, repository, fresh.User.ID, credential, input.Command, prepared.subject, prepared.revision, prepared.title, payload, kind, generation, head)
 		if err != nil {
 			return err
 		}
@@ -301,6 +315,9 @@ type preparedConfirmation struct {
 // prepareConfirmation adapts existing transactional TODO consumers. Its switch
 // describes availability and subject snapshots, never actor/role/agent policy.
 func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, repository int64, input ConfirmationInput, inspect bool) (preparedConfirmation, error) {
+	if input.Command == "merge" {
+		return s.prepareMergeConfirmation(ctx, tx, repository, input, inspect, *middleware.AuthInfoFromContext(ctx).User)
+	}
 	p := preparedConfirmation{}
 	info := middleware.AuthInfoFromContext(ctx)
 	var subject struct {
@@ -519,6 +536,9 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			return err
 		}
 		q := db.New(tx)
+		if err := q.SettleMergedConfirmations(bound, info.User.ID, time.Now().UTC()); err != nil {
+			return err
+		}
 		var command, state, revision string
 		var subject, payload []byte
 		var expires time.Time
@@ -544,6 +564,22 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			want = "rejected"
 		}
 		if previous != "" {
+			if previous == id && command == "merge" && decision == "approve" {
+				var refusal mythicalMergeRefusal
+				var saved struct {
+					Refusals map[string]mythicalMergeRefusal `json:"merge_refusals"`
+				}
+				if json.Unmarshal(payload, &saved) == nil {
+					refusal = saved.Refusals[key]
+				}
+				if refusal.Code != "" {
+					return &TodoControlError{Status: 409, Class: refusal.Class, Code: refusal.Code, Message: refusal.Message}
+				}
+				if state == "pending" {
+					receipt = ConfirmationReceipt{ID: id, State: state}
+					return nil
+				}
+			}
 			if previous != id || state != want {
 				return todoRequestMismatch()
 			}
@@ -552,6 +588,12 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 		}
 		if state != "pending" {
 			return confirmationResolved()
+		}
+		if command == "merge" {
+			var saved map[string]json.RawMessage
+			if json.Unmarshal(payload, &saved) == nil && len(saved["effect"]) > 0 {
+				return mythicalMergeConflict("merging", "A merge is in flight")
+			}
 		}
 		expire := func() error {
 			_, err := q.SettleMemberConfirmation(bound, id, info.User.ID, "expired")
@@ -588,6 +630,14 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			}
 		} else if decision == "approve" {
 			return confirmationUnavailable()
+		}
+		if command == "merge" && decision == "approve" {
+			receipt, err = s.admitMergeConfirmation(bound, tx, repository, id, key, prepared)
+			var stale *MythicalStaleHeadError
+			if errors.As(err, &stale) {
+				return expire()
+			}
+			return err
 		}
 		if decision == "approve" {
 			// Nested service transactions are pgx savepoints on this same tx;

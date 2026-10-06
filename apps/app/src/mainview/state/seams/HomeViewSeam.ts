@@ -41,7 +41,8 @@ export function createHomeViewSeam(options: {
   const apply = (body: Record<string, unknown>) => {
     const home = body.home && typeof body.home === "object" ? body.home as Record<string, unknown> : {}
     const parsed = TodoStateSchema.safeParse(home.filter)
-    publish({ ...get(), filter: parsed.success ? parsed.data : undefined })
+    const menu = typeof home.menu === "number" && Number.isSafeInteger(home.menu) && home.menu > 0 ? home.menu : undefined
+    publish({ ...get(), filter: parsed.success ? parsed.data : undefined, menu })
   }
   const read = async () => {
     const revision = generation, principal = owner, reading = ++readGeneration
@@ -79,10 +80,15 @@ export function createHomeViewSeam(options: {
     }
   }
   const onView: HomeViewProps["onView"] = patch => {
-    // Visibility is tab-local. Persist filters only after the server commits them.
+    // Visibility is tab-local. Persist preferences only after the server commits them.
     if (patch.on_screen !== undefined) publish({ ...get(), on_screen: patch.on_screen })
-    if (!("filter" in patch)) return
-    const filter = patch.filter === undefined ? undefined : TodoStateSchema.parse(patch.filter)
+    if (!("filter" in patch) && !("menu" in patch)) return
+    const changes: Record<string, unknown> = {}
+    if ("filter" in patch) changes.filter = patch.filter === undefined ? null : TodoStateSchema.parse(patch.filter)
+    if ("menu" in patch) {
+      if (patch.menu !== undefined && (!Number.isSafeInteger(patch.menu) || patch.menu <= 0)) throw new Error("Invalid Home menu")
+      changes.menu = patch.menu ?? null
+    }
     const revision = generation, principal = owner
     pending = pending.then(async () => {
       if (!valid(revision, principal)) return
@@ -93,7 +99,7 @@ export function createHomeViewSeam(options: {
       const home = saved.home && typeof saved.home === "object" ? saved.home as Record<string, unknown> : {}
       ++readGeneration
       const result = await request({ method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...saved, home: { ...home, filter: filter ?? null } }) })
+        body: JSON.stringify({ ...saved, home: { ...home, ...changes } }) })
       if (valid(revision, principal)) apply(result)
     }).catch(error => { if (valid(revision, principal)) options.report(error) })
   }

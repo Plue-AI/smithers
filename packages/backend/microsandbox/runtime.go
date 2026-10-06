@@ -31,6 +31,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/egressrelay"
 	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -151,6 +152,7 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
+	machined  machined.Registry
 	cli       *cli
 	config    Config
 	root      string
@@ -176,6 +178,13 @@ type Runtime struct {
 	admissionIdle     *AdmissionIdleProviders
 	admissionStarted  time.Time
 	metrics           *machineMetrics
+}
+
+// MachinedRegistry is the install's single registry. Composition and runtime
+// lifecycle use the same boot leases; callers cannot create a second authority.
+// The empty registry admits nothing until a trusted boot is planted.
+func (r *Runtime) MachinedRegistry() *machined.Registry {
+	return &r.machined
 }
 
 // New qualifies Microsandbox, loads persisted workspaces, reaps this
@@ -1108,6 +1117,7 @@ func (r *Runtime) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	var errs []error
+	errs = append(errs, r.machined.Close())
 	for _, name := range auxiliary {
 		errs = append(errs, r.finishAuxVM(name))
 	}

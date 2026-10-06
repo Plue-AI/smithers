@@ -3,6 +3,7 @@ package microsandbox
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -136,6 +137,84 @@ func (r *Runtime) rankAdmissionLocked() []*AdmissionRequest {
 		}
 	}
 	return heads
+}
+
+// AdmissionHeld reports ownership, including cancelled grants awaiting an
+// observed stop. Request state alone cannot establish that capacity is free.
+func (r *Runtime) AdmissionHeld(holder string) bool {
+	held, _ := r.AdmissionOwnership(holder)
+	return held
+}
+
+// AdmissionOwnership distinguishes confirmed release from unknown ownership
+// after recovery. Missing runtime metadata is not a stop receipt.
+func (r *Runtime) AdmissionOwnership(holder string) (held, known bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if h := r.admission[holder]; h != nil && h.held {
+		return true, true
+	}
+	if id, ok := strings.CutPrefix(holder, "workspace:"); ok {
+		if ws := r.workspaces[id]; ws != nil {
+			return ws.Machine != "" && ws.State != "stopped" && ws.State != "recovery_required", true
+		}
+	}
+	if h := r.admission[holder]; h != nil {
+		for _, row := range h.rows {
+			if row.State == "released" {
+				return false, true
+			}
+		}
+	}
+	return false, false
+}
+
+// ReorderTodoAdmission updates existing, ungranted stack demand in place.
+// It creates no demand, changes no grant, and leaves person priority intact.
+func (r *Runtime) ReorderTodoAdmission(holders []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	wanted := []string{}
+	eligible := map[string]bool{}
+	for _, head := range r.rankAdmissionLocked() {
+		if head.Class == "todo" {
+			eligible[head.Holder] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, holder := range holders {
+		if seen[holder] {
+			continue
+		}
+		seen[holder] = true
+		if h := r.admission[holder]; eligible[holder] && h != nil && !h.held {
+			for _, row := range h.rows {
+				if row.Class == "todo" && row.State == "waiting" {
+					wanted = append(wanted, holder)
+					break
+				}
+			}
+		}
+	}
+	current := []string{}
+	for _, row := range r.rankAdmissionLocked() {
+		if slices.Contains(wanted, row.Holder) {
+			current = append(current, row.Holder)
+		}
+	}
+	if slices.Equal(current, wanted) {
+		return
+	}
+	for _, holder := range wanted {
+		r.admissionSequence++
+		for _, row := range r.admission[holder].rows {
+			if row.Class == "todo" && row.State == "waiting" {
+				row.sequence = r.admissionSequence
+			}
+		}
+	}
+	r.rankAdmissionLocked()
+	r.notifyAdmissionLocked()
 }
 
 // AdmissionSnapshot copies rows so callers cannot mutate runtime ownership.

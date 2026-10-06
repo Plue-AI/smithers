@@ -18,7 +18,10 @@ const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheck
  * the process table — so they run serially, without coverage, from
  * `vitest.faults.config.ts`.
  */
-const faults = Smithers.FaultSuite({ cwd: "packages/smithers/flows/jj" })
+const faults = Smithers.FaultSuite({
+  cwd: "packages/smithers/flows/jj",
+  fixtures: Smithers.glob("vitest.faults.config.ts")
+})
 
 const securityReview = Smithers.SecurityReview({
   cwd: "packages/smithers/flows/jj",

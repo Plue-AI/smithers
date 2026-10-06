@@ -37,6 +37,9 @@ export const currentFlowName = (name: string): string => RENAMED_FLOWS[name] ?? 
 
 /** Every flow name declared under flows/entries, in sorted order. */
 export const FLOW_NAMES = [
+ "agent.turn",
+ "telemetry.report",
+ "sync.retry",
   "todo.preapprove",
   "todo.unapprove",
   "image.add",
@@ -70,6 +73,7 @@ export const FLOW_NAMES = [
   "background.dismiss",
   "github",
   "github.retry",
+  "notifications.allow",
   "settings",
   "settings.address",
   "settings.capacity",
@@ -151,7 +155,6 @@ export const FLOW_NAMES = [
   "change.checks",
   "change.diff",
   "change.facet",
-  "change.land",
   "change.pins",
   "change.resolve",
   "change.view",
@@ -199,7 +202,6 @@ export const FLOW_NAMES = [
   "flow.plan",
   "flow.plan.select",
   "flow.plan.tab",
-  "flow.repo.choose",
   "flow.run",
   "flow.run.retry",
   "flow.run.stop",
@@ -305,7 +307,6 @@ export const FLOW_NAMES = [
   "todo.retry-current-flow",
   "todo.drop",
   "wiki.save",
-  "notifications.allow",
   "toast.dismiss",
   "triggers.approve",
   "triggers.list",

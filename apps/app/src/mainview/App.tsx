@@ -145,7 +145,7 @@ function AppContent() {
   const earlier = session.branchNavigation?.open && session.branchNavigation.owner === (accountOwnerOf(identityRows[0]) ?? null) && session.branchNavigation.selected_branch === "earlier"
   const conversationTabId = conversationTabIdOf(session)
   // A recovery door is an acknowledgment only once its journal receipt exists.
-  const messages = messageRows.filter((message) => (!controller.sharedConversation || message.origin === "external" || message.action !== undefined) && inConversation(message, conversationTabId) &&
+  const messages = messageRows.filter((message) => (!controller.sharedConversation || message.action !== undefined) && inConversation(message, conversationTabId) &&
     (message.action?.flow !== "sign-in" || savedSignInPrompts.some(receipt => receipt.id === message.id)))
   const conversationRows = cardRows.filter((card) => inConversation(card, conversationTabId))
   // Admin chrome follows the same capability-filtered registry as every act.
@@ -169,7 +169,7 @@ function AppContent() {
   useLiveQuery(collections.repositoryFlows)
   const flows = controller.commands.all()
   const sharedConversation = useSharedConversation(controller.sharedConversation)
-  const typing = controller.sharedConversation ? sharedConversation.conversation?.entries.some(row => row.authorLogin === identityRows[0]?.login && (row.state === "running" || row.state === "accepted")) === true : session.phase === "responding"
+  const typing = controller.sharedConversation ? sharedConversation.conversation?.entries.some(row => "authorLogin" in row && row.authorLogin === identityRows[0]?.login && (row.state === "running" || row.state === "accepted")) === true : session.phase === "responding"
   const streamingMessageId = typing ? messages[messages.length - 1]?.id : undefined
   const identity = identityRows[0]
   const confirmations = useTopic(identity?.state === "signed-in" && identity.memberId && controller.live

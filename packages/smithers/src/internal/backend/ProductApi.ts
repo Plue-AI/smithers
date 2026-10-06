@@ -1021,6 +1021,10 @@ export type TodoCard = {
   waits: Array<Record<string, unknown>>
   steers: Array<Record<string, unknown>>
   evidence: Array<Record<string, unknown>>
+  preapproval?: {
+    by: string
+    at: string
+  }
   merge: {
     state: "ready" | "waiting" | "blocked" | "merging" | "done"
     reason?: string
@@ -1690,6 +1694,9 @@ export const postApiConfirmations = (transport: Transport, input: PostApiConfirm
 export type PostApiConfirmationsIdApproveResponse = {
   id: string
   state: "approved"
+} | {
+  id: string
+  state: "pending"
 }
 
 export interface PostApiConfirmationsIdApproveInput {
@@ -4627,15 +4634,28 @@ export interface PostApiReposOwnerRepoHooksIdTestsInput {
 export const postApiReposOwnerRepoHooksIdTests = (transport: Transport, input: PostApiReposOwnerRepoHooksIdTestsInput): Promise<PostApiReposOwnerRepoHooksIdTestsResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/hooks/${segment(input.path.id)}/tests`) as Promise<PostApiReposOwnerRepoHooksIdTestsResponse>
 
-export type PostApiReposOwnerRepoInvokeResponse = AnyJSON
+export type PostApiReposOwnerRepoInvokeBody = {
+  flow: string
+  input?: Record<string, unknown>
+}
+
+export type PostApiReposOwnerRepoInvokeResponse = {
+  id: number
+  run_id: number
+  workflow_definition_id: number
+  flow: string
+  path: string
+  status: string
+}
 
 export interface PostApiReposOwnerRepoInvokeInput {
   readonly path: { readonly owner: string; readonly repo: string }
+  readonly body: PostApiReposOwnerRepoInvokeBody
 }
 
 /** POST /api/repos/{owner}/{repo}/invoke */
 export const postApiReposOwnerRepoInvoke = (transport: Transport, input: PostApiReposOwnerRepoInvokeInput): Promise<PostApiReposOwnerRepoInvokeResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/invoke`) as Promise<PostApiReposOwnerRepoInvokeResponse>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/invoke`, input.body) as Promise<PostApiReposOwnerRepoInvokeResponse>
 
 export type PostApiReposOwnerRepoLandingsNumberReviewRequestsResponse = AnyJSON
 
@@ -5765,6 +5785,22 @@ export interface PostApiTodosNAnswerInput {
 /** POST /api/todos/{n}/answer: Answer the coding agent's open question; the first answer settles it and resumes the run */
 export const postApiTodosNAnswer = (transport: Transport, input: PostApiTodosNAnswerInput): Promise<PostApiTodosNAnswerResponse> =>
   transport.request("POST", `/api/todos/${segment(input.path.n)}/answer`, input.body) as Promise<PostApiTodosNAnswerResponse>
+
+export interface PostApiTodosNPreapprovalInput {
+  readonly path: { readonly n: number }
+}
+
+/** POST /api/todos/{n}/preapproval: Pre-approve a TODO */
+export const postApiTodosNPreapproval = (transport: Transport, input: PostApiTodosNPreapprovalInput): Promise<void> =>
+  transport.request("POST", `/api/todos/${segment(input.path.n)}/preapproval`).then(() => undefined)
+
+export interface DeleteApiTodosNPreapprovalInput {
+  readonly path: { readonly n: number }
+}
+
+/** DELETE /api/todos/{n}/preapproval: Remove a TODO pre-approval */
+export const deleteApiTodosNPreapproval = (transport: Transport, input: DeleteApiTodosNPreapprovalInput): Promise<void> =>
+  transport.request("DELETE", `/api/todos/${segment(input.path.n)}/preapproval`).then(() => undefined)
 
 export interface DeleteApiUserConnectionsIdInput {
   readonly path: { readonly id: string }

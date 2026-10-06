@@ -76,11 +76,25 @@ paths:
                   state:
                     type: string
                     enum: [approved]
+        '202':
+          description: Person-authorized merge admitted; confirmation remains pending until the matching merge is confirmed on main
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, state]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  state:
+                    type: string
+                    enum: [pending]
         '400':
           description: Missing Idempotency-Key
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409':
-          description: Expired or resolved confirmation
+          description: Expired or resolved confirmation, blocked merge readiness, or definitive GitHub refusal; refusals leave the merge pending
         '503':
           description: Production subject transaction unavailable; approval remains pending
   /api/confirmations/{id}/deny:

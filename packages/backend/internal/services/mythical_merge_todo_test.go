@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -131,7 +132,13 @@ func (h *mergeHarness) first(title string) (int64, string, int64) {
 	return h.todoInReview(title, h.main)
 }
 
-func (h *mergeHarness) pass() { h.wake() }
+// pass makes the item due against the service clock, including tests with a
+// fixed clock. PostgreSQL NOW() may be ahead of that clock after publication.
+func (h *mergeHarness) pass() {
+	h.exec(`UPDATE mythical_items SET next_attempt_at = $2 WHERE repository_id = $1`, h.repoID, h.service.now().Add(-time.Second))
+	h.service.MainMoved(context.Background(), h.repoID)
+	require.NoError(h.t, h.service.PollOnce(context.Background()))
+}
 
 func (h *mergeHarness) mergeCard(number int64) (string, map[string]any) {
 	h.t.Helper()
@@ -2038,4 +2045,170 @@ func TestMythicalMergeTodoUnansweredRecoveryIsBounded(t *testing.T) {
 	require.Empty(t, h.item(n).PendingOp)
 	require.Equal(t, "landed", h.item(n).State)
 	require.Len(t, h.merges(), 1)
+}
+
+// These cases test approval/readiness/recovery, with a fixed service clock;
+// the separate claim tests exercise elapsed-time bounds with advancing clocks.
+func (h *mergeHarness) freezeClock() {
+	now := time.Now()
+	h.service.now = func() time.Time { return now }
+}
+
+func TestMythicalStandingPreapprovalUsesGuardedMerge(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Standing approval")
+	h.freezeClock()
+	h.fake.RequireCheck("unit")
+	h.fake.SetCheck("rehearsal-owner/app", head, "unit", "in_progress", "")
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	approval := *mythicalChecksOf(h.item(n)).Preapproval
+	h.pass()
+	require.Empty(t, h.merges())
+	require.Nil(t, h.land(n), "a standing approval never fabricates a reviewed-head press")
+	// A standing approval survives its original browser session expiring.
+	h.exec(`UPDATE auth_sessions SET expires_at = NOW() - interval '1 hour' WHERE session_key = $1`, h.session)
+	h.fake.SetCheck("rehearsal-owner/app", head, "unit", "completed", "success")
+	for i := 0; i < 5; i++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1)
+	var sent struct {
+		SHA    string `json:"sha"`
+		Method string `json:"merge_method"`
+	}
+	require.NoError(t, json.Unmarshal(h.merges()[0].Body, &sent))
+	require.Equal(t, head, sent.SHA)
+	require.Equal(t, "squash", sent.Method)
+	require.Equal(t, approval, *mythicalChecksOf(h.item(n)).Preapproval)
+	require.Nil(t, h.land(n))
+	require.Equal(t, "landed", h.item(n).State)
+	require.Empty(t, h.item(n).PendingOp)
+}
+
+func TestMythicalStandingPreapprovalRemovalAndRevocation(t *testing.T) {
+	for _, revoked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("revoked=%t", revoked), func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, _, _ := h.first("Remove approval")
+			h.freezeClock()
+			_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+			require.NoError(t, err)
+			if revoked {
+				h.exec(`UPDATE users SET prohibit_login = true WHERE id = $1`, h.userID)
+			} else {
+				_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, false)
+				require.NoError(t, err)
+				events := mythicalChecksOf(h.item(n)).PreapprovalEvents
+				require.Len(t, events, 2)
+				require.False(t, events[1].Approved)
+				require.Equal(t, h.userID, events[1].User)
+			}
+			for i := 0; i < 3; i++ {
+				h.pass()
+			}
+			require.Empty(t, h.merges())
+			require.Empty(t, h.item(n).PendingOp)
+		})
+	}
+}
+
+func TestMythicalStandingPreapprovalRemovalBeforeSend(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, _ := h.first("Cancel unsent")
+	h.freezeClock()
+	var logs bytes.Buffer
+	h.service.logger = slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	h.pass() // Persist the ready intent; only the next recovery pass may send.
+	require.Equal(t, "merge", h.operation(n).Kind, logs.String())
+	require.Empty(t, h.merges())
+	_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, false)
+	require.NoError(t, err)
+	h.pass()
+	h.pass()
+	require.Empty(t, h.merges())
+	h.unfenced(n)
+	require.False(t, mythicalChecksOf(h.item(n)).Automerge)
+}
+
+func TestMythicalStandingPreapprovalManualMergeKeepsItsAttribution(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("A person's Merge")
+	h.freezeClock()
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	require.NoError(t, h.press(h.ctx, n, head))
+	for i := 0; i < 4; i++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1)
+	require.Equal(t, "landed", h.item(n).State)
+	require.NotNil(t, h.land(n))
+	card, err := h.service.Todo(h.ctx, h.repoID, n)
+	require.NoError(t, err)
+	require.NotContains(t, card, "preapproval", "the standing grant did not send this Merge")
+}
+
+func TestMythicalStandingPreapprovalLostAnswerDoesNotRepeat(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, pr := h.first("Lost standing merge")
+	h.freezeClock()
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	path := fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pr)
+	h.fake.LoseNextResponses(path, 1)
+	for i := 0; i < 5 && len(h.merges()) == 0; i++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1, "state=%s reason=%s intent=%+v checks=%+v", h.item(n).State, h.item(n).Reason, h.operation(n), mythicalChecksOf(h.item(n)))
+	require.Equal(t, "unknown", h.operation(n).State)
+	_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, false)
+	require.NoError(t, err)
+	h.pass()
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	require.Equal(t, "landed", h.item(n).State)
+	require.Nil(t, h.land(n))
+	card, err := h.service.Todo(h.ctx, h.repoID, n)
+	require.NoError(t, err)
+	require.Equal(t, "rehearsal-owner", card["preapproval"].(map[string]any)["by"])
+}
+
+// Install follow reads through the real qualified fetched-fact consumer rather
+// than resolving the outbound binding. The standing evaluator must resolve it.
+func TestMythicalStandingPreapprovalInstallPolling(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Install standing approval")
+	h.freezeClock()
+	_, err := h.q.SetGithubAppInstallation(h.ctx, h.installation)
+	require.NoError(t, err)
+	synced := NewGitHubSyncedRepoService(h.q, WithGitHubSyncedRepoBudget(NewBudgetTracker()))
+	require.NoError(t, synced.ConfigureInstallSync(h.pool.(*pgxpool.Pool)))
+	synced.BindInstallAuthority(h.credentials, os.Geteuid() != 0)
+	client := NewGitHubUserReposService(h.q, nil)
+	synced.SetConditionalFetcherFactory(client.SyncedRepoConditionalFetcherFactory(h.connections))
+	_, err = h.q.EnrollGitHubSyncedRepo(h.ctx, db.EnrollGitHubSyncedRepoParams{OwnerLogin: "rehearsal-owner", RepoName: "app",
+		InstallationID: pgtype.Int8{Int64: h.installation, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true},
+		SyncMetadata: true, EnrolledVia: GitHubSyncedRepoEnrolledViaInstallation})
+	require.NoError(t, err)
+	h.service.UseInstallGitHubPolling(synced)
+	_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	for i := 0; i < 5; i++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1, "state=%s reason=%s", h.item(n).State, h.item(n).Reason)
+	var send struct {
+		SHA    string `json:"sha"`
+		Method string `json:"merge_method"`
+	}
+	require.NoError(t, json.Unmarshal(h.merges()[0].Body, &send))
+	require.Equal(t, head, send.SHA)
+	require.Equal(t, "squash", send.Method)
+	card, err := h.service.Todo(h.ctx, h.repoID, n)
+	require.NoError(t, err)
+	require.Equal(t, "merged", card["state"])
+	require.Empty(t, h.item(n).PendingOp)
 }
