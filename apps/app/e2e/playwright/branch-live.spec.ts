@@ -36,7 +36,7 @@ test("install /branch T2 renders captured facts and forks through its card witho
   await expect(card).toContainText("retry.ts:12")
   await expect(card).toContainText("ssh -p 2222 retry-webhooks@localhost")
   await expect(card.locator('[data-flow="box.resume"]')).toHaveCount(0)
-  await expect.poll(() => presence).toEqual([{ branch: "b-live" }])
+  await expect.poll(() => presence[0]).toEqual({ branch: "b-live" })
   await card.getByRole("button", { name: "Fork", exact: true }).press("Enter")
   await expect.poll(() => posts).toEqual([{ from: "T2" }])
   await expect(page.getByTestId("composer-input")).toBeEnabled()

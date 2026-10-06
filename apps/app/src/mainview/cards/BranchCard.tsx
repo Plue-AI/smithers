@@ -108,8 +108,8 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
     && (branch?.error === undefined || branch.error === "unknown_topic" || branch.error === "unsupported")) return <DesignBranchBody card={card} actions={actions} />
   const providers = new Set<CatalogTag>()
   if (controller.forkBranch) providers.add("branch.fork")
-  if (controller.answerTodo) providers.add("todo.answer")
-  if (controller.steerTodo) providers.add("todo.steer")
+  if (typeof controller.answerTodo === "function") providers.add("todo.answer")
+  if (typeof controller.steerTodo === "function") providers.add("todo.steer")
   const dispatch: CardCommandDispatch = (tag, input) => controller.commands.submit({
     name: tag, payload: { branch: card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
   })
