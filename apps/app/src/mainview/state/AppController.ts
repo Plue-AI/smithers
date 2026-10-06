@@ -1,3 +1,4 @@
+import { draftIssueTodo } from "./seams/IssueTodoDraft"
 import { createSharedPrompts } from "./controller/sharedPrompts"
 import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
 import { createEarlierHistoryController } from "./controller/earlierHistory"
@@ -1188,7 +1189,14 @@ export const createAppController = (
       return real.resolveProposal(id, action)
     } }
   })
-  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { sourceAvailable: async path => {
+  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { ...(installHost ? { draftIssue: (source, signal) => draftIssueTodo(context, source, signal), readIssue: async (number, repo) => {
+    const issue = await issuesSeam.readTodoIssue(number, repo)
+    if (typeof issue === "string") return issue
+    if (issue.state === "closed") return `Issue #${number} is closed.`
+    if (issue.makeTodoAllowed !== true) return "Only a maintainer can make a TODO from this issue."
+    if (!issue.issueDigest) return "Could not read this issue."
+    return { number, author: issue.author, digest: issue.issueDigest, title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${repo}/issues/${number}`, comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) }
+  } } : {}), sourceAvailable: async path => {
     try {
       const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/branches/main/files/${path.split("/").map(encodeURIComponent).join("/")}`, { credentials: "include" })
       // A built-in has no override file yet; a missing file is a served read, not missing infrastructure.
