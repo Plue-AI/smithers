@@ -75,6 +75,33 @@ func TestWorkspaceCoding_FilePatchValidation(t *testing.T) {
 	require.NoError(t, validateCodingProjections([]WorkspaceCodingProjection{projection}))
 }
 
+func TestWorkspaceCoding_FilePatchRequiresQualifiedProviderAfterAuthorization(t *testing.T) {
+	for _, userID := range []int64{1, 2} {
+		t.Run(fmt.Sprint(userID), func(t *testing.T) {
+			executed := false
+			q := &mockWorkspaceQuerier{getWorkspaceShareFn: func(context.Context, db.GetWorkspaceShareParams) (db.WorkspaceShare, error) {
+				return db.WorkspaceShare{Level: "read"}, nil
+			}}
+			vm := &mockWorkspaceSandboxVMClient{execAwaitFn: func(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {
+				executed = true
+				return sandbox.ExecResult{}, errors.New("unqualified helper executed")
+			}}
+			input := codingFixture()
+			input.Operation, input.Description = "apply_files", nil
+			content := "replacement\n"
+			input.Files = []WorkspaceCodingFile{{Path: "a.txt", Content: &content}}
+			_, err := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(vm)).ApplyCodingOperation(context.Background(), "ws-1", 101, userID, input)
+			if userID == 1 {
+				assertAPIErrorStatus(t, err, http.StatusServiceUnavailable)
+				require.ErrorContains(t, err, "atomic file mutation provider unavailable")
+			} else {
+				assertAPIErrorStatus(t, err, http.StatusForbidden)
+			}
+			require.False(t, executed, "unqualified file operation must not launch a helper")
+		})
+	}
+}
+
 func TestWorkspaceCoding_FileRecoveryReceiptSurvivesCloudBoundary(t *testing.T) {
 	failed := int32(1)
 	vm := &mockWorkspaceSandboxVMClient{execAwaitFn: func(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {

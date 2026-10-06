@@ -315,7 +315,14 @@ export const nativeLayer = (options: NativeOptions) =>
           Effect.mapError(() =>
             failure("invalid_request", "Native operation requires exact resolved JJ revision identities")
           ),
-          Effect.flatMap(invoke),
+          // Native file installation retains recovery copies, but does not
+          // exclude outside writers or roll back a whole stale patch. It must
+          // not bypass the same qualification gate as the standard file tools.
+          Effect.flatMap((input) =>
+            input.operation === "apply_files"
+              ? Effect.fail(failure("host_unavailable", "Authenticated atomic file mutation provider unavailable"))
+              : invoke(input)
+          ),
           Effect.map((result) =>
             result !== null && typeof result === "object" && "status" in result && result.status === "accepted"
               ? { ...result, provenance: "pending" } :
