@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdir, lstat, readFile, writeFile } from 'node:fs/promises'
 import { statfsSync } from 'node:fs'
-import { cpus, homedir, platform, release, totalmem } from 'node:os'
+import { cpus, platform, release, totalmem } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -64,7 +64,7 @@ export async function run({ root = process.cwd(), componentsOnly = false, wikiOn
     try {
       const config = JSON.parse(await readFile(join(root, '.artifacts/working-together-host.json'), 'utf8'))
       if (typeof config.databaseUrl !== 'string' || typeof config.libraryPath !== 'string') throw new Error('invalid fixture')
-      executionEnv = { ...process.env, SMITHERS_TEST_DATABASE_URL: config.databaseUrl, SMITHERS_FFI_LIBRARY_PATH: config.libraryPath, SMITHERS_REQUIRE_DATABASE_TESTS: '1', GOCACHE: process.env.GOCACHE || join(homedir(), '.cache/go-build-shared'), LANE: 'working-together-wiki' }
+      executionEnv = { ...process.env, SMITHERS_TEST_DATABASE_URL: config.databaseUrl, SMITHERS_FFI_LIBRARY_PATH: config.libraryPath, SMITHERS_REQUIRE_DATABASE_TESTS: '1', LANE: 'working-together-wiki' }
     } catch {
       await writeFile(join(directory, 'summary.json'), JSON.stringify({ ...env, timestamp, status: 'failed', componentStatus: 'failed', reason: 'wiki host fixture unavailable', points: [{ point: 'K8', status: 'blocked' }] }, null, 2) + '\n', { flag: 'wx' })
       console.error(`failed: ${directory} (wiki host fixture unavailable)`)

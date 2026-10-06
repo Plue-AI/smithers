@@ -1,0 +1,400 @@
+[
+  {
+    "id": "j1-mac-installer",
+    "title": "Install Smithers on a Mac with the installer",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#1"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/smithers/docs/guides/installer-releases.md"
+    ],
+    "code": [
+      "scripts/installer-release.mjs"
+    ],
+    "gap": "No recorded proof run; proof walks start from a built bundle, not the Mac installer."
+  },
+  {
+    "id": "j1-host-start-setup-link",
+    "title": "smthrs host start prints a one-time setup link that opens setup",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#2",
+      "j1#3"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "apps/app/docs/LOCAL-APP.md"
+    ],
+    "code": [
+      "packages/smithers/src/internal/backend/HostService.ts#L229-L235",
+      "packages/backend/internal/services/install_setup_session.go#L111-L155",
+      "packages/backend/internal/services/install_setup_session.go#L40-L82"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-setup-address",
+    "title": "Setup Address: This Mac only or Network with the team's address",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#4"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "apps/app/docs/LOCAL-APP.md"
+    ],
+    "code": [
+      "apps/app/src/mainview/cards/SetupCard.tsx#L50-L66",
+      "packages/backend/internal/services/install_setup.go#L473-L481",
+      "packages/backend/internal/services/install_address.go#L177-L186"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-setup-github-app",
+    "title": "Create the GitHub App with GitHub's app-manifest flow",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#5"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/github-app.md"
+    ],
+    "code": [
+      "packages/backend/internal/routes/github_app_setup.go#L237-L295",
+      "packages/backend/internal/routes/github_app_setup.go#L329-L340",
+      "packages/backend/internal/services/github_app_manifest.go#L65-L71"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-owner-sign-in",
+    "title": "Owner signs in with GitHub through the new App and claims the install",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#6"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/ownership.md",
+      "packages/backend/docs/authentication.md"
+    ],
+    "code": [
+      "packages/backend/internal/services/install_setup_session.go#L196-L273"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-setup-repository",
+    "title": "Choose the repository, install the App on it, check squash merging, start mirroring",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#7"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/repository-provisioning.md",
+      "packages/backend/docs/git-mirrors.md"
+    ],
+    "code": [
+      "packages/backend/internal/routes/github_app_setup.go#L345-L368",
+      "packages/backend/internal/services/install_setup_providers.go#L131-L188",
+      "packages/backend/internal/services/members.go#L123-L129"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-setup-model-access",
+    "title": "Model access: fast, coding and AI Gateway keys, masked and tested before saving",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#8",
+      "j1#9",
+      "j1#10",
+      "j1#11"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/model-key-isolation.md"
+    ],
+    "code": [
+      "apps/app/src/mainview/cards/SetupCard.tsx#L30-L38",
+      "packages/backend/internal/services/install_setup.go#L518-L569",
+      "packages/backend/internal/services/install_setup.go#L590-L601"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-source-ready",
+    "title": "Source ready: the mirror finishes and questions work",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#10"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/git-mirrors.md"
+    ],
+    "code": [
+      "packages/backend/internal/services/git_mirror_sync.go#L137-L143",
+      "packages/backend/internal/services/install_source.go#L94-L121"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-ask-code-question",
+    "title": "Ask the app agent about the code and get an answer with file cards",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#12"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "apps/app/docs/LOCAL-APP.md"
+    ],
+    "code": [
+      "packages/backend/internal/services/install_source.go#L127-L155",
+      "apps/app/src/mainview/cards/FileCards.tsx#L159-L221"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-machine-ready",
+    "title": "Machine ready: the first machine image prepares in the background, toolchain detected",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#11",
+      "j1#13"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/machine-images.md"
+    ],
+    "code": [
+      "packages/backend/internal/services/install_machine_ready.go#L76-L152"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-draft-todo",
+    "title": "Write a TODO in plain words; the app agent drafts its title and prompt",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#14"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/mythical_items.md"
+    ],
+    "code": [
+      "apps/app/src/mainview/cards/DraftCard.tsx#L24-L52"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-commit-todo",
+    "title": "Commit the draft: T1 on the stack with a branch, a machine and the coding agent",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#15",
+      "j1#16"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/mythical_items.md"
+    ],
+    "code": [
+      "apps/app/src/mainview/state/seams/TodoSeam.ts#L399-L420",
+      "packages/backend/internal/routes/todos.go#L109-L134",
+      "packages/backend/internal/services/mythical_file_todo.go#L76-L237"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-coding-run",
+    "title": "The coding agent plans, edits, verifies with the repository's checks and reviews its change",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#16",
+      "j1#17",
+      "j1#18",
+      "j1#19"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "flows/coding/README.md",
+      "flows/coding/checks.md"
+    ],
+    "code": [
+      "flows/coding/flow.ts#L42-L54"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-pr-opens",
+    "title": "The TODO's pull request opens on GitHub with its evidence",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#20"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/mythical_items.md"
+    ],
+    "code": [
+      "packages/backend/internal/services/mythical_publication.go#L232-L270",
+      "packages/backend/internal/services/mythical_publication.go#L308-L332"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-review-diff-in-app",
+    "title": "Review the TODO's diff in the app",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#21"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/mythical_items.md"
+    ],
+    "code": [
+      "packages/backend/internal/routes/branch_diff.go#L21-L42",
+      "apps/app/src/mainview/cards/BranchCard.tsx#L22-L45"
+    ],
+    "gap": "No recorded proof run; Open branch did nothing on an install in the 10-05 M3 walk, so the diff was reviewable only on GitHub."
+  },
+  {
+    "id": "j1-merge-in-app",
+    "title": "Merge a TODO from the app",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#22"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/mythical_items.md"
+    ],
+    "code": [
+      "apps/app/src/mainview/cards/TodoCard.tsx#L84-L103",
+      "packages/backend/internal/routes/todos.go#L208-L238",
+      "packages/backend/internal/services/mythical_merge_todo.go#L198-L210"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-learning-run",
+    "title": "A learning run follows the merge and leaves lessons in the wiki",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#23"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/wiki.md"
+    ],
+    "code": [
+      "packages/backend/internal/services/learning.go#L70-L129"
+    ],
+    "gap": "No learning run follows a merge: CommitLearning has no non-test caller (m4-walk, 10-05)."
+  },
+  {
+    "id": "j1-add-members",
+    "title": "Add teammates by GitHub username; roles follow GitHub permissions",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#24",
+      "j1#25",
+      "j1#26"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/members.md"
+    ],
+    "code": [
+      "packages/backend/internal/routes/members.go#L43-L76",
+      "apps/app/src/mainview/cards/MembersCard.tsx#L11-L48"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-set-secrets",
+    "title": "Set write-only secrets for every branch's machine or main only",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#27",
+      "j1#28",
+      "j1#29"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "packages/backend/docs/secrets.md"
+    ],
+    "code": [
+      "packages/backend/internal/routes/secrets.go#L80-L119",
+      "packages/backend/internal/routes/secrets.go#L123-L163",
+      "apps/app/src/mainview/cards/SecretsCard.tsx#L15-L60"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  },
+  {
+    "id": "j1-settings",
+    "title": "/settings keeps setup's answers, capacity, the Obsidian folder and the laptop agent line",
+    "journey": "J1",
+    "spec": ".specs/product/mvp.md#j1-install-to-first-merged-todo-p0",
+    "mockSteps": [
+      "j1#30"
+    ],
+    "status": "not-implemented",
+    "proof": [],
+    "docs": [
+      "apps/app/docs/LOCAL-APP.md"
+    ],
+    "code": [
+      "apps/app/src/mainview/cards/SettingsContainer.tsx#L45-L78",
+      "packages/backend/internal/routes/github_app_setup.go#L418-L461"
+    ],
+    "gap": "No recorded proof run: apps/app/e2e/proof/j1.spec.ts has no proofStep for this feature yet."
+  }
+]
