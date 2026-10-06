@@ -62,6 +62,7 @@ fn read_events(directory: &File) -> io::Result<bool> {
     populated.ok_or_else(|| invalid("missing populated state"))
 }
 struct Group {
+    name: String,
     directory: File,
     // PTY closure drops the master, delivering kernel HUP to its foreground
     // group. Exec/SFTP closure drops stdin. Remaining children stay registered.
@@ -113,7 +114,8 @@ impl Cgroups {
         if id == 0 || id > 0x7fffffff || self.groups.contains_key(&id) {
             return Err(invalid("invalid session id"));
         }
-        let path = held(&self.parent, &id.to_string());
+        let name = format!("s{id}");
+        let path = held(&self.parent, &name);
         fs::create_dir(&path)?; // EEXIST refuses retained/forged entries.
         let result = (|| {
             let fd = directory(&path)?;
@@ -122,6 +124,7 @@ impl Cgroups {
             self.groups.insert(
                 id,
                 Group {
+                    name,
                     directory: fd,
                     pty: None,
                     stdin: None,
@@ -153,7 +156,7 @@ impl Cgroups {
         Ok(())
     }
     /// Clean up retained groups after startup. No daemon may start until this
-    /// succeeds. Names outside the daemon allocator's decimal range fail closed.
+    /// succeeds. Legacy decimal and current s<id> names are cleaned; aliases fail closed.
     pub fn recover(&mut self, deadline: Instant) -> io::Result<()> {
         for entry in fs::read_dir(held(&self.parent, "."))? {
             let entry = entry?;
@@ -168,17 +171,16 @@ impl Cgroups {
             let name = name
                 .to_str()
                 .ok_or_else(|| invalid("invalid retained cgroup name"))?;
-            let id: u32 = name
-                .parse()
-                .map_err(|_| invalid("invalid retained cgroup id"))?;
-            if id == 0 || id > 0x7fffffff || name != id.to_string() {
-                return Err(invalid("invalid retained cgroup id"));
+            let id = super::sessions::cgroup_id(name)?;
+            if self.groups.get(&id).is_some_and(|group| group.name != name) {
+                return Err(invalid("duplicate retained cgroup aliases"));
             }
             if !self.groups.contains_key(&id) {
                 let fd = directory(&held(&self.parent, name))?;
                 self.groups.insert(
                     id,
                     Group {
+                        name: name.to_owned(),
                         directory: fd,
                         pty: None,
                         stdin: None,
@@ -228,7 +230,7 @@ impl Controls for Cgroups {
             std::thread::sleep(Duration::from_millis(5));
         }
         // Do not forget the held group on failed removal; retry remains possible.
-        fs::remove_dir(held(&self.parent, &id.to_string()))?;
+        fs::remove_dir(held(&self.parent, &group.name))?;
         self.groups.remove(&id);
         Ok(())
     }

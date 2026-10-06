@@ -143,6 +143,11 @@ pub trait Sessions: Send + Sync {
     fn frame(&self, _frame: &Frame) -> Result<Frame> {
         Err(Error::unsupported())
     }
+    /// Agent-local admission uses the kernel-observed cgroup, not request user
+    /// or run fields. The broker must inherit its registered run atomically.
+    fn open_local(&self, _caller_cgroup: &str, _arguments: &[u8]) -> Result<Vec<u8>> {
+        Err(Error::unsupported())
+    }
     fn run_of_cgroup(&self, _cgroup: &str) -> Option<String> {
         None
     }

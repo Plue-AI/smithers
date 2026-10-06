@@ -121,3 +121,39 @@ fn kernel_peer_must_be_agent_in_a_registered_cgroup() {
         assert_eq!(run_for_peer(uid, groups, &Runs).unwrap_err().code, 11);
     }
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn local_open_refuses_identity_and_kind_selection() {
+    use smithers_machined::local::validate_open;
+    fn string(s: &str) -> Vec<u8> {
+        [(s.len() as u16).to_be_bytes().as_slice(), s.as_bytes()].concat()
+    }
+    for (login, uid, kind, allowed) in [
+        ("agent", 19999u32, 1u8, true),
+        ("agent", 19999, 2, false),
+        ("agent", 19999, 3, false),
+        ("ben", 20001, 1, false),
+        ("root", 0, 1, false),
+        ("agent", 20001, 1, false),
+    ] {
+        let body = conn::structure_bytes(&[
+            conn::field(
+                1,
+                conn::structure_bytes(&[
+                    conn::field(1, string(login)),
+                    conn::field(2, uid.to_be_bytes()),
+                ]),
+            ),
+            conn::field(2, [kind]),
+        ]);
+        assert_eq!(
+            validate_open(&body).is_ok(),
+            allowed,
+            "{login}:{uid} kind {kind}"
+        );
+    }
+    for bytes in [vec![], vec![0; 65_537]] {
+        assert!(validate_open(&bytes).is_err());
+    }
+}

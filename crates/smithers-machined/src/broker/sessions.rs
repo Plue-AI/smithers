@@ -52,7 +52,7 @@ pub struct Entry {
 }
 impl Entry {
     pub fn cgroup(&self) -> String {
-        format!("/sys/fs/cgroup/smithers/sessions/{}", self.id)
+        format!("/sys/fs/cgroup/smithers/sessions/s{}", self.id)
     }
 }
 fn refusal(message: &'static str) -> io::Error {
@@ -149,6 +149,23 @@ impl<C: Controls> Sessions<C> {
                 exited: false,
             },
         );
+        Ok(())
+    }
+    /// Record an agent-local PTY with its caller's immutable run in the same
+    /// registry mutation. No observer can see an admitted but unattributed PTY.
+    /// The root spawn provider must authorize the caller before spawning, then
+    /// call this while still holding the broker's serialization boundary.
+    pub fn insert_local(&mut self, id: u32, peer_uid: u32, caller: u32) -> io::Result<()> {
+        let run = self.local_run(peer_uid, caller)?.to_owned();
+        self.insert(
+            id,
+            User {
+                login: "agent".into(),
+                uid: 19999,
+            },
+            Kind::Pty,
+        )?;
+        self.entries.get_mut(&id).expect("inserted entry").run = Some(run);
         Ok(())
     }
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
@@ -290,4 +307,15 @@ impl<C: Controls> Sessions<C> {
         self.detached.clear();
         Ok(())
     }
+}
+
+/// Decode only canonical broker cgroup names. Decimal names are retained-state
+/// compatibility for cleanup of older installs; newly allocated groups use s<id>.
+pub fn cgroup_id(name: &str) -> io::Result<u32> {
+    let decimal = name.strip_prefix('s').unwrap_or(name);
+    let id: u32 = decimal.parse().map_err(|_| refusal("invalid cgroup id"))?;
+    if id == 0 || id > 0x7fff_ffff || decimal != id.to_string() {
+        return Err(refusal("invalid cgroup id"));
+    }
+    Ok(id)
 }
