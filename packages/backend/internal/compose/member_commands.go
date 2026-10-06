@@ -137,9 +137,7 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 		writeConfirmationDispatchError(w, err)
 		return true
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(receipt)
+	routes.WriteRequestedConfirmation(w, r, receipt)
 	return true
 }
 func writeConfirmationDispatchError(w http.ResponseWriter, err error) {

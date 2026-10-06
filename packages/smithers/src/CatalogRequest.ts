@@ -17,6 +17,12 @@ export interface CatalogHttpBinding {
   readonly body?: Readonly<Record<string, string>>
   readonly defaults?: Readonly<Record<string, unknown>>
   readonly query?: Readonly<Record<string, string>>
+  /** Optional nested request objects, emitted only when their source field is present. */
+  readonly objects?: Readonly<Record<string, {
+    readonly when: string
+    readonly body: Readonly<Record<string, string>>
+    readonly defaults?: Readonly<Record<string, unknown>>
+  }>>
 }
 
 /**
@@ -54,7 +60,16 @@ export const catalogRequest = (
         .map(([field, source]) => [field, payload[source]])
     )
     : { ...payload }
-  Object.assign(body, binding.defaults)
+  Object.assign(body, structuredClone(binding.defaults))
+  for (const [field, nested] of Object.entries(binding.objects ?? {})) {
+    if (payload[nested.when] === undefined || payload[nested.when] === null) continue
+    body[field] = {
+      ...Object.fromEntries(Object.entries(nested.body)
+        .filter(([, source]) => payload[source] !== undefined)
+        .map(([key, source]) => [key, payload[source]])),
+      ...structuredClone(nested.defaults)
+    }
+  }
   const used = new Set<string>()
   let path = binding.path.replace(/\{([^}]+)\}/g, (_, field: string) => {
     const value = payload[field]

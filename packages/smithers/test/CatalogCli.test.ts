@@ -11,7 +11,7 @@ import fixtureCases from "./CatalogCli.fixture.json" with { type: "json" }
 // Reviewed literal argv and HTTP expectations; never generated from descriptors.
 const cases = fixtureCases.requests
 
-async function fixture(status = 200, response: unknown = { state: "accepted" }) {
+async function fixture(status = 200, response: unknown = { state: "accepted" }, headers: Record<string, string> = {}) {
   const seen: unknown[] = [], home = await mkdtemp(join(tmpdir(), "fr-t-cat-01-"))
   const idempotencyKeys: Array<string | string[] | undefined> = []
   const server = createServer((request, result) => {
@@ -27,7 +27,7 @@ async function fixture(status = 200, response: unknown = { state: "accepted" }) 
         body: body ? JSON.parse(body) : undefined,
         via: request.headers["smithers-via"]
       })
-      result.writeHead(status, { "Content-Type": "application/json" })
+      result.writeHead(status, { "Content-Type": "application/json", ...headers })
       result.end(JSON.stringify(typeof response === "function" ? response(request.method) : response))
     })
   })
@@ -128,7 +128,7 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
   })
   it.each([["stack", "move", "T1", "sideways"], ["stack", "move", "T1"], ["todo", "steer", "T1"],
     ["issue", "show", "twelve"], ["flow", "run", "lint-fix", "--input", "not-json"],
-    ["flow", "run", "lint-fix", "--input", "[]"], ["todo", "new", "--acceptance", "[1]"]])(
+    ["flow", "run", "lint-fix", "--input", "[]"], ["todo", "new", "--acceptance", "[1]"], ["todo", "new", "--before", "#1"], ["todo", "new", "--before", "T0"]])(
     "rejects invalid enum or missing required fields: %s",
     async (...argv) => {
       const f = await fixture()
@@ -140,6 +140,55 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       }
     }
   )
+  it("publishes literal TODO and enum argument schemas", async () => {
+    const f = await fixture()
+    try {
+      const result = await f.invoke(["stack", "move", "--schema"])
+      const schema = JSON.parse(result.stdout)
+      expect(schema.args.required).toEqual(["n", "direction"])
+      expect(schema.args.properties.n).toMatchObject({ type: "string", pattern: "^T[1-9]\\d*$" })
+      expect(schema.args.properties.direction).toMatchObject({ type: "string", enum: ["up", "down"] })
+      expect(f.seen).toEqual([])
+    } finally { await f.close() }
+  })
+  it("prints the server-bound person's name without a follow-up request", async () => {
+    const f = await fixture(202, { confirmation: "confirm-1", state: "pending" }, { "Smithers-Confirmation-Person": "Ben%20Lee" })
+    try {
+      const result = await f.invoke(["todo", "new", "--text", "Retry"])
+      expect(result.exitCode).toBe(3)
+      expect(JSON.parse(result.stdout)).toEqual({ confirmation: "confirm-1", state: "pending", message: "Waiting for Ben Lee to confirm" })
+      expect(f.seen).toHaveLength(1)
+    } finally { await f.close() }
+  })
+  it.each([200, 201])("refuses a pending envelope without HTTP 202: %i", async status => {
+    const f = await fixture(status, { confirmation: "confirm-1", state: "pending" })
+    try {
+      const result = await f.invoke(["todo", "new", "--text", "Retry"])
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ code: "backend_protocol" })
+      expect(result.stdout).not.toContain("Waiting for")
+      expect(f.seen).toHaveLength(1)
+    } finally { await f.close() }
+  })
+  it("keeps an S1 requested outcome distinct from ordinary confirmation", async () => {
+    const f = await fixture(202, { todo: 1, state: "requested" })
+    try {
+      const result = await f.invoke(["todo", "new", "--text", "Retry"])
+      expect(result.exitCode).toBe(0)
+      expect(JSON.parse(result.stdout)).toEqual({ todo: 1, state: "requested" })
+      expect(result.stdout).not.toContain("Waiting for")
+      expect(f.seen).toHaveLength(1)
+    } finally { await f.close() }
+  })
+  it("uses the supplied request identity for retried TODO creation", async () => {
+    const f = await fixture()
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect((await f.invoke(["todo", "new", "--text", "Retry", "--idempotencyKey", "stable-create"])).exitCode).toBe(0)
+      }
+      expect(f.idempotencyKeys).toEqual(["stable-create", "stable-create"])
+    } finally { await f.close() }
+  })
   it("retains pending identity and uses an exit distinct from success or refusal", async () => {
     const f = await fixture(202, { confirmation: "confirm-1", state: "pending" })
     try {
@@ -223,6 +272,18 @@ describe("person card CLI doors", () => {
 })
 
 describe("shared catalog HTTP encoding", () => {
+  it("maps optional nested bodies without mutating descriptor defaults across requests", async () => {
+    const { catalogRequest } = await import("../src/CatalogRequest.ts")
+    const descriptor = { http: { method: "POST" as const, path: "/api/todos", body: { prompt: "text" },
+      defaults: { place: { mode: "append" } }, objects: { place: { when: "before", body: { n: "before" }, defaults: { mode: "before" } } } } }
+    const first = catalogRequest(descriptor, { text: "A" })
+    expect(first.body).toEqual({ prompt: "A", place: { mode: "append" } })
+    ;(first.body!.place as Record<string, unknown>).mode = "changed"
+    expect(catalogRequest(descriptor, { text: "B", before: null }).body).toEqual({ prompt: "B", place: { mode: "append" } })
+    expect(catalogRequest(descriptor, { text: "C", before: 2 }).body).toEqual({ prompt: "C", place: { mode: "before", n: 2 } })
+    expect(catalogRequest(descriptor, { before: 0 }).body).toEqual({ place: { mode: "before", n: 0 } })
+    expect(descriptor.http.defaults).toEqual({ place: { mode: "append" } })
+  })
   it("maps body fields, fixes operation defaults, and leaves input untouched", async () => {
     const { catalogRequest } = await import("../src/CatalogRequest.ts")
     const payload = Object.freeze({ n: 3, text: "Use backoff", op: "forged", unused: "private" })

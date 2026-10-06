@@ -496,12 +496,17 @@
         "todo",
         "amend",
         "T1",
-        "Add retry"
+        "Add retry",
+        "--acceptance",
+        "[\"Retries pass\"]"
       ],
       "method": "PATCH",
       "path": "/api/todos/1",
       "body": {
-        "prompt": "Add retry"
+        "prompt": "Add retry",
+        "acceptance": [
+          "Retries pass"
+        ]
       }
     },
     {
@@ -603,6 +608,25 @@
       "path": "/api/todos/1",
       "body": {
         "op": "stop"
+      }
+    },
+    {
+      "argv": [
+        "todo",
+        "new",
+        "--text",
+        "Insert retry",
+        "--before",
+        "T1"
+      ],
+      "method": "POST",
+      "path": "/api/todos",
+      "body": {
+        "prompt": "Insert retry",
+        "place": {
+          "mode": "before",
+          "n": 1
+        }
       }
     }
   ],

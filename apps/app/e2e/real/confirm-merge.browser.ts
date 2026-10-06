@@ -1,6 +1,9 @@
 /** Driven by TestConfirmationsBrowserPostgres; no browser API or live route is mocked. */
 import { chromium, expect } from "@playwright/test"
 import { createServer } from "vite"
+import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 const origin = process.env.SMITHERS_CONFIRMATION_ORIGIN!
 const member = process.env.SMITHERS_CONFIRMATION_MEMBER!
@@ -13,6 +16,29 @@ if (!address || typeof address === "string") throw new Error("Vite did not bind 
 console.log(`CONFIRMATION_BROWSER_READY http://127.0.0.1:${address.port}`)
 await Bun.stdin.text()
 
+const cliHome = await mkdtemp(join(tmpdir(), "catalog-browser-"))
+await mkdir(join(cliHome, ".claude"))
+const cliEntry = new URL("../../../../packages/smithers/src/Cli.ts", import.meta.url).href
+const cli = async (argv: string[]) => {
+  const program = `import { makeCli } from ${JSON.stringify(cliEntry)};
+let output = "", exitCode = 0;
+await makeCli({ environment: process.env, exit: n => { exitCode = n } }).serve(JSON.parse(process.env.CATALOG_ARGV), {
+ env: process.env, stdout: text => { output += text }, exit: n => { exitCode = n }
+});
+console.log("CATALOG_RESULT " + JSON.stringify({ exitCode, output }));`
+  const command = Bun.spawn(["node", "--no-warnings", "--input-type=module", "--eval", program], {
+    env: { PATH: process.env.PATH!, HOME: cliHome, XDG_CONFIG_HOME: cliHome, XDG_DATA_HOME: cliHome,
+      CLAUDE_CONFIG_DIR: join(cliHome, ".claude"), CODEX_HOME: join(cliHome, ".codex"), CODEX_TEST: "1",
+      SMITHERS_API_ORIGIN: origin, SMITHERS_TOKEN: token, CATALOG_ARGV: JSON.stringify(argv) },
+    stdout: "pipe", stderr: "pipe"
+  })
+  const [status, stdout, stderr] = await Promise.all([command.exited, new Response(command.stdout).text(), new Response(command.stderr).text()])
+  expect(status, stderr).toBe(0)
+  const line = stdout.split("\n").find(line => line.startsWith("CATALOG_RESULT "))
+  if (!line) throw new Error(`CLI result missing: ${stdout} ${stderr}`)
+  const result = JSON.parse(line.slice("CATALOG_RESULT ".length)) as { exitCode: number; output: string }
+  return { exitCode: result.exitCode, value: argv.includes("--json") ? JSON.parse(result.output) : result.output }
+}
 const browser = await chromium.launch({ headless: true })
 try {
   const api = async (path: string, method = "GET", body?: unknown, agent = false, key = "fixture") => {
@@ -22,9 +48,17 @@ try {
     const value = await response.json()
     return { status: response.status, value }
   }
-  const created = await api("/api/todos", "POST", { title: "Browser confirmation sample", prompt: "Retain the exact private prompt." }, true, "browser-new")
-  expect(created.status, JSON.stringify(created.value)).toBe(202)
-  expect(Object.keys(created.value).sort()).toEqual(["confirmation", "state"])
+  // C-CAT-03: install the actual generated skill in an isolated home, then
+  // C-CAT-02: use its source CLI door across the composed install boundary.
+  expect((await cli(["skills", "add"])).exitCode).toBe(0)
+  const skill = await readFile(join(cliHome, ".claude/skills/smithers/SKILL.md"), "utf8")
+  expect(skill).toContain("smthrs todo new` — confirm; waits for the person's confirmation")
+  expect(skill).toContain("smthrs todo show` — run")
+  expect(skill).not.toContain("smthrs-admin")
+  const created = await cli(["todo", "new", "--title", "Browser confirmation sample", "--text", "Retain the exact private prompt.", "--json"])
+  expect(created.exitCode, JSON.stringify(created.value)).toBe(3)
+  expect(created.value.message).toBe("Waiting for Maya to confirm")
+  expect(Object.keys(created.value).sort()).toEqual(["confirmation", "cta", "message", "state"])
   expect(created.value.state).toBe("pending")
   expect((await api("/api/todos")).value).toEqual([])
 
@@ -69,9 +103,13 @@ try {
 
   const todos = (await api("/api/todos")).value
   const n = todos[0].n
-  const dropped = await api(`/api/todos/${n}`, "POST", { op: "drop" }, true, "browser-drop")
-  expect(dropped.status).toBe(202)
-  expect(Object.keys(dropped.value).sort()).toEqual(["confirmation", "state"])
+  const read = await cli(["todo", "show", `T${n}`, "--json"])
+  expect(read.exitCode).toBe(0)
+  expect(read.value.n).toBe(n)
+  const dropped = await cli(["todo", "drop", `T${n}`, "--json"])
+  expect(dropped.exitCode).toBe(3)
+  expect(dropped.value.message).toBe("Waiting for Maya to confirm")
+  expect(Object.keys(dropped.value).sort()).toEqual(["confirmation", "cta", "message", "state"])
   expect((await api(`/api/todos/${n}`)).value.state).not.toBe("dropped")
   const drop = page.locator('[data-kind="confirm"] [data-flow="approval.approve"]').filter({ hasText: "Drop" })
   await expect(drop).toBeVisible({ timeout: 10_000 })
@@ -87,8 +125,9 @@ try {
   expect(agentRows).toHaveLength(2)
   for (const row of agentRows) expect(Object.keys(row).sort()).toEqual(["id", "state"])
   expect(errors).toEqual([])
-  console.log("CONFIRMATION_BROWSER_PASS private delivery, keyboard approval, admission progress, reload, other-member refusal, Drop, delegated redaction")
+  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, admission progress, reload, other-member refusal, Drop, delegated redaction")
 } finally {
   await browser.close()
   await vite.close()
+  await rm(cliHome, { recursive: true, force: true })
 }

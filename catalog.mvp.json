@@ -10971,7 +10971,8 @@
         "method": "PATCH",
         "path": "/api/todos/{n}",
         "body": {
-          "prompt": "text"
+          "prompt": "text",
+          "acceptance": "acceptance"
         }
       },
       "payload": {
@@ -11261,6 +11262,17 @@
         "defaults": {
           "place": {
             "mode": "append"
+          }
+        },
+        "objects": {
+          "place": {
+            "when": "before",
+            "body": {
+              "n": "before"
+            },
+            "defaults": {
+              "mode": "before"
+            }
           }
         }
       },

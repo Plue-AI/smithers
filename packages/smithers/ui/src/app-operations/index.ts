@@ -34,7 +34,7 @@ export interface OperationMetadata<Capability extends string = string, Host exte
   readonly cli?: ReadonlyArray<string> | null
   readonly journey?: ReadonlyArray<string>
   readonly group?: string
-  readonly http?: { readonly method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; readonly path: string; readonly body?: Readonly<Record<string, string>>; readonly defaults?: Readonly<Record<string, unknown>>; readonly query?: Readonly<Record<string, string>> } | null
+  readonly http?: { readonly method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; readonly path: string; readonly body?: Readonly<Record<string, string>>; readonly defaults?: Readonly<Record<string, unknown>>; readonly query?: Readonly<Record<string, string>>; readonly objects?: Readonly<Record<string, { readonly when: string; readonly body: Readonly<Record<string, string>>; readonly defaults?: Readonly<Record<string, unknown>> }>> } | null
   /** Not listed in the slash menu (id-scoped button actions); still invocable. */
   readonly hidden?: boolean
   /** Teach a hidden control to the model without adding it to the human menu. */
