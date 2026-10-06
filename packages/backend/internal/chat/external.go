@@ -1,0 +1,155 @@
+package chat
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+// ExternalDraft is the inert output of the install-shipped T-AGT-01 adapter.
+// Identities must be compared with the authenticated session binding by ingest,
+// never inferred from transcript text. Imported entries are completed journals,
+// so the existing dispatcher cannot claim them or run their reported tools.
+type ExternalDraft struct {
+	ID           string          `json:"id"`
+	SourceID     string          `json:"source_id"`
+	SourceOffset uint64          `json:"source_offset"`
+	Origin       string          `json:"origin"`
+	ReadOnly     bool            `json:"read_only"`
+	Agent        string          `json:"agent"`
+	Profile      string          `json:"source_format_version"`
+	Session      string          `json:"session_id"`
+	Participant  string          `json:"participant_id"`
+	Owner        string          `json:"owner_id"`
+	Author       string          `json:"author_id"`
+	Kind         string          `json:"kind"`
+	Body         json.RawMessage `json:"body"`
+	CallID       string          `json:"call_id,omitempty"`
+	Failed       bool            `json:"failed,omitempty"`
+}
+
+func (d ExternalDraft) valid() bool {
+	if d.ID == "" || d.SourceID == "" || d.Origin != "external" || !d.ReadOnly || d.Session == "" || d.Participant == "" || d.Owner == "" || !json.Valid(d.Body) {
+		return false
+	}
+	if !((d.Agent == "claude-code" && d.Profile == "claude-code/2.1.0") || (d.Agent == "codex" && d.Profile == "codex/0.160.0")) {
+		return false
+	}
+	if !oneOf(d.Kind, "prompt", "assistant", "thinking", "attachment", "tool_request", "tool_result", "edit", "error") {
+		return false
+	}
+	if d.Kind == "prompt" {
+		return d.Author == d.Owner
+	}
+	return d.Author == d.Participant
+}
+
+func externalTurn(turn turnRecord) bool {
+	var r struct {
+		Origin string `json:"origin"`
+	}
+	return json.Unmarshal(turn.Request, &r) == nil && r.Origin == "external"
+}
+
+// ImportExternalTx uses the caller's receipt transaction. It never commits or
+// publishes outside it: a failed receipt/entry append rolls back both. The
+// adapter's stable ID deduplicates source-offset replay even with a new event ID.
+// No new store/table or producer credential is created.
+func (s *Store) ImportExternalTx(ctx context.Context, tx pgx.Tx, scope Scope, branch string, drafts []ExternalDraft) error {
+	if s == nil || tx == nil || scope.RepositoryID <= 0 || scope.UserID <= 0 || !validIdentity(branch) {
+		return ErrInvalidRequest
+	}
+	var member int
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM collaborators c JOIN users u ON u.id=c.user_id WHERE c.repository_id=$1 AND c.user_id=$2 AND c.suspended_at IS NULL AND NOT u.prohibit_login FOR SHARE OF c,u`, scope.RepositoryID, scope.UserID).Scan(&member); err != nil {
+		if err == pgx.ErrNoRows {
+			return ErrForbidden
+		}
+		return err
+	}
+	for _, d := range drafts {
+		if !d.valid() || d.Owner != fmt.Sprint(scope.UserID) {
+			return ErrInvalidRequest
+		}
+		encoded, err := json.Marshal(d)
+		if err != nil {
+			return err
+		}
+		if len(encoded) > maxPayloadBytes {
+			return ErrLimit
+		}
+		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("external:%d:%s:%s", scope.RepositoryID, branch, d.ID))).String()
+		prompt := ""
+		if d.Kind == "prompt" {
+			_ = json.Unmarshal(d.Body, &prompt)
+		}
+		request, err := json.Marshal(map[string]any{"origin": "external", "external": d, "purpose": "conversation", "conversationId": branch, "sharedConversation": true, "messages": []any{map[string]any{"role": "user", "content": prompt}}})
+		if err != nil {
+			return err
+		}
+		_, canonical, err := parseCanonical(request)
+		if err != nil {
+			return err
+		}
+		requestHash := digestCanonical("request", canonical)
+		var existing string
+		err = tx.QueryRow(ctx, `SELECT request_hash FROM chat_turns WHERE id=$1`, id).Scan(&existing)
+		if err == nil {
+			if existing != requestHash {
+				return ErrConflict
+			}
+			continue
+		}
+		if err != pgx.ErrNoRows {
+			return err
+		}
+		// Random, discarded capabilities fence all private replay/producer doors.
+		ownerHash, accessHash, err := authHashes(scope, uuid.NewString())
+		if err != nil {
+			return err
+		}
+		writerHash, err := digest("writer", uuid.NewString())
+		if err != nil {
+			return err
+		}
+		now := s.now().UTC()
+		acceptance, err := makeAcceptance(id, "external", ownerHash, accessHash, requestHash, writerHash, now.UnixMilli())
+		if err != nil {
+			return err
+		}
+		frames := []json.RawMessage{}
+		if d.Kind == "assistant" {
+			var text string
+			if json.Unmarshal(d.Body, &text) == nil {
+				f, _ := json.Marshal(map[string]any{"runId": id, "type": "delta", "kind": "text", "text": text})
+				frames = append(frames, f)
+			}
+		}
+		done, _ := json.Marshal(map[string]any{"runId": id, "type": "done", "reason": "stop"})
+		frames = append(frames, done)
+		batch, n, err := makeBatch(initialCursor(acceptance), frames)
+		if err != nil {
+			return err
+		}
+		head := cursorAfter(batch)
+		hash, err := headHash(acceptance, head, int64(n), true)
+		if err != nil {
+			return err
+		}
+		a, _ := json.Marshal(acceptance)
+		f, _ := json.Marshal(frames)
+		_, err = tx.Exec(ctx, `INSERT INTO chat_turns(id,repository_id,user_id,run_id,leg_id,request_payload,request_hash,owner_hash,access_hash,writer_hash,acceptance,acceptance_hash,accepted_at_ms,head_batch,head_position,cursor_hash,head_hash,output_bytes,terminal,state,producer_generation,created_at,updated_at,conversation_id) VALUES($1,$2,$3,$1,'external',$4,$5,$6,$7,$8,$9,$10,$11,1,$12,$13,$14,$15,true,'completed',1,$16,$16,$17)`, id, scope.RepositoryID, scope.UserID, json.RawMessage(canonical), requestHash, ownerHash, accessHash, writerHash, a, acceptance.Hash, now.UnixMilli(), head.Position, head.Hash, hash, n, now, branch)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO chat_turn_batches(turn_id,batch_number,from_position,previous_hash,frames,hash,canonical_bytes) VALUES($1,1,1,$2,$3,$4,$5)`, id, batch.PreviousHash, f, batch.Hash, n)
+		if err != nil {
+			return err
+		}
+		if err = notifyTx(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
