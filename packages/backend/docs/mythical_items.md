@@ -412,3 +412,27 @@ composition refuses it. Ordered runtime demands, holder release accounting and
 live queue positions require the ordering, scheduler and machine-execution
 providers and C-STK-02.
 No admission queue, root operation or host execution fallback is added.
+
+## Placement and order
+
+`POST /api/todos` accepts `place: {mode: "append"}` (the default) or
+`place: {mode: "before", n: 3}`. Before takes T3's slot and shifts the later
+TODOs. `POST /api/todos/3` with `{op: "move", direction: "up"}` or `"down"`
+swaps T3 with its nearest unmerged neighbor. A first item cannot move up and
+a last item cannot move down. Working items may be moved past.
+
+Placement holds the repository lock and records its event in the product
+transaction. The partial unique position index excludes settled items. Swaps
+vacate one slot before assigning either new position; Before shifts from the
+tail toward the insertion point. Drop vacates its slot and compacts later
+positions in the same transaction as cancellation. Changed candidate prefixes
+lose verification and merge approval while retaining captured work for rebase.
+The engine admits items by position; item reads list earlier unmerged items in
+`dependsOn`.
+
+A repeated request with the same credential and Idempotency-Key returns its
+original receipt. Competing moves that read the same item revision permit one
+winner; the stale press returns `409 conflict`. A merging target or neighbor
+returns `409 merging`. Restricted `terminal_s1` credentials cannot place Before
+or Move. Append returns `403 permission/confirm_in_app` while the delegated
+confirmation consumer is unavailable; no TODO is created by that refusal.

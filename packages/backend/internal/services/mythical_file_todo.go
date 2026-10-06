@@ -176,9 +176,12 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 			if at < 0 {
 				return invalidTodoPlace(fmt.Sprintf("T%d is not on the stack", *input.Place.N))
 			}
-			if before = order[at]; mythicalMergeFenced(before) {
-				return &TodoControlError{409, "merging", "conflict", fmt.Sprintf("T%d is merging", *input.Place.N)}
+			for _, affected := range order[at:] {
+				if mythicalMergeFenced(affected) {
+					return &TodoControlError{409, "merging", "conflict", fmt.Sprintf("T%d is merging", affected.Number.Int64)}
+				}
 			}
+			before = order[at]
 		}
 		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
 		if issue != nil {
@@ -198,13 +201,43 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 			return err
 		}
 		if before.StackPosition.Valid {
-			// Tn and every item after it move one place later. A new TODO has
-			// no verified candidate, so no later item's prefix changes yet.
+			// Tn and every later TODO move one place later. Even if the
+			// new TODO has no verified head yet, their dependency order
+			// changed: retire verification and queue the existing rebase path.
 			if err := q.MakeMythicalPlace(ctx, repositoryID, before.StackPosition.Int64, item.ID); err != nil {
 				return err
 			}
 			if item, err = q.PlaceMythicalItem(ctx, item.ID, before.StackPosition.Int64); err != nil {
 				return err
+			}
+			order, err := q.LockMythicalStackOrder(ctx, repositoryID)
+			if err != nil {
+				return err
+			}
+			step := &mythicalItemStep{r: &mythicalRun{row: stack, mainTip: stack.LandedMain}, items: order, now: s.now()}
+			for i, successor := range step.items {
+				if successor.StackPosition.Int64 <= item.StackPosition.Int64 {
+					continue
+				}
+				if successor.CandidateHead != "" && !mythicalOffStack(successor.State) && len(successor.PendingOp) == 0 {
+					saved, err := q.SaveMythicalItem(ctx, *step.invalidatePrefix(successor))
+					if err != nil {
+						return err
+					}
+					step.items[i] = saved
+					s.itemChanged(ctx, q, stack, saved.ID)
+				} else if successor.WorkspaceID != "" && len(successor.PendingOp) == 0 {
+					if pending := step.awaitRebase(successor, step.prefix(successor), step.ontoName(step.prefix(successor))); pending != nil {
+						saved, err := q.SaveMythicalItem(ctx, *pending)
+						if err != nil {
+							return err
+						}
+						step.items[i] = saved
+						s.itemChanged(ctx, q, stack, saved.ID)
+					}
+				} else {
+					s.itemChanged(ctx, q, stack, successor.ID)
+				}
 			}
 		}
 		if issue != nil {

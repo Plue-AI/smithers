@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,7 +15,7 @@ import (
 
 // TestMythicalItemBeyondSnapshotBound reads one item by id or issue number
 // when the snapshot's bound no longer lists it: 500 items still moving push
-// a settled one out of the snapshot, and the terminal's watch still finds it.
+// a failed one out of the snapshot, and the terminal's watch still finds it.
 func TestMythicalItemBeyondSnapshotBound(t *testing.T) {
 	pool := newProductTestPool(t)
 	ctx := context.Background()
@@ -27,8 +28,8 @@ func TestMythicalItemBeyondSnapshotBound(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state = 'active' WHERE repository_id = $1`, repoID)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO mythical_items (repository_id, issue_number, issue_title, state, attempt)
-		SELECT $1, n, 'Queued ' || n, 'queued', 0 FROM generate_series(1, 500) AS n`, repoID)
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_items (id, repository_id, issue_number, issue_title, state, attempt)
+		SELECT ('00000000-0000-0000-0000-' || lpad(n::text,12,'0'))::uuid, $1, n, 'Queued ' || n, 'queued', 0 FROM generate_series(1, 500) AS n`, repoID)
 	require.NoError(t, err)
 	var blockedID string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items (repository_id, issue_number, issue_title, issue_url, state, reason, attempt)
@@ -42,9 +43,13 @@ func TestMythicalItemBeyondSnapshotBound(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, view.Items, 500)
 	for _, item := range view.Items {
-		require.NotEqual(t, blockedID, item.ID, "the settled item is past the snapshot's bound")
+		require.NotEqual(t, blockedID, item.ID, "the failed item is past the snapshot's bound")
 	}
 
+	expected := make([]string, 500)
+	for n := 1; n <= 500; n++ {
+		expected[n-1] = fmt.Sprintf("00000000-0000-0000-0000-%012d", n)
+	}
 	for _, ref := range []string{blockedID, "501"} {
 		item, err := service.Item(ctx, repoID, ref)
 		require.NoError(t, err, ref)
@@ -53,7 +58,7 @@ func TestMythicalItemBeyondSnapshotBound(t *testing.T) {
 		assert.Equal(t, "out of attempts", item.Reason)
 		require.NotNil(t, item.Issue)
 		assert.Equal(t, MythicalIssueView{Number: 501, Title: "Fix login", URL: "https://github.com/o/smithers/issues/501"}, *item.Issue)
-		assert.Equal(t, []string{}, item.DependsOn)
+		assert.Equal(t, expected, item.DependsOn)
 	}
 
 	status := func(err error) int {

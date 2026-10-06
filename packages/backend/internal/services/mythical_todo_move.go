@@ -35,6 +35,12 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 	if err := middleware.RequirePerson(ctx, "move a TODO"); err != nil {
 		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person moves a TODO"}
 	}
+	// Read the requested revision before waiting for the placement lock. A
+	// competing move may win, but this press must not move a different pair.
+	requested, readErr := s.queries().GetMythicalItemByNumber(ctx, input.Repository, number)
+	if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+		return TodoControlReceipt{}, readErr
+	}
 	var receipt TodoControlReceipt
 	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
@@ -76,6 +82,9 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 		if err := todoControlGuard(item, input, todoControlFacts{}); err != nil {
 			return err
 		}
+		if readErr == nil && item.Version != requested.Version {
+			return todoControlConflict("TODO moved; try again")
+		}
 		if at < 0 {
 			return todoControlConflict("TODO is not on the stack")
 		}
@@ -87,11 +96,16 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 			return todoControlConflict(fmt.Sprintf("T%d is already %s", number, edge))
 		}
 		neighbor := order[to]
-		if mythicalMergeFenced(neighbor) {
-			return &TodoControlError{http.StatusConflict, "merging", "conflict", fmt.Sprintf("T%d is merging", neighbor.Number.Int64)}
+		for _, affected := range order[min(at, to):] {
+			if mythicalMergeFenced(affected) {
+				return &TodoControlError{http.StatusConflict, "merging", "conflict", fmt.Sprintf("T%d is merging", affected.Number.Int64)}
+			}
 		}
 		from, place := item.StackPosition.Int64, neighbor.StackPosition.Int64
 		moved := slices.Clone(order)
+		if err := q.RemoveMythicalPlace(ctx, neighbor.ID); err != nil {
+			return err
+		}
 		if moved[to], err = q.PlaceMythicalItem(ctx, item.ID, place); err != nil {
 			return err
 		}
@@ -144,4 +158,35 @@ func reorderPrefixes(ctx context.Context, q *db.Queries, stack db.MythicalStack,
 		rebased = append(rebased, saved)
 	}
 	return rebased, nil
+}
+
+// removeTodoPlace is Drop's placement primitive. The caller has settled the
+// item and holds the repository placement lock; history remains readable.
+func (s *MythicalService) removeTodoPlace(ctx context.Context, q *db.Queries, stack db.MythicalStack, item db.MythicalItem, before []db.MythicalItem) ([]db.MythicalItem, error) {
+	for _, affected := range before {
+		if affected.StackPosition.Int64 > item.StackPosition.Int64 && mythicalMergeFenced(affected) {
+			return nil, &TodoControlError{409, "merging", "conflict", fmt.Sprintf("T%d is merging", affected.Number.Int64)}
+		}
+	}
+	if err := q.RemoveMythicalPlace(ctx, item.ID); err != nil {
+		return nil, err
+	}
+	after := []db.MythicalItem{}
+	changed := []db.MythicalItem{}
+	for _, other := range before {
+		if other.ID == item.ID {
+			continue
+		}
+		if other.StackPosition.Int64 > item.StackPosition.Int64 {
+			saved, err := q.PlaceMythicalItem(ctx, other.ID, other.StackPosition.Int64-1)
+			if err != nil {
+				return nil, err
+			}
+			other = saved
+			changed = append(changed, saved)
+		}
+		after = append(after, other)
+	}
+	rebased, err := reorderPrefixes(ctx, q, stack, before, after, s.now())
+	return append(changed, rebased...), err
 }

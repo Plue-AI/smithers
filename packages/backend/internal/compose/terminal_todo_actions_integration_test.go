@@ -205,6 +205,8 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 				{"POST", "/api/todos/2/merge", `{"reviewed_head_sha":"` + strings.Repeat("a", 40) + `"}`, permission},
 				// A delegated TODO is confirmed in the app, which S1 does not serve.
 				{"POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`, confirm},
+				{"POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"before","n":2}}`, permission},
+				{"POST", "/api/todos/2", `{"op":"move","direction":"up"}`, permission},
 				// Routes outside the profile.
 				{"GET", "/api/install", "", permission},
 				{"GET", "/api/members", "", permission},

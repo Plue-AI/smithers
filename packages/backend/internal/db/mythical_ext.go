@@ -364,10 +364,24 @@ func (q *Queries) PlaceMythicalItem(ctx context.Context, item pgtype.UUID, place
 // MakeMythicalPlace moves every item still on the stack at place or after it,
 // except item, one place later, so item can take place.
 func (q *Queries) MakeMythicalPlace(ctx context.Context, repositoryID, place int64, item pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, `UPDATE mythical_items SET stack_position = stack_position + 1, version = version + 1, updated_at = NOW()
-		WHERE repository_id = $1 AND stack_position >= $2 AND id <> $3
-		AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined')`, repositoryID, place, item)
-	return err
+	// Vacate the appended item's slot before shifting toward it. PostgreSQL
+	// checks the partial unique index after each row, so shift tail first.
+	if err := q.RemoveMythicalPlace(ctx, item); err != nil {
+		return err
+	}
+	order, err := q.LockMythicalStackOrder(ctx, repositoryID)
+	if err != nil {
+		return err
+	}
+	for i := len(order) - 1; i >= 0; i-- {
+		if order[i].StackPosition.Int64 < place {
+			break
+		}
+		if _, err := q.PlaceMythicalItem(ctx, order[i].ID, order[i].StackPosition.Int64+1); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListMythicalItemsInStates returns every one of a repository's items in one
@@ -782,4 +796,17 @@ func (q *Queries) InsertMythicalIssueTodo(ctx context.Context, repositoryID, use
  AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined') DO NOTHING
  RETURNING `+mythicalItemColumns, repositoryID, userID, title, body, jsonArg(revisions), jsonArg(checks), source, issueTitle,
 		number, url, digest, outsider, fixes))
+}
+
+// RemoveMythicalPlace vacates a slot inside the caller's placement transaction.
+func (q *Queries) RemoveMythicalPlace(ctx context.Context, item pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, `UPDATE mythical_items SET stack_position=NULL, version=version+1, updated_at=NOW() WHERE id=$1`, item)
+	return err
+}
+
+// ListMythicalPredecessors is unbounded: a single item's dependency read must
+// agree with the stack even when it lies beyond the snapshot's display page.
+func (q *Queries) ListMythicalPredecessors(ctx context.Context, repositoryID, position int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1 AND stack_position<$2 AND state NOT IN ('landed','cancelled','rejected','declined') ORDER BY stack_position`, repositoryID, position)
+	return scanMythicalItems(rows, err)
 }

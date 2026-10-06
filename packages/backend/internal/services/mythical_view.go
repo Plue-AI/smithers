@@ -340,6 +340,7 @@ func (s *MythicalService) Snapshot(ctx context.Context, repositoryID int64, slug
 	var workspaces []string
 	for _, item := range items {
 		row := mythicalItemView(item)
+		row.DependsOn = mythicalDependsOn(item, items)
 		row.CostNanos = costs[item.ID.Bytes]
 		view.Items = append(view.Items, row)
 		if row.Lane != nil && !mythicalSettled(item.State) {
@@ -485,4 +486,26 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 		row.CreatedAt = item.CreatedAt.Time.UTC().Format(time.RFC3339)
 	}
 	return row
+}
+
+// mythicalDependsOn lists earlier unmerged TODOs in stack order.
+func mythicalDependsOn(item db.MythicalItem, items []db.MythicalItem) []string {
+	dependencies := []string{}
+	if mythicalOffStack(item.State) || !item.StackPosition.Valid {
+		return dependencies
+	}
+	for _, earlier := range items {
+		if !mythicalOffStack(earlier.State) && earlier.StackPosition.Valid && earlier.StackPosition.Int64 < item.StackPosition.Int64 {
+			dependencies = append(dependencies, uuidString(earlier.ID))
+		}
+	}
+	return dependencies
+}
+
+func mythicalOffStack(state string) bool {
+	switch state {
+	case "landed", "cancelled", "rejected", "declined":
+		return true
+	}
+	return false
 }
