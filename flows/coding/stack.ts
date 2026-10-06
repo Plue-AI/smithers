@@ -14,7 +14,15 @@
 import { Action, FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema } from "effect"
-import { NativeCoding, NativeCodingError, Operation, type OperationResult, requestIdFor } from "./native.ts"
+import {
+  NativeCoding,
+  NativeCodingError,
+  Operation,
+  type OperationResult,
+  requestIdFor,
+  StackCandidate,
+  StackProposal
+} from "./native.ts"
 import { CodingError, Revision, StackBase } from "./schema.ts"
 
 export { StackBase } from "./schema.ts"
@@ -37,6 +45,49 @@ export const CreateStackBase = Action.make("coding/create-stack-base", {
   error: Schema.Union([CodingError, NativeCodingError]),
   nondeterministic: true
 })
+
+/** Reserved packaged operations: deliberately not Flow.make declarations. */
+export const Candidate = Action.make("stack.candidate", {
+  payload: {},
+  success: StackCandidate,
+  error: Schema.Union([CodingError, NativeCodingError]),
+  nondeterministic: true
+})
+export const Propose = Action.make("stack.propose", {
+  payload: { generation: StackCandidate.fields.generation },
+  success: StackProposal,
+  error: Schema.Union([CodingError, NativeCodingError]),
+  nondeterministic: true
+})
+
+export const captureStackCandidate = (executionId: string) =>
+  Effect.gen(function*() {
+    const invocation = yield* Action.CurrentInvocationKey
+    if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
+    const native = yield* NativeCoding
+    if (native.sourcePublication !== "cloud" || !native.stackCandidate) {
+      return yield* refused("Current TODO run and machine authority is unavailable")
+    }
+    return yield* native.stackCandidate(requestIdFor(executionId, `stack.candidate/${invocation}`))
+  })
+
+export const proposeStackCandidate = (executionId: string, generation: number) =>
+  Effect.gen(function*() {
+    const invocation = yield* Action.CurrentInvocationKey
+    if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
+    const native = yield* NativeCoding
+    if (native.sourcePublication !== "cloud" || !native.stackPropose) {
+      return yield* refused("Current TODO run and machine authority is unavailable")
+    }
+    const proposal = yield* native.stackPropose(
+      requestIdFor(executionId, `stack.propose/${generation}/${invocation}`),
+      generation
+    )
+    if (proposal.generation !== generation) {
+      return yield* refused("Stack proposal acknowledged another candidate generation")
+    }
+    return proposal
+  })
 
 const refused = (message: string) => new CodingError({ code: "source_refused", message })
 
@@ -90,6 +141,18 @@ export const admitStackBase = (base: StackBase) =>
   )
 
 export const stackBaseLayer = Layer.mergeAll(
+  Candidate.toLayer(() =>
+    Effect.gen(function*() {
+      const instance = yield* FlowRuntime.FlowInstance
+      return yield* captureStackCandidate(instance.executionId)
+    })
+  ),
+  Propose.toLayer(({ generation }) =>
+    Effect.gen(function*() {
+      const instance = yield* FlowRuntime.FlowInstance
+      return yield* proposeStackCandidate(instance.executionId, generation)
+    })
+  ),
   PrepareStackBase.toLayer(({ base }) =>
     Effect.gen(function*() {
       const instance = yield* FlowRuntime.FlowInstance

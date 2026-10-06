@@ -229,3 +229,19 @@ the next Change and correction feeds the failure back to the owning one. A
 target already on the known-red list is reported but does not fail the check.
 A Change that wrote nothing affects no target and passes. `coding/verify`
 hands a rebased stack candidate's changed paths to the same checks.
+
+### Reserved stack operations
+
+The packaged coding host registers `stack.candidate` and `stack.propose` as
+Actions in its existing stack layer, rather than repository flows. Their native
+provider resolves the current TODO attempt, run and machine; flow payloads carry
+no credential or binding authority. Candidate returns the existing generation,
+base and head; Propose names that generation and returns the PR head.
+
+Both refuse before ordinary native reads or capture when the authority transport
+is absent or the host is local-only. Native request identities derive from the
+engine's durable invocation key, so another capture in the same run has a new
+identity and replay retains the original one. The installed native adapter still
+needs the run/machine credential transport before these actions can dispatch on
+an install. The scripted native-provider test proves packaged action dispatch
+and journal replay, not machine admission or a C-STK-06 microVM receipt.

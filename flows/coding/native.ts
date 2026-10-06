@@ -21,7 +21,9 @@ import {
   ReadResult,
   SourceCreation,
   SourceImport,
-  SourcePublication
+  SourcePublication,
+  type StackCandidate,
+  type StackProposal
 } from "./native-schema.ts"
 export * from "./native-schema.ts"
 
@@ -35,6 +37,10 @@ export const requestIdFor = (executionId: string, actionKey: string): string => 
 
 export class NativeCoding extends Context.Service<NativeCoding, {
   readonly sourcePublication: "cloud" | "local-only"
+  /** Installed authority transport only. Missing bindings refuse before native
+   * reads, capture or publication; local development cannot supply authority. */
+  readonly stackCandidate?: (requestId: string) => Effect.Effect<StackCandidate, NativeCodingError>
+  readonly stackPropose?: (requestId: string, generation: number) => Effect.Effect<StackProposal, NativeCodingError>
   readonly read: (
     changeIds?: ReadonlyArray<string>,
     historyLimit?: number
