@@ -106,13 +106,22 @@ func TestRequiredHeaderIsSentPerCall(t *testing.T) {
 	place := apiclient.PostAPITodosBodyPlace{Mode: "append"}
 	accepted, err := client.PostAPITodos(context.Background(), "draft-7", apiclient.PostAPITodosBody{Title: "One", Prompt: "Change README", Place: &place})
 	require.NoError(t, err)
-	assert.Equal(t, apiclient.PostAPITodosResponse{State: "accepted", N: 4, Rev: 1}, accepted)
+	assert.JSONEq(t, `{"state":"accepted","n":4,"rev":1}`, string(accepted))
 	_, err = client.PostAPITodos(context.Background(), "draft-8", apiclient.PostAPITodosBody{Title: "Two", Prompt: "Change README"})
 	require.NoError(t, err)
 	assert.Equal(t, "draft-7", (*requests)[0].IdempotencyKey)
 	assert.Equal(t, "draft-8", (*requests)[1].IdempotencyKey, "the key belongs to its call, not the client")
 	assert.Equal(t, "token smithers_test", (*requests)[0].Authorization, "the client's own headers still go")
 	assert.JSONEq(t, `{"title":"One","prompt":"Change README","place":{"mode":"append"}}`, string((*requests)[0].Body))
+}
+
+func TestTodoSubmissionDecodesConfirmationReceipt(t *testing.T) {
+	client, requests := server(t, http.StatusAccepted, "application/json", `{"state":"pending","confirmation":"11111111-1111-4111-8111-111111111111"}`)
+	receipt, err := client.PostAPITodos(context.Background(), "draft-7", apiclient.PostAPITodosBody{Title: "One", Prompt: "Change README"})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"state":"pending","confirmation":"11111111-1111-4111-8111-111111111111"}`, string(receipt))
+	require.Len(t, *requests, 1)
+	assert.Equal(t, "draft-7", (*requests)[0].IdempotencyKey)
 }
 
 func TestTodoReadsDecodeTheCard(t *testing.T) {
