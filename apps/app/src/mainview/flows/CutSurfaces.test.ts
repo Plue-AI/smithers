@@ -137,6 +137,7 @@ describe("Cut app surfaces", () => {
         const path = new URL(String(input), "http://local.test").pathname
         if (path === "/api/install") return new Response(null, { status: 404 })
         if (path === "/api/members") return Response.json({ members: [] })
+        if (path === "/api/conversations/main") return new Response(null, { status: 404 })
         requests.push(path)
         return Response.json(health)
       }
@@ -145,7 +146,7 @@ describe("Cut app surfaces", () => {
       login: "will", admin: true, scopesPlain: null }).isPersisted.promise
     const result = await controller.commands.run("debug.seams", "")
     expect(result).toMatchObject({ status: "executed", value: JSON.stringify(health) })
-    // Signing in refreshes install status and members independently of the probe.
+    // Signing in refreshes install status, members and the main conversation independently.
     expect(requests.filter(path => path !== "/api/install")).toEqual(["/api/admin/system/health"])
     expect([...store.collections.cards.values()].some(card => String(card.kind) === "admin-health")).toBe(false)
     expect([...store.collections.messages.values()].some(message => message.text.includes("Seam health"))).toBe(true)
@@ -189,8 +190,11 @@ describe("Cut app surfaces", () => {
     expect(cloud.kind).toBe("retired")
     const factory = CardSchema.parse({ ...base, kind: "agents", payload: { native: true, agents: [] } })
     expect(factory.kind).toBe("agents")
-    for (const kind of ["agents", "approval", "branches", "commit-list",
+    for (const kind of ["agents", "approval", "commit-list",
       "environment-images", "trigger-list", "world"]) expect(Object.keys(CARD_RENDERERS)).toContain(kind)
+    const branches = CardSchema.parse({ ...base, kind: "branches", payload: { branches: [] } })
+    expect(branches).toMatchObject({ kind: "retired", payload: { was: "branches" } })
+    expect(Object.keys(CARD_RENDERERS)).not.toContain("branches")
     for (const kind of ["grant-confirm", "balance", "billing-plans"] as const) {
       expect(Object.keys(CARD_RENDERERS)).not.toContain(kind)
       expect(cardAvailable(kind)).toBe(true)
