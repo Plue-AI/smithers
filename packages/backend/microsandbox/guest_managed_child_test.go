@@ -10,6 +10,7 @@ func TestGuestFilesystemChildrenJoinBeforeOperands(t *testing.T) {
 import io, pathlib, shutil, signal
 with tempfile.TemporaryDirectory() as directory:
  root=pathlib.Path(directory); groups=root/'groups'; groups.mkdir()
+ g.PROTECTED_BASE=directory; g.ROOT_UID=os.getuid()
  workspace=root/'workspace'; workspace.mkdir()
  target=workspace/'file'
  g.CGROUP_ROOT=str(groups)
@@ -24,6 +25,12 @@ with tempfile.TemporaryDirectory() as directory:
  g.safe_directory=group
  def drop(user):
   assert user=='agent' and identity[0]==0
+  store=root.joinpath(*g.WRITER_COORDINATOR)
+  protected={(p.stat().st_dev,p.stat().st_ino) for p in (store,store/'lock')}
+  for name in os.listdir('/dev/fd'):
+   try:info=os.fstat(int(name))
+   except OSError:continue
+   assert (info.st_dev,info.st_ino) not in protected,'protected descriptor reached child'
   assert pathlib.Path(admitted[-1],'cgroup.procs').read_text()==str(os.getpid())
   identity[0]=real_uid
  g.drop_to=drop
@@ -74,6 +81,7 @@ func TestGuestAdmissionFailureConsumesNoFilesystemOperands(t *testing.T) {
 import pathlib,shutil
 with tempfile.TemporaryDirectory() as directory:
  root=pathlib.Path(directory); groups=root/'groups'; groups.mkdir()
+ g.PROTECTED_BASE=directory; g.ROOT_UID=os.getuid()
  g.CGROUP_ROOT=str(groups)
  g.os.geteuid=lambda:0
  def group(path,**kwargs):

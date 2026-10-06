@@ -222,6 +222,7 @@ func TestWarmHomeInitializationDropsIdentityBeforeReadingOutput(t *testing.T) {
 with tempfile.TemporaryDirectory() as directory:
  home=os.path.realpath(directory)+'/home'; tools=os.path.realpath(directory)+'/tools'
  os.mkdir(home); os.mkdir(tools); open(tools+'/branch-created','w').close()
+ g.PROTECTED_BASE=directory; g.ROOT_UID=os.getuid()
  g.TOOL_HOME=tools; g.ENV_FILE=directory+'/absent-env'
  entry=types.SimpleNamespace(pw_dir=home,pw_uid=19999,pw_gid=19999,pw_shell='/bin/bash')
  state=[0]; calls=[]

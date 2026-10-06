@@ -73,22 +73,39 @@ A lock used only by Smithers file tools cannot establish that exclusion. The exi
 protocol in §9.4.2 is a candidate to extend, subject to qualification:
 
 - Every unprivileged working-copy writer must enter the managed process tree
-  before accessing repository bytes. The current guest `exec` path enters its
-  command cgroup; the `fs` and setup helpers do not. Host-initiated helpers must
-  serialize with the same transaction, and concurrent launches must remain
-  stopped until it finishes.
+  before accessing repository bytes. Guest `exec`, privileged `fs` dispatch and
+  setup's unprivileged home initialization now share that admission path.
+  Direct unprivileged `fs` stays in its caller's command cgroup. Host-initiated
+  helpers must serialize with the same transaction, and concurrent launches
+  must remain stopped until it finishes.
 - The mutation worker must remain outside the stopped tree and drop credentials
   before consuming branch inputs. The current `drop_to` retains the team
   supplementary group; it does not meet T-COL-10's no-supplementary-groups
   qualification requirement for that worker.
-- A whole patch needs one bounded guest transaction. The current coding host
-  executes several filesystem calls, so stopping that host between calls would
-  prevent it from finishing the transaction. Reuse its existing read ledger,
-  patch semantics and errors; do not introduce a second public write protocol.
+- A whole patch needs one bounded guest transaction. Standard file tools now
+  prepare provider-bound snapshot bytes and submit one batch through the
+  existing precondition policy, including both halves of a move. The production
+  guest provider remains unavailable. Its transaction must finish independently
+  of the frozen coding caller; a sequence of caller-driven filesystem calls
+  would deadlock. Reuse the existing ledger and errors, without a second public
+  write protocol.
 - Failure, cancellation and restart must preserve the exclusion until a partial
   mutation is recovered. Thawing before rollback would reintroduce the known
   lost-update race. Outstanding kernel I/O also needs qualification on the
   actual guest kernel and working-copy filesystem.
+
+The guest now has a fixed, protected coordinator lock in
+`/var/lib/smithers/writer-coordinator`. Root admission takes the shared lock;
+setup's fixed metadata phase and approved root recipes hold it while executing.
+A future transaction or recovery supervisor must take the exclusive lock.
+Any `pending` entry refuses admission without opening or decoding journal
+bytes. Admission closes protected descriptors before forking unprivileged
+workers. This is a prerequisite, not a transaction implementation: production
+does not yet create or settle that recovery fence, freeze writers, or recover
+a patch. Root recipe descendants surviving their supervisor also need lifecycle
+coordination before this can establish exclusion. Tests use actual file locks
+and process death with an ordinary-user protected-directory fixture; they are
+not privileged guest receipts.
 
 The supplemental probe in
 `packages/backend/microsandbox/testdata/compare_write_freezer/` checks queued

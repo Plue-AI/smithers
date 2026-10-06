@@ -92,7 +92,8 @@ func TestExecuteCommandMapsMissingToolsAndPreservesExitEvidence(t *testing.T) {
 		{"direct missing cargo", []string{"cargo", "test"}, 127, "cargo: not found\n", "rust-toolchain.toml"},
 		{"shell missing pnpm", []string{"bash", "-c", "node --version && pnpm test"}, 127, "bash: line 1: pnpm: command not found\n", "package.json"},
 		{"ordinary cargo failure", []string{"cargo", "test"}, 1, "compile error\n", ""},
-		{"unrelated missing tool", []string{"custom-build"}, 127, "custom-build: not found\n", ""},
+		{"verified custom missing tool", []string{"custom-build"}, 127, "custom-build: not found\n", machineJSONPath},
+		{"unverified custom exit127", []string{"custom-build"}, 127, "assertion failed\n", ""},
 		{"shell internal exit127", []string{"sh", "-c", "cargo test"}, 127, "assertion failed\n", ""},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {

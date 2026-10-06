@@ -30,6 +30,8 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
 """
 
 import ctypes
+import contextlib
+import fcntl
 import grp
 import hashlib
 import grp
@@ -47,6 +49,7 @@ import threading
 import time
 
 CGROUP_ROOT = "/sys/fs/cgroup/smithers"
+WRITER_COORDINATOR = ("var", "lib", "smithers", "writer-coordinator")
 EXIT_TRAILER = b"\x00SMITHERS-EXIT %d\x00"
 ENV_FILE = "/opt/smithers/env.json"
 SECRET_ENV_DIR = "/run/smithers"
@@ -368,6 +371,45 @@ def drop_to(user, uid=None):
     return entry
 
 
+@contextlib.contextmanager
+def writer_coordinator(exclusive=False):
+    """A fixed protected lock shared by admission and root metadata helpers.
+
+    An eventual transaction/recovery worker takes the exclusive side. Neither
+    paths nor journal contents from a branch are read by this root boundary.
+    """
+    directory = protected_directory(WRITER_COORDINATOR, True)
+    lock = None
+    try:
+        lock = os.open("lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                       0o600, dir_fd=directory)
+        info = os.fstat(lock)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID or info.st_mode & 0o077 or info.st_nlink != 1:
+            fail(125, "untrusted writer coordinator lock")
+        fcntl.flock(lock, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        yield directory
+    finally:
+        # Closing, rather than explicit LOCK_UN, preserves the lock if a trusted
+        # child still holds an inherited descriptor. All descriptors are CLOEXEC.
+        if lock is not None:
+            os.close(lock)
+        os.close(directory)
+
+
+@contextlib.contextmanager
+def writer_admission():
+    with writer_coordinator() as directory:
+        try:
+            os.stat("pending", dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            # Presence alone refuses. Root never follows or decodes a recovery
+            # journal here, nor treats a stale lock age as permission to resume.
+            fail(125, "workspace mutation recovery required")
+        yield
+
+
 def run_managed_child(exec_id, action):
     """Admit every workspace-writing child before it consumes branch operands.
 
@@ -378,7 +420,12 @@ def run_managed_child(exec_id, action):
     if not valid_id(exec_id):
         fail(125, "invalid exec identity")
     group = os.path.join(CGROUP_ROOT, exec_id)
-    group_fd = safe_directory(group, trusted=True)
+    # Admit the group before forking, and close protected descriptors before
+    # they can reach the unprivileged child. A concurrently frozen parent holds
+    # children that join after this short admission section as well.
+    admission = writer_admission() if os.geteuid() == 0 else contextlib.nullcontext()
+    with admission:
+        group_fd = safe_directory(group, trusted=True)
     try:
         child = os.fork()
     except BaseException:
@@ -541,9 +588,10 @@ def run_root_recipe(digest, request):
         fail(125, "root recipe requires root")
     import subprocess
     # Never merge the agent-writable env.json or request environment.
-    result = subprocess.run(argv, cwd="/", env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
-        "HOME": "/root", "TMPDIR": "/var/tmp", "DEBIAN_FRONTEND": "noninteractive",
-        "PYTHONPATH": ""})
+    with writer_admission():
+        result = subprocess.run(argv, cwd="/", env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+            "HOME": "/root", "TMPDIR": "/var/tmp", "DEBIAN_FRONTEND": "noninteractive",
+            "PYTHONPATH": ""})
     sys.stdout.flush()
     os.write(2, EXIT_TRAILER % result.returncode)
     return result.returncode
@@ -1516,9 +1564,11 @@ def main(args):
     if command == "setup" and len(args) >= 3:
         if args[1] != "agent":
             fail(3, "member provisioning requires approved roster and broker")
-        setup(args[1], int(args[2]), args[3:])
-        # Setup's fixed root metadata work is separate from branch-produced
-        # home/cache reads and writes, which must join the managed writer tree.
+        # Protect the fixed root metadata phase, then close its descriptors.
+        # Home initialization gets its own admission and joins the writer tree;
+        # an intervening transaction either holds it frozen or refuses recovery.
+        with writer_admission():
+            setup(args[1], int(args[2]), args[3:])
         sys.exit(run_managed_child("setup-" + secrets.token_hex(16), home_defaults))
     fail(125, "unknown subcommand %r" % command)
 
