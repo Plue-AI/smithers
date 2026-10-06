@@ -1639,6 +1639,19 @@ type GetAPIBranchFileParams struct {
 	At *string
 }
 
+// GetAPIBranchesBFilesParams is the query of GET /api/branches/{b}/files.
+type GetAPIBranchesBFilesParams struct {
+	Path *string
+}
+
+// GetAPIBranchesBFilesResponseItem is generated from docs/api/openapi.yaml.
+type GetAPIBranchesBFilesResponseItem struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Type string `json:"type"`
+	Size *int64 `json:"size,omitempty"`
+}
+
 // GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
 type GetAPIGithubSyncResponse struct {
 	State         string     `json:"state"`
@@ -1668,6 +1681,15 @@ type GetAPIStatusResponseComponents struct {
 type GetAPIStatusResponseComponentsCanary struct {
 	Status string `json:"status"`
 	Detail string `json:"detail"`
+}
+
+// GetAPIInstallMetricsResponse is generated from docs/api/openapi.yaml.
+type GetAPIInstallMetricsResponse struct {
+	CollectedAt     time.Time                    `json:"collected_at"`
+	Clock           string                       `json:"clock"`
+	Metrics         []map[string]json.RawMessage `json:"metrics"`
+	LiveConnections *int64                       `json:"live_connections,omitempty"`
+	Host            map[string]json.RawMessage   `json:"host,omitempty"`
 }
 
 // GetAPIInstallScorecardParams is the query of GET /api/install/scorecard.
@@ -2628,6 +2650,17 @@ func (c *Client) GetAPIBranchFile(ctx context.Context, b string, pathParam strin
 	return out, err
 }
 
+// GetAPIBranchesBFiles calls GET /api/branches/{b}/files.
+func (c *Client) GetAPIBranchesBFiles(ctx context.Context, b string, params GetAPIBranchesBFilesParams) ([]GetAPIBranchesBFilesResponseItem, error) {
+	query := url.Values{}
+	if params.Path != nil {
+		query.Set("path", *params.Path)
+	}
+	var out []GetAPIBranchesBFilesResponseItem
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files", query, nil, &out)
+	return out, err
+}
+
 // GetAPIBuildCacheHealthz calls GET /api/build-cache/healthz.
 func (c *Client) GetAPIBuildCacheHealthz(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
@@ -2783,6 +2816,13 @@ func (c *Client) GetAPIHealth(ctx context.Context) (AnyJSON, error) {
 func (c *Client) PostWebhooksGithub(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/webhooks/github", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIInstallMetrics calls GET /api/install/metrics.
+func (c *Client) GetAPIInstallMetrics(ctx context.Context) (GetAPIInstallMetricsResponse, error) {
+	var out GetAPIInstallMetricsResponse
+	err := c.do(ctx, "GET", "/api/install/metrics", nil, nil, &out)
 	return out, err
 }
 

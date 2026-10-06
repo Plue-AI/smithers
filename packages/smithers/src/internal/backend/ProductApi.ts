@@ -1565,6 +1565,22 @@ export interface GetApiBranchFileInput {
 export const getApiBranchFile = (transport: Transport, input: GetApiBranchFileInput): Promise<GetApiBranchFileResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/files/${segment(input.path.path)}${search({ at: input.query?.at })}`) as Promise<GetApiBranchFileResponse>
 
+export type GetApiBranchesBFilesResponse = Array<{
+  name: string
+  path: string
+  type: string
+  size?: number
+}>
+
+export interface GetApiBranchesBFilesInput {
+  readonly path: { readonly b: string }
+  readonly query?: { readonly path?: string }
+}
+
+/** GET /api/branches/{b}/files: List branch files */
+export const getApiBranchesBFiles = (transport: Transport, input: GetApiBranchesBFilesInput): Promise<GetApiBranchesBFilesResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/files${search({ path: input.query?.path })}`) as Promise<GetApiBranchesBFilesResponse>
+
 export type GetApiBuildCacheHealthzResponse = AnyJSON
 
 /** GET /api/build-cache/healthz */
@@ -1785,6 +1801,18 @@ export type PostWebhooksGithubResponse = AnyJSON
 /** POST /webhooks/github */
 export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGithubResponse> =>
   transport.request("POST", `/webhooks/github`) as Promise<PostWebhooksGithubResponse>
+
+export type GetApiInstallMetricsResponse = {
+  collected_at: string
+  clock: string
+  metrics: Array<Record<string, unknown>>
+  live_connections?: number
+  host?: Record<string, unknown>
+}
+
+/** GET /api/install/metrics: Read in-process install metrics */
+export const getApiInstallMetrics = (transport: Transport): Promise<GetApiInstallMetricsResponse> =>
+  transport.request("GET", `/api/install/metrics`) as Promise<GetApiInstallMetricsResponse>
 
 export type GetApiInstallScorecardResponse = InstallScorecard
 
