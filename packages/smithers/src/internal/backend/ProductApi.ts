@@ -657,6 +657,22 @@ export type TODOBranchDiffModel = {
   }>
 }
 
+export type BranchFileCard = {
+  path: string
+  branch: string
+  language: string
+  digest: string
+  mode: "read_only"
+  content: {
+    kind: "text" | "too_large" | "binary"
+    text?: string
+    bytes?: number
+  }
+  diagnostics: Array<Record<string, unknown>>
+  authors: Array<Record<string, unknown>>
+  editors: Array<Record<string, unknown>>
+}
+
 export type FlowCard = {
   name: string
   source: {
@@ -732,10 +748,20 @@ export type GitHubAppManifest = {
   public: false
   hook_attributes?: {
     url: string
-    active: true
+    active: false
   }
   default_permissions: Record<string, "read" | "write">
   default_events?: Array<string>
+}
+
+export type GitHubAppManualRequest = {
+  app_id: number
+  slug: string
+  pem: string
+  client_id: string
+  client_secret: string
+  webhook_secret: string
+  callbacks_confirmed: Array<string>
 }
 
 export type GitHubAppSetupRequest = {
@@ -1501,6 +1527,17 @@ export interface GetApiBranchesBDiffInput {
 export const getApiBranchesBDiff = (transport: Transport, input: GetApiBranchesBDiffInput): Promise<GetApiBranchesBDiffResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/diff`) as Promise<GetApiBranchesBDiffResponse>
 
+export type GetApiBranchFileResponse = BranchFileCard
+
+export interface GetApiBranchFileInput {
+  readonly path: { readonly b: string; readonly path: string }
+  readonly query?: { readonly at?: string }
+}
+
+/** GET /api/branches/{b}/files/{path}: Read a file from the branch mirror */
+export const getApiBranchFile = (transport: Transport, input: GetApiBranchFileInput): Promise<GetApiBranchFileResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/files/${segment(input.path.path)}${search({ at: input.query?.at })}`) as Promise<GetApiBranchFileResponse>
+
 export type GetApiBuildCacheHealthzResponse = AnyJSON
 
 /** GET /api/build-cache/healthz */
@@ -1731,9 +1768,11 @@ export interface PostApiInstallSetupAddressInput {
 export const postApiInstallSetupAddress = (transport: Transport, input: PostApiInstallSetupAddressInput): Promise<void> =>
   transport.request("POST", `/api/install/setup/address`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
-export type PostApiInstallSetupAppBody = GitHubAppSetupRequest
+export type PostApiInstallSetupAppBody = GitHubAppSetupRequest | GitHubAppManualRequest
 
-export type PostApiInstallSetupAppResponse = GitHubAppManifestStart
+export type PostApiInstallSetupAppResponse = GitHubAppManifestStart | {
+  install_url: string
+}
 
 export interface PostApiInstallSetupAppInput {
   readonly body: PostApiInstallSetupAppBody

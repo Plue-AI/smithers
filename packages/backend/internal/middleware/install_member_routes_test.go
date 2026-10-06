@@ -13,6 +13,8 @@ import (
 func TestInstallMemberCommandRoutes(t *testing.T) {
 	for _, tc := range []struct{ method, path, command string }{
 		{http.MethodGet, "/api/user", "self"},
+		{http.MethodGet, "/api/branches/main/files/src/b.ts", "files.read"},
+		{http.MethodGet, "/api/branches/main/files/.smithers/machine.json", "files.read"},
 		{http.MethodPost, "/api/auth/logout", "self"},
 		{http.MethodGet, "/api/install", "install.read"},
 		{http.MethodGet, "/api/user/repos", "repo.read"},

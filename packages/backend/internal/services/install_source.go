@@ -12,6 +12,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 // SourceFile is one file an app-agent turn read from its repository's
@@ -243,4 +244,43 @@ func turnAuthor(ctx context.Context, q *db.Queries, members identity.MemberAutho
 		return nil, errNotTheAuthor
 	}
 	return info, nil
+}
+
+// ReadBranchFile reuses Source-ready and live member authority for an immutable
+// branch read. Main uses the sync-owned bookmark, never a workspace checkout.
+func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware.Credential, userID int64, branch, filePath, at string, branches interface {
+	GetBranch(context.Context, string, int64, int64) (BranchMachineResponse, error)
+}) (repohost.FileContent, string, error) {
+	if s.Pool == nil || s.Repos == nil || s.Members == nil {
+		return repohost.FileContent{}, "", ErrSourceNotReady
+	}
+	if ValidateRepositoryPath(filePath) != nil {
+		return repohost.FileContent{}, "", ErrSourcePathRefused
+	}
+	owner, repository, _, err := s.readable(ctx, credential, userID, 0)
+	if err != nil {
+		return repohost.FileContent{}, "", err
+	}
+	if branch == "main" && at == "" {
+		commit, file, err := s.Repos.defaultBookmarkFile(ctx, owner, repository, filePath)
+		return file, commit, err
+	}
+	revision := at
+	if branch != "main" {
+		if branches == nil {
+			return repohost.FileContent{}, "", ErrSourceNotReady
+		}
+		row, err := branches.GetBranch(ctx, branch, repository.ID, userID)
+		if err != nil {
+			return repohost.FileContent{}, "", err
+		}
+		if revision == "" {
+			revision = row.Head
+		}
+	}
+	if !immutableCommitSHA(revision) {
+		return repohost.FileContent{}, "", ErrSourceNotReady
+	}
+	file, err := s.Repos.fileAt(ctx, owner, repository.Name, revision, filePath)
+	return file, revision, err
 }

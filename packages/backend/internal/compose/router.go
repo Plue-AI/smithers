@@ -1004,6 +1004,13 @@ func buildRouter(
 				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
+			files := &routes.BranchFileHandler{Branches: branches.Reads}
+			if repoHandler != nil {
+				if repos, ok := repoHandler.Service.(*services.RepoService); ok {
+					files.Source = services.InstallSource{Pool: pool, Repos: repos, Members: ownerBoundary}
+				}
+			}
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/branches/{b}/files/*", files.Read)
 		}
 		if cfg.Install.QuiesceEnabled {
 			h := &routes.InstallQuiesceHandler{Owners: queries, Service: &services.InstallQuiesce{Gate: quiesce}}

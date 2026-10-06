@@ -1026,7 +1026,7 @@ export const createAppController = (
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBookmarksSeam(context))
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
   const diffFilesSeam = actors.pair(seamCtx, createDiffFilesSeam)
-  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions))
+  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions, installHost))
   const repoTreeSeam = actors.pair(seamCtx, (context) => createRepoTreeSeam(context))
 
   const gitHubSeam = actors.pair(seamCtx, (context) => createGitHubSeam(context, {

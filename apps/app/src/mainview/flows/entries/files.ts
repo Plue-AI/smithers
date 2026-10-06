@@ -55,7 +55,7 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     },
     /* The model host binds its read of the mirrored main to the same catalog entry and grammar (@smthrs/rpc/FileRead). */
     summary: FILES_READ_COMMAND.summary,
-    runtimeAny: ["cloud"],
+    runtimeAny: ["install", "cloud"],
     /* `:line[:col]` (docs/code-intel/PLAN.md §1): the card scrolls to and marks the line; the parser strips it off the path token. */
     args: FILES_READ_COMMAND.args,
     requires: ["first-run-target", "repo-source"],

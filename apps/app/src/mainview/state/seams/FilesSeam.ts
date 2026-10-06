@@ -184,7 +184,7 @@ export const resolveFileTarget = (store: AppStore, pathArg: string, explicitRepo
   return "error" in target ? target : { kind: "cloud", repo: target.repo, path: normalizePath(path) }
 }
 
-export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOptions): FilesSeam => {
+export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOptions, install = false): FilesSeam => {
   const contentsUrl = (repo: string, path: string, ref?: string): string => {
     const [owner = "", name = ""] = repo.split("/")
     const base = `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents`
@@ -250,9 +250,17 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
       if ("error" in target) return target.error
       const { repo, path: normalized } = target
       if (normalized === "") return "files.read needs a file path"
+      if (install) {
+        const selected = resolveFileTarget(ctx.store, normalized, undefined)
+        if ("error" in selected || selected.repo !== repo) return "Repository read authority required."
+      }
+      const pinned = install && ref !== undefined && /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/.test(ref)
+      const branch = pinned ? "main" : ref ?? branchOptions?.scope()?.branch ?? "main"
       let response: Response
       try {
-        response = await ctx.http(contentsUrl(repo, normalized, ref))
+        response = await ctx.http(install
+          ? `${ctx.baseUrl}/api/branches/${encodeURIComponent(branch)}/files/${encodeRepoPath(normalized)}${pinned ? `?at=${encodeURIComponent(ref!)}` : ""}`
+          : contentsUrl(repo, normalized, ref))
       } catch (error) {
         return unreachableSentence(`the backend to read ${normalized} in ${repo}`, error)
       }
@@ -268,7 +276,14 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
         )
       }
 
-      const body: unknown = await response.json().catch(() => null)
+      const wire: unknown = await response.json().catch(() => null)
+      const branchFile = install ? FileCardSchema.safeParse(wire) : undefined
+      if (install && (!branchFile?.success || branchFile.data.path !== normalized || branchFile.data.branch !== branch)) {
+        return `The backend answered ${normalized} in ${repo} with an unreadable payload`
+      }
+      const body: unknown = branchFile?.success
+        ? { content: branchFile.data.content.kind === "binary" ? "" : branchFile.data.content.text, type: "file", encoding: "utf-8" }
+        : wire
       if (Array.isArray(body)) {
         return `${normalized} in ${repo} is a directory — run /files.list ${normalized} instead`
       }
@@ -297,13 +312,17 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
        * revision it asked for instead.
        */
       const { readAt } = cloudAddressing(ctx.store, repo, normalized)
-      const at = ref !== undefined ? { ref } : readAt === undefined ? {} : { readAt }
+      const commit = install ? response.headers.get("X-Contents-Commit") : null
+      const at = ref !== undefined ? { ref }
+        : commit ? { readAt: { changeId: null, commitId: commit, source: "head" as const } }
+        : readAt === undefined ? {} : { readAt }
       const shown = (content: string, binary: boolean): ViewResult =>
         fileReadCard(
           { repo, path: normalized, content, binary, ...at, ...(binary ? {} : anchored(anchor)) },
           ctx.nextOrdinal(),
           Date.now()
         )
+      if (branchFile?.success) return shown(rawContent, branchFile.data.content.kind === "binary")
       if (body.encoding === "base64") {
         const decoded = decodeBase64(rawContent)
         return shown(decoded.text, decoded.binary)

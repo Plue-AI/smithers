@@ -151,6 +151,48 @@ paths:
                     const: infra
                   message:
                     type: string
+  /api/branches/{b}/files/{path}:
+    get:
+      x-composition: install
+      summary: Read a file from the branch mirror
+      description: Reads source data without waking a machine or executing repository code. Main is pinned to the last successful GitHub mirror commit.
+      operationId: get_api_branch_file
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: path
+          required: true
+          description: Repository-relative file path, including slash-separated directories.
+          schema: {type: string}
+        - name: at
+          in: query
+          description: Immutable mirrored commit for a pinned history read; never a working copy.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Read-only File card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchFileCard'
+        '400':
+          description: Invalid repository path
+        '401':
+          description: Not signed in
+        '403':
+          description: Repository read authority required
+        '404':
+          description: File or branch not found
+        '503':
+          description: Source or authority unavailable
 components:
   schemas:
     Branch:
@@ -254,3 +296,22 @@ components:
                       enum: [' ', '+', '-']
                     text:
                       type: string
+    BranchFileCard:
+      type: object
+      required: [path, branch, language, digest, content, mode, diagnostics, authors, editors]
+      properties:
+        path: {type: string}
+        branch: {type: string}
+        language: {type: string}
+        digest: {type: string}
+        mode: {type: string, enum: [read_only]}
+        content:
+          type: object
+          required: [kind]
+          properties:
+            kind: {type: string, enum: [text, too_large, binary]}
+            text: {type: string}
+            bytes: {type: integer}
+        diagnostics: {type: array, items: {type: object}}
+        authors: {type: array, items: {type: object}}
+        editors: {type: array, items: {type: object}}

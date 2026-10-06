@@ -2561,6 +2561,48 @@ paths:
                     const: infra
                   message:
                     type: string
+  /api/branches/{b}/files/{path}:
+    get:
+      x-composition: install
+      summary: Read a file from the branch mirror
+      description: Reads source data without waking a machine or executing repository code. Main is pinned to the last successful GitHub mirror commit.
+      operationId: get_api_branch_file
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: path
+          required: true
+          description: Repository-relative file path, including slash-separated directories.
+          schema: {type: string}
+        - name: at
+          in: query
+          description: Immutable mirrored commit for a pinned history read; never a working copy.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Read-only File card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchFileCard'
+        '400':
+          description: Invalid repository path
+        '401':
+          description: Not signed in
+        '403':
+          description: Repository read authority required
+        '404':
+          description: File or branch not found
+        '503':
+          description: Source or authority unavailable
   /api/build-cache/healthz:
     get:
       summary: GET /api/build-cache/healthz
@@ -3542,14 +3584,23 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/GitHubAppSetupRequest"
+              oneOf:
+                - $ref: "#/components/schemas/GitHubAppSetupRequest"
+                - $ref: "#/components/schemas/GitHubAppManualRequest"
       responses:
         "200":
-          description: Browser manifest
+          description: Browser manifest or validated manual App installation URL
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GitHubAppManifestStart"
+                oneOf:
+                  - $ref: "#/components/schemas/GitHubAppManifestStart"
+                  - type: object
+                    required: [install_url]
+                    properties:
+                      install_url:
+                        type: string
+                        format: uri
         "400":
           description: Invalid setup body
           content:
@@ -24172,6 +24223,25 @@ components:
                       enum: [' ', '+', '-']
                     text:
                       type: string
+    BranchFileCard:
+      type: object
+      required: [path, branch, language, digest, content, mode, diagnostics, authors, editors]
+      properties:
+        path: {type: string}
+        branch: {type: string}
+        language: {type: string}
+        digest: {type: string}
+        mode: {type: string, enum: [read_only]}
+        content:
+          type: object
+          required: [kind]
+          properties:
+            kind: {type: string, enum: [text, too_large, binary]}
+            text: {type: string}
+            bytes: {type: integer}
+        diagnostics: {type: array, items: {type: object}}
+        authors: {type: array, items: {type: object}}
+        editors: {type: array, items: {type: object}}
     FlowCard:
       type: object
       required: [name, source, system, versions]
@@ -24357,7 +24427,7 @@ components:
               format: uri
             active:
               type: boolean
-              const: true
+              const: false
         default_permissions:
           type: object
           additionalProperties:
@@ -24370,6 +24440,39 @@ components:
           type: array
           items:
             type: string
+    GitHubAppManualRequest:
+      type: object
+      additionalProperties: false
+      required: [app_id, slug, pem, client_id, client_secret, webhook_secret, callbacks_confirmed]
+      properties:
+        app_id:
+          type: integer
+          minimum: 1
+        slug:
+          type: string
+          minLength: 1
+        pem:
+          type: string
+          writeOnly: true
+          minLength: 1
+        client_id:
+          type: string
+          minLength: 1
+        client_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+        webhook_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+        callbacks_confirmed:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uri
     GitHubAppSetupRequest:
       type: object
       additionalProperties: false

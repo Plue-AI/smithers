@@ -1159,6 +1159,26 @@ type TODOBranchDiffModelHunksItemLinesItem struct {
 	Text string `json:"text"`
 }
 
+// BranchFileCard is generated from docs/api/openapi.yaml.
+type BranchFileCard struct {
+	Path        string                       `json:"path"`
+	Branch      string                       `json:"branch"`
+	Language    string                       `json:"language"`
+	Digest      string                       `json:"digest"`
+	Mode        string                       `json:"mode"`
+	Content     BranchFileCardContent        `json:"content"`
+	Diagnostics []map[string]json.RawMessage `json:"diagnostics"`
+	Authors     []map[string]json.RawMessage `json:"authors"`
+	Editors     []map[string]json.RawMessage `json:"editors"`
+}
+
+// BranchFileCardContent is generated from docs/api/openapi.yaml.
+type BranchFileCardContent struct {
+	Kind  string  `json:"kind"`
+	Text  *string `json:"text,omitempty"`
+	Bytes *int64  `json:"bytes,omitempty"`
+}
+
 // FlowCard is generated from docs/api/openapi.yaml.
 type FlowCard struct {
 	Name     string                 `json:"name"`
@@ -1263,6 +1283,17 @@ type GitHubAppManifest struct {
 type GitHubAppManifestHookAttributes struct {
 	URL    string `json:"url"`
 	Active bool   `json:"active"`
+}
+
+// GitHubAppManualRequest is generated from docs/api/openapi.yaml.
+type GitHubAppManualRequest struct {
+	AppID              int64    `json:"app_id"`
+	Slug               string   `json:"slug"`
+	Pem                string   `json:"pem"`
+	ClientID           string   `json:"client_id"`
+	ClientSecret       string   `json:"client_secret"`
+	WebhookSecret      string   `json:"webhook_secret"`
+	CallbacksConfirmed []string `json:"callbacks_confirmed"`
 }
 
 // GitHubAppSetupRequest is generated from docs/api/openapi.yaml.
@@ -1575,6 +1606,11 @@ type PostAPIBillingCheckoutBody struct {
 type PostAPIBranchesBody struct {
 	From string  `json:"from"`
 	Name *string `json:"name,omitempty"`
+}
+
+// GetAPIBranchFileParams is the query of GET /api/branches/{b}/files/{path}.
+type GetAPIBranchFileParams struct {
+	At *string
 }
 
 // GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
@@ -2536,6 +2572,17 @@ func (c *Client) GetAPIBranchesBDiff(ctx context.Context, b string) (TODOBranchD
 	return out, err
 }
 
+// GetAPIBranchFile calls GET /api/branches/{b}/files/{path}.
+func (c *Client) GetAPIBranchFile(ctx context.Context, b string, pathParam string, params GetAPIBranchFileParams) (BranchFileCard, error) {
+	query := url.Values{}
+	if params.At != nil {
+		query.Set("at", *params.At)
+	}
+	var out BranchFileCard
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files/"+url.PathEscape(pathParam), query, nil, &out)
+	return out, err
+}
+
 // GetAPIBuildCacheHealthz calls GET /api/build-cache/healthz.
 func (c *Client) GetAPIBuildCacheHealthz(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
@@ -2704,8 +2751,8 @@ func (c *Client) PostAPIInstallSetupAddress(ctx context.Context, idempotencyKey 
 }
 
 // PostAPIInstallSetupApp calls POST /api/install/setup/app.
-func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body GitHubAppSetupRequest) (GitHubAppManifestStart, error) {
-	var out GitHubAppManifestStart
+func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body any) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.do(ctx, "POST", "/api/install/setup/app", nil, body, &out)
 	return out, err
 }

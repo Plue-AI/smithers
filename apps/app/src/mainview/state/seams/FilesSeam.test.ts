@@ -712,3 +712,77 @@ describe("files seam — reading at a revision", () => {
 
 
 })
+
+describe("install file cards before Machine ready", () => {
+  test("the flow reads the branch mirror and preserves literal bytes and anchors", async () => {
+    const requests: string[] = []
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const controller = createAppController(store, unavailableAgent, {
+      bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+      fetchImpl: async input => {
+        const url = String(input); requests.push(url)
+        if (url === "/api/branches/main/files/src/b.ts") return json(200, {
+          path: "src/b.ts", branch: "main", language: "typescript", digest: "sha256:fixture",
+          content: { kind: "text", text: '\n\n\n\nadd(1, "2")\n' }, mode: "read_only", diagnostics: [], authors: [], editors: []
+        })
+        return json(404, { message: "not found" })
+      }
+    })
+    try {
+      await ready(store)
+      const result = await controller.commands.run("files.read", "src/b.ts:5:3")
+      expect(result.status).toBe("executed")
+      const cards = [...store.collections.cards.values()].filter(card => card.kind === "file")
+      expect(cards).toHaveLength(1)
+      expect(cards[0]?.payload).toMatchObject({ path: "src/b.ts", content: '\n\n\n\nadd(1, "2")\n', line: 5, column: 3 })
+      expect(requests).toContain("/api/branches/main/files/src/b.ts")
+      expect(requests.some(url => url.includes("/contents/src/b.ts") || url.includes("/workspace/sessions"))).toBe(false)
+      expect(controller.commands.find("code.hover")).toBeUndefined()
+      expect(controller.commands.find("code.definition")).toBeUndefined()
+    } finally { await controller.dispose() }
+  })
+})
+
+test.each([
+  ["unavailable", 503, { message: "source unavailable" }],
+  ["foreign branch", 200, { path: "src/b.ts", branch: "other", language: "", digest: "fixture", content: { kind: "text", text: "foreign bytes" }, mode: "read_only", diagnostics: [], authors: [], editors: [] }],
+  ["malformed", 200, { content: "unvalidated bytes" }]
+] as const)("install file %s never becomes a card or falls back to a working copy", async (_name, status, body) => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: string[] = []
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async input => {
+      const url = String(input); requests.push(url)
+      return url === "/api/branches/main/files/src/b.ts" ? json(status, body) : json(404, { message: "not found" })
+    }
+  })
+  try {
+    await ready(store)
+    await controller.commands.run("files.read", "src/b.ts")
+    expect([...store.collections.cards.values()].filter(card => card.kind === "file")).toHaveLength(0)
+    expect(requests.filter(url => url.includes("src/b.ts"))).toEqual(["/api/branches/main/files/src/b.ts"])
+  } finally { await controller.dispose() }
+})
+
+test("install history read keeps its immutable revision through the same mirror route", async () => {
+  const commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const urls: string[] = []
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async input => {
+      const url = String(input); urls.push(url)
+      return url === `/api/branches/main/files/src/a.ts?at=${commit}` ? json(200, {
+        path: "src/a.ts", branch: "main", language: "typescript", digest: "fixture", content: { kind: "text", text: "export const old = 1\n" }, mode: "read_only", diagnostics: [], authors: [], editors: []
+      }) : json(404, { message: "not found" })
+    }
+  })
+  try {
+    await ready(store)
+    expect((await controller.commands.run("files.read", `src/a.ts:3:1 --ref ${commit}`)).status).toBe("executed")
+    const card = [...store.collections.cards.values()].find(card => card.kind === "file")
+    expect(card?.payload).toMatchObject({ content: "export const old = 1\n", ref: commit, line: 3, column: 1 })
+    expect(urls).toContain(`/api/branches/main/files/src/a.ts?at=${commit}`)
+  } finally { await controller.dispose() }
+})

@@ -9,7 +9,7 @@ import { javascript } from "@codemirror/lang-javascript"
 import { go } from "@codemirror/lang-go"
 import { rust } from "@codemirror/lang-rust"
 import { python } from "@codemirror/lang-python"
-import { lintGutter, setDiagnostics } from "@codemirror/lint"
+import { lintGutter, lintKeymap, setDiagnostics } from "@codemirror/lint"
 
 /** Positions use 1-based lines and UTF-16 columns (T-UI-11, spec §7.6). */
 export interface EditorPosition { readonly line: number; readonly col?: number }
@@ -112,7 +112,7 @@ export function CodeEditorView<Tag extends string>(props: CodeEditorViewProps<Ta
         compartments.current.attributes.of(EditorView.contentAttributes.of({ tabindex: "0", role: "textbox", "aria-readonly": String(!latest.current.binding), "aria-label": latest.current.path })),
         lineNumbers(), highlightActiveLine(), highlightActiveLineGutter(), lintGutter(), paper,
         syntaxHighlighting(highlight), compartments.current.language.of(languageExtension(latest.current.language)), compartments.current.hover.of([]),
-        keymap.of([{ key: "Ctrl-Space", run: view => send("hover", view) }, { key: "F12", run: view => send("definition", view) }, ...defaultKeymap]),
+        keymap.of([{ key: "Ctrl-Space", run: view => send("hover", view) }, { key: "F12", run: view => send("definition", view) }, ...lintKeymap, ...defaultKeymap]),
         EditorView.domEventHandlers({ mousemove: (event, view) => {
           if (!event.ctrlKey) { hoverPosition = null; return false }
           const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
