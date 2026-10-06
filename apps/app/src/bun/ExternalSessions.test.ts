@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { appendFile, mkdir, mkdtemp, realpath, rename, rm, symlink, utimes, writeFile } from "node:fs/promises"
+import { appendFile, lstat, mkdir, mkdtemp, realpath, rename, rm, symlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir, userInfo } from "node:os"
 import { join } from "node:path"
 import { EXTERNAL_SESSIONS_PATH } from "@smthrs/rpc/AgentApiRoutes"
@@ -158,20 +158,32 @@ describe("reading a session", () => {
   })
 
   test("a found session is looked for once; a deleted or replaced file is looked for again", async () => {
-    const root = join(home, "cached")
-    const path = await write(rolloutPath(root, ID), "first\n")
-    let walks = 0
-    const read = externalSessions(async () => { walks++; return [root] })
+    // Keep discovery's fixture shallow: dated-directory traversal is covered above.
+    const root = home
+    const path = await write(join(root, `rollout-2026-10-05T11-45-26-${ID}.jsonl`), "first\n")
+    let resolves = 0
+    const read = externalSessions(async () => [root], { find: async () => {
+      resolves++
+      return await lstat(path).then(() => ({ id: ID, path, root }), () => ({
+        refusal: { status: 404, code: "source_not_found", message: `No Codex session ${ID} on this machine.` }
+      }))
+    } })
     expect(await read("codex", ID, 0)).toMatchObject({ session_id: ID, text: "first\n" })
     expect(await read("codex", ID, 6)).toMatchObject({ text: "", eof: true })
-    expect(walks).toBe(1)
-    await rename(path, `${path}.old`)
-    await write(path, "replaced\n")
+    expect(resolves).toBe(1)
+    // Both files exist before rename, so replacement cannot reuse the cached inode.
+    const original = await lstat(path)
+    const replacement = await write(`${path}.new`, "replaced\n")
+    const next = await lstat(replacement)
+    expect(original.dev === next.dev && original.ino === next.ino).toBe(false)
+    await rename(replacement, path)
     expect(await read("codex", ID, 0)).toMatchObject({ text: "replaced\n" })
-    expect(walks).toBe(2)
+    expect(resolves).toBe(2)
+    expect(await read("codex", ID, 9)).toMatchObject({ text: "", eof: true })
+    expect(resolves).toBe(2)
     await rm(path)
     expect(await read("codex", ID, 0)).toMatchObject({ refusal: { status: 404 } })
-    expect(walks).toBe(3)
+    expect(resolves).toBe(3)
   })
 })
 
