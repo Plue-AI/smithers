@@ -1,30 +1,39 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 import { installCloudFixture } from "../cloudFixture"
+import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
 
 // UI projection of C-UI-13; its unit/CLI acceptance evidence remains separate.
+// Card reads use retained seeds, with served install fixtures for Flow and Agents.
+// Confirmation behavior is covered in C-UI-13-confirm-install.spec.ts.
 // Written before implementation: mvp.md §6, §8; lands with T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14
-test("C-UI-13: Card doors reach the replacement Views", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6, §8; lands with T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14")
-  // Required seed: every wired card and its pending wiring fixtures. Static
-  // reachability and legacy-file deletion remain the unit check's responsibility.
+for (const [line, copy] of [
+  ["/stack", "Upgrade the Stripe SDK to v17"], ["/todo T8", "Upgrade the Stripe SDK to v17"],
+  ["/branch retry-webhooks", "retry-webhooks"], ["/flow todo", "TODO flow"],
+  ["/wiki", "Webhook retries"], ["/settings", "This Mac"], ["/members", "Members"],
+  ["/help", "Commands"], ["/agent implementer", "Implementer agent"]
+] as const) test(`C-UI-13: ${line} reaches its replacement View`, async ({ page }) => {
   await owner(page)
-  await page.goto("/")
-  for (const [line, copy] of [
-    ["/stack", "Upgrade Stripe to v15"], ["/todo T8", "Upgrade Stripe to v15"],
-    ["/branch retry-webhooks", "retry-webhooks"], ["/flow todo", "todo"],
-    ["/wiki", "Wiki"], ["/settings", "This Mac"], ["/members", "Members"],
-    ["/help", "Commands"], ["/agent implementer", "Instructions"]
-  ]) {
-    await say(page, line!)
-    const card = page.locator(".smithers-card").last()
-    await expect(card).toBeVisible()
-    await expect(card).toContainText(copy!)
-    await expect(card).not.toContainText("Set up a job")
+  if (line === "/flow todo" || line === "/agent implementer") {
+    await installCloudFixture(page, { capabilities: ["identity", "install"] })
+    await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+    await page.route("**/api/flows", route => route.fulfill({ json: [{
+      name: "todo", source: { builtin: true }, system: false,
+      versions: [{ id: "d1", state: "active", steps: [{ id: "implement", label: "Implement", agent: "implementer" }] }]
+    }] }))
   }
-  await say(page, "Merge T8")
-  await expect(page.getByText("Review & merge", { exact: true }).last()).toBeVisible()
-  await expect(page.getByText("Merged T8", { exact: true })).toHaveCount(0)
+  if (line === "/agent implementer") await page.route("**/api/agents", route => route.fulfill({ json: {
+    native: false, canAssign: true, agents: [{ id: "implementer", label: "Implementer agent", purpose: "",
+      model: { id: "model-a", label: "model-a", provider: "openai-responses" }, builtin: true,
+      available: false, account: "", reason: "", source: "owner", instructions: "flows/todo/flow.ts" }]
+  } }))
+  await page.goto("/")
+  await say(page, line)
+  const card = page.locator(".smithers-card").last()
+  await expect(card).toBeVisible()
+  await expect(card).toContainText(copy)
+  await expect(card).not.toContainText("Set up a job")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
 })
 
 // SetupView already mounts through the install seam on first paint.
