@@ -59,12 +59,14 @@ type mythicalRepoHost interface {
 }
 
 type MythicalService struct {
-	todoLogs    blob.Store
-	store       MythicalStore
-	host        mythicalRepoHost
-	scratchRoot string
-	logger      *slog.Logger
-	now         func() time.Time
+	installParallel         *InstallCapacityService
+	installParallelRequired bool
+	todoLogs                blob.Store
+	store                   MythicalStore
+	host                    mythicalRepoHost
+	scratchRoot             string
+	logger                  *slog.Logger
+	now                     func() time.Time
 
 	// The item machinery (SetOrchestration); absent, the stack only
 	// bootstraps and folds.
@@ -1080,4 +1082,10 @@ func (s *MythicalService) refreshMerged(ctx context.Context, r *mythicalRun) {
 			s.notify(ctx, q, r.row.RepositoryID, r.row.Generation, "item", uuidString(saved.ID))
 		}
 	}
+}
+
+// SetInstallParallel binds the install owner setting to TODO admission.
+func (s *MythicalService) SetInstallParallel(capacity *InstallCapacityService) {
+	s.installParallel = capacity
+	s.installParallelRequired = true
 }

@@ -701,7 +701,7 @@ export type FlowCard = {
   }>
 }
 
-/** Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero. */
+/** Owner browser session setting, unavailable to agents. Settings retains the request; Home reports min(parallel, capacity), including zero. */
 export type InstallParallelSetting = {
   parallel: number
 }
@@ -1830,7 +1830,7 @@ export type GetApiInstallResponse = InstallSetupStatus
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
 
-export type PutApiInstallBody = (unknown | unknown) | (unknown | unknown)
+export type PutApiInstallBody = (unknown | unknown | unknown) | (unknown | unknown)
 
 export type PutApiInstallResponse = InstallSetupStatus
 

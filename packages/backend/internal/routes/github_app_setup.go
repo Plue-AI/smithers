@@ -496,6 +496,7 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 	var input struct {
 		ChatGPT  *bool     `json:"chatgpt"`
 		Capacity *int      `json:"capacity"`
+		Parallel *int      `json:"parallel"`
 		Bind     *string   `json:"bind"`
 		Origins  *[]string `json:"origins"`
 	}
@@ -503,7 +504,7 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if input.Bind != nil || input.Origins != nil {
-		if input.Capacity != nil || input.ChatGPT != nil {
+		if input.Capacity != nil || input.Parallel != nil || input.ChatGPT != nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("other settings and address must be set separately"))
 			return
 		}
@@ -535,13 +536,19 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		h.Status(w, r)
 		return
 	}
-	if input.Capacity == nil && input.ChatGPT == nil {
+	if input.Capacity == nil && input.Parallel == nil && input.ChatGPT == nil {
 		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
 		return
 	}
-	if h.Setup == nil || (input.Capacity != nil && h.Setup.Capacity == nil) {
+	if h.Setup == nil || ((input.Capacity != nil || input.Parallel != nil) && h.Setup.Capacity == nil) {
 		writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install capacity unavailable"))
 		return
+	}
+	if input.Parallel != nil {
+		if err = h.Setup.Capacity.SetParallel(r.Context(), *input.Parallel); err != nil {
+			WriteInstallSetupError(w, r, err)
+			return
+		}
 	}
 	if input.Capacity != nil {
 		if err = h.Setup.Capacity.Set(r.Context(), info.User.ID, *input.Capacity); err != nil {
@@ -568,6 +575,11 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 // WriteInstallSetupError is the install boundary's §6.2.3 envelope. Existing
 // hosted API fault envelopes remain unchanged.
 func WriteInstallSetupError(w http.ResponseWriter, r *http.Request, err error) {
+	var access *services.AccessError
+	if errors.As(err, &access) {
+		pkgerrors.WriteJSON(w, access.Status, access)
+		return
+	}
 	var api *pkgerrors.APIError
 	if errors.As(err, &api) {
 		writeInstallAPIError(w, api)

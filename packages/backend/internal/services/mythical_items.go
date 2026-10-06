@@ -1154,7 +1154,20 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
-	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: int(r.row.MaxParallel),
+	parallel := int(r.row.MaxParallel)
+	if s.installParallelRequired && s.installParallel == nil {
+		s.logger.Warn("mythical.parallel_unavailable")
+		return
+	}
+	if s.installParallel != nil {
+		setting, err := s.installParallel.Parallel(ctx)
+		if err != nil {
+			s.logger.Warn("mythical.parallel_failed", "error", err)
+			return
+		}
+		parallel = setting.Effective
+	}
+	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: parallel,
 		inFlight: map[[16]byte]bool{}}
 	for _, item := range active {
 		if mythicalRunInFlight(item) {

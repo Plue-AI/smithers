@@ -424,7 +424,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	queries := db.New(pool)
 	var installCapacity *services.InstallCapacityService
 	if options.HostProfile != nil {
-		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile}
+		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile, AuthorizeParallel: func(ctx context.Context) error {
+			_, err := services.Authorize(ctx, queries, "settings.parallel")
+			return err
+		}}
 		if counter, ok := options.Workspace.(interface{ InUse() int }); ok {
 			capacity.InUse = counter.InUse
 		}
@@ -1065,6 +1068,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
 	mythicalService.SetTodoLogStore(blobStore)
+	if config.IsSingleOwner(cfg.Auth) {
+		mythicalService.SetInstallParallel(installCapacity)
+	}
 	composeGitHubTodoPolling(mythicalService, gitHubMainPullService, gitHubSyncedRepoService, options.topology)
 	gitHubSyncedRepoService.SetIssueEventsEvery(options.GitHubIssueEventsEvery)
 	if installSync {

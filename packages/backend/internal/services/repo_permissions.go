@@ -300,6 +300,7 @@ type installCommand struct {
 // the app agent and work TODOs; maintainers merge, manage people and write
 // the repository's secrets. A command absent here is refused.
 var installCommands = map[string]installCommand{
+	"settings.parallel":  {role: InstallOwner, personOnly: true},
 	"install.scorecard":  {role: InstallOwner, personOnly: true},
 	"confirmations.read": {role: InstallMember},
 	"install.read":       {role: InstallMember},

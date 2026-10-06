@@ -1238,7 +1238,7 @@ type FlowCardVersionsItemStepsItemSignalsItem struct {
 	To string `json:"to"`
 }
 
-// InstallParallelSetting — Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero.
+// InstallParallelSetting — Owner browser session setting, unavailable to agents. Settings retains the request; Home reports min(parallel, capacity), including zero.
 type InstallParallelSetting struct {
 	Parallel int64 `json:"parallel"`
 }
