@@ -3,15 +3,19 @@ package compose
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"html"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
@@ -35,14 +39,26 @@ func (c ownerOAuthCredentials) OAuthClient(context.Context) (string, string, err
 func TestOwnerSignInHTTPPostgres(t *testing.T) {
 	// saved is the origin as the owner typed it; the browser sends origin, the
 	// same origin in lower case (macOS names the Mac Williams-Mac-mini.local).
-	for _, tc := range []struct{ saved, origin string }{
-		{"http://localhost:4000", "http://localhost:4000"},
-		{"http://lan-a:4000", "http://lan-a:4000"},
-		{"https://box.example", "https://box.example"},
-		{"http://Williams-Mac-mini.local:4000", "http://williams-mac-mini.local:4000"},
+	for _, tc := range []struct {
+		saved, origin string
+		first         int
+	}{
+		{"http://localhost:4000", "http://localhost:4000", 0},
+		{"http://localhost:4000", "http://localhost:4000", 1},
+		{"http://lan-a:4000", "http://lan-a:4000", 0},
+		{"http://lan-a:4000", "http://lan-a:4000", 1},
+		{"https://box.example", "https://box.example", 0},
+		{"https://box.example", "https://box.example", 1},
+		{"http://Williams-Mac-mini.local:4000", "http://williams-mac-mini.local:4000", 0},
+		{"http://Williams-Mac-mini.local:4000", "http://williams-mac-mini.local:4000", 1},
 	} {
+		first := tc.first
 		origin := tc.origin
-		t.Run(tc.saved, func(t *testing.T) {
+		t.Run(tc.saved+[]string{"/C-first", "/B-first"}[first], func(t *testing.T) {
+			var logs syncBuffer
+			previousLogger := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(previousLogger) })
 			pool, _ := postgresfixture.NewProductDatabase(t)
 			q := db.New(pool)
 			ctx := t.Context()
@@ -173,23 +189,80 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 				}
 			}
 			require.NotEmpty(t, otherSession)
+			// Inspect the actual persisted authority, independently of the
+			// production digest helper. Neither browser credential is stored raw.
+			for _, secret := range []string{u.Query().Get("token"), credential, otherSession} {
+				digest := sha256.Sum256([]byte(secret))
+				key := "setup.session." + hex.EncodeToString(digest[:])
+				if secret == u.Query().Get("token") {
+					key = "setup.token"
+				}
+				var stored string
+				require.NoError(t, pool.QueryRow(ctx, "SELECT value::text FROM install_settings WHERE key=$1", key).Scan(&stored))
+				require.False(t, strings.Contains(stored, secret), "stored setup authority contains plaintext")
+				if key == "setup.token" {
+					require.JSONEq(t, `"`+hex.EncodeToString(digest[:])+`"`, stored)
+				}
+			}
+
+			assertNoPlaintext := func(secrets ...string) {
+				t.Helper()
+				rows, err := pool.Query(ctx, "SELECT tablename FROM pg_tables WHERE schemaname='public'")
+				require.NoError(t, err)
+				var tables []string
+				for rows.Next() {
+					var table string
+					require.NoError(t, rows.Scan(&table))
+					tables = append(tables, table)
+				}
+				require.NoError(t, rows.Err())
+				rows.Close()
+				for _, table := range tables {
+					rows, err := pool.Query(ctx, "SELECT row_to_json(r)::text FROM "+pgx.Identifier{"public", table}.Sanitize()+" r")
+					require.NoError(t, err)
+					for rows.Next() {
+						var raw string
+						require.NoError(t, rows.Scan(&raw))
+						for _, secret := range secrets {
+							// Do not put captured credentials or database rows in failure receipts.
+							require.False(t, strings.Contains(raw, secret) || strings.Contains(raw, url.QueryEscape(secret)), "plaintext credential in %s", table)
+						}
+					}
+					require.NoError(t, rows.Err())
+					rows.Close()
+				}
+			}
+			assertNoPlaintext(u.Query().Get("token"), credential, otherSession)
 			require.NotEqual(t, credential, otherSession)
 			provider.SetCollaborator(7, "local-owner", "admin")
 			provider.SetCollaborator(8, "other-owner", "admin")
 			callbacks := []*http.Request{prepareCallback(credential, "owner-a-code", 7), prepareCallback(otherSession, "owner-b-code", 8)}
 			results := []*httptest.ResponseRecorder{httptest.NewRecorder(), httptest.NewRecorder()}
-			barrier := make(chan struct{})
+			// Queue the real callback transactions behind the same durable lock
+			// used by mint/claim. Observe each waiter before admitting the next:
+			// goroutine scheduling alone cannot establish which browser won.
+			barrier, err := pool.Acquire(ctx)
+			require.NoError(t, err)
+			defer barrier.Release()
+			_, err = barrier.Exec(ctx, "SELECT pg_advisory_lock(3443)")
+			require.NoError(t, err)
+			defer barrier.Exec(ctx, "SELECT pg_advisory_unlock(3443)")
 			var wg sync.WaitGroup
-			for i := range callbacks {
+			for position, i := range []int{first, 1 - first} {
 				wg.Add(1)
-				go func(i int) { defer wg.Done(); <-barrier; router.ServeHTTP(results[i], callbacks[i]) }(i)
+				go func(i int) { defer wg.Done(); router.ServeHTTP(results[i], callbacks[i]) }(i)
+				require.Eventually(t, func() bool {
+					var waiting int
+					err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks
+						WHERE locktype='advisory' AND objid=3443 AND NOT granted
+						AND database=(SELECT oid FROM pg_database WHERE datname=current_database())`).Scan(&waiting)
+					return err == nil && waiting == position+1
+				}, 10*time.Second, 10*time.Millisecond, "callback must reach the claim lock")
 			}
-			close(barrier)
+			_, err = barrier.Exec(ctx, "SELECT pg_advisory_unlock(3443)")
+			require.NoError(t, err)
 			wg.Wait()
-			winner, loser := 0, 1
-			if results[0].Code == http.StatusUnauthorized {
-				winner, loser = 1, 0
-			}
+			winner, loser := first, 1-first
 			result, callback := results[winner], callbacks[winner]
 			require.Equal(t, http.StatusFound, result.Code, result.Body.String())
 			require.Equal(t, origin+"/", result.Header().Get("Location"))
@@ -226,11 +299,17 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			router.ServeHTTP(replay, callback)
 			require.Equal(t, 401, replay.Code)
 			require.Contains(t, replay.Body.String(), `"code":"setup_closed"`)
+			for _, secret := range []string{u.Query().Get("token"), credential, otherSession} {
+				for _, captured := range []string{logs.String(), wrongExchange.Body.String(), exchange.Body.String(), otherExchange.Body.String(), denied.Body.String(), results[0].Body.String(), results[1].Body.String(), oldToken.Body.String(), replay.Body.String()} {
+					require.False(t, strings.Contains(captured, secret) || strings.Contains(captured, url.QueryEscape(secret)), "plaintext setup credential in application logs or HTTP body")
+				}
+			}
 			for _, cookie := range result.Result().Cookies() {
 				if cookie.Name == "session" {
 					require.Equal(t, origin == "https://box.example", cookie.Secure)
 					require.True(t, cookie.HttpOnly)
 					require.Empty(t, cookie.Domain)
+					assertNoPlaintext(u.Query().Get("token"), credential, otherSession, cookie.Value)
 				}
 			}
 		})
