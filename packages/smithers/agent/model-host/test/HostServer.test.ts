@@ -511,7 +511,7 @@ test("trusted preflight precedes the answer and its choices cross the durable HT
   })
   const response = await handler(new Request("http://host.test/v1/chat/turn", {
     method: "POST", headers: { authorization: "Bearer host-token", "content-type": "application/json" },
-    body: JSON.stringify({ ...grant, request: { ...grant.request, messages: [{ role: "user", content: "canary-browser" }],
+    body: JSON.stringify({ ...grant, request: { ...grant.request, sharedConversation: true, messages: [{ role: "user", content: "canary-browser" }],
       selectedContext: [{ item: { kind: "file", label: "secret", ref: "secret" }, text: "canary-selection" }] } })
   }))
   expect(response.status).toBe(204)
@@ -523,6 +523,23 @@ test("trusted preflight precedes the answer and its choices cross the durable HT
   expect(JSON.stringify(requests)).not.toContain("canary-browser")
   expect(JSON.stringify(requests)).not.toContain("canary-selection")
   expect(requests[1].messages).toHaveLength(2)
+})
+
+test("shared prompt refuses without authorized preflight before model or producer calls", async () => {
+  const stream = vi.fn(() => Stream.empty)
+  const callbacks = vi.fn(async () => new Response(null, { status: 204 }))
+  const handler = createModelTurnHandler({
+    authorization: "host-token", callbackBaseUrl: "http://callback.test",
+    resolve: () => Effect.succeed({ model: Model.make({ stream }), options: { modelId: "coding" } }),
+    fetchImpl: callbacks
+  })
+  const response = await handler(post(JSON.stringify({
+    ...grant, request: { ...grant.request, conversationId: "main", purpose: "conversation", sharedConversation: true }
+  })))
+  expect(response.status).toBeGreaterThanOrEqual(500)
+  expect(await response.json()).toMatchObject({ status: "error", code: "turn_failed" })
+  expect(stream).not.toHaveBeenCalled()
+  expect(callbacks).not.toHaveBeenCalled()
 })
 
 test("unavailable durable preflight writes refuse before either model or provider-start", async () => {
