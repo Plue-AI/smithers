@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,16 +24,32 @@ type fileBatchRuntime struct {
 	writes     [][]workspaceapi.FileMutation
 	operations []workspaceapi.Operation
 	err        error
+	raced      []workspaceapi.FileRace
+	receipt    func(*workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult
 }
 
-func (r *fileBatchRuntime) CompareWriteFiles(ctx context.Context, id string, changes []workspaceapi.FileMutation) error {
+func (r *fileBatchRuntime) CompareWriteFiles(ctx context.Context, id string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
 	r.writes = append(r.writes, changes)
 	op, _ := workspaceapi.OperationFromContext(ctx)
 	r.operations = append(r.operations, op)
 	if r.park {
-		return r.effect("compare-write")
+		return nil, r.effect("compare-write")
 	}
-	return r.err
+	if r.err != nil {
+		return nil, r.err
+	}
+	result := &workspaceapi.FileWriteResult{Raced: r.raced}
+	for _, change := range changes {
+		digest := "absent"
+		if change.Content != nil {
+			digest = fmt.Sprintf("%x", sha256.Sum256(change.Content))
+		}
+		result.Paths = append(result.Paths, workspaceapi.FileMutationResult{Path: change.Path, Digest: digest})
+	}
+	if r.receipt != nil {
+		result = r.receipt(result)
+	}
+	return result, nil
 }
 
 func (r *fileBatchRuntime) ListFiles(ctx context.Context, id, path string) ([]workspaceapi.FileEntry, error) {
@@ -247,6 +264,47 @@ func TestWorkspaceService_FileBatchHoldsAuthorityPostgres(t *testing.T) {
 			require.Equal(t, fmt.Sprint(fx.writer), runtime.operations[0].PrincipalID)
 			assertAPIErrorStatus(t, call(fx.writer), 403)
 			require.Len(t, runtime.writes, 1)
+		})
+	}
+}
+
+func TestWorkspaceService_FileBatchReceipts(t *testing.T) {
+	changes := []workspaceapi.FileMutation{{Path: "a", BaseDigest: "absent", Content: []byte("new")}}
+	runtime := &fileBatchRuntime{authorityRuntime: newAuthorityRuntime(workspaceapi.WorkspaceRunning), raced: []workspaceapi.FileRace{{Path: "a", Version: "retained-outside"}}}
+	svc := newWorkspaceServiceForTests(&repositoryIdentityQuerier{}, WithWorkspaceRuntime(runtime))
+	got, err := svc.WriteWorkspaceFiles(t.Context(), "ws-1", 101, 1, changes)
+	require.NoError(t, err)
+	require.Equal(t, runtime.raced, got.Raced, "preserve the retained version, not the new content digest")
+	require.Equal(t, "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437", got.Paths[0].Digest)
+	for name, corrupt := range map[string]func(*workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult{
+		"nil":          func(*workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult { return nil },
+		"missing path": func(r *workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult { r.Paths = nil; return r },
+		"foreign path": func(r *workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult {
+			r.Paths[0].Path = "other"
+			return r
+		},
+		"wrong digest": func(r *workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult {
+			r.Paths[0].Digest = "absent"
+			return r
+		},
+		"foreign race": func(r *workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult {
+			r.Raced = []workspaceapi.FileRace{{Path: "other", Version: "version"}}
+			return r
+		},
+		"missing version": func(r *workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult {
+			r.Raced = []workspaceapi.FileRace{{Path: "a"}}
+			return r
+		},
+		"duplicate race": func(r *workspaceapi.FileWriteResult) *workspaceapi.FileWriteResult {
+			r.Raced = []workspaceapi.FileRace{{Path: "a", Version: "one"}, {Path: "a", Version: "two"}}
+			return r
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runtime.receipt = corrupt
+			got, err := svc.WriteWorkspaceFiles(t.Context(), "ws-1", 101, 1, changes)
+			require.Error(t, err)
+			require.Nil(t, got, "invalid provider receipts cannot claim a successful write")
 		})
 	}
 }

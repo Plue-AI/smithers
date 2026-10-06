@@ -252,24 +252,10 @@ base64 -w0 -- "$resolved"`, workspaceExecNotFound, MaxWorkspaceFileBytes, worksp
 	return result, nil
 }
 
-// WorkspaceFileMutationResult acknowledges one path in a committed batch.
-// Digest is "absent" for a removal, otherwise the full SHA-256 of the new bytes.
-type WorkspaceFileMutationResult struct {
-	Path   string `json:"path"`
-	Digest string `json:"post_digest"`
-}
-
-// WorkspaceFileWriteResult is the write receipt shared by single-file and batch requests.
-// Version identifies the retained outside bytes for Compare, not the applied bytes.
-type WorkspaceFileWriteResult struct {
-	Paths []WorkspaceFileMutationResult `json:"paths"`
-	Raced []WorkspaceFileRace           `json:"raced"`
-}
-
-type WorkspaceFileRace struct {
-	Path    string `json:"path"`
-	Version string `json:"version"`
-}
+// Workspace file receipts use the provider's authoritative write result.
+type WorkspaceFileMutationResult = workspaceapi.FileMutationResult
+type WorkspaceFileWriteResult = workspaceapi.FileWriteResult
+type WorkspaceFileRace = workspaceapi.FileRace
 
 // WriteWorkspaceFile uses the same transaction as a multi-file patch.
 func (s *WorkspaceService) WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath, content, baseDigest string) (WorkspaceFileContent, error) {
@@ -327,6 +313,7 @@ func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID 
 	if err != nil {
 		return nil, pkgerrors.Internal("cannot encode workspace file changes")
 	}
+	var receipt *WorkspaceFileWriteResult
 	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
 		return s.withCodingFileMutationAuthority(ctx, workspaceID, repositoryID, userID, func(ctx context.Context) error {
 			writer, ok := s.runtime.(workspaceapi.WorkspaceCompareWriter)
@@ -337,7 +324,9 @@ func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID 
 			if targetErr != nil {
 				return targetErr
 			}
-			if writeErr := writer.CompareWriteFiles(runtimeCtx, row.ID, batch); writeErr != nil {
+			var writeErr error
+			receipt, writeErr = writer.CompareWriteFiles(runtimeCtx, row.ID, batch)
+			if writeErr != nil {
 				var stale *workspaceapi.StaleFileError
 				if errors.As(writeErr, &stale) {
 					if !paths[stale.Path] || (stale.CurrentDigest != "absent" && !workspaceFileBaseDigestPattern.MatchString(stale.CurrentDigest)) {
@@ -347,6 +336,24 @@ func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID 
 				}
 				return mapRuntimeFileError(writeErr, "file")
 			}
+			if receipt == nil || len(receipt.Paths) != len(results) {
+				return pkgerrors.Internal("invalid workspace write receipt")
+			}
+			for i, result := range results {
+				if receipt.Paths[i] != result {
+					return pkgerrors.Internal("invalid workspace write receipt")
+				}
+			}
+			seen := make(map[string]bool, len(receipt.Raced))
+			for _, raced := range receipt.Raced {
+				if !paths[raced.Path] || raced.Version == "" || seen[raced.Path] {
+					return pkgerrors.Internal("invalid workspace race receipt")
+				}
+				seen[raced.Path] = true
+			}
+			if receipt.Raced == nil {
+				receipt.Raced = []WorkspaceFileRace{}
+			}
 			s.touchWorkspaceEntryRecency(ctx, row.ID, "file-content-write")
 			return nil
 		})
@@ -354,7 +361,7 @@ func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID 
 	if err != nil {
 		return nil, err
 	}
-	return &WorkspaceFileWriteResult{Paths: results, Raced: []WorkspaceFileRace{}}, nil
+	return receipt, nil
 }
 
 // ListWorkspaceServices returns services declared as persistent units by the

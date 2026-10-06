@@ -47,13 +47,24 @@ func (r *writeReplyRuntime) ExecuteCommand(_ context.Context, _ string, c worksp
 	}
 	return workspaceapi.CommandResult{}, nil
 }
-func (r *writeReplyRuntime) CompareWriteFiles(_ context.Context, _ string, changes []workspaceapi.FileMutation) error {
+func (r *writeReplyRuntime) CompareWriteFiles(_ context.Context, _ string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
 	for _, change := range changes {
 		if change.BaseDigest != "absent" {
-			return &workspaceapi.StaleFileError{Path: change.Path, CurrentDigest: "absent"}
+			return nil, &workspaceapi.StaleFileError{Path: change.Path, CurrentDigest: "absent"}
 		}
 	}
-	return nil
+	result := &workspaceapi.FileWriteResult{Raced: []workspaceapi.FileRace{}}
+	for _, change := range changes {
+		digest := "absent"
+		if change.Content != nil {
+			digest = fmt.Sprintf("%x", sha256.Sum256(change.Content))
+		}
+		result.Paths = append(result.Paths, workspaceapi.FileMutationResult{Path: change.Path, Digest: digest})
+		if change.Path == "raced" {
+			result.Raced = append(result.Raced, workspaceapi.FileRace{Path: change.Path, Version: "retained-outside"})
+		}
+	}
+	return result, nil
 }
 
 func TestWorkspaceWriteReplyInstall(t *testing.T) {
@@ -94,6 +105,7 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 	}{
 		{"?path=a", `{"content":"new","base_digest":"absent"}`, `{"paths":[{"path":"a","post_digest":"` + digest + `"}],"raced":[]}`, 200},
 		{"", `{"changes":[{"path":"a","content":"new","base_digest":"absent"},{"path":"removed","content":null,"base_digest":"absent"}]}`, `{"paths":[{"path":"a","post_digest":"` + digest + `"},{"path":"removed","post_digest":"absent"}],"raced":[]}`, 200},
+		{"?path=raced", `{"content":"new","base_digest":"absent"}`, `{"paths":[{"path":"raced","post_digest":"` + digest + `"}],"raced":[{"path":"raced","version":"retained-outside"}]}`, 200},
 		{"?path=a", `{"content":"new","base_digest":"` + digest + `"}`, `{"code":"stale","current_digest":"absent"}`, 409},
 		{"", `{"changes":[{"path":"a","content":"new","base_digest":"` + digest + `"}]}`, `{"code":"stale","path":"a","current_digest":"absent"}`, 409},
 	} {
