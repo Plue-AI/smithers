@@ -176,7 +176,7 @@ describe("recorded engine evidence in the run trace", () => {
     const native = model.root.children[0]!
     expect(native).toMatchObject({
       kind: "execution",
-      label: "coding/ImplementPlan",
+      label: "Implemented the plan",
       status: "pending",
       startedAt: 101
     })

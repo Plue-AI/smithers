@@ -273,7 +273,7 @@ describe("the run card as a trace", () => {
     expect(row.tagName).toBe("BUTTON")
     row.focus()
     expect(document.activeElement).toBe(row)
-    expect(row.textContent).toContain("coding/ImplementPlan · completed")
+    expect(row.textContent).toContain("Implemented the plan · completed")
     expect(compact.host.querySelector("[data-testid='run-trace-pane-run-1']")).toBeNull()
     click(row)
     expect(compact.dispatched).toEqual([{ name: "runs.trace.select", args: "sourceCard=flow-run-run-1 run-1 engine:native:0" }])
@@ -1294,4 +1294,16 @@ test("a pending facet does not claim an empty result; refusal keeps the existing
   expect(failed).not.toContain("The transcript is empty so far.")
   expect(failed).toContain('data-flow="runs.logs"')
   expect(failed).toContain('data-flow-args="run-1"')
+})
+
+
+test("Inspect renders Appendix C labels from the recorded coding journal", () => {
+  const { host } = renderTrace({ workflow: "todo", events: [
+    stamp(1, "control.agent.turn-opened", {}, 1000),
+    stamp(2, "control.agent.cell-call-started", { flowName: "coding/edit-atom", callId: "edit" }, 2000),
+    stamp(3, "control.agent.cell-call-settled", { flowName: "coding/edit-atom", callId: "edit", outcome: "success", value: {} }, 3000),
+    stamp(4, "control.agent.cell-call-started", { flowName: "coding/check-command", callId: "check" }, 4000)
+  ] })
+  expect(host.textContent).toContain("Edited the files")
+  expect(host.textContent).toContain("Ran checks")
 })

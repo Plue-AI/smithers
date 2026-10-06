@@ -17589,6 +17589,10 @@ evidence do not acquire invented phases, successful checks, or file changes.
 
 - `traceFromJournal(run, records, options?)` builds a `TraceModel`: nested
   spans, frame summaries, phase bands, milestone pins, and discipline notes.
+- `inspectLabel(tag)` reads the build-generated Appendix C Inspect rendering.
+  Coding call and native execution spans use the same labels. Dynamic
+  `<cell-call:flow>` wrappers use the wrapped action's rendering; unknown
+  historical tags keep their recorded id. Inspection and replay read data only.
 - `traceFold(run, records?)` holds the same fold open. `traceFoldStep(fold,
   record)` adds one record at the cost of that record; `traceFoldSync(fold, run,
   records)` steps only what a grown journal appended; `traceFoldModel(fold,

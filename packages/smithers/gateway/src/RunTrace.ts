@@ -19,9 +19,12 @@
 
 import { CallPresentation, FlowActivity, type FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { Schema } from "effect"
+import { inspectLabel } from "./internal/inspectLabels.ts"
 import { callScope, openCallIndex } from "./Diagnosis.ts"
 import { engineTraceFromJournal } from "./EngineTrace.ts"
 import { type CallEventFilter, callEventFilter, uniqueCallEvents } from "./internal/callEvents.ts"
+
+export { inspectLabel } from "./internal/inspectLabels.ts"
 
 /** One control journal record, as the run card stores it (the run-events projection's row shape).
  *
@@ -1391,7 +1394,7 @@ const foldStep = (state: FoldState, record: JournalRecord): void => {
       case "control.agent.cell-call-started": {
         calls += 1
         const flowName = asString(payload.flowName) ?? `call-${calls}`
-        const span = builder(`call-${calls}`, "call", flowName, "running", at, {
+        const span = builder(`call-${calls}`, "call", inspectLabel(flowName), "running", at, {
           ...opened,
           input: payload.input,
           fields: restOf(payload, ["flowName", "input"])
