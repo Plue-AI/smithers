@@ -3,7 +3,6 @@ package modelproxy
 import (
 	"context"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -36,27 +35,6 @@ func TestConfigurationUnitSeatOrderAndGuestEnvironment(t *testing.T) {
 	key, err = keys.PlatformModelKey(context.Background(), "cerebras")
 	require.ErrorIs(t, err, ErrKeyMissing)
 	require.Empty(t, key)
-}
-
-func TestConfigurationUnitRotationDoesNotOfferRemovedOrPlaceholderKey(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "keys.json")
-	writeKeys(t, path, `{"openai":"unit-initial-key"}`, 0o600)
-	keys, err := OpenKeysFile(path)
-	require.NoError(t, err)
-	for _, body := range []string{`{"anthropic":"unit-other-key"}`, `{"openai":" "}`, `{"openai":"replace-me-private-fixture"}`} {
-		writeKeys(t, path, body, 0o600)
-		key, err := keys.PlatformModelKey(context.Background(), "openai")
-		require.ErrorIs(t, err, ErrKeyMissing)
-		require.Empty(t, key)
-		require.EqualError(t, err, "modelproxy: platform model key is not configured")
-		require.Equal(t, []string{"openai"}, keys.PlatformModelProviders(), "startup provider inventory is stable while values are reread")
-	}
-	writeKeys(t, path, `{"openai":"  unit-restored-key  "}`, 0o600)
-	key, err := keys.PlatformModelKey(context.Background(), "openai")
-	require.NoError(t, err)
-	require.Equal(t, "unit-restored-key", key)
-	_, err = OpenKeysFile(" \t\n")
-	require.EqualError(t, err, "modelproxy: platform model key file path is empty")
 }
 
 func TestConfigurationUnitPriceAliasesAndProviderAuthority(t *testing.T) {

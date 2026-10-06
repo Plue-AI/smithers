@@ -27,8 +27,6 @@ const serve = async (): Promise<never> => {
     if (build !== 0) process.exit(build)
   }
   const { startLocalServer } = await import("../src/bun/server")
-  const { darwinKeychain } = await import("../src/bun/CloudAuth")
-  const { MODEL_KEYCHAIN_SERVICE, modelKeychainAccount } = await import("../src/bun/ModelCredentials")
 
   const port = Number(process.env.SMITHERS_REAL_PORT ?? "47321")
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid SMITHERS_REAL_PORT: ${process.env.SMITHERS_REAL_PORT}`)
@@ -55,7 +53,6 @@ const serve = async (): Promise<never> => {
 
   let stopping: Promise<void> | undefined
   const stop = (): Promise<void> => stopping ??= server!.stop().then(async () => {
-    await darwinKeychain().remove(MODEL_KEYCHAIN_SERVICE, modelKeychainAccount(join(root, "state")))
     await rm(root, { recursive: true, force: true })
   })
   process.on("SIGINT", () => { void stop().then(() => process.exit(0), () => process.exit(1)) })

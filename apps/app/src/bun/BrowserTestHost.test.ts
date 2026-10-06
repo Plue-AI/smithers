@@ -7,7 +7,6 @@ import { ModelCatalogSchema } from "@smthrs/rpc/ConfiguredModel"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { createChatStub } from "../../e2e/support/ChatStub"
 import { browserTestOptions } from "../../scripts/browser-test-host"
-import { createModelCredentials, MODEL_KEYCHAIN_SERVICE, modelKeychainAccount } from "./ModelCredentials"
 import { DEFAULT_CLOUD_API, startLocalServer } from "./server"
 
 describe("browser tests separate fixture ownership from real-host authority", () => {
@@ -27,37 +26,14 @@ describe("browser tests separate fixture ownership from real-host authority", ()
       identityUpstream: null,
       env: {}
     })
-    const credentials = await createModelCredentials({
-      env: options.env!,
-      scope: options.stateDir!,
-      keychain: options.modelKeychain!
-    })
-    expect(credentials.read("OPENAI_API_KEY")).toBeUndefined()
   })
 
-  test("model credentials stay in each test host's own memory", async () => {
-    const first = browserTestOptions("/fixture/first", "/fixture/dist", { OPENAI_API_KEY: "fixture-only" })
-    const second = browserTestOptions("/fixture/second", "/fixture/dist", {})
-    expect(first.env).toEqual({})
-    expect(second.env).toEqual({})
-    await first.modelKeychain!.write("models", "account", "fixture-value")
-    expect(await first.modelKeychain!.read("models", "account")).toBe("fixture-value")
-    expect(await second.modelKeychain!.read("models", "account")).toBeNull()
-    await first.modelKeychain!.remove("models", "account")
-    expect(await first.modelKeychain!.read("models", "account")).toBeNull()
-  })
-
-  test("a running fixture reads only its private model vault, never ambient model env", async () => {
+  test("a running fixture never reads ambient model credentials", async () => {
     const root = await mkdtemp(join(tmpdir(), "smithers-browser-credential-test-"))
     const dist = join(root, "dist")
     await mkdir(dist)
     await writeFile(join(dist, "index.html"), "<!doctype html><title>Fixture</title>")
     const options = browserTestOptions(root, dist, { OPENAI_API_KEY: "ambient-fixture-only" })
-    await options.modelKeychain!.write(MODEL_KEYCHAIN_SERVICE, modelKeychainAccount(options.stateDir!), JSON.stringify({
-      version: 1,
-      entries: [{ name: "LOOPBACK", origin: "http://127.0.0.1:12345", value: "private-fixture-only" }],
-      receipts: []
-    }))
     try {
       const server = await startLocalServer(options)
       try {
@@ -67,7 +43,7 @@ describe("browser tests separate fixture ownership from real-host authority", ()
         expect(response.status).toBe(200)
         const catalog = ModelCatalogSchema.parse(await response.json())
         expect(catalog.credentials.find(row => row.name === "OPENAI_API_KEY")?.present).toBe(false)
-        expect(catalog.credentials.find(row => row.name === "LOOPBACK")?.present).toBe(true)
+        expect(catalog.credentials.find(row => row.name === "LOOPBACK")).toBeUndefined()
       } finally {
         await server.stop()
       }
