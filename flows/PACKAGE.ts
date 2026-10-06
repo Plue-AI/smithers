@@ -33,6 +33,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/release-operations.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
     Smithers.file("//flows/test/review-flow.test.ts"),
+    Smithers.file("//flows/test/coding-wiki-relay.test.ts"),
     Smithers.file("//flows/test/host-jev-routing.test.ts"),
     Smithers.file("//flows/test/system-flow-catalog.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),

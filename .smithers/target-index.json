@@ -12329,6 +12329,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-wiki-relay.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/host-jev-routing.test.ts"
       },
       {
@@ -14821,11 +14825,6 @@
     "cacheable": true,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/harness-detect/docs/**/*.md",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "packages/smithers/agent/harness-detect/README.md"
       },
@@ -16195,11 +16194,6 @@
     "kinds": [],
     "cacheable": true,
     "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/model-host/docs/**/*.md",
-        "exclude": []
-      },
       {
         "kind": "file",
         "path": "packages/smithers/agent/model-host/README.md"

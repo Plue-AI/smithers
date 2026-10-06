@@ -341,6 +341,25 @@ export const Package = S.Package({ targets: {
     expect(missing.logs + missing.output).toContain("infra/PACKAGE.ts")
   })
 
+  it("indexes README-only package documentation and refuses a removed README", async () => {
+    const root = await fixture()
+    await write(root, "agent/README.md", "# Agent\n")
+    await write(root, "agent/package.json", '{ "name": "agent", "private": true }\n')
+    await write(root, "agent/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+const docsFiles = S.Filegroup({ srcs: [S.file("README.md"), S.file("package.json")], cwd: "agent" })
+export const Package = S.Package({ targets: { docsFiles } })
+`)
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.logs + valid.output).toBe(0)
+    await Fs.rename(NodePath.join(root, "agent/README.md"), NodePath.join(root, "agent/README.moved"))
+    const missing = await serve(root, ["lint", "//:targetIndex"])
+    expect(missing.exitCode).toBe(1)
+    expect(missing.logs + missing.output).toContain("agent/README.md")
+    expect(missing.logs + missing.output).toContain("//agent:docsFiles")
+    expect(missing.logs + missing.output).toContain("agent/PACKAGE.ts")
+  })
+
   it("prints the same rows through the index verb", async () => {
     const root = await fixture()
     const listed = await serve(root, ["index", "//..."])

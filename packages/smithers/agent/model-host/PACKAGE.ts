@@ -10,6 +10,11 @@ const cwd = "packages/smithers/agent/model-host"
 const dependencies = [cliPackage.lib, kernelPackage.lib, modelPackage.lib, rpcPackage.check]
 const standard = BuildAndCheckTypeScriptPackage({ deps: dependencies, cwd })
 
+const docsFiles = Smithers.Filegroup({
+  srcs: [Smithers.file("README.md"), Smithers.file("package.json")],
+  cwd
+})
+
 const securityReview = Smithers.SecurityReview({
   cwd,
   include: ["src/**"],
@@ -121,7 +126,7 @@ export const Package = Smithers.Package({
   targets: {
     check: standard.check,
     docs: standard.docs,
-    docsFiles: standard.docsFiles,
+    docsFiles,
     fmt: standard.fmt,
     lib: standard.lib,
     lint: standard.lint,
