@@ -25,10 +25,10 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, posix, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { sites } from "../../../scripts/package-docs.mjs"
+import { libraryPackages } from "../../../scripts/workspace-packages.mjs"
 
 /** Package roots whose relative documentation links can be resolved. */
-const slugByPackageDir = new Map(sites.map((site) => [site.dir, site.slug]))
+const packageDirs = new Set(libraryPackages().map(({ dir }) => dir))
 
 const check = process.argv.includes("--check")
 const here = dirname(fileURLToPath(import.meta.url))
@@ -153,8 +153,7 @@ const rewriteCrossPackageLinks = (body, sourcePath) =>
     // The projected site page does not share the package source's directory.
     .replace(/\]\((\.{1,2}\/[^)\s#]+\.md)(#[^)]+)?\)/g, (whole, rel, frag) => {
       const packageRoot = sourcePath.split("/docs/reference/")[0]
-      const slug = slugByPackageDir.get(packageRoot)
-      if (slug === undefined) return whole
+      if (!packageDirs.has(packageRoot)) return whole
       const fromDocs = posix.normalize(posix.join("reference", rel))
       if (fromDocs.startsWith("..")) return whole
       return `](https://github.com/smithersai/smithers/blob/main/${packageRoot}/docs/${fromDocs}${frag ?? ""})`

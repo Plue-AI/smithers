@@ -3,9 +3,9 @@ smthrs branch fork — Fork a scratch branch
 Usage: smthrs branch fork [options]
 
 Options:
-  --from <string>
+  --from <value>
   --name <value>
-  --verbose        Show redacted diagnostic details
+  --verbose       Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

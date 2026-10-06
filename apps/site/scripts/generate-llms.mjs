@@ -13,7 +13,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs"
 import { join, dirname, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { docsText } from "./docs-text.mjs"
-import { sites } from "../../../scripts/package-docs.mjs"
+import { libraryPackages } from "../../../scripts/workspace-packages.mjs"
 
 const siteRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
 const docsRoot = join(siteRoot, "src/content/docs/docs")
@@ -88,8 +88,8 @@ for (const g of groups) {
   const list = byGroup(g)
   if (list.length > 0) sections.push(`## ${groupLabel[g]}\n\n` + list.map(link).join("\n"))
 }
-sections.push("## Package documentation\n\n" + sites.map((site) =>
-  `- [${site.name}](https://${site.domain}/llms.txt)${site.description ? `: ${site.description}` : ""}`
+sections.push("## Package documentation\n\n" + libraryPackages().filter(({ manifest }) => !manifest.private).map(({ name, dir, manifest }) =>
+  `- [${name}](https://github.com/smithersai/smithers/tree/main/${dir}/docs)${manifest.description ? `: ${manifest.description}` : ""}`
 ).join("\n"))
 sections.push("## Optional\n\n" + byGroup("examples").map(link).join("\n"))
 const llmsTxt = sections.join("\n\n").trimEnd() + "\n"
