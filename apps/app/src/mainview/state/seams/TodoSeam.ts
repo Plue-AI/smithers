@@ -328,6 +328,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         const message = typeof result.message === "string" ? result.message : "TODO request failed."
         const fault = result.class === "infra" || result.class === "capacity" ? `${message} Not your fault.` : message
         await fail(fault)
+        // A later push can race the displayed answer. Keep the refusal visible,
+        // but reload its bound wait instead of waiting for a live notification.
+        if (response.status === 409 && request.operation === "discard-foreign" && current(login, revision)) await showTodo(request.n!)
         return
       }
       if (result.state !== "requested" && result.state !== "accepted") {

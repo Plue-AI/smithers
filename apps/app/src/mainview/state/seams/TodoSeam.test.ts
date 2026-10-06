@@ -1054,6 +1054,41 @@ for (const status of [202, 409] as const) {
 }
 
 
+test("a refused Discard refreshes the served wait and the next press binds the newer head", async () => {
+  const foreign = fixtures.foreign_push.model.waits[0]!
+  const newer = { ...fixtures.foreign_push.model, waits: [{ ...foreign, sha: "e".repeat(40) }, fixtures.needs_you.model.waits[0]!] }
+  const refresh = deferred<Response>()
+  const posts: RequestInit[] = []
+  let reads = 0
+  const h = await harness(async (url, init) => {
+    if (!init?.method) {
+      expect(url).toBe("https://install.test/api/todos/12")
+      reads++
+      return refresh.promise
+    }
+    posts.push(init)
+    return posts.length === 1
+      ? json({ class: "conflict", message: "Outside push changed; refresh the TODO" }, 409)
+      : json({ state: "accepted", n: 12 })
+  })
+  try {
+    await h.seam.applyTodoProjection(12, fixtures.foreign_push.model)
+    expect(await h.seam.discardForeign(newer.branch!.name, foreign.id, foreign.sha!)).toEqual({ value: "Requested" })
+    await waitFor(() => reads === 1)
+    expect(h.todo().payload.requests[0]?.state).toBe("failed")
+    expect(h.todo().payload.model?.waits[0]?.sha).toBe(foreign.sha)
+    expect(h.outcomes).toEqual([{ key: `todo.request.${h.todo().payload.requests[0]!.key}`, status: "failed", detail: "Outside push changed; refresh the TODO" }])
+    refresh.resolve(json(newer, 200))
+    await waitFor(() => h.todo().payload.model?.waits[0]?.sha === newer.waits[0]!.sha)
+    expect(h.todo().payload.model?.waits).toEqual(newer.waits)
+    expect(posts).toHaveLength(1)
+    expect(await h.seam.discardForeign(newer.branch!.name, foreign.id, newer.waits[0]!.sha!)).toEqual({ value: "Requested" })
+    await waitFor(() => posts.length === 2)
+    expect(JSON.parse(String(posts[1]!.body))).toEqual({ op: "discard-foreign", id: foreign.id, revision: newer.waits[0]!.sha })
+    expect(new Headers(posts[1]!.headers).get("Idempotency-Key")).not.toBe(new Headers(posts[0]!.headers).get("Idempotency-Key"))
+  } finally { h.close() }
+})
+
 test("the served merge transition notifies only its owner once, already terminal, without replaying historical merges", async () => {
   const h = await harness(async () => json(fixtures.in_review.model, 200))
   try {

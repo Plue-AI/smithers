@@ -52,8 +52,11 @@ test("C-UI-12 TODO: Open branch reaches the install provider from a REST-served 
   await branch.getByRole("tab", { name: "Activity", exact: true }).press("Enter")
   await expect(branch.getByRole("tab", { name: "Activity", exact: true })).toHaveAttribute("aria-selected", "true")
   const previousReads = todoReads.length
+  const reopened = page.waitForRequest(request => request.url().endsWith("/api/todos/24") && request.method() === "GET")
   await branch.getByRole("button", { name: "Retry from the install", exact: true }).press("Enter")
-  await expect.poll(() => todoReads.length).toBe(previousReads + 1)
+  await reopened
+  // REST polling continues while no valid TODO live snapshot is served.
+  await expect.poll(() => todoReads.length).toBeGreaterThan(previousReads)
   await expect(todo).toContainText("Retry from the install")
   expect(todoReads.every(method => method === "GET")).toBe(true)
   expect(reads).toEqual(["GET"])
@@ -61,7 +64,7 @@ test("C-UI-12 TODO: Open branch reaches the install provider from a REST-served 
 })
 
 
-test("C-UI-12 TODO: Discard confirms the displayed outside push before the real seam submits", async ({ page }) => {
+for (const conflict of [false, true]) test(`C-UI-12 TODO: Discard confirms the displayed outside push before the real seam submits${conflict ? "; stale answer refreshes the newer push" : ""}`, async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   // Discard is a maintainer decision; the shared fixture remains a member.
   await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
@@ -86,6 +89,12 @@ test("C-UI-12 TODO: Discard confirms the displayed outside push before the real 
   let finish: (() => void) | undefined
   await page.route("**/api/branches/smithers%2Fretry-webhooks", async route => {
     requests.push({ body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"] })
+    if (conflict && requests.length === 1) {
+      model.waits[0]!.sha = "2222222222222222222222222222222222222222"
+      model.waits[0]!.prompt = "Alice pushed again"
+      await route.fulfill({ status: 409, json: { class: "conflict", code: "conflict", message: "Outside push changed; refresh the TODO" } })
+      return
+    }
     await new Promise<void>(resolve => { finish = resolve })
     model.waits = []
     model.state = "working"
@@ -105,6 +114,15 @@ test("C-UI-12 TODO: Discard confirms the displayed outside push before the real 
   await expect.poll(() => requests.length).toBe(1)
   expect(requests[0]!.body).toEqual({ op: "discard-foreign", id: "foreign-1", revision: "1111111111111111111111111111111111111111" })
   expect(requests[0]!.key).toBeTruthy()
+  if (conflict) {
+    await expect(todo).toContainText("Alice pushed again")
+    await expect(page.getByText("Outside push changed; refresh the TODO", { exact: false }).first()).toBeVisible()
+    await todo.getByRole("button", { name: "Discard", exact: true }).press("Enter")
+    await page.getByRole("button", { name: "Confirm: discard this outside push", exact: true }).last().press("Enter")
+    await expect.poll(() => requests.length).toBe(2)
+    expect(requests[1]!.body).toEqual({ op: "discard-foreign", id: "foreign-1", revision: "2222222222222222222222222222222222222222" })
+    expect(requests[1]!.key).not.toBe(requests[0]!.key)
+  }
   await expect(page.getByTestId("composer-input")).toBeEnabled()
   await expect(todo).toContainText("Alice pushed")
   finish!()
