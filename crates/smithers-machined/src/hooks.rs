@@ -140,6 +140,10 @@ pub trait Broker: Send + Sync {
     fn ready(&self) -> Result<()> {
         Err(Error::unsupported())
     }
+    /// Full roster from the authenticated host, before ready and on changes.
+    fn set_roster(&self, _members: &[crate::broker::sessions::User]) -> Result<()> {
+        Err(Error::unsupported())
+    }
     fn freeze(&self, _timeout: Duration) -> Result<Option<u32>> {
         Err(Error::unsupported())
     }

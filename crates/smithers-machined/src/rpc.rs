@@ -47,6 +47,10 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
             .close(u32::from_be_bytes(args[5..9].try_into().unwrap()))
             .map(|()| conn::structure_bytes(&[])),
         6..=10 | 15 => hooks.sessions.call(method, args),
+        16 => hooks
+            .broker
+            .set_roster(&conn::roster_args(args)?)
+            .map(|()| conn::structure_bytes(&[])),
         _ => hooks.core.call(cx, method, args),
     };
     let value = match result {

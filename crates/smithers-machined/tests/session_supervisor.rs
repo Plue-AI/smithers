@@ -28,9 +28,14 @@ fn user() -> User {
         uid: 20001,
     }
 }
+fn rostered(controls: ControlsFixture) -> Sessions<ControlsFixture> {
+    let mut sessions = Sessions::new(controls);
+    sessions.set_roster(&[user()], Instant::now()).unwrap();
+    sessions
+}
 #[test]
 fn identity_registry_and_run_binding() {
-    let mut s = Sessions::new(ControlsFixture::default());
+    let mut s = rostered(ControlsFixture::default());
     for (login, uid) in [
         ("root", 20001),
         ("ben", 0),
@@ -80,7 +85,7 @@ fn identity_registry_and_run_binding() {
 }
 #[test]
 fn close_and_exit_retain_lingering_attribution_until_confirmed_kill() {
-    let mut s = Sessions::new(ControlsFixture {
+    let mut s = rostered(ControlsFixture {
         fail: Some(1),
         ..Default::default()
     });
@@ -97,7 +102,7 @@ fn close_and_exit_retain_lingering_attribution_until_confirmed_kill() {
 #[test]
 fn reconnect_boundary_does_not_extend_grace_and_restart_clears_all_kinds() {
     let start = Instant::now();
-    let mut s = Sessions::new(ControlsFixture::default());
+    let mut s = rostered(ControlsFixture::default());
     for (i, kind) in [Kind::Pty, Kind::Exec, Kind::Sftp, Kind::Tcp]
         .into_iter()
         .enumerate()
@@ -119,7 +124,7 @@ fn reconnect_boundary_does_not_extend_grace_and_restart_clears_all_kinds() {
 
 #[test]
 fn allocator_bounds_capacity_and_stale_ids_are_refused() {
-    let mut s = Sessions::new(ControlsFixture::default());
+    let mut s = rostered(ControlsFixture::default());
     for id in [0, 0x80000000, u32::MAX] {
         assert!(s.insert(id, user(), Kind::Exec).is_err());
     }
@@ -149,7 +154,7 @@ fn allocator_bounds_capacity_and_stale_ids_are_refused() {
 
 #[test]
 fn partial_cleanup_retains_only_unconfirmed_groups_for_retry() {
-    let mut s = Sessions::new(ControlsFixture {
+    let mut s = rostered(ControlsFixture {
         fail: Some(2),
         ..Default::default()
     });
@@ -161,4 +166,186 @@ fn partial_cleanup_retains_only_unconfirmed_groups_for_retry() {
     // Cleanup of an unrelated selector cannot erase a failed group.
     assert_eq!(s.kill_run("unknown", Instant::now()).unwrap(), 0);
     assert_eq!(s.entries().map(|e| e.id).collect::<Vec<_>>(), [2, 3]);
+}
+
+#[test]
+fn roster_required_before_any_session_and_empty_roster_allows_only_agent() {
+    let mut s = Sessions::new(ControlsFixture::default());
+    let agent = User {
+        login: "agent".into(),
+        uid: 19999,
+    };
+    assert!(s.insert(1, user(), Kind::Exec).is_err());
+    assert!(s.insert(2, agent.clone(), Kind::Exec).is_err());
+    s.set_roster(&[], Instant::now()).unwrap();
+    assert!(s.insert(1, user(), Kind::Exec).is_err());
+    s.insert(2, agent, Kind::Exec).unwrap();
+}
+
+#[test]
+fn roster_change_kills_all_revoked_kinds_and_retains_agent() {
+    let now = Instant::now();
+    let mut s = rostered(ControlsFixture::default());
+    for (i, kind) in [Kind::Pty, Kind::Exec, Kind::Sftp, Kind::Tcp]
+        .into_iter()
+        .enumerate()
+    {
+        s.insert(i as u32 + 1, user(), kind).unwrap();
+    }
+    s.insert(
+        5,
+        User {
+            login: "agent".into(),
+            uid: 19999,
+        },
+        Kind::Exec,
+    )
+    .unwrap();
+    s.disconnected(now);
+    s.set_roster(&[], now).unwrap();
+    assert_eq!(s.entries().map(|e| e.id).collect::<Vec<_>>(), [5]);
+    assert!(s.attach(1, now).is_err());
+    assert!(s.insert(6, user(), Kind::Pty).is_err());
+    s.attach(5, now).unwrap();
+}
+
+#[test]
+fn failed_roster_cleanup_revokes_admission_before_retry() {
+    let now = Instant::now();
+    let mut s = rostered(ControlsFixture {
+        fail: Some(2),
+        ..Default::default()
+    });
+    for id in 1..=3 {
+        s.insert(id, user(), Kind::Exec).unwrap();
+    }
+    assert!(s.set_roster(&[], now).is_err());
+    assert_eq!(s.entries().map(|e| e.id).collect::<Vec<_>>(), [2, 3]);
+    assert!(s.attach(2, now).is_err());
+    assert!(s.insert(4, user(), Kind::Exec).is_err());
+    assert!(s.set_roster(&[], now).is_err());
+    assert_eq!(s.entries().map(|e| e.id).collect::<Vec<_>>(), [2, 3]);
+}
+
+#[test]
+fn malformed_roster_is_atomic_and_binding_is_exact() {
+    let now = Instant::now();
+    let mut s = rostered(ControlsFixture::default());
+    s.insert(1, user(), Kind::Exec).unwrap();
+    for bad in [
+        vec![user(), user()],
+        vec![
+            user(),
+            User {
+                login: "alice".into(),
+                uid: 20001,
+            },
+        ],
+        vec![
+            user(),
+            User {
+                login: "ben".into(),
+                uid: 20002,
+            },
+        ],
+        vec![User {
+            login: "agent".into(),
+            uid: 19999,
+        }],
+        vec![User {
+            login: "machined".into(),
+            uid: 20003,
+        }],
+        vec![User {
+            login: "alice".into(),
+            uid: 2147483648,
+        }],
+    ] {
+        assert!(s.set_roster(&bad, now).is_err());
+        s.authorize(&user()).unwrap();
+        assert_eq!(s.entries().count(), 1);
+    }
+    assert!(s
+        .authorize(&User {
+            login: "alice".into(),
+            uid: 20001
+        })
+        .is_err());
+    assert!(s
+        .authorize(&User {
+            login: "ben".into(),
+            uid: 20002
+        })
+        .is_err());
+    s.set_roster(
+        &[User {
+            login: "alice".into(),
+            uid: 20002,
+        }],
+        now,
+    )
+    .unwrap();
+    assert_eq!(s.entries().count(), 0);
+    s.insert(
+        2,
+        User {
+            login: "alice".into(),
+            uid: 20002,
+        },
+        Kind::Exec,
+    )
+    .unwrap();
+}
+
+#[test]
+fn failed_cleanup_blocks_every_spawn_until_confirmed_retry() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    struct RetryControls {
+        fail: Arc<AtomicBool>,
+        kills: Vec<(u32, Instant)>,
+    }
+    impl Controls for RetryControls {
+        fn close(&mut self, _: u32, _: Kind) -> io::Result<()> {
+            Ok(())
+        }
+        fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()> {
+            self.kills.push((id, deadline));
+            if self.fail.load(Ordering::SeqCst) {
+                Err(io::Error::other("populated 1"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    let fail = Arc::new(AtomicBool::new(false));
+    let mut s = Sessions::new(RetryControls {
+        fail: fail.clone(),
+        kills: vec![],
+    });
+    let now = Instant::now();
+    s.set_roster(&[user()], now).unwrap();
+    s.insert(1, user(), Kind::Pty).unwrap();
+    s.insert(2, user(), Kind::Tcp).unwrap();
+    fail.store(true, Ordering::SeqCst);
+    let alice = User {
+        login: "alice".into(),
+        uid: 20002,
+    };
+    let agent = User {
+        login: "agent".into(),
+        uid: 19999,
+    };
+    assert!(s.set_roster(&[alice.clone()], now).is_err());
+    assert!(s.authorize(&alice).is_err());
+    assert!(s.authorize(&agent).is_err());
+    assert_eq!(s.entries().count(), 2);
+    fail.store(false, Ordering::SeqCst);
+    s.set_roster(&[alice.clone()], now).unwrap();
+    assert_eq!(s.entries().count(), 0);
+    s.authorize(&alice).unwrap();
+    s.authorize(&agent).unwrap();
+    assert!(s.authorize(&user()).is_err());
 }

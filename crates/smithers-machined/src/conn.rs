@@ -525,3 +525,28 @@ pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor), Prot
     let n = c.number(4)? as usize;
     Ok((onto, crate::hooks::Actor::Principal(c.take(n)?.to_vec())))
 }
+
+/// Method 16 uses the ordinary ADR 0004 list of User structures. Semantic
+/// identity and uniqueness validation remains the broker's responsibility.
+pub fn roster_args(bytes: &[u8]) -> Result<Vec<crate::broker::sessions::User>, ProtocolError> {
+    let mut check = Cursor(bytes);
+    check.value("args16")?;
+    if !check.0.is_empty() {
+        return Err(TrailingBytes);
+    }
+    let mut c = Cursor(bytes);
+    c.take(5)?;
+    let count = c.number(2)? as usize;
+    let mut members = Vec::with_capacity(count);
+    for _ in 0..count {
+        c.take(5)?;
+        let n = c.number(2)? as usize;
+        let login = std::str::from_utf8(c.take(n)?)
+            .map_err(|_| BadUtf8)?
+            .to_owned();
+        c.take(1)?;
+        let uid = c.number(4)? as u32;
+        members.push(crate::broker::sessions::User { login, uid });
+    }
+    Ok(members)
+}
