@@ -277,12 +277,21 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				if config.IsSingleOwner(cfg) && !authInfo.TokenSystemIssued && !IsAgentAccount(authInfo.User.UserType) {
 					authInfo.TokenSystemIssued = true
 					entries := []string{}
+					invalidBinding := false
 					for _, entry := range tokenScopeEntries(authInfo.RawScopes) {
 						entry = strings.ToLower(strings.TrimSpace(entry))
+						if strings.HasPrefix(entry, "credential:") || strings.HasPrefix(entry, workspaceRestrictionScopePrefix) || strings.HasPrefix(entry, landingWorkspaceScopePrefix) {
+							invalidBinding = true
+							break
+						}
 						if strings.HasPrefix(entry, delegationViaScopePrefix) || strings.HasPrefix(entry, delegationProfileScopePrefix) || strings.HasPrefix(entry, delegationBranchScopePrefix) || strings.HasPrefix(entry, delegationSessionScopePrefix) {
 							continue
 						}
 						entries = append(entries, entry)
+					}
+					if invalidBinding {
+						writeDeadCredential(w)
+						return
 					}
 					authInfo.RawScopes = strings.Join(append(entries, "via:cli"), ",")
 				}
