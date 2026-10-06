@@ -1653,7 +1653,14 @@ export const GithubCiGen = Target.make("GithubCiGen", {
   kinds: ["build", "lint"],
   error: Schema.Union([WriteFileError, DriftError]),
   cache: (attrs) => attrs.mode !== "write",
-  inputs: (attrs) => attrs.mode === "write" ? [] : [Input.file(`//${resolveOutputPath(attrs.output)}`)],
+  inputs: (attrs) => [
+    ...(attrs.mode === "write" ? [] : [Input.file(`//${resolveOutputPath(attrs.output)}`)]),
+    ...attrs.jobs.flatMap((job) =>
+      (job.toolchain.workflowLint?.workflows ?? []).map((path) =>
+        path.includes("*") ? Input.glob(`//${path}`) : Input.file(`//${path}`)
+      )
+    )
+  ],
   attrsForKind: (kind, attrs) =>
     kind === "lint" && attrs.mode === "write" ? { ...attrs, mode: "check" as const } : attrs,
   implementation: (

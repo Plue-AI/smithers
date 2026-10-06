@@ -339,6 +339,7 @@ const conflictMarkers = Smithers.Shell.Diff({
 /** Tracked files must resolve declared paths and exclude local build and agent state. */
 const trackedHygiene = Smithers.Shell.Diff({
   shell: "node scripts/check-tracked-hygiene.mjs --projected-tree",
+  data: [Smithers.file("//scripts/check-tracked-hygiene.mjs"), Smithers.glob("//**/*", { exclude: ["//node_modules/**"] })],
   changes: [],
   timeout: "2m"
 })

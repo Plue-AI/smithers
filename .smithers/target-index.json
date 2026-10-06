@@ -216,6 +216,46 @@
       {
         "kind": "file",
         "path": ".github/workflows/ci.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/ci.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/release.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/release-auth.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/apps-deploy.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/distribution.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/canary.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/reliability.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/native-windows.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/mirror-sync.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/drift.yml"
       }
     ],
     "outputs": [
@@ -48961,7 +49001,19 @@
       "lint"
     ],
     "cacheable": false,
-    "inputs": [],
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/check-tracked-hygiene.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "**/*",
+        "exclude": [
+          "node_modules/**"
+        ]
+      }
+    ],
     "outputs": [],
     "dependencies": [],
     "source": {

@@ -27,6 +27,7 @@ const gateCommands = [
   "pnpm exec smthrs lint '//scripts:conflictMarkers' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//scripts:trackedHygiene' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs lint '//:ci' --known-red '.github/ci-known-red.json' --verbose",
 ]
 
 test('drift job concurrency group includes github.sha and runs only drift gates', async () => {
@@ -57,16 +58,15 @@ test('drift job concurrency group includes github.sha and runs only drift gates'
   assert.ok(steps.some((step) => step.uses?.startsWith('oven-sh/setup-bun@')))
   assert.ok(steps.some((step) => step.uses?.startsWith('pnpm/action-setup@')))
   const setup = steps.find((step) => step.id === 'setup')
-  assert.match(setup.run, /sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'/)
-  assert.equal((setup.run.match(/apt-get install/g) ?? []).length, 1)
-  assert.ok(steps.every((step) => !/cargo|rustup|foundry|docker|postgres|smthrs (ci|test|docs)\b/i.test(`${step.name ?? ''} ${step.run ?? ''} ${step.uses ?? ''}`)), 'drift avoids heavy setup and broad gates')
+  assert.equal(setup.run, 'pnpm install --frozen-lockfile --ignore-scripts')
+  assert.ok(steps.every((step) => !/sudo|apt-get|sysctl/.test(step.run ?? '')), 'privileged branch setup remains disabled')
+  assert.ok(steps.every((step) => !/cargo|rustup|foundry|docker|postgres|smthrs (test|docs)\b/i.test(`${step.name ?? ''} ${step.run ?? ''} ${step.uses ?? ''}`)), 'drift avoids heavy setup and broad gates')
   const setupCommands = [
     "pnpm install --frozen-lockfile --ignore-scripts",
     "npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund\ntest \"$(npm --version)\" = '11.16.0'\n",
-    "if command -v apt-get >/dev/null 2>&1; then\n  sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'\n  if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then\n    sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\n  fi\nfi\n",
   ]
   assert.deepEqual(steps.filter((step) => step.run && !gateCommands.includes(step.run)).map((step) => step.run), [
-    setupCommands[1], setupCommands[0], setupCommands[2],
+    setupCommands[1], setupCommands[0],
   ], 'every shell command is an allowed setup command or drift gate')
   assert.equal(gateSteps[0].run.includes('//...:fmt'), true)
 })

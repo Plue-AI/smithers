@@ -3197,6 +3197,21 @@ const withFactory = (rule: string, attrs: unknown, factory: PackageIndexModule.P
     }
     : attrs
 
+/** All absent inputs discovered in one check, with their declaring targets. */
+class MissingDeclaredInputs extends Error {
+  readonly _tag = "MissingDeclaredInputs"
+  readonly inputs: ReadonlyArray<{ path: string; label: string; sourceFile: string | undefined }>
+  constructor(inputs: ReadonlyArray<{ path: string; label: string; sourceFile: string | undefined }>) {
+    super(
+      inputs.map((input) =>
+        `${input.label}: missing declared input "${input.path}" (${input.sourceFile ?? "unknown source"})`
+      ).join("\n")
+    )
+    this.inputs = inputs
+  }
+}
+
+
 /**
  * The target index carries the rows the planner built from the loaded
  * declarations, never ones a `PACKAGE.ts` wrote: they ride in the attrs so
@@ -3204,6 +3219,7 @@ const withFactory = (rule: string, attrs: unknown, factory: PackageIndexModule.P
  * of them re-keys the check. Nothing here plans a target: the rows are
  * metadata and labeled edges, plus the child query a `Repo.Target` row needs.
  */
+
 const withTargetIndex = async (
   rule: string,
   attrs: unknown,
@@ -3218,6 +3234,30 @@ const withTargetIndex = async (
     resolver.environment,
     signal
   )
+  if ((attrs as { readonly mode?: unknown }).mode !== "write") {
+    const missing: Array<{ path: string; label: string; sourceFile: string | undefined }> = []
+    for (const row of listing.targets) {
+      for (const input of row.inputs) {
+        let absent = false
+        let path: string
+        if (input.kind === "file") {
+          path = input.path
+          absent = await Input.digestFile(NodePath.join(resolver.index.root, path), {
+            workspaceRoot: resolver.index.root,
+            signal
+          }) === undefined
+        } else if (input.kind === "glob") {
+          path = input.pattern
+          absent = (await Input.expandGlob(resolver.index.root, "", input.pattern, {
+            exclude: input.exclude,
+            signal
+          })).length === 0
+        } else continue
+        if (absent) missing.push({ path, label: row.label, sourceFile: row.source?.file })
+      }
+    }
+    if (missing.length > 0) throw new MissingDeclaredInputs(missing)
+  }
   return { ...attrs, targets: listing.targets }
 }
 
