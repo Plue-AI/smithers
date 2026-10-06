@@ -17,7 +17,10 @@ struct Fixture {
 impl Fixture {
     fn step(&self, name: &'static str) -> Result<()> {
         self.calls.lock().unwrap().push(name);
-        if self.fail == name {
+        if self.fail == name
+            || (self.fail == "restore-reconcile" && name == "reconcile")
+            || (self.fail == "restore-thaw" && name == "thaw")
+        {
             return Err(Error {
                 code: 12,
                 detail: Some(name.into()),
@@ -60,8 +63,36 @@ impl Core for Fixture {
     fn rebase(&self, _: &mut LockCx, onto: Oid) -> Result<Oid> {
         assert_eq!(onto, [0x11; 20]);
         self.step("rebase")?;
+        if [
+            "rebase-restored",
+            "restore",
+            "restore-reconcile",
+            "restore-thaw",
+        ]
+        .contains(&self.fail)
+        {
+            return Err(Error {
+                code: 12,
+                detail: Some("rewrite failed".into()),
+                ..Error::unsupported()
+            });
+        }
         assert_ne!(self.fail, "panic", "native provider panic");
         Ok([0x22; 20])
+    }
+    fn restore_rewrite(&self, cx: &mut LockCx) -> Result<()> {
+        if ![
+            "rebase-restored",
+            "restore",
+            "restore-reconcile",
+            "restore-thaw",
+        ]
+        .contains(&self.fail)
+        {
+            return Err(Error::unsupported());
+        }
+        assert!(cx.rewrite_pending);
+        self.step("restore")
     }
 }
 impl Documents for Fixture {
@@ -235,4 +266,47 @@ fn unavailable_native_core_refuses_before_freeze() {
     assert_eq!(response.payload[17], 2);
     assert_eq!(f.calls(), ["validate"]);
     executor.shutdown().unwrap();
+}
+
+#[test]
+fn failed_rewrite_restores_before_reconcile_and_thaw_and_keeps_original_error() {
+    for fail in [
+        "rebase-restored",
+        "restore",
+        "restore-reconcile",
+        "restore-thaw",
+    ] {
+        let (f, executor) = fixture(fail);
+        let (response, pending) = executor
+            .lock
+            .run_blocking("rebase", |cx| {
+                let response = rpc::dispatch(&request(), cx).unwrap();
+                (response, cx.rewrite_pending)
+            })
+            .unwrap();
+        assert_eq!(response.payload[11], 255, "{fail}");
+        assert!(response.payload.windows(14).any(|b| b == b"rewrite failed"));
+        assert_eq!(pending, fail != "rebase-restored", "{fail}");
+        let mut expected = vec![
+            "validate", "freeze", "flush", "drain", "close", "capture", "rebase", "restore",
+        ];
+        if fail != "restore" {
+            expected.push("reconcile");
+            if fail != "restore-reconcile" {
+                expected.push("thaw");
+            }
+        }
+        assert_eq!(f.calls(), expected, "{fail}");
+        // An unsettled tree refuses the next rewrite at the RPC boundary.
+        if pending {
+            let response = executor
+                .lock
+                .run_blocking("rebase", |cx| rpc::dispatch(&request(), cx))
+                .unwrap()
+                .unwrap();
+            assert_eq!(response.payload[11], 255);
+            assert_eq!(f.calls(), expected);
+        }
+        executor.shutdown().unwrap();
+    }
 }

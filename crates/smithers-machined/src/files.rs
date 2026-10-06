@@ -105,7 +105,93 @@ impl Core for Files {
     fn capture_local(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.next.capture_local(cx)
     }
+    fn restore_rewrite(&self, cx: &mut LockCx) -> hooks::Result<()> {
+        self.next.restore_rewrite(cx)
+    }
     fn rebase(&self, cx: &mut LockCx, onto: hooks::Oid) -> hooks::Result<hooks::Oid> {
         self.next.rebase(cx, onto)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Recovery(bool);
+    impl Core for Recovery {
+        fn restore_rewrite(&self, cx: &mut LockCx) -> hooks::Result<()> {
+            assert!(cx.rewrite_pending);
+            assert_eq!(cx.completed, 17);
+            cx.completed += 1;
+            if self.0 {
+                Ok(())
+            } else {
+                Err(Error {
+                    detail: Some("restore failed".into()),
+                    ..error(12)
+                })
+            }
+        }
+    }
+    impl hooks::Documents for Recovery {
+        fn reconcile_all(&self, cx: &mut LockCx, _: &hooks::Actor) -> hooks::Result<()> {
+            assert_eq!(cx.completed, 18);
+            cx.completed += 1;
+            Ok(())
+        }
+    }
+    impl hooks::Broker for Recovery {
+        fn thaw(&self) -> hooks::Result<()> {
+            assert!(self.0, "failed restoration must not thaw");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn file_adapter_preserves_rewrite_recovery_and_refusals() {
+        for succeeds in [true, false] {
+            // No workspace operation occurs: this fixture tests the decorator's
+            // forwarding on the existing mutation context, not confinement.
+            let files = Files {
+                workspace: File::open(".").unwrap(),
+                next: Arc::new(Recovery(succeeds)),
+            };
+            let mut cx = LockCx::new(Default::default());
+            cx.completed = 17;
+            cx.rewrite_pending = true;
+            let result = files.restore_rewrite(&mut cx);
+            assert_eq!(cx.completed, 18);
+            assert!(cx.rewrite_pending);
+            if succeeds {
+                assert_eq!(result, Ok(()));
+            } else {
+                assert_eq!(
+                    result.unwrap_err().detail.as_deref(),
+                    Some("restore failed")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn interrupted_rewrite_restores_through_file_adapter_before_reconciling() {
+        for succeeds in [true, false] {
+            let recovery = Arc::new(Recovery(succeeds));
+            let mut cx = LockCx::new(hooks::Hooks {
+                core: Arc::new(Files {
+                    workspace: File::open(".").unwrap(),
+                    next: recovery.clone(),
+                }),
+                documents: recovery.clone(),
+                broker: recovery,
+                ..Default::default()
+            });
+            cx.completed = 17;
+            cx.rewrite_pending = true;
+            let result = crate::freeze::restore(&mut cx, &hooks::Actor::Outside);
+            assert_eq!(result.is_ok(), succeeds);
+            assert_eq!(cx.rewrite_pending, !succeeds);
+            assert_eq!(cx.completed, if succeeds { 19 } else { 18 });
+        }
     }
 }
