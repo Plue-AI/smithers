@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:
 import { Glob } from "bun"
 
 import { act } from "react"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import type { StoryModule, ViewStory } from "./stories"
 
 let consoleError: ReturnType<typeof spyOn>
@@ -54,7 +54,7 @@ for (const path of paths) {
         // T-UI-10 / C-UI-12: fixture copy spans locally selected versions.
         const displays = [host.textContent]
         if (path.endsWith("FlowView.stories.tsx")) {
-          for (const button of host.querySelectorAll<HTMLButtonElement>(".mvp-version")) {
+          for (const button of host.querySelectorAll<HTMLButtonElement>(".flow-version")) {
             await act(async () => button.click())
             displays.push(host.textContent)
           }
@@ -1243,7 +1243,7 @@ import { FlowView } from "./FlowView"
 for (const [id, fixture] of Object.entries(flows)) test(`Flow ${id}`, () => {
   const host = render(<FlowView {...fixture} onAction={() => {}} onView={() => {}} />)
   const displays = [host.textContent]
-  for (const button of host.querySelectorAll<HTMLButtonElement>(".mvp-version")) {
+  for (const button of host.querySelectorAll<HTMLButtonElement>(".flow-version")) {
     act(() => button.click())
     displays.push(host.textContent)
   }
@@ -1289,15 +1289,15 @@ for (const [fixture, labels] of [
   [flows.previous, ["Active", "Previous"]],
 ] as const) test(`Flow version words: ${labels.join(", ")}`, () => {
   const host = render(<FlowView {...fixture} onAction={() => {}} onView={() => {}} />)
-  expect([...host.querySelectorAll(".mvp-version")].map(chip => chip.textContent)).toEqual([...labels])
-  expect(host.querySelector('.mvp-version[aria-pressed="true"]')?.textContent).toBe("Active")
+  expect([...host.querySelectorAll(".flow-version")].map(chip => chip.textContent)).toEqual([...labels])
+  expect(host.querySelector('.flow-version[aria-pressed="true"]')?.textContent).toBe("Active")
 })
 
 // Mock Flow.tsx: the visible title and accessible name agree; signal arrows are decorative.
 test("Flow accessible title and decorative signal arrows", () => {
   const host = render(<FlowView {...flows.active} onAction={() => {}} onView={() => {}} />)
   expect(host.querySelector("section")?.getAttribute("aria-label")).toBe("TODO flow")
-  expect([...host.querySelectorAll('.mvp-signal [aria-hidden="true"]')].map(node => node.textContent)).toEqual(["↺", "↺"])
+  expect([...host.querySelectorAll('.flow-signal [aria-hidden="true"]')].map(node => node.textContent)).toEqual(["↺", "↺"])
 })
 
 // Flow mock: only the selected failed version owns its error; Active remains usable.
@@ -1323,6 +1323,25 @@ test("Flow failed version without diagnostics has no disclosure", () => {
     expect(host.querySelector(".flow-failure b")?.textContent).toBe("Load failed")
     expect(host.querySelector(".flow-failure details")).toBeNull()
     expect(host.textContent).not.toContain("undefined")
+  }
+})
+
+test("Flow without supplied actions keeps versions usable and matches its sole stylesheet", () => {
+  const calls = mock((..._args: unknown[]) => {})
+  const host = render(<FlowView {...flows.proposed} actions={[]} onAction={calls} onView={calls} />)
+  expect(host.querySelectorAll('[data-flow]')).toHaveLength(0)
+  act(() => host.querySelector<HTMLButtonElement>('.flow-version[data-state="proposed"]')!.click())
+  expect(host.querySelector('.flow-steps [data-added="true"]')?.textContent).toContain("Update docs")
+  expect(host.querySelector('.flow-path')?.textContent).toBe("Built-in")
+  expect(calls).toHaveBeenCalledTimes(0)
+  const css = readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
+  for (const node of host.querySelectorAll('[class]')) for (const name of node.classList) {
+    if (name.startsWith("flow-")) expect(css).toContain(`.${name}`)
+  }
+  expect(host.innerHTML).not.toMatch(/mvp-(?:flow-|version|signal)/)
+  expect(css).not.toMatch(/\.mvp-(?:flow-|version|signal)/)
+  for (const path of ["../../styles/views/flow.css", "../../styles/views.css"]) {
+    expect(existsSync(new URL(path, import.meta.url))).toBe(false)
   }
 })
 

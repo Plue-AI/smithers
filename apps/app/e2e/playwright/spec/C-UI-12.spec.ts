@@ -1,6 +1,52 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 
+
+test("C-UI-12: Flow versions, actions and Paper focus remain usable in both themes and widths", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto(`/view-stories.html?story=FlowView/proposed&theme=${theme}`)
+    const flow = page.getByRole("region", { name: "TODO flow", exact: true })
+    await expect(flow.locator('.flow-path')).toHaveText("Built-in")
+    await expect(flow.locator('.flow-version')).toHaveText(["Active", "ProposedT12"])
+    await expect(flow.locator('.flow-actions button')).toHaveText(["Source", "Plan", "Run", "Edit"])
+    await page.evaluate(() => {
+      Object.assign(window, { flowReceipts: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { flowReceipts: unknown[] }).flowReceipts.push((event as CustomEvent).detail))
+    })
+    const proposed = flow.locator('.flow-version[data-state="proposed"]')
+    await proposed.focus()
+    await expect(proposed).toHaveCSS("outline-style", "solid")
+    await proposed.press("Enter")
+    await expect(proposed).toHaveAttribute("aria-pressed", "true")
+    await expect(flow.locator('[data-added="true"]')).toContainText("Update docs")
+    expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([])
+    for (const label of ["Source", "Plan", "Run", "Edit"]) await flow.getByRole("button", { name: label, exact: true }).press("Space")
+    expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([
+      { kind: "action", value: { tag: "flow.source", args: { name: "todo" } } },
+      { kind: "action", value: { tag: "flow.plan", args: { name: "todo" } } },
+      { kind: "action", value: { tag: "flow.run", args: { name: "todo" } } },
+      { kind: "action", value: { tag: "flow.edit", args: { name: "todo" } } }
+    ])
+    expect(await flow.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+    await expect(flow.locator('[class*="mvp-"]')).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=FlowView/merged_failed&theme=${theme}`)
+    await expect(page.locator('.flow-failure')).toHaveCount(0)
+    await page.locator('.flow-version[data-state="merged-failed"]').press("Enter")
+    await expect(page.locator('.flow-failure')).toContainText("Load failed")
+    await page.locator('.flow-failure summary').press("Enter")
+    await expect(page.locator('.flow-failure pre')).toHaveText("Flow validation failed")
+    await page.locator('.flow-version[data-state="active"]').press("Enter")
+    await expect(page.locator('.flow-failure')).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=FlowView/disabled&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Run", exact: true })).toBeDisabled()
+    await expect(page.locator('.flow-disabled')).toHaveText("No machine available")
+    await page.goto(`/view-stories.html?story=FlowView/no_actions&theme=${theme}`)
+    await expect(page.locator('.flow-actions button')).toHaveCount(0)
+    await expect(page.locator('.flow-steps')).toContainText("Implement")
+  }
+})
+
 test("C-UI-12 TODO: supplied Fork and Add to stack have keyboard paths", async ({ page }) => {
   await page.goto("/view-stories.html?story=TodoView/fork_and_add")
   await page.evaluate(() => window.addEventListener("story-callback", event => {

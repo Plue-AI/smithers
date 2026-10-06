@@ -13,6 +13,6 @@ export const flowStories = {
 }
 // Proposed fixture includes both versions: exercise the local selection in the shared harness.
 export const stories: import("./stories").ViewStory[] = Object.entries(flowStories).map(([name, story]) => ({
-  name, actions: story.actions, interactions: story.model.versions.map((_version, index) => ({ selector: `.mvp-version:nth-child(${index + 1})` })), expect: story.expect,
+  name, actions: story.actions, interactions: story.model.versions.map((_version, index) => ({ selector: `.flow-version:nth-child(${index + 1})` })), expect: story.expect,
   render: (callbacks, actions = story.actions) => <FlowView {...story} actions={actions as FlowViewProps["actions"]} {...callbacks} />
 }))
