@@ -151,10 +151,10 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       expect(f.seen).toEqual([])
     } finally { await f.close() }
   })
-  it("prints the server-bound person's name without a follow-up request", async () => {
+  it.each([["todo", "new", "--text", "Retry"], ["review", "50", "--repo", "owner/repo"]])("prints the server-bound person's name without a follow-up request: %s", async (...argv) => {
     const f = await fixture(202, { confirmation: "confirm-1", state: "pending" }, { "Smithers-Confirmation-Person": "Ben%20Lee" })
     try {
-      const result = await f.invoke(["todo", "new", "--text", "Retry"])
+      const result = await f.invoke(argv)
       expect(result.exitCode).toBe(3)
       expect(JSON.parse(result.stdout)).toEqual({ confirmation: "confirm-1", state: "pending", message: "Waiting for Ben Lee to confirm" })
       expect(f.seen).toHaveLength(1)

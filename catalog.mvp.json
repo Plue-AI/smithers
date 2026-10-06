@@ -2771,96 +2771,6 @@
       }
     },
     {
-      "name": "commits.list",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "List a branch's commits, newest first",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "branch": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "commits.read",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Show one commit: its message, parents and diff",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "ref": {
-              "type": "string"
-            },
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "ref"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "confirm.cancel",
       "slash": null,
       "cli": null,
@@ -3387,7 +3297,7 @@
       "cli": null,
       "journey": [],
       "group": "chat",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
         "app_agent"
@@ -8019,7 +7929,17 @@
       "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Review a change, return findings",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/reviews",
+        "body": {
+          "number": "number",
+          "repo": "repo"
+        },
+        "defaults": {
+          "conversation": "main"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {

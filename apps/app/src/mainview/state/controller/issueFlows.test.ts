@@ -3,7 +3,7 @@ import { createAppStore } from "../AppStore"
 import { createIssueFlowsController } from "./issueFlows"
 import { createIssuesSeam } from "../seams/IssuesSeam"
 import type { SeamContext } from "../seams/SeamContext"
-import { loadBox, repositoryHttpFixture, TEST_BOX } from "../TestFixtures"
+import { repositoryHttpFixture } from "../TestFixtures"
 const REPO = "owner/repo"
 async function setup() {
   const data = new Map<string, string>()
@@ -89,22 +89,17 @@ test("Make TODO drafts from the open GitHub issue card and never launches a work
   await store.dispose?.()
 })
 
-test("review refuses every browser door without reads, selection or launch", async () => {
+test("review asks the host and never launches in a browser working copy", async () => {
   const { store, ctx } = await setup()
-  let effects = 0
-  const unexpected = async () => { effects++; throw Error("Review must not execute in the browser") }
-  for (const actor of ["user", "smithers"] as const) {
-    const review = createIssueFlowsController({ ...ctx, actor: () => actor, http: unexpected }, { requireBox: () => { effects++; throw Error("No working copy") }, listWorkspaceWorkflows: unexpected, runWorkflow: unexpected }, { draftFromIssue: unexpected })
-    for (const selected of [false, true]) {
-      if (selected) await loadBox(store, REPO, TEST_BOX)
-      for (const humanDoor of [false, true]) {
-        for (const number of [50, 51]) {
-          expect(await review.triagePullRequest(number, REPO, humanDoor)).toBe("Review is unavailable on this host.")
-        }
-      }
-    }
-  }
-  expect(effects).toBe(0)
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  let calls = 0
+  const unexpected = async () => { throw Error("Review must not execute in the browser") }
+  const review = createIssueFlowsController({ ...ctx, http: async () => { calls++; return Response.json({ error: { class: "infra", code: "review_delivery_unavailable", message: "Review unavailable" } }, { status: 503 }) } },
+    { requireBox: () => { throw Error("No working copy") }, listWorkspaceWorkflows: unexpected, runWorkflow: unexpected }, { draftFromIssue: unexpected })
+  expect(await review.triagePullRequest(50, REPO, true)).toEqual({ value: "Requested" })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(calls).toBe(1)
+  expect(store.session().reviewRequests?.[0]?.state).toBe("failed")
   expect([...store.collections.cards.values()]).toEqual([])
   await store.dispose?.()
 })
