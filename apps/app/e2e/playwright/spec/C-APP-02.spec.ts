@@ -64,3 +64,31 @@ test("a person's Drop sends no control before confirmation", async ({ page }) =>
   expect(writes).toEqual([{ op: "drop" }])
   await expect(card).toContainText("Dropped")
 })
+
+// The install provider, rather than DesignWorld, supplies queue and step facts.
+test("TODO state shows the working step and the daily admission limit", async ({ page }) => {
+  await owner(page)
+  const working = structuredClone(fixtures.working.model)
+  working.n = 1
+  const queued = structuredClone(fixtures.queued.model)
+  queued.n = 2
+  queued.queue = { reason: "daily_limit", position: 2 }
+  const paused = structuredClone(fixtures.paused_by_budget.model)
+  paused.n = 3
+  paused.pause!.owner = { login: "maya", name: "Maya", avatar_url: "https://example.com/maya.png" }
+  await page.route("**/api/todos", route => route.fulfill({ json: [working, queued, paused] }))
+  await page.route("**/api/todos/1", route => route.fulfill({ json: working }))
+  await page.route("**/api/todos/2", route => route.fulfill({ json: queued }))
+  await page.route("**/api/todos/3", route => route.fulfill({ json: paused }))
+  await page.goto("/smithers-mvp-canary/node")
+  await say(page, "/todo T1")
+  await expect(page.getByRole("article", { name: "TODO T1" }).last().locator("header .state")).toHaveText("Working · Implement")
+  await say(page, "/todo T2")
+  const card = page.getByRole("article", { name: "TODO T2" }).last()
+  await expect(card).toContainText("Daily limit reached · starts tomorrow · #2")
+  await expect(card.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
+  await say(page, "/todo T3")
+  const budget = page.getByRole("article", { name: "TODO T3" }).last()
+  await expect(budget).toContainText("Paused · daily token budget · Maya")
+  await expect(budget).not.toContainText(paused.pause!.resume_at!)
+})

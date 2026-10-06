@@ -352,3 +352,24 @@ test("served TODO evidence opens each captured wiki revision after the page chan
     { ...model.evidence[0]!.items[0], digest: "bad" }
   ] }] }).success).toBe(false)
 })
+
+
+test("Working names its current step and queued daily limits explain when work starts", () => {
+  const working = renderToStaticMarkup(<TodoView {...mount(fixtures.working.model).props} />)
+  expect(working).toContain('Working · Implement')
+  const queued = renderToStaticMarkup(<TodoView {...mount({ ...fixtures.queued.model, queue: { reason: "daily_limit", position: 2 } }).props} />)
+  expect(queued).toContain('Daily limit reached · starts tomorrow')
+  expect(queued).not.toContain('data-flow="todo.retry"')
+  const machine = renderToStaticMarkup(<TodoView {...mount({ ...fixtures.queued.model, queue: { reason: "machine", position: 2 } }).props} />)
+  expect(machine).toContain('Waiting for a machine')
+  expect(machine).not.toContain('starts tomorrow')
+})
+
+
+test("a daily token pause names the owner without exposing a raw resume timestamp", () => {
+  const props = mount(fixtures.paused_by_budget.model).props
+  const markup = renderToStaticMarkup(<TodoView {...props} />)
+  expect(markup).toContain('Paused · daily token budget')
+  expect(markup).toContain(` · ${props.model.pause!.owner!.name}`)
+  expect(markup).not.toContain(props.model.pause!.resume_at!)
+})
