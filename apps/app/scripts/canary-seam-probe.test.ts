@@ -9,15 +9,18 @@ test("canonical probe requires real routes, auth refusal and valid same-run outp
     if (path === "/api/auth/github") return Response.redirect("https://github.com/login/oauth/authorize?client_id=test", 302)
     if (path === "/api/user" && request.headers.has("cookie")) return Response.json({ username: "visitor", is_admin: mode === "admin" })
     if (["/api/user", "/api/user/repos", "/api/billing/balance"].includes(path)) return new Response(null, { status: mode === "missing" ? 404 : 401 })
-    if (path === "/api/agent/turn") {
+    if (path === "/api/conversations/main/prompt") {
       if (!request.headers.has("cookie")) return new Response(null, { status: 401 })
       turns++
       expect(request.headers.get("x-csrf-token")).toBe("proof")
-      const body = await request.json() as { runId: string; journal: { version: number; legId: string; token: string } }
-      expect(body.journal.version).toBe(1)
-      expect(body.journal.token).toMatch(/^[A-Za-z0-9_-]{32,128}$/)
-      return new Response(JSON.stringify({ runId: mode === "foreign" ? "foreign" : body.runId, type: "done", ...(mode === "error" ? { error: "provider failed" } : {}), ...(mode === "cancelled" ? { reason: "cancelled" } : {}) })+"\n", { headers: { "content-type": "application/x-ndjson" } })
+      const body = await request.json() as { prompt: string; idempotencyKey: string }
+      expect(body.prompt).toBe("Say the word ok and nothing else.")
+      expect(body.idempotencyKey).toStartWith("canary-seam-")
+      expect(Object.keys(body).sort()).toEqual(["idempotencyKey", "prompt"])
+      return Response.json({ turnId: "shared-turn", runId: "host-run" }, { status: 202 })
     }
+    if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [{ id: "shared-turn", runId: "host-run", state: mode === "error" ? "failed" : mode === "cancelled" ? "cancelled" : "completed", frames: [{ runId: mode === "foreign" ? "foreign" : "host-run", type: "done", reason: "stop" }] }] })
+
     if (path === "/") return new Response("<html></html>", { headers: { "content-type": "text/html" } })
     return new Response(null, { status: 404 })
   } })
