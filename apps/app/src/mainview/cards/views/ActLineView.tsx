@@ -1,5 +1,4 @@
-import { Marker } from "../../../../../../packages/smithers/ui/src/chat/Marker"
-import "../../styles/views.css"
+import { Marker } from "@smthrs/ui"
 
 export type ActStep = { text: string; status?: "running" | "ok" | "error"; output?: string; exit_code?: number }
 export type ActLineProps = { line: string; steps: ActStep[]; tone?: "failed" }
