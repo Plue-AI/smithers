@@ -102,13 +102,13 @@ export function debugApiScenarios(prefix: string) {
       }
     })
     pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
-      "App agent refuses locally; T-CAT-01 shared CLI dispatcher and delegated reference-install fixture still required.")
+      "App agent and descriptor-generated smthrs debug api refuse locally; authenticated delegated reference-install fixture still required.")
     pending("displayed operations and form fields equal committed install fixture; Plue-only and undocumented operations absent",
-      "Literal operation inventory and secret form fields are checked locally; reference-install browser receipt still required.")
+      "Complete literal operation and request-field inventories pass at the seam; browser operation inventory and secret fields pass; reference-install browser receipt still required.")
     pending("repository-flow execution with isolation unavailable refuses before execution with no host process",
-      "POST /api/flows install execution route is absent; T-INS-02/T-FLW-01 route composition and process receipts unavailable.")
+      "Production flow composition refuses missing isolation before startup; no documented repository-flow invocation operation exposes that canary to the playground. Reference-install HTTP/process receipt required.")
     pending("available repository-flow execution runs only in a branch machine",
-      "T-INS-02/T-FLW-01 install execution route and branch-machine evidence unavailable.")
+      "T-FLW-01 guest composition exists; documented repository-flow invocation and reference-host branch-machine receipts are still required.")
     for (const missing of ["catalog", "authorizer", "view"] as const) {
       pending(`real install with only ${missing} unavailable produces zero API/SQL effects`,
         "No real-install composition wires independently selectable DebugApiGates; seam checks above are not backend evidence.")

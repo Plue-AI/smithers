@@ -91,7 +91,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts) | fixme-before-implementation | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Settings phase passing Chromium: HTTP click/Enter/Space, HTTPS/loopback hidden hint, non-owner, bundled heading; missing dependencies covered through real dispatcher integration. Full C-UI-09 passes on isolated retry (2026-10-06), including agent docs.read; combined docs run: 8 pass, 1 HTTP-turn recovery failure. Anchor navigation now uses the shared transcript read target. | T-APP-20, T-APP-24 |
-| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection; reference-install role effects separate | T-APP-21 |
+| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection, complete operation inventory and secret form fields; reference-install role effects separate | T-APP-21 |
 | C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
