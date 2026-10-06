@@ -6028,6 +6028,50 @@
     }
   },
   {
+    "label": "//crates/smithers-machined:documentComponents",
+    "package": "crates/smithers-machined",
+    "name": "documentComponents",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-machined/**/*.rs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "crates/smithers-machined/Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.lock"
+      },
+      {
+        "kind": "file",
+        "path": "crates/smithers-ffi/tests/yjs-interop.ts"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/backend:machineContractInputs"
+    ],
+    "source": {
+      "file": "crates/smithers-machined/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//evals/agent:character",
     "package": "evals/agent",
     "name": "character",
@@ -10540,6 +10584,10 @@
       {
         "kind": "file",
         "path": "flows/test/coding-stack-base.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-stack-reserved.test.ts"
       },
       {
         "kind": "file",
