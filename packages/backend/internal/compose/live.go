@@ -541,6 +541,7 @@ func branchItemProjection(raw json.RawMessage, todos []map[string]any) (json.Raw
 			}
 		}
 		model["item"] = item
+		delete(model, "scratch")
 		if pending, ok := todo["rebase_pending"].(map[string]any); ok {
 			model["rebase"] = map[string]any{"state": "pending", "onto": pending["onto"]}
 		}
