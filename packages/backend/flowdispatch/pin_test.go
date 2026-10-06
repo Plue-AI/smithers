@@ -129,6 +129,56 @@ func TestPinnedLaunchRunsOnTheLanesHostWithItsPin(t *testing.T) {
 	}
 }
 
+// A persisted reconnect is untrusted until its digest matches admission.
+// Refuse before waking a machine, including before cancelling a named run.
+func TestPinnedReconnectValidatesDigestBeforeResolution(t *testing.T) {
+	for _, test := range []struct {
+		name, runID, digest string
+		valid               bool
+	}{
+		{"wrong launch digest", "", otherDigest, false},
+		{"wrong reconnect digest", "run-1", otherDigest, false},
+		{"missing reconnect digest", "run-1", "", false},
+		{"admitted reconnect", "run-1", todoPin.ExecutionDigest, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, pool := newFlowDispatchStore(t)
+			var resolved atomic.Int32
+			runtime := newRecordingRuntime()
+			runtime.flowID = "todo"
+			runtime.executionDigest = todoPin.ExecutionDigest
+			runtime.status = "running"
+			service, err := New(Config{Store: store, ObservationDelay: 2 * time.Millisecond,
+				Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+					resolved.Add(1)
+					return runtime, nil
+				})})
+			require.NoError(t, err)
+			receipt, err := service.Admit(t.Context(), stackLaunch("reconnect-pin", "todo", &todoPin))
+			require.NoError(t, err)
+			target := stackTarget
+			target.TenantID, target.PrincipalID = stackScope.TenantID, stackScope.PrincipalID
+			checkpoint := RuntimeCheckpoint{Version: 1, Target: target, FlowID: "todo", RunID: test.runID, ExecutionDigest: test.digest}
+			_, err = pool.Exec(t.Context(), `UPDATE product_job_dispatches SET external_receipt=$2::jsonb WHERE operation_id=$1`, receipt.OperationID, mustJSON(checkpoint))
+			require.NoError(t, err)
+			startTestWorker(t, service, "reconnect-pin-worker")
+			operation := waitOperation(t, store, stackScope, receipt.OperationID, func(operation jobs.Operation) bool { return operation.State.Terminal() })
+			if test.valid {
+				require.Equal(t, jobs.StateCompleted, operation.State, string(operation.TerminalReceipt))
+				require.Positive(t, resolved.Load())
+			} else {
+				require.Equal(t, jobs.StateFailed, operation.State)
+				require.Contains(t, string(operation.TerminalReceipt), "checkpoint_pin_mismatch")
+				require.Zero(t, resolved.Load())
+			}
+			runtime.mu.Lock()
+			defer runtime.mu.Unlock()
+			require.Empty(t, runtime.launches, "reconnect never launches another run")
+			require.Zero(t, runtime.cancels, "an invalid checkpoint cannot cancel its named run")
+		})
+	}
+}
+
 // Astra and Fable round 1: a pinned launch runs only the pinned code. The
 // host receives the pin; a host that planned another digest, or none, never
 // runs for the attempt: a parked plan is denied, a started run is cancelled

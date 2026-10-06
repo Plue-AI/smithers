@@ -62,10 +62,12 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if (payload.Pin != nil && !payload.Pin.Valid()) || !todoLaunchAllowed(payload.FlowID, payload.Target, payload.Pin) {
 		return service.fail(lease, "todo_requires_stack_admission", checkpoint)
 	}
-	if payload.Pin != nil && payload.FlowID == payload.Pin.Flow && checkpoint.RunID == "" {
-		if checkpoint.ExecutionDigest != "" && checkpoint.ExecutionDigest != payload.Pin.ExecutionDigest {
+	if payload.Pin != nil && payload.FlowID == payload.Pin.Flow {
+		if (checkpoint.RunID != "" || checkpoint.ExecutionDigest != "") && checkpoint.ExecutionDigest != payload.Pin.ExecutionDigest {
 			return service.fail(lease, "checkpoint_pin_mismatch", checkpoint)
 		}
+		// Validate reconnects before resolving a machine too: a checkpoint
+		// outside this pin must not wake a host or act on its named run.
 		// Persist the admitted identity before asking the host to load source.
 		checkpoint.ExecutionDigest = payload.Pin.ExecutionDigest
 	}
