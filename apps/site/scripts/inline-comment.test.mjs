@@ -24,10 +24,10 @@ test("API and LLM generators preserve inline HTML-comment code", () => {
       const path = `apps/site/scripts/${script}`
       put(path, readFileSync(join(repo, path), "utf8"))
     }
-    put("scripts/package-docs.mjs", 'export const sites = [{ name: "@smthrs/integrations", slug: "integrations", domain: "integrations.smithers.sh" }]\n')
+    put("scripts/workspace-packages.mjs", 'export const libraryPackages = () => [{ name: "@smthrs/integrations", dir: "packages/integrations", manifest: {} }]\n')
     put("apps/site/scripts/package-doc-links.mjs", 'export const outputRelFor = (value) => value; export const routeFor = (value) => value\n')
     put("packages/integrations/package.json", JSON.stringify({ name: "@smthrs/integrations", description: "Integrations", publishConfig: { access: "public" } }))
-    put("packages/integrations/docs/api.md", '# API\n\n| Export | Value |\n| --- | --- |\n| `stickyMarker` | `<!-- smithers:key=KEY -->` |\n\n<!-- prose-only comment -->\n')
+    put("packages/integrations/docs/api.md", '# API\n\n| Export | Value |\n| --- | --- |\n| `stickyMarker` | `<!-- smithers:key=KEY -->` |\n\n<!-- prose-only comment -->\n\n[Guide](./guide.md#usage)\n')
     put("apps/site/src/data/project.json", JSON.stringify({ description: "Smithers" }))
     put("apps/site/src/data/versions.json", "{}")
     put("apps/site/public/llms.txt", "")
@@ -37,12 +37,17 @@ test("API and LLM generators preserve inline HTML-comment code", () => {
     const page = readFileSync(join(root, "apps/site/src/content/docs/docs/reference/api/integrations.mdx"), "utf8")
     assert.match(page, /`<!-- smithers:key=KEY -->`/)
     assert.match(page, /\{\/\* prose-only comment \*\/\}/)
+    assert.match(page, /\[Guide\]\(https:\/\/github\.com\/smithersai\/smithers\/blob\/main\/packages\/integrations\/docs\/guide\.md#usage\)/)
+    assert.match(page, /\[package docs\]\(https:\/\/github\.com\/smithersai\/smithers\/tree\/main\/packages\/integrations\/docs\)/)
     run("sync-api-docs.mjs", true)
 
     run("generate-llms.mjs")
     const full = readFileSync(join(root, "apps/site/public/llms-full.txt"), "utf8")
     assert.match(full, /`<!-- smithers:key=KEY -->`/)
     assert.doesNotMatch(full, /prose-only comment/)
+    const index = readFileSync(join(root, "apps/site/public/llms.txt"), "utf8")
+    assert.match(index, /https:\/\/github\.com\/smithersai\/smithers\/tree\/main\/packages\/integrations\/docs/)
+    assert.doesNotMatch(index, /integrations\.smithers\.sh/)
     run("generate-llms.mjs", true)
   } finally {
     rmSync(root, { recursive: true, force: true })

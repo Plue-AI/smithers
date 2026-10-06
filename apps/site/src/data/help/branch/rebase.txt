@@ -3,8 +3,8 @@ smthrs branch rebase — Rebase this branch now
 Usage: smthrs branch rebase [options]
 
 Options:
-  --branch <string>
-  --verbose          Show redacted diagnostic details
+  --branch <value>
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

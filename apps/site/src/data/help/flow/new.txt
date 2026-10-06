@@ -3,9 +3,9 @@ smthrs flow new — Create a new flow; waits for the person's confirmation
 Usage: smthrs flow new [options]
 
 Options:
-  --description <string>
+  --description <value>
   --repo <value>
-  --verbose               Show redacted diagnostic details
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

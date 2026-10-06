@@ -15,20 +15,11 @@
 import { readdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from "node:fs"
 import { join, relative, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { sites } from "../../../scripts/package-docs.mjs"
-import { outputRelFor, routeFor } from "./package-doc-links.mjs"
+import { libraryPackages } from "../../../scripts/workspace-packages.mjs"
 import { mapMarkdownProse } from "./docs-text.mjs"
 
-/**
- * npm name to docs-site slug, read from the docs fleet's manifest rather than
- * derived from the package name. The two differ where a subdomain is already
- * taken: `@smthrs/build` documents at smithers-build.smithers.sh, because
- * build.smithers.sh is the build remote cache.
- */
-const siteSlugByName = new Map(sites.map((site) => [site.name, site.slug]))
-const apiShortBySiteSlug = new Map(
-  sites.map((site) => [site.slug, site.name.replace("@smthrs/", "")])
-)
+const packageDocsByName = new Map(libraryPackages().map(({ name, dir }) => [name, `https://github.com/smithersai/smithers/tree/main/${dir}/docs`]))
+const apiShortBySiteSlug = new Map([["smithers-patterns", "patterns"], ["smithers-sync", "sync"]])
 
 const siteRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
 const repoRoot = join(siteRoot, "..", "..")
@@ -110,24 +101,10 @@ function rewriteLinks(text, pkg) {
   )
   // smithers.sh/migration/1.0 -> site-relative
   out = out.replace(/\]\(https:\/\/smithers\.sh\/migration\/1\.0(#[^)]+)?\)/gi, (_m, frag) => `](/docs/migration/1.0/${frag ?? ""})`)
-  // A relative .md link in api.md names a sibling page of the package's own
-  // docs tree (./testing.md, ./concepts/engine-port.md). That page exists, but
-  // on the package's site rather than here, so the link resolves to
-  // <slug>.smithers.sh through the same source-path-to-route mapping
-  // sync-content.mjs applies when it stitches that site. Sending these to
-  // GitHub instead, as this script did before the per-package sites existed,
-  // dropped a reader out of the docs and into a raw file.
-  //
-  // A package with no site (nothing in the docs manifest) keeps the old
-  // GitHub behaviour: the file is the only target that exists for it.
+  // Relative links remain precise file links in the package's source docs.
   const repoRel = relative(repoRoot, pkg.apiPath).split("\\").join("/")
   const docsDirUrl = `https://github.com/smithersai/smithers/blob/main/${dirname(repoRel)}`
-  const slug = siteSlugByName.get(pkg.name)
-  const relTarget = (file, frag) => {
-    const clean = file.replace(/^\.\//, "")
-    if (slug === undefined) return `${docsDirUrl}/${clean}${frag ?? ""}`
-    return `https://${slug}.smithers.sh${routeFor(outputRelFor(clean))}${frag ?? ""}`
-  }
+  const relTarget = (file, frag) => `${docsDirUrl}/${file.replace(/^\.\//, "")}${frag ?? ""}`
   out = out.replace(/\]\((\.\/)?((?:[a-z0-9-]+\/)*[a-z0-9-]+\.md)(#[^)]+)?\)/gi, (_m, _dot, f, frag) => `](${relTarget(f, frag)})`)
   // Anything still pointing at smithers.sh is suspect: report it.
   for (const m of out.matchAll(/\]\(https:\/\/smithers\.sh([^)]*)\)/g)) {
@@ -158,11 +135,8 @@ function transform(pkg) {
   const short = pkg.name.replace("@smthrs/", "")
   if (foreignOwned.has(short)) return { short, page: null, warnings: [] }
   const packagePath = relative(repoRoot, pkg.dir).split("\\").join("/")
-  // This page is the aggregate reference; the package's own site is the whole
-  // documentation set for it (quickstart, concepts, guides). Link out to it so
-  // a reader who arrives here through search can reach the rest.
-  const siteSlug = siteSlugByName.get(pkg.name)
-  const siteLink = siteSlug === undefined ? "" : ` · [package docs](https://${siteSlug}.smithers.sh)`
+  const packageDocs = packageDocsByName.get(pkg.name)
+  const siteLink = packageDocs === undefined ? "" : ` · [package docs](${packageDocs})`
   const sourceLinks = `> **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/${packagePath}/src) · [reference source](https://github.com/smithersai/smithers/blob/main/${packagePath}/docs/api.md)${siteLink}`
   // `private: true` is what keeps a package off npm; publishConfig.access
   // alone does not. Say so on the page, so the roster label and the reference
