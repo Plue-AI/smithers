@@ -53,6 +53,7 @@ test("build command rejects injected aliases and Replaced entry points without l
   const script = new URL("../../../../../scripts/catalog-allowlist.ts", import.meta.url)
   for (const [args, diagnostic] of [
     [["--app-id", "box.open", "invented"], "renamed: box.open\nunlisted: invented"],
+    [["--cli-path", "history todo", "host invented"], "unlisted: history todo\nunlisted: host invented"],
     [["--tag", "machine", "coding/Request"], "replaced: coding/Request"],
     [["--tag", "machine", "coding/Vibe"], "replaced: coding/Vibe"],
     [["--tag", "install", "coding/ImplementPlan"], "runtime: coding/ImplementPlan"]

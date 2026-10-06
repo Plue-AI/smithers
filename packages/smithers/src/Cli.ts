@@ -5,6 +5,7 @@
  */
 
 import { catalogCommands } from "./internal/backend/Catalog.ts"
+import { retainInstallDiscovery } from "./internal/backend/InstallDiscovery.ts"
 import { makeCli as makeBuildCli } from "@smthrs/build-cli/Cli"
 import * as Positionals from "@smthrs/build-cli/Positionals"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
@@ -440,6 +441,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     }
   }
   project(Cli.toCommands.get(cli as never)!, discoveryTree)
+  retainInstallDiscovery(cli, discoveryTree)
 
   const invoke = cli.serve.bind(cli)
   const serve: typeof cli.serve = (argv = [], serveOptions) => {

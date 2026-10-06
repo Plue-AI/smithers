@@ -72,6 +72,17 @@ async function fixture(status = 200, response: unknown = { state: "accepted" }, 
 }
 
 describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
+  it("audits the actual install discovery tree against literal Appendix A and B.6 paths", async () => {
+    const { installCommandPaths } = await import("../src/internal/backend/InstallDiscovery.ts")
+    const { auditCliPaths } = await import("../../../scripts/catalog-policy.ts")
+    const paths = installCommandPaths(makeCli())
+    expect(paths).toEqual([...fixtureCases.commands.map(row => row.path), ...fixtureCases.b6].sort())
+    expect(auditCliPaths(paths)).toEqual([])
+    expect(auditCliPaths([...paths, "history todo", "host invented"])).toEqual([
+      { id: "history todo", reason: "unlisted" }, { id: "host invented", reason: "unlisted" }
+    ])
+    expect(() => installCommandPaths({})).toThrow("CLI install discovery is unavailable")
+  })
   it("B.6 host doors resolve through the installed parser without executing maintenance", async () => {
     const f = await fixture()
     try {
