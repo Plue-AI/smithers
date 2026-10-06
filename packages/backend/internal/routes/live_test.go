@@ -42,6 +42,7 @@ func TestLiveRefusesBeforeUpgrading(t *testing.T) {
 		{"a token", handler, "install.test:4000", "http://install.test:4000", &middleware.AuthInfo{User: &db.User{ID: 2}, IsTokenAuth: true, TokenHash: "t"}, 401, "unauthenticated"},
 		{"another origin", handler, "install.test:4000", "http://evil.test", session, 403, "origin"},
 		{"no origin", handler, "install.test:4000", "", session, 403, "origin"},
+		{"no revocation provider", handler, "install.test:4000", "http://install.test:4000", session, 503, "live_unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "http://"+tc.host+"/api/live", nil)

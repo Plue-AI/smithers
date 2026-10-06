@@ -30,6 +30,10 @@ type Source struct {
 	FailClosed bool
 	// Build reads the snapshot from committed facts.
 	Build func(context.Context) (json.RawMessage, error)
+	// Durable owns replay and retention; Snapshot binds committed data to its
+	// source cursor. Each connection resolves a fresh DurableStream instance.
+	Durable  *sse.DurableStream
+	Snapshot func(context.Context) (int64, json.RawMessage, error)
 }
 
 // Hints are the notifications a hub listens on: events arrive on the

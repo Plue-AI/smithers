@@ -163,7 +163,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
 			EgressPolicy:   &routes.RepositoryEgressPolicyHandler{},
-			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}},
+			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}, Origins: liveHandler.Origins},
 			Members:        &routes.MembersHandler{},
 			Live:           deps.live,
 		},
