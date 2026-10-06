@@ -177,7 +177,7 @@ func (s *GitHubSyncedRepoService) commitIssueEvents(ctx context.Context, row db.
 			}
 			// The embedded issue is cached data, never proof of who authored its
 			// current text. Label admission must separately verify text provenance.
-			if err := s.commitFetchedIssue(ctx, tx, row, GitHubRepoMetadataIssues, event.Issue); err != nil {
+			if err := s.commitFetchedIssue(ctx, tx, row, GitHubRepoMetadataIssues, nil, event.Issue); err != nil {
 				return err
 			}
 			var issue gitHubIssueHeader

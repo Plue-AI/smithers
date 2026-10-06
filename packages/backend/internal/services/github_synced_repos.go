@@ -1148,6 +1148,14 @@ func (s *GitHubSyncedRepoService) backfill(ctx context.Context, row db.GithubSyn
 }
 
 func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.GithubSyncedRepo, resource string, fetch gitHubSyncedRepoPageFetcher) error {
+	var read *gitHubPullRead
+	if s.install != nil && resource == GitHubRepoMetadataPulls {
+		var err error
+		read, err = s.beginPullRead(ctx, row, 0)
+		if err != nil {
+			return err
+		}
+	}
 	var fetched []json.RawMessage
 	newest := s.fetchedUpdatedCursor(row, resource)
 	boundary := githubUpdatedBoundary(newest)
@@ -1249,7 +1257,7 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 	}
 
 	if s.install != nil {
-		if err := s.commitFetched(ctx, row, resource, fetched); err != nil {
+		if err := s.commitFetched(ctx, row, resource, read, fetched); err != nil {
 			return err
 		}
 		committed()

@@ -234,7 +234,9 @@ func TestGitHubIndividualPullDoesNotValidateAnOlderResponse(t *testing.T) {
 	s, pool, row := newFetchedFixture(t)
 	allowFetched(s)
 	latest := json.RawMessage(strings.Replace(fetchedPullDetail, "10:00:00Z", "10:01:00Z", 1))
-	require.NoError(t, s.commitFetched(t.Context(), row, "pulls", []json.RawMessage{latest}))
+	read, err := s.beginPullRead(t.Context(), row, 7)
+	require.NoError(t, err)
+	require.NoError(t, s.commitFetched(t.Context(), row, "pulls", read, []json.RawMessage{latest}))
 	var validators []string
 	s.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher {
 		return func(_ context.Context, _ string, _ url.Values, etag string) (GitHubSyncedRepoConditionalPage, error) {

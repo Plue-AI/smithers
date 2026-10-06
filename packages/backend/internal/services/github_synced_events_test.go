@@ -153,7 +153,7 @@ func TestGitHubFetchedIssueEventsRecheckBindingAndPreserveLatestCache(t *testing
 	allowFetched(s)
 	ctx := context.Background()
 	newer := json.RawMessage(`{"id":1001,"number":1,"state":"open","title":"Latest","updated_at":"2026-10-05T11:00:00Z"}`)
-	require.NoError(t, s.commitFetched(ctx, row, "issues", []json.RawMessage{newer}))
+	require.NoError(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{newer}))
 	require.NoError(t, s.commitIssueEvents(ctx, row, []json.RawMessage{fetchedEvent(1, "labeled")}))
 	var title string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT title FROM github_synced_issues WHERE number=1`).Scan(&title))

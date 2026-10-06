@@ -85,7 +85,7 @@ func TestGitHubConversationConsumerEffectsAndReceiptAreAtomic(t *testing.T) {
 	s, pool, row := newFetchedFixture(t)
 	allowFetched(s)
 	raw := json.RawMessage(`{"id":19,"body":"hello","issue_url":"https://api.github.com/repos/factory/app/issues/7","created_at":"2026-10-05T10:00:00Z","updated_at":"2026-10-05T10:00:00Z"}`)
-	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, []json.RawMessage{raw}))
+	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, nil, []json.RawMessage{raw}))
 	var fail atomic.Bool
 	fail.Store(true)
 	var calls atomic.Int32
@@ -115,7 +115,7 @@ func TestGitHubConversationConsumerEffectsAndReceiptAreAtomic(t *testing.T) {
 	var value int
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT (value #>> '{}')::int FROM install_settings WHERE key='comment-consumer'`).Scan(&value))
 	require.Equal(t, 1, value)
-	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, []json.RawMessage{raw}))
+	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, nil, []json.RawMessage{raw}))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
 }
 
@@ -170,10 +170,10 @@ func TestGitHubConversationStaleAndReboundComment(t *testing.T) {
 	raw := func(id, issue int, second string) json.RawMessage {
 		return json.RawMessage(fmt.Sprintf(`{"id":%d,"body":"%s","issue_url":"https://api.github.com/repos/factory/app/issues/%d","created_at":"2026-10-05T10:00:00Z","updated_at":"2026-10-05T10:00:%sZ"}`, id, second, issue, second))
 	}
-	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, []json.RawMessage{raw(19, 7, "05")}))
-	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, []json.RawMessage{raw(19, 7, "00")}))
+	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, nil, []json.RawMessage{raw(19, 7, "05")}))
+	require.NoError(t, s.commitFetched(t.Context(), row, gitHubConversationComments, nil, []json.RawMessage{raw(19, 7, "00")}))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
-	require.Error(t, s.commitFetched(t.Context(), row, gitHubConversationComments, []json.RawMessage{raw(20, 8, "06"), raw(19, 8, "07")}))
+	require.Error(t, s.commitFetched(t.Context(), row, gitHubConversationComments, nil, []json.RawMessage{raw(20, 8, "06"), raw(19, 8, "07")}))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issue_comments`), "invalid second object rolls back the first")
 	var body string
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT payload->>'body' FROM github_synced_issue_comments`).Scan(&body))

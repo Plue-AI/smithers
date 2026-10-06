@@ -101,18 +101,18 @@ func TestGitHubFetchedBatchCommitsCacheAndDeliveryTogether(t *testing.T) {
 	// Poll retry and equivalent object-key order preserve both delivery ids.
 	require.NoError(t, s.backfillResource(ctx, row, "issues", fetch))
 	reordered := json.RawMessage(`{"updated_at":"2026-10-05T10:00:00Z","title":"First","state":"open","number":1,"id":1001}`)
-	require.NoError(t, s.commitFetched(ctx, row, "issues", []json.RawMessage{reordered}))
+	require.NoError(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{reordered}))
 	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
 	newer := json.RawMessage(`{"id":1001,"number":1,"state":"open","title":"Edited","updated_at":"2026-10-05T10:01:00Z"}`)
-	require.NoError(t, s.commitFetched(ctx, row, "issues", []json.RawMessage{newer}))
-	require.NoError(t, s.commitFetched(ctx, row, "issues", []json.RawMessage{json.RawMessage(fetchedFirst)}))
+	require.NoError(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{newer}))
+	require.NoError(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst)}))
 	require.Equal(t, 3, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
 	var title string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT title FROM github_synced_issues WHERE number=1`).Scan(&title))
 	require.Equal(t, "Edited", title)
 	// Malformed later input aborts the complete batch, including earlier writes.
 	newest := json.RawMessage(`{"id":1001,"number":1,"state":"open","title":"Must roll back","updated_at":"2026-10-05T10:02:00Z"}`)
-	require.ErrorContains(t, s.commitFetched(ctx, row, "issues", []json.RawMessage{newest, json.RawMessage(`{"id":4}`)}), "invalid fetched")
+	require.ErrorContains(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{newest, json.RawMessage(`{"id":4}`)}), "invalid fetched")
 	require.NoError(t, pool.QueryRow(ctx, `SELECT title FROM github_synced_issues WHERE number=1`).Scan(&title))
 	require.Equal(t, "Edited", title)
 	require.Equal(t, 3, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
@@ -122,7 +122,7 @@ func TestGitHubFetchedConsumerRecoveryIsAtomicAndOrdered(t *testing.T) {
 	s, pool, row := newFetchedFixture(t)
 	allowFetched(s)
 	ctx := context.Background()
-	require.NoError(t, s.commitFetched(ctx, row, "issues", []json.RawMessage{json.RawMessage(fetchedFirst), json.RawMessage(fetchedSecond)}))
+	require.NoError(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst), json.RawMessage(fetchedSecond)}))
 	stop := runFetchedFixture(t, s)
 	require.Eventually(t, func() bool {
 		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_dispatches WHERE attempt>0`) > 0
@@ -165,7 +165,7 @@ func TestGitHubFetchedConsumerRecoveryIsAtomicAndOrdered(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT value FROM install_settings WHERE key='fetched-test'`).Scan(&effects))
 	require.JSONEq(t, `["First","Second"]`, string(effects))
 	before := attempts.Load()
-	require.NoError(t, fresh.commitFetched(ctx, row, "issues", []json.RawMessage{json.RawMessage(fetchedFirst), json.RawMessage(fetchedSecond)}))
+	require.NoError(t, fresh.commitFetched(ctx, row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst), json.RawMessage(fetchedSecond)}))
 	stop = runFetchedFixture(t, fresh)
 	// With no remaining claim, the same store immediately proves replay cannot run.
 	_, err = fresh.install.jobs.ClaimForOperations(ctx, "probe", time.Second, []string{githubFetchedOperation})
@@ -180,7 +180,7 @@ func TestGitHubFetchedDeliveryRechecksRepositoryBinding(t *testing.T) {
 			s, pool, row := newFetchedFixture(t)
 			allowFetched(s)
 			ctx := context.Background()
-			require.NoError(t, s.commitFetched(ctx, row, "issues", []json.RawMessage{json.RawMessage(fetchedFirst)}))
+			require.NoError(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst)}))
 			var called atomic.Int32
 			s.install.consumers["issues"] = func(context.Context, pgx.Tx, gitHubFetchedObject) (json.RawMessage, error) {
 				called.Add(1)
@@ -206,7 +206,7 @@ func TestGitHubFetchedDeliveryRechecksRepositoryBinding(t *testing.T) {
 			if change == "installation" {
 				current, err := db.New(pool).GetGitHubSyncedRepoByGitHubID(ctx, row.GithubRepositoryID)
 				require.NoError(t, err)
-				require.NoError(t, s.commitFetched(ctx, current, "issues", []json.RawMessage{json.RawMessage(fetchedFirst)}))
+				require.NoError(t, s.commitFetched(ctx, current, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst)}))
 				stop = runFetchedFixture(t, s)
 				require.Eventually(t, func() bool {
 					return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state='completed'`) == 1

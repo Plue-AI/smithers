@@ -120,12 +120,15 @@ func (s *GitHubSyncedRepoService) requestInstallFetch(ctx context.Context, githu
 // commitFetched atomically records a fetched batch and its durable deliveries.
 // A missing consumer does not discard the delivery. Repeated polls share the
 // same canonical object version, including JSON object ordering and numbers.
-func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.GithubSyncedRepo, resource string, objects []json.RawMessage) error {
+func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.GithubSyncedRepo, resource string, read *gitHubPullRead, objects []json.RawMessage) error {
 	if err := s.authorizeFetched(ctx, row); err != nil {
 		return err
 	}
 	if resource != GitHubRepoMetadataIssues && resource != GitHubRepoMetadataPulls && resource != gitHubConversationComments {
 		return fmt.Errorf("unsupported fetched resource %q", resource)
+	}
+	if resource == GitHubRepoMetadataPulls && !read.matches(row) {
+		return gitHubFetchUnavailable()
 	}
 	return pgx.BeginFunc(ctx, s.install.pool, func(tx pgx.Tx) error {
 		// The registry row serializes batches for this repository. Recheck current
@@ -145,7 +148,7 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 			return s.commitFetchedComments(ctx, tx, row, objects)
 		}
 		for _, object := range objects {
-			if err := s.commitFetchedIssue(ctx, tx, row, resource, object); err != nil {
+			if err := s.commitFetchedIssue(ctx, tx, row, resource, read, object); err != nil {
 				return err
 			}
 		}
@@ -155,7 +158,7 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 	})
 }
 
-func (s *GitHubSyncedRepoService) commitFetchedIssue(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, resource string, object json.RawMessage) error {
+func (s *GitHubSyncedRepoService) commitFetchedIssue(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, resource string, read *gitHubPullRead, object json.RawMessage) error {
 	writer := NewGitHubSyncedRepoService(db.New(tx))
 	var header gitHubIssueHeader
 	if err := json.Unmarshal(object, &header); err != nil || header.ID <= 0 || header.Number <= 0 || !parseGitHubTimestamp(header.UpdatedAt).Valid {
@@ -174,6 +177,11 @@ func (s *GitHubSyncedRepoService) commitFetchedIssue(ctx context.Context, tx pgx
 	}
 	if stale {
 		return nil
+	}
+	if resource == GitHubRepoMetadataPulls {
+		if err := read.check(ctx, tx, row, header, canonical); err != nil {
+			return err
+		}
 	}
 	if _, err := writer.storeSyncedIssue(ctx, row.ID, resource, canonical); err != nil {
 		return err

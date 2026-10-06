@@ -69,6 +69,10 @@ func (s *GitHubSyncedRepoService) pollInstallPullRead(ctx context.Context, row d
 	if fetch == nil {
 		return gitHubFetchUnavailable()
 	}
+	read, err := s.beginPullRead(ctx, row, number)
+	if err != nil {
+		return err
+	}
 	page, err := fetch(ctx, resource, nil, validator.etag)
 	if err != nil {
 		return err
@@ -112,7 +116,7 @@ func (s *GitHubSyncedRepoService) pollInstallPullRead(ctx context.Context, row d
 		if json.Unmarshal(page.Body, &pull) != nil || pull.Number != number || pull.Head.SHA == "" || (pull.State != "open" && pull.State != "closed") {
 			return GitHubRequestFailure(ctx, "GitHub returned an invalid pull request")
 		}
-		if err := s.commitFetchedIssue(ctx, tx, row, GitHubRepoMetadataPulls, page.Body); err != nil {
+		if err := s.commitFetchedIssue(ctx, tx, row, GitHubRepoMetadataPulls, read, page.Body); err != nil {
 			return err
 		}
 		// A late response older than the cache is ignored by commitFetchedIssue.
