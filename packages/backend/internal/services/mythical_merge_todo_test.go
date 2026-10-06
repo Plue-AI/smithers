@@ -369,6 +369,39 @@ func TestMythicalMergeTodoRefusedByGitHubStaysVisibleAndRetryable(t *testing.T) 
 	assert.Equal(t, http.StatusOK, h.merges()[1].Status)
 }
 
+func TestMythicalMergeTodoRetainsGitHubFieldErrors(t *testing.T) {
+	for _, status := range []int{405, 409, 422} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, head, pr := h.first("Field refusal")
+			messages := []struct {
+				Message string `json:"message"`
+			}{{"protected branch"}, {"head changed"}}
+			h.fake.RefuseNextMerge("rehearsal-owner/app", pr, githubfake.Refusal{Status: status, Message: "GitHub refuses this merge", Errors: messages})
+			require.NoError(t, h.press(h.ctx, n, head))
+			h.pass()
+			require.Len(t, h.merges(), 1)
+			item := h.item(n)
+			require.Empty(t, item.PendingOp)
+			require.Equal(t, messages, mythicalChecksOf(item).Land.Refused.Errors)
+			// Read the persisted receipt again, rather than the transient transport error.
+			state, card := h.mergeCard(n)
+			require.Equal(t, "in_review", state)
+			require.Equal(t, messages, card["errors"])
+			require.Equal(t, "GitHub refuses this merge", card["detail"])
+			replayErr := h.pressAs(h.ctx, "press-1", n, head)
+			var replay *TodoGitHubRefusal
+			require.ErrorAs(t, replayErr, &replay)
+			require.Equal(t, messages, replay.Errors)
+			require.Equal(t, "github", replay.Class)
+			require.Equal(t, 409, replay.Status)
+
+			h.pass()
+			require.Len(t, h.merges(), 1, "a definitive refusal never retries itself")
+		})
+	}
+}
+
 // GitHub answering the merge 401, 403 or 404 (the App's token or permission
 // refused, the pull request hidden) is definitive once GitHub reports the PR
 // not merged: the fence clears with GitHub's words as the receipt, visible

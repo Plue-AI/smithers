@@ -63,6 +63,13 @@ func todoRouteError(w http.ResponseWriter, err error) {
 		_ = json.NewEncoder(w).Encode(transition)
 		return
 	}
+	var github *services.TodoGitHubRefusal
+	if errors.As(err, &github) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(github.Status)
+		_ = json.NewEncoder(w).Encode(github)
+		return
+	}
 	var typed *services.TodoControlError
 	if errors.As(err, &typed) {
 		failure = typed
