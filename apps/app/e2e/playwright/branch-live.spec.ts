@@ -3,7 +3,7 @@ import { fillComposer } from "./composer"
 import { installCloudFixture } from "./cloudFixture"
 
 // Browser contract proof. The PostgreSQL/SSH/lease journey remains reference-host evidence.
-for (const optionalStreams of ["served", "unsupported"] as const) test(`install /branch T2 renders captured facts with ${optionalStreams} streams and forks without waking`, async ({ page, context }) => {
+for (const optionalStreams of ["served", "unsupported", "scratch"] as const) test(`install /branch T2 renders captured facts with ${optionalStreams} streams without waking`, async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   const posts: unknown[] = []
@@ -23,7 +23,7 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
     if (frame.t !== "sub") return
     const data = frame.topic === "branch:b-live" ? {
       id: "b-live", name: "smithers/retry-webhooks", machine: { state: "asleep" },
-      item: { n: 2, title: "Retry webhooks", state: "working", place: 2 },
+      ...(optionalStreams === "scratch" ? { scratch: { forked_from: { kind: "item", n: 2, title: "Retry webhooks" } } } : { item: { n: 2, title: "Retry webhooks", state: "working", place: 2 } }),
       rebase: { state: "pending", onto: "main" },
       presence: [{ actor: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }, where: { kind: "file", path: "retry.ts", line: 12 } }],
       terminals: [{ id: "t-live", title: "Shell", owner: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1 }, agents: [], watchers: [], frozen: false }], ssh_line: "ssh -p 2222 retry-webhooks@localhost"
@@ -65,7 +65,14 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   await page.getByTestId("composer-send").click()
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("ssh -p 2222 retry-webhooks@localhost")
   expect(posts).toEqual([])
-  await card.getByRole("button", { name: "Fork", exact: true }).press("Enter")
-  await expect.poll(() => posts).toEqual([{ from: "T2" }])
+  if (optionalStreams === "scratch") {
+    await expect(card).toContainText("Scratch")
+    await expect(card).toContainText("T2 Retry webhooks")
+    await expect(card.getByRole("button", { name: "Add to stack", exact: true })).toHaveCount(0)
+    expect(posts).toEqual([])
+  } else {
+    await card.getByRole("button", { name: "Fork", exact: true }).press("Enter")
+    await expect.poll(() => posts).toEqual([{ from: "T2" }])
+  }
   await expect(page.getByTestId("composer-input")).toBeEnabled()
 })

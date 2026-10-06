@@ -498,3 +498,36 @@ func TestPresenceBranchRefreshCommittedInstallAddress(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&status))
 	require.Equal(t, "running", status)
 }
+
+// Fork metadata is already stored by the stack service. Captured reads expose it
+// on the same topic and a subsequent item binding replaces the scratch facts.
+func TestPresenceScratchSourceAndItemCutover(t *testing.T) {
+	f := presenceInstall(t)
+	q := db.New(f.pool)
+	lane, err := q.GetMythicalLane(t.Context(), f.row.ID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `DELETE FROM mythical_lanes WHERE workspace_id=$1`, f.row.ID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET is_fork=true, status='suspended', forked_from_item=$2 WHERE id=$1`, f.row.ID, lane.ItemID)
+	require.NoError(t, err)
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	first := readPresenceFrame(t, conn)
+	require.Equal(t, "snap", first.T)
+	require.Contains(t, string(first.Data), `"scratch":{"forked_from":{"kind":"item","n":1,"title":"Retry webhooks"}}`)
+	require.NotContains(t, string(first.Data), `"item":`)
+	require.Contains(t, string(first.Data), `"state":"asleep"`)
+	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET forked_from_item=NULL WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	second := readPresenceFrame(t, conn)
+	require.Contains(t, string(second.Data), `"scratch":{"forked_from":{"kind":"main"}}`)
+	_, _, err = q.BindMythicalLane(t.Context(), lane)
+	require.NoError(t, err)
+	third := readPresenceFrame(t, conn)
+	require.Contains(t, string(third.Data), `"item":{"n":1,"place":2,"state":"working","title":"Retry webhooks"}`)
+	require.NotContains(t, string(third.Data), `"scratch":`)
+	require.Contains(t, string(third.Data), `"id":"`+f.row.ID+`"`)
+	var status string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&status))
+	require.Equal(t, "suspended", status)
+}
