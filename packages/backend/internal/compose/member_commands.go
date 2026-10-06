@@ -27,6 +27,23 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
 			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
+			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.EscapedPath(), "/api/branches/") && !strings.Contains(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), "/") {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+				var body struct {
+					Op       string `json:"op"`
+					ID       string `json:"id"`
+					Revision string `json:"revision"`
+				}
+				decoder := json.NewDecoder(bytes.NewReader(raw))
+				decoder.DisallowUnknownFields()
+				if err != nil || decoder.Decode(&body) != nil || body.Op != "bring-in" && body.Op != "discard-foreign" {
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid branch answer"})
+					return
+				}
+				command = "branch." + body.Op
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+			}
+
 			if info != nil && info.User != nil && info.IsTokenAuth && command == "" {
 				// AuthLoader already confines these system grants to their exact
 				// workspace/child or verified coding batch before dispatch.
@@ -174,6 +191,14 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 			return true
 		}
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "todo", "ref": "T" + strconv.FormatInt(n, 10)})
+	}
+	if command == "branch.discard-foreign" || command == "branch.bring-in" {
+		input.Subject, _ = json.Marshal(map[string]string{"kind": "branch", "ref": strings.TrimPrefix(r.URL.Path, "/api/branches/")})
+		var body map[string]json.RawMessage
+		if json.Unmarshal(raw, &body) == nil {
+			delete(body, "op")
+			input.Payload, _ = json.Marshal(body)
+		}
 	}
 	receipt, err := service.RequestConfirmation(r.Context(), input)
 	if err != nil {

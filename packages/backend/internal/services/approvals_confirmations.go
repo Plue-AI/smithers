@@ -348,6 +348,64 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err := tx.QueryRow(ctx, `SELECT state='active' FROM mythical_stacks WHERE repository_id=$1`, repository).Scan(&ready); err != nil || !ready {
 			return p, confirmationUnavailable()
 		}
+	case "branch.discard-foreign":
+		var request struct {
+			ID       string `json:"id"`
+			Revision string `json:"revision"`
+		}
+		if subject.Kind != "branch" || !mythicalTodoBranchValid(subject.Ref) || confirmationJSON(input.Payload, &request) != nil || request.ID == "" || len(request.ID) > 128 || !mythicalSHA.MatchString(request.Revision) || strings.Trim(request.Revision, "0") == "" {
+			return p, invalidConfirmation()
+		}
+		p.input, _ = json.Marshal(request)
+		if !inspect {
+			p.subject, _ = json.Marshal(subject)
+			return p, nil
+		}
+		items, err := db.New(tx).ListMythicalGitHubBranchItems(ctx, repository)
+		if err != nil {
+			return p, err
+		}
+		var item db.MythicalItem
+		for _, candidate := range items {
+			checks := mythicalChecksOf(candidate)
+			if checks.Todo && checks.Branch == subject.Ref {
+				if item.ID.Valid {
+					return p, todoControlConflict("Branch has more than one TODO")
+				}
+				item = candidate
+			}
+		}
+		if !item.ID.Valid {
+			return p, pgx.ErrNoRows
+		}
+		if _, err = tx.Exec(ctx, `SELECT 1 FROM mythical_items WHERE id=$1 FOR UPDATE`, item.ID); err != nil {
+			return p, err
+		}
+		item, err = db.New(tx).GetMythicalItem(ctx, item.ID)
+		if err != nil {
+			return p, err
+		}
+		checks := mythicalChecksOf(item)
+		matched := false
+		for _, wait := range checks.Waits {
+			if wait.ID == request.ID && wait.Kind == "foreign_push" && wait.SettledAt == nil && wait.SHA == request.Revision && checks.ForeignHead == request.Revision {
+				matched = true
+			}
+		}
+		if !matched || mythicalMergeFenced(item) || slices.Contains([]string{"landed", "cancelled", "rejected", "declined"}, item.State) {
+			return p, todoControlConflict("Outside push changed; refresh the TODO")
+		}
+		if len(item.PendingOp) > 0 {
+			pending, err := decodeMythicalOutbound(item.PendingOp)
+			if err != nil {
+				return p, err
+			}
+			if pending.State != "done" && pending.State != "conflict" {
+				return p, todoControlConflict("Publication is recovering; try again")
+			}
+		}
+		p.revision = uuidString(item.ID) + ":" + strconv.FormatInt(item.Version, 10) + ":" + strconv.FormatInt(item.Generation, 10) + ":" + request.Revision
+		p.title, verb, text = item.Title.String, "Discard", request.Revision
 	case "todo.drop", "todo.amend":
 		if subject.Kind != "todo" || !strings.HasPrefix(subject.Ref, "T") {
 			return p, invalidConfirmation()
@@ -497,7 +555,15 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				return expire()
 			}
 			if err != nil {
-				return err
+				var access *AccessError
+				var control *TodoControlError
+				unavailable := errors.As(err, &access) && access.Status == 503 || errors.As(err, &control) && control.Status == 503
+				if decision != "deny" || !unavailable {
+					return err
+				}
+				// Cancellation grants no execution authority; a missing consumer
+				// must not trap a pending request on the person's card.
+				prepared.revision = revision
 			}
 			if prepared.revision != revision {
 				return expire()
@@ -539,6 +605,23 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				var result TodoControlReceipt
 				result, err = consumer.AmendTodo(bound, number, request)
 				amendedRevision = result.Revision
+			case "branch.discard-foreign":
+				var subject struct {
+					Ref string `json:"ref"`
+				}
+				var request struct {
+					ID       string `json:"id"`
+					Revision string `json:"revision"`
+				}
+				if err = json.Unmarshal(prepared.subject, &subject); err != nil {
+					return err
+				}
+				if err = json.Unmarshal(prepared.input, &request); err != nil {
+					return err
+				}
+				var result TodoControlReceipt
+				result, err = consumer.AnswerBranch(bound, subject.Ref, TodoControlInput{Op: "discard-foreign", Wait: request.ID, Revision: request.Revision, Repository: repository, Actor: info.User.ID, Request: input.Key})
+				number = result.Number
 			case "todo.drop":
 				var subject struct {
 					Ref string `json:"ref"`

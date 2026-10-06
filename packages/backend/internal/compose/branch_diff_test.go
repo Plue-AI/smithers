@@ -102,7 +102,7 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		return token
 	}
 	ownerToken, memberToken := tokenFor(owner, "e"), tokenFor(member, "f")
-	confirmationCall := func(path, token, cookie, body, key string, status int, code string) {
+	confirmationCall := func(path, token, cookie, body, key string, status int, code string) string {
 		req, err := http.NewRequest("POST", server.URL+path, strings.NewReader(body))
 		require.NoError(t, err)
 		req.Host = "127.0.0.1:4000"
@@ -122,10 +122,10 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		raw, err := io.ReadAll(res.Body)
 		require.NoError(t, err)
 		require.Equal(t, status, res.StatusCode, string(raw))
-		require.Contains(t, string(raw), `"code":"`+code+`"`)
-		unchanged, err := q.GetMythicalItem(ctx, item.ID)
-		require.NoError(t, err)
-		require.Equal(t, before, unchanged)
+		if code != "" {
+			require.Contains(t, string(raw), `"code":"`+code+`"`)
+		}
+		return string(raw)
 	}
 	for _, test := range []struct {
 		name, command, token, code string
@@ -133,12 +133,17 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	}{
 		{"member-discard", "branch.discard-foreign", memberToken, "permission", 403},
 		{"member-bring", "branch.bring-in", memberToken, "confirmation_unavailable", 503},
-		{"owner-discard", "branch.discard-foreign", ownerToken, "confirmation_unavailable", 503},
+		{"owner-discard", "branch.discard-foreign", ownerToken, "", 202},
 		{"owner-bring", "branch.bring-in", ownerToken, "confirmation_unavailable", 503},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			payload := fmt.Sprintf(`{"command":%q,"subject":{"kind":"branch","ref":"smithers/retry"},"payload":{"id":"foreign","revision":%q}}`, test.command, head)
-			confirmationCall("/api/confirmations", test.token, "", payload, test.name, test.status, test.code)
+			raw := confirmationCall("/api/confirmations", test.token, "", payload, test.name, test.status, test.code)
+			if test.status == 202 {
+				var receipt map[string]string
+				require.NoError(t, json.Unmarshal([]byte(raw), &receipt))
+				confirmationCall("/api/confirmations/"+receipt["confirmation"]+"/deny", "", ownerCookie, `{}`, "cancel-discard", 200, "")
+			}
 		})
 	}
 	// A downgraded/read-only delegation cannot acquire confirmation authority.
@@ -150,11 +155,18 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='write:repository,' || scopes WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
 	for _, answer := range []string{"bring-in", "discard-foreign"} {
-		confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 403, "confirm_in_app")
+		if answer == "discard-foreign" {
+			raw := confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 202, "")
+			var receipt map[string]string
+			require.NoError(t, json.Unmarshal([]byte(raw), &receipt))
+			confirmationCall("/api/confirmations/"+receipt["confirmation"]+"/deny", "", ownerCookie, `{}`, "cancel-direct-discard", 200, "")
+		} else {
+			confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 503, "confirmation_unavailable")
+		}
 	}
 	var confirmations int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&confirmations))
-	require.Zero(t, confirmations)
+	require.Equal(t, 2, confirmations)
 	for _, command := range []string{"branch.bring-in", "branch.discard-foreign"} {
 		id := uuid.NewString()
 		_, err := pool.Exec(ctx, `INSERT INTO approvals(id,repository_id,state,kind,title,member_id,credential_id,command,subject,revision,payload,expires_at) VALUES($1,$2,'pending','one_click','Outside push',$3,'requesting-agent',$4,'{"kind":"branch","ref":"smithers/retry"}',$5,'{"id":"foreign"}',now()+interval '1 hour')`, id, repo.ID, owner.ID, command, head)
@@ -335,5 +347,60 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 			}
 		})
 	}
+
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked',checks=$2,pending_op=NULL WHERE id=$1`, item.ID, []byte(checks))
+	require.NoError(t, err)
+	raw := confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":"discard-foreign","id":"foreign","revision":%q}`, head), "approved-discard", 202, "")
+	var receipt map[string]string
+	require.NoError(t, json.Unmarshal([]byte(raw), &receipt))
+	beforePress, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	confirmationCall("/api/confirmations/"+receipt["confirmation"]+"/approve", ownerToken, "", `{}`, "agent-press", 403, "permission")
+	for range 2 {
+		confirmationCall("/api/confirmations/"+receipt["confirmation"]+"/approve", "", ownerCookie, `{}`, "person-press", 200, "")
+	}
+	afterPress, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, beforePress.CandidateHead, afterPress.CandidateHead)
+	require.Equal(t, beforePress.Generation, afterPress.Generation)
+	require.Equal(t, beforePress.Version+1, afterPress.Version)
+	require.Equal(t, head, afterPress.PRHead)
+	var settled map[string]any
+	require.NoError(t, json.Unmarshal(afterPress.Checks, &settled))
+	require.Equal(t, "discard-foreign", settled["waits"].([]any)[1].(map[string]any)["answer"])
+
+	// Generation changes invalidate the same observed head without consuming
+	// the foreign wait. A failed approval CAS rolls the branch effect back.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, []byte(checks))
+	require.NoError(t, err)
+	requestDiscard := func(key string) string {
+		raw := confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":"discard-foreign","id":"foreign","revision":%q}`, head), key, 202, "")
+		var result map[string]string
+		require.NoError(t, json.Unmarshal([]byte(raw), &result))
+		return result["confirmation"]
+	}
+	stale := requestDiscard("generation-discard")
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	stable, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	confirmationCall("/api/confirmations/"+stale+"/approve", "", ownerCookie, `{}`, "generation-press", 409, "confirmation_resolved")
+	unchanged, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, stable, unchanged)
+	retry := requestDiscard("rollback-discard")
+	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_confirmation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.state='approved' THEN RAISE EXCEPTION 'forced approval failure'; END IF; RETURN NEW; END $$;
+ CREATE TRIGGER reject_confirmation BEFORE UPDATE ON approvals FOR EACH ROW EXECUTE FUNCTION reject_confirmation()`)
+	require.NoError(t, err)
+	confirmationCall("/api/confirmations/"+retry+"/approve", "", ownerCookie, `{}`, "rollback-press", 503, "todo_unavailable")
+	unchanged, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, stable, unchanged)
+	var pendingState string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, retry).Scan(&pendingState))
+	require.Equal(t, "pending", pendingState)
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_confirmation ON approvals`)
+	require.NoError(t, err)
+	confirmationCall("/api/confirmations/"+retry+"/approve", "", ownerCookie, `{}`, "rollback-press", 200, "")
 
 }

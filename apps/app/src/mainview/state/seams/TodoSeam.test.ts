@@ -74,6 +74,28 @@ describe("TodoSeam — admission and live completion", () => {
       expect(calls).toEqual([])
     } finally { restored.close() }
   })
+  test("an approved Discard reconnects to the branch wait without resending", async () => {
+    const calls: RequestInit[] = [], storage = memoryStorage()
+    const model = fixtures.foreign_push.model, wait = model.waits[0]!
+    const row: MemberConfirmation = { id: "10000000-0000-4000-8000-000000000004", command: "branch.discard-foreign", state: "approved", revision: "item:2:1:head", expires_at: "2099-01-01T00:00:00Z",
+      payload: { input: { id: wait.id, revision: wait.sha }, card: { ...confirms.one_click.model, subject: { kind: "branch", ref: model.branch!.name, revision: "item:2:1:head" } }, effect: { todo: 12, request: "confirmation:discard" } } }
+    const h = await harness(async (_url, init) => { if (init?.method) calls.push(init); return json(model, 200) }, storage)
+    await h.seam.observeConfirmation(row)
+    expect(h.todo().payload.requests[0]).toMatchObject({ operation: "discard-foreign", body: { id: wait.id, revision: wait.sha, branch: model.branch!.name } })
+    h.close()
+    const restored = await harness(async (_url, init) => { if (init?.method) calls.push(init); return json(model, 200) }, storage)
+    try {
+      restored.seam.resumeTodos(); await restored.seam.observeConfirmation(row)
+      await waitFor(() => restored.observed.has("todo:12"))
+      expect(restored.outcomes).toEqual([])
+      restored.observed.get("todo:12")!({ ...model, waits: model.waits.filter(item => item.id !== wait.id) })
+      await waitFor(() => restored.outcomes.length === 1)
+      expect(restored.outcomes[0]).toMatchObject({ key: "todo.request.confirmation:discard", status: "ok", detail: "Discarded" })
+      await restored.seam.observeConfirmation(row)
+      expect(restored.outcomes).toHaveLength(1)
+      expect(calls).toEqual([])
+    } finally { restored.close() }
+  })
   test("an approved Amend reconnects and waits for its exact committed revision", async () => {
     const storage = memoryStorage(), calls: RequestInit[] = []
     const row: MemberConfirmation = { id: "10000000-0000-4000-8000-000000000002", command: "todo.amend", state: "approved", revision: "item:2:1", expires_at: "2099-01-01T00:00:00Z",

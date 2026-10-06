@@ -492,3 +492,20 @@ func TestConfirmationAmendUnavailableAndMalformedPostgres(t *testing.T) {
 	require.NoError(t, json.Unmarshal(revisions, &entries))
 	require.Len(t, entries, 1)
 }
+
+func TestConfirmationCancelUnavailableConsumerPostgres(t *testing.T) {
+	f := newConfirmationFixture(t)
+	r := f.request(confirmationNew("cancel-unavailable"))
+	// The service remains composed, but the original command consumer has
+	// disappeared. Cancellation must never invoke that command.
+	f.exec(`UPDATE mythical_stacks SET state='frozen' WHERE repository_id=$1`, f.repo)
+	_, err := f.service.DecideConfirmation(f.person, r.ID, "approve", "approve")
+	requireConfirmationCode(t, err, "confirmation_unavailable")
+	require.Equal(t, "pending", f.state(r.ID))
+	for range 2 {
+		receipt, err := f.service.DecideConfirmation(f.person, r.ID, "deny", "cancel")
+		require.NoError(t, err)
+		require.Equal(t, "rejected", receipt.State)
+	}
+	require.Zero(t, f.count("mythical_items"))
+}
