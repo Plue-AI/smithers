@@ -2,10 +2,12 @@
  * The Run card (T-FLW-07): maps the run to RunView's props and binds every
  * press through cardActions. Embedded, the card offers Inspect; maximized (the
  * monitor) it offers Answer, Steer and Stop; a failed or interrupted run offers
- * Retry. MOCK: the model comes from the seeded design world
+ * Retry. App-agent preflight reads the verified durable HTTP turn; other runs
+ * come from the seeded design world
  * (state/seams/DesignWorld/run.ts) until topic `run:<id>` lands; the flows it
  * names are flows/entries/runs.ts (run.inspect) and todo.ts (the rest).
  */
+import { useLiveQuery } from "@tanstack/react-db"
 import { useState, type ComponentType } from "react"
 import type { MonitorCard, RunViewProps } from "@smthrs/rpc/MonitorCard"
 import { useController } from "../ControllerContext"
@@ -60,10 +62,12 @@ export const RunContainer = ({ model, dispatch, View = RunView, view, onView }: 
 const RunBody = ({ card, maximized }: { readonly card: CardOf<"run">; readonly maximized: boolean }) => {
   const controller = useController()
   const world = useDesignWorld()
+  useLiveQuery(controller.store.collections.httpTurns)
+  useLiveQuery(controller.store.collections.identitySessions)
   const [view, setView] = useState<Partial<RunViewProps["view"]>>({})
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
-  return <RunContainer model={monitorOf(world, card.payload.id)} dispatch={dispatch}
+  return <RunContainer model={controller.contextRun(card.payload.id) ?? monitorOf(world, card.payload.id)} dispatch={dispatch}
     view={{ ...view, maximized }} onView={patch => setView(current => ({ ...current, ...patch }))} />
 }
 export const runCardFamily: CardFamily<"run"> = {

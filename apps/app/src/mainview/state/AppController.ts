@@ -1,3 +1,5 @@
+import { contextMonitor } from "./ContextMonitor"
+import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
 import { FileDocuments } from "../runtime/FileDocuments"
 import type { DocumentPrerequisites } from "../runtime/LiveDocProvider"
 import type { LiveChannel } from "../runtime/LiveChannel"
@@ -537,6 +539,7 @@ export interface AppController extends IssueFlowsController {
   /** With a `subject` (Branch, Terminal: card-kinds.md L5) the card is `${kind}:${subject}` with payload `{ id: subject }`. */
   readonly presentCard: (kind: "setup" | "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
   /** Opens (or reveals) the Run card for run `id`; `maximize` is Inspect. */
+  readonly contextRun: (id: string) => MonitorCard | undefined
   readonly presentRun: (id: string, title: string, maximize: boolean) => Promise<string>
   /** Opens (or reveals) the Flow card for flow `name`, at `version` when given. */
   readonly presentFlow: (name: string, title: string, version?: string) => Promise<string>
@@ -956,6 +959,11 @@ export const createAppController = (
     const card: Card = kind === "branch" || kind === "terminal" ? { ...base, kind, payload: { id: subject ?? "" } } : { ...base, kind, payload: {} }
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
     return `Opened ${title}`
+  }
+  const contextRun = (id: string): MonitorCard | undefined => {
+    const owner = ctx.accountOwner()
+    const turn = [...store.collections.httpTurns.values()].find(row => row.turnId === id && row.owner === owner)
+    return turn === undefined ? undefined : contextMonitor(turn)
   }
   /* THE EMBED LAW: only a person's press maximizes; the agent's binding (ActorBindings) opens the Run card embedded. */
   const { presentRun } = actors.pair(ctx, context => ({ presentRun: async (runId: string, title: string, maximize: boolean): Promise<string> => {
@@ -1782,6 +1790,7 @@ export const createAppController = (
     live: services.live,
     design,
     presentCard,
+    contextRun,
     presentRun,
     presentFlow,
     presentSubject,
@@ -2285,6 +2294,7 @@ export const createAppController = (
     design,
     live: services.live,
     presentCard,
+    contextRun,
     presentRun,
     presentFlow,
     presentBranchCard,

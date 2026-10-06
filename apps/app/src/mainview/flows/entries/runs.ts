@@ -30,11 +30,14 @@ const runGrammar: Grammar = args => {
 export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   /*
    * The Run card doors (T-FLW-07): `/run` opens the card, `/run.inspect` is
-   * Inspect (the card maximized), `/runs` opens every run still going. MOCK:
+   * Inspect (the card maximized), `/runs` opens every run still going. Stored
+   * app-agent preflight is read first; otherwise
    * they read the seeded design world (state/seams/DesignWorld/run.ts) until
    * topic `run:<id>` and /api/runs land; the handlers then read those.
    */
   const open = async (id: string, maximize: boolean): Promise<CommandResult> => {
+    const stored = actions.contextRun(id)
+    if (stored !== undefined) return { value: await actions.presentRun(stored.id, stored.title, maximize) }
     const trace = traceNamed(actions.design.world(), id)
     if (trace === undefined) return `No run ${id}`
     return { value: await actions.presentRun(trace.id, trace.title, maximize) }

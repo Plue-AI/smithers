@@ -21,6 +21,7 @@ export const HttpTurnSchema = z.object({
   id: Identity, turnId: Identity, owner: z.string().nullable().optional(), legId: Identity,
   status: z.enum(["active", "complete", "failed", "cancelled", "ambiguous"]),
   preflight: ContextPreflightResultSchema.optional(),
+  preflightPhase: z.enum(["started", "completed"]).optional(),
   receivedText: z.boolean(), runLaunch: z.string().optional(), askClass: HttpAskClassSchema.optional(), claimBuffer: z.string(),
   createdAt: z.number().finite(), revision: z.number().int().nonnegative()
 }).strict()
@@ -109,6 +110,7 @@ export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, f
   const act = (text: string): void => { transitions.push({ type: "message.tool.executed", actor: "smithers", turnId: turn.turnId, text }) }
   if (frame.type === "context.preflight") {
     turn.preflight = frame.result
+    turn.preflightPhase = frame.phase ?? "completed"
   } else if (frame.type === "card") {
     if (!isRuntimeOwnedCard(frame.card) && !isRuntimeOwnedCard(view.card(frame.card.id)) && !view.protectedCard(frame.card.id)) {
       transitions.push({ type: "card.upsert", actor: "smithers", card: agentFrameCard(frame.card, view.card(frame.card.id)) })
