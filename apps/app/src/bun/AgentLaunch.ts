@@ -141,8 +141,10 @@ const processSpawn: Spawn = (argv, options) => {
   const child = spawnProcess(argv[0]!, argv.slice(1), {
     cwd: options.cwd, env: options.env, detached: true, stdio: ["pipe", "ignore", "pipe"]
   })
+  let reaped = false
+  let groupGone = false
   const exited = new Promise<number>(resolve => {
-    child.once("exit", code => resolve(code ?? -1))
+    child.once("exit", code => { reaped = true; resolve(code ?? -1) })
     child.once("error", () => resolve(-1))
   })
   child.stdin.on("error", () => {}) // An early exit may close stdin before the write.
@@ -150,18 +152,29 @@ const processSpawn: Spawn = (argv, options) => {
   let tail = ""
   child.stderr.on("data", bytes => { tail = (tail + String(bytes)).slice(-STDERR_TAIL) })
   const group = child.pid
+  const alive = () => {
+    if (group === undefined || groupGone) return false
+    try { process.kill(-group, 0); return true } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === "EPERM") return true // Still exists; only ESRCH proves the group is gone.
+      if (code !== "ESRCH") throw error
+      if (reaped) groupGone = true
+      return false
+    }
+  }
   return {
     exited,
     kill: (signal = "SIGTERM") => {
-      if (group === undefined) return
+      if (group === undefined || (reaped && !alive())) return
       try { process.kill(-group, signal) } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+        const code = (error as NodeJS.ErrnoException).code
+        // macOS may refuse a signal during teardown; the bounded group poll
+        // still requires ESRCH before admission can reopen.
+        if (code !== "ESRCH" && code !== "EPERM") throw error
+        if (code === "ESRCH" && reaped) groupGone = true
       }
     },
-    alive: () => {
-      if (group === undefined) return false
-      try { process.kill(-group, 0); return true } catch { return false }
-    },
+    alive,
     stderr: () => tail
   }
 }
@@ -217,7 +230,11 @@ export type LaunchResult =
 
 const AGENT_NAMES: Record<LaunchAgent, string> = { codex: "Codex", "claude-code": "Claude Code" }
 
-/** Starts agent CLIs one at a time; `dispose` stops every CLI it started. */
+/**
+ * Starts agent CLIs one at a time; `dispose` stops every CLI it started.
+ * On macOS a descendant calling setsid() escapes process-group signals.
+ * Full supervision is pending an engineering-lead ruling (#3736).
+ */
 export function agentLauncher(options: AgentLauncherOptions) {
   const spawn = options.spawn ?? processSpawn
   const now = options.now ?? Date.now
@@ -231,6 +248,8 @@ export function agentLauncher(options: AgentLauncherOptions) {
   let queue: Promise<unknown> = Promise.resolve()
   let disposed = false
   let epoch = 0
+  let revocations = 0
+  let terminationFailed = false
   let pending = 0
   let stopping: Promise<void> | undefined
   const terminations = new WeakMap<LaunchedChild, Promise<void>>()
@@ -245,7 +264,18 @@ export function agentLauncher(options: AgentLauncherOptions) {
       while ((!exited || child.alive?.() === true) && Date.now() < deadline) await Bun.sleep(Math.min(10, Math.max(1, deadline - Date.now())))
       if (!exited || child.alive?.() === true) child.kill("SIGKILL")
       await exit
-    })().finally(() => children.delete(child))
+      const killedDeadline = Date.now() + Math.max(terminateMs, 2_000)
+      while (child.alive?.() === true) {
+        if (Date.now() >= killedDeadline) {
+          terminationFailed = true
+          throw new Error("Agent process group did not stop before the deadline.")
+        }
+        await Bun.sleep(10)
+      }
+    })().then(() => { children.delete(child) }, error => {
+      terminationFailed = true
+      throw error
+    })
     terminations.set(child, stopping)
     return stopping
   }
@@ -262,7 +292,7 @@ export function agentLauncher(options: AgentLauncherOptions) {
   const run = async (agent: LaunchAgent, cli: LaunchableCli, prompt: string, admitted: number, hold: (completion: Promise<void>) => void): Promise<LaunchResult> => {
     const name = AGENT_NAMES[agent]
     if (disposed) return { error: `${name} cannot start: this host is stopping.`, reason: "stopping" }
-    if (admitted !== epoch) return cancelled()
+    if (admitted !== epoch || terminationFailed) return cancelled()
     const cwd = await realpath(options.cwd)
     const launch: Launch = { cwd, launchedAt: now() }
     const home = await realpath(options.home ?? userInfo().homedir)
@@ -276,7 +306,7 @@ export function agentLauncher(options: AgentLauncherOptions) {
       return { error: `${name}'s home is unsafe.`, reason: "unsafe_home" }
     }
     const roots = (await cli.roots()).filter(root => resolve(root) === join(agentHome, agent === "codex" ? "sessions" : "projects"))
-    if (disposed || admitted !== epoch) return disposed ? { error: `${name} cannot start: this host is stopping.`, reason: "stopping" } : cancelled()
+    if (disposed || admitted !== epoch || terminationFailed) return disposed ? { error: `${name} cannot start: this host is stopping.`, reason: "stopping" } : cancelled()
     const child = spawn([...cli.command, ...launchArguments(agent, cwd)], { cwd, env, stdin: prompt })
     children.add(child)
     let exit: number | undefined
@@ -311,12 +341,21 @@ export function agentLauncher(options: AgentLauncherOptions) {
   return {
     /** The agents this host can start, in a fixed order. */
     agents: (["codex", "claude-code"] as const).filter(agent => options.agents[agent] !== undefined),
+    /** Capture before reading a launch request's body. */
+    admission: () => stopping !== undefined || revocations > 0 || terminationFailed ? -1 : epoch,
+    /** Hold admission closed through the entire identity transition. */
+    revoke: async <T>(transition: () => Promise<T>): Promise<T> => {
+      revocations++
+      epoch++
+      try { await stopAll(); return await transition() }
+      finally { revocations-- }
+    },
     /** Undefined when this host cannot start `agent`. */
-    launch: (agent: LaunchAgent, prompt: string): Promise<LaunchResult> | undefined => {
+    launch: (agent: LaunchAgent, prompt: string, generation = epoch): Promise<LaunchResult> | undefined => {
       const cli = options.agents[agent]
       if (cli === undefined) return undefined
       if (disposed) return Promise.resolve({ error: `${AGENT_NAMES[agent]} cannot start: this host is stopping.`, reason: "stopping" })
-      if (stopping !== undefined) return Promise.resolve(cancelled())
+      if (stopping !== undefined || revocations > 0 || terminationFailed || generation !== epoch) return Promise.resolve(cancelled())
       if (pending >= maxPending) return Promise.resolve({ error: "Too many agent launches are pending.", reason: "busy" })
       pending++
       const admitted = epoch

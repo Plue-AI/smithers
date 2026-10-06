@@ -798,13 +798,14 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
    */
   const launcher = localPreview ? options.agentLauncher : undefined
   if (launcher !== undefined) router.add("POST", EXTERNAL_LAUNCH_PATH, async ({ request }) => {
+    const generation = launcher.admission()
     const read = await readJson(request, 64 * 1024)
     if ("error" in read) return read.error
     const body = read.body as { agent?: unknown; prompt?: unknown } | undefined
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : ""
     const agent = launcher.agents.find(each => each === body?.agent)
     if (agent === undefined || prompt === "") return jsonError("invalid_request", `Name an agent this host starts (${launcher.agents.join(", ")}) and give it a prompt.`)
-    const launched = await launcher.launch(agent, prompt)!
+    const launched = await launcher.launch(agent, prompt, generation)!
     // Only a typed, public failure crosses the HTTP boundary; stderr stays local.
     return "error" in launched ? jsonError("agent_unavailable", launched.error, { reason: launched.reason }) : json(launched)
   })
@@ -1043,8 +1044,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
    */
   router.add("POST", CLOUD_AUTH_START_PATH, async () => {
     if (cloudAuth === undefined) return jsonError("not_implemented", "The cloud seam is disabled in this build.")
-    await launcher?.stopAll()
-    const started = await cloudAuth.start()
+    const started = await (launcher ? launcher.revoke(() => cloudAuth.start()) : cloudAuth.start())
     return "error" in started ? jsonError("cloud_auth_unavailable", started.error) : json(started)
   })
   router.add("GET", CLOUD_AUTH_SESSION_PATH, () =>
@@ -1069,8 +1069,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   }
   router.add("POST", CLOUD_AUTH_SIGN_OUT_PATH, async () => {
     if (cloudAuth === undefined) return jsonError("not_implemented", "The cloud seam is disabled in this build.")
-    await launcher?.stopAll()
-    await cloudAuth.signOut()
+    await (launcher ? launcher.revoke(() => cloudAuth.signOut()) : cloudAuth.signOut())
     closeCloudBridges(4401, "signed out of Smithers Cloud")
     return json({ ok: true })
   })
@@ -1251,8 +1250,9 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       }
       if (pathname === "/api/auth/session") return jsonError("not_found", `No route for ${request.method} ${pathname}.`)
       if (pathname.startsWith(AUTH_ROUTE_PREFIX) || pathname.startsWith(IDENTITY_ROUTE_PREFIX)) {
-        if (pathname === "/api/auth/sign-out" || pathname === "/api/auth/sign-in") await launcher?.stopAll()
-        return identityUpstream === null ? stubIdentity() : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
+        const transition = async () => identityUpstream === null ? stubIdentity() : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
+        return launcher && (pathname === "/api/auth/sign-out" || pathname === "/api/auth/sign-in")
+          ? launcher.revoke(transition) : transition()
       }
       /*
        * The product API. The cloud client is served BY the Worker, so every

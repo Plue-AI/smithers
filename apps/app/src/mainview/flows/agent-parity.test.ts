@@ -22,6 +22,7 @@ import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
+import { loadBox } from "../state/TestFixtures"
 import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } from "../state/StorageRecoveryContract"
 import { modelInvocable, nameOf } from "./registry"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
@@ -288,12 +289,16 @@ describe("the three-door law", () => {
   })
 
   test("the two automatic callers' flows stay invocable automatically", async () => {
-    const { controller } = await boot()
-    for (const name of ["flow.plan", "triggers.list"]) {
-      const entry = controller.commands.entries().find((candidate) => nameOf(candidate) === name)
-      expect(entry && modelInvocable(entry)).toBe(true)
-    }
-    controller.dispose()
+    const { store, controller } = await boot()
+    try {
+      cloudSession(store, "signed-in", "will")
+      await loadBox(store, "will/smithers")
+      await settle()
+      expect((await controller.commands.run("flow.plan", "review will/smithers", "automatic")).status).toBe("executed")
+      expect([...store.collections.cards.values()].some(card => card.kind === "flow-plan" && card.payload.flowId === "review")).toBe(true)
+      expect((await controller.commands.run("triggers.list", "will/smithers", "automatic")).status).toBe("executed")
+      expect(store.collections.cards.get("trigger-list-will/smithers")?.kind).toBe("trigger-list")
+    } finally { controller.dispose() }
   })
 
   test("every agent row of the policy table is invocable through the tool; a confirm row yields the confirm card, never a refusal", async () => {

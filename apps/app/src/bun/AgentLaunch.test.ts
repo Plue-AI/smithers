@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { request as httpRequest } from "node:http"
 import { tmpdir, userInfo } from "node:os"
 import { join } from "node:path"
 import { Result } from "effect"
@@ -336,6 +337,59 @@ describe("starting an agent", () => {
     } finally { await launcher.dispose() }
   })
 
+  test("identity revocation holds admission through transition completion and failure", async () => {
+    const { launcher } = await fixtureLauncher("identity-gate")
+    for (const fail of [false, true]) {
+      const generation = launcher.admission()
+      let release!: () => void
+      const held = new Promise<void>(resolve => { release = resolve })
+      const transition = launcher.revoke(async () => { await held; if (fail) throw new Error("identity failed") })
+      await launcher.stopAll()
+      const during = launcher.admission()
+      expect(await launcher.launch("codex", "during identity")).toMatchObject({ reason: "cancelled" })
+      release()
+      if (fail) await expect(transition).rejects.toThrow("identity failed")
+      else await transition
+      expect(await launcher.launch("codex", "old request", generation)).toMatchObject({ reason: "cancelled" })
+      expect(await launcher.launch("codex", "body delayed through identity", during)).toMatchObject({ reason: "cancelled" })
+    }
+    expect(await launcher.launch("codex", "fresh")).toHaveProperty("session")
+    await launcher.dispose()
+  })
+
+  test("SIGKILL waits for descendants after the leader exits before reopening admission", async () => {
+    let exit!: () => void
+    let groupAlive = true
+    let killed!: () => void
+    const kill = new Promise<void>(resolve => { killed = resolve })
+    const { launcher } = await fixtureLauncher("group-drain", { pollMs: 5, terminateMs: 10,
+      spawn: () => ({ exited: new Promise<number>(resolve => { exit = () => resolve(137) }),
+        kill: signal => { if (signal === "SIGKILL") { exit(); killed() } }, alive: () => groupAlive, stderr: () => "" }) })
+    const launch = launcher.launch("codex", "held")!
+    await Bun.sleep(30)
+    const stopping = launcher.stopAll()
+    await kill
+    let drained = false
+    void stopping.then(() => { drained = true })
+    await Bun.sleep(20)
+    expect(drained).toBe(false)
+    expect(await launcher.launch("codex", "before group disappearance")).toMatchObject({ reason: "cancelled" })
+    groupAlive = false
+    await stopping
+    expect(await launch).toMatchObject({ reason: "cancelled" })
+    await launcher.dispose()
+  })
+
+  test("a group surviving SIGKILL fails at the deadline and never reopens admission", async () => {
+    let exit!: () => void
+    const { launcher } = await fixtureLauncher("group-deadline", { timeoutMs: 20, pollMs: 5, terminateMs: 0,
+      spawn: () => ({ exited: new Promise<number>(resolve => { exit = () => resolve(137) }),
+        kill: signal => { if (signal === "SIGKILL") exit() }, alive: () => true, stderr: () => "" }) })
+    await expect(launcher.launch("codex", "unstoppable group")!).rejects.toThrow("Agent process group did not stop before the deadline.")
+    expect(await launcher.launch("codex", "after failed termination")).toMatchObject({ reason: "cancelled" })
+    await expect(launcher.dispose()).rejects.toThrow("Agent process group did not stop before the deadline.")
+  })
+
   test("termination escalates after a deadline and awaits actual exit (#3736)", async () => {
     const signals: string[] = []
     let exit!: () => void
@@ -373,7 +427,6 @@ describe("starting an agent", () => {
       const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
       expect(ids.every(alive)).toBe(true)
       await launcher.dispose()
-      for (let n = 0; n < 100 && ids.some(alive); n++) await Bun.sleep(10)
       expect(ids.filter(alive)).toEqual([])
     } finally {
       const ids = await Bun.file(pids).json().catch(() => []) as number[]
@@ -503,6 +556,50 @@ describe(`POST ${EXTERNAL_LAUNCH_PATH}`, () => {
     }
     expect(killed).toBe(1)
     expect(spawned).toBe(1)
+  })
+
+  test("a POST held in its body stays cancelled after sign-out and both client sweeps; real fixture CLIs never spawn", async () => {
+    const base = join(scratch, "late-body")
+    await mkdir(base, { recursive: true })
+    const marker = join(base, "spawned")
+    const script = join(base, "fixture.ts")
+    await writeFile(script, `await Bun.write(${JSON.stringify(marker)}, String(process.pid)); await import(${JSON.stringify(FIXTURE_CLI.codex)});`)
+    const root = join(base, "codex", "sessions")
+    const { launcher, roots } = await fixtureLauncher("late-body", {
+      agents: { codex: { command: [process.execPath, script], env: { CODEX_HOME: join(base, "codex") }, roots: async () => [root] } }
+    })
+    let admitted!: () => void
+    const admission = new Promise<void>(resolve => { admitted = resolve })
+    const capture = launcher.admission
+    launcher.admission = () => { const generation = capture(); admitted(); return generation }
+    const server = await serve({ launcher, roots })
+    let late!: ReturnType<typeof httpRequest>
+    const response = new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+      late = httpRequest(`${server.origin}${EXTERNAL_LAUNCH_PATH}`, {
+        method: "POST", headers: { "content-type": "application/json", [LOCAL_SESSION_HEADER]: server.sessionToken }
+      }, result => {
+        let body = ""
+        result.on("data", bytes => { body += String(bytes) })
+        result.on("end", () => resolve({ status: result.statusCode!, body: JSON.parse(body) }))
+      })
+      late.on("error", reject)
+      late.write('{"agent":"codex","prompt":"')
+    })
+    try {
+      await admission
+      await fetch(`${server.origin}/api/auth/sign-out`, { method: "POST", headers: { [LOCAL_SESSION_HEADER]: server.sessionToken } })
+      for (let sweep = 0; sweep < 2; sweep++) {
+        expect((await fetch(`${server.origin}${EXTERNAL_LAUNCH_PATH}`, { method: "DELETE", headers: { [LOCAL_SESSION_HEADER]: server.sessionToken } })).status).toBe(200)
+      }
+      late.end('old owner"}')
+      expect(await response).toMatchObject({ status: 503, body: { error: { code: "agent_unavailable", reason: "cancelled" } } })
+      expect(await Bun.file(marker).exists()).toBe(false)
+      expect(await sessionStartsSince("codex", await roots("codex"), 0)).toEqual([])
+      // The same real fixture would write a session if spawned; a fresh request still does.
+      expect((await post(server, { agent: "codex", prompt: "fresh owner" })).status).toBe(200)
+      expect(await Bun.file(marker).exists()).toBe(true)
+      expect(await sessionStartsSince("codex", await roots("codex"), 0)).toHaveLength(1)
+    } finally { late.destroy(); await launcher.dispose() }
   })
 
   test("a host without a launcher, or one with Smithers Cloud, has no launch door", async () => {

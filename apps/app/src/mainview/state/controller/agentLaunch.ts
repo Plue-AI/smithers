@@ -52,8 +52,8 @@ export const createAgentLaunch = (
       const response = await http(EXTERNAL_LAUNCH_PATH, { method: "DELETE" })
       if (!response.ok) throw new Error("Launched agents could not be stopped.")
     }
-    // Stop now, then sweep again after old POSTs settle. New account launches
-    // wait behind both sweeps so a delayed old request cannot outlive sign-out.
+    // Keep both cleanup sweeps; abort settling is not server completion.
+    // The server admission generation revokes old POSTs across sign-out.
     cleanup = cleanup.then(async () => {
       try { await remove() } finally {
         await Promise.allSettled(previous)
