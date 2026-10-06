@@ -1,6 +1,6 @@
-smthrs stack — TODOs and the stack
+smthrs stack — Show the stack and background runs
 
-Usage: smthrs stack <command>
+Usage: smthrs stack [options] | <command>
 
 Commands:
   move  Reorder an item
