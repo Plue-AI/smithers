@@ -51,7 +51,7 @@ test("install wiki doors load repository pages into embedded cards through the p
     expect(pages[0]?.body).toBe("# Install decision\n\nKeep every edit.")
     expect([...store.collections.cards.values()].some(card => card.id.startsWith("wiki-open-") && card.kind === "world")).toBe(true)
     expect(requests.some(url => url.includes("/wiki/retries/document?"))).toBe(true)
-    expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "wiki.page", args: "Install decision" }) })).toContain("Install decision")
+    expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "wiki.page", args: "Install decision" }) })).toBe("failed: this command runs on the conversation host")
     expect([...store.collections.cards.keys()].some(id => id.startsWith("design:wiki:"))).toBe(false)
     expect(await controller.runCommandForResult("wiki.page", "New decision")).toMatchObject({ status: "executed" })
     expect(creates).toBe(1)

@@ -45,8 +45,8 @@ describe("the shell's branch flow", () => {
       expect(at(h.controller)).toBe("b-checkout")
       expect(h.store.collections.cards.get("branch:b-checkout")).toMatchObject({ kind: "branch", title: "fix-checkout-race" })
 
-      expect(await h.controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "branch", args: "b-stripe" }) })).toBe("Opened upgrade-stripe"); await tick()
-      expect(at(h.controller)).toBe("b-stripe")
+      expect(await h.controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "branch", args: "b-stripe" }) })).toBe("failed: this command runs on the conversation host"); await tick()
+      expect(at(h.controller)).toBe("b-checkout")
     } finally { await h.controller.dispose() }
   })
 
