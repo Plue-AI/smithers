@@ -12,11 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -152,4 +156,33 @@ func TestTodoPinnedVersionComposedInstall(t *testing.T) {
 	queuedCard := read()
 	require.Equal(t, "queued", queuedCard["state"])
 	require.Equal(t, "daily_limit", queuedCard["queue"].(map[string]any)["reason"], "the install card exposes the admission hold")
+	// Exercise the engine verdict projection and the person-facing card,
+	// rather than treating the parser's helper output as publication proof.
+	for _, tc := range []struct{ name, output, verdict string }{
+		{"exact", "approve\n- clean", "approve"},
+		{"crlf", "request-changes\r\n- fix", "request-changes"},
+		{"blank first line", "\napprove", "failed: the review's first line was not a verdict"},
+		{"leading space", " approve", "failed: the review's first line was not a verdict"},
+		{"trailing space", "approve ", "failed: the review's first line was not a verdict"},
+		{"finding quotes approval", "Finding: unsafe\napprove", "failed: the review's first line was not a verdict"},
+	} {
+		t.Run("review/"+tc.name, func(t *testing.T) {
+			head := strings.Repeat("f", 40)
+			checks, err := json.Marshal(map[string]any{"flowSource": source, "review": map[string]any{"head": head, "candidate": head, "runId": "review-run"}})
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',attempt=1,pr_head=$2,candidate_head=$2,checks=$3,reason='' WHERE id=$1`, item.ID, head, checks)
+			require.NoError(t, err)
+			projection, err := json.Marshal(map[string]any{"kind": flowdispatch.StackBindingKind, "itemId": uuid.UUID(item.ID.Bytes).String(), "generation": 0, "attempt": 1, "phase": "review", "flowDigest": digest, "flowSource": source})
+			require.NoError(t, err)
+			update := flowdispatch.ProjectionUpdate{State: jobs.StateCompleted, Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "review/change", RunID: "review-run", ExecutionDigest: strings.Repeat("1", 64), Projection: projection, Run: &flowruntime.Run{RunID: "review-run", FinalOutput: &tc.output}}}
+			require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+			require.Contains(t, fmt.Sprint(read()["evidence"]), tc.verdict)
+			// A delayed approval cannot overwrite an unread/rejected result.
+			late := "approve"
+			update.Checkpoint.Run.FinalOutput = &late
+			require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+			require.Contains(t, fmt.Sprint(read()["evidence"]), tc.verdict)
+		})
+	}
+
 }

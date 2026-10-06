@@ -813,8 +813,9 @@ func mythicalReviewVerdict(output string) string {
 	if json.Unmarshal([]byte(output), &text) != nil {
 		text = output
 	}
-	first, _, _ := strings.Cut(strings.TrimLeft(text, " \t\r\n"), "\n")
-	switch verdict := strings.TrimSpace(first); verdict {
+	first, _, _ := strings.Cut(text, "\n")
+	// CRLF is a line ending; other whitespace is part of the verdict.
+	switch verdict := strings.TrimSuffix(first, "\r"); verdict {
 	case "approve", "request-changes":
 		return verdict
 	}
@@ -2107,7 +2108,8 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
-	next.Plan = nil
+	// Keep the latest retained plan across legacy recovery launches; the
+	// very-hard continuation needs it even if intervening runs return no plan.
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
