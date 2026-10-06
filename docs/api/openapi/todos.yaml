@@ -1,4 +1,30 @@
 paths:
+  /api/stack:
+    get:
+      x-composition: install
+      summary: Read the install Home snapshot
+      operationId: get_api_stack
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+        - tokenAuth: []
+      responses:
+        '200':
+          description: The author-scoped Home projection, shared with the live home topic
+          headers:
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeCard'
+        '401':
+          description: A live credential is required
+        '403':
+          description: Repository access refused
+        '503':
+          description: Stack projection unavailable
   /api/todos:
     get:
       x-composition: install
@@ -443,6 +469,21 @@ paths:
           description: Install repository or run signalling unavailable
 components:
   schemas:
+    HomeCard:
+      description: HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
+      type: object
+      required: [repository, main, attention, items, counts, merged_since_last_look, machines, background_runs]
+      properties:
+        repository: {type: string}
+        main: {type: object, additionalProperties: true}
+        attention: {type: array, items: {type: object, additionalProperties: true}}
+        items: {type: array, items: {type: object, additionalProperties: true}}
+        counts: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        merged_since_last_look: {type: array, items: {type: integer, minimum: 1}}
+        machines: {type: object, additionalProperties: true}
+        background_runs: {type: array, items: {type: object, additionalProperties: true}}
+        parallel: {type: integer, minimum: 0}
+      additionalProperties: true
     TodoCard:
       description: One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
       type: object

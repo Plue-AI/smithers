@@ -2164,6 +2164,9 @@ importers:
 
   packages/smithers/agent/model-host:
     dependencies:
+      '@smthrs/cli':
+        specifier: workspace:*
+        version: link:../..
       '@smthrs/kernel':
         specifier: workspace:*
         version: link:../../flows/kernel

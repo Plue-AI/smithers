@@ -954,6 +954,9 @@ func buildRouter(
 		if queries != nil {
 			r.Use(delegatedAttribution(services.NewAuditService(queries)))
 		}
+		if config.IsSingleOwner(cfg.Auth) && extras.Live != nil {
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/stack", extras.Live.Stack)
+		}
 		if config.IsSingleOwner(cfg.Auth) && workspaceTerminalHandler != nil {
 			r.With(middleware.RequireAuth).Post("/terminals", workspaceTerminalHandler.OpenTerminal)
 		}

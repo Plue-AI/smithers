@@ -17,7 +17,7 @@ import type { ContextPreflightFrame, ContextPreflightInput, ContextPreflightResu
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect } from "effect"
 import { runContextPreflight } from "./ContextPreflight.ts"
-import { apiReader, hostOwned, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
+import { apiCaller, hostOwned, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
 import { CommitRefused, ProducerUnreachable, ProviderStartRefused, ReceiptMismatch } from "./ModelHostError.ts"
 import type { ProducerError } from "./ModelHostError.ts"
 import { runModelTurn } from "./ModelTurnHost.ts"
@@ -299,7 +299,7 @@ export const runDurableChatTurn = (
       yield* runHostTurn(model, prepared, options, write, {
         read: sourceReader(callbackBaseUrl, grant, fetchImpl),
         list: sourceLister(callbackBaseUrl, grant, fetchImpl),
-        api: apiReader(callbackBaseUrl, grant, fetchImpl)
+        api: apiCaller(callbackBaseUrl, grant, fetchImpl)
       })
       return
     }

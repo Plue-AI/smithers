@@ -6,31 +6,20 @@
 
 import { Cli, z } from "incur"
 import { randomUUID } from "node:crypto"
-import { type CatalogHttpBinding, catalogRequest } from "../../CatalogRequest.ts"
+import { catalogDescriptors } from "../../Catalog.ts"
+import { catalogRequest } from "../../CatalogRequest.ts"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
-import catalog from "./catalog.mvp.json" with { type: "json" }
 import { Client, list, object } from "./Client.ts"
 
-interface CatalogDescriptor {
-  name: string
-  cli: Array<string> | null
-  actors: Array<string>
-  visibility: string
-  group: string
-  agent: string
-  summary: string
-  payload: { schema: Record<string, any>; definitions?: Record<string, any> }
-  http: CatalogHttpBinding | null
-}
 /**
  * Generated operations with a CLI door and external-agent policy.
  *
  * @private
  * @since 1.0.0
  */
-export const catalogCommands = (catalog.operations as Array<CatalogDescriptor>).filter((row) =>
+export const catalogCommands = catalogDescriptors.filter((row) =>
   row.cli !== null && (row.agent === "never" || (row.actors.includes("external_agent") &&
     (row.visibility === "core" || row.visibility === "advanced")))
 )

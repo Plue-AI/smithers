@@ -61,7 +61,17 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 			if answered {
 				delta = map[string]any{"content": "Stack listed."}
 			} else {
-				delta = map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "stack-read", "type": "function", "function": map[string]string{"name": "commands", "arguments": `{"action":"execute","name":"stack"}`}}}}
+				calls := []any{}
+				for i, args := range []string{
+					`{"action":"execute","name":"stack"}`,
+					`{"action":"execute","name":"stack.move","args":"T2 up"}`,
+					`{"action":"execute","name":"todo.stop","args":"T1"}`,
+					`{"action":"execute","name":"todo.drop","args":"T1"}`,
+					`{"action":"execute","name":"merge","args":"T1"}`,
+				} {
+					calls = append(calls, map[string]any{"index": i, "id": fmt.Sprintf("catalog-%d", i), "type": "function", "function": map[string]string{"name": "commands", "arguments": args}})
+				}
+				delta = map[string]any{"role": "assistant", "tool_calls": calls}
 				finish = "tool_calls"
 			}
 		}
@@ -69,7 +79,7 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 	}))
 	defer provider.Close()
-	bearer := make(chan string, 4)
+	bearer := make(chan string, 8)
 	local := startConfiguredLocalChat(t, func(local *localChat, options *chat.RuntimeOptions) {
 		q := db.New(local.pool)
 		ctx := local.ctx
@@ -84,6 +94,14 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: local.ownerID, Username: "chatowner", SessionKey: hex.EncodeToString(cookie[:]), ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
 		_, err = q.InsertMythicalTodo(ctx, local.repoID, local.ownerID, "Add greeting", "Add greeting", json.RawMessage(`[]`), json.RawMessage(`{"todo":true}`))
+		require.NoError(t, err)
+		_, err = q.InsertMythicalTodo(ctx, local.repoID, local.ownerID, "Second greeting", "Second greeting", json.RawMessage(`[]`), json.RawMessage(`{"todo":true}`))
+		require.NoError(t, err)
+		_, err = q.RequestMythicalBootstrap(ctx, local.repoID, local.ownerID, 1, false)
+		require.NoError(t, err)
+		_, err = local.pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, local.repoID)
+		require.NoError(t, err)
+		_, err = local.pool.Exec(ctx, `UPDATE mythical_items SET stack_position=number WHERE repository_id=$1`, local.repoID)
 		require.NoError(t, err)
 		cfg := testConfigAllFlagsOn()
 		cfg.Auth.Mode = "selfhost"
@@ -107,12 +125,19 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 					}
 				}
 			}
-			args[len(args)-1] = reflect.ValueOf([]any{routerExtras{Mythical: &routes.MythicalHandler{Service: services.NewMythicalService(local.pool, nil)}, Members: &routes.MembersHandler{Service: auth.Members}}})
+			service := services.NewMythicalService(local.pool, nil)
+			topics := &liveTopics{queries: q, todos: service}
+			args[len(args)-1] = reflect.ValueOf([]any{routerExtras{Mythical: &routes.MythicalHandler{Service: service}, Members: &routes.MembersHandler{Service: auth.Members}, Live: &routes.LiveHandler{Queries: q, Topics: topics.resolver}}})
 			router := fn.CallSlice(args)[0].Interface().(chi.Router)
 			mountChatPublic(router, runtime, q, cfg)
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/api/todos" {
-					require.Equal(t, "GET", r.Method)
+				if r.URL.Path == "/api/stack" || strings.HasPrefix(r.URL.Path, "/api/todos/") {
+					if r.URL.Path == "/api/stack" {
+						require.Equal(t, "GET", r.Method)
+					} else {
+						require.Equal(t, "POST", r.Method)
+						require.True(t, strings.HasPrefix(r.Header.Get("Idempotency-Key"), "chat:"))
+					}
 					require.Equal(t, "smithers", r.Header.Get("Smithers-Via"))
 					require.Empty(t, r.Header.Get("Cookie"))
 					bearer <- strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -159,17 +184,44 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	default:
 		t.Fatal("host never called the public API")
 	}
-	require.Empty(t, bearer, "one tool call must read once")
+	for i := 0; i < 4; i++ {
+		select {
+		case next := <-bearer:
+			require.Equal(t, token, next)
+		default:
+			t.Fatal("missing catalog HTTP call")
+		}
+	}
+	require.Empty(t, bearer, "each tool call must reach the API once")
+	var order []int64
+	rows, err := local.pool.Query(local.ctx, `SELECT number FROM mythical_items WHERE repository_id=$1 ORDER BY stack_position`, local.repoID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var n int64
+		require.NoError(t, rows.Scan(&n))
+		order = append(order, n)
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	require.Equal(t, []int64{2, 1}, order, "the generic command must persist the reordered stack")
+	var settled int
+	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM mythical_items WHERE repository_id=$1 AND state IN ('cancelled','landed')`, local.repoID).Scan(&settled))
+	require.Zero(t, settled, "drop/merge cannot act without their person's confirmation")
 	require.True(t, strings.HasPrefix(token, "smithers_"))
 	var frames string
 	require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT string_agg(frames::text,'') FROM chat_turn_batches WHERE turn_id=$1`, admitted.TurnID).Scan(&frames))
-	require.Contains(t, frames, "Add greeting")
 	require.Contains(t, frames, "Stack listed.")
 	require.NotContains(t, frames, token)
 	require.NotContains(t, local.logs.String(), token)
 	mu.Lock()
 	captured := append([]string(nil), requests...)
 	mu.Unlock()
+	modelRequests := strings.Join(captured, "\n")
+	require.Contains(t, modelRequests, "Add greeting")
+	require.Contains(t, modelRequests, "todo_control_unavailable")
+	require.Contains(t, modelRequests, "confirmation_unavailable")
+	require.Contains(t, modelRequests, `\"place\":1`)
+
 	for _, body := range captured {
 		require.NotContains(t, body, token)
 	}

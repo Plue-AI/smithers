@@ -927,6 +927,20 @@ export type LearningProposalCard = {
   }
 }
 
+/** HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved. */
+export type HomeCard = {
+  repository: string
+  main: Record<string, unknown>
+  attention: Array<Record<string, unknown>>
+  items: Array<Record<string, unknown>>
+  counts: Record<string, number>
+  merged_since_last_look: Array<number>
+  machines: Record<string, unknown>
+  background_runs: Array<Record<string, unknown>>
+  parallel?: number
+  [key: string]: unknown
+}
+
 /** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
 export type TodoCard = {
   n: number
@@ -5635,6 +5649,12 @@ export interface PostApiTerminalsInput {
 /** POST /api/terminals: Open a branch terminal */
 export const postApiTerminals = (transport: Transport, input: PostApiTerminalsInput): Promise<void> =>
   transport.request("POST", `/api/terminals`, input.body).then(() => undefined)
+
+export type GetApiStackResponse = HomeCard
+
+/** GET /api/stack: Read the install Home snapshot */
+export const getApiStack = (transport: Transport): Promise<GetApiStackResponse> =>
+  transport.request("GET", `/api/stack`) as Promise<GetApiStackResponse>
 
 export type GetApiTodosResponse = Array<TodoCard>
 

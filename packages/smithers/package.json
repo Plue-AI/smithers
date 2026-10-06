@@ -123,7 +123,8 @@
       "bun": "./vendor/opentui-native/runtime.bun.mjs",
       "default": "./vendor/opentui-native/runtime.node.mjs"
     },
-    "./CatalogRequest": "./src/CatalogRequest.ts"
+    "./CatalogRequest": "./src/CatalogRequest.ts",
+    "./Catalog": "./src/Catalog.ts"
   },
   "files": [
     "bin/**/*.mjs",
@@ -774,6 +775,16 @@
         "require": {
           "types": "./dist/cjs/CatalogRequest.d.ts",
           "default": "./dist/cjs/CatalogRequest.js"
+        }
+      },
+      "./Catalog": {
+        "import": {
+          "types": "./dist/esm/Catalog.d.ts",
+          "default": "./dist/esm/Catalog.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Catalog.d.ts",
+          "default": "./dist/cjs/Catalog.js"
         }
       }
     }

@@ -16139,7 +16139,8 @@
       "//packages/rpc:check",
       "//packages/smithers/agent/model-host:lib",
       "//packages/smithers/agent/model:lib",
-      "//packages/smithers/flows/kernel:lib"
+      "//packages/smithers/flows/kernel:lib",
+      "//packages/smithers:lib"
     ],
     "source": {
       "file": "packages/smithers/agent/model-host/PACKAGE.ts"
@@ -16280,7 +16281,8 @@
     "dependencies": [
       "//packages/rpc:check",
       "//packages/smithers/agent/model:lib",
-      "//packages/smithers/flows/kernel:lib"
+      "//packages/smithers/flows/kernel:lib",
+      "//packages/smithers:lib"
     ],
     "source": {
       "file": "packages/smithers/agent/model-host/PACKAGE.ts"
@@ -16416,7 +16418,8 @@
       "//packages/rpc:check",
       "//packages/smithers/agent/model-host:lib",
       "//packages/smithers/agent/model:lib",
-      "//packages/smithers/flows/kernel:lib"
+      "//packages/smithers/flows/kernel:lib",
+      "//packages/smithers:lib"
     ],
     "source": {
       "file": "packages/smithers/agent/model-host/PACKAGE.ts"

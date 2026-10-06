@@ -276,6 +276,9 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			return json.Marshal(profiles)
 		}}, ""
 	case topic == "home":
+		if t.todos == nil {
+			return live.Source{}, live.Unsupported
+		}
 		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			return t.home(ctx, repository, slug, member)
 		}}, ""

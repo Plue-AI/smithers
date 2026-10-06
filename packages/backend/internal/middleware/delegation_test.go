@@ -105,6 +105,7 @@ func TestTerminalProfileRoutes(t *testing.T) {
 		{"GET", "/api/user"},
 		{"GET", "/api/user/repos"},
 		{"GET", "/api/todos"},
+		{"GET", "/api/stack"},
 		{"GET", "/api/todos/3"},
 		{"GET", "/api/repos/acme/app"},
 		{"GET", "/api/repos/acme/app/mythical/items/4"},
@@ -125,6 +126,8 @@ func TestTerminalProfileRoutes(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, serve(terminal, allowed[0], allowed[1]).Code, "%v", allowed)
 	}
 	for _, refused := range [][2]string{
+		{"POST", "/api/stack"},
+		{"GET", "/api/stack/12"},
 		{"POST", "/api/todos/3/merge"},
 		{"POST", "/api/todos/3/answers"},
 		{"POST", "/api/todos/x/answer"},

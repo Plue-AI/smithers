@@ -154,3 +154,41 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusNormalClosure, "")
 	}
 }
+
+// Stack returns the same author-scoped Home snapshot as the live home topic.
+// It uses ordinary API authentication and accepts no caller-selected repository.
+func (h *LiveHandler) Stack(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Queries == nil || h.Topics == nil {
+		liveRefusal(w, 503, "infra", "stack_unavailable", "Stack unavailable")
+		return
+	}
+	if _, err := services.Authorize(r.Context(), h.Queries, "todo.read"); err != nil {
+		var access *services.AccessError
+		if errors.As(err, &access) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(access.Status)
+			_ = json.NewEncoder(w).Encode(access)
+		} else {
+			liveRefusal(w, 503, "infra", "stack_unavailable", "Stack unavailable")
+		}
+		return
+	}
+	resolve, repository := h.Topics(r)
+	if resolve == nil || repository <= 0 {
+		liveRefusal(w, 503, "infra", "stack_unavailable", "Stack unavailable")
+		return
+	}
+	source, refusal := resolve(r.Context(), "home")
+	if refusal != "" || source.Build == nil {
+		liveRefusal(w, 503, "infra", "stack_unavailable", "Stack unavailable")
+		return
+	}
+	raw, err := source.Build(r.Context())
+	if err != nil {
+		liveRefusal(w, 503, "infra", "stack_unavailable", "Stack unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(raw)
+}

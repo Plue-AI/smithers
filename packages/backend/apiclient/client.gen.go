@@ -1534,6 +1534,35 @@ type LearningProposalCardTodo struct {
 	Title string `json:"title"`
 }
 
+// HomeCard — HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
+type HomeCard struct {
+	Repository           string                       `json:"repository"`
+	Main                 map[string]json.RawMessage   `json:"main"`
+	Attention            []map[string]json.RawMessage `json:"attention"`
+	Items                []map[string]json.RawMessage `json:"items"`
+	Counts               map[string]int64             `json:"counts"`
+	MergedSinceLastLook  []int64                      `json:"merged_since_last_look"`
+	Machines             map[string]json.RawMessage   `json:"machines"`
+	BackgroundRuns       []map[string]json.RawMessage `json:"background_runs"`
+	Parallel             *int64                       `json:"parallel,omitempty"`
+	AdditionalProperties map[string]json.RawMessage   `json:"-"`
+}
+
+// UnmarshalJSON keeps the members HomeCard does not declare in AdditionalProperties.
+func (v *HomeCard) UnmarshalJSON(data []byte) error {
+	type plain HomeCard
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "repository", "main", "attention", "items", "counts", "merged_since_last_look", "machines", "background_runs", "parallel")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of HomeCard.
+func (v HomeCard) MarshalJSON() ([]byte, error) {
+	type plain HomeCard
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
 // TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
 type TodoCard struct {
 	N                    int64                         `json:"n"`
@@ -5592,6 +5621,13 @@ func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 // PostAPITerminals calls POST /api/terminals.
 func (c *Client) PostAPITerminals(ctx context.Context, body PostAPITerminalsBody) error {
 	return c.do(ctx, "POST", "/api/terminals", nil, body, nil)
+}
+
+// GetAPIStack calls GET /api/stack.
+func (c *Client) GetAPIStack(ctx context.Context) (HomeCard, error) {
+	var out HomeCard
+	err := c.do(ctx, "GET", "/api/stack", nil, nil, &out)
+	return out, err
 }
 
 // GetAPITodos calls GET /api/todos.
