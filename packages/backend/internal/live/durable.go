@@ -106,6 +106,9 @@ func (h *Hub) serveDurable(ctx context.Context, source Source, resume *int64, se
 			if !send(frame{T: "delta", Cursor: &seq, Data: json.RawMessage(event.Data)}) {
 				return stopped
 			}
+			if source.RefreshDelta != nil {
+				lastSnapshot = source.RefreshDelta(lastSnapshot, json.RawMessage(event.Data))
+			}
 			cursor = seq
 			return nil
 		})
@@ -151,7 +154,7 @@ func (h *Hub) serveDurable(ctx context.Context, source Source, resume *int64, se
 			if source.RefreshSnapshot != nil && time.Since(lastRefresh) >= source.RefreshEvery {
 				lastRefresh = time.Now()
 				head, data, err := source.Snapshot(ctx)
-				if err == nil && head == cursor && !bytes.Equal(source.RefreshSnapshot(data), lastSnapshot) {
+				if err == nil && head == cursor && json.Valid(data) && !bytes.Equal(source.RefreshSnapshot(data), lastSnapshot) {
 					if source.RefreshSnapshot != nil {
 						lastSnapshot = append(lastSnapshot[:0], source.RefreshSnapshot(data)...)
 					}

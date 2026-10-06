@@ -1747,17 +1747,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				}
 				return json.Marshal(entries)
 			}
-			topics.viewState = func(ctx context.Context, member int64, branch string) (json.RawMessage, error) {
-				repository, _, err := installRepository(ctx, queries)
-				if err != nil {
-					return nil, err
-				}
-				canonical, err := resolveBranch(ctx, chat.Scope{RepositoryID: repository, UserID: member}, branch)
-				if err != nil {
-					return nil, err
-				}
-				return chatService.runtime.Handler.Store.ReadMemberViewState(ctx, member, canonical)
-			}
+			topics.viewState = conversationLiveViewState(queries, chatService.runtime.Handler.Store, workspaceService)
 		}
 
 		topics.documents = options.DocumentRelay

@@ -343,7 +343,8 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}
 		if t.jobs != nil {
 			scope := jobs.Scope{TenantID: strconv.FormatInt(repository, 10), PrincipalID: "todo:" + uuid.UUID(item.ID.Bytes).String()}
-			source = liveJobSource(source, t.jobs, scope)
+			source = liveCardRefresh(liveJobSource(source, t.jobs, scope), "card")
+			source.RefreshEvery = time.Second
 		}
 
 		return source, ""
