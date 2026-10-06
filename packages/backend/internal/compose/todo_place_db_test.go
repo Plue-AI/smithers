@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -111,6 +112,25 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	code, body = call("POST", "/api/todos/1", `{"op":"move","direction":"up"}`, "first")
 	require.Equal(t, 409, code, body)
 	require.Equal(t, "conflict", body["code"])
+	// Failed TODOs stay dependencies at their actual position even though
+	// the legacy snapshot groups their rows after moving items.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked' WHERE repository_id=$1 AND number=4`, repo)
+	require.NoError(t, err)
+	first, err := q.GetMythicalItemByNumber(ctx, repo, 1)
+	require.NoError(t, err)
+	fourth, err := q.GetMythicalItemByNumber(ctx, repo, 4)
+	require.NoError(t, err)
+	code, body = call("GET", "/api/repos/maya/app/mythical", "", "")
+	require.Equal(t, 200, code, body)
+	foundDependencies := false
+	for _, entry := range body["items"].([]any) {
+		row := entry.(map[string]any)
+		if row["number"] == float64(2) {
+			require.Equal(t, []any{uuid.UUID(first.ID.Bytes).String(), uuid.UUID(fourth.ID.Bytes).String(), uuid.UUID(third.ID.Bytes).String()}, row["dependsOn"])
+			foundDependencies = true
+		}
+	}
+	require.True(t, foundDependencies)
 	// A fenced target refuses both doors without shifting the order.
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op='{"kind":"merge","target":"4","desired":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","state":"intended"}' WHERE repository_id=$1 AND number=4`, repo)
 	require.NoError(t, err)
