@@ -170,7 +170,14 @@ export const withHomeRowControls = (model: HomeModel): HomeModel => {
     if (row.state === "merged" || row.state === "dropped") return row
     const index = open.indexOf(row)
     const args = { n: String(row.n) }
-    const actions = [...row.actions]
+    const actions = row.actions.flatMap(action => {
+      // Older served snapshots label every wait Answer. Keep the shared wait policy at the client boundary.
+      if (row.state !== "needs_you" || action.tag !== "todo.answer" || row.needs_you === undefined) return [action]
+      const primary = actionFor(row, { role: "member" })
+      return primary ? [{ ...primary, ...(primary.tag === "branch" ? { args: { name: row.branch.name } } : {}) }] : []
+    })
+    if (row.branch.name && !actions.some(action => action.tag === "branch" && action.args?.door === "branch"))
+      actions.push({ tag: "branch", label: row.branch.name, args: { name: row.branch.name, door: "branch" } })
     for (const direction of ["up", "down"] as const) {
       if (direction === "up" && index === 0 || direction === "down" && index === open.length - 1) continue
       if (!actions.some(action => action.tag === "stack.move" && action.args?.direction === direction))
@@ -219,6 +226,9 @@ export const useHome = (active = true): HomeAnswer | undefined => {
   return { kind: source.kind, model, role: source.kind === "seed" ? seeded.role : session, synced: sync !== undefined }
 }
 
+const NO_HOME_VIEW = { get: () => EMPTY_HOME_VIEW, subscribe: (_notify: () => void) => () => {} }
+const EMPTY_HOME_VIEW = { maximized: false }
+
 /**
  * The Home card of `main`'s conversation and `/stack` (T-APP-01), composed from the controller: Home and the viewer's
  * role (useHome), the Home admission, the registry dispatch and the member's view state. `production` overrides any part
@@ -228,7 +238,10 @@ export const HomeCard = ({ production }: {
   readonly production?: Partial<Omit<HomeContainerProps, "model" | "View">>
 } = {}) => {
   const controller = useController()
-  const member = useDesignHomeView()
+  const seededView = useDesignHomeView()
+  const views = controller.homeView
+  const servedView = useSyncExternalStore(views?.subscribe ?? NO_HOME_VIEW.subscribe, views?.get ?? NO_HOME_VIEW.get, views?.get ?? NO_HOME_VIEW.get)
+  const member = views ? { view: servedView, onView: views.onView } : seededView
   const dispatch = useMemo(() => homeDispatch(controller), [controller])
   const home = useHome()
   if (home === undefined) return null

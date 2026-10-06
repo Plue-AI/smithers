@@ -118,6 +118,19 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   const { fixtures } = await import("@smthrs/rpc/fixtures/Todo")
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
   let login = "ben"
+  const memberViews: Record<string, Record<string, unknown>> = {
+    ben: { scroll_anchor: "entry-8", last_seen_seq: 12, home: { filter: null }, toasts_hidden: false },
+    alice: { home: { filter: null }, toasts_hidden: false },
+    maya: { home: { filter: null }, toasts_hidden: false }
+  }
+  const viewWrites: Array<{ login: string; body: unknown }> = []
+  await page.route("**/api/conversations/main/view-state", route => {
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON()
+      viewWrites.push({ login, body }); memberViews[login] = body
+    }
+    return route.fulfill({ json: memberViews[login] })
+  })
   await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: login, is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: {
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })), capacity: 2, this_mac: { capacity: 2, memory_gb: 16, disk_free_gb: 100 },
@@ -135,13 +148,14 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
       { ...fixtures.in_review.model.owner, login: "alice", name: "Alice", color_index: 2, role: "member", needs_access: false, suspended: false, actions: [] }
     ]
   } }))
+  let conflict = false
   let moved = false
   let dropped = false
   const drops: Array<{ body: unknown; key: string | undefined }> = []
   const moves: Array<{ body: unknown; key: string | undefined }> = []
   const secondTodo = { ...review, n: 2, place: 2, title: "Second TODO" }
   const thirdTodo = { ...review, n: 3, place: 3, title: "Third TODO" }
-  const currentTodos = () => (moved ? [{ ...thirdTodo, place: 2 }, { ...secondTodo, place: 3 }] : [secondTodo, thirdTodo]).filter(todo => !dropped || todo.n !== 2)
+  const currentTodos = () => (moved ? [{ ...thirdTodo, place: 2 }, { ...secondTodo, place: 3 }] : [secondTodo, thirdTodo]).filter(todo => !dropped || todo.n !== 2).map(todo => conflict && todo.n === 3 ? { ...todo, state: "needs_you", waits: fixtures.conflict.model.waits } : todo)
   await page.route("**/api/todos", route => route.fulfill({ json: [
     { ...fixtures.merged.model, n: 1, place: 1 }, ...currentTodos()
   ] }))
@@ -189,12 +203,25 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   expect(drops[0]!.body).toEqual({ op: "drop" })
   expect(drops[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
   await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
+
+  const reviewFilter = home.locator('[data-filter="in_review"]')
+  await reviewFilter.click()
+  await expect.poll(() => viewWrites.length).toBe(1)
+  expect(viewWrites[0]).toEqual({ login: "ben", body: { scroll_anchor: "entry-8", last_seen_seq: 12, home: { filter: "in_review" }, toasts_hidden: false } })
+  await page.reload()
+  await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
   login = "alice"
   await page.reload()
   await expect(home.getByText("T3", { exact: true })).toBeVisible()
   await expect(home.getByText("T2", { exact: true })).toHaveCount(0)
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
+  await expect(reviewFilter).toHaveAttribute("aria-pressed", "false")
+  expect(memberViews.ben?.home).toEqual({ filter: "in_review" })
   login = "maya"
   await page.reload()
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(1)
+  conflict = true
+  await expect(home.getByRole("button", { name: "Resolve", exact: true })).toBeVisible()
+  await expect(home.getByRole("button", { name: "Answer", exact: true })).toHaveCount(0)
+  await expect(home.locator('.branch-chip')).toHaveCount(1)
 })

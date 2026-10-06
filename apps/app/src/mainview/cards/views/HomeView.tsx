@@ -32,7 +32,8 @@ function HomeRow({ item, onAction, now }: { item: HomeItem; now: number } & Pick
   if (clockBase.current.elapsed !== item.elapsed_s || clockBase.current.state !== item.state) clockBase.current = { at: now, elapsed: item.elapsed_s, state: item.state }
   const elapsed = (item.elapsed_s ?? 0) + (item.state === "working" || item.state === "starting" ? Math.max(0, Math.floor((now - clockBase.current.at) / 1000)) : 0)
   const title = item.actions.find(action => action.args?.door === "title")
-  const branch = item.actions.find(action => action.tag === "branch")
+  const branch = item.actions.find(action => action.tag === "branch" && action.args?.door === "branch")
+    ?? item.actions.find(action => action.tag === "branch" && action.label !== "Resolve")
   const menu = item.actions.filter(action => action !== title && action !== branch && ORDER.has(action.label))
   const actions = item.actions.filter(action => action !== title && action !== branch && !ORDER.has(action.label))
   const actionControls = []
