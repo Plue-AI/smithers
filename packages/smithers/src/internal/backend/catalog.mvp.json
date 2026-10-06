@@ -250,7 +250,7 @@
       "summary": "Ask agent",
       "http": {
         "method": "POST",
-        "path": "/api/agent/turn"
+        "path": "/api/conversations/{id}/prompt"
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -2402,30 +2402,6 @@
       "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Restore queued prompts to Chat",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "chat.queue.resume",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Resume queued prompts",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -8414,6 +8390,75 @@
       }
     },
     {
+      "name": "run.view",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "run",
+      "summary": "Select a run detail",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "cardId": {
+              "type": "string"
+            },
+            "selected": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "at": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tab": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "run",
+                    "journal",
+                    "custom"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "cardId"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "runs",
       "slash": "/runs",
       "cli": [
@@ -10551,6 +10596,38 @@
           },
           "required": [
             "parallel"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "settings.preapprove-default",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "New TODOs start pre-approved",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "todo_preapprove_default": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "todo_preapprove_default"
           ],
           "additionalProperties": true
         },

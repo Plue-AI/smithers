@@ -27,6 +27,7 @@ func TestForkRequestReplaysAfterMainMoves(t *testing.T) {
 	person, err := db.New(pool).GetUserByID(t.Context(), f.userID)
 	require.NoError(t, err)
 	ctx := middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &person, SessionHash: "fork-person-session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, f.repoID)
 	input := BranchForkInput{From: "main", Name: "request-retry", Request: "same-fork"}
 	first, err := f.service.ForkBranch(ctx, f.repoID, f.userID, input)
 	require.NoError(t, err)
@@ -64,6 +65,15 @@ func TestForkRequestReplaysAfterMainMoves(t *testing.T) {
 	require.Equal(t, head, f.hostRef("refs/heads/"+first.Name))
 	_, err = f.service.ForkBranch(context.Background(), f.repoID, f.userID, BranchForkInput{From: "main", Request: "same-fork"})
 	require.Error(t, err, fmt.Sprint("receipt requires the original person's authority"))
+	_, err = pool.Exec(ctx, `DELETE FROM auth_sessions WHERE session_key=$1`, middleware.AuthInfoFromContext(ctx).SessionHash)
+	require.NoError(t, err)
+	input.Name = "request-retry"
+	_, err = f.service.ForkBranch(ctx, f.repoID, f.userID, input)
+	var dead *AccessError
+	require.ErrorAs(t, err, &dead)
+	require.Equal(t, 401, dead.Status)
+	require.Equal(t, "unauthenticated", dead.Code)
+
 }
 
 func TestRetainedWorkspaceForkUsesRevisionWriter(t *testing.T) {
@@ -78,6 +88,7 @@ func TestRetainedWorkspaceForkUsesRevisionWriter(t *testing.T) {
 	person, err := q.GetUserByID(t.Context(), f.userID)
 	require.NoError(t, err)
 	ctx := middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &person, SessionHash: "retained-workspace-session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, f.repoID)
 	source, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, Name: "main", TargetBookmark: "main", Status: "running"})
 	require.NoError(t, err)
 	input := ForkWorkspaceInput{RepositoryID: f.repoID, UserID: f.userID, WorkspaceID: source.ID, Name: "retained-door", Request: "retained-fork"}
@@ -146,6 +157,7 @@ func TestInterruptedForkRetainsOriginalRevision(t *testing.T) {
 	person, err := db.New(pool).GetUserByID(t.Context(), f.userID)
 	require.NoError(t, err)
 	ctx := middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &person, SessionHash: "interrupted-fork-session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, f.repoID)
 	input := BranchForkInput{From: "main", Name: "interrupted-retry", Request: "interrupted-fork"}
 	_, err = f.service.ForkBranch(ctx, f.repoID, f.userID, input)
 	require.EqualError(t, err, "interrupted after workspace creation")

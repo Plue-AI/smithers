@@ -149,7 +149,7 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	router.Post("/api/todos/{n}/merge", todos.Merge)
 	served := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 	for _, route := range []struct{ method, path string }{{"GET", "/api/user"}, {"GET", "/api/repos/maya/demo/wiki"}, {"GET", "/api/install"},
-		{"GET", "/api/members"}, {"POST", "/api/members"}, {"POST", "/api/agent/turn"}, {"POST", "/api/repos/maya/demo/workspace/sessions"}} {
+		{"GET", "/api/members"}, {"POST", "/api/members"}, {"POST", "/api/conversations/1/prompt"}, {"POST", "/api/repos/maya/demo/workspace/sessions"}} {
 		router.MethodFunc(route.method, route.path, served)
 	}
 	call := func(method, path, body string, header http.Header) (int, map[string]any) {
@@ -215,7 +215,7 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 				{"GET", "/api/install", "", permission},
 				{"GET", "/api/members", "", permission},
 				{"POST", "/api/members", `{"login":"carol"}`, permission},
-				{"POST", "/api/agent/turn", `{}`, permission},
+				{"POST", "/api/conversations/1/prompt", `{}`, permission},
 				// The owner's alone: the member boundary refuses a member first.
 				{"POST", "/api/repos/maya/demo/workspace/sessions", `{}`, permission},
 			} {

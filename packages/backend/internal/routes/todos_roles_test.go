@@ -58,6 +58,8 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) SELECT 'owner.access', value || jsonb_build_object('last_access_check_at',to_char(now(),'YYYY-MM-DD"T"HH24:MI:SS"Z"')) FROM install_settings WHERE key='github.repository'`)
+	require.NoError(t, err)
 	checks := `{"todo":true,"run_launched":true,"run_attached":true,"waits":[{"id":"q-0123456789abcdef","kind":"question","prompt":"Backoff or a fixed delay?","since":"2026-10-05T08:00:00Z",
 		"signal":{"scope":{"TenantID":"repository:1","PrincipalID":"user:1"},"target":{"TenantID":"repository:1","PrincipalID":"user:1","WorkspaceID":"w-1","BindingKind":"mythical-item","BindingID":"i-1"},"flow":"todo","run":"run-1","name":"coding-clarification"}}]}`
 	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo, State: "running", Checks: []byte(checks)})

@@ -215,7 +215,19 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 		return BranchMachineResponse{}, &BranchError{403, "permission", "permission", "Access denied"}
 	}
 	if input.Request == "" {
-		return s.forkBranch(ctx, repositoryID, actorID, input, nil, nil)
+		if s == nil || s.store == nil {
+			return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
+		}
+		var branch BranchMachineResponse
+		err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+			if err := guardInstallTodoWrite(ctx, tx, repositoryID, actorID); err != nil {
+				return err
+			}
+			var err error
+			branch, err = s.forkBranch(ctx, repositoryID, actorID, input, nil, nil)
+			return err
+		})
+		return branch, err
 	}
 	if len(input.Request) > 256 {
 		return BranchMachineResponse{}, &BranchError{400, "bad_request", "user", "Invalid Idempotency-Key"}
@@ -233,6 +245,9 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 	intentID := uuid.NewSHA1(confirmationNamespace, []byte(id+"\x00intended")).String()
 	var branch BranchMachineResponse
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		if err := guardInstallTodoWrite(ctx, tx, repositoryID, actorID); err != nil {
+			return err
+		}
 		digest := sha256.Sum256([]byte(id))
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(binary.BigEndian.Uint64(digest[:8]))); err != nil {
 			return err

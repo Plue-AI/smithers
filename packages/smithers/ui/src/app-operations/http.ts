@@ -28,7 +28,7 @@ export const httpProjections = [
   read("members.list", "/api/members", "never"),
   read("secrets.read", "/api/secrets", "never"),
   operation({ name: "agent.turn", input: NoInput, summary: "Ask agent", hidden: true, visibility: "hidden", agent: "run", credentialScope: "read:user",
-    actors: ["person", "app_agent", "external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/agent/turn" } }),
+    actors: ["person", "app_agent", "external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/conversations/{id}/prompt" } }),
   operation({ name: "telemetry.report", credentialScope: "read:user", input: NoInput, summary: "Report error", hidden: true, visibility: "hidden", agent: "run",
     actors: ["person", "app_agent", "external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/telemetry/errors" } }),
   operation({ name: "sync.retry", input: NoInput, summary: "Retry sync", hidden: true, visibility: "hidden", agent: "run",

@@ -101,7 +101,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		{"GET", "/api/repos/maya/demo/mythical"}, {"GET", "/api/repos/maya/demo/mythical/events"}, {"GET", "/api/repos/maya/demo/mythical/items/T1"},
 		{"GET", "/api/github/sync"}, {"POST", "/api/github/sync"}, {"GET", "/api/live"},
 		{"GET", "/api/user/orgs"}, {"GET", "/api/user/workspaces"}, {"POST", "/api/telemetry/errors"},
-		{"POST", "/api/agent/turn"}, {"POST", "/api/agent/turn/cancel"}, {"POST", "/api/agent/turn/replay"}, {"POST", "/api/agent/turn/retire"},
+		{"POST", "/api/conversations/1/prompt"}, {"POST", "/api/agent/turn/replay"},
 		{"GET", "/api/agent/conversations"}, {"POST", "/api/agent/conversations/replay"},
 		{"GET", "/api/issues"}, {"GET", "/api/issues/2"},
 		{"GET", "/api/todos"}, {"GET", "/api/todos/1"}, {"POST", "/api/todos"}, {"POST", "/api/todos/1"}, {"POST", "/api/todos/1/answer"},
@@ -140,7 +140,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			want := http.StatusOK
 			switch {
 			case who == "owner":
-			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/agent/turn/cancel" || key == "POST /api/agent/turn/replay" || key == "POST /api/agent/turn/retire"):
+			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
 				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
 				want = http.StatusForbidden
@@ -172,7 +172,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:user,read:repository' WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
 	// The credential binder normalizes a scoped legacy CLI token to delegation.
-	status, _ = call("POST", "/api/agent/turn", "", ownerToken)
+	status, _ = call("POST", "/api/conversations/1/prompt", "", ownerToken)
 	require.Equal(t, http.StatusOK, status)
 	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
 	require.Equal(t, http.StatusOK, status)
@@ -181,7 +181,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	require.NoError(t, err)
 	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
 	require.Equal(t, http.StatusForbidden, status)
-	for _, path := range []string{"/api/agent/turn", "/api/todos/1/merge"} {
+	for _, path := range []string{"/api/conversations/1/prompt", "/api/todos/1/merge"} {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)
 	}
@@ -192,7 +192,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	require.NoError(t, err)
 	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
 	require.Equal(t, http.StatusOK, status)
-	for _, path := range []string{"/api/agent/turn", "/api/todos/1/merge"} {
+	for _, path := range []string{"/api/conversations/1/prompt", "/api/todos/1/merge"} {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)
 	}
