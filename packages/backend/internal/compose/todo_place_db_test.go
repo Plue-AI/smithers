@@ -55,6 +55,7 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	service := services.NewMythicalService(pool, nil)
 	router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
 	bearerToken := ""
+	browserCookie := "placement-session"
 	call := func(method, path, body, key string) (int, map[string]any) {
 		t.Helper()
 		req := httptest.NewRequest(method, cfg.Server.PublicURL+path, strings.NewReader(body))
@@ -65,7 +66,7 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 		req.Header.Set("X-CSRF-Token", "placement-csrf")
 		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "placement-csrf"})
 		if bearerToken == "" {
-			req.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: "placement-session"})
+			req.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: browserCookie})
 		} else {
 			req.Header.Set("Authorization", "Bearer "+bearerToken)
 		}
@@ -241,15 +242,36 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "delegated-move")
 	require.Equal(t, 202, code, body)
 	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	// Before stays private until the author confirms in their own session.
 	code, body = call("POST", "/api/todos", `{"title":"Delegated","prompt":"Add a line","place":{"mode":"before","n":7}}`, "delegated-create")
+	require.Equal(t, 202, code, body)
+	require.Equal(t, "pending", body["state"])
+	confirmation := body["confirmation"].(string)
+	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	code, body = call("POST", "/api/confirmations/"+confirmation+"/approve", `{}`, "agent-confirm")
 	require.Equal(t, 403, code, body)
-	require.Equal(t, "confirm_in_app", body["code"])
-	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	bearerToken = ""
+	code, body = call("POST", "/api/confirmations/"+confirmation+"/approve", `{}`, "other-member-confirm")
+	require.Equal(t, 403, code, body)
+	memberSession := "ben-placement-session"
+	memberSum := sha256.Sum256([]byte(memberSession))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(memberSum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	browserCookie = memberSession
+	for range 2 {
+		code, body = call("POST", "/api/confirmations/"+confirmation+"/approve", `{}`, "author-confirm")
+		require.Equal(t, 200, code, body)
+		require.Equal(t, "approved", body["state"])
+	}
+	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
+	created, err := q.GetMythicalItemByNumber(ctx, repo, 8)
+	require.NoError(t, err)
+	require.Equal(t, member.ID, created.CreatedBy.Int64)
+	bearerToken = delegated
 	code, body = call("POST", "/api/todos/7", `{"op":"drop"}`, "delegated-drop")
-	require.Equal(t, 503, code, body)
-	require.Equal(t, "infra", body["class"])
-	require.Equal(t, "confirmation_unavailable", body["code"])
-	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	require.Equal(t, 202, code, body)
+	require.Equal(t, "pending", body["state"])
+	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
 	for _, credential := range []string{
 		mint("smithers_"+strings.Repeat("f", 40), "read:repository,via:cli", true),
 		mint("smithers_"+strings.Repeat("a", 40), "write:repository", true),
@@ -262,13 +284,13 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsBefore))
 		code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "denied-move")
 		require.Equal(t, 403, code, "credential %s: %v", credential[len(credential)-8:], body)
-		require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+		require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
 		for _, place := range []string{`{"mode":"append"}`, `{"mode":"before","n":7}`} {
 			code, body = call("POST", "/api/todos", `{"title":"Denied","prompt":"Add a line","place":`+place+`}`, "denied-create-"+place)
 			require.Equal(t, 403, code, body)
 			require.Equal(t, "permission", body["class"])
 		}
-		require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+		require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsAfter))
 		require.Equal(t, eventsBefore, eventsAfter)
 	}
@@ -278,6 +300,6 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	bearerToken = delegated
 	code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "suspended-move")
 	require.Equal(t, 403, code, body)
-	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
 
 }

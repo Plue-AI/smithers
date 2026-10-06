@@ -316,7 +316,7 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err != nil {
 			return p, err
 		}
-		if request.Issue != nil || request.Place.Mode != "append" {
+		if request.Issue != nil {
 			return p, confirmationUnavailable()
 		}
 		if (subject.Kind != "" || subject.Ref != "") && (subject.Kind != "todo" || subject.Ref != "new") {
