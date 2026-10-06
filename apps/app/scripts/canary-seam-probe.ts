@@ -1,8 +1,8 @@
-import { probeHostTurn } from "./host-turn-probe"
 /** Probe the canonical HTTP contracts used by every application mode. */
 import { readFileSync } from "node:fs"
 import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import { AUTHENTICATED_USER_PATH, ApplicationUserSchema } from "@smthrs/rpc/ApplicationAuth"
+import { conversationProbe, PROMPT_PATH, promptBody } from "../../server/scripts/canary/conversation-probe"
 import { csrfHeaders } from "../../server/scripts/canary/uptime-checks"
 
 export async function probeCanonicalSeams(origin: string, cookie?: string): Promise<readonly string[]> {
@@ -33,8 +33,16 @@ export async function probeCanonicalSeams(origin: string, cookie?: string): Prom
     check("scoped identity", permitted)
     if (!permitted) return failures
   }
-  const turn = await probeHostTurn(origin, fetch, cookie ? { cookie, ...csrfHeaders(cookie) } : {}, runId)
-  check(cookie ? "completed host turn" : "anonymous prompt", cookie ? turn.completed : turn.status === 401)
+  if (!cookie) {
+    const turn = await request(PROMPT_PATH, { method: "POST", headers: { "content-type": "application/json" }, body: promptBody(runId) })
+    check("anonymous turn", turn.status === 401)
+    await turn.body?.cancel()
+  } else {
+    try {
+      const turn = await conversationProbe({ origin, key: runId, headers: { cookie, ...csrfHeaders(cookie) }, signal: AbortSignal.timeout(90_000), fetch, sleep: ms => Bun.sleep(ms) })
+      check("completed turn", turn.status === 202 && turn.state === "completed" && turn.frames.some(frame => frame.type === "done"))
+    } catch { check("completed turn", false) }
+  }
   const spa = await request("/")
   check("SPA", spa.status === 200 && (spa.headers.get("content-type") ?? "").includes("text/html"))
   await spa.body?.cancel()

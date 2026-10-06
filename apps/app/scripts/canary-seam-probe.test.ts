@@ -26,6 +26,7 @@ test("canonical probe requires real routes, auth refusal and valid same-run outp
         { id: turnId, state: mode === "error" ? "failed" : mode === "cancelled" ? "cancelled" : mode === "foreign" ? "uncertain" : "completed" }
       ] })
     }
+
     if (path === "/") return new Response("<html></html>", { headers: { "content-type": "text/html" } })
     return new Response(null, { status: 404 })
   } })

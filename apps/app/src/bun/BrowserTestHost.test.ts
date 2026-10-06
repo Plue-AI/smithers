@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { MODEL_CATALOG_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { ModelCatalogSchema } from "@smthrs/rpc/ConfiguredModel"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
-import { createChatStub } from "../../e2e/support/ChatStub"
 import { browserTestOptions } from "../../scripts/browser-test-host"
 import { DEFAULT_CLOUD_API, startLocalServer } from "./server"
 
@@ -20,7 +19,6 @@ describe("browser tests separate fixture ownership from real-host authority", ()
     expect(options).toMatchObject({
       home: "/fixture/owned",
       stateDir: "/fixture/owned/state",
-      agent: createChatStub,
       cloudMode: "offline",
       cloudApi: null,
       identityUpstream: null,
@@ -59,7 +57,7 @@ describe("browser tests separate fixture ownership from real-host authority", ()
       SMITHERS_MODEL_KEY_LOOPBACK: "explicit-fixture-key",
       SMITHERS_MODEL_KEY_LOOPBACK_ORIGIN: "http://127.0.0.1:12345"
     })
-    expect(options.agent).toBeUndefined()
+    expect("agent" in options).toBe(false)
     expect(options.cloudMode).toBe("hybrid")
     expect(options.home).toBe("/fixture/owned")
     expect(options.cloudApi).toBe(DEFAULT_CLOUD_API)

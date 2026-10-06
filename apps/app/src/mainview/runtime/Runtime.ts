@@ -1,5 +1,5 @@
 import { Data } from "effect"
-import { APP_BOOTSTRAP_PATH, AppBootstrapSchema, hasCapability } from "@smthrs/rpc/AppBootstrap"
+import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import type { FetchLike, StartAgentTurnResult } from "@smthrs/rpc/NativeAgent"
 
@@ -85,8 +85,8 @@ export const createRuntime = (options: {
     bootstrap,
     http,
     backend: {
-      ...((hasCapability(bootstrap, "install") || hasCapability(bootstrap, "agent")) ? { agent: createConversationHistory({ fetchImpl: http }) }
-        : {})
+      ...((bootstrap.capabilities.includes("install") || bootstrap.capabilities.includes("agent"))
+        ? { agent: createConversationHistory({ fetchImpl: http }) } : {})
     },
     shell: { kind: "browser" }
   }

@@ -16,7 +16,7 @@
  * fails only the error rate. An endpoint that is up and reliable but slow fails
  * only latency. Collapsing them would lose which of the three is true.
  */
-const CONVERSATION_PROMPT_PATH = "/api/conversations/main/prompt"
+import { conversationProbe, PROMPT_PATH, promptBody } from "./conversation-probe"
 import { AUTHENTICATED_USER_PATH, ApplicationUserSchema, CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from "@smthrs/rpc/ApplicationAuth"
 import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import { resolveOrigin } from "./BuildStamp.ts"
@@ -48,7 +48,7 @@ export const FIRST_MESSAGE_BUDGET_MS = 90_000
  *   spa 2_000 — the SPA is static assets from Cloudflare's edge. This is a
  *     transfer, not a computation.
  *   bootstrap 1_500 and turnGate 1_500 — the shared backend answers canonical
- *     `/api/bootstrap` or refuses a signed-out `/api/agent/turn`. The edge
+ *     `/api/bootstrap` or refuses a signed-out `/api/conversations/main/prompt`. The edge
  *     forwards these requests; neither sample starts a model turn.
  *
  * The three unmetered budgets are budgets for the MEDIAN of SAMPLES_PER_ENDPOINT
@@ -87,7 +87,7 @@ export const TURN_FIRST_FRAME_SAMPLES = 1
  * to state the sampling the number above actually does.
  */
 export const TURN_FIRST_FRAME_NOTE =
-  "single sample: host prompt admission is measured once; completion is verified by the canonical seam probe"
+  "single sample: the turn seam spends model credit, so this endpoint is measured once per metered run and its budget absorbs a cold start instead of a median"
 
 /**
  * CN-20's threshold. Read the honest scope note on `errorRateVerdict` before
@@ -649,8 +649,7 @@ export interface Endpoint {
 }
 
 /** The body shape apps/app/scripts/canary-seam-probe.ts sends to the turn seam. */
-export const turnRequestBody = (runId: string): string =>
-  JSON.stringify({ prompt: "Say the word ok and nothing else.", idempotencyKey: runId })
+export const turnRequestBody = promptBody
 
 export const endpointPlan = (runId: string): ReadonlyArray<Endpoint> => [
   { label: "spa", method: "GET", path: "/", expectedStatus: 200, budgetMs: LATENCY_BUDGETS_MS.spa, body: undefined },
@@ -670,7 +669,7 @@ export const endpointPlan = (runId: string): ReadonlyArray<Endpoint> => [
     // is spent.
     label: "turn-gate",
     method: "POST",
-    path: CONVERSATION_PROMPT_PATH,
+    path: PROMPT_PATH,
     expectedStatus: 401,
     budgetMs: LATENCY_BUDGETS_MS.turnGate,
     body: turnRequestBody(runId)
@@ -819,31 +818,18 @@ export const csrfHeaders = (cookie: string): Record<string, string> => {
   try { return { [CSRF_HEADER_NAME]: decodeURIComponent(value) } } catch { return {} }
 }
 
-/**
- * CN-19's metered half: one signed-in turn, timed to the first complete NDJSON frame.
- *
- * Cost, stated plainly: one model turn per call. The prompt is nine words and
- * the instruction is two, and the stream is cancelled the moment the first
- * frame arrives, so this run reads no more than it must. Cancelling stops this
- * probe's read; whether the deployment finishes generating the turn is the
- * deployment's business, so budget the cost as one full short turn, not as a
- * partial one. `uptime-probe.ts` takes exactly one sample and only when
- * $CANARY_SESSION_COOKIE is set, and the scheduled workflow supplies that
- * cookie on the hourly tick only — 24 short turns a day, not 96.
+/** One durable prompt per sample, followed until its first shared answer frame.
+ * Disconnecting the probe never cancels the host turn; budget a complete short answer.
  */
 export const meteredTurnSample = async (deps: ProbeDeps, options: ProbeOptions, cookie: string): Promise<Sample> => {
   const started = deps.now()
   try {
-    const response = await deps.fetch(`${options.origin}${CONVERSATION_PROMPT_PATH}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie, ...csrfHeaders(cookie) },
-      body: turnRequestBody(`${options.runId}-metered`),
-      signal: AbortSignal.timeout(options.requestTimeoutMs)
-    })
-    const body: unknown = await response.json().catch(() => undefined)
-    const accepted = response.status === 202 && typeof body === "object" && body !== null && "turnId" in body && typeof body.turnId === "string"
-    return { label: "turn-first-frame", status: response.status, expectedStatus: 202,
-      elapsedMs: deps.now() - started, transportError: accepted ? undefined : "The host did not accept a prompt" }
+    const result = await conversationProbe({ origin: options.origin, key: `${options.runId}-metered`, headers: { cookie, ...csrfHeaders(cookie) }, signal: AbortSignal.timeout(options.requestTimeoutMs), fetch: deps.fetch, sleep: deps.sleep, until: "first-frame" })
+    return {
+      label: "turn-first-frame", status: result.status, expectedStatus: 202, elapsedMs: deps.now() - started,
+      transportError: result.frames.some(frame => frame.type === "delta" && frame.kind === "text" && frame.text.length > 0) ? undefined : "The conversation produced no answer frame"
+    }
+
   } catch (error) {
     return {
       label: "turn-first-frame",

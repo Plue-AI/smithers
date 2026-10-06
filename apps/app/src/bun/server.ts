@@ -53,10 +53,8 @@ import {
   LOCAL_SESSION_HEADER,
   LOCAL_SESSION_META
 } from "@smthrs/rpc/LocalSession"
-import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { handleBrowserFetch } from "./BrowserFetch"
 import { CLOUD_CHAT_SIGN_IN } from "./CloudAgent"
-import type { CloudAgent } from "./CloudAgent"
 import { createCloudAuth } from "./CloudAuth"
 import type { CloudAuth, CloudKeychain } from "./CloudAuth"
 import { createModelProbe } from "@smthrs/model-host/ModelProbe"
@@ -143,19 +141,6 @@ export interface LocalServerOptions {
   readonly port?: number
   /** The built SPA: index.html plus assets/. */
   readonly distDir: string
-  /**
-   * The agent behind the chat boundary, built with the frame publisher this
-   * host owns. Injected, never selected here: hybrid with none gets the
-   * Smithers Cloud agent (the backend's `/api/agent/turn`, as the signed-in
-   * Cloud user), and a test tier passes its own double
-   * (e2e/support/ChatStub.ts). Offline with none is a host with no agent.
-   */
-  readonly agent?: (publish: (frame: AgentTurnFrame) => void) => CloudAgent
-  /** Test-only journal transport, injected by the deterministic host. */
-  readonly fixtureJournal?: {
-    start: (body: StartAgentTurnRequest, start: () => Response) => Promise<Response>
-    access: (request: Request) => Promise<Response>
-  }
   /** Offline has no network egress; hybrid explicitly enables Smithers Cloud. */
   readonly cloudMode?: "offline" | "hybrid"
   /**
@@ -972,7 +957,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   })
   for (const path of [TURN_REPLAY_PATH, TURN_ERASE_PATH]) {
     router.add("POST", path, async ({ request }) => {
-      if (options.fixtureJournal !== undefined) return options.fixtureJournal.access(request)
       const parsed = await readJson(request, MAX_BODY_BYTES)
       return "error" in parsed ? parsed.error : relayTurn(request, path, parsed.body)
     })

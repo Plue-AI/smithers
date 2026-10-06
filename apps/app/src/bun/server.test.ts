@@ -31,7 +31,6 @@ beforeAll(async () => {
   server = await startLocalServer({
     port: 0,
     distDir: dist,
-    agent: createChatStub,
     home: "/fake/home",
     log: (line) => logs.push(line)
   })
@@ -434,7 +433,6 @@ describe("the Smithers Cloud seam", () => {
       port: 0,
       distDir: dist,
       cloudMode: "hybrid",
-      agent: createChatStub,
       // This host is the cloud proxy alone; the identity seam has its own tests.
       identityUpstream: null,
       cloudApi: `http://127.0.0.1:${upstream.port}`,
@@ -498,7 +496,6 @@ describe("the Smithers Cloud seam", () => {
       port: 0,
       distDir: dist,
       cloudMode: "hybrid",
-      agent: createChatStub,
       // This host is the cloud proxy alone; the identity seam has its own tests.
       identityUpstream: null,
       cloudApi: `http://127.0.0.1:${upstream.port}`,
