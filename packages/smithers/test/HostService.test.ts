@@ -221,6 +221,22 @@ describe("install telemetry over HTTP", () => {
       } : undefined)
     } finally { await new Promise<void>((done) => server.close(() => done())) }
   })
+  it.each([
+    ["memory", "needs 14 GiB of memory"],
+    ["cores", "needs 2 performance cores"],
+    ["disk", "free 12 GiB on the state volume"]
+  ])("shows the zero-capacity %s fix from the authenticated install response", async (term, fix) => {
+    const server = createServer((req, res) => {
+      expect(req.headers.authorization).toBe("Bearer fixture-person")
+      res.writeHead(200, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ capacity: 0, this_mac: { capacity: 0, limit: { term, fix, secret: "omitted" } }, setup_urls: ["secret"] }))
+    })
+    await new Promise<void>(done => server.listen(0, "127.0.0.1", done))
+    try {
+      const address = server.address() as { port: number }
+      expect(await Host.installTelemetry(`http://127.0.0.1:${address.port}/api/install`, "fixture-person")).toEqual({ capacity: 0, this_mac: { capacity: 0, limit: { term, fix } } })
+    } finally { await new Promise<void>(done => server.close(() => done())) }
+  })
   it("omits malformed and unreachable telemetry", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("invalid"))
     expect(await Host.installTelemetry()).toBeUndefined()
