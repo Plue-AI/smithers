@@ -3,17 +3,19 @@ package db
 import (
 	"context"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const githubMainPullColumns = `p.repository_id, p.requested_generation, p.synced_generation, p.claimed_generation, p.claim, p.state,
 p.attempts, p.lease_expires_at, p.next_attempt_at, p.github_repository, p.branch, p.policy, p.policy_commit, p.github_head,
-p.smithers_head, p.last_error, p.last_checked_at, p.last_synced_at, p.created_at, p.updated_at, p.factory_state, p.factory_error`
+p.smithers_head, p.last_error, p.last_checked_at, p.last_synced_at, p.created_at, p.updated_at, p.factory_state, p.factory_error, p.health_cause, p.retry_at`
 
 func scanGithubMainPull(row interface{ Scan(...any) error }) (GithubMainPull, error) {
 	var p GithubMainPull
 	err := row.Scan(&p.RepositoryID, &p.RequestedGeneration, &p.SyncedGeneration, &p.ClaimedGeneration, &p.Claim, &p.State,
 		&p.Attempts, &p.LeaseExpiresAt, &p.NextAttemptAt, &p.GithubRepository, &p.Branch, &p.Policy, &p.PolicyCommit, &p.GithubHead,
-		&p.SmithersHead, &p.LastError, &p.LastCheckedAt, &p.LastSyncedAt, &p.CreatedAt, &p.UpdatedAt, &p.FactoryState, &p.FactoryError)
+		&p.SmithersHead, &p.LastError, &p.LastCheckedAt, &p.LastSyncedAt, &p.CreatedAt, &p.UpdatedAt, &p.FactoryState, &p.FactoryError, &p.HealthCause, &p.RetryAt)
 	return p, err
 }
 
@@ -24,7 +26,7 @@ INSERT INTO github_main_pulls AS p (repository_id)
 VALUES ($1)
 ON CONFLICT (repository_id) DO UPDATE
 SET requested_generation = p.requested_generation + 1,
-    next_attempt_at = NOW(),
+    next_attempt_at = GREATEST(NOW(), p.retry_at),
     updated_at = NOW()
 RETURNING ` + githubMainPullColumns
 
@@ -60,11 +62,11 @@ func (q *Queries) ListGithubMainPulls(ctx context.Context) ([]GithubMainPull, er
 	return items, rows.Err()
 }
 
-// A retry makes every row due now in one statement, as a request makes one.
+// A retry schedules every row together without shortening a persisted pause.
 const requestAllGithubMainPulls = `
 UPDATE github_main_pulls
 SET requested_generation = requested_generation + 1,
-    next_attempt_at = NOW(),
+    next_attempt_at = GREATEST(NOW(), retry_at),
     updated_at = NOW()
 `
 
@@ -84,6 +86,7 @@ WITH due AS (
 	FROM github_main_pulls
 	WHERE requested_generation > synced_generation
 	  AND next_attempt_at <= NOW()
+	  AND (retry_at IS NULL OR retry_at <= NOW())
 	  AND (state <> 'running' OR lease_expires_at IS NULL OR lease_expires_at < NOW())
 	ORDER BY next_attempt_at, repository_id
 	FOR UPDATE SKIP LOCKED
@@ -124,6 +127,8 @@ func (q *Queries) ClaimGithubMainPulls(ctx context.Context, limit int32, leaseSe
 // BackoffSeconds. Empty receipt fields keep their previous values. Factory
 // receipts clear when policy is reset or an unreconciled source/policy changes.
 type FinishGithubMainPullParams struct {
+	HealthCause      string
+	RetryAt          pgtype.Timestamptz
 	RepositoryID     int64
 	Claim            int64
 	State            string
@@ -158,6 +163,8 @@ SET synced_generation = CASE WHEN $3 = 'failed' THEN synced_generation ELSE GREA
     github_head = CASE WHEN $8 = '' THEN github_head ELSE $8 END,
     smithers_head = CASE WHEN $9 = '' THEN smithers_head ELSE $9 END,
     last_error = $10,
+    health_cause = $15,
+    retry_at = $16,
     factory_state = CASE
         WHEN $12 THEN ''
         WHEN $13 <> '' THEN $13
@@ -179,7 +186,7 @@ WHERE repository_id = $1
 // FinishGithubMainPull returns 0 when the claim was lost to a newer claimant.
 func (q *Queries) FinishGithubMainPull(ctx context.Context, arg FinishGithubMainPullParams) (int64, error) {
 	tag, err := q.db.Exec(ctx, finishGithubMainPull, arg.RepositoryID, arg.Claim, arg.State, arg.GithubRepository, arg.Branch,
-		arg.Policy, arg.PolicyCommit, arg.GithubHead, arg.SmithersHead, strings.TrimSpace(arg.Error), arg.BackoffSeconds, arg.ResetPolicy, arg.FactoryState, strings.TrimSpace(arg.FactoryError))
+		arg.Policy, arg.PolicyCommit, arg.GithubHead, arg.SmithersHead, strings.TrimSpace(arg.Error), arg.BackoffSeconds, arg.ResetPolicy, arg.FactoryState, strings.TrimSpace(arg.FactoryError), arg.HealthCause, arg.RetryAt)
 	if err != nil {
 		return 0, err
 	}
