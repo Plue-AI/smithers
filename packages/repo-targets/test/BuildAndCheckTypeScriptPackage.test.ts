@@ -214,10 +214,10 @@ describe("BuildAndCheckTypeScriptPackage test data", () => {
     const standard = BuildAndCheckTypeScriptPackage({ packageManager, cwd: options.cwd })
     const withData = BuildAndCheckTypeScriptPackage(options)
     expect(Target.metadata(withData.test).inputs).toEqual([
-      ...Target.metadata(standard.test).inputs.slice(0, 3),
+      ...Target.metadata(standard.test).inputs.slice(0, 4),
       Input.glob("test/fixtures/*.mjs"),
       Input.glob("test/fixtures/*.cjs"),
-      ...Target.metadata(standard.test).inputs.slice(3)
+      ...Target.metadata(standard.test).inputs.slice(4)
     ])
     expect(plannedArgv(withData.test)).toEqual(plannedArgv(standard.test))
     for (const name of ["lib", "check", "lint", "fmt", "docs", "circular", "docsFiles"] as const) {
@@ -390,7 +390,8 @@ describe("BuildAndCheckTypeScriptPackage option propagation", () => {
       Input.glob("src/**/*.ts"),
       Input.glob("spec/**/*.ts"),
       Input.file("tsconfig.json"),
-      Input.glob("//packages/repo-targets/test-utils/effect-property.*")
+      Input.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+      Input.file("//packages/repo-targets/test-utils/effect-property.d.mts")
     ])
     expect(attrsOf<Dprint.Attrs>(relocated.fmt).sources).toEqual([
       Input.glob("src/**/*.ts"),
@@ -418,11 +419,13 @@ describe("BuildAndCheckTypeScriptPackage option propagation", () => {
       moved,
       Input.glob("test/**/*.ts"),
       Input.file("tsconfig.json"),
-      Input.glob("//packages/repo-targets/test-utils/effect-property.*")
+      Input.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+      Input.file("//packages/repo-targets/test-utils/effect-property.d.mts")
     ])
     expect(attrsOf<Vitest.Attrs>(relocated.test).sources).toEqual([
       moved,
-      Input.glob("//packages/repo-targets/test-utils/effect-property.*")
+      Input.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+      Input.file("//packages/repo-targets/test-utils/effect-property.d.mts")
     ])
     expect(attrsOf<EsLint.Attrs>(relocated.lint).sources).toEqual([moved])
     expect(attrsOf<Dprint.Attrs>(relocated.fmt).sources).toEqual([moved, Input.glob("test/**/*.ts")])

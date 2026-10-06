@@ -216,7 +216,13 @@ export const BuildAndCheckTypeScriptPackage = (options: Options): PackageTargets
   // instead of relying on the `lib` dependency key to carry it.
   const check = Typecheck({
     ...(options.packageManager === undefined ? {} : { packageManager: options.packageManager }),
-    srcs: [sources, testSources, tsconfig, Input.glob("//packages/repo-targets/test-utils/effect-property.*")],
+    srcs: [
+      sources,
+      testSources,
+      tsconfig,
+      Input.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+      Input.file("//packages/repo-targets/test-utils/effect-property.d.mts")
+    ],
     deps: [lib, ...deps],
     tsconfig: testTsconfig,
     buildMode: false,
@@ -230,7 +236,8 @@ export const BuildAndCheckTypeScriptPackage = (options: Options): PackageTargets
       tests: [tests],
       sources: [
         sources,
-        Input.glob("//packages/repo-targets/test-utils/effect-property.*"),
+        Input.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+        Input.file("//packages/repo-targets/test-utils/effect-property.d.mts"),
         ...(options.testData ?? []).map((pattern) => Input.glob(pattern))
       ],
       deps: [lib, ...deps],
@@ -247,7 +254,8 @@ export const BuildAndCheckTypeScriptPackage = (options: Options): PackageTargets
         testSources,
         Input.file("package.json"),
         ...(vitestConfig === null ? [] : [vitestConfig]),
-        Input.glob("//packages/repo-targets/test-utils/effect-property.*"),
+        Input.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+        Input.file("//packages/repo-targets/test-utils/effect-property.d.mts"),
         ...(options.testData ?? []).map((pattern) => Input.glob(pattern))
       ],
       deps: [lib, ...deps],

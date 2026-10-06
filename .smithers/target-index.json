@@ -12772,9 +12772,12 @@
         "path": "packages/errors/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -13093,9 +13096,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -13548,9 +13554,12 @@
         "path": "packages/smithers/agent/chain/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -13869,9 +13878,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -13911,9 +13923,12 @@
         "path": "packages/smithers/agent/evals/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -14208,9 +14223,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -14250,9 +14268,12 @@
         "path": "packages/smithers/agent/fs/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -14588,9 +14609,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -14630,9 +14654,12 @@
         "path": "packages/smithers/agent/harness-detect/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -14927,9 +14954,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -14969,9 +14999,12 @@
         "path": "packages/smithers/agent/harness/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -15266,9 +15299,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "glob",
@@ -15313,9 +15349,12 @@
         "path": "packages/smithers/agent/integrations/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -15622,9 +15661,12 @@
         "path": "packages/smithers/agent/integrations/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -15660,9 +15702,12 @@
         "path": "packages/smithers/agent/memory/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -15969,9 +16014,12 @@
         "path": "packages/smithers/agent/memory/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -16007,9 +16055,12 @@
         "path": "packages/smithers/agent/model-host/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -16281,9 +16332,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -16326,9 +16380,12 @@
         "path": "packages/smithers/agent/model/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -16647,9 +16704,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -16689,9 +16749,12 @@
         "path": "packages/smithers/agent/plugin/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -16986,9 +17049,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "glob",
@@ -17038,9 +17104,12 @@
         "path": "packages/smithers/agent/registry/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -17335,9 +17404,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "glob",
@@ -17382,9 +17454,12 @@
         "path": "packages/smithers/agent/scorers/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -17691,9 +17766,12 @@
         "path": "packages/smithers/agent/scorers/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -17729,9 +17807,12 @@
         "path": "packages/smithers/agent/std/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -18026,9 +18107,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -18068,9 +18152,12 @@
         "path": "packages/smithers/agent/triggers/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -18377,9 +18464,12 @@
         "path": "packages/smithers/agent/triggers/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -18415,9 +18505,12 @@
         "path": "packages/smithers/agent/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -18753,9 +18846,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "glob",
@@ -20234,9 +20330,12 @@
         "path": "packages/smithers/build/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -20704,9 +20803,12 @@
         "path": "packages/smithers/control/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -21013,9 +21115,12 @@
         "path": "packages/smithers/control/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -21082,9 +21187,12 @@
         "path": "packages/smithers/flows/artifacts/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -21403,9 +21511,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -21476,9 +21587,12 @@
         "path": "packages/smithers/flows/canonical/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -21796,9 +21910,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -21869,9 +21986,12 @@
         "path": "packages/smithers/flows/capability/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -22166,9 +22286,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -22208,9 +22331,12 @@
         "path": "packages/smithers/flows/core/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -22505,9 +22631,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -22578,9 +22707,12 @@
         "path": "packages/smithers/flows/crypto/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -22899,9 +23031,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -22957,9 +23092,12 @@
         "path": "packages/smithers/flows/database/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -23398,9 +23536,12 @@
         "path": "packages/smithers/flows/engine-store/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -23850,9 +23991,12 @@
         "path": "packages/smithers/flows/engine/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -24287,9 +24431,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -24785,9 +24932,12 @@
         "path": "packages/smithers/flows/jj/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -25123,9 +25273,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -25165,9 +25318,12 @@
         "path": "packages/smithers/flows/journal/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -25517,9 +25673,12 @@
         "path": "packages/smithers/flows/journal/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -25555,9 +25714,12 @@
         "path": "packages/smithers/flows/kernel/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -25852,9 +26014,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -25925,9 +26090,12 @@
         "path": "packages/smithers/flows/keys/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -26270,9 +26438,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -26312,9 +26483,12 @@
         "path": "packages/smithers/flows/observability/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -26633,9 +26807,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -26675,9 +26852,12 @@
         "path": "packages/smithers/flows/patterns/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -26972,9 +27152,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -27014,9 +27197,12 @@
         "path": "packages/smithers/flows/plan-store/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -27323,9 +27509,12 @@
         "path": "packages/smithers/flows/plan-store/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -27361,9 +27550,12 @@
         "path": "packages/smithers/flows/plan/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -27658,9 +27850,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -27731,9 +27926,12 @@
         "path": "packages/smithers/flows/platform-browser/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -28028,9 +28226,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -28105,9 +28306,12 @@
         "path": "packages/smithers/flows/platform-bun/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -28438,9 +28642,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -28480,9 +28687,12 @@
         "path": "packages/smithers/flows/platform-node/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -28777,9 +28987,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -28819,9 +29032,12 @@
         "path": "packages/smithers/flows/run-store/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -29159,9 +29375,12 @@
         "path": "packages/smithers/flows/run-store/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -29228,9 +29447,12 @@
         "path": "packages/smithers/flows/sandbox/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -29745,9 +29967,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -29787,9 +30012,12 @@
         "path": "packages/smithers/flows/step-cache/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -30151,9 +30379,12 @@
         "path": "packages/smithers/flows/step-cache/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -30189,9 +30420,12 @@
         "path": "packages/smithers/flows/sync/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -30486,9 +30720,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -30528,9 +30765,12 @@
         "path": "packages/smithers/flows/time-travel/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -30868,9 +31108,12 @@
         "path": "packages/smithers/flows/time-travel/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -30906,9 +31149,12 @@
         "path": "packages/smithers/flows/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -31227,9 +31473,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -31269,9 +31518,12 @@
         "path": "packages/smithers/gateway/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -31798,9 +32050,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -31840,9 +32095,12 @@
         "path": "packages/smithers/mcp/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -32161,9 +32419,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -32203,9 +32464,12 @@
         "path": "packages/smithers/migrate/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -32500,9 +32764,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "glob",
@@ -32547,9 +32814,12 @@
         "path": "packages/smithers/notifications/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -32844,9 +33114,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -33315,9 +33588,12 @@
         "path": "packages/smithers/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -33824,9 +34100,12 @@
         "path": "packages/smthrs-deprecation/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -34157,9 +34436,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -34199,9 +34481,12 @@
         "path": "packages/testing/tsconfig.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
@@ -34496,9 +34781,12 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "file",
