@@ -60,8 +60,12 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	cfg.Server.PublicURL = "http://127.0.0.1:4000"
 	cfg.Server.AllowedOrigins = []string{"http://127.0.0.1:4000"}
 	router := githubAppSetupComposeRouter(cfg, pool, nil)
-	call := func(method, path, cookie, bearer, key string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(method, "http://127.0.0.1:4000"+path, strings.NewReader(`{}`))
+	call := func(method, path, cookie, bearer, key string, bodies ...string) *httptest.ResponseRecorder {
+		body := `{}`
+		if len(bodies) > 0 {
+			body = bodies[0]
+		}
+		r := httptest.NewRequest(method, "http://127.0.0.1:4000"+path, strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:51900"
 		r.Header.Set("Origin", "http://127.0.0.1:4000")
 		r.Header.Set("Content-Type", "application/json")
@@ -154,8 +158,28 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.Equal(t, 409, w.Code, w.Body.String())
 	w = call("POST", "/api/confirmations", ownerCookie, "", "create")
 	require.Equal(t, 403, w.Code, w.Body.String())
-	w = call("POST", "/api/confirmations", "", token, "create")
+	w = call("POST", "/api/confirmations", "", token, "create", `{"command":"todo.new","subject":{"kind":"stack"},"payload":{"prompt":"Add retry"}}`)
 	require.Equal(t, 503, w.Code, w.Body.String())
+	// Explicit creation checks the bound action, never confirmations.read.
+	// All these refusals precede rows or effects even with a missing provider.
+	for _, tc := range []struct {
+		body   string
+		status int
+		code   string
+	}{
+		{`{}`, 400, "invalid_confirmation"},
+		{`{"command":`, 400, "invalid_confirmation"},
+		{`{"command":"todo.new"} {}`, 400, "invalid_confirmation"},
+		{`{"command":"unknown"}`, 403, "permission"},
+		{`{"command":"members.write"}`, 403, "never"},
+		{`{"command":"secrets.write"}`, 403, "never"},
+		{`{"command":"settings.parallel"}`, 403, "never"},
+		{`{"command":"merge"}`, 503, "confirmation_unavailable"},
+	} {
+		w = call("POST", "/api/confirmations", "", token, "refused-create", tc.body)
+		require.Equal(t, tc.status, w.Code, w.Body.String())
+		require.Contains(t, w.Body.String(), `"code":"`+tc.code+`"`)
+	}
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&count))
 	require.Equal(t, 2, count)
@@ -213,4 +237,15 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.Equal(t, 403, w.Code, w.Body.String())
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, merge).Scan(&state))
 	require.Equal(t, "pending", state)
+	w = call("POST", "/api/confirmations", "", token, "refused-create", `{"command":"merge"}`)
+	require.Equal(t, 403, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"code":"permission"`)
+	w = call("POST", "/api/confirmations", "", token, "refused-create", `{"command":"members.write"}`)
+	require.Equal(t, 403, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"code":"permission"`)
+	// Killing the creating credential refuses before interpreting a replay.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 minute' WHERE token_hash=$1`, hash)
+	require.NoError(t, err)
+	w = call("POST", "/api/confirmations", "", token, "create", `{"command":"todo.new"}`)
+	require.Equal(t, 401, w.Code, w.Body.String())
 }
