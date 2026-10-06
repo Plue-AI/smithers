@@ -102,9 +102,12 @@ func TestModelProxyChargesTheRightPayerPostgres(t *testing.T) {
 		r.Get("/model/credential/receipt", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
 	})
 
-	call := func(path, credential, header string) int {
+	call := func(path, credential, header string, step ...string) int {
 		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"claude-haiku-4-5","max_tokens":10,"messages":[]}`))
 		request.Header.Set(header, map[bool]string{true: "Bearer ", false: ""}[header == "Authorization"]+credential)
+		if len(step) > 0 {
+			request.Header.Set(modelproxy.StepHeader, step[0])
+		}
 		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "cookie-never-spends"})
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, request)
@@ -153,6 +156,65 @@ func TestModelProxyChargesTheRightPayerPostgres(t *testing.T) {
 		{"workspace", "user", alice.ID, 0, workspaceID, ""},
 		{"app", "user", alice.ID, 0, "", ""},
 	}, got)
+	rows.Close()
+
+	// Step attribution is exercised through the composed authenticated proxy,
+	// with literal cost oracles: Haiku input 3 + output 4 costs 23,000 nanos.
+	step := func(run int64, name string) int64 {
+		var id int64
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_steps
+            (workflow_run_id, name, position, status) SELECT $1, $2, COALESCE(max(position), 0) + 1, 'running'
+            FROM workflow_steps WHERE workflow_run_id = $1 RETURNING id`, run, name).Scan(&id))
+		return id
+	}
+	plan := step(runID, "plan")
+	planHeader := strconv.FormatInt(plan, 10)
+	require.Equal(t, http.StatusOK, call(proxied, agentToken, "Authorization", planHeader))
+	require.Equal(t, http.StatusOK, call(proxied, agentToken, "X-Api-Key"), "CLI without a header inherits the single active step")
+	_, err = pool.Exec(ctx, `UPDATE workflow_steps SET status = 'success' WHERE id = $1`, plan)
+	require.NoError(t, err)
+	implement := step(runID, "implement")
+	require.Equal(t, http.StatusOK, call(proxied, agentToken, "Authorization", strconv.FormatInt(implement, 10)))
+	for _, invalid := range []string{planHeader, "0", "-1", "01", "999999999999999999999", "not-a-step"} {
+		require.Equal(t, http.StatusForbidden, call(proxied, agentToken, "Authorization", invalid), invalid)
+	}
+	var otherRun int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_runs (repository_id, workflow_definition_id, status, trigger_event)
+        VALUES ($1, $2, 'running', 'agent') RETURNING id`, orgRepo.ID, definitionID).Scan(&otherRun))
+	unrelated := step(otherRun, "other")
+	require.Equal(t, http.StatusForbidden, call(proxied, agentToken, "Authorization", strconv.FormatInt(unrelated, 10)))
+	otherRepo, err := q.CreateOrgRepo(ctx, db.CreateOrgRepoParams{OrgID: pgtype.Int8{Int64: org.ID, Valid: true}, Name: "other", LowerName: "other", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	var otherDefinition int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_definitions (repository_id, name, path, config)
+        VALUES ($1, 'agent', '.smithers/agent.ts', '{}') RETURNING id`, otherRepo.ID).Scan(&otherDefinition))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_runs (repository_id, workflow_definition_id, status, trigger_event)
+        VALUES ($1, $2, 'running', 'agent') RETURNING id`, otherRepo.ID, otherDefinition).Scan(&otherRun))
+	crossRepo := step(otherRun, "other-repository")
+	require.Equal(t, http.StatusForbidden, call(proxied, agentToken, "Authorization", strconv.FormatInt(crossRepo, 10)))
+	for _, credential := range []string{userToken, workspaceCredential, hostCredential} {
+		require.Equal(t, http.StatusForbidden, call(proxied, credential, "Authorization", strconv.FormatInt(implement, 10)))
+	}
+	var calls, tokens, cost int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*), sum(input_tokens + output_tokens), sum(cost_nanos)
+        FROM model_usage WHERE workflow_run_id = $1 AND workflow_step_id = $2`, runID, plan).Scan(&calls, &tokens, &cost))
+	require.Equal(t, int64(2), calls)
+	require.Equal(t, int64(14), tokens)
+	require.Equal(t, int64(46000), cost)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*), sum(input_tokens + output_tokens), sum(cost_nanos)
+        FROM model_usage WHERE workflow_run_id = $1 AND workflow_step_id = $2`, runID, implement).Scan(&calls, &tokens, &cost))
+	require.Equal(t, int64(1), calls)
+	require.Equal(t, int64(7), tokens)
+	require.Equal(t, int64(23000), cost)
+	// Parallel active steps cannot be inferred. Keep the call's run binding,
+	// but never fabricate a step association.
+	step(runID, "review")
+	require.Equal(t, http.StatusOK, call(proxied, agentToken, "Authorization"))
+	var inferred *int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT workflow_step_id FROM model_usage ORDER BY id DESC LIMIT 1`).Scan(&inferred))
+	require.Nil(t, inferred)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM model_usage`).Scan(&calls))
+	require.Equal(t, int64(8), calls, "refused attribution never reaches metering")
 }
 
 func TestFlowhostCredentialRefusedOutsideModelProxy(t *testing.T) {
