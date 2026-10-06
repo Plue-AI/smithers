@@ -109,7 +109,11 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		if role == "maintain" {
 			permission = "write"
 		}
-		json.NewEncoder(w).Encode(map[string]string{"permission": permission, "role_name": role})
+		id := rosterGitHubID(login)
+		if login == "renamed" {
+			id = 102
+		}
+		json.NewEncoder(w).Encode(map[string]any{"permission": permission, "role_name": role, "user": map[string]any{"id": id}})
 	case strings.HasPrefix(r.URL.Path, "/users/"):
 		if r.URL.Path == "/users/renamed" {
 			json.NewEncoder(w).Encode(map[string]any{"id": 102, "login": "renamed"})

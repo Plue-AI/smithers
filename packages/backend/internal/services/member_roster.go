@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"regexp"
@@ -172,7 +173,7 @@ func (m *Members) confirmInstallationRepository(ctx context.Context, token strin
 }
 
 // Resolve the immutable account before ever using its mutable login.
-func (m *Members) memberAccount(ctx context.Context, token string, id int64) (string, error) {
+func (m *Members) memberAccount(ctx context.Context, token string, repo memberRepository, id int64) (string, error) {
 	if id <= 0 {
 		return "", errors.New("member data defect: missing github_id")
 	}
@@ -188,7 +189,12 @@ func (m *Members) memberAccount(ctx context.Context, token string, id int64) (st
 		return "", nil
 	}
 	if status != 200 {
-		return "", memberGitHubFailure(status)
+		if status == 401 || status == 403 {
+			if err := m.confirmInstallationRepository(ctx, token, repo); err != nil {
+				return "", err
+			}
+		}
+		return "", memberGitHubFailure(0)
 	}
 	if user.ID != id || !ValidMemberLogin(user.Login) {
 		return "", memberGitHubFailure(0)
@@ -200,6 +206,9 @@ func (m *Members) permission(ctx context.Context, token string, repo memberRepos
 	var out struct {
 		Permission string `json:"permission"`
 		Role       string `json:"role_name"`
+		User       struct {
+			ID int64 `json:"id"`
+		} `json:"user"`
 	}
 	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/collaborators/"+login+"/permission", nil, &out)
 	if err != nil {
@@ -207,7 +216,7 @@ func (m *Members) permission(ctx context.Context, token string, repo memberRepos
 	}
 	if status == 404 {
 		// A stale or reassigned login cannot provide another account's permission.
-		current, err := m.memberAccount(ctx, token, id)
+		current, err := m.memberAccount(ctx, token, repo, id)
 		if err != nil {
 			return "", err
 		}
@@ -232,7 +241,12 @@ func (m *Members) permission(ctx context.Context, token string, repo memberRepos
 			return "", nil
 		}
 		if status != 200 {
-			return "", memberGitHubFailure(status)
+			if status == 401 || status == 403 {
+				if err := m.confirmInstallationRepository(ctx, token, repo); err != nil {
+					return "", err
+				}
+			}
+			return "", memberGitHubFailure(0)
 		}
 		if user.ID != id || !strings.EqualFold(user.Login, current) {
 			return "", memberGitHubFailure(0)
@@ -240,7 +254,15 @@ func (m *Members) permission(ctx context.Context, token string, repo memberRepos
 		return "", nil
 	}
 	if status != 200 {
-		return "", memberGitHubFailure(status)
+		if status == 401 || status == 403 {
+			if err := m.confirmInstallationRepository(ctx, token, repo); err != nil {
+				return "", err
+			}
+		}
+		return "", memberGitHubFailure(0)
+	}
+	if id <= 0 || out.User.ID != id {
+		return "", fmt.Errorf("member identity unresolved: permission user.id %d does not match github_id %d: %w", out.User.ID, id, memberGitHubFailure(0))
 	}
 	switch out.Permission {
 	case "admin", "write", "read", "none":

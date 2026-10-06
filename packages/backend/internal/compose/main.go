@@ -1037,7 +1037,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.Error("invalid cleanup.auth_interval", "interval", cfg.Cleanup.AuthInterval, "error", err)
 		return err
 	}
-	smithersMetrics.MustRegister(cleanup.SweepFailures, middleware.AuthLoaderFailures, middleware.QuotaCounterErrors, middleware.HandlerPanics, lfsauth.Rejections)
+	smithersMetrics.MustRegister(cleanup.SweepFailures, middleware.AuthLoaderFailures, middleware.QuotaCounterErrors, middleware.HandlerPanics, lfsauth.Rejections, services.MemberRecheckFailures)
 	authCleaner := cleanup.NewAuthCleaner(queries, authCleanupInterval)
 	authCleaner.SetRevocationPublisher(revocationPublisher)
 	workflowCacheCleanupInterval, err := time.ParseDuration(cfg.Cleanup.WorkflowCacheInterval)

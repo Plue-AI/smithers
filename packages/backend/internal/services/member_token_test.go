@@ -50,7 +50,7 @@ func memberGitHub(t *testing.T, role string) *[]string {
 		case r.URL.Path == "/repos/acme/app/installation":
 			_, _ = w.Write([]byte(`{"id":91}`))
 		case strings.HasPrefix(r.URL.Path, "/repos/acme/app/collaborators/"):
-			_ = json.NewEncoder(w).Encode(map[string]string{"permission": role, "role_name": role})
+			_ = json.NewEncoder(w).Encode(map[string]any{"permission": role, "role_name": role, "user": map[string]any{"id": 102}})
 		default:
 			t.Errorf("unexpected GitHub call %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -105,7 +105,7 @@ func TestRosterReadsShareTheInstallationBudget(t *testing.T) {
 		w.Header().Set("X-RateLimit-Limit", "5000")
 		w.Header().Set("X-RateLimit-Remaining", "4321")
 		w.Header().Set("X-RateLimit-Reset", "4102444800")
-		_, _ = w.Write([]byte(`{"permission":"write","role_name":"write"}`))
+		_, _ = w.Write([]byte(`{"user":{"id":102},"permission":"write","role_name":"write"}`))
 	}))
 	t.Cleanup(github.Close)
 	t.Setenv(envGitHubAppAPIBaseURL, github.URL)

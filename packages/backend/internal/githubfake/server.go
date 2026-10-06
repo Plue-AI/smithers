@@ -835,7 +835,7 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 			}
 			if len(path) == 6 && path[3] == "collaborators" && path[5] == "permission" && r.Method == http.MethodGet {
 				if permission, ok := s.permission(path[4]); ok {
-					return 200, collaborator(path[4], permission)
+					return 200, s.collaborator(path[4], permission)
 				}
 			}
 			return s.pullRequest(r, fullName, path[3:], body)
@@ -957,12 +957,19 @@ func (s *Server) permission(login string) (string, bool) {
 
 // collaborator is GitHub's collaborator permission answer: permission is the
 // legacy word (admin, write, read, none) and role_name the role itself.
-func collaborator(login, role string) map[string]any {
+func (s *Server) collaborator(login, role string) map[string]any {
 	permission := map[string]string{"maintain": "write", "triage": "read"}[role]
 	if permission == "" {
 		permission = role
 	}
-	return map[string]any{"permission": permission, "role_name": role, "user": map[string]any{"login": login,
+	id := int64(7)
+	for accountID, accountLogin := range s.accounts {
+		if strings.EqualFold(accountLogin, login) {
+			id = accountID
+			break
+		}
+	}
+	return map[string]any{"permission": permission, "role_name": role, "user": map[string]any{"id": id, "login": login,
 		"permissions": map[string]bool{"admin": role == "admin", "maintain": role == "admin" || role == "maintain", "push": permission == "admin" || permission == "write", "pull": permission != "none"}}}
 }
 

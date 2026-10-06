@@ -25,14 +25,16 @@ func TestMemberPermissionParsedResponses(t *testing.T) {
 		want             string
 		wantError        bool
 	}{
-		{"write", 200, `{"permission":"write","role_name":"write"}`, 0, "", 0, "write", false},
-		{"maintain", 200, `{"permission":"write","role_name":"maintain"}`, 0, "", 0, "admin", false},
-		{"read", 200, `{"permission":"read","role_name":"read"}`, 0, "", 0, "", false},
-		{"contradictory read", 200, `{"permission":"read","role_name":"admin"}`, 0, "", 0, "", false},
-		{"contradictory none", 200, `{"permission":"none","role_name":"write"}`, 0, "", 0, "", false},
-		{"none", 200, `{"permission":"none","role_name":"none"}`, 0, "", 0, "", false},
+		{"mismatched user ID", 200, `{"permission":"write","user":{"id":999}}`, 0, "", 0, "", true},
+		{"missing user ID", 200, `{"permission":"write"}`, 0, "", 0, "", true},
+		{"write", 200, `{"user":{"id":102},"permission":"write","role_name":"write"}`, 0, "", 0, "write", false},
+		{"maintain", 200, `{"user":{"id":102},"permission":"write","role_name":"maintain"}`, 0, "", 0, "admin", false},
+		{"read", 200, `{"user":{"id":102},"permission":"read","role_name":"read"}`, 0, "", 0, "", false},
+		{"contradictory read", 200, `{"user":{"id":102},"permission":"read","role_name":"admin"}`, 0, "", 0, "", false},
+		{"contradictory none", 200, `{"user":{"id":102},"permission":"none","role_name":"write"}`, 0, "", 0, "", false},
+		{"none", 200, `{"user":{"id":102},"permission":"none","role_name":"none"}`, 0, "", 0, "", false},
 		{"empty", 200, `{}`, 0, "", 0, "", true},
-		{"unknown permission", 200, `{"permission":"future"}`, 0, "", 0, "", true},
+		{"unknown permission", 200, `{"user":{"id":102},"permission":"future"}`, 0, "", 0, "", true},
 		{"malformed", 200, `{`, 0, "", 0, "", true},
 		{"404 confirmed loss", 404, `{}`, 200, `{"id":102,"login":"writer"}`, 200, "", false},
 		{"404 installation absent", 404, `{}`, 200, `{"id":102,"login":"writer"}`, 404, "", true},
@@ -41,7 +43,7 @@ func TestMemberPermissionParsedResponses(t *testing.T) {
 		{"404 wrong user", 404, `{}`, 200, `{"id":102,"login":"other"}`, 200, "", true},
 		{"404 user lookup failed", 404, `{}`, 502, `{}`, 200, "", true},
 		{"404 malformed user", 404, `{}`, 200, `{}`, 200, "", true},
-		{"installation forbidden", 403, `{}`, 0, "", 0, "", true},
+		{"installation forbidden", 403, `{}`, 0, "", 403, "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +196,7 @@ func TestMemberPermissionRejectsDifferentAccountID(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
-	_, err := (&Members{}).memberAccount(t.Context(), "fixture-token", 102)
+	_, err := (&Members{}).memberAccount(t.Context(), "fixture-token", memberRepository{Owner: "acme", Name: "app", ID: 5}, 102)
 	require.Error(t, err)
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
@@ -16,12 +17,16 @@ import (
 // write access on GitHub (M-05: re-checked at sign-in and every hour).
 const MemberRecheckInterval = time.Hour
 
+// MemberRecheckFailures counts skipped member reads, without member labels.
+var MemberRecheckFailures = prometheus.NewCounter(prometheus.CounterOpts{Name: "smithers_member_recheck_failures_total", Help: "Member permission rechecks skipped because identity or permission could not be resolved."})
+
 // Recheck asks GitHub for every roster member's permission now. A member
 // GitHub confirms below write is suspended: in one transaction the row is
 // marked and every credential they hold is revoked, as removal does. A
 // suspended member GitHub reports with write again is restored; old
 // credentials stay revoked, so they sign in again. An unbound repository,
-// an installation failure or a failed lookup changes nothing.
+// an installation failure changes nothing. A failed member lookup preserves
+// that member while the other confirmed decisions are applied.
 func (m *Members) Recheck(ctx context.Context) (result error) {
 	if m == nil || m.Pool == nil {
 		return nil
@@ -45,6 +50,7 @@ func (m *Members) Recheck(ctx context.Context) (result error) {
 		user      *int64
 		suspended bool
 		role      string
+		resolved  bool
 	}
 	rows, err := m.Pool.Query(ctx, `SELECT c.id,c.github_id,c.user_id,c.suspended_at IS NOT NULL
  FROM collaborators c CROSS JOIN self_host_owners o WHERE c.repository_id=$1 AND c.user_id IS DISTINCT FROM o.user_id ORDER BY c.id`, repo.ID)
@@ -65,20 +71,29 @@ func (m *Members) Recheck(ctx context.Context) (result error) {
 	for i := range members {
 		member := &members[i]
 		if member.githubID == nil || *member.githubID <= 0 {
-			return fmt.Errorf("member %d data defect: missing github_id", member.id)
-		}
-		member.login, err = m.memberAccount(ctx, token, *member.githubID)
-		if err == nil && member.login != "" {
-			member.role, err = m.permission(ctx, token, repo, member.login, *member.githubID)
+			err = fmt.Errorf("member %d data defect: missing github_id", member.id)
+		} else {
+			member.login, err = m.memberAccount(ctx, token, repo, *member.githubID)
+			if err == nil && member.login != "" {
+				member.role, err = m.permission(ctx, token, repo, member.login, *member.githubID)
+			}
 		}
 		if err != nil {
+			var refusal *memberInstallationRefusal
+			if errors.As(err, &refusal) {
+				return err
+			}
+			MemberRecheckFailures.Inc()
+			slog.WarnContext(ctx, "members.recheck.failed", "member_id", member.id, "error", err)
 			failed = append(failed, fmt.Errorf("member %d: %w", member.id, err))
+		} else {
+			member.resolved = true
 		}
 	}
-	if len(failed) > 0 {
-		return errors.Join(failed...)
-	}
 	for _, member := range members {
+		if !member.resolved {
+			continue
+		}
 		if member.login != "" {
 			_, err = m.Pool.Exec(ctx, `UPDATE collaborators SET github_login=$2 WHERE id=$1 AND github_id=$3`, member.id, member.login, *member.githubID)
 			if err != nil {
@@ -98,7 +113,7 @@ func (m *Members) Recheck(ctx context.Context) (result error) {
 		}
 		slog.InfoContext(ctx, "members.recheck", "login", member.login, "suspended", member.role == "")
 	}
-	return nil
+	return errors.Join(failed...)
 }
 
 // Persist this required stream in install settings and project it through

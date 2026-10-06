@@ -895,9 +895,17 @@ func TestCollaboratorAccountsAndPermissions(t *testing.T) {
 		var answer struct {
 			Permission string `json:"permission"`
 			Role       string `json:"role_name"`
+			User       struct {
+				ID int64 `json:"id"`
+			} `json:"user"`
 		}
 		if status == 200 {
 			require.NoError(t, json.Unmarshal(body, &answer))
+			expectedID := int64(7)
+			if login == "bea" {
+				expectedID = 8
+			}
+			require.Equal(t, expectedID, answer.User.ID)
 		}
 		return status, answer.Permission, answer.Role
 	}
