@@ -485,6 +485,9 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool) *rootLayerHarness {
 	}
 	_, err := os.Stat(library)
 	require.NoError(t, err, "build the repository's smithers-ffi library first or set SMITHERS_FFI_LIBRARY_PATH")
+	// The install wiki composition consumes the same native library as the mirror.
+	// Resolve it once for both; go test runs from internal/compose, not the repo root.
+	t.Setenv("SMITHERS_FFI_LIBRARY_PATH", library)
 	h := &rootLayerHarness{t: t, stdout: &lockedBuffer{}, logs: &lockedBuffer{}}
 	var databaseURL string
 	h.pool, databaseURL = postgresfixture.NewProductDatabase(t)
