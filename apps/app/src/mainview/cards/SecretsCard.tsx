@@ -1,63 +1,73 @@
-/*
- * The secrets card: a repository's CI secrets, the store /secrets.set, .delete,
- * .scope and .bind act on. Metadata only; no value exists to mask. One row per
- * secret: its name, whether it reaches only main, how many hosts it is bound to,
- * and Main only / Every run, Bind, Rotate and Delete. The value field of Add and
- * Rotate is write-only; Delete and widening to every run ask first.
- */
+import { useTopic } from "../state/useTopic"
+import { SecretsCardSchema, type SecretsViewProps } from "@smthrs/rpc/SecretsCard"
 import { Button } from "@smthrs/ui"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
 import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
+import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
+import { SecretsView } from "./views/SecretsView"
+import { useController } from "../ControllerContext"
+import { useSyncExternalStore, type ComponentType } from "react"
+import { writeOnlyGesture } from "../flows/CommandGesture"
 
-export const SecretsCardBody = ({
-  card, onRunCommand
-}: {
-  readonly card: Extract<Card, { kind: "secrets" }>
-  readonly onRunCommand: RunCommand
-}) => (
-  <div className="world-card-list">
-    <p className="world-card-path">{card.payload.repo}</p>
-    <Button size="sm" {...flowAction(onRunCommand, "secrets.set", flowArgs("secrets.set", { repo: card.payload.repo }))}>Add secret</Button>
-    {card.payload.secrets.length === 0 ?
-      null :
-      (
-        <table className="secrets-table" aria-label="Secrets">
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Main only</th>
-              <th scope="col">Hosts</th>
-              <th scope="col" aria-label="Actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {card.payload.secrets.map((secret) => (
-              <tr key={secret.name} data-testid={`secret-${secret.name}`}>
-                <td className="world-card-title">{secret.name}</td>
-                <td>{secret.mainOnly ? "yes" : "no"}</td>
-                <td>{secret.hosts.length}</td>
-                <td>
-                  <Button size="sm" aria-label={`${secret.mainOnly ? "Give to every run" : "Limit to main"} ${secret.name}`}
-                    {...flowAction(onRunCommand, "secrets.scope", flowArgs("secrets.scope", {
-                      name: secret.name, scope: secret.mainOnly ? "all" : "main-only", repo: card.payload.repo
-                    }))}>{secret.mainOnly ? "Every run" : "Main only"}</Button>
-                  <Button size="sm" aria-label={`Bind ${secret.name}`}
-                    {...flowAction(onRunCommand, "secrets.bind", flowArgs("secrets.bind", { name: secret.name, repo: card.payload.repo }))}>Bind</Button>
-                  <Button size="sm" aria-label={`Rotate ${secret.name}`}
-                    {...flowAction(onRunCommand, "secrets.set", flowArgs("secrets.set", { name: secret.name, repo: card.payload.repo }))}>Rotate</Button>
-                  <Button size="sm" aria-label={`Delete ${secret.name}`}
-                    {...flowAction(onRunCommand, "secrets.delete", flowArgs("secrets.delete", { name: secret.name, repo: card.payload.repo }))}>Delete</Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-  </div>
-)
+type StoredSecrets = Extract<Card, { kind: "secrets" }>
+
+export const SecretsCardBody = ({ card, dispatch, role = "member", View = SecretsView, confirm = message => window.confirm(message) }: {
+  readonly card: StoredSecrets
+  readonly dispatch: CardCommandDispatch
+  readonly role?: "owner" | "maintainer" | "member"
+  readonly View?: ComponentType<SecretsViewProps>
+  readonly confirm?: (message: string) => boolean
+}) => {
+  const definitions: CardActionDefinition[] = []
+  if (role !== "member") {
+    definitions.push({ tag: "secrets.set", label: "Add", args: { door: "add" }, command_input: { name: "", value: "" },
+      input: [{ name: "name", label: "NAME", kind: "text", required: true },
+        { name: "value", label: "Value", kind: "secret", required: true },
+        { name: "scope", label: "Scope", kind: "choice", choices: ["all_branches", "main_only"], required: true },
+        { name: "hosts", label: "Hosts", kind: "text", required: false }],
+      resolve_input: input => ({ name: input.name ?? "", value: input.value ?? "", scope: input.scope === "main_only" ? "main_only" : "all_branches", hosts: input.hosts }) })
+    for (const secret of card.payload.secrets) {
+      definitions.push({ tag: "secrets.set", label: "Replace", args: { name: secret.name }, command_input: { name: secret.name, value: "" },
+        input: [{ name: "value", label: "Value", kind: "secret", required: true },
+          { name: "hosts", label: "Hosts", kind: "text", required: false }],
+        resolve_input: input => ({ name: secret.name, value: input.value ?? "", ...(input.hosts ? { hosts: input.hosts } : {}) }) },
+        { tag: "secrets.scope", label: secret.mainOnly ? "all branches" : "main only", args: { name: secret.name },
+          command_input: { name: secret.name, scope: secret.mainOnly ? "all_branches" : "main_only" } },
+        { tag: "secrets.delete", label: "Delete", args: { name: secret.name }, command_input: { name: secret.name } })
+    }
+  }
+  const bindings = cardActions((tag, input) => {
+    if (tag === "secrets.delete" && !confirm(`Delete ${(input as { name: string }).name}?`)) return
+    if (tag === "secrets.scope" && (input as { scope: string }).scope === "all_branches" && !confirm("Give to all branches?")) return
+    return dispatch(tag, input)
+  }, definitions)
+  return <View model={{ secrets: card.payload.secrets.map(secret => ({ name: secret.name,
+    scope: secret.mainOnly ? "main_only" : "all_branches", hosts: secret.hosts,
+    actions: bindings.actions.filter(action => action.args?.name === secret.name) })) }}
+    {...bindings} actions={bindings.actions.filter(action => !action.args?.name)} view={{ maximized: false }} onView={() => {}} />
+}
+
+const SecretsBody = ({ card }: { card: StoredSecrets }) => {
+  const controller = useController()
+  useSyncExternalStore(controller.membersRoster.subscribe, controller.membersRoster.get, controller.membersRoster.get)
+  const topic = useTopic(controller.flowCatalog !== undefined ? "secrets" : undefined, controller.live)
+  const parsed = SecretsCardSchema.safeParse(topic?.data)
+  const projected = topic?.error ? { ...card, payload: { ...card.payload, secrets: [] } }
+    : parsed.success ? { ...card, payload: { ...card.payload, secrets: parsed.data.secrets.map(secret => ({
+      name: secret.name, mainOnly: secret.scope === "main_only", hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null
+    })) } } : card
+  return <SecretsCardBody card={projected} role={controller.membersRole()} dispatch={(name, input) => {
+    const payload: Record<string, unknown> = { ...(input ?? {}), repo: card.payload.repo }
+    if (name === "secrets.scope") payload.scope = payload.scope === "main_only" ? "main-only" : "all"
+    const gesture = name === "secrets.set" ? writeOnlyGesture(name, { value: String(payload.value ?? "") }) : undefined
+    if (payload.hosts) payload.headers = "authorization"
+    delete payload.value
+    return controller.commands.submit({ name, payload, actor: "user", gesture })
+  }} />
+}
 
 type AccountsCard = Extract<Card, { kind: "provider-accounts" }>
 type Account = AccountsCard["payload"]["accounts"][number]
@@ -131,7 +141,7 @@ export const ProviderAccountsCardBody = ({
 }
 
 export const secretsCardFamily: CardFamily<"secrets" | "provider-accounts"> = {
-  secrets: { render: (card, actions) => <SecretsCardBody card={card} onRunCommand={actions.onRunCommand} />, pill: settledPill },
+  secrets: { render: (card) => <SecretsBody card={card} />, pill: settledPill },
   "provider-accounts": {
     render: (card, actions) => <ProviderAccountsCardBody card={card} onRunCommand={actions.onRunCommand} />,
     pill: settledPill

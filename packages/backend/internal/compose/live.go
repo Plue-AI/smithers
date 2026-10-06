@@ -40,6 +40,7 @@ type liveTopics struct {
 	capacity  *services.InstallCapacityService
 	presence  *branchPresence
 	viewState func(context.Context, int64, string) (json.RawMessage, error)
+	secrets   *services.SecretService
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -79,6 +80,11 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 		member = user.ID
 	}
 	return func(ctx context.Context, topic string) (live.Source, string) {
+		if topic == "secrets" {
+			if _, err := services.Authorize(r.Context(), t.queries, "secrets.read"); err != nil {
+				return live.Source{}, live.Forbidden
+			}
+		}
 		if topic == "members" {
 			if t.members == nil || t.members.Pool == nil || t.members.Credentials == nil || t.members.Minter == nil {
 				return live.Source{}, live.Unsupported
@@ -145,13 +151,36 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}, ""
 	case "doc":
 		return t.documents.Resolve(ctx, topic, repository, member)
-	case "branch", "conversation", "secrets", "proposals", "run":
+	case "branch", "conversation", "proposals", "run":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
 		return live.Source{}, live.Unsupported
 	}
 	switch {
+	case topic == "secrets":
+		if t.secrets == nil {
+			return live.Source{}, live.Unsupported
+		}
+		return live.Source{Key: topic, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			rows, err := t.queries.ListSecrets(ctx, repository)
+			if err != nil {
+				return nil, err
+			}
+			secrets := []map[string]any{}
+			for _, row := range rows {
+				scope := "all_branches"
+				if row.MainOnly {
+					scope = "main_only"
+				}
+				hosts := row.Hosts
+				if hosts == nil {
+					hosts = []string{}
+				}
+				secrets = append(secrets, map[string]any{"name": row.Name, "scope": scope, "hosts": hosts, "actions": []any{}})
+			}
+			return json.Marshal(map[string]any{"secrets": secrets})
+		}}, ""
 	case topic == "members":
 		if t.members == nil {
 			return live.Source{}, live.Unsupported

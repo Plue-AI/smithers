@@ -12,8 +12,7 @@ function SecretAction({ action, onAction }: { action: Action; onAction: SecretsV
   const submit = () => { if (!action.disabled) onAction(action.tag, { ...action.args, ...values }) }
   return <form className="setup-action" data-flow={action.tag} onSubmit={event => {
     event.preventDefault()
-    submit()
-    setInput({})
+    try { submit() } finally { setInput({}) }
   }}>
     {action.input?.map(field => <div className="setup-field" key={field.name}>
       {field.kind === "choice" ? <select id={`${id}-${field.name}`} aria-label={field.label} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })}>
@@ -39,7 +38,7 @@ export function SecretsView({ model, actions, onAction }: SecretsViewProps) {
     <h2>Secrets</h2>
     <ul className="secrets-list">
       {model.secrets.map(secret => <li key={secret.name}>
-        <div className="secret-row"><KeyRound size={14} aria-hidden="true" /><code>{secret.name}</code><span className="secret-scope">{scopeWords[secret.scope]}</span></div>
+        <div className="secret-row"><KeyRound size={14} aria-hidden="true" /><code>{secret.name}</code><span className="secret-scope">{scopeWords[secret.scope]}</span>{secret.hosts?.length ? <span>{secret.hosts.join(", ")}</span> : null}</div>
         <div className="secret-actions">{secret.actions.map((action, index) => control(action, index, true))}</div>
       </li>)}
     </ul>

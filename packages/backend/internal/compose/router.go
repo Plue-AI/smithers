@@ -971,6 +971,14 @@ func buildRouter(
 		if config.IsSingleOwner(cfg.Auth) {
 			routes.RegisterConfirmationRoutes(r, &routes.ConfirmationsHandler{Queries: queries})
 		}
+		if config.IsSingleOwner(cfg.Auth) && secretHandler != nil {
+			boundSecret := installSecretRepository(queries)
+			r.With(boundSecret, gateSecrets).Get("/secrets", secretHandler.ListSecrets)
+			r.With(boundSecret, gateSecrets).Put("/secrets", secretHandler.SetSecret)
+			r.With(boundSecret, gateSecrets).Patch("/secrets/{name}", secretHandler.SetSecretScope)
+			r.With(boundSecret, gateSecrets).Delete("/secrets", secretHandler.DeleteSecret)
+			r.With(boundSecret, gateSecrets).Delete("/secrets/{name}", secretHandler.DeleteSecret)
+		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Members != nil {
 			r.Get("/members", extras.Members.List)
 			r.Post("/members", extras.Members.Mutate)

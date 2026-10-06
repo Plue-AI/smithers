@@ -1,3 +1,4 @@
+import { LegacySecretMetadataSchema } from "./SecretsCard.ts"
 /**
  * Cards rendered from agent, code-intelligence, and repository events.
  *
@@ -1762,17 +1763,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: z.object({
       repo: z.string(),
       scope: z.literal("repository"),
-      secrets: z.array(
-        z.object({
-          name: z.string(),
-          hosts: z.array(z.string()),
-          matchHeaders: z.array(z.string()),
-          updatedAt: z.string().nullable(),
-          mainOnly: z.boolean(),
-          /** The secret held a subscription token the platform refuses; it is unused until replaced or deleted. */
-          reconnect: z.boolean().optional()
-        })
-      )
+      secrets: z.array(LegacySecretMetadataSchema)
     })
   }),
   /*

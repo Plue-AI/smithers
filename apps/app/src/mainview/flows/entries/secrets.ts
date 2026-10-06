@@ -48,18 +48,18 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   }),
   flow({
     name: "secrets.scope", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
-    summary: "Limit a repository secret to trusted runs on main, or give it to every run",
+    summary: "Limit a repository secret to trusted runs on main, or give it to all branches",
     runtime: ["cloud"],
     args: "<name> <main-only|all> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({ name: Schema.String, scope: Schema.Literals(["main-only", "all"]), repo: Schema.optional(Schema.String) }),
     /*
-     * Giving a main-only secret to every run hands it to agent runs, so the
+     * Giving a main-only secret to all branches hands it to agent runs, so the
      * agent may only ask; the human confirms, for the repository named at
      * ask time.
      */
     confirm: payload => payload["scope"] === "all"
-      ? `give ${String(payload["name"])} to every run in ${scopeRepo(actions, payload) ?? "the selected repository"}`
+      ? `give ${String(payload["name"])} to all branches in ${scopeRepo(actions, payload) ?? "the selected repository"}`
       : undefined,
     confirmArgs: payload => {
       const repo = scopeRepo(actions, payload)
@@ -104,7 +104,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     requires: ["signed-in"],
     input: Schema.Struct({
       name: Schema.String, value: Schema.optional(Schema.String),
-      hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
+      scope: Schema.optional(Schema.Literals(["all_branches", "main_only"])), hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
     }),
     form: {
       submitLabel: "Save",
@@ -119,8 +119,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" }
       }
     },
-    confirm: payload => `save secret ${String(payload["name"])}`,
-    handler: ({ name, hosts, headers, repo }, _signal, _call, gesture) => actions.setSecret({ name, hosts, headers, repo }, gesture)
+    handler: ({ name, scope, hosts, headers, repo }, _signal, _call, gesture) => actions.setSecret({ name, scope, hosts, headers, repo }, gesture)
   }),
   flow({
     name: "secrets.delete", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
@@ -137,7 +136,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, repo }) => actions.deleteSecret(name, repo)
   }),
   flow({
-    name: "secrets", slash: "/secrets", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "maintainer", agent: "never", http: null,
+    name: "secrets", slash: "/secrets", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", agent: "never", http: null,
     summary: "Set secrets machines can use",
     runtime: ["cloud"],
     args: "[owner/repo]",
