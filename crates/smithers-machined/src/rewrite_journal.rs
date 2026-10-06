@@ -63,7 +63,13 @@ impl Journal {
         File::open(&self.directory)?.sync_all()
     }
     pub fn settled(&self) -> io::Result<()> {
-        fs::remove_file(self.directory.join("rewrite.pending"))?;
+        match fs::remove_file(self.directory.join("rewrite.pending")) {
+            Ok(()) => (),
+            // A previous removal may have succeeded before directory fsync
+            // failed. Retrying settlement must still fsync that removal.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error),
+        }
         File::open(&self.directory)?.sync_all()
     }
 }
