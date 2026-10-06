@@ -60,6 +60,9 @@ var gatewayProcedures = map[string]bool{
 }
 
 func rpcPath(procedure string) string {
+	if strings.HasPrefix(procedure, "Branch.") {
+		return "/branch"
+	}
 	if gatewayProcedures[procedure] {
 		return "/projections"
 	}

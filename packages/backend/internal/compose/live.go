@@ -38,6 +38,7 @@ type liveTopics struct {
 	members   *services.Members
 	documents *live.DocRelay
 	capacity  *services.InstallCapacityService
+	presence  *branchPresence
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -90,6 +91,12 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 			if info == nil || info.IsTokenAuth || info.SessionHash == "" || info.IsAgent() {
 				return live.Source{}, live.Forbidden
 			}
+		}
+		if strings.HasPrefix(topic, "branch:") {
+			if strings.HasSuffix(topic, ":activity") || strings.HasSuffix(topic, ":files") {
+				return live.Source{}, live.Unsupported
+			}
+			return t.presence.source(r.Context(), strings.TrimPrefix(topic, "branch:"), repository, member, slug)
 		}
 		return t.resolve(ctx, topic, repository, slug, member)
 	}, repository

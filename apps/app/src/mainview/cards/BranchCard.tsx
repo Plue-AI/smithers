@@ -102,7 +102,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   const files = useTopic(topic && `${topic}:files`, controller.live)
   const model = branch?.error || activity?.error || files?.error ? undefined
     : branchModel(branch?.data, activity?.data, files?.data, card.payload.id)
-  useBranchPresence(model?.id, controller.live)
+  useBranchPresence(card.payload.id, controller.live)
   // Outside an install, an unanswered or absent provider keeps the existing seed visible.
   if (controller.design.enabled !== false && branch?.data === undefined
     && (branch?.error === undefined || branch.error === "unknown_topic" || branch.error === "unsupported")) return <DesignBranchBody card={card} actions={actions} />

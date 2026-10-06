@@ -40,6 +40,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { GatewayError, settingRefusal } from "./GatewayError.ts"
 import { GatewayRpcs } from "./GatewayRpcs.ts"
 import * as GatewaySchema from "./GatewaySchema.ts"
+import * as HostBranchPresence from "./HostBranchPresence.ts"
 import { heartbeatIntervalMillis, Projections } from "./Projections.ts"
 import * as RunHistory from "./RunHistory.ts"
 import * as RuntimeBridge from "./RuntimeBridge.ts"
@@ -374,7 +375,7 @@ export const layerSyncHttp = Layer.mergeAll(
  * @since 1.0.0
  * @category constants
  */
-export const rpcPaths: ReadonlyArray<string> = ["/rpc", "/projections", "/sync"]
+export const rpcPaths: ReadonlyArray<string> = ["/rpc", "/projections", "/sync", "/branch"]
 
 /**
  * POST mounts whose request bodies are bounded before their handlers read.
@@ -415,6 +416,7 @@ export const boundedPostPaths: ReadonlyArray<string> = [
  */
 export const protectedPaths: ReadonlyArray<string> = [
   "/projections",
+  "/branch",
   "/sync",
   "/rpc/ws",
   "/projections/ws",
@@ -922,7 +924,9 @@ export const layer = (health: Health, options: LayerOptions = {}) => {
       : layerProjectionsHttp.pipe(Layer.provide(layerProjectionsKeepAlive(options.heartbeatMillis))),
     layerSyncHttp,
     layerHealth(health),
-    ...(options.runtimeBridge === undefined ? [] : [RuntimeBridge.layer(options.runtimeBridge)]),
+    ...(options.runtimeBridge === undefined
+      ? []
+      : [RuntimeBridge.layer(options.runtimeBridge), HostBranchPresence.layer(options.runtimeBridge)]),
     layerIngress(options.ingress)
   )
 }

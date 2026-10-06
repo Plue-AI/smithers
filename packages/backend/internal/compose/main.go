@@ -1670,9 +1670,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var liveHandler *routes.LiveHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members, capacity: installCapacity}
+
+		visits := &presenceVisits{audit: auditService, now: time.Now}
+		go visits.run(ctx)
+		presence := &branchPresence{visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
+		if flow != nil {
+			presence.dispatcher = flow.dispatcher
+		}
+		topics := &liveTopics{capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+
 		topics.documents = options.DocumentRelay
-		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
+		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}
 	}
 	router := buildRouter(
 		cfg,

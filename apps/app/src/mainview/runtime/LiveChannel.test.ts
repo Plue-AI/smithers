@@ -252,6 +252,7 @@ test("presence uses one socket, an independent frame id, the latest location, an
   sockets[0]!.receive({ t: "err", id: 2, code: "unsupported" })
   expect(channel.getSnapshot("branch:b1")?.error).toBeUndefined()
   first.release()
+  expect(sockets[0]!.frames.at(-1)).toEqual({ t: "presence", id: 2, where: { branch: "" } })
   expect(timers.at(-1)!.cancelled).toBe(true)
   const count = sockets[0]!.frames.length
   timers.at(-1)!.run(); first.move({ branch: "b2" })

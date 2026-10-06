@@ -405,6 +405,7 @@ func TestCallRPCRoutesGatewayProceduresToProjections(t *testing.T) {
 		"Projection.Snapshot": "/projections", "Approval.Submit": "/projections",
 		"Run.Fork": "/projections", "Run.Verify": "/projections",
 		"Plan": "/rpc", "Resume": "/rpc", "List": "/rpc",
+		"Branch.Announce": "/branch", "Branch.Leave": "/branch", "Branch.Roster": "/branch",
 	}
 	for procedure, want := range cases {
 		t.Run(procedure, func(t *testing.T) {
