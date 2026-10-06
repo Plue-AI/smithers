@@ -9,7 +9,7 @@ the release notes at
 
 ### Removed
 
-- The `change.land` flow and Change card landing control. Use the TODO's **Review & merge** with the displayed PR head, or a maintainer's standing pre-approval. The retired TUI and `smthrs history land` commands are not aliases for Merge; Plue's separate landing API is retained.
+- The `change.land` and `prs.land` flows and their card landing controls. Use the TODO's **Review & merge** with the displayed PR head, or a maintainer's standing pre-approval. The retired TUI and `smthrs history land` commands are not aliases for Merge; Plue's separate landing API is retained.
 
 ## 1.0.0-rc.1 (2026-09-22)
 

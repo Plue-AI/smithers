@@ -121,15 +121,7 @@ func (s *MythicalService) PreapproveTodo(ctx context.Context, repositoryID, user
 			saved = item
 			return nil
 		}
-		checks.Automerge = approved
-		checks.Preapproval = nil
-		checks.PreapprovalFailure = nil
-		if approved {
-			checks.Preapproval = &mythicalLand{StandingUser: userID, By: account.Login, Account: account.ID, At: s.now().UTC()}
-		}
-		checks.PreapprovalEvents = append(checks.PreapprovalEvents, mythicalPreapprovalEvent{By: account.Login, User: userID, Approved: approved, Via: "session", At: s.now().UTC()})
-		item.Checks = checks.encode()
-		item.NextAttemptAt.Valid = false
+		item = recordMythicalPreapproval(item, userID, account, approved, "session", 0, s.now())
 		saved, err = q.SaveMythicalItem(ctx, item)
 		return err
 	})
@@ -189,4 +181,18 @@ func (s *MythicalService) SetTodoPreapprovalDefault(ctx context.Context, userID 
 		}
 		return db.New(tx).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: todoPreapprovalDefaultKey, Value: raw})
 	})
+}
+
+// All approval doors update the same record; dispatch uses the same predicate.
+func recordMythicalPreapproval(item db.MythicalItem, user int64, account gitHubActor, approved bool, via string, issue int64, at time.Time) db.MythicalItem {
+	checks := mythicalChecksOf(item)
+	checks.Automerge = approved
+	checks.Preapproval, checks.PreapprovalFailure = nil, nil
+	if approved {
+		checks.Preapproval = &mythicalLand{StandingUser: user, By: account.Login, Account: account.ID, LabelIssue: issue, At: at.UTC()}
+	}
+	checks.PreapprovalEvents = append(checks.PreapprovalEvents, mythicalPreapprovalEvent{By: account.Login, User: user, Approved: approved, Via: via, At: at.UTC()})
+	item.Checks = checks.encode()
+	item.NextAttemptAt.Valid = false
+	return item
 }

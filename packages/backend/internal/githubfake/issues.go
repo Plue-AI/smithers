@@ -374,7 +374,7 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		events := []any{}
 		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page <= 1 {
 			for _, event := range s.events[key] {
-				entry := map[string]any{"id": event.ID, "event": event.Event, "actor": s.actor(event.Actor, event.ViaApp),
+				entry := map[string]any{"id": event.ID, "event": event.Event, "actor": s.fetchedActor(event.Actor, event.ViaApp),
 					"performed_via_github_app": s.viaApp(event.ViaApp), "created_at": event.CreatedAt}
 				if event.Label != "" {
 					entry["label"] = map[string]string{"name": event.Label}
@@ -436,7 +436,7 @@ func (s *Server) repositoryIssueEvents(r *http.Request, repo string) []any {
 		} else if p, ok := s.pulls[issueKey(repo, at.number)]; ok {
 			issue = s.pullIssueJSON(p)
 		}
-		entry := map[string]any{"id": at.event.ID, "event": at.event.Event, "actor": s.actor(at.event.Actor, at.event.ViaApp),
+		entry := map[string]any{"id": at.event.ID, "event": at.event.Event, "actor": s.fetchedActor(at.event.Actor, at.event.ViaApp),
 			"performed_via_github_app": s.viaApp(at.event.ViaApp), "created_at": at.event.CreatedAt, "issue": issue}
 		if at.event.Label != "" {
 			entry["label"] = map[string]string{"name": at.event.Label}

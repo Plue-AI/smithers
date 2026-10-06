@@ -123,6 +123,11 @@ func (s *MythicalService) ReadIssueEvents(ctx context.Context, repositoryID int6
 				return err
 			}
 		}
+		if strings.EqualFold(event.Label, automergeLabel) && !event.Pull && (event.Event == "labeled" || event.Event == "unlabeled") {
+			if err := s.observeAutomergeLabel(ctx, nil, repositoryID, gh, event); err != nil {
+				return err
+			}
+		}
 		if err := s.saveIssueEventsCursor(ctx, key, event.ID); err != nil {
 			return err
 		}
@@ -417,7 +422,8 @@ func (s *MythicalService) consumeGitHubTodoLabels(ctx context.Context, tx pgx.Tx
 	if event.ID != fact.EventID || issue.Number != fact.Number {
 		return nil, issueTodoUnavailable()
 	}
-	if event.Event != "labeled" || !strings.EqualFold(event.Label.Name, todoLabel) || issue.pull() {
+	automerge := strings.EqualFold(event.Label.Name, automergeLabel) && (event.Event == "labeled" || event.Event == "unlabeled")
+	if (!automerge && (event.Event != "labeled" || !strings.EqualFold(event.Label.Name, todoLabel))) || issue.pull() {
 		return json.RawMessage(`{"todo":false}`), nil
 	}
 	source, err := db.New(tx).GetGitHubSyncedRepoByGitHubID(ctx, pgtype.Int8{Int64: fact.GitHubRepository, Valid: true})
@@ -456,7 +462,11 @@ func (s *MythicalService) consumeGitHubTodoLabels(ctx context.Context, tx pgx.Tx
 			userID: repository.UserID.Int64, orgID: repository.OrgID.Int64}
 		labeled := mythicalIssueEvent{ID: event.ID, CreatedAt: event.CreatedAt, Actor: event.Actor, Label: event.Label.Name, Issue: issue.Number,
 			Event: event.Event, ViaApp: event.ViaApp != nil && string(*event.ViaApp) != "null"}
-		if err := s.observeLabelEventInTx(ctx, tx, id, gh, labeled); err != nil {
+		if automerge {
+			if err := s.observeAutomergeLabel(ctx, tx, id, gh, labeled); err != nil {
+				return nil, err
+			}
+		} else if err := s.observeLabelEventInTx(ctx, tx, id, gh, labeled); err != nil {
 			return nil, err
 		}
 	}

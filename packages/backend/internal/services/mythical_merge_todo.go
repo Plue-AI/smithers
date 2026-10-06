@@ -36,6 +36,7 @@ type MythicalMergeInput struct {
 // and is never retried until another press replaces it.
 type mythicalLand struct {
 	StandingUser int64     `json:"standing_user,omitempty"`
+	LabelIssue   int64     `json:"label_issue,omitempty"`
 	By           string    `json:"by"`
 	Account      int64     `json:"account"`
 	Generation   int64     `json:"generation,omitempty"`
@@ -625,6 +626,19 @@ func (s *MythicalService) mergeAuthority(ctx context.Context, item db.MythicalIt
 	}
 	if account.ID != land.Account {
 		return gitHubActor{}, mythicalMergeAccountMoved()
+	}
+	if land.LabelIssue != 0 {
+		gh, _, readErr := s.maintainerPerson(ctx, item.RepositoryID, land.StandingUser, "check a label approval")
+		if readErr != nil {
+			return gitHubActor{}, mythicalAuthorityRefusal(readErr)
+		}
+		issue, readErr := s.github.Issue(ctx, gh, land.LabelIssue)
+		if readErr != nil {
+			return gitHubActor{}, readErr
+		}
+		if !issueCarriesLabel(issue.Labels, automergeLabel) {
+			return gitHubActor{}, mythicalMergeForbidden()
+		}
 	}
 	return account, nil
 }
