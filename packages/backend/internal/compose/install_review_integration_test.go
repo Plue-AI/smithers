@@ -183,6 +183,23 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	require.NoError(t, err)
 	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.User.ID = 4343 })
 	requestReview(403, "permission") // The old login cannot grant a new ID access.
+	// The install sign-in identity uses the historical workos key. A legacy
+	// GitHub token row must not impersonate that identity, even with its login.
+	_, err = pool.Exec(ctx, `UPDATE oauth_accounts SET provider_user_id='88' WHERE user_id=$1 AND provider='github'`, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id) VALUES(361200,$1,'workos','7')`, owner.ID)
+	require.NoError(t, err)
+	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) {
+		p.User = &githubfake.PullAuthor{ID: 7, Login: "review-owner", Type: "User"}
+	})
+	requestReview(503, "review_delivery_unavailable") // Owner identity passes membership.
+	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) {
+		p.User = &githubfake.PullAuthor{ID: 88, Login: "review-owner", Type: "User"}
+	})
+	requestReview(403, "permission") // Legacy token identity is not the owner.
+	_, err = pool.Exec(ctx, `DELETE FROM oauth_accounts WHERE user_id=$1 AND provider='workos'`, owner.ID)
+	require.NoError(t, err)
+	requestReview(403, "permission") // Missing sign-in identity fails closed.
 	newWrites := upstream.Writes()[writes:]
 	require.Len(t, newWrites, 1, "only a read-scoped token mint; no repository writes")
 	require.Equal(t, "/app/installations/93612/access_tokens", newWrites[0].Path)

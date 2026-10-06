@@ -70,6 +70,8 @@ func TestInstallReviewPinsMemberPRBeforeDispatch(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.service.RequestReview(ctx, f.repoID, f.userID, request, "review-50")
 	requireTodoControl(t, err, 403, "permission")
+	_, err = f.pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id) VALUES(361200,$1,'workos','7')`, f.userID)
+	require.NoError(t, err)
 	f.fake.UpdatePull("rehearsal-owner/app", pull.Number, func(p *githubfake.Pull) {
 		p.User = &githubfake.PullAuthor{ID: 7, Login: "rehearsal-owner", Type: "User"}
 	})

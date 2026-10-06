@@ -91,6 +91,9 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 	}
 	// GitHub's immutable numeric identity is the roster key. Login names and
 	// repository collaborators alone do not establish active install membership.
+	// Install GitHub sign-in retains the historical workos provider key (Auth
+	// and Members.AdmitGitHub); a separate legacy github token row grants no
+	// owner identity here.
 	if pull.Author.ID <= 0 || pull.Author.Type != "User" {
 		return ReviewAdmission{}, reviewNonMember()
 	}
@@ -100,7 +103,7 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
  AND (i.value->>'repository_id')::bigint=c.repository_id WHERE c.user_id=u.id AND c.repository_id=$1
  AND c.github_id=$2 AND c.permission IN ('admin','write') AND c.suspended_at IS NULL)
  OR EXISTS (SELECT 1 FROM self_host_owners o JOIN oauth_accounts a ON a.user_id=o.user_id
- WHERE o.singleton AND o.user_id=u.id AND a.provider='github' AND a.provider_user_id=$2::text))`, repositoryID, pull.Author.ID).Scan(&authorID)
+ WHERE o.singleton AND o.user_id=u.id AND a.provider='workos' AND a.provider_user_id=$2::text))`, repositoryID, pull.Author.ID).Scan(&authorID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReviewAdmission{}, reviewNonMember()
 	}
