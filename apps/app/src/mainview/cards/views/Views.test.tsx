@@ -2750,6 +2750,8 @@ describe("HomeView", () => {
       await key("Home")
       await act(async () => (document.activeElement as HTMLButtonElement).click())
       expect(h.onAction.mock.calls).toEqual([["wiki.page", { n: "8", direction: "up" }]])
+      expect(h.host.querySelector('[role="menu"]')).toBeNull()
+      await act(async () => trigger.click())
       await key("Escape")
       expect(document.activeElement).toBe(trigger)
       expect(h.host.querySelector('[role="menu"]')).toBeNull()
@@ -2758,7 +2760,7 @@ describe("HomeView", () => {
       expect(document.activeElement?.textContent).toBe("Drop")
       await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })))
       expect(h.host.querySelector('[role="menu"]')).toBeNull()
-      expect(h.onView.mock.calls).toEqual([[{ menu: 8 }], [{ menu: undefined }], [{ menu: 8 }], [{ menu: undefined }]])
+      expect(h.onView.mock.calls).toEqual([[{ menu: 8 }], [{ menu: undefined }], [{ menu: 8 }], [{ menu: undefined }], [{ menu: 8 }], [{ menu: undefined }]])
     } finally { await h.close() }
   })
 

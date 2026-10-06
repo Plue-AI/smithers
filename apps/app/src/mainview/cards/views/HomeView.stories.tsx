@@ -12,7 +12,7 @@ export function StoryHome(props: HomeViewProps) {
 
 // Literal oracles: ui-components T-UI-06 / spec §14.3 Home, committed RPC Home fixtures.
 const active: StoryAction[] = [
-  { tag: "order.ok", label: "OK", args: { n: "3" } },
+  { tag: "order.ok", label: "OK", args: { id: "order-three" } },
   { tag: "main.reset-to-github", label: "Reset to GitHub main", args: { revision: "4bc79aef91d66ea28c90b706d584d3b9b48e14ea" } },
   { tag: "merge", label: "Merge", args: { n: "8" } },
   { tag: "todo.answer", label: "Answer", args: { n: "12" } },
@@ -51,9 +51,12 @@ export const stories: ViewStory[] = (Object.keys(fixtures) as (keyof typeof fixt
       { selector: '[data-filter="in_review"]', patch: key.startsWith("active") ? { filter: "in_review" } : undefined },
       ...(key.startsWith("active") ? [ ["Persist merge requests", "8"], ["Card model contracts", "12"], ["Wire Home", "15"], ["Retry webhook delivery", "16"] ].flatMap(([title, n]): StoryInteraction[] => [
         { selector: `button[aria-label="Order ${title}"]`, patch: { menu: Number(n) } },
-        { selector: '.menu .home-action:nth-child(1) button', action: { tag: "stack.move", args: { n: n!, direction: "up" } } },
-        { selector: '.menu .home-action:nth-child(2) button', action: { tag: "stack.move", args: { n: n!, direction: "down" } } },
-        { selector: '.menu .home-action:nth-child(3) button', action: { tag: "todo.drop", args: { n: n! } } },
+        { selector: '.menu .home-action:nth-child(1) button', action: { tag: "stack.move", args: { n: n!, direction: "up" } }, patch: { menu: undefined } },
+        { selector: `button[aria-label="Order ${title}"]`, patch: { menu: Number(n) } },
+        { selector: '.menu .home-action:nth-child(2) button', action: { tag: "stack.move", args: { n: n!, direction: "down" } }, patch: { menu: undefined } },
+        { selector: `button[aria-label="Order ${title}"]`, patch: { menu: Number(n) } },
+        { selector: '.menu .home-action:nth-child(3) button', action: { tag: "todo.drop", args: { n: n! } }, patch: { menu: undefined } },
+        { selector: `button[aria-label="Order ${title}"]`, patch: { menu: Number(n) } },
         { selector: `button[aria-label="Order ${title}"]`, event: "keydown" as const, key: "Escape", patch: { menu: undefined } },
       ]) : []),
     ],
