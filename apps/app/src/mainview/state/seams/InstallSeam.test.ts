@@ -213,15 +213,15 @@ describe("T-APP-03 install seam", () => {
   })
   test("limits reject invalid values before transport and allow both boundaries", async () => {
     const h = await harness(() => Response.json(installFixture())); await h.seam.readInstall()
-    for (const n of [-1, 3.5, NaN, Infinity, 4]) expect(typeof h.seam.setInstallCapacity(n)).toBe("string")
+    for (const n of [0, -1, 3.5, NaN, Infinity, 4]) expect(typeof h.seam.setInstallCapacity(n)).toBe("string")
     for (const n of [0, -1, 2.5, NaN, Infinity, 9]) expect(typeof h.seam.setInstallParallel(n)).toBe("string")
     expect(h.requests).toHaveLength(1)
     h.seam.setInstallCapacity(3); await h.idle()
     expect(JSON.parse(String(h.requests[1]?.init?.body))).toEqual({ capacity: 3 })
     h.seam.setInstallParallel(8); await h.idle()
     expect(JSON.parse(String(h.requests[2]?.init?.body))).toEqual({ parallel: 8 })
-    h.seam.setInstallCapacity(0); await h.idle()
-    expect(JSON.parse(String(h.requests[3]?.init?.body))).toEqual({ capacity: 0 })
+    h.seam.setInstallCapacity(1); await h.idle()
+    expect(JSON.parse(String(h.requests[3]?.init?.body))).toEqual({ capacity: 1 })
   })
   test("a done Address is sent again while setup is unfinished, and never once setup is done", async () => {
     const input = { step: "address" as const, bind: "0.0.0.0:4000", origins: ["http://williams-mac-mini.local:4000"] }
