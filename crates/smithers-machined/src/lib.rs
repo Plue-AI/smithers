@@ -11,6 +11,7 @@ pub mod msg;
 pub mod outbox_store;
 pub mod rpc;
 pub mod stream;
+pub mod transcript;
 
 pub mod attrib;
 pub mod events;
