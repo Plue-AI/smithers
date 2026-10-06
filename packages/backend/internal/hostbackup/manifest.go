@@ -197,9 +197,9 @@ func hasDump(files []File) bool {
 	return false
 }
 
-// inventory uses streaming SHA-256, including sparse holes; it rejects links
-// and special files instead of following paths outside the snapshot.
-func inventory(dir string) ([]File, error) {
+// openSnapshot pins the directory identity for the whole verification. A root
+// symlink or replacement between lstat and open is never a snapshot authority.
+func openSnapshot(dir string) (*os.Root, error) {
 	info, err := os.Lstat(dir)
 	if err != nil {
 		return nil, err
@@ -211,9 +211,50 @@ func inventory(dir string) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
+	pinned, err := root.Stat(".")
+	if err != nil || !os.SameFile(info, pinned) {
+		root.Close()
+		return nil, &Error{Code: UnsafePath, Path: dir}
+	}
+	return root, nil
+}
+
+// A directory entry may change after WalkDir or Lstat. O_NOFOLLOW rejects a
+// substituted link; O_NONBLOCK prevents a substituted FIFO from hanging the CLI.
+func openRegular(root *os.Root, path string) (*os.File, error) {
+	// Root.OpenFile resolves links itself, including with O_NOFOLLOW on macOS.
+	// Resolve only the parent inside Root, then open its final entry atomically.
+	parent, err := root.Open(filepath.Dir(path))
+	if err != nil {
+		return nil, &Error{Code: UnsafePath, Path: path}
+	}
+	defer parent.Close()
+	fd, err := unix.Openat(int(parent.Fd()), filepath.Base(path), unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &Error{Code: UnsafePath, Path: path}
+	}
+	f := os.NewFile(uintptr(fd), path)
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		f.Close()
+		return nil, &Error{Code: UnsafePath, Path: path}
+	}
+	return f, nil
+}
+
+// inventory streams SHA-256, including sparse holes, without following links.
+func inventory(dir string) ([]File, error) {
+	root, err := openSnapshot(dir)
+	if err != nil {
+		return nil, err
+	}
 	defer root.Close()
+	return inventoryRoot(root)
+}
+
+func inventoryRoot(root *os.Root) ([]File, error) {
 	var files []File
-	err = fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
+	err := fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -233,7 +274,7 @@ func inventory(dir string) ([]File, error) {
 		if rel == "MANIFEST.json" {
 			return nil
 		}
-		f, err := root.Open(rel)
+		f, err := openRegular(root, rel)
 		if err != nil {
 			return err
 		}
@@ -252,12 +293,16 @@ func inventory(dir string) ([]File, error) {
 	return files, err
 }
 func readManifest(dir string) (Manifest, error) {
-	var m Manifest
-	root, err := os.OpenRoot(dir)
+	root, err := openSnapshot(dir)
 	if err != nil {
-		return m, &Error{Code: MissingFile, Path: "MANIFEST.json"}
+		return Manifest{}, err
 	}
 	defer root.Close()
+	return readManifestRoot(root)
+}
+
+func readManifestRoot(root *os.Root) (Manifest, error) {
+	var m Manifest
 	info, err := root.Lstat("MANIFEST.json")
 	if err != nil {
 		return m, &Error{Code: MissingFile, Path: "MANIFEST.json"}
@@ -265,7 +310,7 @@ func readManifest(dir string) (Manifest, error) {
 	if !info.Mode().IsRegular() || info.Size() > 16<<20 {
 		return m, &Error{Code: UnsafePath, Path: "MANIFEST.json"}
 	}
-	f, err := root.Open("MANIFEST.json")
+	f, err := openRegular(root, "MANIFEST.json")
 	if err != nil {
 		return m, err
 	}
@@ -304,8 +349,12 @@ func verifiedManifest(dir string, installed *Version) (Manifest, error) {
 	if strings.HasPrefix(filepath.Base(dir), ".partial-") {
 		return m, &Error{Code: Partial, Path: dir}
 	}
-	var err error
-	m, err = readManifest(dir)
+	root, err := openSnapshot(dir)
+	if err != nil {
+		return m, err
+	}
+	defer root.Close()
+	m, err = readManifestRoot(root)
 	if err != nil {
 		return m, err
 	}
@@ -344,10 +393,10 @@ func verifiedManifest(dir string, installed *Version) (Manifest, error) {
 	if !hasDump(m.Files) {
 		return m, &Error{Code: MissingDump, Path: "postgres.dump"}
 	}
-	if _, err = os.Lstat(filepath.Join(dir, "postgres.dump")); os.IsNotExist(err) {
+	if _, err = root.Lstat("postgres.dump"); os.IsNotExist(err) {
 		return m, &Error{Code: MissingDump, Path: "postgres.dump"}
 	}
-	actual, err := inventory(dir)
+	actual, err := inventoryRoot(root)
 	if err != nil {
 		return m, err
 	}

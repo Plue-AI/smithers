@@ -178,3 +178,66 @@ func TestHostRestoreCorruptBackupLeavesStateUntouched(t *testing.T) {
 		})
 	}
 }
+
+func TestHostRestoreReplacedDirectoryRefusesBeforeMutation(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("maintenance intentionally refuses root")
+	}
+	for _, name := range []string{"backup root", "payload ancestor", "manifest link"} {
+		t.Run(name, func(t *testing.T) {
+			dir := maintenanceSnapshot(t)
+			state := t.TempDir()
+			live := filepath.Join(state, "live-data")
+			if err := os.WriteFile(live, []byte("live bytes"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("SMITHERS_DATA_ROOT", state)
+			t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "invalid-must-never-bootstrap")
+			outside := t.TempDir()
+			sentinel := filepath.Join(outside, "sentinel")
+			if err := os.WriteFile(sentinel, []byte("outside bytes"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			switch name {
+			case "backup root":
+				moved := filepath.Join(outside, filepath.Base(dir))
+				if err := os.Rename(dir, moved); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(moved, dir); err != nil {
+					t.Fatal(err)
+				}
+			case "payload ancestor":
+				if err := os.Symlink(outside, filepath.Join(dir, "trees")); err != nil {
+					t.Fatal(err)
+				}
+			case "manifest link":
+				moved := filepath.Join(outside, "MANIFEST.json")
+				if err := os.Rename(filepath.Join(dir, "MANIFEST.json"), moved); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(moved, filepath.Join(dir, "MANIFEST.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := run(t.Context(), []string{"host-maintenance", "restore", dir})
+			if err == nil || !strings.HasPrefix(err.Error(), "unsafe_path:") {
+				t.Fatalf("refusal: %v", err)
+			}
+			for path, expected := range map[string]string{live: "live bytes", sentinel: "outside bytes"} {
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != expected {
+					t.Fatalf("changed %s: %q %v", path, data, err)
+				}
+				info, err := os.Stat(path)
+				if err != nil || info.Mode().Perm() != 0600 {
+					t.Fatalf("mode changed %s: %v %v", path, info, err)
+				}
+			}
+			entries, err := os.ReadDir(state)
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("live tree changed: %v %v", entries, err)
+			}
+		})
+	}
+}

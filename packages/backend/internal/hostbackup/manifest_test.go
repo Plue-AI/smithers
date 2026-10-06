@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 var fixtureBackupNames = []string{
@@ -260,4 +262,48 @@ func TestManifestPublishedContractUsesIndependentLiteralDigests(t *testing.T) {
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("manifest contract differs: %s", body)
 	}
+}
+
+// Replacing the pathname after opening the snapshot must never switch the
+// manifest or payload to the replacement directory.
+func TestSnapshotDirectoryIdentityIsPinned(t *testing.T) {
+	dir := completed(t)
+	root, err := openSnapshot(dir)
+	must(t, err)
+	defer root.Close()
+	moved := dir + "-moved"
+	must(t, os.Rename(dir, moved))
+	must(t, os.Mkdir(dir, 0700))
+	must(t, os.WriteFile(filepath.Join(dir, "MANIFEST.json"), []byte("replacement"), 0600))
+	must(t, os.WriteFile(filepath.Join(dir, "postgres.dump"), []byte("replacement"), 0600))
+	manifest, err := readManifestRoot(root)
+	must(t, err)
+	files, err := inventoryRoot(root)
+	must(t, err)
+	if !reflect.DeepEqual(manifest.Files, files) {
+		t.Fatalf("verification switched directory: manifest=%v inventory=%v", manifest.Files, files)
+	}
+}
+
+func TestOpenedPayloadRejectsLinksAndSpecialFiles(t *testing.T) {
+	dir := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(dir, "payload"), []byte("captured bytes"), 0600))
+	must(t, os.Symlink("payload", filepath.Join(dir, "link")))
+	must(t, unix.Mkfifo(filepath.Join(dir, "fifo"), 0600))
+	root, err := openSnapshot(dir)
+	must(t, err)
+	defer root.Close()
+	for _, name := range []string{"link", "fifo", "."} {
+		t.Run(name, func(t *testing.T) {
+			f, err := openRegular(root, name)
+			if f != nil {
+				f.Close()
+				t.Fatal("unsafe file opened")
+			}
+			requireCode(t, err, Code("unsafe_path"))
+		})
+	}
+	f, err := openRegular(root, "payload")
+	must(t, err)
+	must(t, f.Close())
 }
