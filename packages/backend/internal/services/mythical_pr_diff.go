@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/diffview"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -110,6 +112,9 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 	branch, err = url.PathUnescape(branch)
 	if err != nil {
 		return BranchDiff{}, &BranchError{http.StatusBadRequest, "invalid_branch", "user", "Invalid branch"}
+	}
+	if strings.HasPrefix(branch, scratchBranchPrefix) {
+		return s.scratchBranchDiff(ctx, repository, branch)
 	}
 	var id string
 	err = s.store.QueryRow(ctx, `SELECT id::text FROM mythical_items WHERE repository_id=$1 AND (workspace_id=$2 OR checks->>'branch'=$2) ORDER BY created_at DESC LIMIT 1`, repository, branch).Scan(&id)
@@ -273,4 +278,92 @@ func (r acceptedTreeDiffReader) GetFileAtChange(ctx context.Context, _, _, rev, 
 		result.Content = base64.StdEncoding.EncodeToString(content)
 	}
 	return result, nil
+}
+
+// scratchBranchDiff compares retained fork and advertised head revisions without a machine operation.
+func (s *MythicalService) scratchBranchDiff(ctx context.Context, repositoryID int64, branch string) (BranchDiff, error) {
+	row, err := s.queries().GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return BranchDiff{}, pkgerrors.NotFound("branch not found")
+	}
+	if err != nil {
+		return BranchDiff{}, err
+	}
+	if !row.IsFork || !mythicalSHA.MatchString(row.SourceCommit) {
+		return BranchDiff{}, &TODOPrUnavailable{}
+	}
+	reader, ok := s.host.(interface {
+		GetRevisionDiff(context.Context, string, string, string, string, string, string) (repohost.ChangeDiff, error)
+	})
+	if !ok {
+		return BranchDiff{}, &TODOPrUnavailable{}
+	}
+	repository, owner, err := s.repository(ctx, repositoryID)
+	if err != nil {
+		return BranchDiff{}, err
+	}
+	head, err := s.refCommit(ctx, owner, repository.Name, "refs/heads/"+branch)
+	if err != nil || !mythicalSHA.MatchString(head) {
+		return BranchDiff{}, &TODOPrUnavailable{}
+	}
+	diff, err := reader.GetRevisionDiff(ctx, owner, repository.Name, head, row.SourceCommit, head, "")
+	if err != nil {
+		return BranchDiff{}, &TODOPrUnavailable{}
+	}
+	sizes := map[string]BranchDiffBinary{}
+	for _, file := range diff.FileDiffs {
+		if !file.IsBinary {
+			continue
+		}
+		blobs, ok := s.host.(interface {
+			GetFileAtChange(context.Context, string, string, string, string) (repohost.FileContent, error)
+		})
+		if !ok {
+			return BranchDiff{}, &TODOPrUnavailable{}
+		}
+		size := func(rev, path string) (int64, error) {
+			blob, err := blobs.GetFileAtChange(ctx, owner, repository.Name, rev, path)
+			if err != nil || blob.TooLarge {
+				return 0, &TODOPrUnavailable{}
+			}
+			switch blob.Encoding {
+			case "base64":
+				bytes, err := base64.StdEncoding.DecodeString(blob.Content)
+				if err != nil {
+					return 0, &TODOPrUnavailable{}
+				}
+				return int64(len(bytes)), nil
+			case "", "utf-8", "utf8":
+				return int64(len(blob.Content)), nil
+			default:
+				return 0, &TODOPrUnavailable{}
+			}
+		}
+		beforePath := file.Path
+		if file.OldPath != "" {
+			beforePath = file.OldPath
+		}
+		var metadata BranchDiffBinary
+		if file.ChangeType != "added" {
+			metadata.BeforeBytes, err = size(row.SourceCommit, beforePath)
+			if err != nil {
+				return BranchDiff{}, err
+			}
+		}
+		if file.ChangeType != "deleted" {
+			metadata.AfterBytes, err = size(head, file.Path)
+			if err != nil {
+				return BranchDiff{}, err
+			}
+		}
+		sizes[file.Path] = metadata
+	}
+	projected, err := ProjectTODOBranchDiff(branch, row.SourceCommit, diff.FileDiffs, sizes)
+	if err != nil {
+		return BranchDiff{}, err
+	}
+	for i := range projected.Files {
+		projected.Files[i].Against.Kind = "fork"
+	}
+	return projected, nil
 }
