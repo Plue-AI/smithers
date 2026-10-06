@@ -65,6 +65,8 @@ impl<R: Refs> Outbox<R> {
             self.refs.pin_and_sync(id, oid)?;
         }
         self.store.append(|_| Ok(envelope.frame().payload))?;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::killpoint("K3");
         Ok((seq, id))
     }
     pub fn front(&self) -> io::Result<Option<Durable>> {
