@@ -25,6 +25,6 @@ test("a hosted document selects session-auth web-Plue and the canonical user rou
   } })
   expect(target.mode).toBe("web-plue")
   expect(target.ownership).toBe("plue")
-  expect(await client.identity.current()).toEqual({ username: "verified-user", admin: false, scopes: null })
+  expect(await client.identity.current()).toEqual({ username: "verified-user", admin: false, scopes: null, memberId: 42 })
   expect(calls).toEqual([{ path: "/api/user", credentials: "include" }])
 })
