@@ -32,6 +32,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/webapp"
@@ -103,6 +104,17 @@ func workingConversation(t *testing.T) *conversationRehearsal {
 	t.Cleanup(provider.Close)
 	local := startConfiguredLocalChat(t, func(local *localChat, options *chat.RuntimeOptions) {
 		q, ctx := db.New(local.pool), local.ctx
+		busContext, stopBus := context.WithCancel(ctx)
+		bus := revocation.NewBus(local.pool, q)
+		require.NoError(t, bus.Start(busContext))
+		routes.SetRevocationSource(bus)
+		revocationChecker = bus
+		t.Cleanup(func() {
+			routes.SetRevocationSource(nil)
+			revocationChecker = nil
+			stopBus()
+			<-bus.Done()
+		})
 		_, err := local.pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, local.ownerID)
 		require.NoError(t, err)
 		binding, _ := json.Marshal(map[string]any{"repository_id": local.repoID, "owner_login": "chatowner", "repository_name": "chatrepo", "last_access_check_at": time.Now().UTC().Format(time.RFC3339)})
