@@ -10543,6 +10543,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-stack-reserved.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-project-config.test.ts"
       },
       {
@@ -42466,6 +42470,57 @@
     ],
     "outputs": [],
     "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:workingTogetherWikiFaults",
+    "package": "scripts",
+    "name": "workingTogetherWikiFaults",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/backend:buildInputs"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }

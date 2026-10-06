@@ -303,6 +303,12 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 		child.Stdout = &logs
 		child.Stderr = &logs
 		require.NoError(t, child.Start())
+		t.Cleanup(func() {
+			if child.ProcessState == nil {
+				child.Process.Kill()
+				child.Wait()
+			}
+		})
 		var childOrigin string
 		require.Eventually(t, func() bool {
 			raw, err := os.ReadFile(address)
@@ -311,12 +317,7 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 			}
 			return childOrigin != ""
 		}, 10*time.Second, 10*time.Millisecond, "child startup")
-		t.Cleanup(func() {
-			if child.ProcessState == nil {
-				child.Process.Kill()
-				child.Wait()
-			}
-		})
+
 		return child, childOrigin
 	}
 	// Kill before idle persistence with two clients retaining their causal edits.

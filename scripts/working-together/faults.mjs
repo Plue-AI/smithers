@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdir, lstat, writeFile } from 'node:fs/promises'
+import { mkdir, lstat, readFile, writeFile } from 'node:fs/promises'
 import { statfsSync } from 'node:fs'
-import { cpus, platform, release, totalmem } from 'node:os'
+import { cpus, homedir, platform, release, totalmem } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -17,6 +17,20 @@ export function verdict(code, logs) {
   }
   return 'component-passed'
 }
+// A wiki boundary receipt is separate from the complete K1–K8 matrix.
+export function wikiVerdict(code, logs) {
+  if (code !== 0) return 'failed'
+  const events = logs.split('\n').flatMap(line => {
+    try {
+      const event = JSON.parse(line)
+      return event && typeof event === 'object' && !Array.isArray(event) ? [event] : []
+    } catch { return [] }
+  })
+  const named = events.filter(event => event.Test === 'TestWikiHostCommittedReceiptsAndRestart')
+  if (named.some(event => ['skip', 'fail'].includes(event.Action))) return 'failed'
+  return named.filter(event => event.Action === 'pass').length === 10 &&
+    events.some(event => !event.Test && event.Action === 'pass') ? 'boundary-passed' : 'failed'
+}
 const probe = (command, args) => {
   try { return execFileSync(command, args, { encoding: 'utf8', timeout: 5000 }).trim() } catch { return null }
 }
@@ -31,7 +45,7 @@ const metadata = () => ({
   rust_version: probe('rustc', ['--version']),
   scope: 'unprivileged component fixtures; no integrated VM, host transaction or browser kill proof'
 })
-export async function run({ root = process.cwd(), componentsOnly = false } = {}) {
+export async function run({ root = process.cwd(), componentsOnly = false, wikiOnly = false } = {}) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   let directory = resolve(root)
   for (const part of ['.artifacts', 'checks', 'C-DUR-04']) {
@@ -43,22 +57,36 @@ export async function run({ root = process.cwd(), componentsOnly = false } = {})
   directory = join(directory, timestamp)
   await mkdir(directory)
   const env = metadata()
+  if (wikiOnly) env.scope = 'K8 composed wiki host/native PostgreSQL boundary, ten repetitions; no full kill-matrix qualification'
   await writeFile(join(directory, 'env.json'), JSON.stringify(env, null, 2) + '\n', { flag: 'wx' })
-  const args = ['test', '--locked', '-p', 'smithers-machined', '--features', 'testing,killpoints', ...suites.flatMap(suite => ['--test', suite]), '--', '--test-threads=1']
+  let executionEnv = process.env
+  if (wikiOnly) {
+    try {
+      const config = JSON.parse(await readFile(join(root, '.artifacts/working-together-host.json'), 'utf8'))
+      if (typeof config.databaseUrl !== 'string' || typeof config.libraryPath !== 'string') throw new Error('invalid fixture')
+      executionEnv = { ...process.env, SMITHERS_TEST_DATABASE_URL: config.databaseUrl, SMITHERS_FFI_LIBRARY_PATH: config.libraryPath, SMITHERS_REQUIRE_DATABASE_TESTS: '1', GOCACHE: process.env.GOCACHE || join(homedir(), '.cache/go-build-shared'), LANE: 'working-together-wiki' }
+    } catch {
+      await writeFile(join(directory, 'summary.json'), JSON.stringify({ ...env, timestamp, status: 'failed', componentStatus: 'failed', reason: 'wiki host fixture unavailable', points: [{ point: 'K8', status: 'blocked' }] }, null, 2) + '\n', { flag: 'wx' })
+      console.error(`failed: ${directory} (wiki host fixture unavailable)`)
+      return 1
+    }
+  }
+  const command = wikiOnly ? 'go' : 'cargo'
+  const args = wikiOnly ? ['test', './packages/backend/internal/compose', '-run', '^TestWikiHostCommittedReceiptsAndRestart$', '-count=10', '-json'] : ['test', '--locked', '-p', 'smithers-machined', '--features', 'testing,killpoints', ...suites.flatMap(suite => ['--test', suite]), '--', '--test-threads=1']
   let logs = ''
   const code = await new Promise(resolve => {
-    const child = spawn('cargo', args, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(command, args, { cwd: root, env: executionEnv, stdio: ['ignore', 'pipe', 'pipe'] })
     for (const stream of [child.stdout, child.stderr]) stream.on('data', data => { logs += data; process.stdout.write(data) })
     child.on('error', error => { logs += error.message; resolve(1) })
     child.on('close', code => resolve(code))
   })
-  await writeFile(join(directory, 'components.log'), logs, { flag: 'wx' })
-  const componentStatus = verdict(code, logs)
+  await writeFile(join(directory, wikiOnly ? 'wiki.log' : 'components.log'), logs, { flag: 'wx' })
+  const componentStatus = wikiOnly ? wikiVerdict(code, logs) : verdict(code, logs)
   const result = { ...env, timestamp, status: componentStatus === 'failed' ? 'failed' : 'incomplete', componentStatus,
-    command: ['cargo', ...args], points: points.map(point => ({ point, status: 'blocked',
-      reason: 'integrated packages/backend/internal/machined/fault_test.go is absent; component fixtures do not run the C-DUR-04 writer/receipt/head/browser matrix' })) }
+    command: [command, ...args], points: (wikiOnly ? ['K8'] : points).map(point => ({ point, status: 'blocked',
+      reason: wikiOnly ? 'ten host/native boundary repetitions; full-check client-text/row artifacts and the remaining matrix are not qualified' : 'integrated packages/backend/internal/machined/fault_test.go is absent; component fixtures do not run the C-DUR-04 writer/receipt/head/browser matrix' })) }
   await writeFile(join(directory, 'summary.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx' })
   console.log(`${result.status}: ${directory}`)
-  return componentStatus === 'failed' ? 1 : componentsOnly ? 0 : 2
+  return componentStatus === 'failed' ? 1 : componentsOnly || wikiOnly ? 0 : 2
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await run({ componentsOnly: process.argv.includes('--components-only') })
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await run({ componentsOnly: process.argv.includes('--components-only'), wikiOnly: process.argv.includes('--wiki-only') })

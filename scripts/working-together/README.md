@@ -19,3 +19,16 @@ and W15's daemon document wiring. The reference rehearsal also needs a second
 Mac's authenticated browser/SSH fixtures, sleep/wake, two typists during rebase,
 host restart, stale outside save, revocation and both themes. A component pass
 or an unavailable performance run never marks any of those as complete.
+
+`smthrs test //scripts:workingTogetherWikiFaults` runs the composed wiki
+host crash/restart boundary ten times with real PostgreSQL and native document
+state. Create the untracked `.artifacts/working-together-host.json` with
+`databaseUrl` naming a dedicated test PostgreSQL server and `libraryPath` naming
+the current unprivileged native library. The runner sets the required test
+environment internally because target tools receive a narrow environment.
+Credentials are never copied into receipts. The app's
+pinned Yjs installation and Bun must be available. Missing native state fails,
+and a skipped or incomplete test never qualifies. Fresh C-DUR-04 evidence
+contains the runner profile and full Go JSON logs. `boundary-passed` qualifies
+this fixture only: the complete writer/head/receipt/client-text artifact matrix
+remains incomplete. No guest VM or second laptop proof is implied.
