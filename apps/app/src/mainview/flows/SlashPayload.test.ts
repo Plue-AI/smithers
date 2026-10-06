@@ -5,6 +5,9 @@ import { nameOf } from "./registry"
 import { flowPlanParts, hasGrammar, payloadFor } from "./SlashPayload"
 import { flowArgs } from "./FlowArgs"
 
+/** Registration never invokes a handler, so every controller call answers with nothing. */
+const inertActions = new Proxy({}, { get: () => () => undefined }) as CommandActions
+
 /*
  * The composer boundary refuses what it cannot parse exactly. `files.list`
  * and `files.read` already reject extra tokens; `flow.run` also refuses
@@ -307,10 +310,6 @@ test("run source parsing preserves repository context for slash-shaped run IDs",
 
 /* Argument-bearing flows need a table decoder or a declaration grammar. */
 describe("every declaration that takes arguments names a decoder", () => {
-  /** Registration never invokes a handler, so every controller call answers with nothing. */
-  const inert = new Proxy(() => undefined, { get: () => inert })
-  const inertActions = inert as unknown as CommandActions
-
   test("a flow declaring an args hint carries a decoder, in the table or on the declaration", () => {
     const undecoded = [...baseFlows(inertActions), ...adminFlows(inertActions)]
       .filter((entry) => entry.metadata.args !== undefined)
@@ -352,8 +351,7 @@ test("the workspace launch grammar preserves container and VM but rejects deskto
     expect(payloadFor("box.open", `main --kind ${kind}`)).toEqual({ payload: { bookmark: "main", kind } })
   }
   expect(payloadFor("box.open", "main --kind desktop")).toHaveProperty("error")
-  const inert = new Proxy(() => undefined, { get: () => inert })
-  const names = baseFlows(inert as unknown as CommandActions).map(flow => nameOf(flow))
+  const names = baseFlows(inertActions).map(flow => nameOf(flow))
   for (const removed of ["desktop", "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop", "app.download", "app.download.prompt"]) {
     expect(names).not.toContain(removed)
   }

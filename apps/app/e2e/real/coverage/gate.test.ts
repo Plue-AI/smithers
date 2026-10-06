@@ -1,3 +1,4 @@
+import { ignoredJourneys } from "../journeys"
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -392,6 +393,7 @@ export const searchFlows = (actions) => [
     const app = join(import.meta.dir, "../../..")
     const report = checkRealE2E({
       realDir: join(app, "e2e/real"), flowNameFile: join(app, "src/mainview/flows/FlowName.ts"),
+      excludedSpecs: ignoredJourneys({}).map(spec => join(app, "e2e/real", spec)),
       deferred: UNSCENARIOED_ACTIONS, releaseCritical: RELEASE_CRITICAL_ACTIONS
     })
     const codes = new Set(report.findings.filter((finding) => finding.severity === "error").map((finding) => finding.code))

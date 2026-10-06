@@ -1,3 +1,4 @@
+import { serviceFailureSentence } from "../ServiceFailureCopy"
 import { submitGitHubAppManifest } from "../../flows/cardActions"
 import type { CommandGesture } from "../../flows/CommandGesture"
 import type { SeamContext } from "./SeamContext"
@@ -177,10 +178,10 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     const failure = await readInstall()
     // Only a host with no install route is quiet while the seed stands in; an unreachable or failing install stays visible.
     if (failure && options.quietWithoutInstall && failure.code === NO_INSTALL) return TOAST_SUPERSEDED
-    if (failure) return failure.message
+    if (failure) return serviceFailureSentence(failure)
     if (!current() || !shared.snapshot.model) return false
     if (kind === "settings" && !shared.snapshot.model.github.signed_in) {
-      publish({ error: permission }); return permission.message
+      publish({ error: permission }); return serviceFailureSentence(permission)
     }
     await options.present?.(kind)
     // Recovery restores state and never navigates: the GitHub handoff runs only on a person's press (setupStep).
@@ -219,7 +220,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   }
   const write = (key: string, path: string, body: unknown, setup = false, recovered?: SetupRequest) => {
     const model = shared.snapshot.model
-    if (!model || (!setup && !model.github.signed_in)) { publish({ error: permission }); return permission.message }
+    if (!model || (!setup && !model.github.signed_in)) { publish({ error: permission }); return serviceFailureSentence(permission) }
     if (setup && shared.pending.has(key)) return { value: "Requested" }
     const stepId = (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId
     const row: SetupRequest | undefined = setup ? recovered ?? { id: randomUuid(), origin: ctx.baseUrl, step: stepId,
@@ -251,13 +252,13 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
               ? body as Pick<InstallAddress, "bind" | "origins"> : undefined
             const failedStep = setup ? (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId : undefined
             publish({ ...shared.snapshot, error: result, model: model && address ? { ...model, address: { ...model.address,
-              change_failed: { from: model.address.origins[0] ?? "", to: address.origins[0] ?? "", reason: result.message } } }
+              change_failed: { from: model.address.origins[0] ?? "", to: address.origins[0] ?? "", reason: serviceFailureSentence(result) } } }
               : model && path === "/install" && typeof body === "object" && body !== null && "wiki_sync.obsidian" in body
-                ? { ...model, wiki_sync: { obsidian: { ...model.wiki_sync?.obsidian, path: model.wiki_sync?.obsidian?.path ?? "", error: result.message } } }
+                ? { ...model, wiki_sync: { obsidian: { ...model.wiki_sync?.obsidian, path: model.wiki_sync?.obsidian?.path ?? "", error: serviceFailureSentence(result) } } }
               : model && failedStep ? { ...model, steps: model.steps.map(step => step.id === failedStep
                 ? { ...step, state: "failed", error: result } : step) } : model })
           }
-          return result.message
+          return serviceFailureSentence(result)
         }
         if ("steps" in result) {
           if (generation === shared.generation) receive(result)
@@ -266,7 +267,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           // The answer to the person's own press, unless the step finished meanwhile.
           if ("action_url" in result && shared.snapshot.model?.steps.find(step => step.id === stepId)?.state !== "done") {
             const failure = handOff(result)
-            if (failure) { if (row) await saveRequest({ ...row, state: "failed" }); return failure.message }
+            if (failure) { if (row) await saveRequest({ ...row, state: "failed" }); return serviceFailureSentence(failure) }
           }
         }
         release()
@@ -296,7 +297,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       const step = shared.snapshot.model?.steps.find(step => step.id === id)
       if (!current()) return cancel()
       if (shared.snapshot.error || step?.state === "failed" || step?.state === "blocked") {
-        cleanup(); resolve(shared.snapshot.error?.message ?? step?.error?.message ?? step?.blocked?.line ?? "Setup failed")
+        cleanup(); resolve((shared.snapshot.error ? serviceFailureSentence(shared.snapshot.error) : undefined) ?? (step?.error ? serviceFailureSentence(step.error) : undefined) ?? step?.blocked?.line ?? "Setup failed")
       } else if (step?.state === "done") {
         cleanup(); resolve(true)
       }
@@ -314,7 +315,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       ? requests().filter(row => row.step === "app_manifest" && row.state === "running" && row.handoff && !lapsed(row)).at(-1) : undefined
     if (attempt?.handoff && (input.owner === undefined || input.owner === attempt.body.owner)) {
       const failure = handOff(attempt.handoff)
-      if (failure) { void saveRequest({ ...attempt, state: "failed" }); return failure.message }
+      if (failure) { void saveRequest({ ...attempt, state: "failed" }); return serviceFailureSentence(failure) }
       return { value: "Requested" }
     }
     // Any other press on the running App step starts again; write joins one already in flight and the host refuses a live lease.
@@ -353,7 +354,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     let value = gesture?.takeWriteOnly?.("value")
     gesture?.release()
     if (!value) return "Enter a key"
-    if (!shared.snapshot.model?.github.signed_in) { value = undefined; publish({ error: permission }); return permission.message }
+    if (!shared.snapshot.model?.github.signed_in) { value = undefined; publish({ error: permission }); return serviceFailureSentence(permission) }
     const name = input.role === "jev" ? "AI_GATEWAY_API_KEY" : input.provider.toUpperCase().replace(/[ -]/g, "_") + "_API_KEY"
     const credential = MODEL_CREDENTIALS.find(credential => credential.name === name)
     if (!credential) { value = undefined; return "Choose a provider" }
@@ -393,8 +394,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
             ? error(receipt.data.failure.code, refusal ?? "Key refused", receipt.data.fault === "infra" ? "infra" : "user")
             : error("key_refused", "Key refused")
           // A refused key fails its own role, permission included: the rest of the card stays.
-          mark("failed", failure.message); publish({ ...shared.snapshot, error: failure })
-          return failure.message
+          mark("failed", serviceFailureSentence(failure)); publish({ ...shared.snapshot, error: failure })
+          return serviceFailureSentence(failure)
         }
         if (input.role === "coding" && input.model) {
           const protocol = input.provider.toLowerCase() === "anthropic" ? "anthropic-messages"
@@ -409,14 +410,14 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           if (!response.ok || typeof payload !== "object" || payload === null || !("ok" in payload) || payload.ok !== true) {
             const parsed = InstallErrorSchema.safeParse(payload)
             const failure = parsed.success ? parsed.data : error("model_refused", "Could not save model")
-            mark("failed", failure.message); publish({ ...shared.snapshot, error: failure })
-            return failure.message
+            mark("failed", serviceFailureSentence(failure)); publish({ ...shared.snapshot, error: failure })
+            return serviceFailureSentence(failure)
           }
         }
         // Only the authoritative read can mark a key saved. Credential responses are never retained.
         const failure = await readInstall()
-        return failure?.message ?? true
-      } catch { const failure = error("unreachable", "Could not save key"); mark("failed", failure.message); publish({ ...shared.snapshot, error: failure }); return failure.message }
+        return (failure ? serviceFailureSentence(failure) : undefined) ?? true
+      } catch { const failure = error("unreachable", "Could not save key"); mark("failed", serviceFailureSentence(failure)); publish({ ...shared.snapshot, error: failure }); return serviceFailureSentence(failure) }
       finally { value = undefined }
     })
   }

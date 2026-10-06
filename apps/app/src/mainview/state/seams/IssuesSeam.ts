@@ -20,6 +20,9 @@ export type IssueKindFilter = "all" | "conversation" | "issue"
 export type IssueState = "open" | "fixed" | "verified" | "closed"
 
 export interface IssuesSeam {
+  /** Resolve the same target as the write before publishing a delayed confirmation. */
+  readonly issueWriteTarget: (repo?: string) => { readonly repo: string } | { readonly error: string }
+
   readonly readInstallIssue: (repo: string, number: number) => Promise<ViewResult>
   readonly submitConversation: (text: string, turnId: string, repo: string, owner: string) => Promise<boolean>
 
@@ -1004,6 +1007,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       const shown = await readRepositoryDetail(ctx, target.repo, "issue", number, () => showIssue(target.repo, number))
       return shown
     }, { preload: issueView.preload }),
+
+    issueWriteTarget: repo => resolveTargetRepo(ctx.store, repo),
 
     createIssue: async (title, explicitRepo, kind) => {
       const target = resolveTargetRepo(ctx.store, explicitRepo)

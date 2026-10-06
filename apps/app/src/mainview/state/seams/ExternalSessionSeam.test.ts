@@ -86,15 +86,15 @@ test("a transcript the decoder refuses keeps what came before and says where it 
   broken.subscribe(() => {})
   await until(() => broken.get().error !== undefined)
   expect(texts(broken)).toEqual(["kept"])
-  expect(broken.get().error).toBe("Codex rollout line 3 is not a JSON record.")
+  expect(broken.get().error).toBe("Session transcript line 3 could not be read.")
   const old = createExternalSessionSeam({ http: host({ text: meta("0.120.0") + prompt(1, "never read") }).http }).session("codex", SESSION)
   old.subscribe(() => {})
   await until(() => old.get().error !== undefined)
-  expect(old.get()).toMatchObject({ entries: [], error: "Codex 0.120.0 wrote this rollout; supported: 0.159, 0.160." })
+  expect(old.get()).toMatchObject({ entries: [], error: "This session transcript version is not supported." })
   const headless = createExternalSessionSeam({ http: host({ text: prompt(1, "before its session") }).http }).session("codex", SESSION)
   headless.subscribe(() => {})
   await until(() => headless.get().error !== undefined)
-  expect(headless.get()).toMatchObject({ entries: [], error: "Codex rollout line 1 comes before its session record." })
+  expect(headless.get()).toMatchObject({ entries: [], error: "Session transcript line 1 could not be read." })
 })
 
 test("each host's refusal is the error, in its words; a host without the route says so", async () => {

@@ -4,6 +4,7 @@ import starlight from "@astrojs/starlight"
 import tailwindcss from "@tailwindcss/vite"
 import { defineConfig, fontProviders } from "astro/config"
 import { fileURLToPath } from "node:url"
+import { openApiChunk } from "../app/scripts/openapi-chunk.ts"
 import { buildStamp } from "./scripts/build-stamp-integration.ts"
 import { openApiChunk } from "../app/scripts/openapi-chunk.ts"
 import project from "./src/data/project.json" with { type: "json" }
@@ -24,7 +25,8 @@ import project from "./src/data/project.json" with { type: "json" }
  * inside the island's CSS chunk; react, react-dom and effect are deduped so
  * the app and the site share one copy of each; `electrobun/view` resolves to
  * a web shim because no Electrobun SDK exists here; the Vue flags are the
- * ones apps/app/vite.config.ts injects for the Milkdown editor.
+ * ones apps/app/vite.config.ts injects for the Milkdown editor; and the
+ * Debug API reads its OpenAPI document through the app's openApiChunk plugin.
  *
  * @since 1.0.0
  * @category configuration

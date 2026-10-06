@@ -1,3 +1,4 @@
+import { presentUserFailure } from "@smthrs/rpc/UserFailure"
 import { Result, Schema } from "effect"
 import { claudeStart, codexStart, decodeClaude, decodeCodex, type Entry, type ExternalTranscriptError } from "@smthrs/harness/ExternalTranscript"
 import { EXTERNAL_SESSIONS_PATH } from "@smthrs/rpc/AgentApiRoutes"
@@ -58,7 +59,11 @@ const tail = <S extends LineState>(
       const good = (state.pending + text).split("\n").slice(0, Math.max(0, decoded.failure.line - state.line - 1))
       const before = decode({ ...state, pending: "" }, good.map(line => `${line}\n`).join(""))
       if (Result.isSuccess(before)) state = before.success.state
-      return { entries: Result.isSuccess(before) ? before.success.entries : [], error: decoded.failure.message }
+      return { entries: Result.isSuccess(before) ? before.success.entries : [], error: presentUserFailure<ExternalTranscriptError>({
+        "harness/ExternalTranscriptError": failure => ({ fault: "user", sentence: failure.code === "unsupported_version"
+          ? "This session transcript version is not supported."
+          : `Session transcript line ${failure.line} could not be read.`, actions: [] })
+      }, decoded.failure).sentence }
     },
     cwd: () => cwd(state)
   }

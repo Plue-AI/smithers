@@ -1,3 +1,9 @@
+import { Data } from "effect"
+export class CodeIntelUnavailable extends Data.TaggedError("CodeIntelUnavailable") {
+  readonly message = "Code intelligence is unavailable"
+  readonly code = "unavailable"
+  readonly class = "infra"
+}
 import { refuseCloudSignIn, SIGN_OUT_REFUSAL } from "./CloudSignIn"
 import { actorSharedState } from "../ActorBindings"
 /*
@@ -372,7 +378,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
 
   const requireGuestExecution = () => {
     if (options.validatedGuestExecution?.() !== true) {
-      throw Object.assign(new Error("Code intelligence is unavailable"), { code: "unavailable", class: "infra" })
+      throw new CodeIntelUnavailable()
     }
   }
 

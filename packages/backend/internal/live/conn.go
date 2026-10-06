@@ -64,7 +64,7 @@ type outbox struct {
 	ready  chan struct{}
 }
 
-// push queues b; forced frames (gap, err) ignore the budget, being tiny.
+// push reserves control space within the connection budget. Refusals cannot grow it.
 func (o *outbox) push(b []byte, force bool) bool {
 	return o.pushKind(b, force, websocket.MessageText)
 }
@@ -74,7 +74,11 @@ func (o *outbox) pushKind(b []byte, force bool, kind websocket.MessageType) bool
 }
 func (o *outbox) pushChecked(b []byte, force bool, kind websocket.MessageType, valid func() bool) bool {
 	o.mu.Lock()
-	if !force && o.bytes+len(b) > SendBudget {
+	limit := SendBudget
+	if !force {
+		limit -= 256
+	}
+	if o.bytes+len(b) > limit {
 		o.mu.Unlock()
 		return false
 	}
@@ -125,6 +129,23 @@ func (s *subscription) close() {
 	if leave != nil {
 		leave()
 	}
+}
+
+// clientFrame reads one text frame a browser sends (spec §7.1): sub with a
+// topic, unsub or presence, each with a positive id, and a cursor that is
+// never negative. Anything else is malformed.
+func clientFrame(raw []byte) (frame, bool) {
+	var in frame
+	if json.Unmarshal(raw, &in) != nil || in.ID == 0 || (in.Cursor != nil && *in.Cursor < 0) {
+		return frame{}, false
+	}
+	switch in.T {
+	case "unsub", "presence":
+		return in, true
+	case "sub":
+		return in, in.Topic != ""
+	}
+	return frame{}, false
 }
 
 func encode(f frame) []byte {
@@ -193,7 +214,11 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 		cancel()
 		writer.Wait()
 	}()
-	refuse := func(id uint32, code string) { out.push(encode(frame{T: "err", ID: id, Code: code}), true) }
+	refuse := func(id uint32, code string) {
+		if !out.push(encode(frame{T: "err", ID: id, Code: code}), true) {
+			cancel()
+		}
+	}
 	// Presence is a latest-location snapshot, not a command queue. Bound work
 	// before calling the database/bridge so fast cursor moves cannot backlog
 	// the socket reader or delay its final location behind obsolete moves.
@@ -231,11 +256,15 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 			return
 		}
 		if kind == websocket.MessageBinary {
-			if len(raw) < 5 || (raw[0] != 1 && raw[0] != 2) || binary.BigEndian.Uint32(raw[1:5]) == 0 {
+			if len(raw) < 5 || (raw[0] != 1 && raw[0] != 2) {
 				_ = conn.Close(websocket.StatusUnsupportedData, "malformed_frame")
 				return
 			}
 			id := binary.BigEndian.Uint32(raw[1:5])
+			if id == 0 {
+				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
+				return
+			}
 			sub := subscriptions[id]
 			if sub == nil || sub.document == nil {
 				refuse(id, Unsupported)
@@ -274,8 +303,8 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 			}
 			continue
 		}
-		var in frame
-		if json.Unmarshal(raw, &in) != nil || in.ID == 0 || (in.Cursor != nil && *in.Cursor < 0) {
+		in, ok := clientFrame(raw)
+		if !ok {
 			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
 			return
 		}
@@ -296,10 +325,6 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 			}
 			moves <- in
 		case "sub":
-			if in.Topic == "" {
-				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
-				return
-			}
 			source, code := resolve(ctx, in.Topic)
 			if code != "" {
 				refuse(in.ID, code)
@@ -360,16 +385,15 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 				if !out.push(encode(frame{T: "snap", ID: id, Cursor: &cursor, Data: data}), false) {
 					// Over budget: the client resubscribes for a fresh snapshot.
 					sub.gapped = true
-					out.push(encode(frame{T: "gap", ID: id}), true)
+					if !out.push(encode(frame{T: "gap", ID: id}), true) {
+						cancel()
+					}
 				}
 			})
 			sub.mu.Lock()
 			sub.leave = leave
 			sub.mu.Unlock()
 			subscriptions[in.ID] = sub
-		default:
-			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
-			return
 		}
 	}
 }

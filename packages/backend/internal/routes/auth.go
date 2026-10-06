@@ -211,34 +211,34 @@ func (h *AuthHandler) knownOrigins() []string {
 	return h.Origins()
 }
 
-// Browser and CLI starts must select the same callback origin before minting
-// host-only OAuth cookies or creating an administrator consent request.
-func (h *AuthHandler) prepareGitHubOAuthStart(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
+// Browser and CLI login bind their cookies and callback to the same trusted
+// install origin before starting OAuth or creating administrator consent.
+func (h *AuthHandler) prepareGitHubOAuthStart(w http.ResponseWriter, r *http.Request) (*AuthHandler, *http.Request, bool) {
 	if h.InstallSetup != nil {
 		origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
 		if !ok {
 			errors.WriteError(w, errors.New(errors.CodeUnknownOrigin, "unknown_origin"))
-			return r, false
+			return h, r, false
 		}
 		if origin == "http://127.0.0.1:4000" || origin == "http://[::1]:4000" {
 			http.Redirect(w, r, "http://localhost:4000"+r.URL.RequestURI(), http.StatusFound)
-			return r, false
+			return h, r, false
 		}
 
 		if r.Header.Get("Origin") != "" && !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
 			errors.WriteError(w, errors.Forbidden("request origin differs from install origin"))
-			return r, false
+			return h, r, false
 		}
 		r = r.WithContext(services.WithGitHubRedirectURI(r.Context(), origin+"/api/auth/github/callback"))
 	}
-	return r, true
+	return h, r, true
 }
 
 // GetGitHubOAuthStart begins the browser GitHub App OAuth flow (the direct
 // GitHub sign-in path). It generates an oauth state verifier, stashes it in a
 // cookie, and redirects to GitHub's authorize endpoint.
 func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request) {
-	r, ok := h.prepareGitHubOAuthStart(w, r)
+	h, r, ok := h.prepareGitHubOAuthStart(w, r)
 	if !ok {
 		return
 	}
@@ -281,7 +281,7 @@ func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request
 }
 
 func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Request) {
-	r, ok := h.prepareGitHubOAuthStart(w, r)
+	h, r, ok := h.prepareGitHubOAuthStart(w, r)
 	if !ok {
 		return
 	}

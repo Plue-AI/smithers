@@ -48,6 +48,7 @@
   {"id":"post_api_confirmations","method":"POST","path":"/api/confirmations"},
   {"id":"post_api_confirmations_id_approve","method":"POST","path":"/api/confirmations/{id}/approve"},
   {"id":"post_api_confirmations_id_deny","method":"POST","path":"/api/confirmations/{id}/deny"},
+  {"id":"get_api_external_sessions","method":"GET","path":"/api/external/sessions"},
   {"id":"get_api_feature_flags","method":"GET","path":"/api/feature-flags"},
   {"id":"get_api_flows","method":"GET","path":"/api/flows"},
   {"id":"put_api_gateways_host_repository_jobs_job_comments_step","method":"PUT","path":"/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}"},

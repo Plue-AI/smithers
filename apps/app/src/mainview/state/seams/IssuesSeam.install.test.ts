@@ -206,3 +206,20 @@ for (const command of ["todo.from-issue", "issue.implement"]) test(`${command} r
     expect(posts.find(post => post.path === "/api/todos")?.body).toMatchObject({issue_digest:"b".repeat(64)})
   } finally {await controller.dispose()}
 })
+
+
+test("retained issue-write commands are unavailable to agents on an install", async () => {
+  const { store, controller, posts } = await installApp()
+  try {
+    for (const [name, payload] of [
+      ["issues.create", { title: "Do not create", repo: REPO }],
+      ["issues.close", { number: 2, repo: REPO }],
+      ["issues.reopen", { number: 2, repo: REPO }],
+      ["issues.comment", { number: 2, text: "Do not post", repo: REPO }]
+    ] as const) {
+      expect(await controller.commands.submit({ name, payload, actor: "agent" })).toMatchObject({ status: "unavailable" })
+      expect([...store.collections.messages.values()].some(message => message.action?.flow === name)).toBe(false)
+    }
+    expect(posts).toEqual([])
+  } finally { controller.dispose() }
+})

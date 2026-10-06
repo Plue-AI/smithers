@@ -13,7 +13,7 @@ import type { LiveChannel } from "../runtime/LiveChannel"
 import { createTerminalSource, type TerminalCardSource } from "./seams/TerminalSeam"
 import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { bundledOpenApi } from "../../debugApi/bundled"
-import { createDebugApiSeam, debugApiFailureCopy, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
+import { createDebugApiSeam, debugApiFailureCopy, presentDebugApiFailure, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
 import type { Refusal } from "@smthrs/rpc/Refusal"
 import { openRequestedRepo } from "../RepoLink"
@@ -480,6 +480,7 @@ export interface AppController extends IssueFlowsController {
    */
   readonly listIssues: IssuesSeam["listIssues"]
   readonly viewIssue: IssuesSeam["viewIssue"]
+  readonly issueWriteTarget: IssuesSeam["issueWriteTarget"]
   readonly createIssue: IssuesSeam["createIssue"]
   readonly setIssueState: IssuesSeam["setIssueState"]
   readonly draftIssueComment: IssuesSeam["draftIssueComment"]
@@ -1572,7 +1573,7 @@ export const createAppController = (
           await debugApi.send(input)
           const failure = debugApi.get().model.exchange?.failure
           return failure === undefined ? undefined : debugApiFailureCopy(failure)
-        } catch (cause) { return cause instanceof Error && /^(?:Missing [\w-]{1,64}|Unknown API (?:operation|parameter)|Invalid (?:API path|path parameter|JSON body)|API confirmation is stale|Cross-origin API request|Debug API is unavailable)$/.test(cause.message) ? cause.message : "The API request failed." }
+        } catch (cause) { return presentDebugApiFailure(cause) }
       }, false, () => ctx.accountEpoch === epoch)
       return { value: "Requested" }
     }
@@ -2197,6 +2198,7 @@ export const createAppController = (
     },
     listIssues: issuesSeam.listIssues,
     viewIssue: issuesSeam.viewIssue,
+    issueWriteTarget: issuesSeam.issueWriteTarget,
     createIssue: issuesSeam.createIssue,
     setIssueState: issuesSeam.setIssueState,
     commentOnIssue: issuesSeam.commentOnIssue,

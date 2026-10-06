@@ -14,6 +14,19 @@ import type { CommandActions } from "./Declare"
 /** The `issues` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "issues", label: "Issues", summary: "GitHub issues" }
 
+// Confirmation buttons carry structured input so repository navigation and
+// title/comment punctuation cannot reinterpret the approved action.
+const issueWriteConfirmation = (actions: CommandActions) => ({
+  preflight: (payload: { readonly repo?: string }) => {
+    const target = actions.issueWriteTarget(payload.repo)
+    return "error" in target ? target.error : undefined
+  },
+  confirmArgs: (payload: Record<string, unknown>) => {
+    const target = actions.issueWriteTarget(typeof payload.repo === "string" ? payload.repo : undefined)
+    return "repo" in target ? JSON.stringify({ ...payload, repo: target.repo }) : undefined
+  }
+})
+
 /** The `issues.*` flows: GitHub issues. */
 export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   ...issueFlows(actions),
@@ -51,6 +64,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.create",
+    confirm: "create this issue",
+    ...issueWriteConfirmation(actions),
     form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => line(text(payload, "title"), text(payload, "repo"), flag(payload, "kind")) },
     summary: "Create an issue, or a private conversation with --kind conversation",
     runtime: ["cloud"],
@@ -61,6 +76,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.close",
+    confirm: "close this issue",
+    ...issueWriteConfirmation(actions),
     summary: "Close an issue",
     runtimeAny: ["cloud"],
     args: "<number> [owner/repo]",
@@ -70,6 +87,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.reopen",
+    confirm: "reopen this issue",
+    ...issueWriteConfirmation(actions),
     summary: "Reopen a closed issue",
     runtimeAny: ["cloud"],
     args: "<number> [owner/repo]",
@@ -79,6 +98,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.comment",
+    confirm: "post this comment",
+    ...issueWriteConfirmation(actions),
     form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } } },
     summary: "Comment on an issue",
     runtimeAny: ["cloud"],

@@ -30,7 +30,7 @@ func TestInstallOAuthStartsCanonicalizeLoopbackBeforeEffects(t *testing.T) {
 					calls++
 					return "https://github.com/login/oauth/authorize", nil
 				}
-				h := AuthHandler{Service: fake, InstallSetup: &services.InstallSetupSessions{}, Origins: middleware.FixedOrigins(), AuthConfig: config.AuthConfig{Mode: "selfhost"}}
+				h := AuthHandler{Service: fake, InstallSetup: &services.InstallSetupSessions{}, AuthConfig: config.AuthConfig{Mode: "selfhost"}}
 				start := h.GetGitHubOAuthStart
 				if strings.Contains(path, "/cli?") {
 					start = h.GetGitHubOAuthCLIStart
@@ -38,7 +38,7 @@ func TestInstallOAuthStartsCanonicalizeLoopbackBeforeEffects(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, "http://"+host+path, nil)
 				req.RemoteAddr = "127.0.0.1:32100"
 				response := httptest.NewRecorder()
-				middleware.EffectiveOrigin(middleware.FixedOrigins())(http.HandlerFunc(start)).ServeHTTP(response, req)
+				start(response, req)
 				require.Equal(t, http.StatusFound, response.Code)
 				require.Equal(t, "http://localhost:4000"+path, response.Header().Get("Location"))
 				require.Zero(t, calls, "alias redirects precede OAuth and admin consent requests")
@@ -73,10 +73,11 @@ func TestInstallCLIOAuthUsesResolvedOriginAndCookieScheme(t *testing.T) {
 			req.Header.Set("X-Forwarded-Host", tc.forwarded)
 			req.Header.Set("X-Forwarded-Proto", "untrusted")
 			response := httptest.NewRecorder()
-			middleware.EffectiveOrigin(origins)(http.HandlerFunc(h.GetGitHubOAuthCLIStart)).ServeHTTP(response, req)
+			h.GetGitHubOAuthCLIStart(response, req)
 			require.Equal(t, http.StatusFound, response.Code)
 			require.Equal(t, "https://github.com/login/oauth/authorize?state=bound", response.Header().Get("Location"))
 			require.Equal(t, 1, calls)
+			require.False(t, h.AuthConfig.CookieSecure, "per-request scheme must not mutate the shared handler")
 			require.Len(t, response.Result().Cookies(), 2)
 			for _, cookie := range response.Result().Cookies() {
 				require.Equal(t, tc.secure, cookie.Secure)
@@ -85,6 +86,31 @@ func TestInstallCLIOAuthUsesResolvedOriginAndCookieScheme(t *testing.T) {
 				require.Equal(t, "/", cookie.Path)
 				require.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 			}
+		})
+	}
+}
+
+func TestInstallCLIOAuthRefusesCrossOriginBeforeEffects(t *testing.T) {
+	for _, admin := range []string{"", "&admin=1&ttl=5m"} {
+		t.Run(admin, func(t *testing.T) {
+			calls := 0
+			fake := cliAdminAuthFake{start: func(context.Context, string, string, int, string, string) (string, error) {
+				calls++
+				return "https://github.com/login/oauth/authorize", nil
+			}}
+			fake.startGitHubScopesFn = func(context.Context, string, string) (string, error) {
+				calls++
+				return "https://github.com/login/oauth/authorize", nil
+			}
+			h := AuthHandler{Service: fake, InstallSetup: &services.InstallSetupSessions{}, AuthConfig: config.AuthConfig{Mode: "selfhost"}}
+			req := httptest.NewRequest(http.MethodGet, "http://localhost:4000/api/auth/github/cli?callback_port=4321"+admin, nil)
+			req.RemoteAddr = "127.0.0.1:32100"
+			req.Header.Set("Origin", "https://other.example")
+			response := httptest.NewRecorder()
+			h.GetGitHubOAuthCLIStart(response, req)
+			require.Equal(t, http.StatusForbidden, response.Code)
+			require.Zero(t, calls)
+			require.Empty(t, response.Result().Cookies())
 		})
 	}
 }

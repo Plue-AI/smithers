@@ -1,6 +1,15 @@
 import { randomUuid } from "../../runtime/RandomUuid"
+import { Data } from "effect"
+import { presentUserFailure } from "@smthrs/rpc/UserFailure"
 import type { DebugApiCard, HttpMethod } from "@smthrs/rpc/DebugApiCard"
 import type { FormField } from "@smthrs/rpc/CardAction"
+
+export class DebugApiInputRefused extends Data.TaggedError("DebugApiInputRefused")<{ readonly sentence: string }> {
+  override get message() { return this.sentence }
+}
+export const presentDebugApiFailure = (value: unknown): string => presentUserFailure<DebugApiInputRefused>({
+  DebugApiInputRefused: refusal => ({ fault: "user", sentence: refusal.sentence, actions: [] })
+}, value, { unknown: { fault: "infra", sentence: "The API request failed.", actions: [] } }).sentence
 
 export interface ApiSchema { $ref?: string; type?: string; format?: string; enum?: string[]; properties?: Record<string, ApiSchema>; items?: ApiSchema; required?: string[] }
 export interface ApiParameter { name: string; in: string; required?: boolean; schema?: ApiSchema; $ref?: string }
@@ -148,7 +157,7 @@ export const createDebugApiSeam = (options: {
   snapshot = { model: { operations: [] }, fields: [], epoch, instance }
   const publish = (value: DebugApiSnapshot) => { if (disposed) return; snapshot = { ...value, epoch, instance }; for (const listener of [...listeners]) listener() }
   const available = () => !disposed && Object.values(options.gates()).every(Boolean)
-  const refuse = (message: string) => { throw Error(message) }
+  const refuse = (message: string) => { throw new DebugApiInputRefused({ sentence: message }) }
   const guard = () => { if (!available()) refuse("Debug API is unavailable") }
   const resolveParameter = (parameter: ApiParameter) => parameter.$ref?.startsWith("#/components/parameters/")
     ? document?.components?.parameters?.[parameter.$ref.slice(24)] ?? parameter : parameter
@@ -275,9 +284,9 @@ export const createDebugApiSeam = (options: {
         exchange.failure = { class: error.class === undefined ? "infra" : failureClass(error.class),
           // §6.2.3 codes are snake_case identifiers; anything else stays out of the View's label.
           ...(typeof error.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(error.code) ? { code: error.code } : {}),
-          message: typeof error.message === "string" && !credential ? error.message : `HTTP ${response.status}`, status: response.status }
+          message: debugApiFailureCopy({ class: error.class === undefined ? "infra" : failureClass(error.class), status: response.status }), status: response.status }
       }
-    } catch (cause) { exchange.failure = { class: "infra", message: cause instanceof Error && cause.message === "API redirect refused" ? cause.message : "API request failed" } }
+    } catch (cause) { exchange.failure = { class: "infra", message: presentDebugApiFailure(cause) } }
     if (current()) publish({ ...snapshot, fields: fieldsFor(operation), busy: false, confirmation: undefined, target: undefined, model: { ...snapshot.model, pending: undefined, exchange } })
   }
   /** The account that owned every exchange, confirmation and retry key is gone: drop them and fence late answers. */

@@ -1,6 +1,7 @@
 import { addImagePackage, MACHINE_JSON_PATH } from "@smthrs/rpc/MachineJson"
 import { resolveTargetRepo } from "../RepoContext"
 import { canonicalize } from "@smthrs/canonical"
+import { serviceFailureSentence } from "../ServiceFailureCopy"
 import { todoActors, type ActorContext } from "../ProductActor"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
@@ -252,7 +253,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         if (model.state === "dropped") return [{ key: request.key, outcome: { status: "failed" as const, detail: "Dropped" } }]
         if (request.attempt === undefined || (model.run?.attempt ?? 0) < request.attempt || ["queued", "starting"].includes(model.state)) return []
         return [{ key: request.key, outcome: model.state === "failed"
-          ? { status: "failed" as const, detail: model.failure?.message ?? "Failed" } : { status: "ok" as const, detail: "Working" } }]
+          ? { status: "failed" as const, detail: model.failure ? serviceFailureSentence(model.failure) : "Failed" } : { status: "ok" as const, detail: "Working" } }]
       }
       // A move settles once the card shows the place its receipt named, or the TODO has left the stack.
       if (request.operation === "move") return model.place === undefined || model.place === request.place
@@ -261,7 +262,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       const terminal = ["in_review", "merged", "failed", "dropped"].includes(model.state)
       return [{ key: request.key, committed: { n, rev: 1 }, ...(terminal ? {
         outcome: model.state === "failed" || model.state === "dropped"
-          ? { status: "failed" as const, detail: model.failure?.message ?? "Dropped" }
+          ? { status: "failed" as const, detail: model.failure ? serviceFailureSentence(model.failure) : "Dropped" }
           : { status: "ok" as const, detail: model.state === "merged" ? "Merged" : "In review" }
       } : {}) }]
     })

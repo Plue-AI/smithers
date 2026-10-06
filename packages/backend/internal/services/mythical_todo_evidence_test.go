@@ -237,3 +237,31 @@ func TestTodoEvidenceKeepsMeasuredPreviousAcrossEmptyCandidate(t *testing.T) {
 	item = retainTodoAttemptEvidence(item)
 	require.Equal(t, previous, todoEvidence(item)[0].Previous, "an intermediate empty candidate must not replace retained check evidence")
 }
+
+// The card must retain the same distinction after a database round trip.
+func TestTodoEvidenceCardRetainsPreviousRevisionPostgres(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	item := o.fileTodo(session, "previous-evidence")
+	item.Attempt = 1
+	item.CandidateHead = "old"
+	checks := mythicalChecksOf(item)
+	checks.Receipts = &mythicalReceipts{Checks: []mythicalReceipt{{Check: "unit", Commit: "old", Status: "passed"}}}
+	checks.Review = &mythicalReview{Head: "old", Verdict: "approve"}
+	item.Checks = checks.encode()
+	item = retainTodoAttemptEvidence(item)
+	item.CandidateHead = "new"
+	_, err := o.service.queries().SaveMythicalItem(context.Background(), retainTodoAttemptEvidence(item))
+	require.NoError(t, err)
+	card := o.todoCard(item.Number.Int64)
+	evidence := card["evidence"].([]any)
+	require.Len(t, evidence, 1)
+	current := evidence[0].(map[string]any)
+	require.Equal(t, "new", current["revision"])
+	for _, entry := range current["items"].([]any) {
+		require.NotContains(t, []string{"check", "review"}, entry.(map[string]any)["kind"], "old results must not vouch for the new candidate")
+	}
+	raw, err := json.Marshal(current["previous"])
+	require.NoError(t, err)
+	require.JSONEq(t, `{"revision":"old","items":[{"kind":"check","name":"unit","state":"passed"},{"kind":"review","summary":"approve"}]}`, string(raw))
+	require.Equal(t, card["evidence"], o.todoCard(item.Number.Int64)["evidence"], "repeated reads retain both revisions")
+}

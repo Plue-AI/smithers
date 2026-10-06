@@ -2,6 +2,7 @@ import { decodeLiveDocBinary, encodeLiveDocBinary, LiveDocReply, parseLiveDocTop
 import { createBrowserPresence, type BrowserWhere } from "../state/seams/BranchSeam"
 import type { DocumentEvent } from "./LiveDocProvider"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
+import { LiveReplySchema } from "@smthrs/rpc/Live"
 
 export interface TopicSnapshot<T = unknown> {
   readonly topic: string
@@ -228,9 +229,13 @@ export class LiveChannel {
         return
       }
     }
+    const decoded = LiveReplySchema.safeParse(frame)
+    if (!decoded.success) return
+    frame = decoded.data
     if (frame.t === "gap") {
       entry.awaitingSnapshot = true
       this.notifyContinuityLoss()
+      this.publish(topic, entry, { topic, data: entry.snapshot.data })
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
@@ -243,7 +248,7 @@ export class LiveChannel {
     if (!("data" in frame)) return
     if (!Number.isSafeInteger(frame.cursor) || (frame.cursor as number) < 0) return
     const cursor = frame.cursor as number
-    if (entry.snapshot.cursor !== undefined && cursor <= entry.snapshot.cursor && !(frame.t === "snap" && entry.awaitingSnapshot && cursor === entry.snapshot.cursor)) return
+    if (frame.t === "delta" && entry.snapshot.cursor !== undefined && cursor <= entry.snapshot.cursor) return
     if (frame.t === "delta" && entry.awaitingSnapshot) return
     const project = this.projectors.get(topic) ?? (this.options.project ? (previous: unknown, delta: unknown) => this.options.project!(topic, previous, delta) : undefined)
     if (frame.t === "delta" && !project) {

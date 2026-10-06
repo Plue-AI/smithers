@@ -1,3 +1,4 @@
+import { serviceFailureSentence } from "../state/ServiceFailureCopy"
 import { useSyncExternalStore, type ComponentType } from "react"
 import { useController } from "../ControllerContext"
 import type { CardActions, CardFamily } from "./CardFamily"
@@ -30,7 +31,7 @@ export function MembersCard({ roster, role, dispatch, View = MembersView, view, 
     resolve_input: input => ({ login: input.login ?? "", role: "member" }) })
   // A refused Add stores no row; the add row says why, linking to GitHub when the fix is there (C-J1-05).
   const refusal = snapshot.refused === "members.add" ? snapshot.error : undefined
-  const model = { ...source, ...(refusal ? { add_refused: { text: refusal.code === "needs_github_access" ? "needs access on GitHub" : refusal.message,
+  const model = { ...source, ...(refusal ? { add_refused: { text: refusal.code === "needs_github_access" ? "needs access on GitHub" : serviceFailureSentence(refusal),
     ...(refusal.fix ? { fix: refusal.fix } : {}) } } : {}), members: source.members.map(member => {
     const actor = toActor({ person: member.login }, [{ ...member, id: member.login }])
     if (role !== "member" && member.role !== "owner") {
