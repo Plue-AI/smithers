@@ -6,13 +6,13 @@ import type { TodoCard } from "@smthrs/rpc/TodoCard"
 // Wire-model projection (seam layer): the row actions are HomeCard data, bound later by HomeContainer through cardActions.
 /**
  * Home from GET /api/todos (T-APP-01) on a host that serves no `home` topic: a row per unmerged TODO in the served
- * order with the controls its state offers, every state counted, a machine per TODO branch that is awake or waking,
+ * order with the controls its state offers, only open items counted, a machine per TODO branch that is awake or waking,
  * and main's row without sync facts, which the list does not carry.
  */
 export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>): HomeModel => {
   const counts: Record<TodoState, number> = { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 }
-  for (const todo of todos) counts[todo.state] += 1
   const open = todos.filter(todo => todo.state !== "merged" && todo.state !== "dropped")
+  for (const todo of open) counts[todo.state] += 1
   const items = open.map((todo): HomeItem => {
     const args = { n: String(todo.n) }
     const actions: Action[] = [{ tag: "todo", label: todo.title, args: { ...args, door: "title" } }]

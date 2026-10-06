@@ -40,7 +40,7 @@ function HomeRow({ item, onAction, now, view, onView }: { item: HomeItem; now: n
   const actionControls = []
   for (const [index, action] of actions.entries()) actionControls.push(<HomeAction key={index} action={action} onAction={onAction} />)
   const menuControls = []
-  for (const [index, action] of menu.entries()) menuControls.push(<HomeAction key={index} action={action} onAction={onAction} menu />)
+  for (const [index, action] of menu.entries()) menuControls.push(<HomeAction key={index} action={action} onAction={(tag, args) => { setOpen(false); trigger.current?.focus(); onAction(tag, args) }} menu />)
   return <li className="stack-row" data-state={item.state}>
     <span className="stack-node">{item.place}</span>
     <div className="stack-main"><div className="stack-title"><span className="ref">T{item.n}</span>{title ? <><button type="button" className="link" data-flow={title.tag} disabled={!!title.disabled} onClick={() => onAction(title.tag, title.args ?? {})}>{item.title}</button>{title.disabled ? <span className="meta">{title.disabled.reason}</span> : null}</> : <span>{item.title}</span>}{item.amendments > 0 ? <span className="count-chip">+{item.amendments}</span> : null}</div>
