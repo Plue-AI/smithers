@@ -538,6 +538,7 @@ export interface AppController extends IssueFlowsController {
   readonly selectConversationBranch: (name: string) => Promise<void>
   readonly setBranchNavigationView: (patch: { selected_branch?: string; selected_archive?: string; previous_branch?: string; open?: boolean }) => Promise<void>
   readonly setCardTab: (id: string, tab: string) => void
+  readonly branchSshLine?: (name: string) => Promise<string | { readonly value: string }>
   readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
@@ -978,8 +979,7 @@ export const createAppController = (
       owner, open: true, selected_branch: name, nodes: previous && previous.owner === owner ? previous.nodes : []
     } }).isPersisted.promise
   }
-  const openBranch: AppController["openBranch"] = installHost ? async target => {
-    if (target === "main") { await selectConversationBranch("main"); return { value: "Opened main" } }
+  const readBranchIdentity = async (target: string): Promise<{ name: string; id: string } | string> => {
     try {
       let name = target
       if (/^T[1-9][0-9]*$/.test(target)) {
@@ -991,10 +991,26 @@ export const createAppController = (
       const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(name)}`, { credentials: "same-origin" })
       const body = await response.json() as { name?: unknown; machine?: { id?: unknown }; message?: unknown }
       if (!response.ok || typeof body.name !== "string" || typeof body.machine?.id !== "string") return typeof body.message === "string" ? body.message : "Branch unavailable"
-      await selectConversationBranch(body.name)
-      await presentCard("branch", body.name, body.machine.id)
-      return { value: `Opened ${body.name}` }
+      return { name: body.name, id: body.machine.id }
     } catch { return "Branch unavailable" }
+  }
+  const openBranch: AppController["openBranch"] = installHost ? async target => {
+    if (target === "main") { await selectConversationBranch("main"); return { value: "Opened main" } }
+    const branch = await readBranchIdentity(target)
+    if (typeof branch === "string") return branch
+    await selectConversationBranch(branch.name)
+    await presentCard("branch", branch.name, branch.id)
+    return { value: `Opened ${branch.name}` }
+  } : undefined
+  const branchSshLine: AppController["branchSshLine"] = installHost ? async target => {
+    const epoch = ctx.accountEpoch
+    const branch = await readBranchIdentity(target)
+    if (typeof branch === "string") return branch
+    if (ctx.accountEpoch !== epoch || seamCtx.isDisposed?.()) return "Branch unavailable"
+    const snapshot = services.live?.getSnapshot(`branch:${branch.id}`)
+    const data = snapshot?.data as { id?: unknown; ssh_line?: unknown } | undefined
+    return !snapshot?.error && data?.id === branch.id && typeof data.ssh_line === "string" && data.ssh_line.length > 0
+      ? { value: data.ssh_line } : "Branch unavailable"
   } : undefined
   const forkBranch: AppController["forkBranch"] = installHost ? async input => {
     try {
@@ -1997,6 +2013,7 @@ export const createAppController = (
     setCardTab,
     ...(openBranch ? { openBranch } : {}),
     ...(forkBranch ? { forkBranch } : {}),
+    ...(branchSshLine ? { branchSshLine } : {}),
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,

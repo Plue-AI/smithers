@@ -81,10 +81,11 @@ export function createTerminalSource(options: {
           seen.add(cursor)
           const response = await options.http(`/api/branches${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { credentials: "same-origin" })
           const decoded = response.ok ? z.array(z.union([
-            z.object({ id: z.string().min(1) }), z.object({ name: z.string().min(1) })
+            z.object({ machine: z.object({ id: z.string().min(1) }) }),
+            z.object({ id: z.string().min(1), machine: z.never().optional() }), z.object({ name: z.string().min(1), machine: z.never().optional() })
           ])).safeParse(await response.json()) : undefined
           if (disposed || revision !== request || options.viewer() !== viewer || !decoded?.success) return
-          for (const branch of decoded.data) observe("id" in branch ? branch.id : branch.name)
+          for (const branch of decoded.data) observe(branch.machine !== undefined ? branch.machine.id : "id" in branch ? branch.id : branch.name)
           cursor = nextBranchCursor(response.headers.get("link"), "/branches")
         }
       } catch { /* Missing branch authority exposes no terminal. The command door reports its refusal. */ }
