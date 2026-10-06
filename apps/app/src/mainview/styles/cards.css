@@ -2791,7 +2791,7 @@
 .branch-view .setup-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: var(--fs-caption); }
 .branch-view .setup-field input { min-height: 28px; width: 220px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
 .branch-view .branch-ssh { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
-.branch-view .branch-ssh code { min-width: 0; color: var(--text-muted); overflow-wrap: normal; white-space: nowrap; overflow-x: auto; }
+.branch-view .branch-ssh code { min-width: 0; color: var(--text-muted); overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .branch-view .branch-ssh button { flex: none; display: inline-flex; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
 .branch-view button:focus-visible, .branch-view input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 @media (max-width: 480px) {

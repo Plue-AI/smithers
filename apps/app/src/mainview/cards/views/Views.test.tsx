@@ -1494,7 +1494,7 @@ const branchStateOracles = [
   ["asleep", "Asleep", "Wake", "box.resume", { branch: "todo/12" }],
   ["failed", "Image build failed", "Retry", "box.resume", { branch: "todo/12" }],
   ["rebase_pending", "Rebase pending onto T8", "Rebase now", "branch.rebase-now", { branch: "todo/12" }],
-  ["moved_off", "Needs you", "Return to T15", "todo.return-to-item", { n: "15" }],
+  ["moved_off", "Needs you", "Return to T12", "todo.return-to-item", { n: "12" }],
 ] as const
 for (const [key, copy, label, tag, args] of branchStateOracles) test(`Branch ${key} projects its control`, async () => {
   const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
@@ -1518,6 +1518,9 @@ test("Branch SSH copies the supplied host line without a flow", async () => {
   const onAction = mock(() => {}), onView = mock(() => {})
   try {
     await act(async () => root.render(<BranchView {...branchFixtures.awake} onAction={onAction} onView={onView} />))
+    expect(host.querySelector(".branch-ssh code")!.getAttribute("title")).toBe("ssh -p 2222 todo-12@mac-mini.local")
+    expect(host.querySelector(".branch-presence")).toBeNull()
+    expect(host.querySelector("p.branch-muted")!.textContent).toBe("Nobody here")
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Copy SSH line"]')!.click())
     expect(writeText.mock.calls).toEqual([["ssh -p 2222 todo-12@mac-mini.local"]])
     expect(onAction).toHaveBeenCalledTimes(0); expect(onView).toHaveBeenCalledTimes(0)
@@ -2026,6 +2029,8 @@ describe("DebugApiView", () => {
 
 // T-UI-15: literal projection oracles supplement the reused stories.
 for (const [key, text] of [
+  ["asleep", "In review"], ["failed", "Failed · Starting"], ["moved_off", "Ben moved off T12"],
+  ["waking", "Starting"], ["waiting", "Queued"], ["closed", "Merged"],
   ["waking", "Waking"], ["waiting", "Waiting for a machine · #2"], ["closed", "Closed"],
   ["rebasing", "Rebasing… onto T8"], ["scratch_main", "Forked from main"],
   ["scratch_item", "Forked from T12 Card model contracts"], ["scratch_branch", "Forked from scratch/repro"],
