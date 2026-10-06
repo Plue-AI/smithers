@@ -1,5 +1,5 @@
 /** T-REL-04: the existing FaultSuite also runs the production Go boundaries. */
-import { execFileSync } from "node:child_process"
+import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
@@ -38,10 +38,16 @@ for (const [check, file, name] of selected) {
       .matchAll(/^func (Test\w+)\(t \*testing\.T\)/gm)]
       .map((match) => match[1]!).filter((entry) => !entry.includes("Child"))
     expect(names.length, `No acceptance tests in ${file}`).toBeGreaterThan(0)
-    const log = execFileSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`], {
+    const result = spawnSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`], {
       cwd: backend, env: process.env, encoding: "utf8", timeout: 150_000, maxBuffer: 32 << 20
     })
-    console.log(log)
-    for (const entry of names) requireReachedGoFault(log, entry)
+    // Preserve partial JSON and stderr before checking exit status: crashes,
+    // compile errors and timeouts are precisely the failures this tier needs.
+    console.log(result.stdout ?? "")
+    console.error(result.stderr ?? "")
+    expect(result.error, "Go fault process failed to execute").toBeUndefined()
+    expect(result.signal, "Go fault process terminated by a signal").toBeNull()
+    expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
+    for (const entry of names) requireReachedGoFault(result.stdout, entry)
   })
 }
