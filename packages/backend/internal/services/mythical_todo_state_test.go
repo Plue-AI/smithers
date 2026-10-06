@@ -90,3 +90,21 @@ func TestTodoQueuedRetryDoesNotProjectThePreviousRunOrPR(t *testing.T) {
 		require.Equal(t, "queued", todoState(item))
 	}
 }
+
+func TestTodoPendingRetryIsOnlyTheQueuedSuccessor(t *testing.T) {
+	for _, tc := range []struct {
+		state   string
+		retries []todoRetry
+		pending bool
+	}{
+		{"queued", nil, false},
+		{"queued", []todoRetry{{Attempt: 1}, {Attempt: 2}}, false},
+		{"queued", []todoRetry{{Attempt: 4}}, false},
+		{"queued", []todoRetry{{Attempt: 1}, {Attempt: 3}}, true},
+		{"running", []todoRetry{{Attempt: 3}}, false},
+		{"blocked", []todoRetry{{Attempt: 3}}, false},
+	} {
+		item := db.MythicalItem{State: tc.state, Attempt: 2, Checks: mythicalChecks{Retries: tc.retries}.encode()}
+		require.Equal(t, tc.pending, todoRetryPending(item), "state=%s retries=%v", tc.state, tc.retries)
+	}
+}

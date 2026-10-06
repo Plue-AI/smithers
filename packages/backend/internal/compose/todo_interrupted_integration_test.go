@@ -168,6 +168,27 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&retryEvents))
 	queuedItem, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
+	t.Run("Retry ignores late live checkpoints until admission", func(t *testing.T) {
+		// Retry is committed, but the machine has not admitted attempt 2.
+		// The old attempt number/run binding remain historical facts on the
+		// queued row. Its delayed question must not reopen this ended run.
+		require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting,
+			Scope: jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)},
+			Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "coding/request", Projection: projection, RunID: "run-1", Run: &flowruntime.Run{
+				RunID: "run-1", PendingWaits: []flowruntime.PendingWait{{RunID: "old-request-step", Token: "late-after-retry", Name: "choice",
+					Request: []byte(`{"kind":"ask","prompt":"Too late after Retry?"}`)}},
+			}}}))
+		unchanged, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, queuedItem, unchanged)
+		var events int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&events))
+		require.Equal(t, retryEvents, events)
+		status, card := call("GET", "", "")
+		require.Equal(t, 200, status, card)
+		require.Equal(t, "queued", card["state"])
+		require.Empty(t, card["waits"])
+	})
 	require.Equal(t, float64(2), receipt["attempt"])
 	status, replay := call("POST", `{"op":"retry"}`, "retry-1")
 	require.Equal(t, 202, status, replay)
@@ -358,6 +379,21 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 		require.Equal(t, 202, status, receipt)
 		var frozen []byte
 		require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'attempts'->0 FROM mythical_items WHERE id=$1`, item.ID).Scan(&frozen))
+		queued, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		var eventsBefore, eventsAfter int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsBefore))
+		// The pinned composition obeys the same ended-attempt fence as the
+		// legacy request phase while Retry awaits its machine grant.
+		require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting,
+			Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: binding, RunID: "history-run-1", FlowID: "todo", ExecutionDigest: digest,
+				Run: &flowruntime.Run{RunID: "history-run-1", PendingWaits: []flowruntime.PendingWait{{RunID: "old-pinned-step", Token: "late-pinned-question", Name: "choice",
+					Request: []byte(`{"kind":"ask","prompt":"Too late for the pinned attempt?"}`)}}}}}))
+		unchanged, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, queued, unchanged)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsAfter))
+		require.Equal(t, eventsBefore, eventsAfter)
 		// Admission advances the attempt. Runtime ingestion and the served
 		// card must preserve the prior snapshot rather than reattribute it.
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running',attempt=2,request_run_id='history-run-2',request_outcome='',
