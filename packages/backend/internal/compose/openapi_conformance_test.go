@@ -136,6 +136,9 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	if len(supplied) > 0 {
 		deps = supplied[0]
 	}
+	if deps.live == nil {
+		deps.live = &routes.LiveHandler{}
+	}
 	if deps.terminal == nil {
 		deps.terminal = &routes.WorkspaceTerminalHandler{}
 	}
@@ -167,7 +170,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
 			EgressPolicy:   &routes.RepositoryEgressPolicyHandler{},
-			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}, Origins: liveHandler.Origins},
+			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}, Origins: deps.live.Origins},
 			Members:        &routes.MembersHandler{},
 			Live:           deps.live,
 		},
