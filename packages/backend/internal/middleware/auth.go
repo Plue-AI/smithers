@@ -441,6 +441,9 @@ var installMemberRoutes = []struct {
 	// (mvp.md §6.15, M-05; spec §5.2): a person-only command, so the
 	// owner's delegated credentials are refused here too. Org secrets stay
 	// the owner's.
+	{http.MethodGet, "secrets.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(secrets|agent-environment)$`)},
+	{http.MethodPut, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment(?:/secrets/[^/]+)?$`)},
+	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment/secrets/[^/]+$`)},
 	{http.MethodPost, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets$`)},
 	{http.MethodPatch, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
 	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},

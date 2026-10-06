@@ -339,6 +339,7 @@ var installCommands = map[string]installCommand{
 	// secrets.write is POST /secrets and PATCH and DELETE /secrets/{name}
 	// on a repository: add, replace and delete (§5.2 "Members, roles,
 	// secrets write"). Secret values never pass through an agent.
+	"secrets.read":  {role: InstallMember, personOnly: true},
 	"secrets.write": {role: InstallMaintainer, personOnly: true},
 }
 
