@@ -18,9 +18,10 @@ const memoryStorage = (): StorageApi => {
 }
 const agent: AgentPort = { available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {} }
 const tick = async () => { for (let i = 0; i < 4; i++) await new Promise(done => setTimeout(done, 0)) }
-const harness = async () => {
+const harness = async (install = false) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, agent, {
+    ...(install ? { bootstrap: { apiVersion: 1 as const, host: "local" as const, version: "test", buildSha: "test", capabilities: ["install" as const], authFlow: "none" as const, sandbox: { platform: "darwin" as const, mode: "trusted-only" as const } } } : {}),
     fetchImpl: async () => Response.json({ code: "unknown", class: "infra", message: "Not available" }, { status: 404 })
   })
   return { store, controller }
@@ -102,4 +103,16 @@ describe("the shell's branch flow", () => {
         .toMatchObject({ title: world.repo.repo, summary: "1 need you · 1 working", tone: "attention" })
     } finally { await h.controller.dispose() }
   })
+})
+
+
+test("an install never uses seeded branch navigation while its shared provider is unavailable", async () => {
+  const h = await harness(true)
+  try {
+    const result = await h.controller.commands.run("branch", "retry-webhooks")
+    expect(result.status).toBe("failed")
+    expect(JSON.stringify(result)).toContain("Not available")
+    expect([...h.store.collections.cards.values()].filter(card => card.kind === "branch")).toEqual([])
+    expect(h.controller.design.enabled).toBe(false)
+  } finally { await h.controller.dispose() }
 })

@@ -1,6 +1,7 @@
-import { useSyncExternalStore, type ComponentType, type ReactNode } from "react"
+import { useCallback, useSyncExternalStore, type ComponentType, type ReactNode } from "react"
 import { MembersCardSchema } from "@smthrs/rpc/MembersCard"
 import { useTopic } from "../state/useTopic"
+import type { MembersSnapshots } from "../state/seams/MembersSeam"
 import { useLiveQuery } from "@tanstack/react-db"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import type { ConfirmCard } from "@smthrs/rpc/ConfirmCard"
@@ -117,16 +118,27 @@ export const reviewMergeOf = (model: TodoCard, role: TodoContainerProps["role"],
   ] }
 }
 /**
- * The viewer's role on this host's TODOs: the members roster, else the install owner's own session. The roster rides the
- * controller's live channel; a controller with none opens no socket.
+ * Home and TODO controls share the authenticated member roster. Until it answers, the live roster or
+ * the install owner's own session supplies the role; controllers without live open no socket.
  */
-export const useTodoRole = (): TodoContainerProps["role"] => {
+const NO_MEMBERS_SNAPSHOT = {}
+const NO_MEMBERS: MembersSnapshots = { get: () => NO_MEMBERS_SNAPSHOT, subscribe: () => () => {} }
+export const useTodoRole = (active = true): TodoContainerProps["role"] => {
   const controller = useController()
   const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
-  const members = useTopic(controller.bootstrap && controller.live ? "members" : undefined, controller.live)
+  const source = active && controller.design?.enabled === false ? controller.membersRoster ?? NO_MEMBERS : NO_MEMBERS
+  const subscribe = useCallback((notify: () => void) => {
+    const stop = source.subscribe(notify)
+    if (source !== NO_MEMBERS) controller.showMembers?.()
+    return stop
+  }, [controller, source])
+  const served = useSyncExternalStore(subscribe, source.get, source.get)
+  const members = useTopic(active && controller.bootstrap && controller.live ? "members" : undefined, controller.live)
   const roster = MembersCardSchema.safeParse(members?.data)
   const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
   const role = roster.success ? roster.data.members.find(member => member.login === identity?.login)?.role : undefined
+  if (served.model) return controller.membersRole?.() ?? "member"
+  if (served.error?.class === "permission" || served.error?.class === "never") return "member"
   return role ?? (install.model?.github.signed_in && install.model.github.owner === identity?.login ? "owner" : "member")
 }
 export const TodoContainer =({ card, role, dispatch, View, view, onView, availableActions, conflictTerminal }: TodoContainerProps) => {

@@ -56,7 +56,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   let mergeOffered = false
   const items = parsed.items.map(row => {
     const start = definitions.length
-    const primary = actionFor({ ...row, first_in_order: row === first && row.place === 1 }, { role })
+    const primary = actionFor({ ...row, first_in_order: row === first }, { role })
     for (const action of row.actions) {
       if ((action.tag === "merge" || action.tag === "todo.retry" || action.tag === "todo.answer" && row.needs_you !== undefined) && primary?.tag !== action.tag) continue
       const args = { ...action.args, n: String(row.n) }
@@ -65,7 +65,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
         case "todo": case "todo.retry": case "todo.resume": case "todo.drop":
           admitted({ ...action, tag: action.tag, args, command_input: { n: row.n } }); break
         case "merge":
-          if (!mergeOffered && row === first && row.state === "in_review" && row.place === 1 && row.merge.state === "ready" && row.pr && !row.pr.draft) {
+          if (!mergeOffered && row === first && row.state === "in_review" && row.merge.state === "ready" && row.pr && !row.pr.draft) {
             admitted({ ...action, tag: "merge", args, command_input: { n: row.n } })
             mergeOffered = true
           }
@@ -164,6 +164,24 @@ export const homeDispatch = (controller: Pick<AppController, "commands">): CardC
   return controller.commands.submit({ name: tag, payload, actor: "user" })
 }
 
+/** Bind the shared rows' order doors; snapshots remain shared facts. */
+export const withHomeRowControls = (model: HomeModel): HomeModel => {
+  const open = model.items.filter(row => row.state !== "merged" && row.state !== "dropped")
+  return { ...model, items: model.items.map(row => {
+    if (row.state === "merged" || row.state === "dropped") return row
+    const index = open.indexOf(row)
+    const args = { n: String(row.n) }
+    const actions = [...row.actions]
+    for (const direction of ["up", "down"] as const) {
+      if (direction === "up" && index === 0 || direction === "down" && index === open.length - 1) continue
+      if (!actions.some(action => action.tag === "stack.move" && action.args?.direction === direction))
+        actions.push({ tag: "stack.move", label: direction === "up" ? "Move up" : "Move down", args: { ...args, direction } })
+    }
+    if (!actions.some(action => action.tag === "todo.drop")) actions.push({ tag: "todo.drop", label: "Drop", args })
+    return { ...row, actions }
+  }) }
+}
+
 /** Home as this host serves it to the viewer: which source answered, the model, the viewer's role on it, and whether the install's GitHub sync answers main's row. */
 export interface HomeAnswer {
   readonly kind: "seed" | "served" | "failed"
@@ -183,7 +201,7 @@ export interface HomeAnswer {
 export const useHome = (active = true): HomeAnswer | undefined => {
   const controller = useController()
   const seeded = useDesignHome()
-  const session = useTodoRole()
+  const session = useTodoRole(active)
   const answer = homeSource(useTopic(active && controller.live ? "home" : undefined, controller.live))
   const installs = controller.installSnapshots ?? NO_INSTALL
   const install = useSyncExternalStore(installs.subscribe, installs.get, installs.get).model
@@ -198,7 +216,7 @@ export const useHome = (active = true): HomeAnswer | undefined => {
   if (source.kind === "failed" && source.code === "loading") return undefined
   const home = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(repository, source.code) : seeded.model
   /* A home topic serves main's row itself; elsewhere the install's GitHub sync does. */
-  const model = withInstallCapacity(answer.kind === "served" ? home : withGitHubSync(home, sync), install)
+  const model = withHomeRowControls(withInstallCapacity(answer.kind === "served" ? home : withGitHubSync(home, sync), install))
   return { kind: source.kind, model, role: source.kind === "seed" ? seeded.role : session, synced: sync !== undefined }
 }
 

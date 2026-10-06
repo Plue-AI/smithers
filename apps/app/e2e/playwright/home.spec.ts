@@ -47,6 +47,10 @@ test("the Home card: merge order, Move, a failed run's Retry and Dismiss, and /s
   const crumbs = page.locator(".session-navigation")
   await command(page, "/branch retry-webhooks")
   await expect(crumbs).toContainText("retry-webhooks")
+  await command(page, "/history.show")
+  await expect(crumbs).not.toContainText("retry-webhooks")
+  await command(page, "/branch retry-webhooks")
+  await expect(crumbs).toContainText("retry-webhooks")
   await command(page, "/stack")
   await expect(crumbs).not.toContainText("retry-webhooks")
   await expect(home).toBeVisible()
@@ -113,3 +117,85 @@ test("T-UI-06 Home sync, actions, keyboard menu and inert text in both Paper the
   }
 })
 
+test("install Home keeps the next Merge after an earlier item merged and exposes reorder controls", async ({ page }) => {
+  const { installCloudFixture } = await import("./cloudFixture")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Todo")
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
+  let login = "ben"
+  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: login, is_admin: false } }))
+  await page.route("**/api/install", route => route.fulfill({ json: {
+    steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })), capacity: 2, this_mac: { capacity: 2, memory_gb: 16, disk_free_gb: 100 },
+    github: { app_installed: true, signed_in: true, owner: "maya", squash_allowed: true },
+    repository: { owner: "acme", name: "api" }, models: ["fast", "coding", "jev"].map(role => ({ role, provider: "saved", key: "saved" })), chatgpt: false,
+    address: { bind: "127.0.0.1:4000", origins: ["http://127.0.0.1:4000"], listen: "mac" }
+  } }))
+  const review = { ...fixtures.in_review.model, state: "in_review", merge: { state: "ready", on_github: true },
+    pr: { ...fixtures.in_review.model.pr, draft: false } }
+  await page.route("**/api/members", route => route.fulfill({ json: {
+    access_url: "https://github.com/acme/api/settings/access",
+    members: [
+      { ...fixtures.in_review.model.owner, login: "maya", name: "Maya", color_index: 0, role: "owner", needs_access: false, suspended: false, actions: [] },
+      { ...fixtures.in_review.model.owner, login: "ben", name: "Ben", color_index: 1, role: "maintainer", needs_access: false, suspended: false, actions: [] },
+      { ...fixtures.in_review.model.owner, login: "alice", name: "Alice", color_index: 2, role: "member", needs_access: false, suspended: false, actions: [] }
+    ]
+  } }))
+  let moved = false
+  let dropped = false
+  const drops: Array<{ body: unknown; key: string | undefined }> = []
+  const moves: Array<{ body: unknown; key: string | undefined }> = []
+  const secondTodo = { ...review, n: 2, place: 2, title: "Second TODO" }
+  const thirdTodo = { ...review, n: 3, place: 3, title: "Third TODO" }
+  const currentTodos = () => (moved ? [{ ...thirdTodo, place: 2 }, { ...secondTodo, place: 3 }] : [secondTodo, thirdTodo]).filter(todo => !dropped || todo.n !== 2)
+  await page.route("**/api/todos", route => route.fulfill({ json: [
+    { ...fixtures.merged.model, n: 1, place: 1 }, ...currentTodos()
+  ] }))
+  await page.route("**/api/todos/2", route => {
+    if (route.request().method() === "POST") {
+      drops.push({ body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"] })
+      dropped = true
+      return route.fulfill({ status: 202, json: { state: "accepted", n: 2 } })
+    }
+    return route.fulfill({ json: dropped ? { ...fixtures.dropped.model, n: 2, title: "Second TODO" } : currentTodos().find(todo => todo.n === 2) })
+  })
+  await page.route("**/api/todos/3", route => {
+    if (route.request().method() === "POST") {
+      moves.push({ body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"] })
+      moved = true
+      return route.fulfill({ status: 202, json: { state: "accepted", n: 3, place: 2 } })
+    }
+    return route.fulfill({ json: currentTodos().find(todo => todo.n === 3) })
+  })
+  await page.goto("/")
+  const home = page.locator(".home").first()
+  await expect(home).toBeVisible()
+  await expect(home.locator(".stack-row .ref")).toHaveText(["T2", "T3"])
+  const second = home.locator(".stack-row").filter({ hasText: "Second TODO" })
+  const third = home.locator(".stack-row").filter({ hasText: "Third TODO" })
+  await expect(second.getByRole("button", { name: "Merge", exact: true })).toBeVisible()
+  await expect(third.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
+  await third.getByRole("button", { name: "Order Third TODO", exact: true }).press("Enter")
+  await expect(third.getByRole("menuitem", { name: "Move up", exact: true })).toBeVisible()
+  await expect(third.getByRole("menuitem", { name: "Move down", exact: true })).toHaveCount(0)
+  await expect(third.getByRole("menuitem", { name: "Drop", exact: true })).toBeVisible()
+  await expect(home).not.toContainText("Stripe")
+  await third.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter")
+  await expect.poll(() => moves.length).toBe(1)
+  expect(moves[0]!.body).toEqual({ op: "move", direction: "up" })
+  expect(moves[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
+  await expect(home.locator(".stack-row .ref")).toHaveText(["T3", "T2"])
+  await expect(third.getByRole("button", { name: "Merge", exact: true })).toBeVisible()
+  await expect(second.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
+  await second.getByRole("button", { name: "Order Second TODO", exact: true }).press("Enter")
+  await second.getByRole("menuitem", { name: "Drop", exact: true }).press("Enter")
+  await expect.poll(() => drops.length).toBe(1)
+  expect(drops[0]!.body).toEqual({ op: "drop" })
+  expect(drops[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
+  await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
+  login = "alice"
+  await page.reload()
+  await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
+  await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
+  login = "maya"
+  await page.reload()
+  await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(1)
+})

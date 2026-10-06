@@ -226,3 +226,16 @@ test("on an install, a bare Merge opens the person's Review & merge for the serv
     expect(h.store.collections.cards.get("confirm:merge:todo:12")).toBeUndefined()
   } finally { h.controller.dispose() }
 })
+
+
+test("legacy history.show opens Home and bootstrap stays out of the slash catalog", async () => {
+  const h = await boot()
+  try {
+    await slash(h, "branch", "retry-webhooks")
+    expect(shellViewsOf(h.controller.design).get(h.controller.design.viewer())?.at).toBe("b-retry")
+    expect(await slash(h, "history.show")).toEqual({ status: "executed", value: "Opened the stack" })
+    expect(shellViewsOf(h.controller.design).get(h.controller.design.viewer())?.at).toBe("main")
+    expect(h.controller.commands.entries().find(entry => nameOf(entry) === "history.bootstrap")?.metadata.hidden).toBe(true)
+    expect(h.requests.some(request => request.includes("mythical"))).toBe(false)
+  } finally { await h.controller.dispose() }
+})

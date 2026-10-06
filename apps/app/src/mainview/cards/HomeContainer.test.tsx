@@ -6,7 +6,7 @@ import { fixtures } from "@smthrs/rpc/fixtures/Home"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { HOME_TAGS, HomeCard, HomeContainer, homeFailureModel, homeSource } from "./HomeContainer"
+import { HOME_TAGS, HomeCard, HomeContainer, homeFailureModel, homeSource, withHomeRowControls } from "./HomeContainer"
 import { HomeView } from "./views/HomeView"
 import { homeFromTodos } from "../state/seams/HomeFromTodos"
 import { fixtures as todoFixtures } from "@smthrs/rpc/fixtures/Todo"
@@ -149,7 +149,7 @@ test("Merge is absent for members and for blocked, later or draft rows", () => {
     h.props.onAction("merge", { n: String(row.n) })
     expect(h.calls).toHaveLength(role === "member" ? 0 : 1)
   }
-  for (const patch of [{ place: 2 }, { merge: { state: "blocked", on_github: false } }, { pr: { number: 123, draft: true } }]) {
+  for (const patch of [{ merge: { state: "blocked", on_github: false } }, { pr: { number: 123, draft: true } }]) {
     const h = mount({ ...base, attention: [], items: [{ ...row, ...patch }] })
     expect(h.props.model.items[0]!.actions).toEqual([])
   }
@@ -670,4 +670,45 @@ test("on a host with the seed the rail's home line reads the seeded stack", () =
   expect(home.kind).toBe("seed")
   expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: home.model.repository, summary: "1 need you · 1 working", tone: "attention", glyph: { state: "needs_you" } })
   h.controller.design.dispose()
+})
+
+
+test("after a merge, Home offers Merge on the first open row regardless of its original place", async () => {
+  GlobalRegistrator.register()
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  const [first] = rehearsalTodos
+  const h = rehearsalHost("rehearsal-owner", [
+    { ...first, n: 1, state: "merged", merge: { state: "done", on_github: true } },
+    { ...first, n: 2, place: 2, title: "Second TODO" },
+    { ...first, n: 3, place: 3, title: "Third TODO" }
+  ])
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
+    const rows = [...host.querySelectorAll(".stack-row")]
+    expect(rows.map(row => row.querySelector(".ref")?.textContent)).toEqual(["T2", "T3"])
+    expect(rows.map(row => row.querySelectorAll('button[data-flow="merge"]').length)).toEqual([1, 0])
+    await click(rows[0]!.querySelector('button[data-flow="merge"]'))
+    expect(h.submitted).toEqual([{ name: "merge", payload: { n: 2 }, actor: "user" }])
+  } finally {
+    await act(async () => root.unmount()); host.remove(); h.controller.design.dispose()
+    await GlobalRegistrator.unregister()
+  }
+})
+
+
+test("served Home rows bind order controls once and exclude completed rows from order boundaries", () => {
+  const base = Object.values(fixtures).find(fixture => fixture.model.items.length > 0)!.model
+  const row = { ...base.items[0]!, state: "working" as const, actions: [] }
+  const home = withHomeRowControls({ ...base, items: [
+    { ...row, n: 1, state: "merged" }, { ...row, n: 2 }, { ...row, n: 3 }, { ...row, n: 4, state: "dropped" }
+  ] })
+  expect(home.items.map(item => item.actions.filter(action => action.tag !== "branch").map(action => action.label)))
+    .toEqual([[], ["Move down", "Drop"], ["Move up", "Drop"], []])
+  expect(withHomeRowControls(home)).toEqual(home)
+  const h = mount(home)
+  h.props.onAction("stack.move", { n: "2", direction: "down" })
+  h.props.onAction("todo.drop", { n: "3" })
+  expect(h.calls).toEqual([{ tag: "stack.move", input: { n: 2, direction: "down" } }, { tag: "todo.drop", input: { n: 3 } }])
 })
