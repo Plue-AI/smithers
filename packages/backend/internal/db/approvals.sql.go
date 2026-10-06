@@ -77,7 +77,7 @@ UPDATE approvals
 SET state       = $2,
     decided_at  = NOW(),
     decided_by  = $3
-WHERE id = $1
+WHERE member_id IS NULL AND id = $1
   AND repository_id = $4
   AND state = 'pending'
 RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload
@@ -125,7 +125,7 @@ func (q *Queries) DecideApproval(ctx context.Context, arg DecideApprovalParams) 
 }
 
 const getApproval = `-- name: GetApproval :one
-SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals WHERE id = $1
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals WHERE member_id IS NULL AND id = $1
 `
 
 // Returns a single approval row. Does NOT filter on repository_id; the route
@@ -152,7 +152,7 @@ func (q *Queries) GetApproval(ctx context.Context, id string) (Approval, error) 
 
 const listApprovalsByRepo = `-- name: ListApprovalsByRepo :many
 SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals
-WHERE repository_id = $1
+WHERE member_id IS NULL AND repository_id = $1
   AND ($2::text = '' OR state = $2)
 ORDER BY created_at DESC
 LIMIT $4 OFFSET $3
@@ -206,7 +206,7 @@ func (q *Queries) ListApprovalsByRepo(ctx context.Context, arg ListApprovalsByRe
 
 const listPendingApprovalsBySession = `-- name: ListPendingApprovalsBySession :many
 SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals
-WHERE repository_id = $1 AND session_id = $2 AND state = 'pending'
+WHERE member_id IS NULL AND repository_id = $1 AND session_id = $2 AND state = 'pending'
 ORDER BY created_at DESC
 `
 

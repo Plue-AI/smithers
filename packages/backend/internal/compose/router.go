@@ -980,6 +980,9 @@ func buildRouter(
 			reviews := &routes.InstallReviewHandler{Queries: queries, Service: reviewService}
 			r.Post("/reviews", reviews.Request)
 		}
+		if config.IsSingleOwner(cfg.Auth) {
+			routes.RegisterConfirmationRoutes(r, &routes.ConfirmationsHandler{Queries: queries})
+		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Members != nil {
 			r.Get("/members", extras.Members.List)
 			r.Post("/members", extras.Members.Mutate)

@@ -300,20 +300,21 @@ type installCommand struct {
 // the app agent and work TODOs; maintainers merge, manage people and write
 // the repository's secrets. A command absent here is refused.
 var installCommands = map[string]installCommand{
-	"install.read":     {role: InstallMember},
-	"self.read":        {role: InstallMember},
-	"telemetry.report": {role: InstallMember},
-	"repo.read":        {role: InstallMember},
-	"wiki.read":        {role: InstallMember},
-	"sync.read":        {role: InstallMember},
-	"sync.retry":       {role: InstallMember},
-	"live":             {role: InstallMember},
-	"agent.turn":       {role: InstallMember},
-	"issue.read":       {role: InstallMember},
-	"review":           {role: InstallMember},
-	"todo.read":        {role: InstallMember},
-	"todo.new":         {role: InstallMember},
-	"todo.answer":      {role: InstallMember},
+	"confirmations.read": {role: InstallMember},
+	"install.read":       {role: InstallMember},
+	"self.read":          {role: InstallMember},
+	"telemetry.report":   {role: InstallMember},
+	"repo.read":          {role: InstallMember},
+	"wiki.read":          {role: InstallMember},
+	"sync.read":          {role: InstallMember},
+	"sync.retry":         {role: InstallMember},
+	"live":               {role: InstallMember},
+	"agent.turn":         {role: InstallMember},
+	"issue.read":         {role: InstallMember},
+	"review":             {role: InstallMember},
+	"todo.read":          {role: InstallMember},
+	"todo.new":           {role: InstallMember},
+	"todo.answer":        {role: InstallMember},
 	// todo.control is POST /api/todos/{n}; its handler authorizes the
 	// control itself: steer, stop, resume, retry, drop or move.
 	"todo.control":  {role: InstallMember},
@@ -405,6 +406,16 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: middleware.UnauthenticatedMessage(ctx)}
+	}
+	if command == "confirmations.read" && info.IsTokenAuth && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) && info.Scopes.Has(middleware.ScopeReadRepository) && info.RepositoryRestriction() == 0 && info.WorkspaceRestriction() == "" && len(middleware.ParseTokenPathRestrictions(info.RawScopes)) == 0 {
+		role, err := InstallRoleOf(ctx, q, info.User.ID)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if role == "" {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not a member"}
+		}
+		return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 	}
 	if need.personOnly {
 		return authorizePersonOnly(ctx, q, info, need.role)

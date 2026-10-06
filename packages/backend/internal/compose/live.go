@@ -83,6 +83,12 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 				return live.Source{}, live.Forbidden
 			}
 		}
+		if strings.HasPrefix(topic, "confirmations:") {
+			info := middleware.AuthInfoFromContext(r.Context())
+			if info == nil || info.IsTokenAuth || info.SessionHash == "" || info.IsAgent() {
+				return live.Source{}, live.Forbidden
+			}
+		}
 		return t.resolve(ctx, topic, repository, slug, member)
 	}, repository
 }
@@ -91,7 +97,21 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 	kind, rest, _ := strings.Cut(topic, ":")
 	hints := []string{"mythical_" + strconv.FormatInt(repository, 10)}
 	switch kind {
-	case "confirmations", "view":
+	case "confirmations":
+		if member <= 0 || rest != strconv.FormatInt(member, 10) {
+			return live.Source{}, live.Forbidden
+		}
+		if t.queries == nil {
+			return live.Source{}, live.Unsupported
+		}
+		return live.Source{Key: topic, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			rows, err := t.queries.ListMemberConfirmations(ctx, member)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(rows)
+		}}, ""
+	case "view":
 		// Member topics refuse every other person (§7.2.2); none is served yet.
 		owner, _, _ := strings.Cut(rest, ":")
 		if owner != strconv.FormatInt(member, 10) {

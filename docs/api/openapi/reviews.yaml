@@ -1,0 +1,27 @@
+paths:
+  /api/reviews:
+    post:
+      x-composition: install
+      summary: Request review of a GitHub pull request
+      operationId: post_api_reviews
+      tags:
+        - Reviews
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Review request admitted
+        '400':
+          description: Invalid review request
+        '401':
+          description: No active credential
+        '403':
+          description: No member permission
+        '503':
+          description: Review runtime unavailable; no launch

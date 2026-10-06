@@ -20,12 +20,12 @@ RETURNING *;
 -- name: GetApproval :one
 -- Returns a single approval row. Does NOT filter on repository_id; the route
 -- layer enforces repo scoping using the row's repository_id value.
-SELECT * FROM approvals WHERE id = $1;
+SELECT * FROM approvals WHERE member_id IS NULL AND id = $1;
 
 -- name: ListApprovalsByRepo :many
 -- Repo-scoped approval inbox. Empty state_filter returns all approvals.
 SELECT * FROM approvals
-WHERE repository_id = $1
+WHERE member_id IS NULL AND repository_id = $1
   AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state))
 ORDER BY created_at DESC
 LIMIT sqlc.arg(page_size) OFFSET sqlc.arg(page_offset);
@@ -43,7 +43,7 @@ UPDATE approvals
 SET state       = $2,
     decided_at  = NOW(),
     decided_by  = $3
-WHERE id = $1
+WHERE member_id IS NULL AND id = $1
   AND repository_id = $4
   AND state = 'pending'
 RETURNING *;
@@ -52,5 +52,5 @@ RETURNING *;
 -- Admin / debug helper; not on the hot path. realtime stream is the
 -- production read path for connected clients.
 SELECT * FROM approvals
-WHERE repository_id = $1 AND session_id = $2 AND state = 'pending'
+WHERE member_id IS NULL AND repository_id = $1 AND session_id = $2 AND state = 'pending'
 ORDER BY created_at DESC;

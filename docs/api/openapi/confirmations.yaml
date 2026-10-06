@@ -1,0 +1,97 @@
+paths:
+  /api/confirmations:
+    get:
+      x-composition: install
+      summary: List your confirmations
+      operationId: get_api_confirmations
+      tags:
+        - Confirmations
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Own confirmation rows; delegated credentials receive only id and state
+        '401':
+          description: Credential is absent or dead
+        '403':
+          description: Credential cannot read confirmations
+    post:
+      x-composition: install
+      summary: Request a confirmation through delegated command dispatch
+      operationId: post_api_confirmations
+      tags:
+        - Confirmations
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      responses:
+        '403':
+          description: Session, restricted or ineligible credential
+        '503':
+          description: Production catalog dispatch unavailable; no row or effect
+  /api/confirmations/{id}/approve:
+    post:
+      x-composition: install
+      summary: Approve your bound confirmation
+      operationId: post_api_confirmations_id_approve
+      tags:
+        - Confirmations
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      responses:
+        '400':
+          description: Missing Idempotency-Key
+        '403':
+          description: Not the requesting member's session or current command role
+        '409':
+          description: Expired or resolved confirmation
+        '503':
+          description: Production subject transaction unavailable; approval remains pending
+  /api/confirmations/{id}/deny:
+    post:
+      x-composition: install
+      summary: Cancel your confirmation
+      operationId: post_api_confirmations_id_deny
+      tags:
+        - Confirmations
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The confirmation is rejected
+        '400':
+          description: Missing Idempotency-Key
+        '403':
+          description: Not the requesting member's session or current command role
+        '409':
+          description: Expired or resolved confirmation
