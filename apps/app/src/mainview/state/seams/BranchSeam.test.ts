@@ -1,6 +1,17 @@
 import { projectBranchFiles } from "@smthrs/rpc/FileCard"
 import { expect, test } from "bun:test"
-import { branchModel, createBrowserPresence } from "./BranchSeam"
+import { branchModel, branchSeedAvailable, createBrowserPresence } from "./BranchSeam"
+import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
+
+test("branch fallback distinguishes a demo bootstrap from an install and a provider-only host", () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: [], authFlow: "none", sandbox: null }
+  for (const live of [undefined, {}]) {
+    expect(branchSeedAvailable({ bootstrap, live })).toBe(true)
+    expect(branchSeedAvailable({ bootstrap: { ...bootstrap, capabilities: ["install"] }, live })).toBe(false)
+  }
+  expect(branchSeedAvailable({})).toBe(true)
+  expect(branchSeedAvailable({ live: {} })).toBe(false)
+})
 const branch = { id: "b1", name: "Live branch", machine: { state: "asleep" as const }, presence: [], terminals: [], ssh_line: "ssh -p 2222 b1@localhost" }
 test("live mapping uses captured facts and refuses missing or malformed topics", () => {
   expect(branchModel(branch, [], [], "b1")).toEqual({ ...branch, activity: [], changed_files: [] })

@@ -2,7 +2,7 @@
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
 import { useBranchPresence, useTopic } from "../state/useTopic"
-import { branchModel } from "../state/seams/BranchSeam"
+import { branchModel, branchSeedAvailable } from "../state/seams/BranchSeam"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardActions, CardFamily, CardOf } from "./CardFamily"
@@ -121,7 +121,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
     : branchModel(branch?.data, optionalData(activity), optionalData(files), card.payload.id)
   useBranchPresence(card.payload.id, controller.live)
   // Outside an install, an unanswered or absent provider keeps the existing seed visible.
-  if (controller.design.enabled !== false && branch?.data === undefined
+  if (branchSeedAvailable(controller) && branch?.data === undefined
     && (branch?.error === undefined || branch.error === "unknown_topic" || branch.error === "unsupported")) return <DesignBranchBody card={card} actions={actions} />
   const providers = new Set<CatalogTag>()
   if (typeof controller.showTodo === "function") providers.add("todo")
@@ -134,7 +134,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
     name: tag, payload: { branch: card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
   })
   const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers) : [])
-  if (!model) return null
+  if (!model) return branchSeedAvailable(controller) ? <DesignBranchBody card={card} actions={actions} /> : null
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
     onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized", tab: card.payload.tab }}
     onView={patch => persistBranchView(controller, card, patch)} />

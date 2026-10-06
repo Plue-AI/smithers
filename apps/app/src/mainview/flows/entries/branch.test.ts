@@ -8,12 +8,13 @@ import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
 import { memoryStorage, signupProfileFetch, unavailableAgent } from "../../state/TestFixtures"
 import { todoOf } from "../../state/seams/DesignWorld"
+import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 
-const boot = async (live?: import("../../state/useTopic").LiveTopics, install = false) => {
+const boot = async (live?: import("../../state/useTopic").LiveTopics, bootstrap?: AppBootstrap | boolean) => {
+  if (bootstrap === true) bootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
-  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(live ? { live } : {}),
-    ...(install ? { bootstrap: { apiVersion: 1 as const, host: "local" as const, version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect" as const, sandbox: null } } : {}) })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(live ? { live } : {}), ...(bootstrap ? { bootstrap } : {}) })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
   return { store, controller }
 }
@@ -28,6 +29,28 @@ test("/branch opens the branch card by name and by its item's ref", async () => 
     await h.controller.runCommandForResult("branch", "T10")
     expect(h.store.collections.cards.get("branch:b-checkout")).toMatchObject({ kind: "branch", payload: { id: "b-checkout" } })
   } finally { h.controller.dispose() }
+})
+
+test("a bootstrapped demo with a live channel opens branches through button, slash and agent doors", async () => {
+  const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined }, {
+    apiVersion: 1, host: "local", version: "design", buildSha: "0".repeat(40), capabilities: [], authFlow: "none", sandbox: null
+  })
+  try {
+    expect((await submit(h, "branch", { name: "fix-checkout-race" })).status).toBe("executed")
+    expect(h.store.collections.cards.get("branch:b-checkout")).toMatchObject({ kind: "branch", title: "fix-checkout-race", payload: { id: "b-checkout" } })
+    expect((await h.controller.runCommandForResult("branch", "T9")).status).toBe("executed")
+    expect(h.store.collections.cards.get("branch:b-retry")?.kind).toBe("branch")
+    expect(await h.controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "branch", args: "b-stripe" }) })).toBe("Opened upgrade-stripe")
+    expect(h.store.collections.cards.get("branch:b-stripe")?.kind).toBe("branch")
+  } finally { await h.controller.dispose() }
+})
+
+test("an install cannot open a seeded branch even without a live channel", async () => {
+  const h = await boot(undefined, { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null })
+  try {
+    expect(await submit(h, "branch", { name: "fix-checkout-race" })).toMatchObject({ status: "failed", error: "Branch unavailable" })
+    expect(h.store.collections.cards.get("branch:b-checkout")).toBeUndefined()
+  } finally { await h.controller.dispose() }
 })
 
 test("Rebase now clears the pending rebase and records who asked", async () => {
