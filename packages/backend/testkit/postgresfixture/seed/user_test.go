@@ -28,6 +28,9 @@ func TestCreateUserNormalizesOperatorOwner(t *testing.T) {
 
 func TestCreateUserDuplicateReturnsErrorWithoutAnotherUser(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
+	// Product migrations may seed service identities before this test's user.
+	var existingUsers int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM users`).Scan(&existingUsers))
 	id, err := seed.CreateUser(t.Context(), pool, "Alice")
 	require.NoError(t, err)
 	duplicateID, err := seed.CreateUser(t.Context(), pool, "ALICE")
@@ -37,7 +40,8 @@ func TestCreateUserDuplicateReturnsErrorWithoutAnotherUser(t *testing.T) {
 	require.Zero(t, duplicateID)
 	var rows int
 	var persistedID int64
-	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*), min(id) FROM users`).Scan(&rows, &persistedID))
-	require.Equal(t, 1, rows)
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM users`).Scan(&rows))
+	require.Equal(t, existingUsers+1, rows)
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT id FROM users WHERE lower_username = 'alice'`).Scan(&persistedID))
 	require.Equal(t, id, persistedID)
 }
