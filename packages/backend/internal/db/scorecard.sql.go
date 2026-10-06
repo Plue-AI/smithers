@@ -7,11 +7,19 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const scorecardSourceRelations = `-- name: ScorecardSourceRelations :many
 SELECT source.name::text AS name,
-       (to_regclass('public.' || source.name) IS NOT NULL)::boolean AS present
+       (to_regclass('public.' || source.name) IS NOT NULL
+        AND (source.name <> 'mythical_items' OR
+             (SELECT count(*) = 2 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'mythical_items'
+                AND column_name IN ('owner_id', 'created_by'))))::boolean AS present
 FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
                  'chat_turns', 'chat_turn_batches', 'burst_files', 'audit_log',
                  'workflow_definitions']) AS source(name)
@@ -35,6 +43,60 @@ func (q *Queries) ScorecardSourceRelations(ctx context.Context) ([]ScorecardSour
 	for rows.Next() {
 		var i ScorecardSourceRelationsRow
 		if err := rows.Scan(&i.Name, &i.Present); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scorecardTODOs = `-- name: ScorecardTODOs :many
+SELECT i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
+       i.state::text AS state, i.updated_at AS state_at, i.checks, i.paused_at,
+       COALESCE(min(e.recorded_at), 'epoch'::timestamptz)::timestamptz AS accepted,
+       (count(e.event_id) > 0)::boolean AS covered
+FROM mythical_items i
+LEFT JOIN product_job_events e ON e.principal_id = 'todo:' || i.id::text
+ AND e.event_type = 'todo.created' AND e.data->>'item' = i.id::text
+WHERE i.source = 'todo' OR i.checks->>'todo' = 'true'
+GROUP BY i.id
+`
+
+type ScorecardTODOsRow struct {
+	ID       string             `json:"id"`
+	Owner    int64              `json:"owner"`
+	State    string             `json:"state"`
+	StateAt  pgtype.Timestamptz `json:"state_at"`
+	Checks   json.RawMessage    `json:"checks"`
+	PausedAt pgtype.Timestamptz `json:"paused_at"`
+	Accepted time.Time          `json:"accepted"`
+	Covered  bool               `json:"covered"`
+}
+
+// Creation receipts, not row creation times, establish stack acceptance.
+// Deduplicate repeated deliveries by the TODO identity.
+func (q *Queries) ScorecardTODOs(ctx context.Context) ([]ScorecardTODOsRow, error) {
+	rows, err := q.db.Query(ctx, scorecardTODOs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardTODOsRow{}
+	for rows.Next() {
+		var i ScorecardTODOsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Owner,
+			&i.State,
+			&i.StateAt,
+			&i.Checks,
+			&i.PausedAt,
+			&i.Accepted,
+			&i.Covered,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -94,7 +94,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/user/keys/ben", ""},
 		{http.MethodPost, "/api/user/workspaces", ""},
 		{http.MethodPost, "/api/agent/turn/erase", ""},
-		{http.MethodGet, "/api/install/scorecard", ""},
+		{http.MethodGet, "/api/install/scorecard", "install.scorecard"},
 	} {
 		require.Equal(t, tc.command, InstallMemberCommand(tc.method, tc.path), "%s %s", tc.method, tc.path)
 	}

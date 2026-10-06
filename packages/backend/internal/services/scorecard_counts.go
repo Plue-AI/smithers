@@ -8,8 +8,8 @@ import (
 
 // These are read projections, not persisted receipts or an ingestion API. The
 // owning readers must supply server-derived identities and complete coverage.
-// No production provider exists yet; the service cannot accept these from a
-// request or turn table presence into coverage. Admin analytics counts runs,
+// Source readers never accept facts from a request or turn table presence
+// into coverage. Admin analytics counts runs,
 // whereas this fold counts distinct TODOs and attributed lifecycle sources.
 type scorecardTODO struct {
 	ID         string

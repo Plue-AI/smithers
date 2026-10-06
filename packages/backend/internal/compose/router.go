@@ -999,7 +999,7 @@ func buildRouter(
 				r.With(middleware.RequireAuth, installModelOwner(queries)).Get("/install/metrics", h.Read)
 			}
 		}
-		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
+		// Mounted only with the shared owner-person-session authorizer.
 		if extras.InstallScorecard.Available() {
 			r.Get("/install/scorecard", extras.InstallScorecard.Summary)
 		}

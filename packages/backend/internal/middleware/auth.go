@@ -100,6 +100,8 @@ var terminalProfileRoutes = []struct {
 	method string
 	path   *regexp.Regexp
 }{
+	// The person-only scorecard policy supplies the typed never/permission refusal.
+	{http.MethodGet, regexp.MustCompile(`^/api/install/scorecard$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+(/events|/attempts/[0-9]+/logs/[0-9a-f]{64})?)?$`)},
@@ -274,7 +276,8 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				if _, delegated := authInfo.Delegation(); delegated {
 					authInfo.ViaHint = r.Header.Get("Smithers-Via")
 				}
-				if authInfo.TokenSource == TokenSourcePersonalAccessToken {
+				// Scorecard is person-session only; rejected reads mutate no token row.
+				if authInfo.TokenSource == TokenSourcePersonalAccessToken && InstallMemberCommand(r.Method, r.URL.Path) != "install.scorecard" {
 					if err := queries.UpdateAccessTokenLastUsed(ctx, authInfo.TokenID); err != nil {
 						recordAuthLoaderFailure(r, "token_last_used", err)
 					}
@@ -400,6 +403,7 @@ var installMemberRoutes = []struct {
 	// workspaces, the repository and its stack, the GitHub sync, the live
 	// channel and the app's error reports.
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install$`)},
+	{http.MethodGet, "install.scorecard", regexp.MustCompile(`^/api/install/scorecard$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/agents$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/model/(catalog|default)$`)},
 	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},
