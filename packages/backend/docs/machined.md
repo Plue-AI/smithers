@@ -1,10 +1,19 @@
 # Machine host admission
 
-The host registry, authenticated link and RPC dispatcher are implemented as
-library boundaries. Install composition still does not plant the daemon or
-connect its watcher and object receiver; the existing reporter remains mounted.
-The existing reporter cannot supply boot authentication or connection leases;
-the registry is new for those duties.
+The runtime owns the host registry. Single-owner composition binds its roster
+and bundle import/export to the embedded repository engine. Store selection uses
+the admitted branch's database binding; remote repository clients grant no local
+filesystem path. Bundle operations hold the engine’s repository writer lock
+through verification and ref updates, excluding maintenance and GC. Daemon
+planting, connection pumping and durable capture-policy
+composition remain unavailable, so the existing reporter remains mounted.
+
+Wake reconciliation transfers a bounded Git bundle over the authenticated
+connection before sending `wake_reconcile`. The host waits for the daemon's
+object-stream `close`; writing EOF alone is not a receipt. Stream IDs survive
+reconnects within a boot, credit bounds memory, and cancellation, premature close
+or refused transfer fences the connection. Missing object-store composition
+refuses wake. File replies and write receipts must match the bytes' SHA-256.
 
 The runtime registers a host-authoritative branch, machine, boot id and newly
 minted machine credential before planting. A new boot atomically revokes the
@@ -35,7 +44,9 @@ T-COL-10's digest-aware routes, T-SEC-01's hardened installer, T-INS-01's
 main-pinned packaged binary and T-MCH-11's trusted guest identities/no-sudo
 image. There is no activation entry point in this increment.
 
-No root step is added. No boot file or credential is written to a guest.
+Boot authority is minted and published atomically before the old connection is
+closed. Its ADR 0004 serialization is available to the installer, but no boot
+file or credential is yet written to a guest. No new root step is active.
 Working-together I6 installs `machine_event_receipts(workspace_id, event_id,
 outcome, at)` with a primary key on `(workspace_id, event_id)`, and
 `burst_files(event_id, path, change, before_blob, after_blob, post_digest,
@@ -159,6 +170,7 @@ Only that branch's retained version can supply the before bytes. Its blob hash
 is checked before the shared guarded write, using the recorded post-digest (or
 `absent` for deletion). A stale file returns 409 without a retry or overwrite.
 
-The host connection pump and object receiver are still uncomposed. Component
+The object-store adapters are composed; the host connection pump is still
+uncomposed. Component
 PostgreSQL, HTTP and live-socket evidence does not qualify the real watcher,
 object transfer, formatter or reference-host timing checks.

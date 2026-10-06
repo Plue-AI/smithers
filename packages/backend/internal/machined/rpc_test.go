@@ -17,6 +17,7 @@ import (
 func rpcFixture(t *testing.T) (*Registry, *Link, net.Conn) {
 	t.Helper()
 	r := new(Registry)
+	testExporter(t, r, []byte("test bundle"))
 	a, err := r.MintBoot("a", "vm")
 	require.NoError(t, err)
 	l, peer := connectTest(t, r, "a", a)
@@ -94,6 +95,7 @@ func TestRegistryAdmissionRPC(t *testing.T) {
 	} {
 		received := make(chan ReconcileResult, 1)
 		go func() { value, err := r.WakeReconcile(t.Context(), "a", head); received <- value; results <- err }()
+		acknowledgeTestBundle(t, peer)
 		answer(t, peer, wire.WakeReconcile, wire.Field(1, test.value))
 		require.NoError(t, <-results)
 		require.Equal(t, test.outcome, (<-received).Outcome)
@@ -189,6 +191,7 @@ func TestRegistryAdmissionRequiresActualReady(t *testing.T) {
 	for _, state := range []byte{2, 3} {
 		t.Run(string(rune('0'+state)), func(t *testing.T) {
 			r := new(Registry)
+			testExporter(t, r, []byte("test bundle"))
 			a, err := r.MintBoot("a", "vm")
 			require.NoError(t, err)
 			link, peer := connectTest(t, r, "a", a)
@@ -196,6 +199,7 @@ func TestRegistryAdmissionRequiresActualReady(t *testing.T) {
 			go func() {
 				done <- r.AdmitReady(t.Context(), "a", strings.Repeat("a", 40), []SessionUser{{"alice", 20001}})
 			}()
+			acknowledgeTestBundle(t, peer)
 			answer(t, peer, wire.WakeReconcile, wire.Field(1, wire.Union(1)))
 			require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
 			answer(t, peer, wire.SetRoster)
@@ -233,6 +237,7 @@ func TestRegistryAckCanonicalAndRefusals(t *testing.T) {
 
 func TestRegistryDocumentRequiresSequencedLiveProtocol(t *testing.T) {
 	r := new(Registry)
+	testExporter(t, r, []byte("test bundle"))
 	authority, err := r.MintBoot("a", "vm")
 	require.NoError(t, err)
 	host, guest := net.Pipe()
@@ -251,6 +256,7 @@ func TestRegistryDocumentRequiresSequencedLiveProtocol(t *testing.T) {
 
 func TestRegistryReconnectUsesCurrentRosterBeforeReady(t *testing.T) {
 	r := new(Registry)
+	testExporter(t, r, []byte("test bundle"))
 	authority, err := r.MintBoot("a", "vm")
 	require.NoError(t, err)
 	current := []SessionUser{{Login: "alice", UID: 20001}}
@@ -277,6 +283,7 @@ func TestRegistryReconnectUsesCurrentRosterBeforeReady(t *testing.T) {
 		require.Equal(t, expected, fields[1], "stale caller roster must never reach the reconnected broker")
 		require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
 		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.SetRoster))))}))
+		acknowledgeTestBundle(t, peer)
 		answer(t, peer, wire.WakeReconcile, wire.Field(1, wire.Union(1)))
 		answer(t, peer, wire.Status, wire.Field(1, []byte{3}), wire.Field(2, wire.U16(1)), wire.Field(3, wire.String("guest")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0)))
 		require.NoError(t, <-done)
@@ -290,6 +297,7 @@ func TestRegistryReconnectUsesCurrentRosterBeforeReady(t *testing.T) {
 
 func TestRegistryRosterFailureCannotAdmit(t *testing.T) {
 	r := new(Registry)
+	testExporter(t, r, []byte("test bundle"))
 	authority, err := r.MintBoot("a", "vm")
 	require.NoError(t, err)
 	link, _ := connectTest(t, r, "a", authority)

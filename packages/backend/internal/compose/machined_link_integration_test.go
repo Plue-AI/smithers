@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	repositoryapi "github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,7 +29,12 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	f := newDocFixture(t)
 	registry := new(machined.Registry)
 	root := t.TempDir()
-	source, store, bundle := filepath.Join(root, "source"), filepath.Join(root, "store"), filepath.Join(root, "capture.bundle")
+	storage := repositoryapi.Config{StoragePath: filepath.Join(root, "repositories"), AuthToken: "machine-objects", FFILibraryPath: os.Getenv("SMITHERS_FFI_LIBRARY_PATH")}
+	local, err := repositoryapi.OpenLocal(storage)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
+	source, store, bundle := filepath.Join(root, "source"), storage.GitBackendPath("capture-owner", "capture"), filepath.Join(root, "capture.bundle")
+	require.NoError(t, os.MkdirAll(filepath.Dir(store), 0700))
 	git := func(args ...string) string {
 		out, err := hostexec.Git(t.Context(), append([]string{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "core.hooksPath=/dev/null"}, args...)...).CombinedOutput()
 		require.NoError(t, err, "%s", out)
@@ -224,7 +230,50 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	kind, body := f.read(t)
 	require.Equal(t, websocket.MessageText, kind)
 	require.Contains(t, string(body), "unsupported")
-	require.NoError(t, link.Reconciled())
+	bindMachineObjectStores(registry, pool, local.Client())
+	ready := make(chan error, 1)
+	go func() { ready <- registry.AdmitReady(t.Context(), branch, base, nil) }()
+	var received []byte
+	var objectStream uint32
+	for {
+		frame, err := wire.Read(guest)
+		require.NoError(t, err)
+		require.Equal(t, byte(wire.Objects), frame.Kind)
+		require.GreaterOrEqual(t, frame.Stream, uint32(0x80000000))
+		objectStream = frame.Stream
+		if frame.Payload[0] == 2 {
+			break
+		}
+		require.Equal(t, []byte{1, 0}, frame.Payload[:2])
+		received = append(received, frame.Payload[2:]...)
+		require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Objects, Stream: objectStream, Payload: append([]byte{6}, wire.U32(uint32(len(frame.Payload)-2))...)}))
+	}
+	receivedBundle := filepath.Join(root, "wake.bundle")
+	require.NoError(t, os.WriteFile(receivedBundle, received, 0600))
+	git("-C", store, "bundle", "verify", receivedBundle)
+	require.Contains(t, string(received), base+" refs/smithers/xfer/")
+	require.ErrorIs(t, link.RequireReady(branch), machined.ErrNotReady)
+	// Browser subscriptions remain refused until receipt, wake, roster and status.
+	f.sub(t, "doc:code:11111111-1111-4111-8111-111111111111:retry.ts")
+	_, body = f.read(t)
+	require.Contains(t, string(body), "unsupported")
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Objects, Stream: objectStream, Payload: []byte{7}}))
+	for _, call := range []struct {
+		method wire.Method
+		fields [][]byte
+	}{
+		{wire.WakeReconcile, [][]byte{wire.Field(1, wire.Union(1))}},
+		{wire.SetRoster, nil},
+		{wire.Status, [][]byte{wire.Field(1, []byte{3}), wire.Field(2, wire.U16(2)), wire.Field(3, wire.String("guest")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0))}},
+	} {
+		frame, err := wire.Read(guest)
+		require.NoError(t, err)
+		id, method, _, err := frame.Request()
+		require.NoError(t, err)
+		require.Equal(t, byte(call.method), method)
+		require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(call.method), call.fields...)))}))
+	}
+	require.NoError(t, <-ready)
 	f.sub(t, "doc:code:11111111-1111-4111-8111-111111111111:retry.ts")
 	request, err := wire.Read(guest)
 	require.NoError(t, err)

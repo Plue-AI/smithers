@@ -21,12 +21,13 @@ var (
 // cannot authenticate a boot or fence an old connection's reconciliation.
 // The zero value is usable; host restart requires fresh boot registration.
 type Registry struct {
-	mu         sync.Mutex
-	closed     bool
-	branches   map[string]*boot
-	boots      map[[16]byte]*boot
-	rosterSync func(context.Context, string) error
-	objects    ObjectImporter
+	mu            sync.Mutex
+	closed        bool
+	branches      map[string]*boot
+	boots         map[[16]byte]*boot
+	rosterSync    func(context.Context, string) error
+	objects       ObjectImporter
+	exportObjects ObjectExporter
 }
 
 type boot struct {
@@ -36,6 +37,7 @@ type boot struct {
 	secret          [32]byte
 	link            *Link
 	connection      *Connection
+	nextObject      uint32
 }
 
 // Connection is an authenticated lease, not a wire frame. Only the ADR 0004

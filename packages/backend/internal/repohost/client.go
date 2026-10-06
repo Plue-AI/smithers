@@ -81,6 +81,7 @@ type Client struct {
 	metrics             RepoHostOperationDurationObserver
 	localStagingBaseURL string
 	inProcess           bool
+	localGitStore       func(context.Context, string, string, func(string) error) error
 	installMainMirror   bool
 	pushMeter           PushMeter
 	measuringMu         sync.Mutex

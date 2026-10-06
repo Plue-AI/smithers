@@ -160,6 +160,9 @@ func (r *Registry) WakeReconcile(ctx context.Context, branch, head string) (Reco
 	if err != nil {
 		return ReconcileResult{}, err
 	}
+	if err := l.transferHead(ctx, branch, head); err != nil {
+		return ReconcileResult{}, err
+	}
 	fields, err := l.call(ctx, branch, wire.WakeReconcile, wire.Field(1, bytes))
 	if err != nil {
 		return ReconcileResult{}, err

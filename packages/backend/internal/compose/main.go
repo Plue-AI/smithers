@@ -533,6 +533,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if repoHostClient == nil {
 		repoHostClient = repohost.NewClient(storageSetResolver, cfg.RepoHost.AuthToken, smithersMetrics)
 	}
+	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
+		bindMachineObjectStores(options.Machined, pool, repoHostClient)
+	}
 
 	webhookDispatcher := webhooks.NewDispatcher(queries)
 	sshAuthzService := services.NewSSHAuthorizationService(queries)

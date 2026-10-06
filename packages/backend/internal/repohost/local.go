@@ -47,6 +47,21 @@ func NewLocalClientWithStagingEndpoint(handler http.Handler, authToken, stagingB
 // in front of the engine applies, so no door can disagree with the engine.
 func (c *Client) InstallMainMirror() bool { return c != nil && c.installMainMirror }
 
+// SetLocalGitStore binds the embedded engine before publishing its client.
+// The engine retains its repository lock throughout the data operation.
+func (c *Client) SetLocalGitStore(withStore func(context.Context, string, string, func(string) error) error) {
+	if c.inProcess {
+		c.localGitStore = withStore
+	}
+}
+
+func (c *Client) WithLocalGitStore(ctx context.Context, owner, repository string, use func(string) error) error {
+	if c == nil || !c.inProcess || c.localGitStore == nil || use == nil {
+		return errors.New("local repository object store unavailable")
+	}
+	return c.localGitStore(ctx, owner, repository, use)
+}
+
 // handlerTransport streams responses through a pipe. A recorder would buffer
 // diffs and repository contents without a bound before returning to Client.
 type handlerTransport struct{ handler http.Handler }
