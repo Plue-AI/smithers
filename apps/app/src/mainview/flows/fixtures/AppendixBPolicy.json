@@ -1,0 +1,1258 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "section": "B.1",
+      "ids": [
+        "appearance.dark-mode"
+      ],
+      "status": "rename",
+      "who": "P, A",
+      "replacement": [
+        "theme"
+      ]
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "input.mode"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "chat.send",
+        "chat.stop",
+        "chat.retry"
+      ],
+      "status": "keep",
+      "who": "P (retry: A)"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "chat.queue",
+        "chat.queue.edit",
+        "chat.queue.remove",
+        "chat.queue.restore"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "chat.filter",
+        "chat.grep",
+        "chat.toggle",
+        "chat.reset"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "chat.copy-message",
+        "chat.dictate",
+        "chat.open",
+        "chat.reload",
+        "chat"
+      ],
+      "status": "keep",
+      "who": "P (reload: A)"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "chat.commands"
+      ],
+      "status": "rename",
+      "who": "P, A",
+      "replacement": [
+        "help"
+      ]
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "chat.clear"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "card.maximize",
+        "card.minimize",
+        "card.history.back",
+        "card.history.forward",
+        "card.dismiss"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "frame.back",
+        "frame.forward"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "palette.open",
+        "palette.actions",
+        "palette.recent"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "form.set",
+        "form.submit"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "toast.dismiss"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "notifications.allow"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "app.hint.dismiss"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "search.open",
+        "search.files",
+        "search.flows",
+        "search.issues",
+        "search.runs",
+        "search.wiki",
+        "search.changes",
+        "search.history"
+      ],
+      "status": "keep",
+      "who": "P,P, A, X"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "search.targets",
+        "search.boxes"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "storage.recovery",
+        "storage.recovery.export",
+        "storage.recovery.reset"
+      ],
+      "status": "keep",
+      "who": "P (offer: A)"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "runs.graph.*",
+        "runs.trace.*",
+        "runs.coding.select",
+        "runs.steps",
+        "flow.plan.select",
+        "flow.plan.tab"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "prs.tab",
+        "change.facet",
+        "box.facet"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "wiki.open",
+        "wiki.select",
+        "wiki.view",
+        "wiki.heading",
+        "wiki.graph",
+        "wiki.backlinks",
+        "wiki.new-note",
+        "wiki.space",
+        "wiki.card.*",
+        "wiki",
+        "wiki.pane"
+      ],
+      "status": "keep",
+      "who": "P, A (create: A✓)"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "wiki.delete",
+        "wiki.delete.cancel",
+        "wiki.delete.confirm"
+      ],
+      "status": "keep",
+      "who": "P (A✓)"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "tab.card",
+        "tab.close",
+        "tab.select"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "world",
+        "world.*"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "subagents",
+        "flows",
+        "connect",
+        "smithers.who",
+        "workspace.rename",
+        "workspace.rename.edit",
+        "app.first-run.dismiss",
+        "notifications.read-update",
+        "notifications.tag"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "debug.errors",
+        "debug.verbose",
+        "debug.reset",
+        "debug.snapshot",
+        "debug.events",
+        "debug.net",
+        "debug.backend",
+        "admin.devtools",
+        "admin.reset*"
+      ],
+      "status": "hidden",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "history.show",
+        "history.view"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "stack"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "history.todo"
+      ],
+      "status": "rename",
+      "who": "P, A✓, X",
+      "replacement": [
+        "todo.new"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "issue.implement"
+      ],
+      "status": "rename",
+      "who": "P, A✓, X",
+      "replacement": [
+        "todo.from-issue"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "todo",
+        "todo.amend",
+        "todo.drop",
+        "stack.move"
+      ],
+      "status": "keep",
+      "who": "P, X; A for open and move, A✓ for amend and drop"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "runs.steer"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "todo.steer"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "approvals.list",
+        "approvals.open",
+        "runs.attention"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "runs"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "approval.approve",
+        "approval.deny"
+      ],
+      "status": "keep",
+      "who": "P only"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "todo.answer"
+      ],
+      "status": "keep",
+      "who": "P, A, X"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "todo.takeover"
+      ],
+      "status": "keep",
+      "who": "Maintainer (P only)"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "history.retry"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "todo.retry"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "history.land",
+        "prs.land",
+        "change.land"
+      ],
+      "status": "rename",
+      "who": "P (maintainer). A✓ and X open the person's Review & merge confirmation",
+      "replacement": [
+        "merge"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "history.parallel"
+      ],
+      "status": "hidden",
+      "who": "Owner"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "history.bootstrap",
+        "history.backfill"
+      ],
+      "status": "hidden",
+      "who": "S"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "branches.list",
+        "commits.list",
+        "commits.read"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "branches"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "box.open",
+        "box.view"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "branch"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "box.list"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "branches"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "box.suspend",
+        "box.resume"
+      ],
+      "status": "keep",
+      "who": "P, A, S"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "box.delete",
+        "box.session.destroy"
+      ],
+      "status": "hidden",
+      "who": "S (P for own session)"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "box.select"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "branch.fork",
+        "branch.add-to-stack",
+        "branch.rebase"
+      ],
+      "status": "keep",
+      "who": "P, X; A for fork and rebase, A✓ for add to stack"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "files.read",
+        "files.list",
+        "files.open-diff",
+        "box.file",
+        "box.files",
+        "repo.tree"
+      ],
+      "status": "rename",
+      "who": "P, A, C, X",
+      "replacement": [
+        "file",
+        "files"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "files.add"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "code.hover",
+        "code.definition",
+        "code.diagnostics"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "change.view",
+        "change.diff",
+        "change.pins",
+        "change.checks"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "diff"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "change.resolve"
+      ],
+      "status": "keep",
+      "who": "P, A✓"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "change.request",
+        "change.split",
+        "change.revert"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "prs.list",
+        "prs.view"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "pr"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "prs.triage"
+      ],
+      "status": "rename",
+      "who": "P, A✓, X",
+      "replacement": [
+        "review"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "prs.review"
+      ],
+      "status": "defer",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "prs.create"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "findings.please-fix",
+        "findings.not-useful"
+      ],
+      "status": "keep",
+      "who": "P, A✓"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "review.request",
+        "review.unrequest",
+        "review.since-mine",
+        "review.done",
+        "review.ack",
+        "review.reopen"
+      ],
+      "status": "defer",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "issues.list",
+        "issues.view",
+        "issues.comment",
+        "issues.close",
+        "issues.reopen",
+        "issues.create"
+      ],
+      "status": "keep",
+      "who": "P, A (writes: A✓), X"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "issues.fix",
+        "issues.verify",
+        "issues.set",
+        "issues.comment.react",
+        "issues.comment.retry",
+        "issues"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "issue.repro",
+        "issue.poc",
+        "issue.add-flow",
+        "issue.flows"
+      ],
+      "status": "defer",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "wiki.cloud",
+        "wiki.cloud.open",
+        "wiki.cloud.new",
+        "wiki.cloud.rename",
+        "wiki.cloud.delete",
+        "wiki.edit",
+        "wiki.history",
+        "wiki.sync",
+        "wiki.attach"
+      ],
+      "status": "keep",
+      "who": "P, A (delete: A✓), C (read), X"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "wiki.create"
+      ],
+      "status": "hidden",
+      "who": "S"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "wiki.ask"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "wiki.save"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "flow.list",
+        "flow.run",
+        "flow.create",
+        "flow.plan",
+        "flow.run.stop",
+        "flow.run.retry",
+        "flow.run.stop-all"
+      ],
+      "status": "rename",
+      "who": "P, A (create: A✓), X",
+      "replacement": [
+        "flows",
+        "flow.run",
+        "flow.new",
+        "flow.plan"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "flow",
+        "flow.edit",
+        "flow.source"
+      ],
+      "status": "keep",
+      "who": "Show and open source: P, A, X. Propose an edit: P, A✓, X. Co-edit source on a machine: P, X."
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "runs.list",
+        "runs.open",
+        "runs.logs",
+        "runs.events",
+        "runs.rerun",
+        "runs.resume",
+        "runs.continue"
+      ],
+      "status": "keep",
+      "who": "P, A, X"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "monitor"
+      ],
+      "status": "keep",
+      "who": "P, A, X"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "agent"
+      ],
+      "status": "keep",
+      "who": "P, A, X; model changes: Owner only"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "runs.signal"
+      ],
+      "status": "defer",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "runs.takeover",
+        "runs.release",
+        "runs.handoff",
+        "runs.burndown.*"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "agent.list"
+      ],
+      "status": "rename",
+      "who": "P, A, X",
+      "replacement": [
+        "agents"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "model.*"
+      ],
+      "status": "keep",
+      "who": "Owner"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "agent.session.*"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "browser.open"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "secrets.list",
+        "secrets.set",
+        "secrets.delete",
+        "secrets.scope",
+        "secrets.bind"
+      ],
+      "status": "rename",
+      "who": "Maintainer (P only; agents: never)",
+      "replacement": [
+        "secrets"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "secrets.connect",
+        "secrets.connect.codex",
+        "secrets.connections",
+        "secrets.move",
+        "secrets.revoke",
+        "env.*"
+      ],
+      "status": "rename",
+      "who": "Owner",
+      "replacement": [
+        "settings"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "github.app",
+        "github.app.choose",
+        "github.app.open",
+        "github.reconcile"
+      ],
+      "status": "rename",
+      "who": "Owner (status: P, A, X)",
+      "replacement": [
+        "github"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "github.mirror-sync",
+        "github.mirror.retry-ref",
+        "sync.ops.show-more"
+      ],
+      "status": "hidden",
+      "who": "S"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "auth.sign-in",
+        "auth.sign-out",
+        "auth.prompt",
+        "account.show"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "members",
+        "members.add",
+        "members.role",
+        "members.remove"
+      ],
+      "status": "keep",
+      "who": "Maintainer (P only; agents: never)"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "settings"
+      ],
+      "status": "keep",
+      "who": "Owner (P only; agents: never)"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "ssh"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "repos.import",
+        "repos.import.retry"
+      ],
+      "status": "hidden",
+      "who": "S (install setup)"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "repo.choose",
+        "repo.create",
+        "repo.select",
+        "repo.overview",
+        "repo.update"
+      ],
+      "status": "defer",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "notifications.list",
+        "notifications.read"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "triggers.list",
+        "triggers.register",
+        "triggers.approve",
+        "triggers.pause",
+        "triggers.resume",
+        "triggers.run"
+      ],
+      "status": "defer",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "egress.allow",
+        "egress.session",
+        "box.egress",
+        "box.services",
+        "box.images"
+      ],
+      "status": "defer",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "box.terminal",
+        "box.sessions"
+      ],
+      "status": "rename",
+      "who": "P, A (opens the prompter's own terminal; the agent never types in it)",
+      "replacement": [
+        "terminal"
+      ]
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "billing.*",
+        "cloud.*"
+      ],
+      "status": "defer",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "admin.grant*",
+        "admin.health",
+        "repository.register",
+        "signup.*",
+        "setup.*",
+        "issues.setup",
+        "review.setup",
+        "ci.setup",
+        "feature.setup",
+        "chores.setup",
+        "feature.prototype",
+        "system.recommend"
+      ],
+      "status": "cut",
+      "who": "–"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "todo.return-to-item"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "todo.keep-moved"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "branch.bring-in",
+        "branch.discard-foreign"
+      ],
+      "status": "keep",
+      "who": "P (maintainer for Discard); A✓"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "file.restore"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "file.compare"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "file.restore-deleted",
+        "file.follow-rename"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "todo.retry-current-flow"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "branch.rebase-now"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "learning.accept",
+        "learning.dismiss"
+      ],
+      "status": "keep",
+      "who": "P, A✓"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "terminal.watch"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "notifications.allow"
+      ],
+      "status": "keep",
+      "who": "P only"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "todo.takeover"
+      ],
+      "status": "keep",
+      "who": "Maintainer only"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "merge.confirm"
+      ],
+      "status": "keep",
+      "who": "Maintainer only"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "todo.preapprove",
+        "todo.unapprove"
+      ],
+      "status": "keep",
+      "who": "Maintainer only"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "order.ok"
+      ],
+      "status": "keep",
+      "who": "Maintainer only"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "draft.discard"
+      ],
+      "status": "keep",
+      "who": "P, A (author only)"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "confirm.cancel"
+      ],
+      "status": "keep",
+      "who": "P only"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "settings.model.set"
+      ],
+      "status": "keep",
+      "who": "Owner only; agents: never"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "background.retry",
+        "background.dismiss"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "main.reset-to-github"
+      ],
+      "status": "keep",
+      "who": "Owner only"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "image.add"
+      ],
+      "status": "keep",
+      "who": "P, A"
+    },
+    {
+      "section": "B.4",
+      "ids": [
+        "file.reapply"
+      ],
+      "status": "keep",
+      "who": "P"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "search.secrets"
+      ],
+      "status": "hidden",
+      "who": "–"
+    },
+    {
+      "section": "B.2",
+      "ids": [
+        "issue-sweep"
+      ],
+      "status": "cut",
+      "who": "–"
+    }
+  ],
+  "publicIds": [
+    "chat.send",
+    "help",
+    "docs",
+    "stop",
+    "search",
+    "stack",
+    "todo.new",
+    "todo.from-issue",
+    "todo",
+    "todo.answer",
+    "todo.steer",
+    "todo.amend",
+    "todo.stop",
+    "todo.resume",
+    "todo.retry",
+    "todo.drop",
+    "stack.move",
+    "merge",
+    "branches",
+    "branch",
+    "branch.fork",
+    "branch.add-to-stack",
+    "branch.rebase",
+    "terminal",
+    "file",
+    "files",
+    "diff",
+    "review",
+    "pr",
+    "issues",
+    "issue",
+    "issue.new",
+    "issue.comment",
+    "wiki",
+    "wiki.page",
+    "wiki.save",
+    "flows",
+    "flow",
+    "flow.edit",
+    "flow.run",
+    "flow.new",
+    "runs",
+    "run",
+    "github",
+    "monitor",
+    "debug-api",
+    "run.inspect",
+    "flow.source",
+    "flow.plan",
+    "agents",
+    "agent",
+    "settings",
+    "secrets",
+    "members",
+    "ssh",
+    "sign-in",
+    "sign-out",
+    "theme"
+  ]
+}

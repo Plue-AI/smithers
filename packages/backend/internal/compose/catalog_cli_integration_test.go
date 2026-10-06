@@ -111,17 +111,21 @@ console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
 	require.Zero(t, count, "CLI launch must not execute the confirmed operation")
 	// Only the person's browser session can approve the same stored request.
-	r := httptest.NewRequest("POST", cfg.Server.PublicURL+"/api/confirmations/"+id+"/approve", strings.NewReader(`{}`))
-	r.RemoteAddr = "127.0.0.1:51900"
-	r.Header.Set("Origin", cfg.Server.PublicURL)
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("Idempotency-Key", "catalog-approve")
-	r.Header.Set("X-CSRF-Token", "csrf")
-	r.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
-	r.AddCookie(&http.Cookie{Name: "session", Value: ownerCookie})
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, r)
-	require.Equal(t, 200, w.Code, w.Body.String())
+	approve := func(confirmation, key string) {
+		t.Helper()
+		r := httptest.NewRequest("POST", cfg.Server.PublicURL+"/api/confirmations/"+confirmation+"/approve", strings.NewReader(`{}`))
+		r.RemoteAddr = "127.0.0.1:51900"
+		r.Header.Set("Origin", cfg.Server.PublicURL)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Idempotency-Key", key)
+		r.Header.Set("X-CSRF-Token", "csrf")
+		r.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		r.AddCookie(&http.Cookie{Name: "session", Value: ownerCookie})
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		require.Equal(t, 200, w.Code, w.Body.String())
+	}
+	approve(id, "catalog-approve")
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
 	require.Equal(t, 1, count)
 	var number int64
@@ -136,13 +140,27 @@ console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
 	var state string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM mythical_items`).Scan(&state))
 	require.Equal(t, "queued", state)
-	// Before placement has no confirmation consumer yet. It must refuse,
-	// never silently append the request by discarding its placement flag.
-	code, receipt = invoke("todo", "new", "--text", "Before the first item", "--before", fmt.Sprintf("T%d", number))
-	require.Equal(t, 1, code, receipt)
-	require.Equal(t, "confirmation_unavailable", receipt["code"])
+	// The placement consumer has landed: preserve --before through the
+	// source CLI and private confirmation, with no item before the press.
+	code, receipt = invoke("todo", "new", "--text", "Before the first item", "--before", fmt.Sprintf("T%d", number), "--idempotencyKey", "catalog-before")
+	require.Equal(t, 3, code, receipt)
+	require.Equal(t, "pending", receipt["state"])
+	beforeID, ok := receipt["confirmation"].(string)
+	require.True(t, ok, receipt)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
 	require.Equal(t, 1, count)
+	code, replay = invoke("todo", "new", "--text", "Before the first item", "--before", fmt.Sprintf("T%d", number), "--idempotencyKey", "catalog-before")
+	require.Equal(t, 3, code, replay)
+	require.Equal(t, receipt, replay)
+	approve(beforeID, "catalog-before-approve")
+	var placed int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT number FROM mythical_items WHERE issue_body=$1`, "Before the first item").Scan(&placed))
+	var order []int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT array_agg(number ORDER BY stack_position) FROM mythical_items WHERE repository_id=$1`, repo.ID).Scan(&order))
+	require.Equal(t, []int64{placed, number}, order, "the approved TODO must precede its named item, not append")
+	approve(beforeID, "catalog-before-approve")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
+	require.Equal(t, 2, count, "a repeated approval must not create another item")
 	// Missing merge evidence is never fabricated into pending or success.
 	code, receipt = invoke("merge", fmt.Sprintf("T%d", number), "--reviewed_head_sha", strings.Repeat("a", 40))
 	require.Equal(t, 1, code, receipt)
