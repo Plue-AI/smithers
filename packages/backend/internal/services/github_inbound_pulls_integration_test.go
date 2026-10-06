@@ -125,7 +125,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 		require.Equal(t, "open", h.pull(second.PRNumber.Int64).State)
 		require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
 		var raw []byte
-		require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='github.fetched.consume'`).Scan(&raw))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='pulls'`).Scan(&raw))
 		var fact gitHubFetchedObject
 		require.NoError(t, json.Unmarshal(raw, &fact))
 		tx, err := pool.Begin(ctx)
@@ -156,7 +156,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 		patch("open")
 		require.NoError(t, synced.pollInstallPull(ctx, row, second.PRNumber.Int64))
 		require.Eventually(t, func() bool {
-			return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`) > 0
+			return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='pulls' AND state='completed'`) > 0
 		}, 10*time.Second, 20*time.Millisecond)
 		require.Equal(t, "cancelled", f.item(second.Number.Int64).State)
 		require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
@@ -240,7 +240,7 @@ func TestGitHubInboundQueuedOpenCannotUndoDrop(t *testing.T) {
 			h.pass() // the first scheduled read after close settlement
 			pool := h.pool.(*pgxpool.Pool)
 			require.Eventually(t, func() bool {
-				return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state<>'completed'`) == 0
+				return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='pulls' AND state<>'completed'`) == 0
 			}, 10*time.Second, 20*time.Millisecond)
 			require.Equal(t, "cancelled", h.item(n).State, "an old open snapshot is not a person's reopen")
 			require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
@@ -260,7 +260,7 @@ func TestGitHubInboundReopenWithSamePayloadAfterDrop(t *testing.T) {
 	defer runFetchedFixture(t, synced)()
 	require.NoError(t, synced.pollInstallPull(ctx, row, pr))
 	require.Eventually(t, func() bool {
-		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`) == 1
+		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='pulls' AND state='completed'`) == 1
 	}, 5*time.Second, 10*time.Millisecond)
 	originalVersion, err := synced.cachedPullVersion(ctx, pool, row.ID, pr)
 	require.NoError(t, err)
@@ -283,7 +283,7 @@ func TestGitHubInboundReopenWithSamePayloadAfterDrop(t *testing.T) {
 	currentVersion, err := synced.cachedPullVersion(ctx, pool, row.ID, pr)
 	require.NoError(t, err)
 	require.Equal(t, originalVersion, currentVersion, "exercise the identical-payload case")
-	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume'`))
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='pulls'`))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
 	require.Equal(t, before.Attempt, h.item(n).Attempt)
 	require.Equal(t, before.CandidateHead, h.item(n).CandidateHead)

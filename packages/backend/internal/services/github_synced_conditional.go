@@ -97,7 +97,7 @@ func (s *GitHubSyncedRepoService) conditionalPages(row db.GithubSyncedRepo, fall
 			return nil, &gitHubUnchangedPage{known[key]}
 		}
 		validator := gitHubPageValidator{etag: page.ETag}
-		if resource == GitHubRepoMetadataIssues || resource == GitHubRepoMetadataPulls || resource == gitHubConversationComments {
+		if resource == GitHubRepoMetadataIssues || resource == GitHubRepoMetadataPulls || resource == gitHubConversationComments || resource == gitHubReviewComments {
 			var headers []gitHubIssueHeader
 			if json.Unmarshal(page.Body, &headers) == nil {
 				validator.rows = len(headers)
@@ -139,7 +139,7 @@ func (s *GitHubUserReposService) SyncedRepoConditionalFetcherFactory(issuer GitH
 		return func(ctx context.Context, resource string, query url.Values, etag string) (GitHubSyncedRepoConditionalPage, error) {
 			var page GitHubSyncedRepoConditionalPage
 			switch resource {
-			case GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents, gitHubConversationComments:
+			case GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents, gitHubConversationComments, gitHubReviewComments:
 			default:
 				if !gitHubIndividualPullResource(resource) && !gitHubPullFactResource(resource) {
 					return page, errors.New("unsupported GitHub install stream")

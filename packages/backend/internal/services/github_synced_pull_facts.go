@@ -2,16 +2,11 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
@@ -44,6 +39,9 @@ func (g gitHubPullFactStreams) RequiredStreams(ctx context.Context) ([]GitHubSyn
 			return nil, err
 		}
 		streams = append(streams, facts...)
+		if g.kind == "reviews" {
+			streams = append(streams, s.syncStreamObservation(row, gitHubReviewComments, "review-comments"))
+		}
 	}
 	return streams, nil
 }
@@ -108,99 +106,13 @@ func (s *GitHubSyncedRepoService) pollInstallPullFacts(ctx context.Context, row 
 }
 
 // ReadInstallPullFacts refreshes one TODO PR through the shared guarded reader.
-// The stack worker owns scheduling; callers cannot bypass install authority.
 func (s *GitHubSyncedRepoService) ReadInstallPullFacts(ctx context.Context, row db.GithubSyncedRepo, number int64, head, kind string) error {
 	if kind != "checks" && kind != "reviews" {
 		return gitHubFetchUnavailable()
 	}
-	if err := s.authorizeFetched(ctx, row); err != nil {
-		return err
-	}
-	if at := s.budget.StreamRetryAt(row.InstallationID.Int64, kind); at.After(s.now()) {
-		return GitHubRateLimitError(http.StatusTooManyRequests, http.Header{"Retry-After": {at.UTC().Format(http.TimeFormat)}}, s.now())
-	}
-	fetch := s.conditionalFetcherFactory(row)
-	if fetch == nil {
-		return gitHubFetchUnavailable()
-	}
-	snapshotAt := s.now().UTC()
 	paths := []string{"pulls/" + strconv.FormatInt(number, 10) + "/reviews", "pulls/" + strconv.FormatInt(number, 10) + "/comments", "issues/" + strconv.FormatInt(number, 10) + "/comments"}
 	if kind == "checks" {
 		paths = []string{"commits/" + head + "/check-runs", "commits/" + head + "/statuses"}
 	}
-	facts := map[string]any{"head": head}
-	for _, path := range paths {
-		if !gitHubPullFactResource(path) {
-			return gitHubFetchUnavailable()
-		}
-		var objects []json.RawMessage
-		for page := 1; ; page++ {
-			if page > githubRepoMetadataMaxPage {
-				return fmt.Errorf("GitHub pull facts exceed pagination limit")
-			}
-			query := url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}
-			if strings.HasSuffix(path, "check-runs") {
-				query.Set("filter", "latest")
-			}
-			response, err := fetch(ctx, path, query, "")
-			if err != nil {
-				return err
-			}
-			if response.NotModified {
-				return fmt.Errorf("GitHub pull facts returned an unsolicited 304")
-			}
-			var entries []json.RawMessage
-			body := response.Body
-			if strings.HasSuffix(path, "check-runs") {
-				var envelope struct {
-					Runs json.RawMessage `json:"check_runs"`
-				}
-				if err := json.Unmarshal(body, &envelope); err != nil {
-					return err
-				}
-				body = envelope.Runs
-			}
-			if len(body) == 0 || body[0] != '[' || json.Unmarshal(body, &entries) != nil {
-				return fmt.Errorf("GitHub returned invalid %s facts", kind)
-			}
-			objects = append(objects, entries...)
-			if len(entries) < 100 {
-				break
-			}
-		}
-		facts[path] = objects
-	}
-	body, err := json.Marshal(facts)
-	if err != nil {
-		return err
-	}
-	return pgx.BeginFunc(ctx, s.install.pool, func(tx pgx.Tx) error {
-		current, err := lockFetchedRepo(ctx, tx, row.ID)
-		if err != nil {
-			return err
-		}
-		if current.InstallationID != row.InstallationID || current.GithubRepositoryID != row.GithubRepositoryID || current.OwnerLogin != row.OwnerLogin || current.RepoName != row.RepoName {
-			return gitHubFetchUnavailable()
-		}
-		if err := s.authorizeFetched(ctx, current); err != nil {
-			return err
-		}
-		if kind == "reviews" && s.install.consumers[gitHubReviews] != nil {
-			comments, _ := facts["issues/"+strconv.FormatInt(number, 10)+"/comments"].([]json.RawMessage)
-			if err := s.commitFetchedConversationSnapshot(ctx, tx, row, number, snapshotAt, comments); err != nil {
-				return err
-			}
-			if err := s.admitFetchedReviewSnapshot(ctx, tx, row, number, facts); err != nil {
-				return err
-			}
-		}
-		result, err := tx.Exec(ctx, `UPDATE github_synced_issues SET related_facts=jsonb_set(related_facts,ARRAY[$4::text],$5::jsonb) WHERE synced_repo_id=$1 AND resource='pulls' AND number=$2 AND payload->'head'->>'sha'=$3`, row.ID, number, head, kind, body)
-		if err != nil {
-			return err
-		}
-		if result.RowsAffected() != 1 {
-			return gitHubFetchUnavailable()
-		}
-		return nil
-	})
+	return s.pollInstallRelated(ctx, row, number, head, kind, paths)
 }

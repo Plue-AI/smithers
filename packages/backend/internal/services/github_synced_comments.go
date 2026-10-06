@@ -15,18 +15,27 @@ import (
 )
 
 const gitHubConversationComments = "issues/comments"
+const gitHubReviewComments = "pulls/comments"
 
 // fetchedObjectHeader lets the existing updated-at pager read both numbered
 // issues and repository-wide comments. Comment URLs identify their issue; they
 // are validated as data and never fetched or used as an API destination.
 func fetchedObjectHeader(row db.GithubSyncedRepo, resource string, object json.RawMessage) (gitHubIssueHeader, error) {
 	var header gitHubIssueHeader
-	if resource == gitHubConversationComments {
+	if resource == gitHubConversationComments || resource == gitHubReviewComments {
 		var comment gitHubCommentHeader
 		if json.Unmarshal(object, &comment) != nil || comment.Body == nil {
 			return header, invalidFetchedComment()
 		}
-		number, ok := fetchedCommentIssue(row, comment.IssueURL)
+		identityURL := comment.IssueURL
+		if resource == gitHubReviewComments {
+			var review struct {
+				PullRequestURL string `json:"pull_request_url"`
+			}
+			_ = json.Unmarshal(object, &review)
+			identityURL = strings.Replace(review.PullRequestURL, "/pulls/", "/issues/", 1)
+		}
+		number, ok := fetchedCommentIssue(row, identityURL)
 		if !ok || !parseGitHubTimestamp(comment.CreatedAt).Valid {
 			return header, invalidFetchedComment()
 		}
@@ -67,6 +76,14 @@ func fetchedCommentIssue(row db.GithubSyncedRepo, value string) (int64, bool) {
 // Edits are versions of the same comment, not new comment identities. Consumers
 // decide whether an edit may still replace held input; nothing here steers a run.
 func (s *GitHubSyncedRepoService) commitFetchedComments(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, objects []json.RawMessage) error {
+	return s.commitFetchedCommentsFrom(ctx, tx, row, gitHubConversationComments, objects)
+}
+
+func (s *GitHubSyncedRepoService) commitFetchedCommentsFrom(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, resource string, objects []json.RawMessage) error {
+	source := "conversation"
+	if resource == gitHubReviewComments {
+		source = "review"
+	}
 	type entry struct {
 		header  gitHubIssueHeader
 		object  json.RawMessage
@@ -74,7 +91,7 @@ func (s *GitHubSyncedRepoService) commitFetchedComments(ctx context.Context, tx 
 	}
 	entries := make([]entry, 0, len(objects))
 	for _, object := range objects {
-		header, err := fetchedObjectHeader(row, gitHubConversationComments, object)
+		header, err := fetchedObjectHeader(row, resource, object)
 		if err != nil {
 			return err
 		}
@@ -90,7 +107,7 @@ func (s *GitHubSyncedRepoService) commitFetchedComments(ctx context.Context, tx 
 	for _, e := range entries {
 		h := e.header
 		var stale, misbound bool
-		err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM github_synced_issue_comments WHERE synced_repo_id=$1 AND github_id=$2 AND github_updated_at>$3::timestamptz), EXISTS(SELECT 1 FROM github_synced_issue_comments WHERE synced_repo_id=$1 AND github_id=$2 AND issue_number<>$4)`, row.ID, h.ID, h.UpdatedAt, h.Number).Scan(&stale, &misbound)
+		err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM github_synced_issue_comments WHERE synced_repo_id=$1 AND source=$5 AND github_id=$2 AND github_updated_at>$3::timestamptz), EXISTS(SELECT 1 FROM github_synced_issue_comments WHERE synced_repo_id=$1 AND source=$5 AND github_id=$2 AND issue_number<>$4)`, row.ID, h.ID, h.UpdatedAt, h.Number, source).Scan(&stale, &misbound)
 		if err != nil {
 			return err
 		}
@@ -104,10 +121,11 @@ func (s *GitHubSyncedRepoService) commitFetchedComments(ctx context.Context, tx 
 		if err := tx.QueryRow(ctx, `SELECT $1::jsonb::text`, e.object).Scan(&canonical); err != nil {
 			return err
 		}
-		if err := db.New(tx).UpsertGitHubSyncedIssueComment(ctx, db.UpsertGitHubSyncedIssueCommentParams{SyncedRepoID: row.ID, IssueNumber: h.Number, GithubID: h.ID, Payload: canonical, GithubCreatedAt: parseGitHubTimestamp(h.CreatedAt), GithubUpdatedAt: parseGitHubTimestamp(h.UpdatedAt)}); err != nil {
+		if err := db.New(tx).UpsertGitHubSyncedIssueComment(ctx, db.UpsertGitHubSyncedIssueCommentParams{SyncedRepoID: row.ID, IssueNumber: h.Number, GithubID: h.ID, Payload: canonical, GithubCreatedAt: parseGitHubTimestamp(h.CreatedAt), GithubUpdatedAt: parseGitHubTimestamp(h.UpdatedAt), Source: source}); err != nil {
 			return err
 		}
-		if err := s.admitFetchedObject(ctx, tx, row, gitHubConversationComments, h.ID, h.Number, canonical); err != nil {
+
+		if err := s.admitFetchedObject(ctx, tx, row, resource, h.ID, h.Number, canonical); err != nil {
 			return err
 		}
 	}
@@ -130,7 +148,7 @@ func (s *GitHubSyncedRepoService) commitFetchedConversationSnapshot(ctx context.
 		}
 		seen[header.ID] = true
 	}
-	rows, err := tx.Query(ctx, `SELECT github_id,payload FROM github_synced_issue_comments WHERE synced_repo_id=$1 AND issue_number=$2 AND github_updated_at<=$3 AND NOT COALESCE((payload->>'deleted')::boolean,false)`, row.ID, number, snapshotAt)
+	rows, err := tx.Query(ctx, `SELECT github_id,payload FROM github_synced_issue_comments WHERE synced_repo_id=$1 AND source='conversation' AND issue_number=$2 AND github_updated_at<=$3 AND NOT COALESCE((payload->>'deleted')::boolean,false)`, row.ID, number, snapshotAt)
 	if err != nil {
 		return err
 	}

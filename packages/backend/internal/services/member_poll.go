@@ -101,7 +101,9 @@ func (m *Members) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, erro
 	p.bind(permissionBinding(repo, row))
 	state := p.state
 	p.mu.Unlock()
-	return []GitHubSyncStream{gitHubSyncObservation(state, m.permissionPause(row), p.synced.now())}, nil
+	observation := gitHubSyncObservation(state, m.permissionPause(row), p.synced.now())
+	observation.Background = true
+	return []GitHubSyncStream{observation}, nil
 }
 
 // RetryStreams is a fetch hint; it preserves cadence and shared pauses.

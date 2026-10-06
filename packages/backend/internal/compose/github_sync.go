@@ -28,12 +28,12 @@ func newGitHubBudget(topology topology) *services.BudgetTracker {
 
 // composeGitHubSync assembles the shared credential and budget boundary used
 // by repository HTTP services and workers.
-func composeGitHubSync(pool *pgxpool.Pool, credentials services.GitHubAppCredentialSource, auth *services.AuthService, topology topology, budget *services.BudgetTracker) (*githubSyncServices, error) {
+func composeGitHubSync(pool *pgxpool.Pool, credentials services.GitHubAppCredentialSource, auth *services.AuthService, topology topology, budget *services.BudgetTracker, options ...services.GitHubSyncedRepoOption) (*githubSyncServices, error) {
 	connections := services.NewRepoConnectionService(pool, credentials)
 	connections.SetGitHubBudgetTracker(budget)
 	repositories := services.NewGitHubRepoListService(pool, connections,
 		services.WithGitHubRepoListHTTPClient(budget.WrapClient(observability.NewHTTPClient(15*time.Second))))
-	synced := services.NewGitHubSyncedRepoService(db.New(pool), services.WithGitHubSyncedRepoBudget(budget))
+	synced := services.NewGitHubSyncedRepoService(db.New(pool), append(options, services.WithGitHubSyncedRepoBudget(budget))...)
 	if !topology.hosted() {
 		if err := synced.ConfigureInstallSync(pool); err != nil {
 			return nil, err

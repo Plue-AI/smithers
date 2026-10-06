@@ -904,7 +904,7 @@ type GithubSyncedIssue struct {
 	GithubUpdatedAt pgtype.Timestamptz `json:"github_updated_at"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
-	RelatedFacts    json.RawMessage    `json:"related_facts"`
+	RelatedFacts    json.RawMessage    `json:"-"`
 }
 
 type GithubSyncedIssueComment struct {
@@ -917,6 +917,7 @@ type GithubSyncedIssueComment struct {
 	GithubUpdatedAt pgtype.Timestamptz `json:"github_updated_at"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
+	Source          string             `json:"-"`
 }
 
 type GithubSyncedRepo struct {

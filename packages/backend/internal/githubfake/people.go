@@ -49,7 +49,6 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, "/_fake/") && s.down {
 		return reply(http.StatusBadGateway, map[string]string{"message": "Bad Gateway"})
 	}
-	path := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/_fake/pulls":
 		repo := r.URL.Query().Get("repo")
@@ -144,26 +143,6 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request) bool {
 		}
 		s.down = *body.Down
 		return reply(http.StatusNoContent, nil)
-	case r.Method == http.MethodGet && len(path) == 6 && path[0] == "repos" && path[3] == "pulls" && (path[5] == "reviews" || path[5] == "comments"):
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-			return reply(401, map[string]string{"message": "Requires authentication"})
-		}
-		key := path[1] + "/" + path[2] + "/" + path[4]
-		if _, ok := s.pulls[key]; !ok {
-			return reply(404, map[string]string{"message": "Not Found"})
-		}
-		result := []map[string]any{}
-		for _, review := range s.pullReviews[key] {
-			user := s.fetchedActor(review.Login, false)
-			if path[5] == "reviews" {
-				result = append(result, map[string]any{"id": review.ID, "user": user, "state": review.State, "body": review.Body, "commit_id": review.CommitID, "submitted_at": review.SubmittedAt})
-			} else if review.Path != "" {
-				result = append(result, map[string]any{"id": review.ID, "pull_request_review_id": review.ID, "user": user, "body": review.Body, "path": review.Path,
-					"line": review.Line, "commit_id": review.CommitID, "created_at": review.SubmittedAt, "updated_at": review.SubmittedAt})
-			}
-		}
-		start, end := pageBounds(r, len(result))
-		return reply(200, result[start:end])
 	}
 	return false
 }
@@ -188,4 +167,69 @@ func (s *Server) fetchedActor(login string, app bool) map[string]any {
 	}
 	actor["id"] = id
 	return actor
+}
+
+// GitHub REST review reads go through serveHTTP's shared validators and logs.
+func (s *Server) reviewRead(r *http.Request, path []string) (int, any, bool) {
+	perPull := len(path) == 6 && path[0] == "repos" && path[3] == "pulls" && (path[5] == "reviews" || path[5] == "comments")
+	repositoryComments := len(path) == 5 && path[0] == "repos" && path[3] == "pulls" && path[4] == "comments"
+	if r.Method != http.MethodGet || (!perPull && !repositoryComments) {
+		return 0, nil, false
+	}
+	if repositoryComments {
+		if status, response, ok := s.accessible(r, "pull_requests", "read"); !ok {
+			return status, response, true
+		}
+	} else if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		return 401, map[string]string{"message": "Requires authentication"}, true
+	}
+	result := []map[string]any{}
+	keys := []string{}
+	if perPull {
+		keys = append(keys, path[1]+"/"+path[2]+"/"+path[4])
+		if _, ok := s.pulls[keys[0]]; !ok {
+			return 404, map[string]string{"message": "Not Found"}, true
+		}
+	} else {
+		for key := range s.pullReviews {
+			if strings.HasPrefix(key, path[1]+"/"+path[2]+"/") {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+	}
+	for _, key := range keys {
+		for _, review := range s.pullReviews[key] {
+			user := s.fetchedActor(review.Login, false)
+			if perPull && path[5] == "reviews" {
+				result = append(result, map[string]any{"id": review.ID, "user": user, "state": review.State, "body": review.Body, "commit_id": review.CommitID, "submitted_at": review.SubmittedAt})
+			} else if review.Path != "" {
+				base := "http://"
+				if r.TLS != nil {
+					base = "https://"
+				}
+				result = append(result, map[string]any{"id": review.ID, "pull_request_review_id": review.ID, "user": user, "body": review.Body, "path": review.Path, "line": review.Line, "commit_id": review.CommitID, "created_at": review.SubmittedAt, "updated_at": review.SubmittedAt, "pull_request_url": base + r.Host + "/repos/" + path[1] + "/" + path[2] + "/pulls/" + strings.TrimPrefix(key, path[1]+"/"+path[2]+"/")})
+			}
+		}
+	}
+	if repositoryComments {
+		sort.Slice(result, func(i, j int) bool {
+			left, right := result[i]["updated_at"].(time.Time), result[j]["updated_at"].(time.Time)
+			if left.Equal(right) {
+				return result[i]["id"].(int64) > result[j]["id"].(int64)
+			}
+			return left.After(right)
+		})
+	}
+	if since, err := time.Parse(time.RFC3339, r.URL.Query().Get("since")); err == nil {
+		filtered := []map[string]any{}
+		for _, row := range result {
+			if at, ok := row["updated_at"].(time.Time); ok && at.After(since) {
+				filtered = append(filtered, row)
+			}
+		}
+		result = filtered
+	}
+	start, end := pageBounds(r, len(result))
+	return 200, result[start:end], true
 }

@@ -489,6 +489,7 @@ const fixtures = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     fixture("wiki-reuse.test.ts"),
+    fixture("wiki-install-defaults.test.ts"),
     fixture("wiki-jev-citations.test.ts"),
     fixture("content-jev-template.test.ts"),
     fixture("coding-fault.test.ts"),

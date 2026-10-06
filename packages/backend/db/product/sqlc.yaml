@@ -28,6 +28,10 @@ sql:
           # Preserve the approval service's existing string UUID boundary.
           - column: "approvals.session_id"
             go_type: "string"
+          - column: "github_synced_issues.related_facts"
+            go_struct_tag: 'json:"-"'
+          - column: "github_synced_issue_comments.source"
+            go_struct_tag: 'json:"-"'
           - column: "landing_request_reviews.create_key"
             go_struct_tag: 'json:"-"'
           - column: "landing_request_reviews.create_input_hash"

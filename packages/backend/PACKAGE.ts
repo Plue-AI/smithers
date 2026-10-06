@@ -33,6 +33,7 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/services/github_sync.go"),
     Smithers.file("internal/services/github_main_pull.go"),
     Smithers.file("internal/services/github_synced_pull.go"),
+ Smithers.file("internal/services/github_synced_related.go"),
     Smithers.file("internal/services/github_synced_comments.go"),
     Smithers.file("internal/services/mythical_github_poll.go"),
     Smithers.file("internal/db/mythical_ext.go"),
@@ -84,6 +85,8 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/middleware/effective_origin.go"),
     Smithers.file("db/product/queries/github_app.sql"),
     Smithers.file("db/product/migrations/0105_github_app.sql"),
+    Smithers.file("db/product/migrations/0131_github_comment_sources.sql"),
+    Smithers.file("db/product/queries/github_synced_repos.sql"),
     Smithers.file("//docs/api/openapi/install.yaml")
   ]
 })

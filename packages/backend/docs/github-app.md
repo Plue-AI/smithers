@@ -129,12 +129,12 @@ request. Failure rolls back both, and a later version in the stream waits for
 earlier pending work. Delivery rechecks current repository/installation binding
 and provider authority. No separate delivery table or scheduler is introduced.
 
-Production provider qualification and downstream handlers are not registered
-yet. Install metadata fetching and per-issue comment baselines remain disabled;
-last-good cached data stays visibly stale. Main-ref polling is separate and
-continues through its existing service. Transactional TODO consumer integration, review and comment streams,
-cadence integration and the full production recovery/freshness checks remain
-required before activation.
+Install composition binds the sealed installation credentials, existing storage
+and unprivileged runtime to fetched-state admission. Missing credentials,
+changed installation bindings and unavailable runtime providers refuse before
+fetching or consuming. The existing pull and refs consumers and ordered `todo` label door
+are registered. Other downstream owners use `RegisterFetchedConsumer`; absent
+owners retain pending deliveries rather than receiving substitute effects.
 
 Issue, pull-request and repository-event pages use conditional install reads
 through the shared HTTP transport and scoped token minter. In-memory ETags are
@@ -179,16 +179,18 @@ scheduling consults its shared pauses before token minting. Issues and events
 double to 240 seconds below 20 percent remaining, returning to 120 at reset;
 pulls remain at 45. A 403 or 429 with Retry-After holds only that stream, including
 pending hints, until its retry time. Restart forgets these schedules and starts
-with a fresh read. Hosted scheduling remains unchanged. PR check, review/comment
-and permission stream scheduling, health projection and full production
-qualification remain incomplete.
+with a fresh read. Hosted scheduling remains unchanged. Check, review and
+comment reads stay at 45 seconds; member permission reads remain hourly, or
+two hours under the low-budget policy.
 
 Label provenance readers use the same repository event pager. They isolate the
 requested issue, read complete history, and retain the check against its current
 labels. Failed pages cannot supply partial approval evidence. A matching GitHub
 App action within the attribution window prevents attribution to a person.
-The former main-ref-loop registration that directly admitted TODOs is removed;
-TODO admission must join the shared fetched-event transaction before activation.
+The former main-ref-loop registration that directly admitted TODOs is removed.
+The ordered fetched-event consumer invokes the existing label door through a
+savepoint inside the delivery transaction, so its TODO and acknowledgement
+commit together. Text provenance is verified separately from cached text.
 
 The existing TODO follow loop selects a 45-second pull-state interval on installs;
 hosted workers retain five minutes. Install reads use the shared conditional
@@ -196,15 +198,17 @@ transport, scoped token minter and fetched-state qualification. Missing provider
 refuse before token minting. Pull detail updates and their pending deliveries
 commit to the same store as pull list updates. The loop does not apply fetched
 PR state or run the legacy review/merge gate: those effects belong to the
-transactional consumer, which remains unregistered.
+registered transactional pull consumer.
 
 Detail ETags retain the canonical version of their committed cache row. If a
 list read, concurrent detail read or deletion changes that row, the next detail
 read fetches a body again. An intervening cache change during a 304, a failed
 commit or revoked binding cannot validate a different representation. Restart
 forgets ETags and retains pending delivery identities. Shared pull-stream pauses
-are checked before minting and retain their absolute retry deadline. Check and
-review reads and complete freshness acceptance remain outstanding.
+are checked before minting and retain their absolute retry deadline. The same
+follow pass reads check runs, commit statuses and submitted reviews, with
+independent stream admission. Complete reference-host freshness acceptance
+remains outstanding.
 
 Pull webhook hints also wake the existing stack worker for every unsettled TODO
 with a PR, including items beyond the display limit. During a scheduled wait,
@@ -214,19 +218,22 @@ shared budget pauses and failed-read backoff remain in force after another hint.
 The worker rechecks the effective repository destination before fetching. Missing
 provider qualification leaves this path disabled.
 
-The install's existing sync service now requires every stream owner: refs,
-repository metadata and per-TODO reads, checks, reviews and permissions. A main
-receipt alone cannot qualify polling, aggregate health or Retry. The production
-assembly leaves the absent check and review owners unregistered;
-main polling and the sync actions report unavailable until the complete provider
-boundary is qualified.
+The install's sync service reports refs, repository metadata, per-TODO pull
+state, checks, reviews and permissions. Missing downstream owners contribute
+stale observations; they do not suppress qualified main polling or Retry.
+Freshness age follows refs, PR state, checks and reviews. Hourly permission
+reads and slower issue reads still report refusals and limits without aging the
+fast streams.
+Repository authority is checked before main work and before any Retry
+scheduling. Production composes check and review health from the same follow
+loop, including repository-wide review comments.
 
-Retry checks all owners before scheduling their existing workers. Repository
-reads and per-TODO reads use the same hints as webhooks; main pulls use their
-existing durable request generations and wake channel. Retry returns before
-HTTP, preserves cadence and shared budget state, and propagates scheduling
-failures instead of claiming completion. Repository health includes missing
-per-TODO observations rather than inferring them from the pull list.
+Retry schedules each configured owner once and returns before HTTP.
+Check and review projections share the repository owner's Retry scheduling.
+Repository reads and per-TODO reads use the same hints as webhooks; main pulls
+use their durable request generations and wake channel. Retry preserves cadence,
+validators, failed-read backoff and shared budget state. A launch acknowledgement
+never establishes freshness. Scheduling failures remain errors.
 
 Successful install main-pull requests wake the same worker immediately instead
 of waiting for its five-second drain timer. Requests committed before a later
@@ -293,5 +300,34 @@ does not stretch this stream; its own rate-limit pause still applies. Restart
 rereads the stream and reuses durable delivery identities. Consumer effects and
 acknowledgements use the shared transaction boundary. Effective TODO steering
 remains disabled until its providers qualify. Incremental absence does not prove
-a deletion; authoritative comment tombstones and review-comment storage remain
-outstanding.
+a deletion; authoritative comment tombstones remain outstanding.
+
+
+## Check and review cache
+
+Checks and submitted reviews extend each pull row's `related_facts` JSON object
+in `github_synced_issues`. Each observation names its exact head and stores the
+complete REST pages. A changed head, concurrent cache replacement, failed page,
+refused authority or failed delivery admission cannot commit a partial snapshot
+or retain its validators. A 304 reads its previously committed PostgreSQL page;
+no response body cache is kept in poller memory. Pages are walked until a short page; exceeding the existing REST pagination
+limit refuses the whole snapshot. The current TODO follow loop drives these
+reads every 45 seconds and responds to the same Retry and webhook hints.
+
+Review comments use the repository-wide `pulls/comments` pager every 45 seconds,
+with stable timestamp overlap and committed validators. They share
+`github_synced_issue_comments` with conversation comments, using a `source`
+discriminator so equal numeric IDs cannot collide or appear in issue comment
+reads. Both sources use the same upsert and atomic delivery path. These are
+additive columns on the existing cache; no sync table or scheduler is added.
+
+Each changed checks/reviews snapshot admits the same versioned durable fetched
+object as other streams. Submitted reviews also admit individual `pulls/reviews`
+objects through the registered review consumer; review and conversation comment
+consumers share the existing steering owner. Their effects and acknowledgements
+remain in the same delivery transaction. Consumer effects and acknowledgement share a
+transaction, and absent consumers remain pending. Cache readiness is separate
+from downstream PR/check/review projections and reference-host C-GH-07 evidence.
+The production-composition cadence tests cover repository streams and admission;
+the service tests cover related-page conditional reads, restart, head fencing,
+rollback and distinct comment identities. They do not qualify a live canary run.

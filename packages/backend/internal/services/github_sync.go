@@ -22,6 +22,9 @@ type GitHubSyncHealth struct {
 // A transport failure leaves LastSuccessAt intact; only permission and
 // not_installed are refusals. RetryAt includes the shared budget pause.
 type GitHubSyncStream struct {
+	// Slow issue/permission reads contribute refusals and limits, while the
+	// health freshness clock follows refs, PR state, checks and reviews.
+	Background    bool
 	LastSuccessAt *time.Time
 	Cause         string
 	RetryAt       *time.Time
@@ -221,6 +224,7 @@ func (g requiredGitHubSyncStreams) RequiredStreams(ctx context.Context) ([]GitHu
 
 func (g requiredGitHubSyncStreams) RetryStreams(ctx context.Context) error {
 	var failures []error
+	owners := map[*GitHubSyncedRepoService]bool{}
 	for _, p := range g.providers() {
 		if p == nil {
 			continue
@@ -228,6 +232,16 @@ func (g requiredGitHubSyncStreams) RetryStreams(ctx context.Context) error {
 		if _, err := p.RequiredStreams(ctx); err != nil {
 			failures = append(failures, err)
 			continue
+		}
+		// Projections of one poller schedule that owner once per Retry.
+		if shared, ok := p.(interface {
+			sharedRetryOwner() *GitHubSyncedRepoService
+		}); ok {
+			owner := shared.sharedRetryOwner()
+			if owners[owner] {
+				continue
+			}
+			owners[owner] = true
 		}
 		if err := p.RetryStreams(ctx); err != nil {
 			failures = append(failures, err)
@@ -291,9 +305,9 @@ func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHub
 	health := GitHubSyncHealth{State: "fresh"}
 	missing, refused := len(streams) == 0, false
 	for _, stream := range streams {
-		if stream.LastSuccessAt == nil {
+		if !stream.Background && stream.LastSuccessAt == nil {
 			missing = true
-		} else if health.LastSuccessAt == nil || stream.LastSuccessAt.Before(*health.LastSuccessAt) {
+		} else if !stream.Background && (health.LastSuccessAt == nil || stream.LastSuccessAt.Before(*health.LastSuccessAt)) {
 			at := *stream.LastSuccessAt
 			health.LastSuccessAt = &at
 		}
@@ -320,7 +334,7 @@ func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHub
 		health.State = "refused"
 	case health.RetryAt != nil:
 		health.State = "limited"
-	case missing || now.Sub(*health.LastSuccessAt) > 120*time.Second:
+	case missing || health.LastSuccessAt == nil || now.Sub(*health.LastSuccessAt) > 120*time.Second:
 		health.State = "stale"
 	}
 	return health

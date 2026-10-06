@@ -13,7 +13,7 @@ import (
 
 // These are the streams with fetched-state storage and delivery contracts.
 // Other streams must join their existing owner loops before activation.
-var installMetadataResources = []string{GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents, gitHubConversationComments}
+var installMetadataResources = []string{GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents, gitHubConversationComments, gitHubReviewComments}
 
 type gitHubPollState struct {
 	updated     time.Time
@@ -29,7 +29,7 @@ type gitHubStreamPlan struct {
 }
 
 func metadataStreamCadence(resource string) time.Duration {
-	if resource == GitHubRepoMetadataPulls || resource == gitHubConversationComments {
+	if resource == GitHubRepoMetadataPulls || resource == gitHubConversationComments || resource == gitHubReviewComments {
 		return 45 * time.Second
 	}
 	return 120 * time.Second
@@ -38,6 +38,9 @@ func metadataStreamCadence(resource string) time.Duration {
 func metadataBudgetStream(resource string) string {
 	if resource == gitHubIssueEvents {
 		return "issue-events"
+	}
+	if resource == gitHubReviewComments {
+		return "review-comments"
 	}
 	if resource == gitHubConversationComments {
 		return "conversation-comments"
@@ -55,7 +58,7 @@ func (s *GitHubSyncedRepoService) dueInstallStreams(row db.GithubSyncedRepo) []g
 	s.install.mu.Lock()
 	defer s.install.mu.Unlock()
 	var plans []gitHubStreamPlan
-	for _, resource := range installMetadataResources {
+	for _, resource := range s.installResources() {
 		key := syncedStreamKey(row, resource)
 		state := s.install.streams[key]
 		stream := metadataBudgetStream(resource)
@@ -123,7 +126,7 @@ func (s *GitHubSyncedRepoService) backfillInstallStreams(ctx context.Context, ro
 	}
 	// A successful fast stream cannot erase an outstanding slower-stream error.
 	s.install.mu.Lock()
-	for _, resource := range installMetadataResources {
+	for _, resource := range s.installResources() {
 		state := s.install.streams[syncedStreamKey(row, resource)]
 		if state.lastError != nil {
 			runErrors = append(runErrors, state.lastError)
@@ -167,7 +170,7 @@ func (s *GitHubSyncedRepoService) RequiredStreams(ctx context.Context) ([]GitHub
 	}
 	var streams []GitHubSyncStream
 	for _, row := range rows {
-		for _, resource := range installMetadataResources {
+		for _, resource := range s.installResources() {
 			streams = append(streams, s.syncStreamObservation(row, resource, metadataBudgetStream(resource)))
 		}
 		pulls, err := s.install.requiredPulls(ctx, row)
@@ -223,7 +226,9 @@ func (s *GitHubSyncedRepoService) syncStreamObservation(row db.GithubSyncedRepo,
 	s.install.mu.Lock()
 	state := s.install.streams[syncedStreamKey(row, resource)]
 	s.install.mu.Unlock()
-	return gitHubSyncObservation(state, s.budget.StreamRetryAt(row.InstallationID.Int64, budgetStream), s.now())
+	observation := gitHubSyncObservation(state, s.budget.StreamRetryAt(row.InstallationID.Int64, budgetStream), s.now())
+	observation.Background = resource == GitHubRepoMetadataIssues || resource == gitHubIssueEvents
+	return observation
 }
 
 func gitHubSyncObservation(state gitHubPollState, retryAt, now time.Time) GitHubSyncStream {
@@ -305,4 +310,11 @@ func (s *GitHubSyncedRepoService) authorizeRefSource(ctx context.Context, reposi
 		return db.GithubSyncedRepo{}, GitHubRateLimitError(http.StatusTooManyRequests, http.Header{"Retry-After": {pause.UTC().Format(http.TimeFormat)}}, s.now())
 	}
 	return row, nil
+}
+
+func (s *GitHubSyncedRepoService) installResources() []string {
+	if s.install != nil && s.install.pullFacts {
+		return installMetadataResources
+	}
+	return installMetadataResources[:len(installMetadataResources)-1]
 }

@@ -70,7 +70,7 @@ func TestPeopleReviewOnALineReachesGitHubsLists(t *testing.T) {
 	status, raw = call(t, fake, "GET", "/repos/local-owner/demo/pulls/5/comments", "", "ghs_any")
 	var comments []map[string]any
 	if status != 200 || json.Unmarshal([]byte(raw), &comments) != nil || len(comments) != 1 || comments[0]["path"] != "JOURNEY.md" || comments[0]["line"] != float64(14) ||
-		comments[0]["user"].(map[string]any)["login"] != "alice" || comments[0]["body"] != "Retry 502 too" {
+		comments[0]["user"].(map[string]any)["login"] != "alice" || comments[0]["body"] != "Retry 502 too" || comments[0]["pull_request_url"] != fake.URL+"/repos/local-owner/demo/pulls/5" {
 		t.Fatal(status, raw)
 	}
 	status, raw = call(t, fake, "GET", "/repos/local-owner/demo/pulls/5/reviews", "", "ghs_any")
@@ -93,12 +93,12 @@ func TestPeopleReviewOnALineReachesGitHubsLists(t *testing.T) {
 func TestPeopleReviewRefusesBadInput(t *testing.T) {
 	fake := peopleFake(t)
 	for body, want := range map[string]int{
-		`{"repo":"local-owner/demo","number":5,"login":"alice","state":"LGTM","body":"x"}`:                  400,
-		`{"repo":"local-owner/demo","number":5,"login":"","state":"COMMENTED","body":"x"}`:                  400,
-		`{"repo":"local-owner/demo","number":5,"login":"alice","state":"COMMENTED"}`:                        400,
-		`{"repo":"local-owner/demo","number":5,"login":"alice","state":"COMMENTED","body":"x","line":3}`:    400,
-		`{"repo":"local-owner/demo","number":5,"login":"alice","state":"COMMENTED","body":"x","path":"a"}`:  400,
-		`{"repo":"local-owner/demo","number":9,"login":"alice","state":"COMMENTED","body":"x"}`:             404,
+		`{"repo":"local-owner/demo","number":5,"login":"alice","state":"LGTM","body":"x"}`:                 400,
+		`{"repo":"local-owner/demo","number":5,"login":"","state":"COMMENTED","body":"x"}`:                 400,
+		`{"repo":"local-owner/demo","number":5,"login":"alice","state":"COMMENTED"}`:                       400,
+		`{"repo":"local-owner/demo","number":5,"login":"alice","state":"COMMENTED","body":"x","line":3}`:   400,
+		`{"repo":"local-owner/demo","number":5,"login":"alice","state":"COMMENTED","body":"x","path":"a"}`: 400,
+		`{"repo":"local-owner/demo","number":9,"login":"alice","state":"COMMENTED","body":"x"}`:            404,
 		`not json`: 400,
 	} {
 		if status, raw := call(t, fake, "POST", "/_fake/reviews", body, ""); status != want {
@@ -197,7 +197,6 @@ func TestPeopleIssueReadBack(t *testing.T) {
 		t.Fatal(status)
 	}
 }
-
 
 // FuzzPeopleControls: any body to any control answers a defined status and
 // never panics; a refused request records no review.
