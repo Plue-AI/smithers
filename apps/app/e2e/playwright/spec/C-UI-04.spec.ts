@@ -178,3 +178,26 @@ test("C-UI-04: rail Answer keeps the TODO number when its wait supplies scoped a
   await expect(page.getByTestId("composer-input")).toBeEditable()
   await expect(line).toContainText("Answer from the install")
 })
+
+
+test("C-UI-04: shared history supplies actor lines and keyboard jumps to the shared answer", async ({ page }) => {
+  await installOwner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [{
+    id: "shared-alice", author: 2, authorLogin: "alice", runId: "alice-run", prompt: "Choose a timeout", title: "Choose a timeout", tone: "live", state: "running",
+    frames: [{ runId: "alice-run", type: "delta", kind: "text", text: "Checking the timeout" }]
+  }] } }))
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { toasts_hidden: false } }))
+  await page.goto("/")
+  const timeline = page.getByRole("navigation", { name: "Timeline", exact: true })
+  const prompt = timeline.locator('[data-entry="shared-alice:prompt"]')
+  const answer = timeline.locator('[data-entry="shared-alice:answer"]')
+  await expect(prompt).toContainText("Choose a timeout")
+  await expect(answer).toContainText("Checking the timeout")
+  await expect(answer).toHaveAttribute("data-tone", "live")
+  await answer.getByRole("button").press("Enter")
+  await expect(page.locator('[data-shared-turn="shared-alice"]')).toBeInViewport()
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await page.setViewportSize({ width: 900, height: 1000 })
+  await expect(timeline).toBeHidden()
+})

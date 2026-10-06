@@ -1,11 +1,11 @@
 import { z } from "zod"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
-import { ContextItemSchema } from "@smthrs/rpc/CardPrimitives"
+import { ContextItemSchema, ToneSchema } from "@smthrs/rpc/CardPrimitives"
 import type { ControllerContext } from "../controller/context"
 import type { LiveTopics } from "../useTopic"
 
 export const SharedConversationSchema = z.object({ id: z.string(), entries: z.array(z.object({
-  id: z.string(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
+  id: z.string(), title: z.string().optional(), tone: ToneSchema.optional(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
   state: z.enum(["accepted", "running", "completed", "failed", "cancelled", "uncertain"]),
   frames: z.array(AgentTurnFrameSchema), context: z.array(ContextItemSchema).optional()
 })) })

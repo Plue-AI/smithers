@@ -57,3 +57,17 @@ func TestSharedPreflightPagesNeverExposePartialSelections(t *testing.T) {
 		require.ErrorIs(t, projection.apply(invalid), ErrInvalidFrame)
 	}
 }
+
+func TestSharedEntryLabels(t *testing.T) {
+	for _, test := range []struct {
+		state State
+		tone  string
+	}{
+		{StateAccepted, "live"}, {StateRunning, "live"}, {StateFailed, "failed"},
+		{StateCompleted, "done"}, {StateCancelled, "quiet"}, {StateUncertain, "quiet"},
+	} {
+		require.Equal(t, test.tone, entryTone(test.state))
+	}
+	require.Equal(t, "Choose timeout", entryTitle("\n  Choose timeout  \nDetails"))
+	require.Equal(t, "", entryTitle(" \n\t"))
+}
