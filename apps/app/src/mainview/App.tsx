@@ -1,4 +1,4 @@
-import { renderHomeCard, renderSetupCard } from "./cards/CardRenderers"
+import { renderHomeCard } from "./cards/CardRenderers"
 import { shownInTranscript } from "./state/ApprovalDeciders"
 import {
 Button,
@@ -12,7 +12,7 @@ SmithersUiStyles
 } from "@smthrs/ui"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { ReactNode, PointerEvent as ReactPointerEvent } from "react"
-import { useMemo,useRef,useSyncExternalStore } from "react"
+import { useMemo,useRef } from "react"
 import { controllerCardActions as cardActions } from "./cards/controllerCardActions"
 import { LoginScreen } from "./cards/LoginScreen"
 import { CardView } from "./ChatCards"
@@ -51,7 +51,6 @@ const entryId = (entry: TranscriptEntry): string => entry.kind === "card" ? entr
 
 function AppContent() {
   const controller = useController()
-  const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
   const { collections } = controller.store
   /*
    * The transcript's order is the QUERY's order (§hot path): sorting a copy of
@@ -191,8 +190,6 @@ function AppContent() {
    */
   const hasBootstrap = controller.bootstrap !== undefined
   const githubIdentity = hasBootstrap && controller.identityProvider === "github"
-  // The explicit setup address retains its final readiness receipt after completion.
-  const setupEntry = useMemo(() => typeof window !== "undefined" && window.location.pathname === "/setup", [])
   const bootRepository = useMemo(() => typeof window === "undefined" ? null : pathRepo(window.location.pathname), [])
   // The catalog receipt owns admission. A build-time roster cannot classify a
   // pending/failed request, or reject a repository added since this build.
@@ -455,10 +452,6 @@ function AppContent() {
             <div data-slot="message-scroller" className="sui-msg-scroller" data-streaming={typing ? "true" : "false"}>
             <MessageScrollerViewport fade>
             <MessageScrollerContent className="sui-chat-messages">
-            {install.model && (setupEntry || install.model.steps.some(step => step.state !== "done")) && renderSetupCard({
-              install: controller.installSnapshots, allowed: true, view: { maximized: false }, onView: () => {},
-              dispatch: (name, payload, gesture) => controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
-            })}
             {loginScreen && <MessageScrollerItem messageId="login" style={{ contentVisibility: "visible" }}>
               <LoginScreen onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}

@@ -14,6 +14,12 @@ const activationSelected = process.env.SMITHERS_JOURNEY === "j1-activation.spec.
   process.env.SMITHERS_J1_ACTIVATION === "1" ||
   process.argv.some(arg => /(?:^|\/)j1-activation\.spec\.ts$/.test(arg))
 if (activationSelected) requireJ1Preconditions()
+const setupSelected = process.env.SMITHERS_JOURNEY === "setup.spec.ts" ||
+  process.argv.some(arg => /(?:^|\/)setup\.spec\.ts$/.test(arg))
+if (setupSelected && (!process.env.SMITHERS_REAL_BASE_URL || !process.env.SMITHERS_SETUP_URL ||
+  !process.env.SMITHERS_REAL_E2E_BUILD_SHA || process.env.SMITHERS_REAL_HEADED !== "1")) {
+  throw new Error("Setup qualification requires a built reference install, its printed setup URL, pinned build SHA and headed operator; no development host is started")
+}
 
 const PORT = Number(process.env.SMITHERS_REAL_PORT ?? "47321")
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error(`Invalid SMITHERS_REAL_PORT: ${process.env.SMITHERS_REAL_PORT}`)

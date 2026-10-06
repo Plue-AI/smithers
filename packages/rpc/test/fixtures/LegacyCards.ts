@@ -3,6 +3,10 @@
  */
 export const legacyCards = [
   {
+    row: { id: "saved-setup", title: "Set up Smithers", status: "active", createdAt: 0, ordinal: 0, kind: "setup", payload: {} },
+    expectedKind: "setup", expectedTitle: "Set up Smithers", expectedWas: null
+  },
+  {
     "row": {
       "id": "card-r1",
       "title": "Aomi",

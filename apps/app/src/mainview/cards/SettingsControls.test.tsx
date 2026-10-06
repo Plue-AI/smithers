@@ -72,15 +72,15 @@ test("Address keeps all origins and the bind input; LAN HTTP is marked per origi
   } }])
 })
 
-test("Live Settings without a restored model slot exposes no key controls or dispatch", async () => {
+test("Live Settings restores model access and preserves Machines controls", async () => {
   const model = installFixture()
   model.models[1] = { role: "coding", provider: "OpenAI", key: "failed", error: "Key is invalid" }
   const commands: unknown[] = []
   const host = await mount(model, (tag, input) => { commands.push({ tag, input }) })
-  expect(host.querySelectorAll(".settings-model-row,input[type=password]")).toHaveLength(0)
-  expect(host.querySelectorAll('[data-flow="settings.model-key"],[data-flow="settings.model.set"]')).toHaveLength(0)
+  expect(host.querySelectorAll(".settings-model-row")).toHaveLength(3)
+  expect(host.querySelectorAll('[data-flow="settings.model-key"]').length).toBeGreaterThan(0)
   expect(host.textContent).toContain("Machines")
-  expect(host.textContent).not.toContain("Key is invalid")
+  expect(host.textContent).toContain("Key is invalid")
   expect(commands).toEqual([])
 })
 
@@ -115,4 +115,38 @@ test("Live Settings passes the app-local model slot once and preserves Machines 
   expect(commands).toEqual([])
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Fewer Machines"]')!.click())
   expect(commands).toEqual([{ tag: "settings.capacity", input: { capacity: 1 } }])
+})
+
+
+test("Settings Add to machine image keeps a refused name and uses the shared flow for a valid name", async () => {
+  const commands: unknown[] = []
+  const host = await mount(installFixture(), (tag, input) => { commands.push({ tag, input }) })
+  const form = host.querySelector<HTMLFormElement>('form[data-flow="image.add"]')!
+  const input = form.querySelector<HTMLInputElement>('input')!
+  const change = async (value: string) => act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!
+    setter.call(input, value)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+  await change("Fig Let")
+  await act(async () => form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
+  expect(input.value).toBe("Fig Let")
+  expect(form.querySelector('[role="alert"]')?.textContent).toBe("Invalid Debian package name")
+  expect(commands).toEqual([])
+  await change("figlet")
+  await act(async () => form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
+  expect(form.querySelector('[role="alert"]')).toBeNull()
+  expect(commands).toEqual([{ tag: "image.add", input: { name: "figlet" } }])
+})
+
+
+test("Settings projects the exact GitHub callback fix and omits unknown rate headers", async () => {
+  const model = installFixture()
+  model.callback_fixes = [{ settings_url: "https://github.com/settings/apps/smithers", add_url: "http://mini.lan:4000/api/auth/github/callback" }]
+  delete model.health!.github.rate_remaining
+  delete model.health!.github.rate_limit
+  const host = await mount(model)
+  expect(host.querySelector('a[href="https://github.com/settings/apps/smithers"]')?.textContent).toBe("GitHub App callbacks ↗")
+  expect(host.textContent).toContain("http://mini.lan:4000/api/auth/github/callback")
+  expect(host.textContent).not.toContain("GitHub rate budget")
 })

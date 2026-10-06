@@ -1636,7 +1636,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var gitHubAppSetup *routes.GitHubAppSetupHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs}
+		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs, SyncHealth: gitHubMainPullService.SyncHealth, GitHubBudget: gitHubBudgetTracker}
 		installSetup.CodingDefaults = func(ctx context.Context, slug string) error {
 			owner, name, err := splitRepositorySlug(slug)
 			if err != nil {

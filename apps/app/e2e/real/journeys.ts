@@ -5,6 +5,7 @@
  */
 export const journeySpecs = [
   "j1-activation.spec.ts",
+  "setup.spec.ts",
   "todo-from-issue.spec.ts",
   "todo-needs-you.spec.ts",
   "todo-evidence.spec.ts",
