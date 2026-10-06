@@ -129,7 +129,7 @@ no changed rows before a write, and Alice's presence opens readable file content
 by keyboard and retains it across reload. Watcher faults remain fixme.
 
 | C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts) | passing UI projection (2026-10-06; isolated Chromium fixture); Appendix B Cut registry/catalog regression passes | T-CUT-01, T-CUT-03 |
-| C-CUT-02 | [C-CUT-02.spec.ts](C-CUT-02.spec.ts) | passing browser projection; authenticated journal qualification in compose | T-CUT-04 |
+| C-CUT-02 | [C-CUT-02.spec.ts](C-CUT-02.spec.ts) | passing browser projection; install qualification pending native host | T-CUT-04 |
 | C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | install REST/live seam: question and completed evidence survive reload, keyed Answer; host/database crash receipt separate | T-FLW-09, T-REL-04 |
 | C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | install REST/live seam: explicit TODO and Run Retry, reload retains interrupted evidence; reference microVM crash receipt separate | T-FLW-09, T-REL-04 |
 | C-DUR-03 | [C-DUR-03.spec.ts](C-DUR-03.spec.ts) | passing install REST/live seam: foreign push after reload, confirmed Drop, late PR link remains terminal; worker/microVM crash receipt separate | T-GH-09, T-FLW-09, T-REL-04 |

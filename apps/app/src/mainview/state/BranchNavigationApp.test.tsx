@@ -1,3 +1,4 @@
+import { verifyConversationHistoryPage } from "./ConversationHistory"
 import cutHistory from "./testdata/cut-history.json"
 import { LiveChannel, type LiveSocket } from "../runtime/LiveChannel"
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
@@ -15,6 +16,16 @@ import { createAppController, type AppController } from "./AppController"
 import { memoryStorage, silentAgent, waitFor } from "./TestFixtures"
 import { branchTree } from "./seams/BranchNavigationSeam"
 
+const nativeFetch = globalThis.fetch.bind(globalThis)
+const NativeAbortController = globalThis.AbortController
+const serverFetch: typeof fetch = async (input, init) => {
+  const abort = new NativeAbortController()
+  const cancel = () => abort.abort()
+  if (init?.signal?.aborted) cancel()
+  init?.signal?.addEventListener("abort", cancel, { once: true })
+  try { return await nativeFetch(input, { ...init, signal: abort.signal }) }
+  finally { init?.signal?.removeEventListener("abort", cancel) }
+}
 GlobalRegistrator.register()
 const controllers: AppController[] = []
 const controllerFor: typeof createAppController = (...args) => { const controller = createAppController(...args); controllers.push(controller); return controller }
@@ -173,10 +184,16 @@ test("Earlier verifies seven historical cut cards before decoding, persists titl
   let owner = "ben"
   const origin = process.env.SMITHERS_CUT_HISTORY_ORIGIN
   const history = createConversationHistory({ fetchImpl: async (input, init) => origin
-    ? fetch(`${origin}${input}`, { ...init, headers: { ...init?.headers,
+    ? serverFetch(`${origin}${input}`, { ...init, headers: { ...init?.headers,
       Authorization: `Bearer ${owner === "ben" ? process.env.SMITHERS_CUT_HISTORY_BEN : process.env.SMITHERS_CUT_HISTORY_ALICE}` } })
     : Response.json(owner === "alice" ? { status: "ok", conversations: [], next: null }
       : String(input).endsWith("/replay") ? cutHistory.replay : cutHistory.index) }).history
+  if (origin) {
+    const index = await history!.list()
+    expect(index.conversations.map(row => row.id)).toContain("legacy-journal")
+    const replay = await history!.replay({ runId: "legacy-turn", legId: "legacy-leg" })
+    verifyConversationHistoryPage("legacy-turn", "legacy-leg", replay.page)
+  }
   const requests: unknown[] = []
   const controller = controllerFor(store, { ...silentAgent, available: true, history, startTurn: async request => {
     requests.push(request); return { status: "error", message: "Captured" }
