@@ -254,7 +254,6 @@ test("a host with no home provider keeps the seed; a provider that fails shows m
   expect(homeFailureModel("acme/api", "internal").main).toMatchObject({ health: "limited", cause: "Stack unavailable" })
   for (const [frame, health, cause] of [
     [{ t: "err", code: "forbidden" }, "refused", "Stack access refused"],
-    [{ t: "err", code: "internal" }, "limited", "Stack unavailable"],
     [{ t: "snap", cursor: 1, data: { repository: "acme/api" } }, "limited", "Stack unavailable"]
   ] as const) {
     const b = browser()
@@ -273,6 +272,9 @@ test("a host with no home provider keeps the seed; a provider that fails shows m
   const b = browser()
   try {
     await act(async () => b.root.render(<ControllerTestProvider controller={seeded(MAYA, true).controller}><HomeCard /></ControllerTestProvider>))
+    // Unknown wire errors are ignored by the shared decoder, not provider refusals.
+    await b.answer({ t: "err", code: "internal" })
+    for (const title of SEEDED_TITLES) expect(b.host.textContent).toContain(title)
     await b.answer({ t: "err", code: "unknown_topic" })
     for (const title of SEEDED_TITLES) expect(b.host.textContent).toContain(title)
   } finally { await b.close() }
