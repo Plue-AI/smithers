@@ -1297,8 +1297,11 @@ The seam is one zod schema per card in `packages/rpc`, exported through per-modu
 | conflict, moved_off | Resolve → `/branch Tn` |
 | foreign_push, order, force_push | Review → `/todo Tn` (force_push: owner only; order: maintainers) |
 | failed | Retry → `/todo.retry Tn` |
-| in_review, first in order, viewer may merge | Merge → `/merge Tn` |
+| paused | Resume → `/todo.resume Tn` (mvp.md §4: "Resume or drop") |
+| in_review, first in order, merge ready and not a draft PR (§10.6.2a), viewer may merge (owner or maintainer) | Merge → `/merge Tn` |
 | otherwise | none |
+
+This table is the one row-action mapping for every surface that shows a TODO row: the timeline, Home rows and toasts compute it through one app-side function, and the derived action is the row's primary (8a ruling, 2026-10-06). A `needs_you` TODO without a recorded kind gets none, which also flags the missing kind as a bug.
 
 14.5.3 **Summary** is one line written by the install's cheap fast model (`agent:fast`, §11.5a) from the entry's run events. It is shared by everyone who sees the entry. While at least one subscriber has the timeline on screen (the client renews a 30 s `timeline_visible_until` lease in its `view:<member>:<branch>` state) and the run is live, it is refreshed 5 s after the last event and at least every 30 s while events keep arriving. Otherwise it is written once per state change. A summarizer failure keeps the last summary. The summarizer never blocks or slows the run, and it uses no machine. The same summarizer writes the monitor's phase summaries and cell explanations (§11.6.3) into `run_summaries` (§3), only for runs someone inspects. When a `run:<id>` subscription opens, it fills the missing ones with one call per phase. While that subscription lasts, it refreshes a live phase 5 s after its last event and at least every 30 s, and retries a failed call every 30 s. A pending or failed one leaves the deterministic title or label standing alone, with no error state (check C-J11-01).
 
