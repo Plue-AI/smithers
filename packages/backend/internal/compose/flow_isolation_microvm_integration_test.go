@@ -101,7 +101,7 @@ await bundle(entry, output);`,
 	repository := filepath.Join(work, "repository")
 	for _, name := range []string{"todo", "canary", "merge"} {
 		directory := filepath.Join(repository, "flows", name)
-		require.NoError(t, os.MkdirAll(directory, 0700))
+		require.NoError(t, os.MkdirAll(directory, 0755))
 		source := fmt.Sprintf(`import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
@@ -116,7 +116,7 @@ beacon.setTimeout(250, () => beacon.destroy())
 export default Flow.make(%q, { description: "Isolation canary", capabilities: [],
 payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 `, markerName, nonce, port, nonce, name, "guest-"+name)
-		require.NoError(t, os.WriteFile(filepath.Join(directory, "flow.ts"), []byte(source), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "flow.ts"), []byte(source), 0644))
 	}
 	names, err := json.Marshal(services.SystemFlows)
 	require.NoError(t, err)
@@ -135,11 +135,13 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 		"--memory", "1G", "--cpus", "1", "--root-disk", "2G", "--no-net",
 		"--copy-file", bundle+":/runner.mjs", "--copy-dir", repository+":/repository")
 	writeEvidence("msb-status.txt", run(msb, "status", vm))
-	output := run(msb, "exec", "--stream", "--env", "HOME=/root", "--env", "SMITHERS_SYSTEM_FLOWS="+string(names), vm, "--", "node", "/runner.mjs", "/repository")
+	output := run(msb, "exec", "--stream", "--user", "node", "--env", "HOME=/home/node", "--env", "SMITHERS_SYSTEM_FLOWS="+string(names), vm, "--", "node", "/runner.mjs", "/repository")
 	writeEvidence("guest-run-output.txt", output)
 	var receipt struct {
 		Receipt string `json:"receipt"`
 		Home    string `json:"home"`
+		UID     int    `json:"uid"`
+		GID     int    `json:"gid"`
 		Planned []struct {
 			Name   string   `json:"name"`
 			Values []string `json:"values"`
@@ -158,7 +160,9 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 	require.NotEmpty(t, receiptLine, "guest did not return a canary receipt: %s", output)
 	require.NoError(t, json.Unmarshal(receiptLine, &receipt))
 	require.Equal(t, "flow-isolation-canary", receipt.Receipt)
-	require.Equal(t, "/root", receipt.Home)
+	require.Equal(t, "/home/node", receipt.Home)
+	require.Equal(t, 1000, receipt.UID, "repository code must execute without root authority")
+	require.Equal(t, 1000, receipt.GID)
 	require.Len(t, receipt.Planned, 2)
 	require.Equal(t, "todo", receipt.Planned[0].Name)
 	require.Contains(t, receipt.Planned[0].Values, "guest-todo")
@@ -170,7 +174,7 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 	require.Equal(t, "todo", receipt.Refused[1].Flow)
 	require.Equal(t, "missing_service", receipt.Refused[1].Code)
 	writeEvidence("guest-receipt.json", append(receiptLine, '\n'))
-	guestMarker := run(msb, "exec", "--stream", vm, "--", "cat", "/root/"+markerName)
+	guestMarker := run(msb, "exec", "--stream", "--user", "node", vm, "--", "cat", "/home/node/"+markerName)
 	require.Equal(t, nonce, strings.TrimSpace(string(guestMarker)))
 	writeEvidence("guest-marker.txt", guestMarker)
 	_, err = os.Stat(hostMarker)
