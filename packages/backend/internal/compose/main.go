@@ -1916,7 +1916,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if installAddress != nil && !options.externalHTTP && options.topology.servesHTTP() {
 		// This process owns its listener, so the Address step serves its bind
 		// here beside loopback; a host that owns the listener keeps it.
-		installAddress.Listen = (&networkListener{serve: srv.Serve, listen: netListen}).Listen
+		sshGateway, sshPort, stopSSH, sshErr := startInstallSSH(ctx, cfg, pool, repoHostClient, options.Admission, nil, config.PublicOrigin(cfg))
+		if sshErr != nil {
+			return fmt.Errorf("start SSH gateway: %w", sshErr)
+		}
+		defer stopSSH()
+		network := &networkListener{serve: srv.Serve, listen: netListen, sshServe: sshGateway.Serve, sshPort: sshPort}
+		defer func() { _ = network.Listen("") }()
+		installAddress.Listen = network.Listen
 	}
 
 	if options.ReadyBindings != nil {

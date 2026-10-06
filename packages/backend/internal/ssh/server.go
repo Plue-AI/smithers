@@ -181,6 +181,34 @@ var (
 
 // ListenAndServe starts the SSH server.
 func (s *Server) ListenAndServe() error {
+	srv, err := s.prepareServer()
+	if err != nil {
+		return err
+	}
+	slog.Info("ssh server listening", "addr", s.Addr)
+	return srv.ListenAndServe()
+}
+
+// Prepare loads the stable host key before the composition announces readiness.
+func (s *Server) Prepare() error { _, err := s.prepareServer(); return err }
+
+// Serve adds a listener to the same gateway, sharing its host key, connection
+// limits and revocation registry. Closing a listener does not end sessions.
+func (s *Server) Serve(listener net.Listener) error {
+	srv, err := s.prepareServer()
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	return srv.Serve(listener)
+}
+
+func (s *Server) prepareServer() (*ssh.Server, error) {
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+	if s.runtimeSrv != nil {
+		return s.runtimeSrv, nil
+	}
 	s.connMu.Lock()
 	if s.activeConnsPerIP == nil {
 		s.activeConnsPerIP = make(map[string]int)
@@ -217,16 +245,12 @@ func (s *Server) ListenAndServe() error {
 	hostKeyPath := filepath.Join(s.HostKeyDir, "ssh_host_ed25519_key")
 	signer, err := ensureHostKey(hostKeyPath)
 	if err != nil {
-		return fmt.Errorf("ensure host key: %w", err)
+		return nil, fmt.Errorf("ensure host key: %w", err)
 	}
 	srv.AddHostKey(signer)
 
-	s.runtimeMu.Lock()
 	s.runtimeSrv = srv
-	s.runtimeMu.Unlock()
-
-	slog.Info("ssh server listening", "addr", s.Addr)
-	return srv.ListenAndServe()
+	return srv, nil
 }
 
 // Shutdown gracefully shuts down the SSH server without interrupting active
