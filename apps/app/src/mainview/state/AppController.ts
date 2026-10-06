@@ -206,7 +206,6 @@ export interface AppController extends IssueFlowsController {
   readonly enqueuePrompt: (text: string, draftCurrent?: () => boolean) => void
   readonly removeQueuedPrompt: (id: string, edit?: boolean) => void
   readonly restoreQueuedPrompts: () => void
-  readonly resumePromptQueue: () => void
   readonly showChat: () => void
   readonly showWorld: () => void
   /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
@@ -1401,7 +1400,7 @@ export const createAppController = (
     }
     decideRunApproval(id, decision, answer, question)
   }
-  const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
+  const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts } = promptQueue
   const cloudWiki = actors.pair(ctx, (context) => createCloudWikiController(context, store.nextOrdinal))
   const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor,
     setWikiSpace, setWikiPageView, loadWikiIndex, readWikiForPane, openWikiPage, showWikiHistory, createCloudWikiPage, saveWikiAnswer, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
@@ -1899,7 +1898,6 @@ export const createAppController = (
     enqueuePrompt: sharedPrompts ? (text, draftCurrent) => { void designSend(text, undefined, draftCurrent) } : enqueuePrompt,
     removeQueuedPrompt: sharedPrompts ? (id, edit) => { void sharedPrompts.remove(id, edit) } : removeQueuedPrompt,
     restoreQueuedPrompts: sharedPrompts?.restore ?? restoreQueuedPrompts,
-    resumePromptQueue,
     showChat,
     showWorld,
     showWikiPane: () => {

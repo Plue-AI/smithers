@@ -101,7 +101,7 @@ func runCompareWrites(t *testing.T, h CoreHarness) {
 		}
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte("original")))
-	err := writer.CompareWriteFiles(ctx, h.Spec.ID, []workspace.FileMutation{
+	_, err := writer.CompareWriteFiles(ctx, h.Spec.ID, []workspace.FileMutation{
 		{Path: "compare-a", BaseDigest: digest, Content: []byte("replacement")},
 		{Path: "compare-b", BaseDigest: "absent", Content: []byte("replacement")},
 	})
@@ -115,7 +115,7 @@ func runCompareWrites(t *testing.T, h CoreHarness) {
 			t.Fatalf("refused batch changed %s: %q, %v", name, got, err)
 		}
 	}
-	if err := writer.CompareWriteFiles(ctx, h.Spec.ID, []workspace.FileMutation{{Path: "compare-a", BaseDigest: digest, Content: []byte("replacement")}}); err != nil {
+	if _, err := writer.CompareWriteFiles(ctx, h.Spec.ID, []workspace.FileMutation{{Path: "compare-a", BaseDigest: digest, Content: []byte("replacement")}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := h.Runtime.ReadFile(ctx, h.Spec.ID, "compare-a")

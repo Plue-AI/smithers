@@ -331,6 +331,24 @@ mod tests {
         txn.encode_update_v1()
     }
     #[test]
+    fn thousand_large_document_cycles() {
+        let doc = core::document(Some(42));
+        let expected = "x".repeat(MAX_TEXT);
+        doc.get_or_insert_text("content")
+            .insert(&mut doc.transact_mut(), 0, &expected);
+        let state = core::state(&doc);
+        for _ in 0..1000 {
+            let h = unsafe { ld_open(0, state.as_ptr(), state.len()) };
+            assert_ne!(h, 0);
+            assert_eq!(
+                take(unsafe { ld_text(h, b"content".as_ptr(), 7) }).unwrap(),
+                expected.as_bytes()
+            );
+            take(ld_close(h)).unwrap();
+            assert_eq!(take(ld_state(h)), Err(2));
+        }
+    }
+    #[test]
     fn admission_and_delete_only_receipts() {
         let h = open();
         author(h, 11);
@@ -463,10 +481,11 @@ mod tests {
         );
         assert_eq!(unsafe { ld_open(99, std::ptr::null(), 0) }, 0);
         assert_eq!(take(boundary(|| panic!("test caught ABI panic"))), Err(3));
-        assert_eq!(
-            take(boundary(|| with(h, |_| panic!("poison this handle")))),
-            Err(3)
-        );
+        // Use an actual C ABI entry around the same production boundary.
+        extern "C" fn injected_core_panic(h: u64) -> LdResult {
+            boundary(|| with(h, |_| panic!("poison this handle")))
+        }
+        assert_eq!(take(injected_core_panic(h)), Err(3));
         assert_eq!(take(ld_state(h)), Err(3));
         take(ld_close(h)).unwrap();
         assert_eq!(take(ld_state(h)), Err(2));

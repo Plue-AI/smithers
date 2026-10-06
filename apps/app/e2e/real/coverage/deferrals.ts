@@ -71,7 +71,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
   browser: [
     "app.hint.dismiss", "card.history.back", "card.history.forward",
     "chat", "chat.dictate",
-    "chat.queue", "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload", "cloud.prompt", "flow.plan.select",
+    "chat.queue", "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.reload", "cloud.prompt", "flow.plan.select",
     "flow.plan.tab", "flow.repo.choose", "input.mode", "palette.actions", "palette.recent",
     "history.view", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
     "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",

@@ -14,6 +14,9 @@ func library(t *testing.T) *Library {
 	t.Helper()
 	path := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	if path == "" {
+		if os.Getenv("SMITHERS_REQUIRE_FFI_TESTS") == "1" {
+			t.Fatal("SMITHERS_FFI_LIBRARY_PATH required")
+		}
 		t.Skip("SMITHERS_FFI_LIBRARY_PATH required for native ABI proof")
 	}
 	l, e := Load(path)

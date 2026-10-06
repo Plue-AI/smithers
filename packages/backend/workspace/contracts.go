@@ -493,13 +493,32 @@ type FileMutation struct {
 	Content    []byte
 }
 
+// FileWriteResult acknowledges applied bytes and retained outside versions.
+// Empty Raced is an empty JSON array, never null.
+type FileWriteResult struct {
+	Paths []FileMutationResult `json:"paths"`
+	Raced []FileRace           `json:"raced"`
+}
+
+type FileMutationResult struct {
+	Path   string `json:"path"`
+	Digest string `json:"post_digest"`
+}
+
+// Version is the retained outside version used by Compare.
+type FileRace struct {
+	Path    string `json:"path"`
+	Version string `json:"version"`
+}
+
 // WorkspaceCompareWriter is the qualified mutation capability. Implementations
 // compare every full SHA-256 (or "absent") at one mutation boundary and must
-// leave the entire batch unchanged on refusal, including outside-writer races.
+// leave the entire batch unchanged on stale refusal. A write racing the swap
+// remains applied; retain the displaced bytes and return their version in Raced.
 // A move is one batch containing both the removal and the destination write.
 // A runtime without this capability must never fall back to WriteFile.
 type WorkspaceCompareWriter interface {
-	CompareWriteFiles(ctx context.Context, workspaceID string, changes []FileMutation) error
+	CompareWriteFiles(ctx context.Context, workspaceID string, changes []FileMutation) (*FileWriteResult, error)
 }
 
 // StaleFileError reports the version that refused a compare-and-write.

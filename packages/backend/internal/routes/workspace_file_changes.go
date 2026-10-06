@@ -13,7 +13,7 @@ import (
 )
 
 type workspaceFileBatchRouteService interface {
-	WriteWorkspaceFiles(context.Context, string, int64, int64, []workspaceapi.FileMutation) ([]services.WorkspaceFileMutationResult, error)
+	WriteWorkspaceFiles(context.Context, string, int64, int64, []workspaceapi.FileMutation) (*services.WorkspaceFileWriteResult, error)
 }
 
 var workspaceBaseDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)

@@ -120,6 +120,12 @@ impl Daemon {
                     {
                         return Ok(refused(id, not_ready()));
                     }
+                    if method == 16 {
+                        // A valid roster update can fail while killing revoked
+                        // descendants. That must close admission until a retry
+                        // confirms cleanup, even on an already-ready link.
+                        roster.store(false, Ordering::Release);
+                    }
                     let result = rpc::dispatch(&frame, cx)?;
                     if method == 16 && result.payload.get(11) == Some(&16) {
                         roster.store(true, Ordering::Release);

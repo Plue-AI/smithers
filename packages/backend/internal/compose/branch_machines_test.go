@@ -256,7 +256,7 @@ esac
 	require.Equal(t, 2, rows[0].Position)
 	require.Equal(t, "waiting", rows[1].State)
 	require.Equal(t, 1, rows[1].Position)
-	require.Equal(t, fmt.Sprintf("person:%d", owner.ID), rows[2].Actor)
+	require.True(t, strings.HasPrefix(rows[2].Actor, fmt.Sprintf("person:%d:session:", owner.ID)))
 	require.Equal(t, "cancelled", rows[2].State)
 	read(2)
 	_, err = q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "stopped"})
@@ -267,6 +267,53 @@ esac
 	runtime.CancelAdmission(holder, holder, time.Now())
 	read(0)
 	require.Zero(t, runtime.InUse(), "failed terminal wake never boots a VM")
+
+	// Closing a queued terminal withdraws only that session's request. Another
+	// terminal owned by the same person and the TODO remain coalesced on D.
+	first, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: row.ID, RepositoryID: repo.ID, UserID: owner.ID, Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	second, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: row.ID, RepositoryID: repo.ID, UserID: owner.ID, Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	actor := func(id string) string { return fmt.Sprintf("person:%d:session:%s", owner.ID, id) }
+	_, err = runtime.Request("todo", holder, holder, "machine")
+	require.NoError(t, err)
+	_, err = runtime.Request("person", "workspace:other", "person:2", "terminal")
+	require.NoError(t, err)
+	_, err = runtime.Request("person", holder, actor(first.ID), "machine")
+	require.NoError(t, err)
+	_, err = runtime.Request("person", holder, actor(second.ID), "machine")
+	require.NoError(t, err)
+	read(2)
+	for _, stopped := range []string{first.ID, second.ID} {
+		request := httptest.NewRequest("POST", origin+"/api/repos/admissionowner/fixture/workspace/sessions/"+stopped+"/destroy", nil)
+		request.RemoteAddr = "127.0.0.1:1234"
+		request.Header.Set("Origin", origin)
+		request.Header.Set("X-CSRF-Token", "csrf")
+		request.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
+		stored, err := q.GetWorkspaceSession(ctx, stopped)
+		require.NoError(t, err)
+		require.Equal(t, "stopped", stored.Status)
+		for _, demand := range runtime.AdmissionSnapshot() {
+			if demand.Actor == actor(stopped) {
+				require.Equal(t, "cancelled", demand.State)
+				require.Zero(t, demand.Position)
+			}
+			if demand.Actor == holder || stopped == first.ID && demand.Actor == actor(second.ID) {
+				require.Equal(t, "waiting", demand.State)
+				require.Equal(t, 2, demand.Position)
+			}
+		}
+		read(2)
+	}
+	runtime.CancelAdmission("workspace:other", "person:2", time.Now())
+	read(1)
+	runtime.CancelAdmission(holder, holder, time.Now())
+	read(0)
+	require.Zero(t, runtime.InUse())
 
 	// The Home card uses the same owner capacity and runtime accounting as
 	// admission, rather than counting only the machines visible on TODO cards.

@@ -168,6 +168,7 @@ func (s *WorkspaceService) observeWorkspaceSessionProvision(status string, durat
 // runs on a context detached from the originating HTTP request, so it must not
 // touch request-scoped state.
 func (s *WorkspaceService) finishWorkspaceSessionProvisioning(ctx context.Context, session db.WorkspaceSession, workspace db.Workspace, input CreateWorkspaceSessionInput, cols, rows int32) (response WorkspaceSessionResponse, retErr error) {
+	ctx = context.WithValue(personMachineDemand(ctx), sessionMachineDemandKey{}, session.ID)
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("panic in workspace session provisioning", "session_id", session.ID, "panic", r)
@@ -319,6 +320,11 @@ func (s *WorkspaceService) DestroySession(ctx context.Context, sessionID string,
 	}
 
 	s.notifyWorkspaceSession(ctx, sessionID, "stopped")
+	if s.machineAdmission != nil {
+		if runtime, ok := s.runtime.(interface{ CancelFailedAdmission(string, string) }); ok {
+			runtime.CancelFailedAdmission(machineQueueHolder(session.WorkspaceID), sessionMachineActor(session.UserID, session.ID))
+		}
+	}
 	s.revokeWorkspaceTerminalCredential(ctx, session, userID)
 
 	// The session stop is durable above. VM suspension can take longer than

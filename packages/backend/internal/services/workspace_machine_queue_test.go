@@ -117,11 +117,48 @@ func TestMachineDemandOwnerTerminalIsPerson(t *testing.T) {
 	}{
 		{context.Background(), row.UserID, "todo", "workspace:owner-terminal"},
 		{personMachineDemand(context.Background()), row.UserID, "person", fmt.Sprintf("person:%d", row.UserID)},
+		{context.WithValue(personMachineDemand(context.Background()), sessionMachineDemandKey{}, "terminal-a"), row.UserID, "person", fmt.Sprintf("person:%d:session:terminal-a", row.UserID)},
 		{context.Background(), row.UserID + 1, "person", fmt.Sprintf("person:%d", row.UserID+1)},
 	} {
 		class, actor := machineDemand(context.WithoutCancel(tc.ctx), row, tc.actor)
 		require.Equal(t, tc.class, class)
 		require.Equal(t, tc.identity, actor)
+	}
+}
+
+func TestMachineSessionDemandRequiresLiveBoundSession(t *testing.T) {
+	row := sampleDBWorkspace("session-machine")
+	unavailable := errors.New("session storage unavailable")
+	for _, mode := range []string{"pending", "starting", "running", "stopped", "failed", "unknown", "workspace", "repository", "person", "unavailable"} {
+		t.Run(mode, func(t *testing.T) {
+			session := db.WorkspaceSession{ID: "terminal", WorkspaceID: row.ID, RepositoryID: row.RepositoryID, UserID: row.UserID, Status: "pending"}
+			switch mode {
+			case "workspace":
+				session.WorkspaceID = "other"
+			case "repository":
+				session.RepositoryID++
+			case "person":
+				session.UserID++
+			default:
+				session.Status = mode
+			}
+			q := &mockWorkspaceQuerier{getWorkspaceSessionFn: func(_ context.Context, id string) (db.WorkspaceSession, error) {
+				require.Equal(t, "terminal", id)
+				if mode == "unavailable" {
+					return db.WorkspaceSession{}, unavailable
+				}
+				return session, nil
+			}}
+			err := newWorkspaceServiceForTests(q).validateMachineSession(t.Context(), row, row.UserID, "terminal")
+			switch mode {
+			case "pending", "starting", "running":
+				require.NoError(t, err)
+			case "unavailable":
+				require.ErrorIs(t, err, unavailable)
+			default:
+				require.ErrorIs(t, err, context.Canceled)
+			}
+		})
 	}
 }
 

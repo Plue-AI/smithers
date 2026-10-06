@@ -663,10 +663,7 @@ func (s *WorkspaceService) ensureWorkspaceRunning(ctx context.Context, workspace
 	})
 	if err != nil && s.machineAdmission != nil {
 		if runtime, ok := s.runtime.(interface{ CancelFailedAdmission(string, string) }); ok {
-			actor := machineQueueHolder(workspace.ID)
-			if input.UserID != workspace.UserID {
-				actor = fmt.Sprintf("person:%d", input.UserID)
-			}
+			_, actor := machineDemand(ctx, workspace, input.UserID)
 			runtime.CancelFailedAdmission(machineQueueHolder(workspace.ID), actor)
 		}
 	}

@@ -521,6 +521,22 @@ export type SecretMetadata = {
   match_headers: Array<string>
 }
 
+export type AuthorizationRefusal = {
+  class: "permission"
+  code: string
+  message: string
+  fix?: string
+} | {
+  class: "never"
+  code: "never"
+  message: "Only a person can do this"
+}
+
+export type ConfirmationReceipt = {
+  confirmation: string
+  state: "pending" | "approved" | "rejected" | "expired"
+}
+
 export type AdminCreditGrantRequest = {
   login: string
   amountUsd: number
@@ -1674,7 +1690,7 @@ export type PostApiBranchesBBody = {
 export type PostApiBranchesBResponse = {
   state?: "accepted"
   n?: number
-}
+} | ConfirmationReceipt
 
 export interface PostApiBranchesBInput {
   readonly path: { readonly b: string }
@@ -1749,13 +1765,20 @@ export const postApiCommandsSelect = (transport: Transport, input?: PostApiComma
 export const getApiConfirmations = (transport: Transport): Promise<void> =>
   transport.request("GET", `/api/confirmations`).then(() => undefined)
 
+export type PostApiConfirmationsResponse = ConfirmationReceipt
+
 export interface PostApiConfirmationsInput {
   readonly headers: { readonly "Idempotency-Key": string }
 }
 
 /** POST /api/confirmations: Request a confirmation through delegated command dispatch */
-export const postApiConfirmations = (transport: Transport, input: PostApiConfirmationsInput): Promise<void> =>
-  transport.request("POST", `/api/confirmations`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+export const postApiConfirmations = (transport: Transport, input: PostApiConfirmationsInput): Promise<PostApiConfirmationsResponse> =>
+  transport.request("POST", `/api/confirmations`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiConfirmationsResponse>
+
+export type PostApiConfirmationsIdApproveResponse = {
+  id: string
+  state: "approved"
+}
 
 export interface PostApiConfirmationsIdApproveInput {
   readonly path: { readonly id: string }
@@ -1763,8 +1786,8 @@ export interface PostApiConfirmationsIdApproveInput {
 }
 
 /** POST /api/confirmations/{id}/approve: Approve your bound confirmation */
-export const postApiConfirmationsIdApprove = (transport: Transport, input: PostApiConfirmationsIdApproveInput): Promise<void> =>
-  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/approve`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+export const postApiConfirmationsIdApprove = (transport: Transport, input: PostApiConfirmationsIdApproveInput): Promise<PostApiConfirmationsIdApproveResponse> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/approve`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiConfirmationsIdApproveResponse>
 
 export interface PostApiConfirmationsIdDenyInput {
   readonly path: { readonly id: string }
@@ -2728,7 +2751,7 @@ export type GetApiProposalsResponse = Array<LearningProposalCard>
 export const getApiProposals = (transport: Transport): Promise<GetApiProposalsResponse> =>
   transport.request("GET", `/api/proposals`) as Promise<GetApiProposalsResponse>
 
-export type PostApiProposalsIdAcceptResponse = LearningProposalCard
+export type PostApiProposalsIdAcceptResponse = LearningProposalCard | ConfirmationReceipt
 
 export interface PostApiProposalsIdAcceptInput {
   readonly path: { readonly id: string }
@@ -2738,7 +2761,7 @@ export interface PostApiProposalsIdAcceptInput {
 export const postApiProposalsIdAccept = (transport: Transport, input: PostApiProposalsIdAcceptInput): Promise<PostApiProposalsIdAcceptResponse> =>
   transport.request("POST", `/api/proposals/${segment(input.path.id)}/accept`) as Promise<PostApiProposalsIdAcceptResponse>
 
-export type PostApiProposalsIdDismissResponse = LearningProposalCard
+export type PostApiProposalsIdDismissResponse = LearningProposalCard | ConfirmationReceipt
 
 export interface PostApiProposalsIdDismissInput {
   readonly path: { readonly id: string }
@@ -4448,17 +4471,13 @@ export type PutApiReposOwnerRepoWorkspacesIdFilesContentBody = {
 }
 
 export type PutApiReposOwnerRepoWorkspacesIdFilesContentResponse = {
-  name: string
-  path: string
-  type: "file"
-  encoding: "utf-8" | "base64"
-  content: string
-  size: number
-  digest: string
-} | {
-  changes: Array<{
+  paths: Array<{
     path: string
-    digest: string
+    post_digest: string
+  }>
+  raced: Array<{
+    path: string
+    version: string
   }>
 }
 
@@ -5679,7 +5698,7 @@ export type PostApiTodosResponse = {
   state: "accepted"
   n: number
   rev: number
-}
+} | ConfirmationReceipt
 
 export interface PostApiTodosInput {
   readonly headers: { readonly "Idempotency-Key": string }
@@ -5735,7 +5754,7 @@ export type PostApiTodosNResponse = {
   state: "accepted"
   attempt?: number
   lessons?: number
-}
+} | ConfirmationReceipt
 
 export interface PostApiTodosNInput {
   readonly path: { readonly n: number }
@@ -5757,7 +5776,7 @@ export type PatchApiTodosNResponse = {
   n: number
   rev: number
   attempt?: number
-}
+} | ConfirmationReceipt
 
 export interface PatchApiTodosNInput {
   readonly path: { readonly n: number }
@@ -5773,6 +5792,10 @@ export type PostApiTodosNMergeBody = {
   reviewed_head_sha: string
 }
 
+export type PostApiTodosNMergeResponse = {
+  state: "accepted"
+} | ConfirmationReceipt
+
 export interface PostApiTodosNMergeInput {
   readonly path: { readonly n: number }
   readonly headers: { readonly "Idempotency-Key": string }
@@ -5780,8 +5803,8 @@ export interface PostApiTodosNMergeInput {
 }
 
 /** POST /api/todos/{n}/merge: Request a session-approved squash merge at the reviewed head */
-export const postApiTodosNMerge = (transport: Transport, input: PostApiTodosNMergeInput): Promise<void> =>
-  transport.request("POST", `/api/todos/${segment(input.path.n)}/merge`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+export const postApiTodosNMerge = (transport: Transport, input: PostApiTodosNMergeInput): Promise<PostApiTodosNMergeResponse> =>
+  transport.request("POST", `/api/todos/${segment(input.path.n)}/merge`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosNMergeResponse>
 
 export type PostApiTodosNAnswerBody = {
   wait: string
