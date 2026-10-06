@@ -880,7 +880,7 @@ func buildRouter(
 	// group's timeout, body and CSRF rules; the auth loader and the member
 	// boundary still admit the person.
 	if config.IsSingleOwner(cfg.Auth) && extras.Live != nil {
-		r.With(authLoader(queries, cfg.Auth), memberCommands(queries)).Get("/api/live", extras.Live.ServeHTTP)
+		r.With(routes.LiveCredentialGate, authLoader(queries, cfg.Auth)).Get("/api/live", extras.Live.ServeHTTP)
 	}
 
 	// WebSocket terminal — mounted outside /api's JSONTimeout group so the

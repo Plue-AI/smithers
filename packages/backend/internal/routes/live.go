@@ -38,6 +38,18 @@ func liveRefusal(w http.ResponseWriter, status int, class, code, message string)
 	_ = json.NewEncoder(w).Encode(map[string]string{"class": class, "code": code, "message": message})
 }
 
+// LiveCredentialGate keeps legacy bearer credentials out of the session
+// loader's command decision until the live bearer capability is installed.
+func LiveCredentialGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h == nil || h.Hub == nil || h.Queries == nil || h.Topics == nil || h.Origins == nil {
 		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
@@ -59,14 +71,8 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		liveRefusal(w, http.StatusForbidden, "permission", "origin", "origin")
 		return
 	}
-	if _, err := services.Authorize(r.Context(), h.Queries, "live"); err != nil {
-		var access *services.AccessError
-		if errors.As(err, &access) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(access.Status)
-			_ = json.NewEncoder(w).Encode(access)
-			return
-		}
+	source := currentRevocationSource()
+	if source == nil {
 		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
 		return
 	}
@@ -79,6 +85,10 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resolve, repository := h.Topics(r)
+	if resolve == nil {
+		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
+		return
+	}
 	// Revocation (a removed member, a signed-out session, a disabled
 	// person) closes the socket (§5.6).
 	ctx, cancel := context.WithCancel(r.Context())
@@ -94,6 +104,10 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		events = source.Watch(ctx, principal)
+		if events == nil {
+			liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
+			return
+		}
 		// Register before a fresh roster read; ignore the middleware cached decision.
 		role, err := services.InstallRoleOf(ctx, h.Queries, info.User.ID)
 		if err != nil || role == "" {
