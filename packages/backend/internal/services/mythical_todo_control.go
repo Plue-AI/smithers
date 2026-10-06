@@ -13,7 +13,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // TodoControlInput is the POST /api/todos/{n} control: its op, an optional
@@ -339,13 +338,13 @@ func todoControlReplay(ctx context.Context, tx pgx.Tx, q *db.Queries, item db.My
 
 // recordTodoControl keeps private replay metadata in the existing request
 // record. Only the activity fact reaches the event stream.
-func recordTodoControl(ctx context.Context, tx pgx.Tx, item db.MythicalItem, input TodoControlInput, credential, operation string, receipt TodoControlReceipt, fact map[string]any) error {
+func (s *MythicalService) recordTodoControl(ctx context.Context, tx pgx.Tx, item db.MythicalItem, input TodoControlInput, credential, operation string, receipt TodoControlReceipt, fact map[string]any) error {
 	raw, err := json.Marshal(fact)
 	if err != nil {
 		return err
 	}
 	operationID := uuid.NewString()
-	if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), operationID, operation, todoState(item), raw); err != nil {
+	if _, err = s.recordTodoFact(ctx, tx, item, operationID, operation, todoState(item), raw); err != nil {
 		return err
 	}
 	private, err := json.Marshal(map[string]any{
