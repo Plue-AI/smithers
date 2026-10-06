@@ -13,13 +13,14 @@ import (
 // SharedTurn is a public projection, not a journal capability. Private request
 // context, writer tokens, approvals and the member's queue never enter it.
 type SharedTurn struct {
-	ID      string             `json:"id"`
-	Author  int64              `json:"author"`
-	RunID   string             `json:"runId"`
-	Prompt  string             `json:"prompt"`
-	State   State              `json:"state"`
-	Frames  []json.RawMessage  `json:"frames"`
-	Context *[]json.RawMessage `json:"context,omitempty"`
+	ID          string             `json:"id"`
+	Author      int64              `json:"author"`
+	AuthorLogin string             `json:"authorLogin"`
+	RunID       string             `json:"runId"`
+	Prompt      string             `json:"prompt"`
+	State       State              `json:"state"`
+	Frames      []json.RawMessage  `json:"frames"`
+	Context     *[]json.RawMessage `json:"context,omitempty"`
 }
 type SharedConversation struct {
 	ID      string       `json:"id"`
@@ -74,6 +75,9 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 			return result, e
 		}
 		entry := SharedTurn{ID: turn.ID, Author: turn.UserID, RunID: turn.RunID, Prompt: prompt, State: turn.State, Frames: []json.RawMessage{}}
+		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorLogin); err != nil {
+			return result, err
+		}
 		cursor := initialCursor(acceptance)
 		var preflight sharedPreflight
 		for {

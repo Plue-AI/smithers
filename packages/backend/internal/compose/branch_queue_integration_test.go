@@ -351,6 +351,9 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	require.Equal(t, firstID, transcript.Entries[0].ID)
 	require.Equal(t, editedID, transcript.Entries[1].ID)
 	require.Equal(t, "list changed tests", transcript.Entries[1].Prompt)
+	for _, entry := range transcript.Entries {
+		require.Contains(t, []string{"ben", "alice"}, entry.AuthorLogin)
+	}
 	require.JSONEq(t, shared, call("GET", "/api/conversations/main", "", benCookie, 200))
 	var state string
 	var leased bool

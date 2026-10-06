@@ -1,4 +1,5 @@
 import { useTodoRole } from "./cards/TodoCard"
+import { SharedConversation } from "./SharedConversation"
 import { accountOwnerOf } from "./state/AccountOwner"
 import { renderHomeCard, renderConfirmCard } from "./cards/CardRenderers"
 import { memberConfirmations, memberConfirmCardProps } from "./cards/ApprovalCard"
@@ -121,7 +122,7 @@ function AppContent() {
   const earlier = session.branchNavigation?.open && session.branchNavigation.owner === (accountOwnerOf(identityRows[0]) ?? null) && session.branchNavigation.selected_branch === "earlier"
   const conversationTabId = conversationTabIdOf(session)
   // A recovery door is an acknowledgment only once its journal receipt exists.
-  const messages = messageRows.filter((message) => inConversation(message, conversationTabId) &&
+  const messages = messageRows.filter((message) => (!controller.sharedConversation || message.origin === "external" || message.action !== undefined) && inConversation(message, conversationTabId) &&
     (message.action?.flow !== "sign-in" || savedSignInPrompts.some(receipt => receipt.id === message.id)))
   const conversationRows = cardRows.filter((card) => inConversation(card, conversationTabId))
   // Admin chrome follows the same capability-filtered registry as every act.
@@ -474,7 +475,8 @@ function AppContent() {
             </MessageScrollerItem>}
             {!earlier && !repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
             {!loginScreen && !repositoryNotice && <BranchNavigation />}
-            {!earlier && entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
+            {!earlier && controller.sharedConversation && <SharedConversation source={controller.sharedConversation} />}
+            {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.origin === "external").map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "card" ?
                 (
                   <CardView

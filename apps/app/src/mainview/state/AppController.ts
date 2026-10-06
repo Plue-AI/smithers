@@ -1,3 +1,4 @@
+import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
 import { createEarlierHistoryController } from "./controller/earlierHistory"
 import { accountOwnerOf } from "./AccountOwner"
 import { createHomeViewSeam, type HomeViewSeam } from "./seams/HomeViewSeam"
@@ -535,6 +536,7 @@ export interface AppController extends IssueFlowsController {
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
   /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
+  readonly sharedConversation?: SharedConversationSeam
   readonly homeView?: HomeViewSeam
   readonly todoList: TodoSeam["list"]
   /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
@@ -897,6 +899,7 @@ export const createAppController = (
   const installHost = services.bootstrap?.capabilities.includes("install") === true
   const setupEntry = typeof window !== "undefined" && window.location.pathname === "/setup"
   if (installHost) void installSeam.showSetup()
+  const sharedConversation = installHost ? createSharedConversationSeam(ctx, services.live) : undefined
   const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
@@ -2362,6 +2365,7 @@ export const createAppController = (
     membersRole,
     flowCatalog: installHost ? flowsSeam.snapshots : undefined,
     homeView,
+    sharedConversation,
     todoList: todoSeam.list,
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
     design,
