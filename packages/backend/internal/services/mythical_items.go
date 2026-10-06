@@ -485,6 +485,10 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if err != nil {
 				return err
 			}
+			// A reopened generation cannot revive or be changed by its closed run.
+			if todoReopenedAttempt(item) {
+				return nil
+			}
 			// Late running checkpoints cannot reopen waits after settlement.
 			// Final receipts still belong to the bound attempt and may arrive
 			// after GitHub reports its merge.
@@ -1557,6 +1561,14 @@ func mythicalInfraOutage(item db.MythicalItem, tag, reason string, now time.Time
 // advance decides one item's next step, or nil when it waits. saved reports
 // that the step already saved the item (with a launch, in one transaction).
 func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	if item.State == "proposed" && todoReopenedAttempt(item) && !mythicalMergeFenced(item) && !item.PausedAt.Valid {
+		for _, feedback := range mythicalChecksOf(item).Steers {
+			if feedback.ReleasePending && feedback.Attempt == item.Attempt+1 {
+				next := queueReopenedTodo(item)
+				return &next, false, nil
+			}
+		}
+	}
 	switch item.State {
 	case "queued", "retrying":
 		return st.start(ctx, item)
@@ -1910,6 +1922,10 @@ func (st *mythicalItemStep) invalidatePrefix(item db.MythicalItem) *db.MythicalI
 	if next == nil {
 		copied := item
 		next = &copied
+	}
+	if todoReopenedAttempt(item) {
+		queued := queueReopenedTodo(*next)
+		return &queued
 	}
 	next.CandidateVerified = false
 	next.State, next.NextAttemptAt = "integrating", pgtype.Timestamptz{}
@@ -3388,6 +3404,8 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		answered.GitHubClosedAt = &st.now
 		next.Checks = answered.encode()
 	case decision.Event == "in_review":
+		answered.GitHubReopenedAttempt = item.Attempt
+		answered.RunLaunched, answered.RunAttached = false, false
 		next.PRState, next.State, next.Reason = "open", "proposed", ""
 		answered.GitHubClosedAt = nil
 		next.Checks = answered.encode()
@@ -4398,13 +4416,14 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	IssueContext         json.RawMessage       `json:"issue_context,omitempty"`
-	GitHubInputs         []todoGitHubInput     `json:"githubInputs,omitempty"`
-	PRBodyDeclined       string                `json:"prBodyDeclined,omitempty"`
-	GitHubClosedPosition int64                 `json:"githubClosedPosition,omitempty"`
-	GitHubClosedAt       *time.Time            `json:"githubClosedAt,omitempty"`
-	GitHubDropRead       *mythicalDropRead     `json:"githubDropRead,omitempty"`
-	Attempts             []todoAttemptEvidence `json:"attempts,omitempty"`
+	IssueContext          json.RawMessage       `json:"issue_context,omitempty"`
+	GitHubInputs          []todoGitHubInput     `json:"githubInputs,omitempty"`
+	PRBodyDeclined        string                `json:"prBodyDeclined,omitempty"`
+	GitHubReopenedAttempt int32                 `json:"githubReopenedAttempt,omitempty"`
+	GitHubClosedPosition  int64                 `json:"githubClosedPosition,omitempty"`
+	GitHubClosedAt        *time.Time            `json:"githubClosedAt,omitempty"`
+	GitHubDropRead        *mythicalDropRead     `json:"githubDropRead,omitempty"`
+	Attempts              []todoAttemptEvidence `json:"attempts,omitempty"`
 	// Steers are the TODO's steers in order, each held for an attempt
 	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a
 	// press sent again starts nothing more (retryTodo).

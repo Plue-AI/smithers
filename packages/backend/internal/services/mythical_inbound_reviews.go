@@ -204,13 +204,14 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 				continue
 			}
 			effect := decision.Review
+			reopened := effect.Input == "steer" && todoReopenedAttempt(item) && item.State == "proposed"
 			_, ready := s.launcher.(mythicalSteerer)
 			if effect.Input == "steer" || effect.Input == "hold" {
 				if !s.todoSteering || s.todoFlow == nil || !ready {
 					return nil, gitHubReviewUnavailable()
 				}
 				if effect.Input == "steer" {
-					if _, pinned := mythicalPinOf(item); !pinned || !todoSteerReady(item) || item.RequestRunID == "" || item.WorkspaceID == "" || !stack.ActorUserID.Valid {
+					if _, pinned := mythicalPinOf(item); !pinned || !stack.ActorUserID.Valid || (reopened && (s.lanes == nil || mythicalMergeFenced(item))) || (!reopened && (!todoSteerReady(item) || item.RequestRunID == "" || item.WorkspaceID == "")) {
 						return nil, gitHubReviewUnavailable()
 					}
 				}
@@ -222,13 +223,19 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 				checks.GitHubInputs[index] = input
 			}
 			next := item
+			if reopened {
+				next = queueReopenedTodo(item)
+				queued := mythicalChecksOf(next)
+				queued.GitHubInputs = checks.GitHubInputs
+				checks = queued
+			}
 			if effect.Input == "withdraw" && priorSteer >= 0 {
 				checks.Steers = append(checks.Steers[:priorSteer], checks.Steers[priorSteer+1:]...)
 			}
 			var feedback todoSteer
 			if (effect.Input == "steer" || effect.Input == "hold") && strings.TrimSpace(text) != "" {
-				feedback = todoSteer{ID: uuid.NewString(), Request: "github:" + key, Credential: "github", GitHubAuthor: object.User.ID, Author: personID, Text: text, By: actor, Attribution: attribution, At: s.now().UTC(), Attempt: item.Attempt, ReleasePending: effect.Input == "hold"}
-				if item.State == "blocked" || item.State == "queued" || item.State == "retrying" {
+				feedback = todoSteer{ID: uuid.NewString(), Request: "github:" + key, Credential: "github", GitHubAuthor: object.User.ID, Author: personID, Text: text, By: actor, Attribution: attribution, At: s.now().UTC(), Attempt: item.Attempt, ReleasePending: effect.Input == "hold" || reopened}
+				if reopened || item.State == "blocked" || item.State == "queued" || item.State == "retrying" {
 					feedback.Attempt++
 				}
 				if priorSteer >= 0 {
@@ -240,7 +247,7 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 				if effect.Input == "steer" {
 					checks.Land = nil
 					next.CandidateVerified = false
-					if decision.Event == "working" {
+					if decision.Event == "working" && !reopened {
 						next.State = "running"
 						next.NextAttemptAt = pgtype.Timestamptz{}
 					}
@@ -255,7 +262,7 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 			if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.github_input", todoState(saved), data); err != nil {
 				return nil, err
 			}
-			if feedback.ID != "" && effect.Input == "steer" {
+			if feedback.ID != "" && effect.Input == "steer" && !reopened {
 				if err := s.admitTodoSteerIntent(ctx, tx, stack, saved, feedback); err != nil {
 					return nil, err
 				}

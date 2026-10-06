@@ -197,6 +197,8 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				}
 				next.StackPosition = pgtype.Int8{Int64: position, Valid: true}
 				next.State, next.PRState, next.Reason = "proposed", "open", ""
+				checks.GitHubReopenedAttempt = item.Attempt
+				checks.RunLaunched, checks.RunAttached = false, false
 				checks.GitHubClosedAt = nil
 				// Missing branches are restored from the last verified proposal; a
 				// foreign branch is retained by the outbound push lease, never overwritten.

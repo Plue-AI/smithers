@@ -117,6 +117,9 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 		case "landed", "cancelled", "rejected", "declined":
 			return mythicalFlowFailure{code: "steer_todo_closed"}
 		}
+		if todoReopenedAttempt(item) {
+			return mythicalFlowFailure{code: "steer_todo_closed"}
+		}
 		if !todoSteerReady(item) {
 			return mythicalFlowFailure{code: "steer_held", retryable: true}
 		}
@@ -149,7 +152,7 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 // can mask a paused, queued, or failed attempt as needs_you. The question
 // itself remains open and does not hold feedback for an otherwise live run.
 func todoSteerReady(item db.MythicalItem) bool {
-	if item.PausedAt.Valid || mythicalMergeFenced(item) {
+	if item.PausedAt.Valid || mythicalMergeFenced(item) || todoReopenedAttempt(item) {
 		return false
 	}
 	checks := mythicalChecksOf(item)
@@ -348,6 +351,16 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 	next, attempt := item, item.Attempt
 	fenced := mythicalMergeFenced(item)
 	deliver := todoSteerReady(item)
+	if todoReopenedAttempt(item) && item.State == "proposed" {
+		if _, pinned := mythicalPinOf(item); !pinned {
+			return item, todoSteer{}, false, false, todoControlUnavailable()
+		}
+		if !fenced {
+			next = queueReopenedTodo(item)
+			checks = mythicalChecksOf(next)
+		}
+		attempt++
+	}
 	if deliver {
 		if _, pinned := mythicalPinOf(item); !pinned || item.RequestRunID == "" || item.WorkspaceID == "" {
 			return item, todoSteer{}, false, false, todoControlUnavailable()

@@ -158,9 +158,17 @@ The PR-close primitive uses a narrowly scoped installation
 token and must be called only through persisted outbound intent/recovery after
 cancellation, final capture and the merge fence settle.
 
+A GitHub reopen restores the accepted generation without reviving the dropped
+run. Its first Steer, Amend or member review input queues a new attempt on the
+same stored flow pin. A rebase also queues fresh work. Feedback is included in
+the new launch; nothing is sent to the closed run. Replays do not create another
+attempt, and late checkpoints from the dropped run cannot replace the restored
+candidate. A Steer held behind a merge fence waits for reconciliation.
+
 No root operation or host-process execution fallback is added. Completing
 Stop/Resume and qualifying restored-input execution still requires their
-production PostgreSQL/microVM boundary receipts.
+production PostgreSQL/microVM boundary receipts, including final-capture restore
+and ordered model consumption; dispatcher fixtures do not prove either.
 
 ## Place and Move
 
