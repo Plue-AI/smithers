@@ -15,6 +15,7 @@ export function createHomeViewSeam(options: {
   readonly owner: () => string | undefined
   readonly subscribeOwner: (notify: () => void) => () => void
   readonly report: (error: unknown) => void
+  readonly serializeView?: (work: () => Promise<void>) => Promise<void>
 }) {
   type Row = { id: string; view: HomeViewProps["view"] }
   const emptyView: HomeViewProps["view"] = { maximized: false }
@@ -101,7 +102,7 @@ export function createHomeViewSeam(options: {
       changes.menu = patch.menu ?? null
     }
     const revision = generation, principal = owner
-    pending = pending.then(async () => {
+    const write = async () => {
       if (!valid(revision, principal)) return
       const body = await request()
       if (!valid(revision, principal)) return
@@ -112,7 +113,9 @@ export function createHomeViewSeam(options: {
       const result = await request({ method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...saved, home: { ...home, ...changes } }) })
       if (valid(revision, principal)) apply(result)
-    }).catch(error => { if (valid(revision, principal)) options.report(error) })
+    }
+    pending = pending.then(() => options.serializeView ? options.serializeView(write) : write())
+      .catch(error => { if (valid(revision, principal)) options.report(error) })
   }
   const dispose = () => {
     if (disposed) return
