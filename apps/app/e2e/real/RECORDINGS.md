@@ -79,3 +79,33 @@ These additions do not complete C-UI-01: fresh setup and the remaining J1,
 J3–J7, J10 and J11 steps still require real-install keyboard coverage and
 reference-host execution. No Mac recording, live credential soak, microVM proof
 or approved check receipt is produced by supplemental browser tests.
+
+The keyboard entry also lists three prepared-install passes: branch/terminal,
+stack/flow/monitor doors; outside saves; and backend restart. They are
+reference-only scaffolding, not passing journey receipts. The branch pass needs
+T2 “Retry webhooks” on `smithers/retry-webhooks`, a queued “Document webhook
+retries”, a retryable failure, the repository-owned TODO flow, and Ben's live
+Claude Code subscription. It covers traversal of these doors; the owning checks
+still prove complete J5 activation/pinning and J10 synchronization behavior.
+
+For outside saves, prepare the awake scratch branch `ben/outside-save` and the
+owner's production SSH gateway in `SMITHERS_JOURNEY_OWNER_SSH_HOST` and
+`SMITHERS_JOURNEY_OWNER_SSH_PORT`. The test writes only `outside-save.txt` in
+that guest working copy. No agent session may be active. It checks both saved
+editor lines against guest bytes, SSH attribution, an untouched-line merge,
+an overlapping-line snapshot and both Compare views.
+
+The restart pass observes Working T2 and its real engine journal. The owner
+records killing their backend with signal 9 and its launcher restart; this test
+never signals a process. `SMITHERS_JOURNEY_RESTART_EVIDENCE` names their JSON
+with `signal: 9`, `pid`, `runId`, `candidate`, `operator`, `killedAt` (UTC ISO)
+and `launcherRestarted: true`. The test must observe a backend outage and return,
+retain the same candidate, preserve the journal prefix, observe an owner-loss
+recovery decision and reach In review without rerunning completed steps. The
+operator file alone supplies no authenticated manual receipt or passing check.
+
+The shared wiki pass now replaces the decision through Ben's editor, files the
+next TODO through the app, and compares its exact `{slug, revision, digest}`
+citation and GitHub README bytes with checked-in expectations. The issue pass
+sends two Enter activations, requires one browser launch, then replays the same
+Idempotency-Key and requires the original HTTP status and result.

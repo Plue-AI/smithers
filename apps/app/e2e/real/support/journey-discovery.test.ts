@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
 
@@ -42,3 +44,31 @@ for (const spec of ["fresh-repository", "wiki-coedit", "wiki-generated-refresh"]
     }
   }, 35_000)
 }
+
+// Test collection only: never creates a session or contacts the supplied origin.
+test("keyboard continuation is admitted and listed beside fresh activation", () => {
+  const dir = mkdtempSync(join(process.cwd(), ".keyboard-collection-"))
+  try {
+    const recording = join(dir, "screen.mp4"), evidence = join(dir, "preconditions.json")
+    writeFileSync(recording, "collection fixture, never release evidence")
+    writeFileSync(evidence, JSON.stringify({
+      stage: "R", operator: { name: "independent operator", didNotBuildTickets: true, instructions: "quickstart" },
+      host: { referenceMini: true, freshMacOSUser: true, erased: true, macOSMajor: 15, homebrew: true, profile: { architecture: "arm64" } },
+      fresh: { install: true, repository: true, modelCache: true, noSmithersFiles: true, canaryTemplate: true, detectedTestCommand: "node --test" },
+      owner: "canary-owner", repository: "smithers-mvp-canary/2026-10-07", t0: new Date().toISOString(), clockOffsetStartMs: 0,
+      recording, setupURL: "http://127.0.0.1:49999/setup?token=collection", install: { version: "collection", commit: "a".repeat(40) }
+    }))
+    const result = spawnSync("pnpm", ["exec", "playwright", "test", "--config", "playwright.real.config.ts",
+      "e2e/real/keyboard-journeys.spec.ts", "--list", "--reporter", "list"], {
+      cwd: new URL("../../..", import.meta.url), encoding: "utf8", timeout: 30_000,
+      env: { ...process.env, SMITHERS_JOURNEY: "keyboard-journeys.spec.ts", SMITHERS_REAL_E2E_HOST: "local", SMITHERS_REAL_E2E_MODE: undefined,
+        SMITHERS_REAL_TEST_GREP: undefined, SMITHERS_REAL_BASE_URL: "http://127.0.0.1:49999", SMITHERS_REAL_E2E_BUILD_SHA: "a".repeat(40),
+        SMITHERS_REAL_HEADED: "1", SMITHERS_J1_PRECONDITIONS: evidence, SMITHERS_J1_REVIEW: join(dir, "review.json"),
+        SMITHERS_J1_FINAL_EVIDENCE: join(dir, "final.json"), SMITHERS_J1_RECORDING_REVIEW: join(dir, "recording-review.json") }
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain("Total: 4 tests in 1 file")
+    expect(result.stdout).toContain("prepared install branch, stack, flow and monitor keyboard doors")
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+}, 35_000)

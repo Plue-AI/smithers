@@ -1,4 +1,5 @@
 import { journeyActivate, journeyReach } from "./support/keyboard-journey-input"
+import { CANARY_README } from "./support/canary"
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
@@ -7,14 +8,14 @@ import type { Page } from "@playwright/test"
 import * as Y from "yjs"
 import { test } from "./support"
 import { scenario } from "./coverage/types"
-import { withReference, runSlash, realApi, expect, attachJson } from "./todo/reference"
+import { withReference, createTodo, runSlash, realApi, expect, attachJson } from "./todo/reference"
 
 // Run from the second Mac against a prepared scratch install. No route doubles,
 // SQL writes, model fixtures or GitHub mutations. The operator creates revision
 // 1–3 of decisions/retries before running this destructive editing canary.
 const journey = scenario("journey-wiki-coedit", { capabilities: [], coverage: ["host:local", "host:production", "surface:wiki", "door:slash", "door:button", "path:persistence", "dimension:recovery"] })
 test("C-J8-02 shared wiki, 400 latency samples and offline reload", journey, async ({ browser }, info) => {
-  test.setTimeout(240_000)
+  test.setTimeout(960_000)
   await withReference(browser, info, async f => {
     const ben = f.members.Ben.page, alice = f.members.Alice.page
     const slug = "decisions/retries", api = `/api/repos/${f.repo}/wiki`
@@ -146,5 +147,36 @@ test("C-J8-02 shared wiki, 400 latency samples and offline reload", journey, asy
     await attachJson(info, "route-probes", probes)
     await attachJson(info, "pages-and-revisions", { before: revisions, after, texts,
       hashes: Object.fromEntries(Object.entries(texts).map(([name, value]) => [name, createHash("sha256").update(value).digest("hex")])) })
+    // §21: a member decision must reach the next real plan and its branch bytes.
+    const decision = "For the release canary README, append exactly: Retry failed webhook deliveries with the existing retry helper."
+    await journeyReach(editors[0]!)
+    await ben.keyboard.press("ControlOrMeta+a")
+    await ben.keyboard.type(decision)
+    let savedDecision: any
+    await expect.poll(async () => {
+      savedDecision = await f.read("Ben", `${api}/${encodeURIComponent(slug)}/document`)
+      return savedDecision.page.body
+    }).toBe(decision)
+    const citation = { slug, revision: savedDecision.page.revision, digest: createHash("sha256").update(decision).digest("hex") }
+    expect(citation.revision).toBeGreaterThan(3)
+    const initialReadme = await f.github("Ben", "GET", "/contents/README.md?ref=main") as any
+    expect(Buffer.from(initialReadme.content, "base64").toString("utf8")).toBe(CANARY_README)
+    const todosBefore = await f.read("Ben", "/api/todos")
+    await createTodo(ben, "Document the webhook retry decision in decisions/retries. Follow the page's exact README instruction, change only README.md, and run npm test.")
+    let planned: any
+    await expect.poll(async () => {
+      const todos = await f.read("Ben", "/api/todos")
+      expect(todos.length).toBe(todosBefore.length + 1)
+      planned = todos.at(-1)
+      return planned.state
+    }, { timeout: 660_000, intervals: [1000, 2000] }).toBe("in_review")
+    const evidence = planned.evidence.flatMap((attempt: any) => attempt.items)
+    expect(evidence).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "wiki", ...citation })]))
+    const pull = await f.github("Ben", "GET", `/pulls/${planned.pr.number}`) as any
+    const changed = await f.github("Ben", "GET", `/pulls/${planned.pr.number}/files`) as any[]
+    expect(changed.map(file => file.filename)).toEqual(["README.md"])
+    const produced = await f.github("Ben", "GET", `/contents/README.md?ref=${pull.head.sha}`) as any
+    expect(Buffer.from(produced.content, "base64").toString("utf8")).toBe(CANARY_README + "\nRetry failed webhook deliveries with the existing retry helper.\n")
+    await attachJson(info, "wiki-decision-followed", { citation, todo: planned.number, head: pull.head.sha })
   })
 })

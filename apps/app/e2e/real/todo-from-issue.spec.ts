@@ -1,4 +1,4 @@
-import { journeyActivate, journeyEnter, journeySelect, journeyChecked } from "./support/keyboard-journey-input"
+import { journeyActivate, journeyEnter, journeySelect, journeyChecked, journeyReach } from "./support/keyboard-journey-input"
 import { test } from "./support"
 import { scenario } from "./coverage/types"
 import { withReference, seedIssueSeven, createTodo, home, todoCard, openTodo, expect, runSlash, attachJson } from "./todo/reference"
@@ -36,11 +36,18 @@ test("C-J2-01 Make TODO freezes the private draft and commits once", journey, as
     await journeyChecked(draft.getByLabel("Fixes", { exact: true }), true)
     // Remote changes after drafting must not refresh revision 1 or context.
     await f.github("Ben", "PATCH", "/issues/7", { body: "Remote changed body" })
+    const activations: string[] = []
+    ben.on("request", request => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/api/todos") activations.push(request.headers()["idempotency-key"] ?? "")
+    })
     const submitted = ben.waitForRequest(r => r.method() === "POST" && new URL(r.url()).pathname === "/api/todos")
     const committed = ben.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/todos")
-    await journeyActivate(draft.getByRole("button", { name: "Commit", exact: true }))
+    await journeyReach(draft.getByRole("button", { name: "Commit", exact: true }))
+    await ben.keyboard.press("Enter")
+    await ben.keyboard.press("Enter")
     const request = await submitted, response = await committed
     expect([200, 201]).toContain(response.status())
+    const originalResult = await response.json()
     const data = request.postDataJSON(), headers = await request.allHeaders()
     expect(headers["idempotency-key"]).toEqual(expect.any(String))
     expect(data.issue_digest).toEqual(expect.any(String))
@@ -76,7 +83,10 @@ test("C-J2-01 Make TODO freezes the private draft and commits once", journey, as
     await new Promise(resolve => setTimeout(resolve, 150_000))
     await assertOne()
     const duplicate = await ben.context().request.post(request.url(), { headers, data })
-    expect([200, 201]).toContain(duplicate.status())
+    expect(duplicate.status()).toBe(response.status())
+    expect(await duplicate.json()).toEqual(originalResult)
+    expect(activations).toEqual([headers["idempotency-key"]])
+    await attachJson(info, "duplicate-activation", { key: headers["idempotency-key"], result: originalResult, buttonRequests: activations.length })
     await assertOne()
     // Both digests are invalid for this actor. The second is a real snapshot
     // drafted by Will, not a random string masquerading as another member's.
