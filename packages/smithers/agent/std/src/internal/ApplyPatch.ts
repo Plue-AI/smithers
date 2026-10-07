@@ -93,7 +93,7 @@ type Mode =
   | { readonly _tag: "StartedPatch" }
   | { readonly _tag: "AddFile" }
   | { readonly _tag: "DeleteFile" }
-  | { readonly _tag: "UpdateFile"; readonly hunkLineNumber: number }
+  | { readonly _tag: "UpdateFile"; readonly hunkLineNumber: number; readonly hunk: Extract<Hunk, { kind: "update" }> }
   | { readonly _tag: "EndedPatch" }
 
 const invalidHunkHeader = (trimmed: string, lineNumber: number): ParseError =>
@@ -178,13 +178,14 @@ export class StreamingPatchParser {
     }
     if (trimmed.startsWith(UPDATE_FILE_MARKER)) {
       this.ensureUpdateHunkIsNotEmpty(trimmed)
-      this.hunks.push({
+      const hunk: Extract<Hunk, { kind: "update" }> = {
         kind: "update",
         path: trimmed.slice(UPDATE_FILE_MARKER.length),
         movePath: undefined,
         chunks: []
-      })
-      this.mode = { _tag: "UpdateFile", hunkLineNumber: this.lineNumber }
+      }
+      this.hunks.push(hunk)
+      this.mode = { _tag: "UpdateFile", hunkLineNumber: this.lineNumber, hunk }
       return true
     }
     return false
@@ -223,11 +224,6 @@ export class StreamingPatchParser {
     return this.hunks
   }
 
-  private lastUpdate(): Extract<Hunk, { kind: "update" }> | undefined {
-    const last = this.hunks[this.hunks.length - 1]
-    return last !== undefined && last.kind === "update" ? last : undefined
-  }
-
   private processLine(line: string): void {
     const trimmed = line.trim()
     switch (this.mode._tag) {
@@ -256,102 +252,91 @@ export class StreamingPatchParser {
         throw invalidHunkHeader(trimmed, this.lineNumber)
       }
       case "UpdateFile": {
-        const hunkLineNumber = this.mode.hunkLineNumber
         const updateLine = line.replace(/\s+$/, "")
         if (this.handleHunkHeadersAndEndPatch(updateLine)) return
 
-        const hunk = this.lastUpdate()
-        if (hunk !== undefined) {
-          const chunks = hunk.chunks
-          const lastChunk = chunks[chunks.length - 1]
-          if (lastChunk !== undefined && lastChunk.isEndOfFile) {
-            if (updateLine === "") return
-            if (updateLine !== EMPTY_CHANGE_CONTEXT_MARKER && !updateLine.startsWith(CHANGE_CONTEXT_MARKER)) {
-              throw parseError(
-                "invalid_hunk",
-                `Expected update hunk to start with a @@ context marker, got: '${line}'`,
-                this.lineNumber
-              )
-            }
-          }
-
-          if (chunks.length === 0 && hunk.movePath === undefined && updateLine.startsWith(MOVE_TO_MARKER)) {
-            hunk.movePath = updateLine.slice(MOVE_TO_MARKER.length)
-            this.mode = { _tag: "UpdateFile", hunkLineNumber }
-            return
-          }
-
-          if (
-            (updateLine === EMPTY_CHANGE_CONTEXT_MARKER || updateLine.startsWith(CHANGE_CONTEXT_MARKER)) &&
-            lastChunk !== undefined && lastChunk.oldLines.length === 0 && lastChunk.newLines.length === 0
-          ) {
-            throw unexpectedUpdateLine(line, this.lineNumber)
-          }
-
-          if (updateLine === EMPTY_CHANGE_CONTEXT_MARKER) {
-            chunks.push({ changeContext: undefined, oldLines: [], newLines: [], isEndOfFile: false })
-            this.mode = { _tag: "UpdateFile", hunkLineNumber }
-            return
-          }
-
-          if (updateLine.startsWith(CHANGE_CONTEXT_MARKER)) {
-            chunks.push({
-              changeContext: updateLine.slice(CHANGE_CONTEXT_MARKER.length),
-              oldLines: [],
-              newLines: [],
-              isEndOfFile: false
-            })
-            this.mode = { _tag: "UpdateFile", hunkLineNumber }
-            return
-          }
-
-          if (updateLine === EOF_MARKER) {
-            if (lastChunk !== undefined && lastChunk.oldLines.length === 0 && lastChunk.newLines.length === 0) {
-              throw parseError("invalid_hunk", "Update hunk does not contain any lines", this.lineNumber)
-            }
-            if (lastChunk !== undefined) lastChunk.isEndOfFile = true
-            this.mode = { _tag: "UpdateFile", hunkLineNumber }
-            return
-          }
-
-          const ensureChunk = (): UpdateFileChunk => {
-            if (chunks.length === 0) {
-              chunks.push({ changeContext: undefined, oldLines: [], newLines: [], isEndOfFile: false })
-            }
-            return chunks[chunks.length - 1]!
-          }
-
-          if (line === "") {
-            const chunk = ensureChunk()
-            chunk.oldLines.push("")
-            chunk.newLines.push("")
-            this.mode = { _tag: "UpdateFile", hunkLineNumber }
-            return
-          }
-          if (line.startsWith(" ")) {
-            const chunk = ensureChunk()
-            chunk.oldLines.push(line.slice(1))
-            chunk.newLines.push(line.slice(1))
-            this.mode = { _tag: "UpdateFile", hunkLineNumber }
-            return
-          }
-          if (line.startsWith("+")) {
-            ensureChunk().newLines.push(line.slice(1))
-            this.mode = { _tag: "UpdateFile", hunkLineNumber }
-            return
-          }
-          if (line.startsWith("-")) {
-            ensureChunk().oldLines.push(line.slice(1))
-            this.mode = { _tag: "UpdateFile", hunkLineNumber }
-            return
-          }
-          if (lastChunk !== undefined && (lastChunk.oldLines.length > 0 || lastChunk.newLines.length > 0)) {
+        const hunk = this.mode.hunk
+        const chunks = hunk.chunks
+        const lastChunk = chunks[chunks.length - 1]
+        if (lastChunk !== undefined && lastChunk.isEndOfFile) {
+          if (updateLine === "") return
+          if (updateLine !== EMPTY_CHANGE_CONTEXT_MARKER && !updateLine.startsWith(CHANGE_CONTEXT_MARKER)) {
             throw parseError(
               "invalid_hunk",
               `Expected update hunk to start with a @@ context marker, got: '${line}'`,
               this.lineNumber
             )
           }
+        }
+
+        if (chunks.length === 0 && hunk.movePath === undefined && updateLine.startsWith(MOVE_TO_MARKER)) {
+          hunk.movePath = updateLine.slice(MOVE_TO_MARKER.length)
+          return
+        }
+
+        if (
+          (updateLine === EMPTY_CHANGE_CONTEXT_MARKER || updateLine.startsWith(CHANGE_CONTEXT_MARKER)) &&
+          lastChunk !== undefined && lastChunk.oldLines.length === 0 && lastChunk.newLines.length === 0
+        ) {
+          throw unexpectedUpdateLine(line, this.lineNumber)
+        }
+
+        if (updateLine === EMPTY_CHANGE_CONTEXT_MARKER) {
+          chunks.push({ changeContext: undefined, oldLines: [], newLines: [], isEndOfFile: false })
+          return
+        }
+
+        if (updateLine.startsWith(CHANGE_CONTEXT_MARKER)) {
+          chunks.push({
+            changeContext: updateLine.slice(CHANGE_CONTEXT_MARKER.length),
+            oldLines: [],
+            newLines: [],
+            isEndOfFile: false
+          })
+          return
+        }
+
+        if (updateLine === EOF_MARKER) {
+          if (lastChunk !== undefined && lastChunk.oldLines.length === 0 && lastChunk.newLines.length === 0) {
+            throw parseError("invalid_hunk", "Update hunk does not contain any lines", this.lineNumber)
+          }
+          if (lastChunk !== undefined) lastChunk.isEndOfFile = true
+          return
+        }
+
+        const ensureChunk = (): UpdateFileChunk => {
+          if (chunks.length === 0) {
+            chunks.push({ changeContext: undefined, oldLines: [], newLines: [], isEndOfFile: false })
+          }
+          return chunks[chunks.length - 1]!
+        }
+
+        if (line === "") {
+          const chunk = ensureChunk()
+          chunk.oldLines.push("")
+          chunk.newLines.push("")
+          return
+        }
+        if (line.startsWith(" ")) {
+          const chunk = ensureChunk()
+          chunk.oldLines.push(line.slice(1))
+          chunk.newLines.push(line.slice(1))
+          return
+        }
+        if (line.startsWith("+")) {
+          ensureChunk().newLines.push(line.slice(1))
+          return
+        }
+        if (line.startsWith("-")) {
+          ensureChunk().oldLines.push(line.slice(1))
+          return
+        }
+        if (lastChunk !== undefined && (lastChunk.oldLines.length > 0 || lastChunk.newLines.length > 0)) {
+          throw parseError(
+            "invalid_hunk",
+            `Expected update hunk to start with a @@ context marker, got: '${line}'`,
+            this.lineNumber
+          )
         }
         throw unexpectedUpdateLine(line, this.lineNumber)
       }
