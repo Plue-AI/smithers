@@ -9990,7 +9990,23 @@
         "schema": {
           "type": "object",
           "properties": {
-            "repo": {
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "set",
+                    "delete",
+                    "scope",
+                    "bind"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
               "anyOf": [
                 {
                   "type": "string"
@@ -9999,206 +10015,8 @@
                   "type": "null"
                 }
               ]
-            }
-          },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "secrets.bind",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "maintainer",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Set the hosts and headers a repository secret may be sent to",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "hosts": {
-              "type": "string"
-            },
-            "headers": {
-              "type": "string"
             },
             "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "name",
-            "hosts",
-            "headers"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "secrets.delete",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "maintainer",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Delete a repository secret",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "name"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "secrets.read",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "read:repository",
-      "agent": "never",
-      "summary": "secrets.read",
-      "http": {
-        "method": "GET",
-        "path": "/api/secrets"
-      },
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "secrets.scope",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "maintainer",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Limit a repository secret to trusted runs on main, or give it to all branches",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "scope": {
-              "type": "string",
-              "enum": [
-                "main-only",
-                "all"
-              ]
-            },
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "name",
-            "scope"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "secrets.set",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "maintainer",
-      "credentialScope": "write:repository",
-      "agent": "never",
-      "summary": "Add a repository secret or replace its value",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "value": {
               "anyOf": [
                 {
                   "type": "string"
@@ -10252,7 +10070,7 @@
                 }
               ]
             },
-            "repo": {
+            "value": {
               "anyOf": [
                 {
                   "type": "string"
@@ -10263,10 +10081,115 @@
               ]
             }
           },
-          "required": [
-            "name"
-          ],
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "secrets.delete",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "Change secret",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/secrets/{name}"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "secrets.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "read:repository",
+      "agent": "never",
+      "summary": "secrets.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/secrets"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "secrets.scope",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "Change secret",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/secrets/{name}"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "secrets.set",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "Change secret",
+      "http": {
+        "method": "POST",
+        "path": "/api/secrets"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }

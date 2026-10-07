@@ -2524,7 +2524,7 @@ test("Branch copy identifies editing, running, settled questions and moved-off w
 
 // Literal oracles for T-UI-18; no fixture expectations or schemas supply these cases.
 describe("SecretsView write-only controls", () => {
-  const add: Action = { tag: "secrets.set", label: "Add", input: [
+  const add: Action = { args: { operation: "set" }, tag: "secrets", label: "Add", input: [
     { name: "name", label: "Name", kind: "text", required: true },
     { name: "value", label: "Value", kind: "secret", required: true, value: "never-prefill" },
     { name: "scope", label: "Scope", kind: "choice", required: true, choices: ["all_branches", "main_only"] },
@@ -2560,12 +2560,12 @@ describe("SecretsView write-only controls", () => {
     } finally { await m.close() }
   })
   for (const replace of [false, true]) test(`${replace ? "Replace" : "Add"} inputs, optional Hosts, submit and cancel clear Value`, async () => {
-    const action: Action = replace ? { ...add, label: "Replace", args: { name: "STRIPE_KEY" }, input: add.input!.slice(1) } : add
+    const action: Action = replace ? { ...add, label: "Replace", args: { operation: "set", name: "STRIPE_KEY" }, input: add.input!.slice(1) } : add
     const m = await mount({ secrets: replace ? [{ name: "STRIPE_KEY", scope: "main_only", actions: [action] }] : [] }, replace ? [] : [action])
     try {
       const password = m.host.querySelector<HTMLInputElement>('input[type="password"]')!
       expect(password.value).toBe("")
-      expect(m.host.querySelector("form")!.dataset.flow).toBe("secrets.set")
+      expect(m.host.querySelector("form")!.dataset.flow).toBe("secrets")
       if (!replace) await fill(m.host, "Name", "NEW_TOKEN")
       await fill(m.host, "Value", "literal-write")
       await fill(m.host, "Scope", "main_only")
@@ -2581,17 +2581,17 @@ describe("SecretsView write-only controls", () => {
       await act(async () => m.host.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
       expect(m.onAction).toHaveBeenCalledTimes(1)
       const [tag, args] = m.onAction.mock.calls[0]!
-      expect(tag).toBe("secrets.set")
+      expect(tag).toBe("secrets")
       // Compare the secret in memory without recording it in assertion output.
       expect(args?.value === "literal-write").toBe(true)
-      expect<Record<string, string>>({ ...args, value: "[redacted]" }).toEqual({ name: replace ? "STRIPE_KEY" : "NEW_TOKEN", value: "[redacted]", scope: "main_only", hosts: "api.example.com" })
+      expect<Record<string, string>>({ ...args, value: "[redacted]" }).toEqual({ operation: "set", name: replace ? "STRIPE_KEY" : "NEW_TOKEN", value: "[redacted]", scope: "main_only", hosts: "api.example.com" })
       m.onAction.mockClear()
       expect(password.value).toBe("")
       expect(m.onView).toHaveBeenCalledTimes(0)
     } finally { m.onAction.mockClear(); await m.close() }
   })
   test("disabled Add and Delete refuse clicks and form submission", async () => {
-    const m = await mount({ secrets: [{ name: "DEPLOY_TOKEN", scope: "main_only", actions: [{ tag: "secrets.delete", label: "Delete", args: { name: "DEPLOY_TOKEN" }, disabled: { reason: "Change pending" } }] }] }, [{ ...add, disabled: { reason: "Change pending" } }])
+    const m = await mount({ secrets: [{ name: "DEPLOY_TOKEN", scope: "main_only", actions: [{ tag: "secrets", label: "Delete", args: { operation: "delete", name: "DEPLOY_TOKEN" }, disabled: { reason: "Change pending" } }] }] }, [{ ...add, disabled: { reason: "Change pending" } }])
     try {
       for (const form of m.host.querySelectorAll("form")) await act(async () => {
         form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click()
@@ -2602,10 +2602,10 @@ describe("SecretsView write-only controls", () => {
     } finally { await m.close() }
   })
   test("Delete forwards supplied name exactly once", async () => {
-    const m = await mount({ secrets: [{ name: "TOKEN", scope: "main_only", actions: [{ tag: "secrets.delete", label: "Delete", args: { name: "TOKEN" } }] }] })
+    const m = await mount({ secrets: [{ name: "TOKEN", scope: "main_only", actions: [{ tag: "secrets", label: "Delete", args: { operation: "delete", name: "TOKEN" } }] }] })
     try {
       await act(async () => m.host.querySelector<HTMLButtonElement>("button")!.click())
-      expect(m.onAction.mock.calls).toEqual([["secrets.delete", { name: "TOKEN" }]])
+      expect(m.onAction.mock.calls).toEqual([["secrets", { operation: "delete", name: "TOKEN" }]])
     } finally { await m.close() }
   })
 })
@@ -2629,7 +2629,7 @@ test("Secrets stories keep minimal product copy and redact submitted values", as
           })
         }
         await act(async () => m.host.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
-        expect(m.onAction.mock.calls).toEqual([["secrets.set", { name: "NEW_TOKEN", value: "[redacted]", scope: "all_branches", hosts: "" }]])
+        expect(m.onAction.mock.calls).toEqual([["secrets", { operation: "set", name: "NEW_TOKEN", value: "[redacted]", scope: "all_branches", hosts: "" }]])
       }
     } finally { await m.close() }
   }

@@ -102,6 +102,8 @@ export interface FormHints {
    * that are missing, and only those.
    */
   readonly requires?: (payload: Readonly<Record<string, unknown>>) => ReadonlyArray<string>
+  /** Optional controls to retain when a variant asks only for missing required inputs. */
+  readonly optionalFields?: (payload: Readonly<Record<string, unknown>>) => ReadonlyArray<string>
 }
 
 export interface FormField {

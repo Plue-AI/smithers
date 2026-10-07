@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type CatalogTag = RegisteredCatalogTag | typeof historicalSettings[number] | "context.inspect"
+export type CatalogTag = RegisteredCatalogTag | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
 
 /**
  * An action form field.
@@ -48,8 +48,15 @@ export type FormField = z.infer<typeof FormFieldSchema>
  * @category schemas
  */
 const historicalSettings = ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup", "settings.fast-model"] as const
+const recordedSecretArgs = (tag: string, args: Readonly<Record<string, string>> = {}): Record<string, string> => {
+  const { value: _value, key: _key, token: _token, ...publicArgs } = args
+  const operation = tag.slice("secrets.".length)
+  return { ...publicArgs, operation, ...(operation === "scope" && publicArgs.scope ? {
+    scope: publicArgs.scope === "all" ? "all_branches" : publicArgs.scope === "main-only" ? "main_only" : publicArgs.scope
+  } : {}) }
+}
 export const ActionSchema = z.object({
-  tag: z.union([CatalogTagSchema, z.enum(historicalSettings), z.literal("context.inspect")]),
+  tag: z.union([CatalogTagSchema, z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
   label: z.string(),
   args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
@@ -57,7 +64,7 @@ export const ActionSchema = z.object({
   input: z.array(FormFieldSchema).optional()
 }).overwrite(action => historicalSettings.some(tag => tag === action.tag)
   ? { ...action, tag: "settings" as const, args: { ...action.args, operation: action.tag.slice("settings.".length) } }
-  : action.tag === "context.inspect" ? { ...action, tag: "run.inspect" as const } : { ...action, tag: CatalogTagSchema.parse(action.tag) })
+  : ["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"].some(tag => tag === action.tag) ? { ...action, tag: "secrets" as const, args: recordedSecretArgs(action.tag, action.args) } : action.tag === "context.inspect" ? { ...action, tag: "run.inspect" as const } : { ...action, tag: CatalogTagSchema.parse(action.tag) })
 
 /** Normalize recorded data before binding an action to a current executable door. */
 export const registeredAction = (input: z.infer<typeof ActionSchema>) => {
@@ -149,7 +156,7 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @category models
  */
 /** Historical tags are decodable data; no new typed command can use them. */
-export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalSettings[number] | "context.inspect"]: never }
+export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
 
 interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
@@ -219,7 +226,7 @@ interface CurrentCardCommandInput {
     readonly path?: string; readonly role?: ModelRoleId; readonly provider?: string; readonly model?: string; readonly action?: "remove" | "sign-in" | "sign-out"
     readonly step?: SetupStepId; readonly owner?: string; readonly repository?: string
   }
-  readonly "secrets": undefined
+  readonly "secrets": undefined | { readonly operation?: "set" | "delete" | "scope" | "bind"; readonly name?: string; readonly repo?: string; readonly value?: string; readonly scope?: "all_branches" | "main_only"; readonly hosts?: string; readonly headers?: string; readonly path?: string }
   readonly "members": undefined
   readonly "ssh": { readonly branch: string }
   readonly "sign-in": undefined
@@ -255,15 +262,6 @@ interface CurrentCardCommandInput {
   readonly "members.add": { readonly login: string; readonly role: "maintainer" | "member" }
   readonly "members.role": { readonly login: string; readonly role: "owner" | "maintainer" | "member" }
   readonly "members.remove": { readonly login: string }
-  readonly "secrets.set": {
-    readonly name: string
-    readonly value: string
-    readonly scope?: "all_branches" | "main_only"
-    readonly hosts?: string
-    readonly path?: string
-  }
-  readonly "secrets.delete": { readonly name: string }
-  readonly "secrets.scope": { readonly name: string; readonly scope: "all_branches" | "main_only" }
   readonly "code.hover": { readonly path: string; readonly line: number; readonly col: number }
   readonly "code.definition": { readonly path: string; readonly line: number; readonly col: number }
   readonly "draft.discard": z.infer<typeof DraftDiscardInputSchema>

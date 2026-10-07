@@ -1,3 +1,4 @@
+import { secretArgs } from "../../flows/SecretPayload"
 import type { StorageApi } from "@tanstack/db"
 import { afterEach, describe, expect, test } from "bun:test"
 
@@ -90,7 +91,7 @@ for (const [ticket, withheld] of withheldSecretsProviders) test(`Secrets product
   try {
     await heldReady(store, signupReads)
     expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "executed" })
-    expect(mount()).toContain('data-flow="secrets.set"')
+    expect(mount()).toContain('data-flow="secrets"')
     const pinned = secretsCard(store)!
     const key = withheld === "shared-family" ? "family" : withheld
     const original = providers[key]
@@ -104,16 +105,16 @@ for (const [ticket, withheld] of withheldSecretsProviders) test(`Secrets product
     const read = await bounded(controller.commands.run("secrets"))
     expect(read).toMatchObject(withheld === "scopedWrite" ? { status: "executed" } : { status: "failed", error: "Secrets unavailable" })
     const html = mount()
-    expect(html).not.toContain('data-flow="secrets.set"')
-    expect(html).not.toContain('data-flow="secrets.delete"')
+    expect(html).not.toContain('data-flow="secrets"')
+    expect(html).not.toContain('data-flow="secrets"')
     expect(html).not.toContain('type="password"')
     expect(html.includes("DEPLOY")).toBe(withheld === "scopedWrite")
-    const gesture = writeOnlyGesture("secrets.set", { value: "PRIVATE_MATRIX_VALUE" })
+    const gesture = writeOnlyGesture("secrets", { value: "PRIVATE_MATRIX_VALUE" })
     for (const command of [
-      { name: "secrets.set", payload: { name: "DEPLOY", repo: "will/flows" }, gesture },
-      { name: "secrets.delete", payload: { name: "DEPLOY", repo: "will/flows" } },
-      { name: "secrets.scope", payload: { name: "DEPLOY", scope: "all", repo: "will/flows" } },
-      { name: "secrets.bind", payload: { name: "DEPLOY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
+      { name: "secrets", payload: { operation: "set", name: "DEPLOY", repo: "will/flows" }, gesture },
+      { name: "secrets", payload: { operation: "delete", name: "DEPLOY", repo: "will/flows" } },
+      { name: "secrets", payload: { operation: "scope", name: "DEPLOY", scope: "all_branches", repo: "will/flows" } },
+      { name: "secrets", payload: { operation: "bind", name: "DEPLOY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
     ]) expect(await bounded(controller.commands.submit({ ...command, actor: "user" }))).toMatchObject({ status: "failed", error: "Secrets unavailable" })
     expect(gesture.takeWriteOnly?.("value")).toBeUndefined()
     expect(hits).toEqual([])
@@ -126,9 +127,9 @@ for (const [ticket, withheld] of withheldSecretsProviders) test(`Secrets product
     expect(store.session().draft).toBe("Chat still works")
     Reflect.set(providers, key, original)
     expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "executed" })
-    expect(mount()).toContain('data-flow="secrets.set"')
-    expect(await bounded(controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "DEPLOY", repo: "will/flows", scope: "main_only" },
-      gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_RESTORED_VALUE" }) }))).toMatchObject({ status: "executed", value: "Requested" })
+    expect(mount()).toContain('data-flow="secrets"')
+    expect(await bounded(controller.commands.submit({ name: "secrets", actor: "user", payload: { operation: "set", name: "DEPLOY", repo: "will/flows", scope: "main_only" },
+      gesture: writeOnlyGesture("secrets", { value: "PRIVATE_RESTORED_VALUE" }) }))).toMatchObject({ status: "executed", value: "Requested" })
     await bounded(Promise.allSettled([...pending]))
     for (let i = 0; i < 20 && store.session().secretRequests?.[0]?.state !== "completed"; i++) await checkpoint()
     expect(store.session().secretRequests?.[0]?.state).toBe("completed")
@@ -372,17 +373,17 @@ describe("secrets seam — secrets.scope", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, unavailableAgent, services)
     await ready(store)
-    const marked = await controller.commands.run("secrets.scope", "DEPLOY main-only")
+    const marked = await controller.commands.run("secrets", secretArgs("scope", "DEPLOY main-only"))
     expect(marked).toMatchObject({ status: "executed", value: "DEPLOY: main only" })
     expect(requests[0]).toMatchObject({ method: "PATCH", body: { main_only: true } })
     expect(requests[0]!.url).toEndWith("/api/repos/will/flows/secrets/DEPLOY")
-    expect(await controller.commands.run("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed", value: "DEPLOY: all branches" })
+    expect(await controller.commands.run("secrets", secretArgs("scope", "DEPLOY all"))).toMatchObject({ status: "executed", value: "DEPLOY: all branches" })
     expect(requests[1]).toMatchObject({ body: { main_only: false } })
-    const missing = await controller.commands.run("secrets.scope", "MISSING main-only")
+    const missing = await controller.commands.run("secrets", secretArgs("scope", "MISSING main-only"))
     expect(JSON.stringify(missing)).toContain("secret not found")
     // The agent may only ask to give a secret to all branches; a human confirms.
     const before = requests.length
-    expect(await controller.commands.runForAgent("secrets.scope", "DEPLOY all")).toMatchObject({ status: "failed" })
+    expect(await controller.commands.runForAgent("secrets", secretArgs("scope", "DEPLOY all"))).toMatchObject({ status: "failed" })
     expect(requests.length).toBe(before)
     const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.scope")
     expect(confirmation).toBeUndefined()
@@ -405,14 +406,14 @@ describe("secrets seam — secrets.bind", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, unavailableAgent, services)
     await ready(store)
-    const bind = (payload: Record<string, string>) => controller.commands.run("secrets.bind", JSON.stringify(payload))
+    const bind = (payload: Record<string, string>) => controller.commands.run("secrets", secretArgs("bind", JSON.stringify(payload)))
     expect(await bind({ name: "NPM_TOKEN", hosts: "registry.npmjs.org, npm.example.com", headers: "authorization" }))
       .toMatchObject({ status: "executed", value: "NPM_TOKEN: registry.npmjs.org, npm.example.com" })
     expect(requests[0]).toMatchObject({ method: "PATCH", body: { hosts: ["registry.npmjs.org", "npm.example.com"], match_headers: ["authorization"] } })
     expect(requests[0]!.url).toEndWith("/api/repos/will/flows/secrets/NPM_TOKEN")
     // A bare name opens the form; it never unbinds.
     expect(await bind({ name: "NPM_TOKEN" })).toMatchObject({ status: "form" })
-    expect(await controller.commands.run("secrets.bind", "NPM_TOKEN")).toMatchObject({ status: "form" })
+    expect(await controller.commands.run("secrets", secretArgs("bind", "NPM_TOKEN"))).toMatchObject({ status: "form" })
     expect(JSON.stringify(await bind({ name: "NPM_TOKEN", hosts: "registry.npmjs.org", headers: " , " }))).toContain("both hosts and headers")
     expect(JSON.stringify(await bind({ name: "bad name", hosts: "a.example.com", headers: "authorization" }))).toContain("letters, digits")
     expect(requests).toHaveLength(1)
@@ -420,7 +421,7 @@ describe("secrets seam — secrets.bind", () => {
     // A binding chooses where a value may go: the agent only asks, a human confirms.
     await store.dispatch({ type: "repo.selected", actor: "user", id: "will/flows" }).isPersisted.promise
     const before = requests.length
-    expect(await controller.commands.runForAgent("secrets.bind", JSON.stringify({ name: "NPM_TOKEN", hosts: "evil.example.com", headers: "authorization" })))
+    expect(await controller.commands.runForAgent("secrets", secretArgs("bind", JSON.stringify({ name: "NPM_TOKEN", hosts: "evil.example.com", headers: "authorization" }))))
       .toMatchObject({ status: "failed" })
     expect(requests.length).toBe(before)
     const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.bind")
@@ -617,7 +618,7 @@ test("install /secrets reads only its live topic and acknowledges a write before
     await checkpoint()
     expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "DEPLOY", mainOnly: true, hosts: ["api.example.test"], matchHeaders: [], updatedAt: null }])
     expect(hits).toEqual([])
-    const result = await bounded(controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "DEPLOY", repo: "will/flows" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_WRITE" }) }))
+    const result = await bounded(controller.commands.submit({ name: "secrets", actor: "user", payload: { operation: "set", name: "DEPLOY", repo: "will/flows" }, gesture: writeOnlyGesture("secrets", { value: "PRIVATE_WRITE" }) }))
     expect(result).toMatchObject({ status: "executed", value: "Requested" })
     await checkpoint()
     expect(hits[0]?.url).toBe("/api/secrets")
@@ -663,8 +664,8 @@ test("install /secrets shows a declared file path and sends a typed one with the
     await bounded(controller.commands.run("secrets"))
     await checkpoint()
     expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "ANTHROPIC_API_KEY", mainOnly: false, hosts: ["api.anthropic.com"], matchHeaders: [], updatedAt: null, path: "~/.config/anthropic/key" }])
-    const set = (payload: Record<string, string>, value: string) => bounded(controller.commands.submit({ name: "secrets.set", actor: "user",
-      payload: { repo: "will/flows", ...payload }, gesture: writeOnlyGesture("secrets.set", { value }) }))
+    const set = (payload: Record<string, string>, value: string) => bounded(controller.commands.submit({ name: "secrets", actor: "user",
+      payload: { operation: "set", repo: "will/flows", ...payload }, gesture: writeOnlyGesture("secrets", { value }) }))
     expect(await set({ name: "NPM_TOKEN", path: " ~/.npmrc " }, "PRIVATE_NPM")).toMatchObject({ status: "executed", value: "Requested" })
     expect(await set({ name: "ANTHROPIC_API_KEY", path: "" }, "PRIVATE_KEY")).toMatchObject({ status: "executed", value: "Requested" })
     expect(await set({ name: "OTHER" }, "PRIVATE_OTHER")).toMatchObject({ status: "executed", value: "Requested" })
@@ -688,12 +689,12 @@ test("an install without the live provider refuses /secrets and write gestures w
   try {
     await heldReady(store, signupReads)
     expect(await controller.commands.run("secrets")).toMatchObject({ status: "failed", error: "Secrets unavailable" })
-    const gesture = writeOnlyGesture("secrets.set", { value: "PRIVATE_MISSING_PROVIDER" })
+    const gesture = writeOnlyGesture("secrets", { value: "PRIVATE_MISSING_PROVIDER" })
     for (const command of [
-      { name: "secrets.set", payload: { name: "KEY", repo: "will/flows" }, gesture },
-      { name: "secrets.delete", payload: { name: "KEY", repo: "will/flows" } },
-      { name: "secrets.scope", payload: { name: "KEY", scope: "main-only", repo: "will/flows" } },
-      { name: "secrets.bind", payload: { name: "KEY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
+      { name: "secrets", payload: { operation: "set", name: "KEY", repo: "will/flows" }, gesture },
+      { name: "secrets", payload: { operation: "delete", name: "KEY", repo: "will/flows" } },
+      { name: "secrets", payload: { operation: "scope", name: "KEY", scope: "main_only", repo: "will/flows" } },
+      { name: "secrets", payload: { operation: "bind", name: "KEY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
     ]) expect(await controller.commands.submit({ ...command, actor: "user" })).toMatchObject({ status: "failed", error: "Secrets unavailable" })
     expect(gesture.takeWriteOnly?.("value")).toBeUndefined()
     expect(store.session().secretRequests ?? []).toEqual([])
@@ -715,7 +716,7 @@ test("outside an install the seed stands in until real metadata serves, then nev
     await controller.commands.run("secrets")
     expect(secretsCard(store)?.payload.secrets.map(row => [row.name, row.mainOnly])).toEqual([["STRIPE_TEST_KEY", false], ["SENTRY_DSN", true]])
     const { writeOnlyGesture } = await import("../../flows/CommandGesture")
-    expect(await controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "LOCAL_KEY", scope: "main_only" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_SEED" }) })).toMatchObject({ status: "executed", value: "Requested" })
+    expect(await controller.commands.submit({ name: "secrets", actor: "user", payload: { operation: "set", name: "LOCAL_KEY", scope: "main_only" }, gesture: writeOnlyGesture("secrets", { value: "PRIVATE_SEED" }) })).toMatchObject({ status: "executed", value: "Requested" })
     expect(secretsCard(store)?.payload.secrets.find(row => row.name === "LOCAL_KEY")?.mainOnly).toBe(true)
     expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_SEED")
     available = true
@@ -770,12 +771,12 @@ for (const withheld of ["unauthorized topic", "unsupported topic", "live decoder
       socket.onmessage?.({ data: JSON.stringify(frame) })
       await checkpoint()
       expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "failed", error: "Secrets unavailable" })
-      const gesture = writeOnlyGesture("secrets.set", { value: "PRIVATE_WITHHELD" })
+      const gesture = writeOnlyGesture("secrets", { value: "PRIVATE_WITHHELD" })
       for (const command of [
-        { name: "secrets.set", payload: { name: "DEPLOY", repo: "will/flows" }, gesture },
-        { name: "secrets.delete", payload: { name: "DEPLOY", repo: "will/flows" } },
-        { name: "secrets.scope", payload: { name: "DEPLOY", scope: "main-only", repo: "will/flows" } },
-        { name: "secrets.bind", payload: { name: "DEPLOY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
+        { name: "secrets", payload: { operation: "set", name: "DEPLOY", repo: "will/flows" }, gesture },
+        { name: "secrets", payload: { operation: "delete", name: "DEPLOY", repo: "will/flows" } },
+        { name: "secrets", payload: { operation: "scope", name: "DEPLOY", scope: "main_only", repo: "will/flows" } },
+        { name: "secrets", payload: { operation: "bind", name: "DEPLOY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
       ]) {
         expect(await bounded(controller.commands.submit({ ...command, actor: "user" }))).toMatchObject({ status: "failed", error: "Secrets unavailable" })
       }
@@ -787,7 +788,7 @@ for (const withheld of ["unauthorized topic", "unsupported topic", "live decoder
       }) }))
       expect(html).toContain('data-kind="secrets"')
       expect(html).not.toContain("DEPLOY")
-      expect(html).not.toContain('data-flow="secrets.set"')
+      expect(html).not.toContain('data-flow="secrets"')
       expect(html).not.toContain('type="password"')
       controller.changeDraft("Chat still works")
       expect(store.session().draft).toBe("Chat still works")
@@ -869,7 +870,7 @@ for (const failure of ["unavailable", "permission", "incompatible", "suspended"]
     await heldReady(store, signupReads)
     expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "executed" })
     expect(controller.membersRoster.get()).toMatchObject({ model: { members: [{ role: "owner" }] } })
-    expect(await mount()).toContain('data-flow="secrets.set"')
+    expect(await mount()).toContain('data-flow="secrets"')
     changed = true
     socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: memberTopic, cursor: 2, data: {} }) })
     await checkpoint()
@@ -877,16 +878,16 @@ for (const failure of ["unavailable", "permission", "incompatible", "suspended"]
     expect(controller.commands.state().viewerRole).toBeUndefined()
     const html = await mount()
     expect(html).toContain("DEPLOY")
-    expect(html).not.toContain('data-flow="secrets.set"')
-    expect(html).not.toContain('data-flow="secrets.delete"')
+    expect(html).not.toContain('data-flow="secrets"')
+    expect(html).not.toContain('data-flow="secrets"')
     expect(html).not.toContain('type="password"')
     const { writeOnlyGesture } = await import("../../flows/CommandGesture")
-    const gesture = writeOnlyGesture("secrets.set", { value: "PRIVATE_WITHHELD_ROSTER" })
+    const gesture = writeOnlyGesture("secrets", { value: "PRIVATE_WITHHELD_ROSTER" })
     for (const command of [
-      { name: "secrets.set", payload: { name: "DEPLOY", repo: "will/flows" }, gesture },
-      { name: "secrets.delete", payload: { name: "DEPLOY", repo: "will/flows" } },
-      { name: "secrets.scope", payload: { name: "DEPLOY", scope: "main-only", repo: "will/flows" } },
-      { name: "secrets.bind", payload: { name: "DEPLOY", hosts: "example.test", headers: "authorization", repo: "will/flows" } }
+      { name: "secrets", payload: { operation: "set", name: "DEPLOY", repo: "will/flows" }, gesture },
+      { name: "secrets", payload: { operation: "delete", name: "DEPLOY", repo: "will/flows" } },
+      { name: "secrets", payload: { operation: "scope", name: "DEPLOY", scope: "main_only", repo: "will/flows" } },
+      { name: "secrets", payload: { operation: "bind", name: "DEPLOY", hosts: "example.test", headers: "authorization", repo: "will/flows" } }
     ]) expect(await bounded(controller.commands.submit({ ...command, actor: "user" }))).toMatchObject({ status: "failed", error: "Secrets unavailable" })
     expect(gesture.takeWriteOnly?.("value")).toBeUndefined()
     expect(store.session().secretRequests ?? []).toEqual([])

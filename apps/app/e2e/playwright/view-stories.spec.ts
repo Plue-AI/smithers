@@ -673,7 +673,7 @@ test("Secrets Add, Cancel and absent actions use real controls", async ({ page }
     await form.getByRole("button", { name: "Add", exact: true }).focus()
     await page.keyboard.press("Enter")
     expect(await page.evaluate(() => (window as unknown as { secretCalls: unknown[] }).secretCalls)).toEqual([
-      { kind: "action", value: { tag: "secrets.set", args: { name: "NEW_TOKEN", value: "[redacted]", scope: "main_only", hosts: "api.example.com" } } }
+      { kind: "action", value: { tag: "secrets", args: { operation: "set", name: "NEW_TOKEN", value: "[redacted]", scope: "main_only", hosts: "api.example.com" } } }
     ])
     await expect(form.locator('input[type="password"]')).toHaveValue("")
     await page.goto(`/view-stories.html?story=SecretsView/member_view&theme=${theme}`)
@@ -713,7 +713,7 @@ test("Secrets optional Hosts, disabled forms and Delete use real controls", asyn
     await page.getByRole("button", { name: "Delete", exact: true }).first().focus()
     await page.keyboard.press("Space")
     expect(await page.evaluate(() => Reflect.get(window, "secretCalls"))).toEqual([
-      { kind: "action", value: { tag: "secrets.delete", args: { name: "NPM_TOKEN" } } }
+      { kind: "action", value: { tag: "secrets", args: { operation: "delete", name: "NPM_TOKEN" } } }
     ])
   }
 })
@@ -736,7 +736,7 @@ test("Secrets Replace keyboard form keeps values write-only", async ({ page }) =
     await form.locator('input[aria-label="Hosts"]').fill("")
     await form.getByRole("button", { name: "Replace" }).focus(); await page.keyboard.press("Enter")
     expect(await page.evaluate(() => (window as unknown as { secretCalls: unknown[] }).secretCalls)).toEqual([
-      { kind: "action", value: { tag: "secrets.set", args: { name: "STRIPE_KEY", value: "[redacted]", scope: "all_branches", hosts: "" } } },
+      { kind: "action", value: { tag: "secrets", args: { operation: "set", name: "STRIPE_KEY", value: "[redacted]", scope: "all_branches", hosts: "" } } },
     ])
     await expect(form.locator('input[type="password"]')).toHaveValue("")
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

@@ -1,3 +1,4 @@
+import { secretInput } from "../flows/SecretPayload"
 import { expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "../state/AppState"
@@ -17,7 +18,7 @@ for (const role of ["owner", "maintainer", "member"] as const) test(`${role} see
   expect(html).toContain("all branches"); expect(html).toContain("main only"); expect(html).toContain("a.example.com")
   expect(html).not.toContain("Bind"); expect(html).not.toContain("Rotate"); expect(html).not.toContain("<table")
   expect(html.includes('type="password"')).toBe(role !== "member")
-  expect(html.includes('data-flow="secrets.delete"')).toBe(role !== "member")
+  expect(html.includes('data-flow="secrets"')).toBe(role !== "member")
   expect(html).not.toContain("data-flow-args")
 })
 test("row commands share bindings; cancelled Delete and widening write nothing", () => {
@@ -26,23 +27,23 @@ test("row commands share bindings; cancelled Delete and widening write nothing",
   let accept = false
   renderToStaticMarkup(<SecretsCardBody card={card} role="owner" confirm={() => accept} dispatch={(tag, input) => calls.push({ tag, input })}
     View={value => { props = value; return null }} />)
-  props.onAction("secrets.delete", { name: "OPEN" })
-  props.onAction("secrets.scope", { name: "PINNED" })
+  props.onAction("secrets", secretInput("delete", { name: "OPEN" }))
+  props.onAction("secrets", secretInput("scope", { name: "PINNED" }))
   expect(calls).toEqual([])
   accept = true
-  props.onAction("secrets.delete", { name: "OPEN" })
-  props.onAction("secrets.scope", { name: "PINNED" })
-  props.onAction("secrets.set", { name: "PINNED", value: "private" })
-  expect(calls).toEqual([{ tag: "secrets.delete", input: { name: "OPEN" } },
-    { tag: "secrets.scope", input: { name: "PINNED", scope: "all_branches" } },
-    { tag: "secrets.set", input: { name: "PINNED", value: "private" } }])
+  props.onAction("secrets", secretInput("delete", { name: "OPEN" }))
+  props.onAction("secrets", secretInput("scope", { name: "PINNED" }))
+  props.onAction("secrets", secretInput("set", { name: "PINNED", value: "private" }))
+  expect(calls).toEqual([{ tag: "secrets", input: { operation: "delete", name: "OPEN" } },
+    { tag: "secrets", input: { operation: "scope", name: "PINNED", scope: "all_branches" } },
+    { tag: "secrets", input: { operation: "set", name: "PINNED", value: "private" } }])
   expect(JSON.stringify(props)).not.toContain("private")
   expect(JSON.stringify(card)).not.toContain("private")
 })
 test("member callbacks have no write authority", () => {
   let props!: SecretsViewProps; const calls: unknown[] = []
   renderToStaticMarkup(<SecretsCardBody card={card} dispatch={(tag, input) => calls.push({ tag, input })} View={value => { props = value; return null }} />)
-  props.onAction("secrets.delete", { name: "OPEN" }); expect(calls).toEqual([])
+  props.onAction("secrets", secretInput("delete", { name: "OPEN" })); expect(calls).toEqual([])
   expect(props.actions).toEqual([]); expect(props.model.secrets[0]?.actions).toEqual([])
 })
 
@@ -70,22 +71,22 @@ test("a declared file path shows on its row and travels with Add and Replace", (
   expect(props.model.secrets[0]?.path).toBe("~/.config/anthropic/key")
   const replace = props.model.secrets[0]!.actions.find(action => action.label === "Replace")!
   expect(replace.input?.find(field => field.name === "path")?.value).toBe("~/.config/anthropic/key")
-  props.onAction("secrets.set", { door: "add", name: "NPM_TOKEN", value: "v", scope: "all_branches", hosts: "", path: "~/.npmrc" })
-  props.onAction("secrets.set", { name: "ANTHROPIC_API_KEY", value: "v", hosts: "", path: "" })
-  props.onAction("secrets.set", { name: "OPEN", value: "v", hosts: "", path: "" })
+  props.onAction("secrets", secretInput("set", { door: "add", name: "NPM_TOKEN", value: "v", scope: "all_branches", hosts: "", path: "~/.npmrc" }))
+  props.onAction("secrets", secretInput("set", { name: "ANTHROPIC_API_KEY", value: "v", hosts: "", path: "" }))
+  props.onAction("secrets", secretInput("set", { name: "OPEN", value: "v", hosts: "", path: "" }))
   expect(calls).toEqual([
-    { tag: "secrets.set", input: { name: "NPM_TOKEN", value: "v", scope: "all_branches", hosts: "", path: "~/.npmrc" } },
-    { tag: "secrets.set", input: { name: "ANTHROPIC_API_KEY", value: "v", path: "" } },
-    { tag: "secrets.set", input: { name: "OPEN", value: "v" } }
+    { tag: "secrets", input: { operation: "set", name: "NPM_TOKEN", value: "v", scope: "all_branches", hosts: "", path: "~/.npmrc" } },
+    { tag: "secrets", input: { operation: "set", name: "ANTHROPIC_API_KEY", value: "v", path: "" } },
+    { tag: "secrets", input: { operation: "set", name: "OPEN", value: "v" } }
   ])
 })
 
 test("a known model key defaults to its provider host and header", async () => {
   const { secretsBinding } = await import("./SecretsCard")
-  expect(secretsBinding("secrets.set", { name: "ANTHROPIC_API_KEY" })).toEqual({ hosts: "api.anthropic.com", headers: "x-api-key" })
-  expect(secretsBinding("secrets.set", { name: "OPENAI_API_KEY", hosts: "" })).toEqual({ hosts: "api.openai.com", headers: "authorization" })
-  expect(secretsBinding("secrets.set", { name: "ANTHROPIC_API_KEY", hosts: "proxy.example.com" })).toEqual({ hosts: "proxy.example.com", headers: "x-api-key" })
-  expect(secretsBinding("secrets.set", { name: "NPM_TOKEN", hosts: "registry.npmjs.org" })).toEqual({ hosts: "registry.npmjs.org", headers: "authorization" })
-  expect(secretsBinding("secrets.set", { name: "NPM_TOKEN" })).toEqual({})
-  expect(secretsBinding("secrets.delete", { name: "ANTHROPIC_API_KEY" })).toEqual({})
+  expect(secretsBinding("secrets", secretInput("set", { name: "ANTHROPIC_API_KEY" }))).toEqual({ hosts: "api.anthropic.com", headers: "x-api-key" })
+  expect(secretsBinding("secrets", secretInput("set", { name: "OPENAI_API_KEY", hosts: "" }))).toEqual({ hosts: "api.openai.com", headers: "authorization" })
+  expect(secretsBinding("secrets", secretInput("set", { name: "ANTHROPIC_API_KEY", hosts: "proxy.example.com" }))).toEqual({ hosts: "proxy.example.com", headers: "x-api-key" })
+  expect(secretsBinding("secrets", secretInput("set", { name: "NPM_TOKEN", hosts: "registry.npmjs.org" }))).toEqual({ hosts: "registry.npmjs.org", headers: "authorization" })
+  expect(secretsBinding("secrets", secretInput("set", { name: "NPM_TOKEN" }))).toEqual({})
+  expect(secretsBinding("secrets", secretInput("delete", { name: "ANTHROPIC_API_KEY" }))).toEqual({})
 })

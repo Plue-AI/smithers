@@ -1,3 +1,4 @@
+import { secretInput, type SecretOperation } from "../flows/SecretPayload"
 import { useTopic } from "../state/useTopic"
 import { SecretsCardSchema, type SecretsViewProps } from "@smthrs/rpc/SecretsCard"
 import type { Card } from "../state/AppState"
@@ -18,6 +19,11 @@ const providerBindings: Readonly<Record<string, { readonly hosts: string; readon
   OPENAI_API_KEY: { hosts: "api.openai.com", headers: "authorization" }
 }
 
+const secretControl = (operation: SecretOperation, definition: CardActionDefinition<"secrets">): CardActionDefinition<"secrets"> => ({
+  ...definition, args: { ...definition.args, operation }, command_input: secretInput(operation, definition.command_input ?? {}),
+  ...(definition.resolve_input ? { resolve_input: input => secretInput(operation, definition.resolve_input!(input) ?? {}) } : {})
+})
+
 export const SecretsCardBody = ({ card, dispatch, role = "member", View = SecretsView, confirm = message => window.confirm(message) }: {
   readonly card: StoredSecrets
   readonly dispatch: CardCommandDispatch
@@ -27,29 +33,29 @@ export const SecretsCardBody = ({ card, dispatch, role = "member", View = Secret
 }) => {
   const definitions: CardActionDefinition[] = []
   if (role !== "member") {
-    definitions.push({ tag: "secrets.set", label: "Add", args: { door: "add" }, command_input: { name: "", value: "" },
+    definitions.push(secretControl("set", { tag: "secrets", label: "Add", args: { door: "add" }, command_input: { name: "", value: "" },
       input: [{ name: "name", label: "NAME", kind: "text", required: true },
         { name: "value", label: "Value", kind: "secret", required: true },
         { name: "scope", label: "Scope", kind: "choice", choices: ["all_branches", "main_only"], required: true },
         { name: "hosts", label: "Hosts", kind: "text", required: false },
         { name: "path", label: "Path", kind: "text", required: false }],
-      resolve_input: input => ({ name: input.name ?? "", value: input.value ?? "", scope: input.scope === "main_only" ? "main_only" : "all_branches", hosts: input.hosts, ...(input.path ? { path: input.path } : {}) }) })
+      resolve_input: input => ({ name: input.name ?? "", value: input.value ?? "", scope: input.scope === "main_only" ? "main_only" : "all_branches", hosts: input.hosts, ...(input.path ? { path: input.path } : {}) }) }))
     for (const secret of card.payload.secrets) {
-      definitions.push({ tag: "secrets.set", label: "Replace", args: { name: secret.name }, command_input: { name: secret.name, value: "" },
+      definitions.push(secretControl("set", { tag: "secrets", label: "Replace", args: { name: secret.name }, command_input: { name: secret.name, value: "" },
         input: [{ name: "value", label: "Value", kind: "secret", required: true },
           { name: "hosts", label: "Hosts", kind: "text", required: false },
           { name: "path", label: "Path", kind: "text", required: false, ...(secret.path ? { value: secret.path } : {}) }],
         /* The field starts at the stored path; clearing it removes the file. */
         resolve_input: input => ({ name: secret.name, value: input.value ?? "", ...(input.hosts ? { hosts: input.hosts } : {}),
-          ...(input.path || (secret.path && input.path === "") ? { path: input.path } : {}) }) },
-        { tag: "secrets.scope", label: secret.mainOnly ? "all branches" : "main only", args: { name: secret.name },
-          command_input: { name: secret.name, scope: secret.mainOnly ? "all_branches" : "main_only" } },
-        { tag: "secrets.delete", label: "Delete", args: { name: secret.name }, command_input: { name: secret.name } })
+          ...(input.path || (secret.path && input.path === "") ? { path: input.path } : {}) }) }),
+        secretControl("scope", { tag: "secrets", label: secret.mainOnly ? "all branches" : "main only", args: { name: secret.name },
+          command_input: { name: secret.name, scope: secret.mainOnly ? "all_branches" : "main_only" } }),
+        secretControl("delete", { tag: "secrets", label: "Delete", args: { name: secret.name }, command_input: { name: secret.name } }))
     }
   }
   const bindings = cardActions((tag, input) => {
-    if (tag === "secrets.delete" && !confirm(`Delete ${(input as { name: string }).name}?`)) return
-    if (tag === "secrets.scope" && (input as { scope: string }).scope === "all_branches" && !confirm("Give to all branches?")) return
+    if (tag === "secrets" && (input as { operation?: string }).operation === "delete" && !confirm(`Delete ${(input as { name: string }).name}?`)) return
+    if (tag === "secrets" && (input as { operation?: string }).operation === "scope" && (input as { scope: string }).scope === "all_branches" && !confirm("Give to all branches?")) return
     return dispatch(tag, input)
   }, definitions)
   return <View model={{ secrets: card.payload.secrets.map(secret => ({ name: secret.name,
@@ -75,8 +81,7 @@ const SecretsBody = ({ card }: { card: StoredSecrets }) => {
   const role = install ? providers?.authority?.() ?? "member" : controller.membersRole()
   return <SecretsCardBody card={projected} View={install ? providers?.View : SecretsView} role={unavailable ? "member" : role} dispatch={(name, input) => {
     const payload: Record<string, unknown> = { ...(input ?? {}), repo: card.payload.repo || undefined }
-    if (name === "secrets.scope") payload.scope = payload.scope === "main_only" ? "main-only" : "all"
-    const gesture = name === "secrets.set" ? writeOnlyGesture(name, { value: String(payload.value ?? "") }) : undefined
+    const gesture = name === "secrets" && payload.operation === "set" ? writeOnlyGesture(name, { value: String(payload.value ?? "") }) : undefined
     Object.assign(payload, secretsBinding(name, payload))
     delete payload.value
     return controller.commands.submit({ name, payload, actor: "user", gesture })
@@ -85,7 +90,7 @@ const SecretsBody = ({ card }: { card: StoredSecrets }) => {
 
 /** A save's hosts and headers: a known model key defaults to its provider; other hosts send Authorization. */
 export const secretsBinding = (tag: string, payload: Readonly<Record<string, unknown>>): Record<string, string> => {
-  if (tag !== "secrets.set") return {}
+  if (tag !== "secrets" || payload.operation !== "set") return {}
   const known = providerBindings[String(payload.name ?? "")]
   const hosts = typeof payload.hosts === "string" && payload.hosts.trim() !== "" ? payload.hosts : known?.hosts
   return hosts ? { hosts, headers: known?.headers ?? "authorization" } : {}

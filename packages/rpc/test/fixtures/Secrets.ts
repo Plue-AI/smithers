@@ -15,13 +15,13 @@ const secret = (name: string, scope: Secret["scope"], hosts?: string[]): Secret 
   scope,
   ...(hosts === undefined ? {} : { hosts }),
   actions: [
-    { tag: "secrets.set", label: "Replace", args: { name }, input: fields(scope, hosts?.join(", ")) },
-    { tag: "secrets.delete", label: "Delete", args: { name } }
+    { tag: "secrets", label: "Replace", args: { operation: "set", name }, input: fields(scope, hosts?.join(", ")) },
+    { tag: "secrets", label: "Delete", args: { operation: "delete", name } }
   ]
 })
 const add: Action = {
-  tag: "secrets.set",
-  label: "Add",
+  tag: "secrets",
+  label: "Add", args: { operation: "set" },
   primary: true,
   input: [{ name: "name", label: "Name", kind: "text", required: true }, ...fields("all_branches")]
 }
@@ -46,7 +46,7 @@ export const fixtures = {
     { secrets: [secret("NPM_TOKEN", "all_branches"), secret("RELEASE_TOKEN", "main_only", ["registry.npmjs.org"])] },
     { actions: [add], expect: ["NPM_TOKEN", "RELEASE_TOKEN"] }
   ),
-  disabled: story("Secret change unavailable", { secrets: [{ name: "DEPLOY_TOKEN", scope: "main_only", actions: [{ tag: "secrets.delete", label: "Delete", args: { name: "DEPLOY_TOKEN" }, disabled: { reason: "Change pending" } }] }] }, { expect: ["DEPLOY_TOKEN", "Change pending"] }),
+  disabled: story("Secret change unavailable", { secrets: [{ name: "DEPLOY_TOKEN", scope: "main_only", actions: [{ tag: "secrets", label: "Delete", args: { operation: "delete", name: "DEPLOY_TOKEN" }, disabled: { reason: "Change pending" } }] }] }, { expect: ["DEPLOY_TOKEN", "Change pending"] }),
   file_path: story(
     "A model key delivered as a file",
     { secrets: [{ ...secret("ANTHROPIC_API_KEY", "all_branches", ["api.anthropic.com"]), path: "~/.config/anthropic/key" }] },

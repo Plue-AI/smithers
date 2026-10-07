@@ -24,13 +24,10 @@ const roundTrip = <N extends FlowWithInput>(name: N, input: FlowInput[N], line: 
 }
 
 describe("flowArgs — one serialisation, and the grammar gives the values back", () => {
-  test("secrets.set carries a file path while keeping write-only values out of its grammar", () => {
+  test("secrets preserves a file path and excludes write-only values from arguments", () => {
     for (const path of [undefined, "~/.config/tool/key", "/run/smithers/files/team key"]) {
-      const input = { name: "API_TOKEN", hosts: "api.example.com", headers: "authorization", repo: "owner/repo", ...(path === undefined ? {} : { path }) }
-      roundTrip("secrets.set", input, JSON.stringify(input), input)
-      for (const forbidden of [{ value: "private-value" }, { typo: "unsupported" }]) {
-        expect(payloadFor("secrets.set", JSON.stringify({ ...input, ...forbidden }))).toEqual({ error: "secrets.set takes name, hosts, headers, path, repo" })
-      }
+      const input = { operation: "set" as const, name: "API_TOKEN", hosts: "api.example.com", headers: "authorization", repo: "owner/repo", ...(path === undefined ? {} : { path }) }
+      expect(flowArgs("secrets", { ...input, value: "private-value" })).toBe(JSON.stringify(input))
     }
   })
   test("flow.run retains the selected branch machine and source card", () => {

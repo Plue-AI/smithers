@@ -1,3 +1,4 @@
+import { secretInput } from "./SecretPayload"
 import type { CardCallbacks, CardCommandInput, CardProps, CatalogTag } from "@smthrs/rpc/CardAction"
 import { describe, expect, test } from "bun:test"
 import { cardActions, type CardCommandDispatch } from "./cardActions"
@@ -261,18 +262,18 @@ describe("catalog card action bindings", () => {
     const { calls, run } = recordingDispatch()
     const bindings = cardActions(run, [
       // secrets.set's encoder is JSON of the whole payload, value included.
-      {
-        tag: "secrets.set",
+      { args: { operation: "set" },
+        tag: "secrets",
         label: "Add",
         input: [
           { name: "name", label: "Name", kind: "text", required: true },
           { name: "value", label: "Value", kind: "secret", required: true }
         ],
-        command_input: { name: "OPENAI_API_KEY", value: "" },
-        resolve_input: (input) => ({ name: input.name!, value: input.value!, scope: "all_branches" })
+        command_input: { operation: "set", name: "OPENAI_API_KEY", value: "" },
+        resolve_input: (input) => ({ operation: "set", name: input.name!, value: input.value!, scope: "all_branches" })
       },
       // A secret-bearing command with its value bound by the Container and no form field.
-      { scope: "row", tag: "secrets.set", label: "Replace", command_input: { name: "GITHUB_TOKEN", value: secret } },
+      { args: { operation: "set" }, scope: "row", tag: "secrets", label: "Replace", command_input: { operation: "set", name: "GITHUB_TOKEN", value: secret } },
       // A command with a canonical line grammar whose form has a secret field.
       {
         tag: "flow.run",
@@ -283,8 +284,8 @@ describe("catalog card action bindings", () => {
       }
     ])
     const bound = [
-      bindings.actionProps("secrets.set", { name: "OPENAI_API_KEY", value: secret }),
-      bindings.forScope("row").actionProps("secrets.set"),
+      bindings.actionProps("secrets", secretInput("set", { name: "OPENAI_API_KEY", value: secret })),
+      bindings.forScope("row").actionProps("secrets"),
       bindings.actionProps("flow.run", { token: secret })
     ]
     for (const props of bound) expect(props["data-flow-args"]).toBeUndefined()
@@ -307,13 +308,13 @@ describe("catalog card action bindings", () => {
         .flatMap((element) => [...element.attributes].map((attribute) => attribute.value ?? ""))
       expect(attributes.length).toBeGreaterThan(0)
       expect(attributes.some((value) => value.includes(secret))).toBe(false)
-      expect(warmed.map(({ tag }) => tag)).toEqual(["secrets.set", "secrets.set", "flow.run"])
+      expect(warmed.map(({ tag }) => tag)).toEqual(["secrets", "secrets", "flow.run"])
       expect(JSON.stringify(warmed).includes(secret)).toBe(false)
       expect(calls).toEqual([])
       for (const button of buttons) button.click()
       expect(calls).toEqual([
-        { tag: "secrets.set", input: { name: "OPENAI_API_KEY", value: secret, scope: "all_branches" } },
-        { tag: "secrets.set", input: { name: "GITHUB_TOKEN", value: secret } },
+        { tag: "secrets", input: { operation: "set", name: "OPENAI_API_KEY", value: secret, scope: "all_branches" } },
+        { tag: "secrets", input: { operation: "set", name: "GITHUB_TOKEN", value: secret } },
         { tag: "flow.run", input: { name: "deploy", input: { token: secret } } }
       ])
     } finally {

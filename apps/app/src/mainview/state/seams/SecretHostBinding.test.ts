@@ -1,3 +1,4 @@
+import { secretArgs } from "../../flows/SecretPayload"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 
@@ -59,7 +60,7 @@ describe("secrets seam — exact secret hosts", () => {
     })
     await settled()
     const bind = (hosts: string) =>
-      controller.commands.run("secrets.bind", JSON.stringify({ name: "DEPLOY_KEY", hosts, headers: "authorization" }))
+      controller.commands.run("secrets", secretArgs("bind", JSON.stringify({ name: "DEPLOY_KEY", hosts, headers: "authorization" })))
 
     for (const host of ["*.ngrok-free.app", "127.0.0.0/8"]) {
       const result = await bind(`api.example.com, ${host}`)

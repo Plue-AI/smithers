@@ -38,8 +38,8 @@ describe("Secrets", () => {
   })
   test("rows carry Replace and Delete bound to their name; a member sees none", () => {
     expect(row.actions.map((action) => [action.tag, action.label, action.args])).toEqual([
-      ["secrets.set", "Replace", { name: "NPM_TOKEN" }],
-      ["secrets.delete", "Delete", { name: "NPM_TOKEN" }]
+      ["secrets", "Replace", { operation: "set", name: "NPM_TOKEN" }],
+      ["secrets", "Delete", { operation: "delete", name: "NPM_TOKEN" }]
     ])
     expect(fixtures.member_view.model.secrets[0]!.actions).toEqual([])
     expect(fixtures.member_view.actions).toEqual([])

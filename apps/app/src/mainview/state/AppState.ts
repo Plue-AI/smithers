@@ -1,3 +1,4 @@
+import { secretArgs, type SecretOperation } from "../flows/SecretPayload"
 import { publicSettingsInput } from "../flows/SettingsPayload"
 import { BranchTreeNodeCardSchema } from "@smthrs/rpc/BranchTreeNodeCard"
 import type { ConversationHistory } from "./ConversationHistory"
@@ -560,6 +561,7 @@ const savedRunView = (args?: string): string => {
   } catch { /* Invalid historical input must refuse rather than target another run. */ }
   return "{}"
 }
+const savedSecret = (flow: string, args?: string): string => secretArgs(flow.slice("secrets.".length) as SecretOperation, args)
 const savedContext = (args?: string): string => {
   try { if (args?.trim().startsWith("{")) {
     const input: unknown = JSON.parse(args)
@@ -584,7 +586,7 @@ const savedSettings = (flow: string, args?: string): string => {
   return JSON.stringify(publicSettingsInput({ ...payload, operation }))
 }
 const currentAction = <T extends { readonly flow: string; readonly args?: string }>(action: T): Omit<T, "flow" | "args"> & { flow: string; args?: string } => ({
-  ...action, flow: currentFlowName(action.flow), ...(action.flow.startsWith("settings.") && currentFlowName(action.flow) === "settings" ? { args: savedSettings(action.flow, action.args) } : action.flow === "context.inspect" ? { args: savedContext(action.args) } : action.flow === "run.view" ? { args: savedRunView(action.args) } : action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
+  ...action, flow: currentFlowName(action.flow), ...(action.flow.startsWith("settings.") && currentFlowName(action.flow) === "settings" ? { args: savedSettings(action.flow, action.args) } : ["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"].includes(action.flow) ? { args: savedSecret(action.flow, action.args) } : action.flow === "context.inspect" ? { args: savedContext(action.args) } : action.flow === "run.view" ? { args: savedRunView(action.args) } : action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
     ? { args: savedDocsRead(action.args) } : {})
 })
 const MessageActionSchema = MessageActionBaseSchema.transform(currentAction)

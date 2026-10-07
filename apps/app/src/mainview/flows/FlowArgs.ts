@@ -1,3 +1,4 @@
+import { publicSecretInput } from "./SecretPayload"
 import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
@@ -52,12 +53,7 @@ export interface FlowInput {
   readonly "change.checks": { readonly changeId: string; readonly seq: number }
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
-  /** Carried as JSON: the form opens with these and asks for the value. */
-  readonly "secrets.set": { readonly name?: string; readonly hosts?: string; readonly headers?: string; readonly path?: string; readonly repo: string }
-  readonly "secrets.delete": { readonly name: string; readonly repo: string }
-  readonly "secrets.scope": { readonly name: string; readonly scope: "main-only" | "all"; readonly repo: string }
-  /** Carried as JSON: the form opens with the name and asks for the hosts and headers. */
-  readonly "secrets.bind": { readonly name: string; readonly repo: string }
+  readonly "secrets": NonNullable<import("@smthrs/rpc/CardAction").CardCommandInput["secrets"]>
   readonly "issues.close": { readonly number: number; readonly repo: string }
   readonly "issues.reopen": { readonly number: number; readonly repo: string }
   readonly "findings.please-fix": { readonly changeId: string; readonly findingId: number }
@@ -219,10 +215,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
-  "secrets.set": payload => JSON.stringify(payload),
-  "secrets.delete": payload => line(token(payload, "name"), token(payload, "repo")),
-  "secrets.scope": payload => line(token(payload, "name"), token(payload, "scope"), token(payload, "repo")),
-  "secrets.bind": payload => JSON.stringify(payload),
+  "secrets": payload => JSON.stringify(publicSecretInput(payload)),
   "issues.close": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.reopen": payload => line(token(payload, "number"), token(payload, "repo")),
   "findings.please-fix": payload => line(token(payload, "changeId"), token(payload, "findingId")),

@@ -96,6 +96,13 @@ export const httpProjections = [
   read("confirmations.read", "/api/confirmations"),
   read("members.list", "/api/members", "never"),
   read("secrets.read", "/api/secrets", "never"),
+  // HTTP authorization retains operation-specific write fences. These descriptors
+  // are not browser, slash, CLI or model doors; /secrets owns the controls.
+  ...(["set", "scope", "delete"] as const).map(op => operation({
+    name: `secrets.${op}`, input: NoInput, summary: "Change secret", hidden: true, visibility: "hidden", slash: null, cli: null,
+    http: { method: op === "set" ? "POST" : op === "scope" ? "PATCH" : "DELETE", path: op === "set" ? "/api/secrets" : "/api/secrets/{name}" },
+    minimumRole: "maintainer", agent: "never", credentialScope: "write:repository", actors: ["person"]
+  })),
   operation({ name: "agent.turn", input: NoInput, summary: "Ask agent", hidden: true, visibility: "hidden", agent: "run", credentialScope: "read:user",
     actors: ["person", "app_agent", "external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/conversations/{id}/prompt" } }),
   operation({ name: "telemetry.report", credentialScope: "read:user", input: NoInput, summary: "Report error", hidden: true, visibility: "hidden", agent: "run",

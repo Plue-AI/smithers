@@ -15,7 +15,7 @@ function SecretAction({ action, onAction }: { action: Action; onAction: SecretsV
     if (action.disabled) return
     onAction(action.tag, { ...action.args, ...values, ...(valueField ? { [valueField]: secretValue.current?.value ?? "" } : {}) })
   }
-  return <form className="setup-action" data-flow={action.tag} onSubmit={event => {
+  return <form className="setup-action" data-flow={action.tag} data-operation={action.args?.operation} onSubmit={event => {
     event.preventDefault()
     try { submit() } finally { setInput({}); event.currentTarget.reset() }
   }}>
@@ -24,7 +24,7 @@ function SecretAction({ action, onAction }: { action: Action; onAction: SecretsV
         {field.choices?.map(choice => <option key={choice} value={choice}>{scopeWords[choice as keyof typeof scopeWords] ?? choice}</option>)}
       </select> : <input ref={field.kind === "secret" ? secretValue : undefined} name={field.name} id={`${id}-${field.name}`} aria-label={field.label} placeholder={field.label} type={field.kind === "secret" ? "password" : "text"} autoComplete={field.kind === "secret" ? "new-password" : "off"} value={field.kind === "secret" ? undefined : values[field.name]} defaultValue={field.kind === "secret" ? "" : undefined} required={field.required} disabled={!!action.disabled} onChange={event => { if (field.kind !== "secret") setInput({ ...input, [field.name]: event.target.value }) }} />}
     </div>)}
-    <button type="submit" data-flow={action.tag} disabled={!!action.disabled}>{action.label}</button>
+    <button type="submit" data-flow={action.tag} data-operation={action.args?.operation} disabled={!!action.disabled}>{action.label}</button>
     {action.input?.length ? <button type="button" onClick={event => { event.currentTarget.form?.reset(); setInput({}) }}>Cancel</button> : null}
     {action.disabled ? <span className="setup-reason">{action.disabled.reason}</span> : null}
   </form>

@@ -1,121 +1,70 @@
-/*
- * The `secrets` flows. One module per namespace: a lane that adds or edits a
- * flow here touches no other flow module, and Flows.ts registers each block in
- * the aggregator order.
- */
 import { Schema } from "effect"
-import { flow, RepoTarget } from "./Declare"
+import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
+import { payloadFor } from "../SlashPayload"
+import { publicSecretInput } from "../SecretPayload"
 
-/** The `secrets` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "secrets", label: "Secrets", summary: "Secrets a repository's sessions may use" }
-
-/** The repository a secrets.scope names, or the active one. */
 const scopeRepo = (actions: CommandActions, payload: Record<string, unknown>): string | undefined =>
-  (typeof payload["repo"] === "string" ? payload["repo"] : undefined) ?? actions.activeRepository() ?? undefined
+  (typeof payload.repo === "string" ? payload.repo : undefined) ?? actions.activeRepository() ?? undefined
+const fields = {
+  name: Schema.optional(Schema.String), repo: Schema.optional(Schema.String),
+  scope: Schema.optional(Schema.Literals(["all_branches", "main_only"])),
+  hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), path: Schema.optional(Schema.String), value: Schema.optional(Schema.String)
+}
+const required: Readonly<Record<string, readonly string[]>> = {
+  set: ["name", "value"], delete: ["name"], scope: ["name", "scope"], bind: ["name", "hosts", "headers"]
+}
+const nameAndRepo = Schema.Struct({ name: Schema.String, repo: fields.repo })
+const scopeInput = Schema.Struct({ name: Schema.String, repo: fields.repo, scope: Schema.Literals(["all_branches", "main_only"]) })
+const bindInput = Schema.Struct({ name: Schema.String, repo: fields.repo, hosts: Schema.String, headers: Schema.String })
+const setInput = Schema.Struct({ name: Schema.String, repo: fields.repo, scope: fields.scope, hosts: fields.hosts, headers: fields.headers, path: fields.path })
 
-/** The `secrets` flows registered as one aggregator block. */
-export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "secrets.scope", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
-    summary: "Limit a repository secret to trusted runs on main, or give it to all branches",
-    runtimeAny: ["cloud", "install"],
-    args: "<name> <main-only|all> [owner/repo]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ name: Schema.String, scope: Schema.Literals(["main-only", "all"]), repo: Schema.optional(Schema.String) }),
-    /*
-     * Giving a main-only secret to all branches hands it to agent runs, so the
-     * agent may only ask; the human confirms, for the repository named at
-     * ask time.
-     */
-    confirm: payload => payload["scope"] === "all"
-      ? `give ${String(payload["name"])} to all branches in ${scopeRepo(actions, payload) ?? "the selected repository"}`
-      : undefined,
-    confirmArgs: payload => {
-      const repo = scopeRepo(actions, payload)
-      return repo === undefined ? undefined : `${String(payload["name"])} ${String(payload["scope"])} ${repo}`
-    },
-    handler: ({ name, scope, repo }) => actions.scopeSecret(name, scope, repo)
-  }),
-  flow({
-    name: "secrets.bind", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
-    summary: "Set the hosts and headers a repository secret may be sent to",
-    runtimeAny: ["cloud", "install"],
-    args: "<NAME> [owner/repo]",
-    requires: ["signed-in"],
-    input: Schema.Struct({
-      name: Schema.String, hosts: Schema.String, headers: Schema.String, repo: Schema.optional(Schema.String)
-    }),
-    form: {
-      submitLabel: "Save",
-      args: payload => JSON.stringify(Object.fromEntries(["name", "hosts", "headers", "repo"].flatMap(key =>
-        typeof payload[key] === "string" && payload[key] !== "" ? [[key, payload[key]]] : []))),
-      fields: {
-        name: { label: "Name", placeholder: "NPM_TOKEN", kind: "text" },
-        hosts: { label: "Hosts", placeholder: "registry.npmjs.org", kind: "text", required: true },
-        headers: { label: "Headers", placeholder: "authorization", kind: "text", required: true },
-        repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" }
-      }
-    },
-    /* A binding chooses where a secret's value may be sent, so the agent may only ask. */
-    confirm: payload => `bind secret ${String(payload["name"])} in ${scopeRepo(actions, payload) ?? "the selected repository"}`,
-    /* The confirmation carries the repository named at ask time, so switching repositories cannot retarget it. */
-    confirmArgs: payload => {
-      const repo = scopeRepo(actions, payload)
-      return repo === undefined ? undefined : JSON.stringify({ name: payload["name"], hosts: payload["hosts"], headers: payload["headers"], repo })
-    },
-    handler: ({ name, hosts, headers, repo }) => actions.bindSecret({ name, hosts, headers, repo })
-  }),
-  flow({
-    name: "secrets.set", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
-    summary: "Add a repository secret or replace its value",
-    runtimeAny: ["cloud", "install"],
-    args: "<NAME> [owner/repo]",
-    requires: ["signed-in"],
-    input: Schema.Struct({
-      name: Schema.String, value: Schema.optional(Schema.String),
-      scope: Schema.optional(Schema.Literals(["all_branches", "main_only"])), hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String),
-      path: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
-    }),
-    form: {
-      submitLabel: "Save",
-      args: payload => JSON.stringify(Object.fromEntries(["name", "hosts", "headers", "path", "repo"].flatMap(key =>
-        typeof payload[key] === "string" && payload[key] !== "" ? [[key, payload[key]]] : []))),
-      fields: {
-        name: { label: "Name", placeholder: "API_TOKEN", kind: "text" },
-        value: { label: "Value", kind: "write-only", required: true },
-        hosts: { label: "Hosts", placeholder: "api.example.com", kind: "text" },
-        headers: { label: "Headers", placeholder: "authorization", kind: "text" },
-        path: { label: "Path", placeholder: "~/.config/tool/key", kind: "text" },
-        /* Shown so a slash-opened form names where the save goes; the card's doors fill it. */
-        repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" }
-      }
-    },
-    handler: ({ name, scope, hosts, headers, path, repo }, _signal, _call, gesture) => actions.setSecret({ name, scope, hosts, headers, path, repo }, gesture)
-  }),
-  flow({
-    name: "secrets.delete", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
-    summary: "Delete a repository secret",
-    runtimeAny: ["cloud", "install"],
-    args: "<NAME> [owner/repo]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ name: Schema.String, repo: Schema.optional(Schema.String) }),
-    confirm: payload => `delete secret ${String(payload["name"])} from ${scopeRepo(actions, payload) ?? "the selected repository"}`,
-    confirmArgs: payload => {
-      const repo = scopeRepo(actions, payload)
-      return repo === undefined ? undefined : `${String(payload["name"])} ${repo}`
-    },
-    handler: ({ name, repo }) => actions.deleteSecret(name, repo)
-  }),
-  flow({
-    name: "secrets", slash: "/secrets", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", agent: "never", http: null,
-    summary: "Set secrets machines can use",
-    runtimeAny: ["cloud", "install"],
-    args: "[owner/repo]",
-    requires: ["signed-in"],
-    input: RepoTarget,
-    prepare: ({ repo }) => actions.listSecrets.preload?.(repo),
-    handler: ({ repo }) => actions.listSecrets(repo)
-  })
-]
+export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [flow({
+  name: "secrets", slash: "/secrets", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core",
+  actors: ["person"], minimumRole: "member", agent: "never", http: null,
+  summary: "Set secrets machines can use", runtimeAny: ["cloud", "install"], args: "[owner/repo]", requires: ["signed-in"],
+  grammar: args => {
+    if (!args?.trim().startsWith("{")) return payloadFor("secrets", args)
+    try {
+      const input: unknown = JSON.parse(args)
+      return input && typeof input === "object" && !Array.isArray(input)
+        ? { payload: publicSecretInput(input as Record<string, unknown>) } : { error: "Enter a JSON object" }
+    } catch { return { error: "Enter a JSON object" } }
+  },
+  input: Schema.Struct({ operation: Schema.optional(Schema.Literals(["set", "delete", "scope", "bind"])), ...fields }),
+  preflight: input => {
+    if (!input.operation) return
+    const role = actions.secretsProviders?.authority?.() ?? actions.snapshot().viewerRole
+    return role === undefined ? "Secrets unavailable" : role === "owner" || role === "maintainer" ? undefined : "Maintainer required"
+  },
+  form: { submitLabel: "Save", args: input => JSON.stringify(publicSecretInput(input)),
+    requires: input => required[String(input.operation)] ?? [],
+    optionalFields: input => input.operation === "set" ? ["hosts", "headers", "path", "repo"] : [],
+    fields: { operation: { hidden: true }, name: { label: "Name", kind: "text" },
+      value: { label: "Value", kind: "write-only", required: false },
+      hosts: { label: "Hosts", kind: "text" }, headers: { label: "Headers", kind: "text" },
+      path: { label: "Path", kind: "text" }, repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" } }
+  },
+  confirm: payload => payload.operation === "delete"
+    ? `delete secret ${String(payload.name)} from ${scopeRepo(actions, payload) ?? "the selected repository"}`
+    : payload.operation === "bind" ? `bind secret ${String(payload.name)} in ${scopeRepo(actions, payload) ?? "the selected repository"}`
+    : payload.operation === "scope" && payload.scope === "all_branches"
+      ? `give ${String(payload.name)} to all branches in ${scopeRepo(actions, payload) ?? "the selected repository"}` : undefined,
+  confirmArgs: payload => {
+    if (payload.operation !== "delete" && payload.operation !== "bind" && !(payload.operation === "scope" && payload.scope === "all_branches")) return
+    const repo = scopeRepo(actions, payload)
+    return repo === undefined ? undefined : JSON.stringify(publicSecretInput({ ...payload, repo }))
+  },
+  prepare: input => input.operation === undefined ? actions.listSecrets.preload?.(input.repo) : undefined,
+  handler: (input, _signal, _call, gesture) => {
+    switch (input.operation) {
+      case "set": return actions.setSecret(Schema.decodeUnknownSync(setInput)(input), gesture)
+      case "delete": { const value = Schema.decodeUnknownSync(nameAndRepo)(input); return actions.deleteSecret(value.name, value.repo) }
+      case "bind": return actions.bindSecret(Schema.decodeUnknownSync(bindInput)(input))
+      case "scope": { const value = Schema.decodeUnknownSync(scopeInput)(input); return actions.scopeSecret(value.name, value.scope === "main_only" ? "main-only" : "all", value.repo) }
+      default: return actions.listSecrets(input.repo)
+    }
+  }
+})]

@@ -22,3 +22,11 @@ it("persisted Settings actions decode their operation without registering anothe
 it("saved context inspection is data decoded to the current inspection command", () => {
   expect(ActionSchema.parse({ tag: "context.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } })).toEqual({ tag: "run.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } })
 })
+
+
+it("saved secret controls retain their operation and discard private values", () => {
+  for (const operation of ["set", "scope", "delete", "bind"]) {
+    const saved = ActionSchema.parse({ tag: `secrets.${operation}`, label: "Saved", args: { name: "KEY", value: "private", key: "private", token: "private", ...(operation === "scope" ? { scope: "all" } : {}) } })
+    expect(saved).toEqual({ tag: "secrets", label: "Saved", args: { name: "KEY", operation, ...(operation === "scope" ? { scope: "all_branches" } : {}) } })
+  }
+})

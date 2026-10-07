@@ -878,7 +878,10 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     },
     submit: async ({ name, payload, actor, display, invocation, gesture, originCardId }) => {
       const clean = canonicalCommandName(name)
-      if (actor === "user") return runAs("user", clean, display, new Set(), invocation, payload, undefined, gesture, originCardId)
+      if (actor === "user") {
+        try { return await runAs("user", clean, display, new Set(), invocation, payload, undefined, gesture, originCardId) }
+        finally { gesture?.release() }
+      }
       const early = lifecycle?.before?.({ name: clean, actor: "smithers", source: "form", invocation }, display, payload)
       if (early !== undefined) return early
       return runAs("agent", clean, display, new Set(), { ...(invocation ?? unscopedInvocation) }, payload)
