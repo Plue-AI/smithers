@@ -48,7 +48,8 @@ are not copied into artifacts. A driver is not reference-host evidence: no
 passing real-stack run has been recorded yet. The operator must ensure this
 runner is the second Mac and the selected install is the reference Mac mini.
 
-Outstanding: agent-first-token, warm-wake and rebase-hold drivers,
+Outstanding: production timing/action bindings for agent-first-token, warm-wake
+and rebase-hold,
 browser and SSH fixtures, remaining §20.3 latency/wake/burst producers,
 qualified network/machine security evidence,
 real raw-sample artifacts, second-Mac runs, and
@@ -158,3 +159,31 @@ T-TRM-01, and the acceptance/state-write host observer export is not yet
 implemented. Those must be supplied before a reference-host run can pass;
 a client stopwatch or wake histogram cannot substitute for the host log.
 Run offline validation with `node --test scripts/perf/warm-wake.test.mjs`.
+
+`agent-first-token.mjs` drives the main conversation on the second Mac. It uses
+member A, the main conversation page, origin, owner cookie and install version.
+Five warmups precede the twenty fixed questions repeated five times with a fixed
+shuffle seed. The Enter keydown, first rendered answer text, and completed answer
+with a File/wiki card use one browser monotonic clock. The driver reads model
+metadata from the owner install API, verifies the server identity and conversation
+access of the member fixture, reads Inspect, and cross-checks the wake counter.
+It refuses missing Inspect preflight phases, host-monotonic `at`/`clock` receipts,
+model/context or the wake counter. Existing preflight duration alone cannot
+qualify those receipts. No reference-host run has been executed.
+
+`lib/member.mjs` verifies each supplied Playwright storage-state session through
+`GET /api/user` and `GET /api/conversations/main`. Co-editing refuses two states
+that authenticate as the same member, even when the files have different names.
+These are checks of operator-provided fixtures; no credentials or fake sessions
+are minted. SSH fixtures still require the member's configured identity, trusted
+host key, branch destination and verified write attribution.
+
+`rebase-hold.mjs` contains a sample-driving contract tested with **test-only**
+dependency boundaries. It sequences 100 ordinary and 100 delayed acknowledgement
+rebases, retains typed markers, verifies guest hold clocks, activity and approvals,
+and waits for delayed outbox drain. It restores the acknowledgement window on
+failure. Its production adapter needs T-STK-08's Rebase now action and guest hold
+logs, T-APP-14's edits, an acknowledgement-delay fixture and lifecycle qualification.
+Invoking it uses the shared runner and reports incomplete (exit 2). Contract tests
+emit no performance artifacts or passing check receipts. Browser C-PERF fixmes
+remain. The existing upstream warm-wake implementation is retained in full.

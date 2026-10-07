@@ -50,7 +50,9 @@ export async function run({ env = process.env, providers = productionProviders, 
     if (refusal) { entry.reason = refusal; continue }
     const provider = providers[budget.check]
     if (!provider) {
-      entry.reason = ['keystroke', 'disk-write'].includes(budget.name)
+      entry.reason = budget.name === 'rebase-hold'
+        ? `contract driver exists; production binding requires ${budget.tickets.join(', ')} and qualified ${activation.join(', ')} receipts`
+        : ['agent-first-token', 'keystroke', 'disk-write', 'warm-wake'].includes(budget.name)
         ? `standalone driver exists; activation requires ${budget.tickets.join(', ')} and qualified ${activation.join(', ')} receipts`
         : `production measurement driver not implemented; requires ${budget.tickets.join(', ')} and owner-reviewed seams`
       continue
@@ -84,12 +86,14 @@ export async function run({ env = process.env, providers = productionProviders, 
   return { summary, directory: await writeRun(root, summary), exit: status === 'passed' ? 0 : status === 'failed' ? 1 : 2 }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export async function runSelected(check = process.argv[2]) {
   try {
     const result = await run({ root: process.env.SMITHERS_PERF_ARTIFACT_ROOT, origin: process.env.SMITHERS_PERF_ORIGIN, token: process.env.SMITHERS_PERF_OWNER_COOKIE ? { cookie: process.env.SMITHERS_PERF_OWNER_COOKIE } : process.env.SMITHERS_PERF_TOKEN,
       installVersion: process.env.SMITHERS_PERF_INSTALL_VERSION, browser: process.env.SMITHERS_PERF_BROWSER,
-      check: process.argv[2], commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
+      check, commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
     console.log(JSON.stringify({ ...result.summary, directory: result.directory }))
-    process.exitCode = result.exit
-  } catch (error) { console.error(error.message); process.exitCode = 2 }
+    return result.exit
+  } catch (error) { console.error(error.message); return 2 }
 }
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = await runSelected()

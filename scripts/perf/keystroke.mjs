@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { publicOrigin, readHost } from './lib/host.mjs'
+import { authenticatedMember, distinctMembers } from './lib/member.mjs'
 import { summarize } from './lib/stats.mjs'
 import { writeRun } from './lib/artifact.mjs'
 
@@ -64,6 +65,8 @@ export async function run(env = process.env) {
     browser = await chromium.launch()
     result.browser = browser.version()
     const contexts = await Promise.all([env.SMITHERS_PERF_MEMBER_A, env.SMITHERS_PERF_MEMBER_C].map(storageState => browser.newContext({ storageState, permissions: ['clipboard-read', 'clipboard-write'] })))
+    result.members = await Promise.all(contexts.map(context => authenticatedMember(context, config.origin)))
+    distinctMembers(result.members)
     const [a, c] = await Promise.all(contexts.map(context => context.newPage()))
     for (const page of [a, c]) {
       await page.goto(config.page)

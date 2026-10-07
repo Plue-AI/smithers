@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { publicOrigin, readHost } from './lib/host.mjs'
+import { authenticatedMember } from './lib/member.mjs'
 import { summarize } from './lib/stats.mjs'
 import { writeRun } from './lib/artifact.mjs'
 
@@ -50,6 +51,7 @@ export async function run(env = process.env, { persist = true } = {}) {
     const appRequire = createRequire(resolve('apps/app/package.json'))
     browser = await appRequire('@playwright/test').chromium.launch()
     const context = await browser.newContext({ storageState: env.SMITHERS_PERF_MEMBER_A })
+    result.member = await authenticatedMember(context, config.origin)
     const tabs = await Promise.all(Array.from({ length: 3 }, () => context.newPage()))
     await Promise.all(tabs.map(async page => {
       await page.goto(config.origin)
