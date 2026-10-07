@@ -246,6 +246,34 @@ func testSecretsComposed(t *testing.T, install bool) {
 		return names
 	}
 
+	// HTTP writes feed the same branch delivery snapshot used by provisioning.
+	// Rotation, main-only scope and deletion must remove stale values and names.
+	const canary = "http-canary-0123456789abcdef0123456789"
+	const replacement = "http-replacement-0123456789abcdef0123"
+	injector := services.NewSecretInjector(q, nil)
+	assertSnapshot := func(want map[string]string) {
+		t.Helper()
+		snapshot, err := injector.RepositorySecrets(ctx, repo.ID, false)
+		require.NoError(t, err)
+		require.Equal(t, want, snapshot.Secrets)
+		require.Equal(t, want, snapshot.Env)
+		require.Empty(t, snapshot.Bound)
+	}
+	for _, value := range []string{canary, replacement} {
+		status, body := request(ownerSession, "POST", "/secrets", fmt.Sprintf(`{"name":"CANARY_TOKEN","value":%q}`, value))
+		require.Equal(t, 201, status, body)
+		encoded, err := json.Marshal(body)
+		require.NoError(t, err)
+		require.NotContains(t, string(encoded), value)
+		assertSnapshot(map[string]string{"CANARY_TOKEN": value})
+	}
+	statusScope, scopeBody := request(ownerSession, "PATCH", "/secrets/CANARY_TOKEN", `{"main_only":true}`)
+	require.Equal(t, 200, statusScope, scopeBody)
+	assertSnapshot(map[string]string{})
+	statusDelete, deleteBody := request(ownerSession, "DELETE", "/secrets/CANARY_TOKEN", "")
+	require.Equal(t, 204, statusDelete, deleteBody)
+	assertSnapshot(map[string]string{})
+
 	// The owner's and a maintainer's sessions add, replace and delete.
 	for _, tc := range []struct {
 		who  credential
