@@ -144,6 +144,9 @@ func projectTodoPause(next *db.MythicalItem, projection mythicalProjection, upda
 		return
 	}
 	if update.State.Terminal() {
+		if !pause.Resuming && pause.At == nil {
+			pause.Failure, pause.FailureOp = "Finished before Stop", "stop"
+		}
 		pause.Requested, pause.Resuming = false, false
 		next.PausedAt = pgtype.Timestamptz{}
 		next.Checks = checks.encode()

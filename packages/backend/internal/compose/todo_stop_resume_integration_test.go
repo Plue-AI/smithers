@@ -306,4 +306,21 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	require.EqualValues(t, 1, saved.Attempt)
 	require.Equal(t, "run-1", saved.RequestRunID)
 	require.Equal(t, digest, saved.FlowDigest.String)
+	// Completion may win after admission but before the next pause boundary.
+	// It must settle the Stop request visibly, rather than leave a live toast.
+	status, _ = call("POST", `{"op":"stop"}`, "stop-at-completion")
+	require.Equal(t, 202, status)
+	select {
+	case <-receiver.signals:
+	case <-time.After(5 * time.Second):
+		t.Fatal("final Stop was not dispatched")
+	}
+	output := `{"plan":{"changes":[]},"outcome":{"status":"validated","rounds":1,"blocked":null,"result":{"status":"validated","findings":[],"changes":[]}}}`
+	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{Scope: scope, State: jobs.StateCompleted,
+		Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, Target: target, FlowID: "todo", RunID: "run-1", ExecutionDigest: digest,
+			Run: &flowruntime.Run{RunID: "run-1", FlowID: "todo", Status: "completed", FinalOutput: &output}}}))
+	_, card = call("GET", "", "")
+	require.NotContains(t, card, "pause")
+	require.Equal(t, map[string]any{"op": "stop", "message": "Finished before Stop"}, card["control_failure"])
+
 }

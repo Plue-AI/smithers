@@ -1,28 +1,54 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { issueTodoInstall } from "./issue-todo-fixture"
+import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 
-// UI projection of .specs/engineering/checks/C-STK-08.md.
-// Requires scenario-specific seeded events; backend and reference-host receipts remain separate.
-// Written before implementation: mvp.md §4.1, J10.5; lands with T-STK-01
-test("C-STK-08: independent waits survive Resume and an external merge wins", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §4.1, J10.5; lands with T-STK-01")
-  await owner(page)
-  await page.goto("/smithers-mvp-canary/node")
-  // Required seed: T1 paused with a retained question and a machine wait;
-  // release admission after Resume, then deliver an external GitHub merge.
+// Installed app seam/card with a controlled HTTP projection. PostgreSQL wait
+// ordering and actual GitHub/microVM observations have separate receipts.
+test("C-STK-08: Resume retains independent questions and an external merge wins", async ({ page }) => {
+  await issueTodoInstall(page)
+  const model = structuredClone(fixtures.needs_you.model)
+  model.n = 1
+  model.pause = { reason: "person", since: "2026-10-07T00:00:00Z" }
+  const originalWaits = structuredClone(model.waits)
+  const writes: unknown[] = []
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/1", route => {
+    if (route.request().method() !== "POST") return route.fulfill({ json: model })
+    writes.push(route.request().postDataJSON())
+    model.control_failure = undefined
+    return route.fulfill({ status: 202, json: { state: "accepted", n: 1, attempt: model.run!.attempt } })
+  })
+  await page.goto("/")
   await say(page, "/todo T1")
-  const card = () => page.locator(".smithers-card").last()
-  await expect(card()).toContainText("Paused")
-  await card().getByRole("button", { name: "Resume", exact: true }).press("Enter")
-  await expect(card()).toContainText("Queued")
-  await expect(card()).toContainText("waiting for a machine")
-  await expect(card()).toContainText("Starting")
-  await expect(card()).toContainText("Needs you")
-  await expect(card().getByRole("button", { name: "Answer", exact: true })).toBeVisible()
+  const card = () => page.getByRole("article", { name: "TODO T1" }).last()
+  const notice = page.locator('.notice[data-tone="live"]').filter({ hasText: model.title })
+  await expect(card().locator("header .state")).toContainText("Needs you")
   await expect(card().getByRole("button", { name: "Stop", exact: true })).toHaveCount(0)
-  await expect(card()).toContainText("Merged")
+  await card().getByRole("button", { name: "Resume", exact: true }).press("Enter")
+  await expect.poll(() => writes.length).toBe(1)
+  await expect(notice).toBeVisible()
+  model.control_failure = { op: "resume", message: "Resume failed" }
+  await expect(notice).toHaveCount(0)
+  await expect(page.getByText("Resume failed", { exact: true })).toBeVisible()
+  await expect(card().getByRole("button", { name: "Answer", exact: true })).toBeVisible()
+  await card().getByRole("button", { name: "Resume", exact: true }).press("Enter")
+  await expect.poll(() => writes.length).toBe(2)
+  await expect(notice).toBeVisible()
+  model.pause = undefined
+  await expect(notice).toHaveCount(0)
+  await expect(card().locator("header .state")).toContainText("Needs you")
+  await expect(card().getByRole("button", { name: "Answer", exact: true })).toBeVisible()
+  expect(model.waits).toEqual(originalWaits)
+  expect(writes).toEqual([{ op: "resume" }, { op: "resume" }])
+  // A later authoritative terminal projection supersedes all prior waits.
+  model.state = "merged"
+  model.waits = []
+  model.merge = { state: "done", on_github: true }
+  await expect(card().locator("header .state")).toContainText("Merged")
   await expect(card().getByRole("button", { name: "Answer", exact: true })).toHaveCount(0)
   await page.reload()
   await say(page, "/todo T1")
-  await expect(card()).toContainText("Merged")
+  await expect(card().locator("header .state")).toContainText("Merged")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
 })
