@@ -307,3 +307,49 @@ func stageBurst(ctx context.Context, tx pgx.Tx, branch string, event Event, inco
 	_, err = tx.Exec(ctx, `DELETE FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2 AND outcome=$3`, branch, id, outcome)
 	return true, assembled, err
 }
+
+// Hint publishes an authenticated file invalidation through the existing
+// LISTEN broker. It creates no activity, version row or durable receipt.
+func (s *BurstIngest) Hint(ctx context.Context, connection *Connection, branch string, event Event) error {
+	if s == nil || s.Pool == nil || s.Objects == nil || s.ResolveActor == nil {
+		return ErrNotReady
+	}
+	if connection == nil || connection.registry == nil || connection.boot == nil {
+		return ErrUnauthorized
+	}
+	if event.Seq != 0 || event.EventID != ([16]byte{}) {
+		return wire.BadValue
+	}
+	hint, err := wire.DecodeFileWritten(event.Payload)
+	if err != nil {
+		return err
+	}
+	if !validBurstPath(hint.Path) {
+		return wire.BadValue
+	}
+	r := connection.registry
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !connection.current() || connection.boot.branch != branch {
+		return ErrUnauthorized
+	}
+	if !connection.ready {
+		return ErrNotReady
+	}
+	actor, err := s.ResolveActor(ctx, branch, hint.Actor)
+	if err != nil {
+		return err
+	}
+	if !json.Valid(actor) {
+		return ErrUnauthorized
+	}
+	data, err := json.Marshal(map[string]any{"kind": "file_written", "path": hint.Path, "post_digest": hint.PostDigest, "actor": json.RawMessage(actor)})
+	if err != nil {
+		return err
+	}
+	if len(data) >= 8000 {
+		return wire.BadValue
+	}
+	_, err = s.Pool.Exec(ctx, `SELECT pg_notify($1,$2)`, "branch_"+strings.ReplaceAll(branch, "-", "")+"_files", string(data))
+	return err
+}

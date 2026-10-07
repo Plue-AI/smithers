@@ -27,6 +27,9 @@ type Source struct {
 	// Hints are the broker channels whose notifications mean the facts may
 	// have changed (the stack's mythical_<repo>).
 	Hints []string
+	// WithHints may attach transient invalidations to a freshly authorized
+	// snapshot. Hints are never retained as durable events or replay cursors.
+	WithHints func(context.Context, json.RawMessage, []sse.Event) (json.RawMessage, error)
 	// Every rebuilds without a hint, for facts no notification covers (a
 	// run's steps, a machine's state).
 	Every time.Duration
@@ -182,17 +185,20 @@ func (s *stream) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-events:
+		case event, ok := <-events:
 			if !ok {
 				stop()
 				events, stop = nil, nil
 				continue
 			}
-			// One rebuild answers every hint already waiting.
-			for drained := false; !drained; {
+			hints := []sse.Event{event}
+			// Bound each batch; remaining notifications wake the next rebuild.
+			for drained := false; !drained && len(hints) < 256; {
 				select {
-				case _, ok = <-events:
-					if !ok {
+				case event, ok = <-events:
+					if ok {
+						hints = append(hints, event)
+					} else {
 						stop()
 						events, stop = nil, nil
 						drained = true
@@ -201,7 +207,7 @@ func (s *stream) run(ctx context.Context) {
 					drained = true
 				}
 			}
-			s.refresh(ctx)
+			s.refresh(ctx, hints...)
 		case <-ticker.C:
 			listen()
 			s.refresh(ctx)
@@ -212,8 +218,11 @@ func (s *stream) run(ctx context.Context) {
 // refresh builds the snapshot and sends it when its bytes changed. A build
 // that fails keeps the last snapshot; a stream that never built one tells
 // its subscribers so, once.
-func (s *stream) refresh(ctx context.Context) {
+func (s *stream) refresh(ctx context.Context, hints ...sse.Event) {
 	data, err := s.source.Build(ctx)
+	if err == nil && len(hints) > 0 && s.source.WithHints != nil {
+		data, err = s.source.WithHints(ctx, data, hints)
+	}
 	if ctx.Err() != nil {
 		return
 	}
