@@ -19,10 +19,10 @@ for (const selection of ["historical", "empty", "unavailable"] as const) {
     const turn = page.locator('[data-shared-turn="old-turn"]')
     await expect(turn).toContainText("Stored answer")
     await expect(turn.getByRole("button", { name: "Inspect", exact: true })).toHaveCount(0)
-    if (selection !== "unavailable") await expect(turn.locator(".mvp-context-toggle")).toHaveCount(0)
+    if (selection !== "unavailable") await expect(turn.locator(".context-toggle")).toHaveCount(0)
     else {
       await turn.getByRole("button", { name: "Context · 1", exact: true }).press("Enter")
-      await expect(turn.locator("button.mvp-context-chip")).toHaveCount(0)
+      await expect(turn.locator("button.context-chip")).toHaveCount(0)
       if (selection === "unavailable") await expect(turn.getByText("Unpinned page", { exact: true })).toBeVisible()
     }
     await page.reload()
