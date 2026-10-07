@@ -2,9 +2,9 @@
 /**
  * Generate the proof page (proof-page.ts) from the recorded proof run.
  *
- *   bun apps/app/proof/page.ts [--features <json>] [--results <json>] [--mock <json>] [--out <dir>]
+ *   bun apps/app/proof/page.ts --features <json> [--results <json>] [--mock <json>] [--out <dir>]
  *
- * Defaults: .specs/product/features.json, apps/app/test-results/proof/results.json,
+ * The feature manifest is supplied explicitly. Defaults: apps/app/test-results/proof/results.json,
  * apps/app/proof/mock-steps.json (the mock's journeys when absent) and
  * apps/app/test-results/proof-page/index.html.
  *
@@ -24,10 +24,15 @@ const flag = (args: ReadonlyArray<string>, name: string): string | undefined => 
 const main = async (): Promise<void> => {
   const root = resolve(dirname(new URL(import.meta.url).pathname), "../../..")
   const args = process.argv.slice(2)
+  const features = flag(args, "features")
+  if (!features || features.startsWith("--")) {
+    console.error("proofPage: --features <json> is required")
+    process.exit(1)
+  }
   const app = join(root, "apps/app")
   const options: GenerateOptions = {
     root,
-    features: resolve(flag(args, "features") ?? join(root, ".specs/product/features.json")),
+    features: resolve(features),
     results: resolve(flag(args, "results") ?? join(app, "test-results/proof/results.json")),
     mock: resolve(flag(args, "mock") ?? join(app, "proof/mock-steps.json")),
     out: resolve(flag(args, "out") ?? join(app, "test-results/proof-page"))
