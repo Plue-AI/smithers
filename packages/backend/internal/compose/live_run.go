@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,13 +25,25 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 	if run == "" || repository <= 0 || member <= 0 {
 		return live.Source{}, live.UnknownTopic
 	}
+	workspace := ""
+	if prefix, id, qualified := strings.Cut(run, ":"); qualified {
+		if prefix == "" || id == "" {
+			return live.Source{}, live.UnknownTopic
+		}
+		workspace, run = prefix, id
+	}
 	var raw, admission []byte
-	err := t.changePool.QueryRow(ctx, `SELECT d.external_receipt, r.payload FROM product_job_dispatches d
-		JOIN product_job_requests r ON r.id=d.operation_id
-		WHERE r.operation=$1 AND d.external_receipt->>'runId'=$2
-		AND d.external_receipt->'target'->>'TenantID'=$3
-		ORDER BY r.created_at DESC LIMIT 1`, flowdispatch.OperationLaunch, run, "repository:"+strconv.FormatInt(repository, 10)).Scan(&raw, &admission)
-	if errors.Is(err, pgx.ErrNoRows) {
+	var matches int64
+	err := t.changePool.QueryRow(ctx, `WITH matches AS (
+        SELECT DISTINCT ON (d.external_receipt->'target'->>'WorkspaceID') d.external_receipt, r.payload
+        FROM product_job_dispatches d JOIN product_job_requests r ON r.id=d.operation_id
+        WHERE r.operation=$1 AND d.external_receipt->>'runId'=$2
+        AND d.external_receipt->'target'->>'TenantID'=$3
+        AND ($4='' OR d.external_receipt->'target'->>'WorkspaceID'=$4)
+        ORDER BY d.external_receipt->'target'->>'WorkspaceID', r.created_at DESC
+    ) SELECT external_receipt, payload, count(*) OVER () FROM matches LIMIT 1`,
+		flowdispatch.OperationLaunch, run, "repository:"+strconv.FormatInt(repository, 10), workspace).Scan(&raw, &admission, &matches)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && matches != 1 {
 		return live.Source{}, live.UnknownTopic
 	}
 	var checkpoint flowdispatch.RuntimeCheckpoint
@@ -61,7 +74,7 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 	// Legacy receipts without a pin retain their journal read. Only admitted
 	// metadata can name a version; reading never admits another TODO run.
 	reader := runProjectionReader{call: t.presence.dispatcher.CallRPC, target: checkpoint.Target, run: run, pin: launch.Pin, draft: draft}
-	return live.Source{Key: "run:" + run, Every: 250 * time.Millisecond, Log: &live.LogSource{Page: func(ctx context.Context, after *int64) (live.LogPage, error) {
+	return live.Source{Key: fmt.Sprintf("run:%d:%q:%q", repository, checkpoint.Target.WorkspaceID, run), Every: 250 * time.Millisecond, Log: &live.LogSource{Page: func(ctx context.Context, after *int64) (live.LogPage, error) {
 		if err := authorize(ctx); err != nil {
 			return live.LogPage{}, err
 		}

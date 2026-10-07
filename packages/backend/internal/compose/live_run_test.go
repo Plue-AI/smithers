@@ -126,6 +126,15 @@ func TestLiveRunComposedCheckpointAndReplay(t *testing.T) {
 	require.Equal(t, initial.Cursor, repeated.Cursor)
 	require.Equal(t, initial.Data, repeated.Data)
 	other.CloseNow()
+	qualified := f.dial(t)
+	sendPresenceFrame(t, qualified, fmt.Sprintf(`{"t":"sub","id":1,"topic":"run:%s:fixture-run"}`, f.row.ID))
+	qualifiedFrame := readPresenceFrame(t, qualified)
+	require.Equal(t, "snap", qualifiedFrame.T)
+	require.Equal(t, initial.Data, qualifiedFrame.Data)
+	sendPresenceFrame(t, qualified, `{"t":"sub","id":2,"topic":"run:unknown-workspace:fixture-run"}`)
+	require.Equal(t, "unknown_topic", readPresenceFrame(t, qualified).Code)
+	qualified.CloseNow()
+
 	// The shipped LiveChannel decodes the real socket frames and carries its
 	// own cursor across a dropped connection. No route or socket is mocked.
 	client := exec.CommandContext(t.Context(), "bun", "testdata/live/run-client.mjs", f.origin, f.cookie)
@@ -204,5 +213,35 @@ func TestLiveRunReaderRejectsInvalidSource(t *testing.T) {
 				require.True(t, page.Gap)
 			}
 		})
+	}
+}
+
+func TestLiveRunQualifiedIdentityRefusesAmbiguousRawID(t *testing.T) {
+	f := presenceInstall(t)
+	f.p.dispatcher = &liveRunFixture{head: 1}
+	store, err := jobs.NewStore(f.pool)
+	require.NoError(t, err)
+	for index, workspace := range []string{f.row.ID, "other-workspace"} {
+		target := flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", f.row.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", f.user.ID), WorkspaceID: workspace, BindingKind: "mythical-item", BindingID: "fixture"}
+		key := fmt.Sprintf("qualified-run-%d", index)
+		receipt, e := store.Admit(t.Context(), jobs.Admission{Scope: jobs.Scope{TenantID: target.TenantID, PrincipalID: target.PrincipalID}, Operation: flowdispatch.OperationLaunch, RequestID: key, Payload: json.RawMessage(`{}`), AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectReconcile, EffectKey: key})
+		require.NoError(t, e)
+		checkpoint, e := json.Marshal(flowdispatch.RuntimeCheckpoint{Version: 1, Target: target, RunID: "fixture-run"})
+		require.NoError(t, e)
+		_, e = f.pool.Exec(t.Context(), `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, receipt.OperationID, checkpoint)
+		require.NoError(t, e)
+	}
+	socket := f.dial(t)
+	sendPresenceFrame(t, socket, `{"t":"sub","id":1,"topic":"run:fixture-run"}`)
+	require.Equal(t, "unknown_topic", readPresenceFrame(t, socket).Code)
+	sendPresenceFrame(t, socket, fmt.Sprintf(`{"t":"sub","id":2,"topic":"run:%s:fixture-run"}`, f.row.ID))
+	frame := readPresenceFrame(t, socket)
+	require.Equal(t, "snap", frame.T)
+	require.Contains(t, string(frame.Data), `"runId":"fixture-run"`)
+	sendPresenceFrame(t, socket, `{"t":"sub","id":3,"topic":"run:other-workspace:fixture-run"}`)
+	require.Equal(t, "forbidden", readPresenceFrame(t, socket).Code)
+	for index, topic := range []string{"run::fixture-run", "run:workspace:"} {
+		sendPresenceFrame(t, socket, fmt.Sprintf(`{"t":"sub","id":%d,"topic":%q}`, 4+index, topic))
+		require.Equal(t, "unknown_topic", readPresenceFrame(t, socket).Code)
 	}
 }
