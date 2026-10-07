@@ -210,3 +210,42 @@ func TestRegistryShutdownFencesBoots(t *testing.T) {
 		t.Fatal("closed registry leaked newcomer")
 	}
 }
+
+func TestRegistryRevokeBootFencesReconnectAndKeepsOtherBranches(t *testing.T) {
+	var r Registry
+	a, err := r.MintBoot("A", "vm-A")
+	expectError(t, err, nil)
+	b, err := r.MintBoot("B", "vm-B")
+	expectError(t, err, nil)
+	stream := new(testStream)
+	lease, err := r.Admit(a.ID, []byte(a.Credential), stream)
+	expectError(t, err, nil)
+	expectError(t, lease.Reconciled(), nil)
+	other, err := r.Admit(b.ID, []byte(b.Credential), new(testStream))
+	expectError(t, err, nil)
+	expectError(t, other.Reconciled(), nil)
+	expectError(t, r.RevokeBoot("A"), nil)
+	expectError(t, r.RevokeBoot("A"), nil)
+	expectError(t, lease.RequireReady("A"), ErrUnauthorized)
+	expectError(t, lease.Reconciled(), ErrUnauthorized)
+	expectError(t, other.RequireReady("B"), nil)
+	if stream.closed.Load() != 1 {
+		t.Fatal("revocation must close the lease once")
+	}
+	newcomer := new(testStream)
+	_, err = r.Admit(a.ID, []byte(a.Credential), newcomer)
+	expectError(t, err, ErrUnauthorized)
+	if newcomer.closed.Load() != 1 {
+		t.Fatal("revoked reconnect leaked")
+	}
+	expectError(t, r.BindBoot("A", "vm-A", a.ID, []byte(a.Credential)), ErrUnauthorized)
+	fresh, err := r.MintBoot("A", "vm-A")
+	expectError(t, err, nil)
+	replacement, err := r.Admit(fresh.ID, []byte(fresh.Credential), new(testStream))
+	expectError(t, err, nil)
+	expectError(t, lease.Close(), nil)
+	expectError(t, replacement.RequireReady("A"), ErrNotReady)
+	expectError(t, replacement.Reconciled(), nil)
+	expectError(t, replacement.RequireReady("A"), nil)
+	expectError(t, r.RevokeBoot("missing"), nil)
+}

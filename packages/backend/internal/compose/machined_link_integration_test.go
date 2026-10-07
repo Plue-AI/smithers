@@ -26,6 +26,16 @@ import (
 // scripted peer. Browser HTTP authentication, live route, host handshake,
 // registry, control correlation and document transport are production code.
 func TestMachinedComposedDocumentBoundary(t *testing.T) {
+	for _, revoke := range []bool{false, true} {
+		name := "dispatcher-canceled"
+		if revoke {
+			name = "boot-revoked"
+		}
+		t.Run(name, func(t *testing.T) { machinedComposedDocumentBoundary(t, revoke) })
+	}
+}
+
+func machinedComposedDocumentBoundary(t *testing.T, revoke bool) {
 	f := newDocFixture(t)
 	registry := new(machined.Registry)
 	root := t.TempDir()
@@ -343,8 +353,13 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	// The event consumer owns this connection's admission. Chat/live remain
 	// reachable, but a fresh document subscription cannot reuse its ready lease
 	// after durable dispatch has stopped.
-	stopDispatch()
-	require.ErrorIs(t, <-dispatched, context.Canceled)
+	if revoke {
+		require.NoError(t, registry.RevokeBoot(branch))
+		require.Error(t, <-dispatched)
+	} else {
+		stopDispatch()
+		require.ErrorIs(t, <-dispatched, context.Canceled)
+	}
 	_, err = registry.Current(branch)
 	require.ErrorIs(t, err, machined.ErrNotReady)
 	f.sub(t, "doc:code:11111111-1111-4111-8111-111111111111:retry.ts")

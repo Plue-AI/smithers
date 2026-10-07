@@ -903,7 +903,8 @@ func TestMachinedProductionBoundaryFailClosed(t *testing.T) {
 			} else {
 				require.Equal(t, 503, response.StatusCode, string(body))
 				require.JSONEq(t, `{"code":"service_unavailable","class":"infra","fault":"infra","message":"service unavailable"}`, string(body))
-				require.Equal(t, "starting", status)
+				// Failed starts are settled and reaped before returning the refusal.
+				require.Equal(t, "failed", status)
 				if phase == "retire publisher" {
 					require.Zero(t, runtime.admissions)
 				} else {
