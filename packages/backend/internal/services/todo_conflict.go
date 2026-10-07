@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -38,7 +39,11 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, item db.Myth
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
 	pin, pinned := mythicalPinOf(item)
-	if s.conflictValidator == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" {
+	if s.conflictValidator == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
+		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
+	}
+	stack, err := s.queries().GetMythicalStack(ctx, item.RepositoryID)
+	if err != nil || !stack.ActorUserID.Valid || wait.Signal.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	paths, err := s.conflictValidator.UnresolvedPaths(ctx, ConflictValidation{Workspace: item.WorkspaceID, Change: wait.ConflictChange,
@@ -50,4 +55,17 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, item db.Myth
 		return &TodoControlError{409, "still_conflicted", "conflict", "Resolve the remaining conflicts"}
 	}
 	return nil
+}
+
+// Native inspection must not run for a signal addressed to another branch or
+// item. A matching run name alone does not establish its runtime authority.
+func conflictSignalBound(item db.MythicalItem, signal *TodoWaitSignal) bool {
+	if signal == nil {
+		return false
+	}
+	tenant := "repository:" + strconv.FormatInt(item.RepositoryID, 10)
+	return signal.Scope.TenantID == tenant && signal.Scope.PrincipalID != "" &&
+		signal.Target.TenantID == tenant && signal.Target.PrincipalID == signal.Scope.PrincipalID &&
+		signal.Target.WorkspaceID == item.WorkspaceID && signal.Target.BindingKind == mythicalBindingKind &&
+		signal.Target.BindingID == uuidString(item.ID)
 }
