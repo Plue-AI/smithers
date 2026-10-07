@@ -741,7 +741,9 @@ export const implement = <
       if (routed !== undefined && Option.isSome(sink)) {
         // The routing receipt reaches the sink ahead of the first ask's events.
         const step = stepOf(0, yield* Action.CurrentAttempt, sessionRoot)
-        const modelId = (yield* seats.resolve(routed.decision.seat)).modelId
+        const modelId =
+          (yield* seats.resolve(routed.decision.seat, typeof declaredSeat === "string" ? declaredSeat : undefined))
+            .modelId
         for (const event of SeatRouter.events(routed.decision, { scope: sessionRoot, modelId })) {
           yield* sink.value.emit(event, step)
         }
@@ -854,7 +856,10 @@ export const implement = <
         Effect.gen(function*() {
           const seatId = ids[0]!
           const decoding = yield* Effect.context<Output["DecodingServices"]>()
-          const resolvedSeats = yield* Effect.forEach(ids, (id) => seats.resolve(id))
+          const resolvedSeats = yield* Effect.forEach(
+            ids,
+            (id) => seats.resolve(id, typeof declaredSeat === "string" ? declaredSeat : undefined)
+          )
           const seat = resolvedSeats[0]!
           const fallbackSeats = resolvedSeats.slice(1)
 
@@ -893,7 +898,9 @@ export const implement = <
                 const observe = (event: AgentEvent.AgentEvent): Effect.Effect<void> =>
                   Option.isNone(sink) ? Effect.void : sink.value.emit(event, step)
                 const atSource = Option.isSome(sink) && sink.value.atSource === true
-                const resolved = askSeat === seatId ? seat : yield* seats.resolve(askSeat)
+                const resolved = askSeat === seatId
+                  ? seat
+                  : yield* seats.resolve(askSeat, typeof declaredSeat === "string" ? declaredSeat : undefined)
                 const outcome = yield* agent.run({
                   instructions: host.instructions,
                   pinnedSources: host.pinnedSources,

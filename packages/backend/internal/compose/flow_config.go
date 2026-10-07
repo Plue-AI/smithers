@@ -110,3 +110,31 @@ func installCodingProject(pool *pgxpool.Pool, sources workspaceapi.SourceFiles) 
 		return persisted.Value, tx.Commit(ctx)
 	}
 }
+
+// The model used to bootstrap a managed host is identity, not a live role
+// assignment. Keep it stable on inspection/restart; each actual call resolves
+// the owner's current role through the authenticated factory-seat door.
+func pinCodingHostModel(q *db.Queries) func(context.Context, flowhost.HostLaunch, string) (string, error) {
+	return func(ctx context.Context, launch flowhost.HostLaunch, seat string) (string, error) {
+		if launch.Binding.ID == "" || seat == "" {
+			return seat, nil
+		}
+		key := "coding.host-seat:" + launch.Binding.ID
+		raw, _ := json.Marshal(seat)
+		if err := q.PinInstallSetting(ctx, key, raw); err != nil {
+			return "", err
+		}
+		row, err := q.GetInstallSetting(ctx, key)
+		if err != nil {
+			return "", err
+		}
+		var pinned string
+		if err = json.Unmarshal(row.Value, &pinned); err != nil {
+			return "", err
+		}
+		if pinned == "" {
+			return "", errors.New("coding host seat is unavailable")
+		}
+		return pinned, nil
+	}
+}
