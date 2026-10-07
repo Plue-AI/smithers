@@ -172,6 +172,13 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       receive()
     })
   }
+  // A connected channel alone is not authority: a rejected topic or an
+  // incompatible decoder must refuse mutations, including resumed requests.
+  const writesUnavailable = () => {
+    if (!options.install) return false
+    const snapshot = options.live?.getSnapshot("secrets")
+    return !snapshot || !!snapshot.error || !SecretsCardSchema.safeParse(snapshot.data).success
+  }
   const secretUrl = (repo: string, name?: string) => options.install
     ? `${ctx.baseUrl}/api/secrets${name === undefined ? "" : `/${encodeURIComponent(name)}`}`
     : repositorySecretsUrl(ctx, repo, name)
@@ -207,6 +214,10 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   }
   /** Send one DELETE; a secret already gone is removed. */
   const sendDelete = async (row: SecretRequest, current: () => boolean): Promise<true | string | typeof TOAST_SUPERSEDED> => {
+    if (writesUnavailable()) {
+      await saveSecretRequest({ ...row, state: "failed" }, current)
+      return "Secrets unavailable"
+    }
     const response = await ctx.http(secretUrl(row.repo, options.install ? undefined : row.name), { method: "DELETE", headers: { "Idempotency-Key": row.id, "content-type": "application/json" }, ...(options.install ? { body: JSON.stringify({ name: row.name }) } : {}) })
     if (!current()) return TOAST_SUPERSEDED
     if (response.status !== 204 && response.status !== 404) {
@@ -218,6 +229,10 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     return true
   }
   const sendScope = async (row: SecretRequest, current: () => boolean): Promise<true | string | typeof TOAST_SUPERSEDED> => {
+    if (writesUnavailable()) {
+      await saveSecretRequest({ ...row, state: "failed" }, current)
+      return "Secrets unavailable"
+    }
     const response = await ctx.http(secretUrl(row.repo, row.name), { method: "PATCH",
       headers: { "content-type": "application/json", "Idempotency-Key": row.id }, body: JSON.stringify({ main_only: row.mainOnly }) })
     if (!current()) return TOAST_SUPERSEDED
@@ -242,7 +257,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     try {
       const login = owner()
       const current = captureCloudOwner(ctx, false)
-      if (options.install && !options.live) return "Secrets unavailable"
+      if (writesUnavailable()) return "Secrets unavailable"
       if (!login) return "Sign in to save a secret."
       const target = resolveTargetRepo(ctx.store, input.repo)
       if ("error" in target) return target.error
@@ -266,6 +281,10 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       runSecret(row, admitted.flight, async () => {
         try {
           if (!current()) return TOAST_SUPERSEDED
+          if (writesUnavailable()) {
+            await saveSecretRequest({ ...row, state: "failed" }, current)
+            return "Secrets unavailable"
+          }
           // An omitted binding keeps a replaced secret's stored one.
           const body = JSON.stringify({ name, value: sending, ...(input.scope ? { main_only: input.scope === "main_only" } : {}), ...(hosts.length === 0 ? {} : { hosts, match_headers: headers }) })
           sending = undefined
@@ -288,7 +307,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   const deleteSecret: SecretsSeam["deleteSecret"] = async (input, repo) => {
     const login = owner()
     const current = captureCloudOwner(ctx, false)
-    if (options.install && !options.live) return "Secrets unavailable"
+    if (writesUnavailable()) return "Secrets unavailable"
     if (!login) return "Sign in to delete a secret."
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
@@ -348,7 +367,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
    * bookmark. The platform answers with the stored mark, which the reply names.
    */
   const scopeSecret: SecretsSeam["scopeSecret"] = async (name, scope, repo) => {
-    if (options.install && !options.live) return "Secrets unavailable"
+    if (writesUnavailable()) return "Secrets unavailable"
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
     if (source === "seed" && options.fallback) {
@@ -387,6 +406,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
    * the stored hosts.
    */
   const bindSecret: SecretsSeam["bindSecret"] = async (input) => {
+    if (writesUnavailable()) return "Secrets unavailable"
     const target = resolveTargetRepo(ctx.store, input.repo)
     if ("error" in target) return target.error
     const name = input.name.trim()
