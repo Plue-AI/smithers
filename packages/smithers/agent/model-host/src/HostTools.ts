@@ -581,7 +581,29 @@ const docsCommand: Bind = (_grant, { docs }) => {
     })
 }
 
-/** Flow proposals use the same catalog and private Draft as the browser. */
+/**
+ * A `confirm` command's answer as the model reads it: its author's pending
+ * confirmation. The backend publishes the full Confirm only to its author;
+ * shared frames carry the command's status, never its private payload or card.
+ */
+const confirmed = (answer: ApiAnswer): Outcome => {
+  if ("code" in answer) return { refusal: answer.code }
+  if (answer.status < 200 || answer.status >= 300) {
+    return { refusal: JSON.stringify({ status: answer.status, body: answer.body }) }
+  }
+  const confirmation = z.object({
+    confirmation: z.string().min(1),
+    state: z.enum(["pending", "approved", "rejected", "expired"])
+  }).safeParse(answer.body)
+  if (answer.status === 202 && confirmation.success) return { cards: [], value: JSON.stringify(confirmation.data) }
+  return { refusal: "Invalid confirmation response" }
+}
+
+/**
+ * Flow proposals use the same catalog as the browser. A private turn shows
+ * its author a Draft. A shared conversation shows no private Draft or form:
+ * the edit files through `todo.new`, so its author confirms the TODO it files.
+ */
 const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
   const author = grant.api?.author
   if (author === undefined) return undefined
@@ -606,6 +628,8 @@ const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
       const missing = ["name", ...(row.name === "flow.edit" ? ["request"] : [])].filter((key) =>
         input[key as "name" | "request"] === undefined
       )
+      const shared = grant.request.sharedConversation === true
+      if (missing.length > 0 && shared) return { refusal: `${row.name} needs ${missing.join(" and ")}` }
       if (missing.length > 0) {
         const form: Card = {
           id: `form:${globalThis.crypto.randomUUID()}`,
@@ -648,6 +672,10 @@ const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
       const now = Date.now()
       if (row.name === "flow.edit") {
         const draft = flowEditTodoInput(name, input.request!, input.diff)
+        if (shared) {
+          const request = catalogRequest(catalogDescriptors.find((entry) => entry.name === "todo.new")!, draft)
+          return confirmed(yield* api(request.path, { ...request, idempotencyKey: `chat:${grant.turnId}:${ordinal}` }))
+        }
         return {
           cards: [
             draftCard(
@@ -697,23 +725,10 @@ const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
         ...request,
         idempotencyKey: `chat:${grant.turnId}:${ordinal}`
       })
+      if (row.agent === "confirm") return confirmed(answer)
       if ("code" in answer) return { refusal: answer.code }
       if (answer.status < 200 || answer.status >= 300) {
         return { refusal: JSON.stringify({ status: answer.status, body: answer.body }) }
-      }
-      if (row.agent === "confirm") {
-        const confirmation = z.object({
-          confirmation: z.string().min(1),
-          state: z.enum(["pending", "approved", "rejected", "expired"])
-        }).safeParse(
-          answer.body
-        )
-        if (answer.status === 202 && confirmation.success) {
-          // The backend publishes the full Confirm only to its author. Shared
-          // frames carry the command's status, never its private payload/card.
-          return { cards: [], value: JSON.stringify(confirmation.data) }
-        }
-        return { refusal: "Invalid confirmation response" }
       }
       const now = Date.now()
       if (row.name === "stack") {

@@ -1466,6 +1466,56 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     expect(toolOutputs(provider)).toEqual(Array(2).fill("{\"confirmation\":\"confirm-1\",\"state\":\"pending\"}"))
   })
 
+  test("shared prompts file a flow edit as the author's TODO Confirm, never an invisible Draft or form", async () => {
+    const turn = { ...install, request: { ...install.request, sharedConversation: true } }
+    const catalog = [{
+      name: "todo",
+      system: false,
+      source: { builtin: true },
+      versions: [{ id: "d1", state: "active", steps: [] }]
+    }, { name: "merge", system: true, source: { builtin: true }, versions: [] }]
+    const journal = producer(
+      (path) => file(path, JOURNEY),
+      routes({
+        "/api/flows": [200, catalog],
+        "/api/todos": [202, { confirmation: "confirm-7", state: "pending" }]
+      })
+    )
+    const provider = model([
+      execute("flow.edit", "todo Run tests"),
+      execute("flow.edit", "todo"),
+      execute("flow.edit", "merge Add a step")
+    ])
+    await Effect.runPromise(runHostTurn(provider.model, turn, { modelId: "m" }, (frame) =>
+      Effect.sync(() => {
+        journal.frames.push(frame)
+      }), {
+      read: () => Effect.succeed({ code: "unused" }),
+      list: () => Effect.succeed({ code: "unused" }),
+      api: apiCaller("http://callback.test", turn, journal.fetchImpl)
+    }))
+    expect(journal.calls.map((call) => call.body)).toEqual([
+      { method: "GET", path: "/api/flows" },
+      {
+        method: "POST",
+        path: "/api/todos",
+        payload: {
+          prompt: "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists",
+          title: "Change the TODO flow: Run tests",
+          place: { mode: "append" }
+        },
+        key: `chat:${turn.turnId}:0`
+      },
+      { method: "GET", path: "/api/flows" }
+    ])
+    expect(journal.frames.some((frame) => frame.type === "card")).toBe(false)
+    expect(toolOutputs(provider)).toEqual([
+      "{\"confirmation\":\"confirm-7\",\"state\":\"pending\"}",
+      "failed: flow.edit needs request",
+      "failed: Merge flow is built in"
+    ])
+  })
+
   test("confirmation commands return pending status without copying the private Confirm into shared frames", async () => {
     const cases = [
       ["todo.drop", "T12", "/api/todos/12", { op: "drop" }],
