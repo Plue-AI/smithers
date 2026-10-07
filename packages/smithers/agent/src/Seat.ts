@@ -28,6 +28,7 @@
 import * as Fault from "@smthrs/flow/Fault"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
+import type * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import type * as FlowEngineLike from "./FlowEngineLike.ts"
 
@@ -48,6 +49,8 @@ export interface Seat {
   readonly route: FlowEngineLike.RouteResolver
   /** Zero disables compaction, so a resolver must never report it. */
   readonly contextWindowTokens: number
+  /** Host-owned selection refreshed before sealing each new model call. */
+  readonly refresh?: ((callKey?: string) => Effect.Effect<Seat, SeatUnresolved>) | undefined
 }
 
 /**

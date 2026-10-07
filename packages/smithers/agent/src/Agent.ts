@@ -64,6 +64,7 @@ import type * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import * as ObservabilityMetric from "@smthrs/observability/Metric"
+import * as StepKey from "@smthrs/plan/StepKey"
 import type { FlowsHooks, PluginInput } from "@smthrs/plugin"
 import type { FlowsConfig, ResolvedConfig } from "@smthrs/plugin/Config"
 import type { PluginError } from "@smthrs/plugin/PluginError"
@@ -82,6 +83,7 @@ import * as Layer from "effect/Layer"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
 import type * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import type * as Budget from "./Budget.ts"
 import * as CellPlugin from "./CellPlugin.ts"
@@ -90,7 +92,7 @@ import * as FlowEngineLike from "./FlowEngineLike.ts"
 import * as CallIdentity from "./internal/CallIdentity.ts"
 import * as MemoryMine from "./MemoryMine.ts"
 import * as QuotaPolicy from "./QuotaPolicy.ts"
-import type * as Seat from "./Seat.ts"
+import * as Seat from "./Seat.ts"
 import * as StandardFlows from "./StandardFlows.ts"
 
 /**
@@ -594,9 +596,13 @@ const withRequestPlugins = (
 
 /** Keeps frames on available seats, parking only when every recoverable route is cooling. */
 const withCapacity = (
-  seats: ReadonlyArray<{ readonly seat: Seat.Seat; readonly engine: EngineLike.EngineLike }>,
+  seats: ReadonlyArray<
+    { readonly seat: Seat.Seat; readonly engine: EngineLike.EngineLike; readonly update: (seat: Seat.Seat) => void }
+  >,
   capacity: Options["capacity"],
-  services: Context.Context<FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance | Crypto.Crypto>
+  services: Context.Context<
+    FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance | Crypto.Crypto | Budget.Budget | QuotaPolicy.QuotaClassifier
+  >
 ): EngineLike.EngineLike => {
   const primary = seats[0]!.engine
   const cooling = new Map<string, QuotaPolicy.Park>()
@@ -625,21 +631,51 @@ const withCapacity = (
       Stream.unwrap(
         Effect.gen(function*() {
           const now = yield* Clock.currentTimeMillis
-          const entries = yield* Effect.forEach(seats, ({ seat, engine }) => {
-            const request = ModelRequest.ModelRequest.make({ ...step.request, modelId: seat.modelId })
-            return EngineLike.resolve(engine, request).pipe(Effect.map((resolved) => {
-              const identity = Option.isSome(resolved) && Option.isSome(resolved.value.binding)
-                ? ["route", resolved.value.binding.value.routeId]
-                : ["seat", seat.id]
-              return {
-                seat,
-                engine,
-                request,
-                accountKey: JSON.stringify(identity),
-                key: JSON.stringify([...identity, seat.modelId])
+          const entries = yield* Effect.forEach(seats, (entry, index) =>
+            Effect.gen(function*() {
+              let callKey: string | undefined
+              if (entry.seat.refresh !== undefined) {
+                const instance = yield* FlowRuntime.FlowInstance
+                const { modelId: _model, cacheKey: _cache, ...request } = Schema.encodeSync(ModelRequest.ModelRequest)(step.request)
+                callKey = yield* StepKey.fromKeyMaterial({
+                  ...step.keyMaterial,
+                  body: {
+                    _tag: "FactoryModelChoice",
+                    run: instance.executionId,
+                    seat: entry.seat.id,
+                    request,
+                    cycle,
+                    index
+                  }
+                }, {}).pipe(
+                  Effect.mapError((cause) =>
+                    new HarnessError({
+                      code: "model_failed",
+                      message: "Factory model choice could not be keyed",
+                      cause
+                    })
+                  )
+                )
               }
+              const seat = entry.seat.refresh === undefined ? entry.seat : yield* entry.seat.refresh(callKey).pipe(
+                Effect.mapError((cause) => new HarnessError({ code: "model_failed", message: cause.message, cause }))
+              )
+              entry.update(seat)
+              const engine = entry.engine
+              const request = ModelRequest.ModelRequest.make({ ...step.request, modelId: seat.modelId })
+              return yield* EngineLike.resolve(engine, request).pipe(Effect.map((resolved) => {
+                const identity = Option.isSome(resolved) && Option.isSome(resolved.value.binding)
+                  ? ["route", resolved.value.binding.value.routeId]
+                  : ["seat", seat.id]
+                return {
+                  seat,
+                  engine,
+                  request,
+                  accountKey: JSON.stringify(identity),
+                  key: JSON.stringify([...identity, seat.modelId])
+                }
+              }))
             }))
-          })
           const selected = entries.findIndex((entry, index) =>
             !tried.has(index) && !isSpent(entry) &&
             (coolingFor(entry)?.wakeAt ?? 0) <= now
@@ -714,10 +750,12 @@ const withCapacity = (
               })
             )
           }
-          yield* emit(new AgentEvent.ModelSelected({
-            eventType: AgentEvent.eventType.modelSelected,
-            seat: entry.seat.id
-          }))
+          yield* emit(
+            new AgentEvent.ModelSelected({
+              eventType: AgentEvent.eventType.modelSelected,
+              seat: entry.seat.id
+            })
+          )
           const changed = {
             ...step,
             request: entry.request,
@@ -939,14 +977,33 @@ const runProductionUnmeasured: Service["run"] = (options) =>
               modelRetryPolicy: options.modelRetryPolicy
             })
           const seats = [options.seat, ...(options.fallbackSeats ?? [])]
-          const ports = yield* Effect.forEach(
-            seats,
-            (seat) => Effect.map(makePort(seat), (engine) => ({ seat, engine }))
-          )
+          const ports = yield* Effect.forEach(seats, (seat) =>
+            Effect.gen(function*() {
+              // One port owns the durable activity registration for the whole
+              // invocation. Refresh its delegates before sealing, never replace
+              // the port and capture an earlier call's event sink.
+              let selected = seat
+              const engine = yield* makePort(Seat.make({
+                ...seat,
+                model: { ...seat.model, stream: (request) => selected.model.stream(request) },
+                route: { prepare: (request) => selected.route.prepare(request) }
+              }))
+              return {
+                seat,
+                engine,
+                update: (next: Seat.Seat) => {
+                  selected = next
+                }
+              }
+            }))
           const capacityServices = yield* Effect.context<
-            FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance | Crypto.Crypto
+            | FlowRuntime.FlowRuntime
+            | FlowRuntime.FlowInstance
+            | Crypto.Crypto
+            | Budget.Budget
+            | QuotaPolicy.QuotaClassifier
           >()
-          const port = options.capacity?.park === false && ports.length === 1
+          const port = options.capacity?.park === false && ports.length === 1 && options.seat.refresh === undefined
             ? ports[0]!.engine
             : withCapacity(ports, options.capacity, capacityServices)
           const state = CellTurn.make({
