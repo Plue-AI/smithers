@@ -35,6 +35,13 @@ type TodoHandler struct {
 
 func todoRouteError(w http.ResponseWriter, err error) {
 	failure := &services.TodoControlError{Status: 503, Code: "todo_unavailable", Class: "infra", Message: "TODO service unavailable"}
+	var order *services.StaleOrderAttention
+	if errors.As(err, &order) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(order.Status)
+		_ = json.NewEncoder(w).Encode(order)
+		return
+	}
 	var stale *services.MythicalStaleHeadError
 	if errors.As(err, &stale) {
 		w.Header().Set("Content-Type", "application/json")

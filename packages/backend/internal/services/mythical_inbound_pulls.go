@@ -68,7 +68,19 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 			return nil, err
 		}
 		// Containment notes follow the pre-fold stack order, not UUID order.
-		sort.SliceStable(items, func(i, j int) bool { return items[i].StackPosition.Int64 < items[j].StackPosition.Int64 })
+		positionOf := func(item db.MythicalItem) int64 {
+			if item.StackPosition.Valid {
+				return item.StackPosition.Int64
+			}
+			return mythicalChecksOf(item).GitHubClosedPosition
+		}
+		sort.SliceStable(items, func(i, j int) bool {
+			left, right := positionOf(items[i]), positionOf(items[j])
+			if left == right {
+				return mythicalItemNumber(items[i]) < mythicalItemNumber(items[j])
+			}
+			return left < right
+		})
 		for _, item := range items {
 			if !item.PRNumber.Valid || item.PRNumber.Int64 != pull.Number {
 				continue
@@ -112,16 +124,22 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				}
 				fact.Manifest = checks.retainedManifest(pull.HeadSHA)
 				for _, earlier := range items {
-					if earlier.ID != item.ID && earlier.StackPosition.Valid && item.StackPosition.Valid && earlier.StackPosition.Int64 < item.StackPosition.Int64 && !mythicalSettledStates[earlier.State] {
+					position := earlier.StackPosition.Int64
+					if !earlier.StackPosition.Valid {
+						position = mythicalChecksOf(earlier).GitHubClosedPosition
+					}
+					identity := mythicalCandidateIdentity(earlier)
+					containedDrop := false
+					if (earlier.State == "cancelled" || earlier.State == "rejected" || earlier.State == "dropped") && fact.Manifest != nil {
+						for _, included := range fact.Manifest.Included {
+							if identity.ID == included.ID && identity.Head != "" && identity.Head == included.Head && identity.Change == included.Change {
+								containedDrop = true
+							}
+						}
+					}
+					if earlier.ID != item.ID && (containedDrop || position > 0 && item.StackPosition.Valid && position < item.StackPosition.Int64) && earlier.State != "landed" && earlier.State != "merged" && earlier.State != "declined" {
 						fact.Earlier = append(fact.Earlier, mythicalCandidateIdentity(earlier))
 					}
-				}
-				// Until durable stack attention and its merge fence are composed,
-				// retain this delivery before any transition or outbound effect.
-				// The shared decision now receives immutable head-bound proof;
-				// an attention provider must commit its fold with this receipt.
-				if decideGitHubFact(fact, mythicalGitHubFactItem{State: item.State, Head: item.PRHead}, s.now()).Attention != "" {
-					return nil, &mythicalPRUnavailable{}
 				}
 
 			case pull.State == "closed":
@@ -132,6 +150,39 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				fact.Kind = "push"
 			}
 			decision := decideGitHubFact(fact, mythicalGitHubFactItem{State: item.State, Head: item.PRHead, ClosedAt: mythicalGitHubClosedAt(item)}, s.now())
+			if decision.Attention == "order" {
+				if err := appendOrderAttention(ctx, tx, repository, OrderAttentionEntry{Pull: pull.Number, Commit: pull.MergeCommit, Text: decision.AttentionText}); err != nil {
+					return nil, err
+				}
+				for i, contained := range decision.Contained {
+					for _, earlier := range items {
+						if uuidString(earlier.ID) != contained.ID {
+							continue
+						}
+						if err := s.cancelAttempt(ctx, tx, stack, earlier); err != nil {
+							return nil, err
+						}
+						folded := mythicalLanded(earlier, pull.MergeCommit, s.now())
+						// The earlier PR did not merge; its keyed close obligation remains.
+						folded.PRState = earlier.PRState
+						folded.Reason = decision.Notes[i]
+						foldChecks := mythicalChecksOf(folded)
+						foldChecks.MergedVia = &mythicalMergedVia{Number: fact.Number, Pull: pull.Number, URL: pull.URL, Commit: pull.MergeCommit, Note: decision.Notes[i], At: s.now()}
+						folded.Checks = foldChecks.encode()
+						folded = mythicalDropObligation(folded)
+						saved, err := q.SaveMythicalItem(ctx, folded)
+						if err != nil {
+							return nil, err
+						}
+						data, _ := json.Marshal(map[string]any{"item": contained.ID, "n": contained.Number, "pr": earlier.PRNumber.Int64, "reason": folded.Reason, "merged_via": foldChecks.MergedVia, "source": "github", "version": fetched.Version})
+						if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_merged", todoState(saved), data); err != nil {
+							return nil, err
+						}
+						changed++
+					}
+				}
+			}
+
 			next := item
 			checks.PRDraft = pull.Draft
 			switch decision.Event {

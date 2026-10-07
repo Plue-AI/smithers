@@ -334,6 +334,10 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			evidence[i].Items[j] = captured
 		}
 	}
+	if checks.MergedVia != nil {
+		card["merged_via"] = checks.MergedVia.Number
+		card["note"] = checks.MergedVia.Note
+	}
 	card["evidence"] = evidence
 	return card, nil
 }
