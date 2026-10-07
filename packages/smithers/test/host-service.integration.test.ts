@@ -27,6 +27,31 @@ const { descendants } = await import(
 const bundle = process.env.SMITHERS_HOST_TEST_BUNDLE
 const required = process.env.SMITHERS_REQUIRE_HOST_SERVICE_TESTS === "1"
 const enabled = process.platform === "darwin" && process.getuid?.() !== 0 && !!bundle
+it.skipIf(!enabled && !required)("C-INS-06 disabled real bundled runtime refuses before launchd mutation", () => {
+  expect(bundle, "Set SMITHERS_HOST_TEST_BUNDLE to a current real bundle").toBeTruthy()
+  const home = mkdtempSync(resolve("../../.i-"))
+  try {
+    const copy = join(home, "bundle")
+    cpSync(resolve(bundle!), copy, { recursive: true, verbatimSymlinks: true })
+    // Keep the genuine runtime bytes and an honest manifest; disable only
+    // execution. A fake executable or hash mismatch would test another gate.
+    chmodSync(join(copy, "bin/msb"), 0o644)
+    const manifest = JSON.parse(readFileSync(join(copy, "manifest.json"), "utf8"))
+    manifest.files.find((entry: { path: string }) => entry.path === "bin/msb").mode = 0o644
+    writeFileSync(join(copy, "manifest.json"), JSON.stringify(manifest))
+    const result = spawnSync(join(copy, "bin/smthrs"), ["host", "start", "--bundle", copy], {
+      encoding: "utf8", timeout: 90_000,
+      env: { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin" }
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stdout + result.stderr).toContain("Bundle executable missing: bin/msb")
+    expect(existsSync(join(home, "Library/LaunchAgents/sh.smithers.host.plist"))).toBe(false)
+    expect(existsSync(join(home, "Library/Application Support/Smithers"))).toBe(false)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+}, 120_000)
 it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launcher", async () => {
   expect(process.platform, "C-INS-06 requires macOS").toBe("darwin")
   expect(process.getuid?.(), "C-INS-06 requires an unprivileged login session").not.toBe(0)
@@ -201,20 +226,6 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     writeFileSync(msb, "tampered")
     expect(run("start", "--bundle", broken).status).not.toBe(0)
     expect(readFileSync(join(home, "Library/LaunchAgents/sh.smithers.host.plist"), "utf8")).toBe(before)
-    // Disable the real runtime's execute permission, keeping its bytes and
-    // manifest metadata consistent. This is distinct from hash tampering and
-    // does not substitute a fake msb executable.
-    cpSync(join(other, "bin/msb"), msb)
-    chmodSync(msb, 0o644)
-    const disabledManifest = JSON.parse(readFileSync(join(broken, "manifest.json"), "utf8"))
-    disabledManifest.files.find((entry: { path: string }) => entry.path === "bin/msb").mode = 0o644
-    writeFileSync(join(broken, "manifest.json"), JSON.stringify(disabledManifest))
-    const beforeDisabledPID = backendPID()
-    const disabled = run("start", "--bundle", broken)
-    expect(disabled.status).not.toBe(0)
-    expect(disabled.stdout + disabled.stderr).toContain("Bundle executable missing: bin/msb")
-    expect(readFileSync(join(home, "Library/LaunchAgents/sh.smithers.host.plist"), "utf8")).toBe(before)
-    expect(backendPID(), "disabled runtime refusal must leave the existing service intact").toBe(beforeDisabledPID)
     assertSilence()
     writeFileSync(join(receipt, "launchctl-print.txt"), launchctl("print", `${domain}/sh.smithers.host`).stdout)
     renameSync(other, other + ".moved")
