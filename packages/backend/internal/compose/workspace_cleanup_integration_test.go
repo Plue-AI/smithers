@@ -107,7 +107,7 @@ func TestCleanupComposedInstallRetainsWithoutCaptureBroker(t *testing.T) {
 	// The member action records the time, retains its disk and is replay-safe.
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET branch_archived_at=NULL WHERE id=$1`, row.ID)
 	require.NoError(t, err)
-	archive := func(status int) {
+	archive := func(selector string, status int) {
 		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:4000/api/branches/"+row.ID+"/archive", nil)
 		req.RemoteAddr = "127.0.0.1:12345"
 		req.Header.Set("Origin", "http://127.0.0.1:4000")
@@ -118,13 +118,13 @@ func TestCleanupComposedInstallRetainsWithoutCaptureBroker(t *testing.T) {
 		handler.ServeHTTP(res, req)
 		require.Equal(t, status, res.Code, res.Body.String())
 	}
-	archive(200)
+	archive("scratch%2Fmember%2Fretained", 200)
 	archived, err := q.GetWorkspace(ctx, row.ID)
 	require.NoError(t, err)
 	require.True(t, archived.BranchArchivedAt.Valid)
 	require.False(t, archived.DiskReclaimedAt.Valid)
 	require.Equal(t, "retained", archived.VmID)
-	archive(200)
+	archive(row.ID, 200)
 	repeated, err := q.GetWorkspace(ctx, row.ID)
 	require.NoError(t, err)
 	require.Equal(t, archived.BranchArchivedAt, repeated.BranchArchivedAt)
