@@ -1058,7 +1058,8 @@ describe("Forensics runaway incidents", () => {
     expect(recordArguments(between("Continue", "Stop"))).toEqual([["runs", "continue", runId]])
     expect(recordArguments(between("Stop", "Next"))).toEqual([["runs", "stop", runId]])
     // Recovery commands remain callable for library runs. The install's
-    // discovery manifest intentionally lists only the MVP command surface.
+    // discovery manifest intentionally lists only the MVP command surface (B.6).
+    // These continue/stop handlers decide approvals, which B.6 forbids agents.
     const { Cli } = await import("incur")
     const { makeCli } = await import("../src/Cli.ts")
     const { installCommandPaths } = await import("../src/internal/backend/InstallDiscovery.ts")

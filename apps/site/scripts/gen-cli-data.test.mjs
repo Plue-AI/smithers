@@ -21,7 +21,7 @@ function fixture(t) {
   write("packages/smithers/build/build-cli/src/effect-resolution.js", "export const installEffectResolution = () => {}\n")
   // The generator consumes manifest/help data, not CLI execution. A controlled
   // data source covers selection boundaries without starting the CLI services.
-  const commands = [...retired.flatMap((name) => [{ name }, { name: `${name} inspect` }]), { name: "flow" }, { name: "flow list" }, { name: "index" }, { name: "manual" }, { name: "triggers-extra" }]
+  const commands = [{ name: "flows" }, { name: "flow show" }, { name: "api" }, { name: "host status" }]
   write("packages/smithers/src/Cli.ts", `
 const manifest = ${JSON.stringify({ commands })}
 export const makeCli = () => ({
@@ -32,6 +32,10 @@ export const makeCli = () => ({
   }
 })
 `)
+  write("packages/smithers/src/internal/backend/Catalog.ts", `export const catalogCommands = [
+    {name: "debug.api", cli: ["debug", "api"], actors: ["person"], visibility: "hidden", agent: "never"},
+    {name: "admin.health", cli: ["admin", "health"], actors: ["person"], visibility: "hidden", agent: "never"}
+  ]`)
   write("packages/smithers/src/Unsupported.ts", 'export const removedVerbs = []; export const removedFlags = []; export const migrationUrl = "https://smithers.sh/migration/1.0"\n')
   write("apps/site/src/data/migration-paths.json", '{"paths":{"flows":"Use a flow."},"flagGroups":{}}')
   write("apps/site/src/data/help/stale.txt", "Retired help capture.\n")
@@ -54,13 +58,20 @@ test("CLI generation retains complete source facts and retires every public comm
   const result = run()
   assert.equal(result.status, 0, result.stdout + result.stderr)
   const { commands } = JSON.parse(read("apps/site/src/data/cli-commands.json"))
-  assert.ok(commands.some(command => command.name === "flow list"))
-  for (const name of [...retired, "flow", "index", "manual", "triggers-extra"]) {
+  assert.ok(commands.some(command => command.name === "flows"))
+  for (const name of ["flows", "flow", "api", "host"]) {
     assert.match(read(`apps/site/src/data/help/${name}.txt`), /Canonical help/)
+  }
+  // B.6 explicitly cuts these from docs; hidden person-only rows do not revive them.
+  for (const name of [...retired, "index", "manual"]) {
+    assert.equal(existsSync(join(root, `apps/site/src/data/help/${name}.txt`)), false)
     assert.equal(existsSync(join(root, `apps/site/src/content/docs/docs/reference/cli/${name}.mdx`)), false)
   }
   assert.equal(existsSync(join(root, "apps/site/src/content/docs/docs/reference/cli/index.mdx")), false)
   assert.equal(existsSync(join(root, "apps/site/src/data/help/stale.txt")), false)
+  assert.match(read("apps/site/src/data/help/debug/api.txt"), /Canonical help/)
+  assert.equal(commands.some(command => command.name === "debug api"), false)
+  assert.equal(existsSync(join(root, "apps/site/src/data/help/admin/health.txt")), false)
   const checked = run("--check")
   assert.equal(checked.status, 0, checked.stdout + checked.stderr)
 })

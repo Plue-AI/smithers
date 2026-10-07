@@ -567,21 +567,13 @@ describe("the help surface", processBudget, () => {
   it("lists canonical target and durable command groups", () => {
     expect(help.status).toBe(0)
     for (
-      const name of [
-        "build",
-        "test",
-        "targets",
-        "flow",
-        "runs",
-        "approvals",
-        "generate",
-        "eval",
-        "memory",
-        "credentials",
-        "triggers"
-      ]
+      const name of ["flow", "runs", "todo", "host", "api"]
     ) {
       expect(help.stdout).toMatch(new RegExp(`^\\s+${name}\\s{2,}`, "m"))
+    }
+    // Appendix B.6: callable library groups are absent from install discovery.
+    for (const name of ["build", "test", "targets", "approvals", "generate", "eval", "memory", "credentials", "triggers"]) {
+      expect(help.stdout).not.toMatch(new RegExp(`^\\s+${name}\\s{2,}`, "m"))
     }
   })
 

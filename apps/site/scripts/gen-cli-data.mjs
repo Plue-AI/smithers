@@ -26,7 +26,7 @@ const { installEffectResolution } = await import(join(root, "packages/smithers/b
 installEffectResolution()
 const { makeCli } = await import(join(root, "packages/smithers/src/Cli.ts"))
 const environment = { ...process.env, NO_COLOR: "1" }
-const commandTree = makeCli({ environment })
+const commandTree = makeCli({ environment }, { humanHelp: true })
 const capture = async (args) => {
   let output = ""
   let status = 0
@@ -117,7 +117,11 @@ outputs.set(join(helpDir, "smthrs.txt"), topHelp)
 const commandPaths = new Set([
   "completions", "mcp", "mcp add", "mcp doctor", "skills", "skills add", "skills list"
 ])
-for (const command of manifest.commands) {
+// B.6 plus Appendix A person-facing commands; manifest stays agent-filtered.
+const { catalogCommands } = await import(join(root, "packages/smithers/src/internal/backend/Catalog.ts"))
+const humanCommands = catalogCommands.filter(row => row.cli !== null && row.actors.includes("person") &&
+  (row.visibility === "core" || row.visibility === "advanced" || row.name === "debug.api")).map(row => ({ name: row.cli.join(" ") }))
+for (const command of [...manifest.commands, ...humanCommands]) {
   const tokens = command.name.split(" ")
   if (tokens.some((token) => !/^[a-z][a-z0-9-]*$/.test(token))) throw new Error(`Invalid command path ${command.name}`)
   for (let length = 1; length <= tokens.length; length++) commandPaths.add(tokens.slice(0, length).join(" "))

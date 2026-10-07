@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdtemp, readdir, rm } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -158,6 +158,9 @@ it(
     const host = await install()
     const server = await serve(root, hostEnvironment(root, host.origin))
     try {
+      // M-36 / Appendix A: human documentation includes the person-only command.
+      expect(await readFile(new URL("../../../apps/site/src/data/help/debug/api.txt", import.meta.url), "utf8"))
+        .toContain("Usage: smthrs debug api")
       const listed = await server.request("tools/list", {})
       expect(listed?.tools?.map((tool) => tool.name)).toContain("search_tools")
       for (

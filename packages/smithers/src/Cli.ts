@@ -75,7 +75,7 @@ const globalsOf = (connection: Bridge.ConnectionOptions, config: Bridge.Runtime)
  * @category constructors
  * @since 1.0.0
  */
-export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuildCli> => {
+export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?: boolean } = {}): ReturnType<typeof makeBuildCli> => {
   const mcpGlobals = z.object({
     audience: z.enum(["auto", "human", "agent"]).default("auto"),
     silent: z.boolean().default(false),
@@ -429,19 +429,28 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     (row.visibility === "core" || row.visibility === "advanced")).map(row => row.cli!.join(" ")),
     "login", "ssh-key add", "ssh-key delete", "ssh-key list", "workspace ssh", "shell", "exec", "cp", "api",
     "host start", "host stop", "host status", "host upgrade", "host backup", "host restore"]
-  const project = (source: Map<string, any>, target: Map<string, any>, prefix: string[] = []) => {
+  const project = (source: Map<string, any>, target: Map<string, any>, prefix: string[] = [], allowed = doors) => {
     for (const [name, entry] of source) {
       const path = [...prefix, name], key = path.join(" ")
-      if (!doors.some(door => door === key || door.startsWith(key + " "))) continue
+      if (!allowed.some(door => door === key || door.startsWith(key + " "))) continue
       if ("_group" in entry) {
         const commands = new Map()
-        project(entry.commands, commands, path)
-        target.set(name, { ...entry, commands, ...(doors.includes(key) ? {} : { root: undefined }) })
+        project(entry.commands, commands, path, allowed)
+        target.set(name, { ...entry, commands, ...(allowed.includes(key) ? {} : { root: undefined }) })
       } else target.set(name, entry)
     }
   }
   project(Cli.toCommands.get(cli as never)!, discoveryTree)
   retainInstallDiscovery(cli, discoveryTree)
+  // Appendix A person-only commands belong in human help, never skills or MCP.
+  const humanDiscovery = makeBuildCli({ ...config, cliName: "smthrs", cliVersion: packageVersion,
+    cliDescription: "Build workspace targets and operate durable agent flows",
+    cacheSteps: createStepCacheCli(), approvals: config.approvals ?? TargetApprovals.store })
+  const humanTree = Cli.toCommands.get(humanDiscovery as never)!
+  humanTree.clear()
+  project(Cli.toCommands.get(cli as never)!, humanTree, [], [...doors,
+    ...catalogCommands.filter(row => row.actors.includes("person") &&
+      (row.visibility === "core" || row.visibility === "advanced" || row.name === "debug.api")).map(row => row.cli!.join(" "))])
 
   const invoke = cli.serve.bind(cli)
   const serve: typeof cli.serve = (argv = [], serveOptions) => {
@@ -473,7 +482,10 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
       !argv.includes("--llms") && !argv.includes("--llms-full")
     const rootDiscovery = parsed.rest[0] === undefined || parsed.rest[0]?.startsWith("-") ||
       parsed.rest[0] === "skills" || parsed.mcp || argv.includes("--help") || argv.includes("-h") || argv.includes("--llms") || argv.includes("--llms-full")
-    const dispatch = (options: typeof serveOptions) => rootDiscovery && !explicitHiddenHelp ? discovery.serve(argv, options) : invoke(argv, options)
+    const helpDiscovery = documentation.humanHelp && !parsed.mcp && parsed.rest[0] !== "skills" &&
+      !argv.includes("--llms") && !argv.includes("--llms-full") && (argv.includes("--help") || argv.includes("-h"))
+      ? humanDiscovery : discovery
+    const dispatch = (options: typeof serveOptions) => rootDiscovery && !explicitHiddenHelp ? helpDiscovery.serve(argv, options) : invoke(argv, options)
     if (argv.some(word => word === "--mcp" || word === "--http")) return dispatch(serveOptions)
     return Presentation.withErrorEnvelope(serveOptions?.stdout ?? (text => process.stdout.write(text)),
       stdout => dispatch({ ...serveOptions, stdout }))

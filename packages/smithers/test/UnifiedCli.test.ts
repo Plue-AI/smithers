@@ -52,23 +52,11 @@ describe("unified CLI", { timeout: 240_000 }, () => {
   it("advertises canonical groups without old unsupported tombstones", async () => {
     const result = await serve(["--help"])
     expect(result.code, result.output).toBe(0)
-    for (
-      const name of [
-        "build",
-        "targets",
-        "affected",
-        "watch",
-        "cache",
-        "flow",
-        "runs",
-        "approvals",
-        "generate",
-        "eval",
-        "triggers",
-        "integrations",
-        "credentials"
-      ]
-    ) expect(result.output).toContain(name)
+    for (const name of ["flow", "runs", "todo", "host", "api"]) expect(result.output).toContain(name)
+    // Appendix B.6 allows only kept install commands, not every callable library verb.
+    for (const name of ["build", "targets", "affected", "watch", "cache", "approvals", "generate", "eval", "triggers", "integrations", "credentials", "serve", "environment"]) {
+      expect(result.output).not.toMatch(new RegExp(`^\\s+${name}\\s{2,}`, "m"))
+    }
     for (const name of ["hijack", "timetravel", "retry-task", "claude"]) expect(result.output).not.toContain(name)
   })
 

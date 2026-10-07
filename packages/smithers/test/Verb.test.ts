@@ -120,17 +120,9 @@ describe("the shipped surface", () => {
   })
 
   it("registers every shipped verb in the compatibility or canonical tree", async () => {
-    let manifest = ""
-    await makeCli({ environment: {} }).serve(["--llms-full", "--format", "json"], {
-      env: {},
-      stdout: (text) => {
-        manifest += text
-      },
-      exit: () => {}
-    })
-    const canonical = (JSON.parse(manifest).commands as Array<{ name: string }>).map((command) =>
-      command.name.split(" ")[0]
-    )
+    // Appendix B.6 is an install allowlist; callable library verbs need not be discovered.
+    const { Cli } = await import("incur")
+    const canonical = [...Cli.toCommands.get(makeCli({ environment: {} }) as never)!.keys()]
     // `completions` is `effect/unstable/cli`'s own `--completions <shell>`
     // global flag, not a subcommand of ours.
     expect(Verb.subcommands.map((verb) => verb.name)).toEqual(

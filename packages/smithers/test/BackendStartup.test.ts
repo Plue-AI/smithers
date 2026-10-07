@@ -88,6 +88,7 @@ describe("backend command startup", () => {
       expect(help.code, help.output + help.error).toBe(0)
       expect(help.output).toContain("todo")
       expect(help.output).toContain("host")
+      // Appendix B.6 omits saved environments from install docs and discovery.
       expect(help.output).not.toContain("environment")
       expect(requests).toEqual([])
       const environmentHelp = await run(["environment", "list", "--help"])
