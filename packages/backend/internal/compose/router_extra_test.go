@@ -179,6 +179,9 @@ func routerWithAdminUserHandler(adminUserHandler *routes.AdminUserHandler, authM
 	if len(authModes) > 0 {
 		cfg.Auth.Mode = authModes[0]
 	}
+	if cfg.Auth.Mode == config.AuthModeSelfHosted {
+		cfg.Server.AllowedOrigins = []string{"http://example.com"}
+	}
 	return buildRouterCompat(
 		cfg,
 		nil,
