@@ -136,5 +136,15 @@ func TestTodoFromIssueCLIComposedInstall(t *testing.T) {
 	  WHERE request_id LIKE 'mythical:' || (SELECT id::text FROM mythical_items WHERE issue_number=$1) || ':%'
 	  AND payload->>'flowId'='coding/request'`, number).Scan(&legacy))
 	require.Zero(t, legacy)
+	// Admission alone is insufficient: the approved issue must actually
+	// reach a factory model on the install owner's metered proxy. A cloud
+	// key fixture leaves the production factory-seat door unavailable.
+	require.Eventually(t, func() bool {
+		var calls int
+		err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM model_usage
+		  WHERE source='flow_host' AND provider='cerebras'
+		  AND reservation_id IS NULL AND outcome='succeeded'`).Scan(&calls)
+		return err == nil && calls > 0
+	}, time.Minute, 100*time.Millisecond, "approved issue TODO must call its owner-paid factory model")
 	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "cli-draft.json"), output, 0600))
 }
