@@ -89,7 +89,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 }
 
 // fileTodoCommand is also the append implementation of an admitted learning
-// acceptance. That consumer retains its concrete decision instead of acquiring
+// acceptance or repository edit. These consumers retain their concrete decision instead of acquiring
 // a second todo.new decision for the same effect.
 func (s *MythicalService) fileTodoCommand(ctx context.Context, repositoryID, userID int64, input MythicalTodoInput, command string) (MythicalItemView, error) {
 	decision, err := Authorize(ctx, s.queries(), command)
