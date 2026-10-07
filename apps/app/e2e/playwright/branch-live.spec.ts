@@ -2,6 +2,31 @@ import { expect, test } from "./browserTest"
 import { fillComposer } from "./composer"
 import { installCloudFixture } from "./cloudFixture"
 
+test("install item Diff reads its branch while burst Diff refuses substitution", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  const reads: string[] = []
+  await page.route("**/api/branches/**/diff**", route => {
+    reads.push(route.request().url())
+    return route.fulfill({ json: { files: [{ path: "retry.ts", branch: "smithers/retry-webhooks",
+      against: { kind: "item_base", rev: "2222222222222222222222222222222222222222" }, change: "modified",
+      hunks: [{ old_start: 1, new_start: 1, lines: [{ op: "-", text: "const delay = 1" }, { op: "+", text: "const delay = 2" }] }] }] } })
+  })
+  await page.goto("/")
+  await fillComposer(page, '/diff {"branch":"smithers/retry-webhooks","entry":"6ad2b1a9-1869-4d1a-b087-8ba32a09b102"}')
+  await page.getByTestId("composer-send").click()
+  await expect(page.getByText("Burst diff unavailable", { exact: true }).last()).toBeVisible()
+  await expect(page.locator('[data-testid^="card-diff"]')).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  expect(reads).toEqual([])
+  await fillComposer(page, "/diff smithers/retry-webhooks")
+  await page.getByTestId("composer-send").click()
+  const diff = page.getByTestId("card-diff-branch-smithers/retry-webhooks")
+  await expect(diff).toBeVisible()
+  await expect(diff).toContainText("retry.ts")
+  await expect.poll(() => reads.length).toBe(1)
+  expect(new URL(reads[0]!).pathname).toBe("/api/branches/smithers%2Fretry-webhooks/diff")
+})
+
 // Browser contract proof. The PostgreSQL/SSH/lease journey remains reference-host evidence.
 for (const optionalStreams of ["served", "unsupported", "scratch"] as const) test(`install /branch T2 renders captured facts with ${optionalStreams} streams without waking`, async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
