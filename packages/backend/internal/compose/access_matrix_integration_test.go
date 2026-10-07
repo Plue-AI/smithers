@@ -423,7 +423,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 						var body map[string]any
 						require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
 						if pendingTicket := map[string]string{
-							"agent": "T-FLW-08", "branch.add-to-stack": "T-MCH-08", "branch.rebase": "T-STK-08", "flow.edit": "T-FLW-05", "flow.run": "T-FLW-01", "issue.comment": "T-GH-04", "monitor": "T-FLW-07", "run": "T-FLW-07", "run.inspect": "T-FLW-07", "runs": "T-FLW-07",
+							"agent": "T-FLW-08", "branch.rebase": "T-STK-08", "flow.edit": "T-FLW-05", "flow.run": "T-FLW-01", "issue.comment": "T-GH-04", "monitor": "T-FLW-07", "run": "T-FLW-07", "run.inspect": "T-FLW-07", "runs": "T-FLW-07",
 						}[operation.Name]; pendingTicket != "" && w.Code == http.StatusNotFound {
 							// Unserved catalogue doors remain owned by their tickets.
 							// Never count a missing-route response as an auth pass.
