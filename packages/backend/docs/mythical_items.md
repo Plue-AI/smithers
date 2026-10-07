@@ -458,13 +458,12 @@ Home reads every displayed queue position from one scheduler snapshot,
 including people waiting ahead of TODOs. TODO reads use the same ordered
 waiting set. Runtime-confirmed reservations and releases wake the existing
 stack worker. Waiting work remains scheduled for setting and capacity changes.
-The composed live endpoint refreshes Home positions together after reorder or
-runtime-only person cancellation, using its existing snapshot protocol. The
-durable TODO source refreshes queue positions at the same journal cursor when
-no TODO event was appended.
-The runtime rechecks the saved parallel setting after readiness checks and
-before each reservation; a failed read refuses the grant. Recovered
-workspace demand waits for authoritative stack registration before a new TODO
+Committed repository-wide Home facts include every changed queue position in
+the reorder delta. Runtime-only person cancellation refreshes Home and TODO
+positions through snapshots at the existing journal cursor. Committed runtime-only
+queue facts and production terminal/safe-idle acceptance remain required.
+The runtime rechecks the saved parallel setting after readiness checks and before each reservation; a failed read refuses the grant.
+Recovered workspace demand waits for authoritative stack registration before a new TODO
 grant; existing holders remain held.
 
 Production safe-idle observation providers and the complete C-STK-02 journey
