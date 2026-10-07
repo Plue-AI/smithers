@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
@@ -92,6 +94,49 @@ func TestInstallApprovalCatalogDecisionsPostgres(t *testing.T) {
 	var access *services.AccessError
 	require.ErrorAs(t, err, &access)
 	require.Equal(t, "permission", access.Code)
+
+	service.ConfigureInstallAuthorization(f.q, f.pool)
+	t.Run("expiry commits despite refusal", func(t *testing.T) {
+		id := uuid.NewString()
+		_, err := f.q.CreateApproval(f.ctx, db.CreateApprovalParams{ID: id, SessionID: sessionID, RepositoryID: f.repoID, Kind: "command", Title: "Expired", Payload: json.RawMessage(`{}`), ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Hour), Valid: true}})
+		require.NoError(t, err)
+		ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.owner, SessionHash: hex.EncodeToString(sum[:])})
+		for range 2 {
+			_, err = service.Decide(ctx, services.DecideApprovalInput{ApprovalID: id, RepositoryID: f.repoID, UserID: f.owner.ID, Decision: "approved"})
+			var refusal *pkgerrors.APIError
+			require.ErrorAs(t, err, &refusal)
+			require.Equal(t, 400, refusal.Status)
+			row, err := f.q.GetApproval(f.ctx, id)
+			require.NoError(t, err)
+			require.Equal(t, "expired", row.State)
+			require.False(t, row.DecidedBy.Valid)
+		}
+	})
+	t.Run("replay checks live identity before disclosure", func(t *testing.T) {
+		id := uuid.NewString()
+		_, err := f.q.CreateApproval(f.ctx, db.CreateApprovalParams{ID: id, SessionID: sessionID, RepositoryID: f.repoID, Kind: "command", Title: "Replay", Payload: json.RawMessage(`{}`)})
+		require.NoError(t, err)
+		ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.owner, SessionHash: hex.EncodeToString(sum[:])})
+		input := services.DecideApprovalInput{ApprovalID: id, RepositoryID: f.repoID, UserID: f.owner.ID, Decision: "approved"}
+		first, err := service.Decide(ctx, input)
+		require.NoError(t, err)
+		replayed, err := service.Decide(ctx, input)
+		require.NoError(t, err)
+		require.Equal(t, first, replayed)
+		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository", Scopes: middleware.ParseTokenScopes("write:repository")}
+		_, err = service.Decide(middleware.ContextWithAuthInfo(f.ctx, info), input)
+		var access *services.AccessError
+		require.ErrorAs(t, err, &access)
+		require.Equal(t, 403, access.Status)
+		input.Decision = "rejected"
+		_, err = service.Decide(ctx, input)
+		var refusal *pkgerrors.APIError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, 409, refusal.Status)
+		row, err := f.q.GetApproval(f.ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, "approved", row.State)
+	})
 
 	t.Run("revoked session cannot reuse decision", func(t *testing.T) {
 		service.ConfigureInstallAuthorization(f.q, f.pool)
