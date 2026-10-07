@@ -5736,6 +5736,11 @@ func (c *Client) GetAPIStack(ctx context.Context) (HomeCard, error) {
 	return out, err
 }
 
+// PostAPIStackAttentionID calls POST /api/stack/attention/{id}.
+func (c *Client) PostAPIStackAttentionID(ctx context.Context, id string, body any) error {
+	return c.do(ctx, "POST", "/api/stack/attention/"+url.PathEscape(id), nil, body, nil)
+}
+
 // GetAPITodos calls GET /api/todos.
 func (c *Client) GetAPITodos(ctx context.Context) ([]TodoCard, error) {
 	var out []TodoCard

@@ -1066,7 +1066,12 @@ func buildRouter(
 			sync := &routes.GitHubSyncHandler{Service: extras.GitHubSync}
 			resetService, _ := extras.GitHubSync.(routes.MainResetRouteService)
 			reset := &routes.MainResetHandler{Queries: queries, Service: resetService}
-			r.With(middleware.RequireAuth).Post("/stack/attention/{id}", reset.Reset)
+			var attentionService routes.StackAttentionService
+			if extras.Mythical != nil {
+				attentionService, _ = extras.Mythical.Service.(routes.StackAttentionService)
+			}
+			attention := &routes.StackAttentionHandler{Queries: queries, Service: attentionService, Reset: reset}
+			r.With(middleware.RequireAuth).Post("/stack/attention/{id}", attention.Handle)
 			r.With(middleware.RequireAuth).Get("/github/sync", sync.Status)
 			r.With(middleware.RequireAuth).Post("/github/sync", sync.Retry)
 			// The stack supplies the immutable accepted-prefix diff.

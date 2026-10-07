@@ -266,7 +266,7 @@ export interface CardCommandInput {
   readonly "image.add": { readonly name: string }
   readonly "todo.takeover": { readonly n: number }
   readonly "merge.confirm": { readonly n: number; readonly revision: string }
-  readonly "order.ok": { readonly n: number }
+  readonly "order.ok": { readonly id: string; readonly revision: number }
   readonly "background.retry": { readonly id: string }
   readonly "background.dismiss": { readonly id: string }
   readonly "main.reset-to-github": { readonly revision: string }

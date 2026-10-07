@@ -110,18 +110,12 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				if !fact.OnMain {
 					return nil, fmt.Errorf("waiting for mirrored main to contain %s", pull.MergeCommit)
 				}
+				fact.PRNumber = pull.Number
 				fact.Manifest = checks.retainedManifest(pull.HeadSHA)
 				for _, earlier := range items {
-					if earlier.ID != item.ID && earlier.StackPosition.Valid && item.StackPosition.Valid && earlier.StackPosition.Int64 < item.StackPosition.Int64 && !mythicalSettledStates[earlier.State] {
+					if earlier.ID != item.ID && earlier.StackPosition.Valid && item.StackPosition.Valid && earlier.StackPosition.Int64 < item.StackPosition.Int64 && earlier.State != "landed" && earlier.State != "merged" {
 						fact.Earlier = append(fact.Earlier, mythicalCandidateIdentity(earlier))
 					}
-				}
-				// Until durable stack attention and its merge fence are composed,
-				// retain this delivery before any transition or outbound effect.
-				// The shared decision now receives immutable head-bound proof;
-				// an attention provider must commit its fold with this receipt.
-				if decideGitHubFact(fact, mythicalGitHubFactItem{State: item.State, Head: item.PRHead}, s.now()).Attention != "" {
-					return nil, &mythicalPRUnavailable{}
 				}
 
 			case pull.State == "closed":
@@ -132,6 +126,43 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				fact.Kind = "push"
 			}
 			decision := decideGitHubFact(fact, mythicalGitHubFactItem{State: item.State, Head: item.PRHead, ClosedAt: mythicalGitHubClosedAt(item)}, s.now())
+			if decision.Attention == "order" {
+				if err := appendOrderAttention(ctx, tx, repository, stackAttentionEntry{Key: fmt.Sprintf("%d:%s", pull.Number, pull.MergeCommit), Text: decision.AttentionText, Todo: mythicalItemNumber(item)}); err != nil {
+					return nil, err
+				}
+				for i, contained := range decision.Contained {
+					for _, earlier := range items {
+						if uuidString(earlier.ID) != contained.ID {
+							continue
+						}
+						if err := s.cancelAttempt(ctx, tx, stack, earlier); err != nil {
+							return nil, err
+						}
+						folded := mythicalLanded(earlier, pull.MergeCommit, s.now())
+						folded.Reason = decision.Notes[i]
+						foldedChecks := mythicalChecksOf(folded)
+						foldedChecks.MergedVia = &mythicalMergedVia{Number: mythicalItemNumber(item), Pull: pull.Number, URL: pull.URL, Note: decision.Notes[i]}
+						// An ambiguous in-flight write keeps its lookup obligation.
+						// Unsent publication/merge work may never undo the fold.
+						var pending MythicalOutboundOp
+						if json.Unmarshal(folded.PendingOp, &pending) == nil && pending.State != "unknown" {
+							folded.PendingOp = nil
+						}
+						if len(folded.PendingOp) == 0 && earlier.PRNumber.Valid && earlier.PRState != "closed" {
+							folded.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: fmt.Sprint(earlier.PRNumber.Int64), Desired: "closed", Precondition: "open", State: "intended"})
+						}
+						folded.Checks = foldedChecks.encode()
+						saved, err := q.SaveMythicalItem(ctx, folded)
+						if err != nil {
+							return nil, err
+						}
+						data, _ := json.Marshal(map[string]any{"item": contained.ID, "n": contained.Number, "reason": folded.Reason, "merged_via": pull.Number, "source": "github"})
+						if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_merged", "merged", data); err != nil {
+							return nil, err
+						}
+					}
+				}
+			}
 			next := item
 			checks.PRDraft = pull.Draft
 			switch decision.Event {
@@ -215,7 +246,11 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
 					return nil, err
 				}
+				next.Checks = checks.encode()
 				next = mythicalLanded(next, pull.MergeCommit, s.now())
+				if pending, err := decodeMythicalOutbound(next.PendingOp); err == nil && pending.State != "unknown" {
+					next.PendingOp = nil
+				}
 				checks = mythicalChecksOf(next)
 			}
 			next.Checks = checks.encode()

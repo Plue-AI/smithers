@@ -172,6 +172,7 @@ var migrationRegistry = []migrationSpec{
 	{134, "migrations/0134_transcript_checkpoints.sql"},
 	{135, "migrations/0135_todo_repository_order.sql"},
 	{136, "migrations/0136_github_main_reset_intent.sql"},
+	{137, "migrations/0137_stack_attention.sql"},
 }
 
 type migration struct {

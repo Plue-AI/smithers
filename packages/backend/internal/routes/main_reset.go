@@ -26,6 +26,10 @@ func (h *MainResetHandler) Reset(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, err)
 		return
 	}
+	if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
+		todoRouteError(w, err)
+		return
+	}
 	var input struct {
 		Old string `json:"old"`
 		New string `json:"new"`
@@ -34,7 +38,7 @@ func (h *MainResetHandler) Reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Old == "" || input.New == "" || input.Old == input.New {
-		writeRouteError(w, r, &services.TodoControlError{Status: 409, Class: "conflict", Code: "stale_attention", Message: "Main changed"})
+		todoRouteError(w, &services.TodoControlError{Status: 409, Class: "conflict", Code: "stale_attention", Message: "Main changed"})
 		return
 	}
 	repository, err := services.InstallRepositoryID(r.Context(), h.Queries)

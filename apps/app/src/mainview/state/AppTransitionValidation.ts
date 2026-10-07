@@ -76,6 +76,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "install.requests.changed": z.object({ type: z.literal("install.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.installRequests.unwrap() }).strict(),
   "repository.imports.changed": z.object({ type: z.literal("repository.imports.changed"), actor: ActorSchema, requests: SessionSchema.shape.repositoryImports.unwrap() }).strict(),
   "secret.requests.changed": z.object({ type: z.literal("secret.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.secretRequests.unwrap() }).strict(),
+  "order.requests.changed": z.object({ type: z.literal("order.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.orderRequests.unwrap() }).strict(),
   "egress.requests.changed": z.object({ type: z.literal("egress.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.egressRequests.unwrap() }).strict(),
   "github.sync.request.changed": z.object({ type: z.literal("github.sync.request.changed"), actor: ActorSchema, request: SessionSchema.shape.githubSyncRequest }).strict(),
   "stack.wiki.requests.changed": z.object({ type: z.literal("stack.wiki.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.wikiRequests.unwrap() }).strict(),

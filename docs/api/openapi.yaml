@@ -20268,6 +20268,53 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Stack projection unavailable
+  /api/stack/attention/{id}:
+    post:
+      x-composition: install
+      summary: Settle the displayed stack attention
+      operationId: post_api_stack_attention_id
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [revision]
+                  additionalProperties: false
+                  properties:
+                    revision: {type: integer, minimum: 1}
+                - type: object
+                  required: [old, new]
+                  additionalProperties: false
+                  properties:
+                    old: {type: string}
+                    new: {type: string}
+      responses:
+        '200':
+          description: The owner reset to the displayed GitHub main revision
+        '204':
+          description: The displayed attention revision was acknowledged
+        '400':
+          description: Invalid attention revision
+        '401':
+          description: Sign in required
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: Attention not found
+        '409':
+          description: A newer entry arrived; class conflict, code stale_attention
+        '503':
+          description: Stack attention unavailable
   /api/todos:
     get:
       x-composition: install

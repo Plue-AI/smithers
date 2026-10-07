@@ -312,7 +312,15 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		if t.todos == nil {
 			return live.Source{}, live.Unsupported
 		}
-		source := live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+		var role services.InstallRole
+		if t.queries != nil {
+			var err error
+			role, err = services.InstallRoleOf(ctx, t.queries, member)
+			if err != nil || role == "" {
+				return live.Source{}, live.Forbidden
+			}
+		}
+		source := live.Source{Key: fmt.Sprintf("home:%d:member:%d:role:%s", repository, member, role), Hints: hints, Every: liveRefreshEvery, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
 			return t.home(ctx, repository, slug, member)
 		}}
 		if t.jobs != nil {
@@ -381,6 +389,15 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string, me
 		return nil, err
 	}
 	model := homeModel(slug, cards, sync)
+	if provider, ok := t.todos.(interface {
+		StackAttention(context.Context, int64, int64) ([]map[string]any, error)
+	}); ok {
+		attention, err := provider.StackAttention(ctx, repository, member)
+		if err != nil {
+			return nil, err
+		}
+		model["attention"] = attention
+	}
 	if provider, ok := t.todos.(interface {
 		LearningBackgroundRuns(context.Context, int64) ([]map[string]any, error)
 	}); ok {

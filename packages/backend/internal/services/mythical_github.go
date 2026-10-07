@@ -845,6 +845,15 @@ func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, 
 }
 
 func (g *mythicalGitHubAPI) CloseIssue(ctx context.Context, gh mythicalGitHubRepo, number int64) error {
+	// Completion is the durable intent. A lost PATCH answer reconciles the
+	// canonical issue before another write, including a person's independent close.
+	issue, err := g.Issue(ctx, gh, number)
+	if err != nil {
+		return err
+	}
+	if issue.State == "closed" {
+		return nil
+	}
 	token, err := g.installationToken(ctx, gh, map[string]string{"issues": "write"})
 	if err != nil {
 		return err
