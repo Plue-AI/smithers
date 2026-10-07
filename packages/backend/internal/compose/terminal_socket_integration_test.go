@@ -129,7 +129,7 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	f.row.UserID = machineOwner
 	alice, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "alice", LowerUsername: "alice"})
 	require.NoError(t, err)
-	_, err = f.pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, f.row.RepositoryID, alice.ID)
+	_, err = f.pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission,github_login,unix_login,unix_uid) VALUES($1,$2,'write','alice','alice',20002)`, f.row.RepositoryID, alice.ID)
 	require.NoError(t, err)
 	sum := sha256.Sum256([]byte("alice-terminal-cookie"))
 	_, err = q.CreateAuthSession(t.Context(), db.CreateAuthSessionParams{UserID: alice.ID, Username: alice.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
@@ -148,7 +148,7 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	cfg.Auth.SessionCookieName = "session"
 	cfg.Server.PublicURL = f.origin
 	cfg.Server.AllowedOrigins = []string{f.origin}
-	server.Config.Handler = hostStatusProductionRouter(cfg, q, nil, conformanceServices{pool: f.pool, terminal: handler})
+	server.Config.Handler = hostStatusProductionRouter(cfg, q, nil, conformanceServices{pool: f.pool, terminal: handler, members: &routes.MembersHandler{Service: &services.Members{Pool: f.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}})
 	server.Start()
 	defer server.Close()
 	post := func(body string) (int, []byte) {
@@ -296,7 +296,17 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	require.Equal(t, "owner echo", string(output))
 	_, _, err = owner.Read(ctx)
 	require.NoError(t, err)
-	require.NoError(t, f.publish.Publish(ctx, revocation.Event{Kind: revocation.KindCollaboratorRemoved, RepositoryID: f.row.RepositoryID, UserID: alice.ID}))
+	remove, err := http.NewRequest(http.MethodDelete, server.URL+"/api/members/alice", nil)
+	require.NoError(t, err)
+	remove.Header.Set("Origin", f.origin)
+	remove.Header.Set("X-CSRF-Token", "csrf")
+	remove.Header.Set("Cookie", "session="+f.cookie+"; __csrf=csrf")
+	removed, err := http.DefaultClient.Do(remove)
+	require.NoError(t, err)
+	defer removed.Body.Close()
+	removedBody, err := io.ReadAll(removed.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, removed.StatusCode, string(removedBody))
 	_, _, err = watcher.Read(ctx)
 	require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
 	require.True(t, manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID))
