@@ -143,7 +143,7 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 			var frame live.Frame
 			require.NoError(t, json.Unmarshal(raw, &frame))
 			require.NotEqual(t, "err", frame.T, string(raw))
-			if frame.T != kind {
+			if frame.T != kind && !(kind == "update" && (frame.T == "snap" || frame.T == "delta")) {
 				continue
 			}
 			var home struct {
@@ -154,7 +154,16 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 					} `json:"queue"`
 				} `json:"items"`
 			}
-			require.NoError(t, json.Unmarshal(frame.Data, &home), string(raw))
+			data := frame.Data
+			if frame.T == "delta" {
+				var fact jobs.Event
+				require.NoError(t, json.Unmarshal(data, &fact))
+				var payload struct{ Home json.RawMessage }
+				require.NoError(t, json.Unmarshal(fact.Data, &payload))
+				require.NotEmpty(t, payload.Home)
+				data = payload.Home
+			}
+			require.NoError(t, json.Unmarshal(data, &home), string(raw))
 			got := map[int]int{}
 			for _, item := range home.Items {
 				if item.Queue != nil {
@@ -200,7 +209,7 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	require.Equal(t, 202, code, body)
 	position(2, 2)
 	position(1, 3)
-	readHome("snap", map[int]int{1: 3, 2: 2, 3: 4, 4: 5, 5: 6})
+	readHome("update", map[int]int{1: 3, 2: 2, 3: 4, 4: 5, 5: 6})
 	require.False(t, runtime.CancelAdmission("workspace:ben", "Ben", time.Now()))
 	position(2, 1)
 	position(1, 2)

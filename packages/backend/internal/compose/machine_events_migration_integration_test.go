@@ -34,7 +34,7 @@ func TestRunMigrateMachineEventsPostgres(t *testing.T) {
 	defer pool.Close()
 	for table, columns := range map[string][]string{
 		"burst_files":            {"event_id", "path", "change", "before_blob", "after_blob", "post_digest", "renamed_to"},
-		"machine_event_receipts": {"workspace_id", "event_id", "outcome", "at", "transcript_checkpoint"},
+		"machine_event_receipts": {"workspace_id", "event_id", "outcome", "at", "transcript_checkpoint", "payload_digest", "capture_payload"},
 	} {
 		var actual []string
 		require.NoError(t, pool.QueryRow(ctx, `SELECT array_agg(column_name::text ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name=$1`, table).Scan(&actual))
