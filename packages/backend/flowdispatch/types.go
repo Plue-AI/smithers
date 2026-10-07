@@ -53,20 +53,20 @@ const pinMismatch = "pin_mismatch"
 // IsTodoFlow reports whether flowID names the todo composition, by name or by
 // its flows/todo/flow.ts path.
 func IsTodoFlow(flowID string) bool {
+	return flowName(flowID) == TodoFlow
+}
+
+func flowName(flowID string) string {
 	name := path.Clean(strings.TrimSpace(flowID))
 	if inner, ok := strings.CutPrefix(name, "flows/"); ok {
 		name = strings.TrimSuffix(inner, "/flow.ts")
 	}
-	return name == TodoFlow
+	return name
 }
 
 func engineOnlyFlow(flowID string) bool {
-	name := path.Clean(strings.TrimSpace(flowID))
-	if inner, ok := strings.CutPrefix(name, "flows/"); ok {
-		name = strings.TrimSuffix(inner, "/flow.ts")
-	}
-	switch name {
-	case "coding/request", "coding/vibe", "coding/verify", "review/change":
+	switch flowName(flowID) {
+	case "coding/request", "coding/vibe", "coding/verify", "review/change", "learning":
 		return true
 	}
 	return false

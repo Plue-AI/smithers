@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -29,6 +30,12 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
+	busCtx, stopBus := context.WithCancel(ctx)
+	defer stopBus()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(busCtx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "learnowner", LowerUsername: "learnowner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, owner.ID)
