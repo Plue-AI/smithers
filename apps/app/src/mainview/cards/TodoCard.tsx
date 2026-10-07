@@ -1,3 +1,4 @@
+import { flowProps } from "../flows/FlowAction"
 import { useCallback, useMemo, useSyncExternalStore, type ComponentType, type ReactNode } from "react"
 import { MembersCardSchema } from "@smthrs/rpc/MembersCard"
 import { useTopic } from "../state/useTopic"
@@ -198,7 +199,7 @@ const useConflictView = (model: TodoCard | undefined, originCardId: string): { r
   const terminal = binding?.model()
   if (terminal && binding) return { sshLine, terminal: terminalSlot(terminal, binding.stream, binding.input, binding.resize) }
   if (!viewer || !controller.openBranchTerminal) return { sshLine }
-  return { sshLine, terminal: <button type="button" data-flow="terminal"
+  return { sshLine, terminal: <button type="button" {...flowProps("terminal", branch.name)}
     onClick={() => controller.runCommand("terminal", branch.name, originCardId)}>Terminal</button> }
 }
 
