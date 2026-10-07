@@ -58,7 +58,8 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 	var success atomic.Bool
 	runtime := &installFlowRuntime{launches: make(chan flowruntime.Launch, 2)}
 	entered, release := make(chan struct{}, 1), make(chan struct{})
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+	// Bound the worker's backoff to the fixture's five-second completion window.
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, ObservationDelay: 10 * time.Millisecond, MaxObservationDelay: 20 * time.Millisecond, Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
 		resolutions.Add(1)
 		select {
 		case entered <- struct{}{}:
