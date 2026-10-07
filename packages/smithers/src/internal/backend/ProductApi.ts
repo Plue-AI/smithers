@@ -1934,6 +1934,30 @@ export interface GetApiFlowsNameInput {
 export const getApiFlowsName = (transport: Transport, input: GetApiFlowsNameInput): Promise<GetApiFlowsNameResponse> =>
   transport.request("GET", `/api/flows/${segment(input.path.name)}`) as Promise<GetApiFlowsNameResponse>
 
+export type PostApiFlowsNameRunBody = NamedFlowRunRequest
+
+export type PostApiFlowsNameRunResponse = FlowRunReceipt
+
+export interface PostApiFlowsNameRunInput {
+  readonly path: { readonly name: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiFlowsNameRunBody
+}
+
+/** POST /api/flows/{name}/run: Request a flow run on a branch machine */
+export const postApiFlowsNameRun = (transport: Transport, input: PostApiFlowsNameRunInput): Promise<PostApiFlowsNameRunResponse> =>
+  transport.request("POST", `/api/flows/${segment(input.path.name)}/run`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiFlowsNameRunResponse>
+
+export type GetApiFlowsRunsIdResponse = FlowRunReceipt
+
+export interface GetApiFlowsRunsIdInput {
+  readonly path: { readonly id: string }
+}
+
+/** GET /api/flows/runs/{id}: Read the requesting person's flow run status */
+export const getApiFlowsRunsId = (transport: Transport, input: GetApiFlowsRunsIdInput): Promise<GetApiFlowsRunsIdResponse> =>
+  transport.request("GET", `/api/flows/runs/${segment(input.path.id)}`) as Promise<GetApiFlowsRunsIdResponse>
+
 export type PostApiFlowsNameEditBody = {
   name?: string
   request: string
