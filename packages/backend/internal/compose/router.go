@@ -1151,6 +1151,7 @@ func buildRouter(
 				branches.Rebases, _ = extras.Mythical.Service.(routes.BranchRebaseService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
+			r.Get("/ssh", branches.SSHLine(queries, config.PublicOrigin(cfg)))
 			files := &routes.BranchFileHandler{Branches: branches.Reads, Authorize: routes.InstallBranchAuthorizer(queries)}
 			files.Actor = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 				topics := &liveTopics{presence: &branchPresence{queries: queries}}

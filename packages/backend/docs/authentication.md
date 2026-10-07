@@ -63,19 +63,26 @@ build-cache read tokens are checked by their own route gates.
 
 ## SSH gateway
 
-The SSH configuration defaults to `127.0.0.1:2222`. An explicit `ssh.addr`
-override remains available to deployments. Network access is configured by the
-owner; Smithers provisions no network or TLS service.
+Use `/ssh retry-webhooks` to copy the connection line, or `smthrs ssh retry-webhooks`
+to open the local SSH client. The authenticated catalog endpoint is
+`GET /api/ssh?branch=retry-webhooks`. It reads branch metadata without waking a
+machine. The line uses the first public origin's host name, or `localhost` when
+no public origin is configured; Settings address changes apply to subsequent
+reads. The CLI launches `ssh` with separate arguments and preserves its exit code.
 
-Branch logins are an unmounted integration boundary. A composition selecting
-`BranchLogins` must supply both an active-member/branch identity resolver and
-a daemon-backed workspace bridge. Missing providers refuse authentication
-before wake or execution. Branch logins accept member public keys only and
-reject passwords, deploy keys and legacy workspace grants. Every new session
-rechecks its member and branch identity.
+The install listens on `127.0.0.1:2222` and adds the owner's configured bind
+address on port 2222. Changing that address updates the listener without a
+restart. The stable host key lives in `$STATE/ssh/`. Reaching that port from
+another machine is the owner's network setup; Smithers provisions no network
+or TLS service.
 
-Branch resolution prefers `smithers/<slug>` over `scratch/*/<slug>` and reports
-ambiguous scratch matches on stderr. Full item and scratch names resolve
-exactly; `main` has no machine. Plue retains its existing grant login parser.
-The install listener, admitted daemon sessions, forwarding and remote-editor
-acceptance are not enabled by this boundary.
+Branch resolution prefers `smithers/<slug>` over `scratch/*/<slug>` and refuses
+ambiguous scratch matches. Full item and scratch names resolve exactly; `main`
+has no machine. Plue retains its existing grant login parser.
+
+Branch execution requires active-member key authentication, provisioned member
+identity, person admission and authenticated daemon sessions. Missing providers
+refuse before wake or execution. Passwords, deploy keys, legacy workspace grants
+and agent forwarding are refused. Real microVM shell, SFTP, forwarding and
+remote-editor acceptance remain reference-host checks; connection metadata does
+not establish their availability.
