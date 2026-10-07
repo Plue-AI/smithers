@@ -95,13 +95,17 @@ describe("the generated product API client", () => {
     // GET /api/issues/{n} (#3457), were added.
     // Includes branch operations, live updates, TODO edits and conversation view state.
     // Exact parity above and the literal resource inventory below remain independent.
-    expect(expected).toHaveLength(514)
+    expect(expected).toHaveLength(535)
+    for (const path of ["/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
+      expect(spec.paths).not.toHaveProperty(path)
+    }
+    expect(Object.keys(spec.paths).filter(path => path.startsWith("/api/app-timelines"))).toEqual([])
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
       `${method.toUpperCase()} ${path}`
     ).sort()).toEqual([
       // T-INS-06 setup steps in §16.2 order (9e9493943, #3455) plus the install read/write, scorecard and quiesce.
-      "DELETE /api/install/quiesce", "GET /api/install", "GET /api/install/scorecard", "POST /api/install/quiesce",
+      "DELETE /api/install/quiesce", "GET /api/install", "GET /api/install/metrics", "GET /api/install/scorecard", "POST /api/install/quiesce",
       "POST /api/install/setup/address", "POST /api/install/setup/app", "POST /api/install/setup/machine",
       "POST /api/install/setup/models", "POST /api/install/setup/repository", "POST /api/install/setup/sign_in",
       "POST /api/install/setup/source", "PUT /api/install"
