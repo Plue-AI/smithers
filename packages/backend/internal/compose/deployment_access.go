@@ -23,7 +23,7 @@ func deploymentAccess(q *db.Queries, cfg *config.Config) operations.Access {
 				middleware.MaxBodySize(middleware.MaxRequestBodySize),
 				authLoader(q, cfg.Auth), apiCSRFMiddleware,
 				middleware.GlobalAPIRateLimit(q), middleware.RequireAdmin,
-				middleware.RequireScope(scope),
+				middleware.RequireScope(scope), middleware.RequirePersonCredential,
 			)
 			return chain.Handler(next)
 		}

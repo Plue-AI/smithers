@@ -277,6 +277,31 @@ func requirePerson(ctx context.Context, action string) *apierrors.APIError {
 	return nil
 }
 
+// RequirePersonCredential admits only a person's credential (spec §5.3.0): a
+// browser session or a personal access token that CredentialKind classifies
+// as CredentialPerson. It refuses every other kind with the §5.2.1 classes: a
+// delegated credential gets 403 never ("Only a person can do this"); a run,
+// machine or sync credential, or an agent account's, gets 403 permission.
+// The admin chain mounts it after RequireAdmin and the scope check, so a
+// credential is classified only once it is otherwise eligible.
+func RequirePersonCredential(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := AuthInfoFromContext(r.Context())
+		if info == nil || info.User == nil {
+			apierrors.WriteError(w, apierrors.Unauthorized("authentication required"))
+			return
+		}
+		switch info.CredentialKind() {
+		case CredentialPerson:
+			next.ServeHTTP(w, r)
+		case CredentialDelegated:
+			apierrors.WriteError(w, &apierrors.APIError{Status: http.StatusForbidden, Code: apierrors.CodeForbidden, Class: apierrors.ClassNever, Message: "Only a person can do this"})
+		default:
+			apierrors.WriteError(w, apierrors.Forbidden("only a person's credential can use this endpoint"))
+		}
+	})
+}
+
 // RefuseRunCredentials applies RequirePerson to a whole route: managing build
 // cache read tokens (a run could revoke the committed read token or mint one
 // for itself), clearing workflow caches, starting, rerunning, resuming or cancelling

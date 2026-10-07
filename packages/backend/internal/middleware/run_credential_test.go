@@ -118,3 +118,39 @@ func TestInstallPATClassificationHasNoBackfill(t *testing.T) {
 		t.Fatalf("bot classified %s", got)
 	}
 }
+
+// RequirePersonCredential admits only CredentialPerson (#3740): an agent
+// account's session is refused like a run token, and an install-bound PAT is
+// delegated once BindInstallCredential has run.
+func TestRequirePersonCredential(t *testing.T) {
+	t.Parallel()
+	handler := RequirePersonCredential(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	person, bot := &db.User{ID: 1}, &db.User{ID: 2, UserType: "bot"}
+	installPAT := &AuthInfo{User: person, IsTokenAuth: true, RawScopes: "read:admin"}
+	assert.True(t, BindInstallCredential(installPAT))
+	for name, tc := range map[string]struct {
+		info   *AuthInfo
+		status int
+		class  string
+	}{
+		"anonymous":             {nil, http.StatusUnauthorized, ""},
+		"session":               {&AuthInfo{User: person, SessionHash: "s"}, http.StatusNoContent, ""},
+		"pat":                   {&AuthInfo{User: person, IsTokenAuth: true, RawScopes: "read:admin"}, http.StatusNoContent, ""},
+		"agent account session": {&AuthInfo{User: bot, SessionHash: "s"}, http.StatusForbidden, `"class":"permission"`},
+		"agent account pat":     {&AuthInfo{User: bot, IsTokenAuth: true}, http.StatusForbidden, `"class":"permission"`},
+		"delegated":             {&AuthInfo{User: person, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:admin,via:cli"}, http.StatusForbidden, `"class":"never"`},
+		"install pat":           {installPAT, http.StatusForbidden, `"class":"never"`},
+		"run":                   {&AuthInfo{User: person, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:admin"}, http.StatusForbidden, `"class":"permission"`},
+		"machine":               {&AuthInfo{User: person, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:admin," + WorkspaceRestrictionScope("w")}, http.StatusForbidden, `"class":"permission"`},
+		"sync":                  {&AuthInfo{User: person, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:admin," + SyncCredentialScope()}, http.StatusForbidden, `"class":"permission"`},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+		if tc.info != nil {
+			req = req.WithContext(ContextWithAuthInfo(req.Context(), tc.info))
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, tc.status, rec.Code, name)
+		assert.Contains(t, rec.Body.String(), tc.class, name)
+	}
+}

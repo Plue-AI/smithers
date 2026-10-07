@@ -2020,15 +2020,19 @@ func buildRouter(
 			})
 
 			if config.IsSingleOwner(cfg.Auth) || config.IsMultitenant(cfg.Auth) {
-				// Admin endpoints: require authenticated admin user (is_admin flag).
+				// Admin endpoints: an admin user (is_admin flag) on a person's
+				// credential (#3740): delegated, run, machine and sync tokens are
+				// refused whatever scopes they carry.
 				r.Route("/admin", func(r chi.Router) {
 					readAdmin := []func(http.Handler) http.Handler{
 						middleware.RequireAdmin,
 						middleware.RequireScope(middleware.ScopeReadAdmin),
+						middleware.RequirePersonCredential,
 					}
 					writeAdmin := []func(http.Handler) http.Handler{
 						middleware.RequireAdmin,
 						middleware.RequireScope(middleware.ScopeWriteAdmin),
+						middleware.RequirePersonCredential,
 					}
 					if extras.AdminSystemHealth != nil && (config.IsSingleOwner(cfg.Auth) || config.IsMultitenant(cfg.Auth)) {
 						r.With(readAdmin...).Get("/system/health", extras.AdminSystemHealth.SystemHealth)
