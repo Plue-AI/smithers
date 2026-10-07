@@ -129,6 +129,7 @@ type conformanceServices struct {
 	billing   *routes.BillingHandler
 	jobs      *routes.RepositoryJobHandler
 	terminal  *routes.WorkspaceTerminalHandler
+	members   *routes.MembersHandler
 	live      *routes.LiveHandler
 	wiki      *services.WikiService
 	workspace *routes.WorkspaceHandler
@@ -147,6 +148,9 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	}
 	if deps.terminal == nil {
 		deps.terminal = &routes.WorkspaceTerminalHandler{}
+	}
+	if deps.members == nil {
+		deps.members = &routes.MembersHandler{}
 	}
 	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{
@@ -180,7 +184,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
 			EgressPolicy:     &routes.RepositoryEgressPolicyHandler{},
 			GitHubAppSetup:   &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}, Origins: deps.live.Origins},
-			Members:          &routes.MembersHandler{},
+			Members:          deps.members,
 			Live:             deps.live,
 			ExternalSessions: &routes.ExternalSessionsHandler{},
 		},
