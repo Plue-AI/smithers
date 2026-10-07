@@ -136,6 +136,10 @@ type rehearsal struct {
 	// quiet rows run without a table row; quietFailed names those that failed.
 	quiet       bool
 	quietFailed []string
+	// options is the composition the listener serves through serving;
+	// restartBackend composes it again behind the same listener.
+	options Options
+	serving atomic.Pointer[http.Handler]
 }
 
 var rehearsalTokenField = regexp.MustCompile(`"token":"[^"]*"`)
@@ -400,8 +404,9 @@ path = "lib.rs"
 	if enable == pinnedMicroVMRehearsal {
 		configurePinnedMicroVMRehearsal(t, r, &options)
 	}
+	r.options = options
 	go func() {
-		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), options, func(h http.Handler) { ready <- h })
+		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), options, r.serve(ready))
 	}()
 	select {
 	case h := <-ready:
@@ -1947,4 +1952,56 @@ func (r *rehearsal) drop(number int64) error {
 func (r *rehearsal) todoHostBinding(number int64) (workspace, service string, err error) {
 	err = r.pool.QueryRow(r.ctx, `SELECT h.workspace_id,h.service_name FROM flow_runtime_host_bindings h JOIN mythical_items i ON h.workspace_id::text=i.workspace_id WHERE i.number=$1`, number).Scan(&workspace, &service)
 	return
+}
+
+// serve is StartWithOptions' ready callback. The listener serves whichever
+// composition is current, so restartBackend recomposes behind it; while the
+// install restarts, a request answers 503 as a stopped host's would fail.
+func (r *rehearsal) serve(ready chan<- http.Handler) func(http.Handler) {
+	return func(h http.Handler) {
+		r.serving.Store(&h)
+		ready <- http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			if current := r.serving.Load(); current != nil {
+				(*current).ServeHTTP(w, request)
+				return
+			}
+			http.Error(w, "the install is restarting", http.StatusServiceUnavailable)
+		})
+	}
+}
+
+// restartBackend stops the install's composition and composes it again with
+// the same options, as the host restarting does: same listener, database,
+// mirrors, machines and sessions. Call it from the test goroutine.
+func (r *rehearsal) restartBackend() {
+	t := r.t
+	r.serving.Store(nil)
+	r.stopBackend()
+	ctx, cancel := context.WithCancel(t.Context())
+	ready := make(chan http.Handler, 1)
+	done := make(chan error, 1)
+	go func() { done <- StartWithOptions(ctx, nil, r.stdout, r.logs, r.options, r.serve(ready)) }()
+	select {
+	case <-ready:
+	case err := <-done:
+		cancel()
+		t.Fatalf("recomposition: %v\n%s", err, r.logs.String())
+	case <-time.After(45 * time.Second):
+		cancel()
+		t.Fatalf("recomposition timed out: %s", r.logs.String())
+	}
+	r.ctx = ctx
+	var stopped sync.Once
+	r.stopBackend = func() {
+		stopped.Do(func() {
+			r.serving.Store(nil)
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(15 * time.Second):
+				t.Error("composition shutdown timed out")
+			}
+		})
+	}
 }
