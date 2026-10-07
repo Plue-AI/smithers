@@ -557,6 +557,7 @@ type WorkspaceService struct {
 	installQueries       *db.Queries
 	branchTerminalHost   func(context.Context, db.Workspace, int64) error
 	diskReclaimAuthority WorkspaceDiskReclaimAuthority
+	ownerTerminalOpen    func(context.Context, string, string, int64, int64) error
 	// revisionFork delegates retained workspace Fork to the sole history writer.
 	revisionFork         func(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error)
 	credentialIssuer     *AuthService

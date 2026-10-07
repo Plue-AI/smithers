@@ -1645,7 +1645,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		workspaceTerminalHandler.TerminalTokenLookup = workspaceService.AuthenticateOwnerTerminalToken
 		defer workspaceTerminalHandler.TerminalSessions.Close()
-		presence.terminals = terminalProjection(pool, workspaceTerminalHandler.TerminalPresence, options.Machined)
+		presence.terminals = terminalProjection(pool, workspaceTerminalHandler.TerminalSessions, options.Machined)
+		if err := workspaceService.RecoverOwnerTerminalRequests(ctx); err != nil {
+			return fmt.Errorf("recover terminal requests: %w", err)
+		}
+		workspaceTerminalHandler.OwnerTerminals.(*installOwnerTerminals).Bind(workspaceTerminalHandler.TerminalSessions)
 	}
 	if config.IsSingleOwner(cfg.Auth) && flow != nil && flow.dispatcher != nil {
 		workspaceService.BindBranchTerminalHost(func(ctx context.Context, row db.Workspace, member int64) error {

@@ -18,13 +18,13 @@ import (
 // Persist admission and deduplicate the request before any machine wake. The
 // returned row is a request receipt; the existing provisioner settles it.
 func (s *WorkspaceService) OpenBranchTerminal(ctx context.Context, branch string, repository, member int64, request string) (WorkspaceSessionResponse, error) {
-	return s.openMemberTerminal(ctx, branch, repository, member, request, "terminal")
+	return s.requestOwnerTerminal(ctx, branch, repository, member, request)
 }
 func (s *WorkspaceService) OpenSSHReservation(ctx context.Context, branch string, repository, member int64, request string) (WorkspaceSessionResponse, error) {
 	return s.openMemberTerminal(ctx, branch, repository, member, request, "ssh")
 }
 func (s *WorkspaceService) openMemberTerminal(ctx context.Context, branch string, repository, member int64, request, via string) (WorkspaceSessionResponse, error) {
-	if !s.memberSessionsAvailable() || (via == "terminal" && s.branchTerminalHost == nil) {
+	if !s.memberSessionsAvailable() {
 		return WorkspaceSessionResponse{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Terminal is unavailable")
 	}
 	if _, installed := s.runtime.(interface{ MachinedRegistry() *machined.Registry }); !installed {
@@ -131,7 +131,7 @@ func (s *WorkspaceService) prepareBranchTerminalSession(ctx context.Context, wor
 	return s.branchTerminalHost(ctx, workspace, session.UserID)
 }
 func (s *WorkspaceService) BranchTerminalAvailable() bool {
-	return s.memberSessionsAvailable() && s.branchTerminalHost != nil
+	return s != nil && s.q != nil && s.transactions != nil && s.ownerTerminalOpen != nil && s.requireBranchMachineProviders() == nil
 }
 func (s *WorkspaceService) memberSessionsAvailable() bool {
 	if s == nil || s.q == nil || s.transactions == nil || !s.WorkspaceRuntimeTerminalAvailable() {

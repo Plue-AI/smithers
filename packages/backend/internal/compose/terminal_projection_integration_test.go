@@ -32,7 +32,8 @@ func TestTerminalBranchProjectionLifecycleHTTP(t *testing.T) {
 	f := presenceInstall(t)
 	manager := routes.NewTerminalSessionManager(nil)
 	defer manager.Close()
-	f.p.terminals = manager
+	f.p.terminalManager = manager
+	f.p.terminals = terminalProjection(f.pool, manager, nil)
 	terminal := &projectionTerminal{done: make(chan struct{})}
 	require.NoError(t, manager.OpenOwned(t.Context(), "term-ben", revocation.Principal{UserID: f.user.ID, RepositoryID: f.row.RepositoryID, WorkspaceID: f.row.ID}, func(context.Context) (workspaceapi.Terminal, error) { return terminal, nil }))
 	require.True(t, manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID))

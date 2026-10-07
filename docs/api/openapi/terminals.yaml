@@ -3,12 +3,17 @@ paths:
     post:
       x-composition: install
       summary: Open a branch terminal
-      description: Opens a signed-in terminal as the authenticated member on the branch. Retained terminal WebSocket attachments authorize branch.join; only the owner types. Refuses without owner-uid machine session providers.
+      description: Requests a signed-in terminal as the authenticated member on the branch. Retained terminal WebSocket attachments authorize branch.join; only the owner types. Refuses without owner-uid machine session providers.
       operationId: post_api_terminals
       tags:
         - Terminals
       security:
         - sessionCookie: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: {type: string, format: uuid}
       requestBody:
         required: true
         content:
@@ -21,20 +26,18 @@ paths:
                 branch:
                   type: string
       responses:
-        '201':
-          description: Owner terminal opened. Attach through the retained repository terminal WebSocket using id.
+        '202':
+          description: Terminal requested. The pending receipt is not a running terminal.
           content:
             application/json:
               schema:
                 type: object
-                required: [id, branch]
+                required: [id, workspace_id, user_id, status]
                 properties:
-                  id:
-                    type: string
-                    format: uuid
-                  branch:
-                    type: string
-                    format: uuid
+                  id: {type: string, format: uuid}
+                  workspace_id: {type: string, format: uuid}
+                  user_id: {type: integer, format: int64}
+                  status: {type: string, enum: [pending, running, failed, closed]}
         '400':
           description: Invalid terminal request
         '401':

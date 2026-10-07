@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 	"strings"
@@ -48,6 +50,10 @@ func TestBranchTerminalPersistsBeforeWakeAndDeduplicates(t *testing.T) {
 	runtime := &terminalRequestRuntime{registry: &machined.Registry{}, entered: make(chan struct{}), release: make(chan struct{})}
 	service := NewWorkspaceService(q, WithWorkspaceRuntime(runtime), WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()))
 	service.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
+	service.BindOwnerTerminalOpen(func(ctx context.Context, id, branch string, repo, member int64) error {
+		_, err := runtime.InspectWorkspace(ctx, branch)
+		return err
+	})
 	defer func() {
 		close(runtime.release)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -74,7 +80,7 @@ func TestBranchTerminalPersistsBeforeWakeAndDeduplicates(t *testing.T) {
 	_, err = service.OpenSSHReservation(ctx, branch.ID, repo, member, request)
 	require.Error(t, err, "a request cannot change transport")
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions WHERE workspace_id=$1`, branch.ID).Scan(&count))
-	require.Equal(t, 1, count)
+	require.Zero(t, count, "owner terminals do not create workspace sessions")
 	_, err = service.OpenBranchTerminal(ctx, branch.ID, repo, member, "not-a-uuid")
 	require.Error(t, err)
 	uppercase, err := service.OpenBranchTerminal(t.Context(), branch.ID, repo, member, strings.ToUpper(request))
@@ -97,7 +103,9 @@ func TestBranchTerminalPersistsBeforeWakeAndDeduplicates(t *testing.T) {
 	first, second := <-outcomes, <-outcomes
 	require.NotEqual(t, first == nil, second == nil, "exactly one transport owns a request")
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions WHERE workspace_id=$1`, branch.ID).Scan(&count))
-	require.Equal(t, 2, count)
+	var sshRequests int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='terminal.requested' AND data->>'via'='ssh'`).Scan(&sshRequests))
+	require.Equal(t, sshRequests, count)
 
 }
 
@@ -177,4 +185,48 @@ func TestSessionReservationSharesWakeAuthorityAndFencesTombstone(t *testing.T) {
 	require.Equal(t, "stopped", stopped.Status)
 	_, err = q.CreateWorkspaceSession(t.Context(), db.CreateWorkspaceSessionParams{WorkspaceID: row.ID, RepositoryID: repo, UserID: member, Cols: 80, Rows: 24})
 	require.Error(t, err, "a tombstoned parent cannot admit another reservation")
+}
+
+func TestOwnerTerminalRequestRestartReceipts(t *testing.T) {
+	pool := newProductTestPool(t)
+	member, repo := setupTestUserAndRepo(t, pool)
+	q := db.New(pool)
+	owner, err := q.GetBranchMachineOwner(t.Context())
+	require.NoError(t, err)
+	branch, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: repo, UserID: owner, TargetBookmark: "scratch/terminal/restart", Name: "restart", Status: "running", Kind: "vm"})
+	require.NoError(t, err)
+	service := NewWorkspaceService(q, WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()))
+	calls := 0
+	service.BindOwnerTerminalOpen(func(context.Context, string, string, int64, int64) error { calls++; return nil })
+	key := uuid.NewString()
+	first, err := service.OpenBranchTerminal(t.Context(), branch.ID, repo, member, key)
+	require.NoError(t, err)
+	require.NoError(t, service.WaitForProvisioning(t.Context()))
+	running, err := service.OpenBranchTerminal(t.Context(), branch.ID, repo, member, key)
+	require.NoError(t, err)
+	require.Equal(t, "running", running.Status)
+	restarted := NewWorkspaceService(q, WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()))
+	restarted.BindOwnerTerminalOpen(func(context.Context, string, string, int64, int64) error { calls++; return nil })
+	require.NoError(t, restarted.RecoverOwnerTerminalRequests(t.Context()))
+	require.NoError(t, restarted.RecoverOwnerTerminalRequests(t.Context()))
+	closed, err := restarted.OpenBranchTerminal(t.Context(), branch.ID, repo, member, key)
+	require.NoError(t, err)
+	require.Equal(t, first.ID, closed.ID)
+	require.Equal(t, "closed", closed.Status)
+	require.Equal(t, 1, calls, "restart never replays a PTY launch")
+	var count int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='terminal.closed' AND data->>'session'=$1`, first.ID).Scan(&count))
+	require.Equal(t, 1, count)
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions WHERE workspace_id=$1`, branch.ID).Scan(&count))
+	require.Zero(t, count)
+	// Pending work lost at restart is failed, rather than reported running.
+	tx, err := pool.Begin(t.Context())
+	require.NoError(t, err)
+	data := []byte(`{"request":"pending","via":"terminal","branch":"` + branch.ID + `","session":"interrupted","receipt":{}}`)
+	_, err = jobs.RecordFactInTx(t.Context(), tx, jobs.Scope{TenantID: fmt.Sprint(repo), PrincipalID: fmt.Sprintf("member:%d", member)}, uuid.NewString(), "terminal.requested", "requested", data)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(t.Context()))
+	require.NoError(t, restarted.RecoverOwnerTerminalRequests(t.Context()))
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='terminal.failed' AND data->>'session'='interrupted'`).Scan(&count))
+	require.Equal(t, 1, count)
 }

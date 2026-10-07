@@ -100,6 +100,11 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 	if err = link.RequireReady(row.ID); err != nil {
 		return nil, err
 	}
+	if s.branchTerminalHost != nil {
+		if err = s.branchTerminalHost(ctx, row, member); err != nil {
+			return nil, err
+		}
+	}
 	tx, err := s.transactions.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -139,4 +144,16 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 		return nil, ctx.Err()
 	}
 	return &signedInTerminal{Terminal: terminal, terminalCredential: credential}, nil
+}
+
+func (s *WorkspaceService) OwnerTerminalAvailable(registry *machined.Registry) bool {
+	if s == nil || s.machineAdmission == nil || s.machineAdmission.FreeDisk == nil || registry == nil || s.runtime == nil || s.runtime.Isolation() != workspaceapi.IsolationSandboxed || s.credentialIssuer == nil || strings.TrimSpace(s.gitBaseURL) == "" {
+		return false
+	}
+	_, ok := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+		WaitAdmission(context.Context, microsandbox.AdmissionProviders, string, string, string, string) (context.Context, error)
+		SessionCredentialsForMember(context.Context, string, microsandbox.MemberIdentity) (microsandbox.MemberSessionCredentials, error)
+	})
+	return ok && s.requireBranchMachineProviders() == nil
 }

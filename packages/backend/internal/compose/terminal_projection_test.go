@@ -1,10 +1,13 @@
 package compose
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -26,10 +29,13 @@ func TestTerminalMetadataThroughComposedLiveSocket(t *testing.T) {
 	}
 	own := create("terminal")
 	_ = create("ssh")
-	f.p.terminals = terminalProjection(f.pool, func(id string) routes.TerminalPresence {
-		require.Equal(t, own.ID, id)
-		return routes.TerminalPresence{Owner: f.user.ID}
-	}, nil)
+	manager := routes.NewTerminalSessionManager(nil)
+	defer manager.Close()
+	require.NoError(t, manager.OpenOwned(t.Context(), own.ID, revocation.Principal{UserID: f.user.ID, RepositoryID: f.row.RepositoryID, WorkspaceID: f.row.ID}, func(context.Context) (workspaceapi.Terminal, error) {
+		return &projectionTerminal{done: make(chan struct{})}, nil
+	}))
+	f.p.terminals = terminalProjection(f.pool, manager, nil)
+
 	socket := f.dial(t)
 	sendPresenceFrame(t, socket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
 	frame := readPresenceFrame(t, socket)
@@ -50,6 +56,7 @@ func TestTerminalMetadataThroughComposedLiveSocket(t *testing.T) {
 	require.True(t, model.Terminals[0].Frozen, "a persisted request is not a ready broker")
 	_, err = f.pool.Exec(t.Context(), `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, f.row.RepositoryID, f.user.ID)
 	require.NoError(t, err)
+	manager.RevokeMatching(revocation.Event{Kind: revocation.KindCollaboratorRemoved, UserID: f.user.ID, RepositoryID: f.row.RepositoryID})
 	rows, err := f.p.terminals(t.Context(), f.row, nil)
 	require.NoError(t, err)
 	require.Empty(t, rows, "revoked members disappear from terminal metadata")

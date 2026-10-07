@@ -85,19 +85,24 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 		}
 		return h.pool.QueryRow(t.Context(), `SELECT workspace_id FROM mythical_items WHERE number=$1`, todo.N).Scan(&branch) == nil && branch != "" && (item.State == "working" || item.State == "in_review")
 	}, 15*time.Minute, 250*time.Millisecond, "native branch never became usable: %s", h.logs.String())
-	code, raw := h.request("POST", "/api/terminals", `{"branch":"`+branch+`"}`, uuid.NewString())
+	requestKey := uuid.NewString()
+	code, raw := h.request("POST", "/api/terminals", `{"branch":"`+branch+`"}`, requestKey)
 	require.Equal(t, 202, code, string(raw))
 	var receipt services.WorkspaceSessionResponse
 	require.NoError(t, json.Unmarshal(raw, &receipt))
 	q := db.New(h.pool)
 	require.Eventually(t, func() bool {
-		session, err := q.GetWorkspaceSession(t.Context(), receipt.ID)
-		return err == nil && session.Status == "running"
+		status, raw := h.request("POST", "/api/terminals", `{"branch":"`+branch+`"}`, requestKey)
+		var current services.WorkspaceSessionResponse
+		return status == 202 && json.Unmarshal(raw, &current) == nil && current.ID == receipt.ID && current.Status == "running"
 	}, 2*time.Minute, 100*time.Millisecond)
 	var uid uint32
 	var bookmark string
-	var member int64
-	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT c.unix_uid,w.target_bookmark,s.user_id FROM workspace_sessions s JOIN workspaces w ON w.id=s.workspace_id JOIN collaborators c ON c.repository_id=w.repository_id AND c.user_id=s.user_id WHERE s.id=$1`, receipt.ID).Scan(&uid, &bookmark, &member))
+	member := receipt.UserID
+	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT c.unix_uid,w.target_bookmark FROM workspaces w JOIN collaborators c ON c.repository_id=w.repository_id AND c.user_id=$2 WHERE w.id=$1`, branch, member).Scan(&uid, &bookmark))
+	var terminalRows int
+	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions WHERE id=$1`, receipt.ID).Scan(&terminalRows))
+	require.Zero(t, terminalRows, "owner PTYs live in the existing manager")
 	require.GreaterOrEqual(t, uid, uint32(20000))
 	r := &rehearsal{ctx: t.Context(), origin: h.origin, jar: h.jar}
 	term, err := r.openTerminal(receipt.ID)

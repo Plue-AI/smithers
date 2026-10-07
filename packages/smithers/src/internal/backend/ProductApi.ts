@@ -5872,16 +5872,19 @@ export type PostApiTerminalsBody = {
 
 export type PostApiTerminalsResponse = {
   id: string
-  branch: string
+  workspace_id: string
+  user_id: number
+  status: "pending" | "running" | "failed" | "closed"
 }
 
 export interface PostApiTerminalsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiTerminalsBody
 }
 
 /** POST /api/terminals: Open a branch terminal */
 export const postApiTerminals = (transport: Transport, input: PostApiTerminalsInput): Promise<PostApiTerminalsResponse> =>
-  transport.request("POST", `/api/terminals`, input.body) as Promise<PostApiTerminalsResponse>
+  transport.request("POST", `/api/terminals`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTerminalsResponse>
 
 export type GetApiStackResponse = HomeCard
 

@@ -51,8 +51,15 @@ func TestTerminalRequestThroughComposedInstallHTTP(t *testing.T) {
 	runtime := &requestHTTPRuntime{entered: make(chan struct{}), release: make(chan struct{})}
 	service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)))
 	service.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
+	service.BindOwnerTerminalOpen(func(ctx context.Context, id, branch string, repo, member int64) error {
+		_, err := runtime.InspectWorkspace(ctx, branch)
+		return err
+	})
+	released := false
 	defer func() {
-		close(runtime.release)
+		if !released {
+			close(runtime.release)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		require.NoError(t, service.WaitForProvisioning(ctx))
@@ -97,10 +104,24 @@ func TestTerminalRequestThroughComposedInstallHTTP(t *testing.T) {
 	var duplicate services.WorkspaceSessionResponse
 	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &duplicate))
 	require.Equal(t, receipt.ID, duplicate.ID)
-	stored, err := q.GetWorkspaceSession(t.Context(), receipt.ID)
-	require.NoError(t, err)
-	require.Equal(t, f.user.ID, stored.UserID)
+	require.Equal(t, f.user.ID, receipt.UserID)
 	var count int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions WHERE workspace_id=$1`, branch.ID).Scan(&count))
-	require.Equal(t, 1, count)
+	require.Zero(t, count, "owner terminals do not create workspace session rows")
+	close(runtime.release)
+	released = true
+	require.NoError(t, service.WaitForProvisioning(t.Context()))
+	failed := call(body, true)
+	require.Equal(t, 202, failed.Code, failed.Body.String())
+	var failure services.WorkspaceSessionResponse
+	require.NoError(t, json.Unmarshal(failed.Body.Bytes(), &failure))
+	require.Equal(t, receipt.ID, failure.ID)
+	require.Equal(t, "failed", failure.Status, "launch failure remains visible on the durable receipt")
+	request = uuid.NewString()
+	retry := call(body, true)
+	require.Equal(t, 202, retry.Code, retry.Body.String())
+	var retried services.WorkspaceSessionResponse
+	require.NoError(t, json.Unmarshal(retry.Body.Bytes(), &retried))
+	require.NotEqual(t, receipt.ID, retried.ID)
+	require.NoError(t, service.WaitForProvisioning(t.Context()))
 }

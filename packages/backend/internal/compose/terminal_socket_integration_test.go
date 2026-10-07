@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
@@ -89,6 +90,8 @@ func (r *terminalMemberRuntime) PutSessionToken(ctx context.Context, branch, id 
 	_, err := r.replacementRuntime.PutSessionToken(ctx, branch, id, token, expected)
 	return fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", r.member.UID, id), err
 }
+func (r *terminalMemberRuntime) StopService(context.Context, string, string) error { return nil }
+
 func (r *terminalMemberRuntime) OpenTerminal(_ context.Context, branch, id, digest string, command workspaceapi.Command) (workspaceapi.Terminal, error) {
 	if branch != r.branch.ID || digest != workspaceapi.SessionCredentialIdentity([]byte(r.current())) || command.Environment["SMITHERS_TOKEN_FILE"] != fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", r.member.UID, id) || command.Environment["SMITHERS_URL"] != "http://127.0.0.1:4000" || strings.Join(command.Args, " ") != "/bin/bash -l" {
 		return nil, fmt.Errorf("unbound session credential")
@@ -140,7 +143,8 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	handler := &routes.WorkspaceTerminalHandler{OwnerOnly: true, AllowedOrigins: []string{f.origin}, SessionCookieName: "session"}
 	manager := handler.SharedTerminalSessions()
 	defer manager.Close()
-	f.p.terminals = manager
+	f.p.terminalManager = manager
+	f.p.terminals = terminalProjection(f.pool, manager, nil)
 	server := httptest.NewUnstartedServer(nil)
 	f.origin = "http://" + server.Listener.Addr().String()
 	handler.AllowedOrigins = []string{f.origin}
@@ -157,6 +161,7 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 		require.NoError(t, err)
 		req.Header.Set("Origin", f.origin)
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", uuid.NewString())
 		req.Header.Set("X-CSRF-Token", "csrf")
 		req.Header.Set("Cookie", "session="+cookie+"; __csrf=csrf")
 		response, err := http.DefaultClient.Do(req)
@@ -186,6 +191,7 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	auth := services.NewAuthService(q, cfg.Auth, nil, nil)
 	auth.Members = &services.Members{Pool: f.pool}
 	auth.TerminalSubject = manager.OwnsSubject
+	hostPreparations := 0
 	serviceFor := func(omitted string) *services.WorkspaceService {
 		var execution workspaceapi.WorkspaceRuntime = runtime
 		issuer := auth
@@ -206,6 +212,11 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 		if omitted != "admission" {
 			branches.EnableMachineAdmission(func(context.Context) (int64, error) { return 100 << 30, nil })
 		}
+		branches.BindBranchTerminalHost(func(ctx context.Context, branch db.Workspace, member int64) error {
+			require.NoError(t, link.RequireReady(branch.ID))
+			hostPreparations++
+			return nil
+		})
 		return branches
 	}
 	for _, missing := range []string{"isolation", "admission", "authorization", "membership", "identities", "credentials", "connection", "revocation"} {
@@ -218,6 +229,8 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 				routes.SetRevocationSource(nil)
 				defer routes.SetRevocationSource(f.bus)
 			}
+			unavailable.Bind(manager)
+			handler.Service = unavailable.branches
 			handler.OwnerTerminals = unavailable
 			status, body := post(fmt.Sprintf(`{"branch":%q}`, f.row.ID))
 			require.Equal(t, 503, status, string(body))
@@ -230,16 +243,21 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	}
 	branches := serviceFor("")
 	provider := &installOwnerTerminals{queries: q, branches: branches, registry: registry}
+	provider.Bind(manager)
+	handler.Service = branches
 	handler.OwnerTerminals = observedOwnerTerminals{provider, t}
 	status, body = post(fmt.Sprintf(`{"branch":%q,"owner":%d,"uid":0}`, f.row.ID, alice.ID))
 	require.Equal(t, 400, status, string(body))
 	status, body = post(fmt.Sprintf(`{"branch":%q}`, f.row.ID))
-	require.Equal(t, 201, status, string(body))
+	require.Equal(t, 202, status, string(body))
 	var opened struct{ ID string }
 	require.NoError(t, json.Unmarshal(body, &opened))
+	require.Eventually(t, func() bool { return len(manager.BranchTerminals(f.row.RepositoryID, f.row.ID)) == 1 }, 5*time.Second, time.Millisecond)
+	require.NoError(t, branches.WaitForProvisioning(t.Context()))
 	require.NotEmpty(t, opened.ID)
 	require.True(t, runtime.prepared)
 	require.True(t, runtime.opened)
+	require.Equal(t, 1, hostPreparations)
 	require.NotEmpty(t, runtime.current())
 	require.True(t, manager.OwnsSubject(f.user.ID, f.row.RepositoryID, f.row.ID, opened.ID))
 	require.False(t, manager.OwnsSubject(alice.ID, f.row.RepositoryID, f.row.ID, opened.ID))
@@ -335,8 +353,10 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	runtime.terminal = &echoOwnerTerminal{reader: reader, writer: writer}
 	runtime.member = microsandbox.MemberIdentity{Login: "carol", UID: 20003, Active: true}
 	status, body = postAs(fmt.Sprintf(`{"branch":%q}`, f.row.ID), "carol-terminal-cookie")
-	require.Equal(t, 201, status, string(body))
+	require.Equal(t, 202, status, string(body))
 	require.NoError(t, json.Unmarshal(body, &opened))
+	require.Eventually(t, func() bool { return len(manager.BranchTerminals(f.row.RepositoryID, f.row.ID)) == 1 }, 5*time.Second, time.Millisecond)
+	require.NoError(t, branches.WaitForProvisioning(t.Context()))
 	carolSocket := dial("carol-terminal-cookie")
 	benWatcher := dial(f.cookie)
 	attachCtx, attachCancel := context.WithTimeout(t.Context(), 5*time.Second)

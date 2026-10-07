@@ -3,14 +3,13 @@ package routes
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -31,61 +30,43 @@ func terminalError(w http.ResponseWriter, status int, code, class, message strin
 	_ = json.NewEncoder(w).Encode(map[string]string{"code": code, "class": class, "message": message})
 }
 
+type BranchTerminalService interface {
+	BranchTerminalAvailable() bool
+	OpenBranchTerminal(context.Context, string, int64, int64, string) (services.WorkspaceSessionResponse, error)
+}
+
 func (h *WorkspaceTerminalHandler) OpenTerminal(w http.ResponseWriter, r *http.Request) {
-	if h.OwnerTerminals == nil || currentRevocationSource() == nil {
+	svc, ok := h.Service.(BranchTerminalService)
+	if !ok || h.AuthorizeTerminal == nil || !svc.BranchTerminalAvailable() || (h.OwnerOnly && (h.OwnerTerminals == nil || currentRevocationSource() == nil)) {
 		terminalUnavailable(w)
 		return
 	}
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		terminalError(w, 401, "unauthorized", "permission", "Sign in")
+	if ready, ok := h.OwnerTerminals.(interface{ Available() bool }); ok && !ready.Available() {
+		terminalUnavailable(w)
 		return
 	}
-	var input struct {
+	repository, member, err := h.AuthorizeTerminal(r, "branch.join")
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	var body struct {
 		Branch string `json:"branch"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil || input.Branch == "" {
+	if err = decodeSingleJSONDocument(decoder, &body); err != nil || body.Branch == "" {
 		terminalError(w, 400, "invalid_request", "user", "Invalid terminal request")
 		return
 	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		terminalError(w, 400, "invalid_request", "user", "Invalid terminal request")
-		return
-	}
-	guard := watchWorkspaceSocket(r)
-	defer guard.close()
-	principal, err := h.OwnerTerminals.Authorize(guard.ctx, input.Branch, user.ID)
-	if guard.reject(w) {
-		return
-	}
+	session, err := svc.OpenBranchTerminal(r.Context(), body.Branch, repository, member, r.Header.Get("Idempotency-Key"))
 	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	// Authorize may narrow scope, but may never substitute another member.
-	if principal.UserID != user.ID || principal.RepositoryID <= 0 || principal.WorkspaceID == "" {
-		terminalUnavailable(w)
-		return
-	}
-	guard.scope(principal.WorkspaceID, principal.SandboxID, true)
-	id := uuid.NewString()
-	manager := h.terminalSessionManager()
-	err = manager.OpenOwned(guard.ctx, id, principal, func(ctx context.Context) (workspaceapi.Terminal, error) {
-		return h.OwnerTerminals.Open(ctx, id, principal)
-	})
-	if guard.rejectStartup(w, err) {
-		manager.Destroy(id)
-		return
-	}
-	if err != nil {
-		terminalUnavailable(w)
+		writeBranchError(w, r, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]string{"id": id, "branch": principal.WorkspaceID})
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(session)
 }
 
 // S2 reuses the existing terminal socket and manager ring. Watchers attach to
