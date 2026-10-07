@@ -14,6 +14,7 @@ import { LegacySecretMetadataSchema, SecretsCardSchema } from "./SecretsCard.ts"
  */
 
 import { z } from "zod"
+import { ConfiguredModelSchema } from "./ConfiguredModel.ts"
 import { AGENT_ROLES, AgentRoleModelSchema } from "./AgentRoles.ts"
 import { BillingPlanSchema, SandboxEntitlementSchema } from "./BillingPlans.ts"
 import {
@@ -2110,6 +2111,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         selectedAgent: z.string().optional(),
         selectedModel: z.string().optional(),
         testing: z.array(z.string()).optional(),
+        testRequests: z.record(z.string(), z.object({ requestId: z.string(), model: ConfiguredModelSchema })).optional(),
         assignment: z.object({
           id: z.string(),
           role: z.string(),
