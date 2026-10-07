@@ -31,6 +31,8 @@ if (requested("snapshot")) {
     const total = size => size['.jj'] + size['.git'];
     const peak = Math.max(...cycles.map(c => total(c.before_cleanup)));
     const residue = Math.max(0, ...cycles.slice(1).map((c, i) => total(c.after_cleanup) - total(cycles[i].after_cleanup)));
+    const reclaimed = cycles.reduce((n, c) => n + total(c.before_cleanup) - total(c.after_cleanup), 0);
+    if (growth.reclaimed_bytes !== reclaimed) failures.push('growth: cleanup reclamation mismatch');
     if (growth.projected_14_day_bytes !== peak + 14 * residue) failures.push('growth: residue budget mismatch');
   }
   try {

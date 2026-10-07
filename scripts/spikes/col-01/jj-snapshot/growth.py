@@ -40,6 +40,7 @@ def retention_budget(cycles):
                        for i in range(1, CYCLES)))
     return {'peak_bytes': peak, 'largest_residue_bytes': residue,
             'projected_14_day_bytes': peak + 14 * residue,
+            'reclaimed_bytes': sum(sum(c['before_cleanup'].values()) - sum(c['after_cleanup'].values()) for c in cycles),
             'growth_budget_passed': peak + 14 * residue < LIMIT}
 
 
@@ -167,7 +168,6 @@ def measure(repo, output, jj):
         budget = retention_budget(cycles)
         result = {'uid': os.geteuid(), 'repo': str(fixture.repo), 'captures': CAPTURES,
                   'before': before, 'after': after, 'after_gc': reclaimed,
-                  'reclaimed_bytes': sum(after.values()) - sum(reclaimed.values()),
                   'cycles': cycles, **budget,
                   'versions': summary(values), 'jj_sha256': hashlib.sha256(Path(fixture.jj).read_bytes()).hexdigest(),
                   'git_version': subprocess.check_output(['git', '--version'], text=True).strip(),

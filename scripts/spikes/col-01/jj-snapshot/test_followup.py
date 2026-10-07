@@ -37,6 +37,7 @@ class FollowupTests(unittest.TestCase):
                    'after_cleanup': {'.jj': m}}
                   for n, m in [(1000, 500), (1200, 600), (1400, 650)]]
         self.assertEqual(growth.retention_budget(cycles)['projected_14_day_bytes'], 2800)
+        self.assertEqual(growth.retention_budget(cycles)['reclaimed_bytes'], 1850)
         cycles[2]['before_cleanup']['.jj'] = 2 * 1024 ** 3 - 1400
         self.assertFalse(growth.retention_budget(cycles)['growth_budget_passed'])
         for invalid in [cycles[:2], [dict(c, captures=1000) for c in cycles]]:
