@@ -2283,8 +2283,10 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
   const last = records.reduce((last, row) => Math.max(last, row.sequence ?? 0), 0)
   const journal = at === undefined ? records : records.filter(row => (row.sequence ?? 0) <= at)
   // A historical frame must not inherit the current run's terminal status.
-  const terminalRow = [...journal].reverse().find(row => /control\.run\.(completed|failed|cancelled|interrupted)$/.test(row.kind ?? ""))
-  const status = at === undefined ? run.status : terminalRow?.kind?.split(".").at(-1) ?? "running"
+  const lifecycleRow = [...journal].reverse().find(row =>
+    /^control\.run\.(running|waiting-approval|paused|suspended|held|completed|failed|cancelled|interrupted)$/.test(row.kind ?? "") &&
+    (row.runId === undefined || row.runId === run.runId))
+  const status = at === undefined ? run.status : lifecycleRow?.kind?.split(".").at(-1) ?? "running"
   const state = (value: string): "running" | "waiting" | "held" | "failed" | "done" | "interrupted" =>
     value === "completed" || value === "done" ? "done" : value === "failed" ? "failed"
     : value === "cancelled" || value === "interrupted" ? "interrupted" : value === "held" ? "held"

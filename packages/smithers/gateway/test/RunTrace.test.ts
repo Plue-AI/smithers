@@ -1542,3 +1542,17 @@ test("declared monitor nodes use recorded live states and retain unreached depen
     { id: "engine-node:graph%3A0:future", label: "future", state: "next", deps: ["engine-node:graph%3A0:active"] }
   ])
 })
+
+
+test("historical monitor lifecycle retains waits and interruption without today's state", () => {
+  const records = [at(1, "control.run.running", {}, 1000),
+    at(2, "control.run.waiting-approval", {}, 2000),
+    at(3, "control.run.running", {}, 3000),
+    { ...at(4, "control.run.failed", {}, 4000), runId: "other-run" },
+    at(5, "control.run.interrupted", {}, 5000), at(6, "control.run.completed", {}, 6000)]
+  const current = { ...RUN, status: "completed" }
+  expect([0, 1, 2, 3, 4, 5, 6].map(at => monitorFromJournal(current, records, at).state)).toEqual([
+    "running", "running", "waiting", "running", "running", "interrupted", "done"
+  ])
+  expect(monitorFromJournal(current, records).state).toBe("done")
+})

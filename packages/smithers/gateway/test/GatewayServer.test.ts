@@ -1403,6 +1403,14 @@ describe("the assembled gateway over a real loopback bind", () => {
       expect(replay.attempts[0].steps[0].output).toBeUndefined()
       expect(yield* control.list({ _tag: "runs" })).toEqual(before)
       expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
+      yield* emit(runId, "control.run.waiting-approval", { runId })
+      const waitingFrame = yield* monitor()
+      const waitingSeq = waitingFrame.journal.at(-1).seq
+      yield* emit(runId, "control.run.interrupted", { runId })
+      const interruptedFrame = yield* monitor()
+      expect((yield* monitor(waitingSeq)).state).toBe("waiting")
+      expect((yield* monitor(interruptedFrame.journal.at(-1).seq)).state).toBe("interrupted")
+      expect(yield* control.list({ _tag: "runs" })).toEqual(before)
 
     }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, credential: "edge-secret",
       runtimeBridge: { runtimeArtifactDigest: "a".repeat(64), sourceRevision: "b".repeat(40), ownerGeneration: 1 }
