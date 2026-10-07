@@ -85,7 +85,15 @@ jobs:
       - name: UI typecheck
         run: pnpm exec smthrs build '//apps/app:check' --verbose
       - name: UI unit tests
-        run: pnpm exec smthrs test '//apps/app:unitTests' --verbose
+        run: pnpm exec smthrs test '//apps/app:unitTests' --verbose --full-output
+      - name: Upload UI unit-test report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: apps-deploy-unit-tests
+          path: apps/app/test-results/unit-tests.xml
+          retention-days: 7
+          if-no-files-found: warn
       - name: UI conformance lint
         run: pnpm exec smthrs test '//apps/app:conformance' --verbose
       - name: UI browser end-to-end suite

@@ -191,6 +191,31 @@ describe("canary probes are wired into a gate", () => {
     expect(JSON.stringify(deploy)).not.toContain("continue-on-error")
   })
 
+  it("retains only the unit-test JUnit report even when the deploy gate fails", () => {
+    const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow & { readonly permissions: unknown }
+    const steps = deploy.jobs.gate.steps
+    const unit = steps.find(step => step.name === "UI unit tests")!
+    expect(unit.run).toBe("pnpm exec smthrs test '//apps/app:unitTests' --verbose --full-output")
+    expect(steps.filter(step => step.run?.includes("--full-output"))).toEqual([unit])
+    const upload = steps.find(step => step.name === "Upload UI unit-test report")!
+    expect(steps.indexOf(upload)).toBe(steps.indexOf(unit) + 1)
+    expect(upload.if).toBe("always()")
+    expect(upload.uses).toBe("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02")
+    expect(upload.with).toEqual({
+      name: "apps-deploy-unit-tests",
+      path: "apps/app/test-results/unit-tests.xml",
+      "retention-days": 7,
+      "if-no-files-found": "warn"
+    })
+    const config = Bun.TOML.parse(readFileSync(new URL("../../../app/bunfig.toml", import.meta.url), "utf8")) as {
+      test: { reporter: { junit: string } }
+    }
+    expect(upload.with?.path).toBe(`apps/app/${config.test.reporter.junit}`)
+    expect(deploy.permissions).toEqual({ contents: "read", actions: "read" })
+    expect(unit.env).toBeUndefined()
+    expect(upload.env).toBeUndefined()
+  })
+
   it("passes no retired identity probe inputs and always retains rollback evidence", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
     const steps = deploy.jobs.deploy.steps

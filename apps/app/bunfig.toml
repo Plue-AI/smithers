@@ -1,2 +1,5 @@
 [test]
 preload = ["./scripts/require-toolchain.mjs"]
+
+[test.reporter]
+junit = "test-results/unit-tests.xml"
