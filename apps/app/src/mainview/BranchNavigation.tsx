@@ -19,7 +19,9 @@ export function BranchNavigation() {
   const view = sessions[0]?.branchNavigation
   const owner = accountOwnerOf(identities[0]) ?? null
   if (!view?.open || view.owner !== owner) return null
-  const archives = branches.filter(branch => (!branch.archiveOwner || branch.archiveOwner === owner) && branch.snapshot && branch.snapshot.messages.length + branch.snapshot.cards.length > 0)
+  const available = branches.filter(branch => (!branch.archiveOwner || branch.archiveOwner === owner) && branch.snapshot && branch.snapshot.messages.length + branch.snapshot.cards.length > 0)
+  const journalIds = new Set(available.filter(branch => branch.archiveOwner === owner && branch.id.startsWith("earlier:journal:")).map(branch => branch.id.slice("earlier:journal:".length)))
+  const archives = available.filter(branch => !journalIds.has(branch.id))
     .map(branch => ({ id: branch.id, title: branch.title, entries: [
       ...branch.snapshot!.messages.map(message => ({ id: message.id, ordinal: message.ordinal, content: <Markdown key={message.id} content={message.text} /> })),
       ...branch.snapshot!.cards.map(card => ({ id: card.id, ordinal: card.ordinal, content: <article key={card.id} data-archive-card={card.kind}><strong>{card.title}</strong></article> }))
