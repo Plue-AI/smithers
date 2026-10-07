@@ -818,6 +818,7 @@ type GithubMainPull struct {
 	FactoryError        string             `json:"factory_error"`
 	HealthCause         string             `json:"health_cause"`
 	RetryAt             pgtype.Timestamptz `json:"retry_at"`
+	ResetIntent         []byte             `json:"reset_intent"`
 }
 
 type GithubMirrorRefresh struct {
