@@ -15,7 +15,9 @@ import { fileURLToPath } from "node:url"
 import { bundle } from "../coding/build.mjs"
 import type { FlowVersion } from "../coding/flow-load.ts"
 
-const builtin = fileURLToPath(new URL("../todo/flow.ts", import.meta.url))
+// Keep literal loader oracles independent of later edits to the shipped TODO.
+// The composed guest/browser rehearsal separately loads today's shipped source.
+const fixture = fileURLToPath(new URL("./fixtures/flow-load-todo-source.ts", import.meta.url))
 // Reviewed registry execution identity of the project fixture, including its empty dependency set.
 const projectDigest = "78cc650a9b825d8e23ffe4116890b07b75e04ccfc6490f4fb0cee84d9e6976ca"
 
@@ -33,7 +35,7 @@ for (const pinnedAdmission of [false, true]) {
     async (t) => {
       const temporary = await mkdtemp(join(tmpdir(), "coding-flow-load-"))
       t.after(() => rm(temporary, { recursive: true, force: true }))
-      const source = await readFile(builtin, "utf8")
+      const source = await readFile(fixture, "utf8")
       const tree = async (name: string, files: Record<string, string>) => {
         const root = join(temporary, name)
         for (const [path, text] of Object.entries(files)) {
@@ -42,7 +44,7 @@ for (const pinnedAdmission of [false, true]) {
         }
         return root
       }
-      // A byte-identical copy of the built-in composition, and the same copy
+      // The reviewed TODO fixture, and the same source
       // beside a system name a repository cannot take.
       const copy = await tree("copy", {
         "flows/todo/flow.ts": source,
@@ -220,7 +222,7 @@ export default Flow.make("prompted", {
       assert.match(atPrompted[0].inspection.prompt, /prompt rendered during load/)
       assert.deepEqual(atPrompted[0].steps, [{ id: "root.flow", label: "prompted/prompt" }])
 
-      // Project provenance and its dependency set distinguish the copy from the shipped default.
+      // Project provenance and its dependency set pin the reviewed source fixture.
       assert.equal(atCopy[0].name, "merge")
       assert.equal(atCopy[0].status, "failed")
       assert.match(atCopy[0].error, /reserved_name/)
