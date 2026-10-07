@@ -47,6 +47,9 @@ func WithBranchHeads(heads BranchHeadReader) WorkspaceServiceOption {
 }
 
 func branchMachineState(row db.Workspace) string {
+	if row.BranchArchivedAt.Valid && branchKind(row.TargetBookmark) == "scratch" {
+		return "closed"
+	}
 	switch row.Status {
 	case "running":
 		return "awake"
@@ -173,6 +176,21 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 func (s *WorkspaceService) projectBranch(ctx context.Context, q *db.Queries, row db.Workspace, machine WorkspaceResponse) (BranchMachineResponse, error) {
 	branch := BranchMachineResponse{Name: row.TargetBookmark, Kind: branchKind(row.TargetBookmark), State: branchMachineState(row),
 		Head: row.HeadCommitID, Machine: machine}
+	if row.BranchArchivedAt.Valid && branch.Kind == "item" {
+		lane, err := q.GetMythicalLane(ctx, row.ID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return BranchMachineResponse{}, err
+		}
+		if err == nil {
+			item, err := q.GetMythicalItem(ctx, lane.ItemID)
+			if err != nil {
+				return BranchMachineResponse{}, err
+			}
+			if state := todoState(item); state == "merged" || state == "dropped" {
+				branch.State = "closed"
+			}
+		}
+	}
 	if row.IsFork && (row.ForkedFromItem.Valid || row.ForkedFromBase != "") {
 		from := &BranchForkedFrom{Kind: "main", Ref: "main", Commit: row.SourceCommit, Base: row.ForkedFromBase}
 		if row.ForkedFromItem.Valid {

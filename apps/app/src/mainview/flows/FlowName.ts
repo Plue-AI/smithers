@@ -141,6 +141,7 @@ export const FLOW_NAMES = [
   "box.view",
   "branches",
   "branch.fork",
+  "branch.archive",
   "branch.add-to-stack",
   "branch.rebase",
   "terminal",
