@@ -180,6 +180,7 @@ export const executeAgentToolCall = async (
    * naming the visible alternative, never a silent refusal.
    */
   const target = registry.find(name)
+  if (target === undefined) return unknownCommandResult(name)
   if (target !== undefined && !registry.callable().includes(target)) {
     return userOnlyError(name, target.metadata.agentReason)
   }
@@ -193,7 +194,7 @@ export const executeAgentToolCall = async (
   // Issue drafting is a private browser Draft, confirmed by its author. Its
   // CLI spelling does not turn that UI action into a repository mutation.
   const privateIssueDraft = target !== undefined && nameOf(target) === "todo.from-issue" && target.metadata.http === null
-  if (target === undefined || !privateIssueDraft && (target.metadata.http !== null || target.metadata.cli != null || target.metadata.actors?.includes("external_agent"))) {
+  if (!privateIssueDraft && (target.metadata.http !== null || target.metadata.cli != null || target.metadata.actors?.includes("external_agent"))) {
     return "failed: this command runs on the conversation host"
   }
   const outcome = await registry.runAsAgent(name, input.args, call.httpCall)

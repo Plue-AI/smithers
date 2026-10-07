@@ -101,7 +101,7 @@ test.each([
     await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name, args }) })
   } else await controller.commands.run(name, args)
   expect(requests.filter(request => request.path.includes(`/repos/${ambient}/`) && /\/(landings|workspaces)(\/|$)/.test(request.path))).toEqual([])
-  expect(requests.filter(request => request.method === "POST")).toEqual(name === "prs.review"
+  expect(requests.filter(request => request.method === "POST")).toEqual(door === "agent" && name === "prs.review" ? [] : name === "prs.review"
     ? [{ method: "POST", path: `/api/repos/${target}/landings/42/reviews`, body: { type: "approve", body: "", commit_id: "reviewed-tip" } }]
     : [{ method: "POST", path: `/api/repos/${target}/workspaces`, body: { kind: "container" } }])
 })

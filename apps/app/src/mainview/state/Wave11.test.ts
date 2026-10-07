@@ -17,7 +17,7 @@ import type { Card } from "@smthrs/rpc/Cards"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { json, loadBox, memoryStorage, scriptedToolAgent, settle, signupProfileFetch, silentAgent, waitFor } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, signupProfileFetch, silentAgent, waitFor } from "./TestFixtures"
 import { GATEWAY_REFUSED } from "./controller/GatewayFailureCopy"
 
 const createAppController = scopedControllers()
@@ -392,51 +392,16 @@ describe("wave 11 — the full journey: make me a workflow", () => {
       )
   })
 
-  test("the agent invoking flow.new from the conversation renders the card, never a surface", async () => {
+  test("browser tool delivery cannot launch flow.new or manufacture its confirmation", async () => {
     const store = await webStore()
     const double = relay()
-    const { agent, requests } = scriptedToolAgent([
-      () => [
-        {
-          type: "tool_call" as const,
-          call_id: "call_1",
-          name: "commands",
-          arguments: JSON.stringify({
-            action: "execute",
-            name: "flow.new",
-            args: "a workflow that summarizes my open issues"
-          })
-        },
-        { type: "done" as const, reason: "tool_call" as const }
-      ],
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: "Started it — the card tracks it live." },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent, double.services)
+    const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
-
-    controller.send("can you make me a smithers workflow that summarizes my open issues?")
-    await settle(30)
-
+    expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "flow.new", args: "summarize my issues" }) })).toBe("failed: this command runs on the conversation host")
     expect(double.state.launched).toEqual([])
-    const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "flow.new")
-    expect(confirmation).toBeDefined()
-    expect(JSON.stringify(requests[1]?.messages)).toContain("asked the user to confirm")
-    await controller.commands.run("flow.new", confirmation!.action!.args ?? undefined)
-    await settle(30)
-    expect(double.state.launched[0]?.workflow).toBe("create-flow")
-    expect(runCard(store)).toBeDefined()
-    expect(store.collections.sessions.get("main")?.surface).toBe("chat")
-    // The tool result the model saw states the REQUEST, so it cannot claim
-    // something the seam did not do.
-    const secondTurn = requests[1]
-    expect(JSON.stringify(secondTurn?.messages)).toContain("asked the user to confirm")
-    // The transcript act line is compact — no raw tool payload.
-    expect([...store.collections.messages.values()].map((message) => message.text).join("\n")).not.toContain(
-      "{\"state\""
-    )
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "flow.new")).toEqual([])
+    expect(runCard(store)).toBeUndefined()
+    expect(store.session().surface).toBe("chat")
   })
 })
 
@@ -894,7 +859,7 @@ describe("wave 11 — workflows are presented", () => {
      * brought two hidden graph gestures with it. The Flow card (T-APP-05)
      * added `flow.edit` and `flow.source`, its two buttons.
      */
-    expect(controller.commands.all().filter((command) => command.name.startsWith("flow."))).toHaveLength(12)
+    expect(controller.commands.all().filter((command) => command.name.startsWith("flow."))).toHaveLength(11)
     expect(
       controller.commands
         .all()

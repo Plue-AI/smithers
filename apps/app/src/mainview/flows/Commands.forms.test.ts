@@ -203,8 +203,8 @@ describe("THE FORM LAW — the slash door and the button door", () => {
     expect((await controller.commands.run("flow.run", "7 8 9")).status).toBe("form")
     expect(formOf(store, "flow.run")?.payload.draft).toEqual({ name: "7", repo: "8", input: "9" })
     expect(formOf(store, "flow.run")?.payload.error).toBe("Flow input must be a JSON object.")
-    expect((await controller.commands.run("issue.implement", "0")).status).toBe("form")
-    expect(formOf(store, "issue.implement")?.payload.error).toBe("An issue number is required")
+    expect((await controller.commands.run("issue.implement", "0")).status).toBe("unknown-command")
+    expect(formOf(store, "issue.implement")).toBeUndefined()
     expect((await controller.commands.run("issues.list", "one")).status).toBe("form")
     expect(formOf(store, "issues.list")?.payload.error).toBe("issues.list takes open, closed, or all")
     await controller.dispose()
@@ -283,20 +283,16 @@ describe("THE FORM LAW — filling and submitting", () => {
    * triggers.pause's a positional line its carried grammar refuses: both
    * answered "cannot be confirmed" and left the person no button to press.
    */
-  test("an agent's form for a confirm flow posts a confirmation whose line re-runs the same values", async () => {
+  test("a private Draft form retains its values on refusal while host operations refuse browser forms", async () => {
     const { store, controller } = await boot()
-    const cases = [
-      { flow: "todo.from-issue", set: [["number", "212"]], payload: { number: 212 } },
-      { flow: "triggers.pause", set: [["slug", "nightly"], ["repo", "will/flows"]], payload: { slug: "nightly", repo: "will/flows" } }
-    ] as const
-    for (const { flow, set, payload } of cases) {
-      expect(await execute(controller, flow)).toStartWith("rendered a form")
-      for (const [field, value] of set) expect(await execute(controller, "form.set", `form-${flow} ${field} ${value}`)).toBe("executed /form.set")
-      expect(await execute(controller, "form.submit", `form-${flow}`)).toContain("asked the user to confirm")
-      expect(formOf(store, flow)?.payload.error).toBeUndefined()
-      const line = messages(store).find((message) => message.action?.flow === flow)?.action?.args
-      expect(payloadFor(flow, line ?? undefined, controller.commands.find(flow)?.metadata.grammar)).toEqual({ payload })
-    }
+    expect(await execute(controller, "todo.from-issue")).toStartWith("rendered a form")
+    expect(await execute(controller, "form.set", "form-todo.from-issue number 212")).toBe("executed /form.set")
+    expect(await execute(controller, "form.submit", "form-todo.from-issue")).toContain("No repository is loaded")
+    expect(formOf(store, "todo.from-issue")?.payload.draft.number).toBe(212)
+    expect(messages(store).filter(message => message.action?.flow === "todo.from-issue")).toEqual([])
+    expect(await execute(controller, "todo.drop")).toBe("failed: this command runs on the conversation host")
+    expect(formOf(store, "todo.drop")).toBeUndefined()
+    await controller.dispose()
   })
 })
 
@@ -511,7 +507,7 @@ describe("THE FORM LAW — every flow's form submits its own named payload", () 
   })
 })
 
-test("GitHub installation choice has the same missing-input form at slash and agent doors", async () => {
+test("GitHub installation choice keeps the person form when a browser agent asks", async () => {
   const { store, controller } = await boot()
   for (const [repo, installationId] of [["ada/hello", 42], ["ada/second", 42], ["acme/api", 99]] as const) {
     await store.dispatch({ type: "github.app-status.loaded", actor: "system", status: {
@@ -527,8 +523,8 @@ test("GitHub installation choice has the same missing-input form at slash and ag
     { name: "installationId", label: "Installation", kind: "select", required: true,
       options: [{ value: "42", label: "ada" }, { value: "99", label: "acme" }] }
   ])
-  expect(await execute(controller, "github.app.choose")).toBe("rendered a form for installationId: ask the user to fill it in")
-  expect(formOf(store, "github.app.choose")?.payload.via).toBe("agent")
+  expect(await execute(controller, "github.app.choose")).toStartWith("failed:")
+  expect(formOf(store, "github.app.choose")?.payload.via).toBe("user")
   await controller.dispose()
 })
 
