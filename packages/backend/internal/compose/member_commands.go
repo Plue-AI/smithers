@@ -31,12 +31,12 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.EscapedPath(), "/api/branches/") && !strings.Contains(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), "/") {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 				if err != nil {
-					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid branch answer"})
+					routes.WriteBranchCommandError(w, r, pkgerrors.BadRequest("Invalid branch answer"))
 					return
 				}
 				_, resolved, err := routes.DecodeBranchCommand(bytes.NewReader(raw))
 				if err != nil {
-					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid branch answer"})
+					routes.WriteBranchCommandError(w, r, err)
 					return
 				}
 				command = resolved
