@@ -459,9 +459,11 @@ including people waiting ahead of TODOs. TODO reads use the same ordered
 waiting set. Runtime-confirmed reservations and releases wake the existing
 stack worker. Waiting work remains scheduled for setting and capacity changes.
 Committed repository-wide Home facts include every changed queue position in
-the reorder delta. Runtime-only person cancellation refreshes Home and TODO
-positions through snapshots at the existing journal cursor. Committed runtime-only
-queue facts and production terminal/safe-idle acceptance remain required.
+the reorder delta. The stack worker also observes runtime waiting-order changes
+and commits TODO/Home queue facts together through that writer. Unchanged order
+skips database work; restart deduplicates against existing card facts. A failed
+receipt commits no cursor and retries. Production terminal/safe-idle acceptance
+remains required.
 The runtime rechecks the saved parallel setting after readiness checks and before each reservation; a failed read refuses the grant.
 Recovered workspace demand waits for authoritative stack registration before a new TODO
 grant; existing holders remain held.

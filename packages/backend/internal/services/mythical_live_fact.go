@@ -10,6 +10,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
+type todoHomeFactKey struct{}
+type todoFactItemsKey struct{}
+
 // recordTodoFact binds the existing card builder to the same transaction as
 // its source fact. Replay must never substitute today's card for yesterday's
 // transition. This adds no projection table, writer or transport cursor.
@@ -24,7 +27,8 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 	}
 	view := *s
 	view.store = tx
-	card, err := view.todoCard(ctx, item, nil)
+	items, _ := ctx.Value(todoFactItemsKey{}).([]db.MythicalItem)
+	card, err := view.todoCard(ctx, item, items)
 	if err != nil {
 		return jobs.Event{}, err
 	}
@@ -40,22 +44,12 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 		return jobs.Event{}, err
 	}
 	fact["card"] = projected
-	cards, err := view.Todos(ctx, item.RepositoryID)
-	if err != nil {
-		return jobs.Event{}, err
-	}
-	normalized, err := json.Marshal(cards)
-	if err != nil {
-		return jobs.Event{}, err
-	}
-	if err := json.Unmarshal(normalized, &cards); err != nil {
-		return jobs.Event{}, err
-	}
-	home := HomeModel("", cards, nil)
-	// Main health, capacity and member controls keep their existing providers.
-	projection, err := json.Marshal(map[string]any{"items": home["items"], "counts": home["counts"]})
-	if err != nil {
-		return jobs.Event{}, err
+	projection, cached := ctx.Value(todoHomeFactKey{}).(json.RawMessage)
+	if !cached {
+		projection, err = view.todoHomeFact(ctx, item.RepositoryID)
+		if err != nil {
+			return jobs.Event{}, err
+		}
 	}
 	fact["home"] = projection
 	data, err := json.Marshal(fact)
@@ -63,4 +57,25 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 		return jobs.Event{}, err
 	}
 	return jobs.RecordProjectedFactInTx(ctx, tx, todoOperationScope(item), operation, kind, state, raw, data)
+}
+
+func (s *MythicalService) todoHomeFact(ctx context.Context, repository int64) (json.RawMessage, error) {
+	cards, err := s.Todos(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := json.Marshal(cards)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(normalized, &cards); err != nil {
+		return nil, err
+	}
+	home := HomeModel("", cards, nil)
+	// Main health, capacity and member controls keep their existing providers.
+	projection, err := json.Marshal(map[string]any{"items": home["items"], "counts": home["counts"]})
+	if err != nil {
+		return nil, err
+	}
+	return projection, nil
 }

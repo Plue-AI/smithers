@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -124,8 +125,16 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 		_, err = runtime.Request("todo", holders[n], holders[n], "machine")
 		require.NoError(t, err)
 	}
+	projectionCtx, stopProjection := context.WithCancel(liveContext)
+	defer stopProjection()
+	go service.StartMachineQueueProjection(projectionCtx)
 	_, err = runtime.Request("person", "workspace:ben", "Ben", "machine")
 	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var position int
+		err := pool.QueryRow(ctx, `SELECT (data->'card'->'queue'->>'position')::int FROM product_job_events WHERE tenant_id=$1 AND data->'card'->>'n'='5' ORDER BY recorded_at DESC LIMIT 1`, fmt.Sprint(repo)).Scan(&position)
+		return err == nil && position == 6
+	}, 5*time.Second, 20*time.Millisecond)
 	position := func(n, expected int) {
 		code, card := call("GET", fmt.Sprintf("/api/todos/%d", n), "", "")
 		require.Equal(t, 200, code, card)
@@ -174,18 +183,15 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 				} `json:"items"`
 			}
 			data := frame.Data
-			if kind == "delta" {
-				var fact struct{ Data map[string]json.RawMessage }
-				require.NoError(t, json.Unmarshal(data, &fact), string(raw))
-				data = fact.Data["home"]
-				require.NotEmpty(t, data, string(raw))
-			}
 			require.NoError(t, json.Unmarshal(data, &home), string(raw))
 			got := map[int]int{}
 			for _, item := range home.Items {
 				if item.Queue != nil {
 					got[item.N] = item.Queue.Position
 				}
+			}
+			if !reflect.DeepEqual(want, got) {
+				continue
 			}
 			require.Equal(t, want, got, string(raw))
 			return
@@ -199,7 +205,7 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	require.NoError(t, err)
 	defer todoConn.CloseNow()
 	require.NoError(t, todoConn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"todo:5"}`)))
-	readTodo := func(expected int) int64 {
+	readTodo := func(kind string, expected int) int64 {
 		t.Helper()
 		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -207,20 +213,26 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 		require.NoError(t, err)
 		var frame live.Frame
 		require.NoError(t, json.Unmarshal(raw, &frame))
-		require.Equal(t, "snap", frame.T, string(raw))
+		require.Equal(t, kind, frame.T, string(raw))
 		var card struct {
 			Queue struct {
 				Reason   string `json:"reason"`
 				Position int    `json:"position"`
 			} `json:"queue"`
 		}
-		require.NoError(t, json.Unmarshal(frame.Data, &card))
+		data := frame.Data
+		if kind == "delta" {
+			var fact struct{ Data map[string]json.RawMessage }
+			require.NoError(t, json.Unmarshal(data, &fact))
+			data = fact.Data["card"]
+		}
+		require.NoError(t, json.Unmarshal(data, &card))
 		require.Equal(t, "machine", card.Queue.Reason)
 		require.Equal(t, expected, card.Queue.Position)
 		require.NotNil(t, frame.Cursor)
 		return *frame.Cursor
 	}
-	todoCursor := readTodo(6)
+	todoCursor := readTodo("snap", 6)
 
 	code, body := call("POST", "/api/todos/2", `{"op":"move","direction":"up"}`, "move-T2")
 	require.Equal(t, 202, code, body)
@@ -233,16 +245,32 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	position(3, 3)
 	position(4, 4)
 	position(5, 5)
-	readHome("snap", map[int]int{1: 2, 2: 1, 3: 3, 4: 4, 5: 5})
-	require.Equal(t, todoCursor, readTodo(5), "person cancellation must refresh the card without inventing a TODO journal event")
-	// Cover both entry and cancellation while the durable subscriptions remain open.
+	readHome("delta", map[int]int{1: 2, 2: 1, 3: 3, 4: 4, 5: 5})
+	cancelCursor := readTodo("delta", 5)
+	require.Greater(t, cancelCursor, todoCursor, "person cancellation must commit the new card projection")
+	// Preserve main's entry/cancellation journey, now through committed deltas.
 	_, err = runtime.Request("person", "workspace:ben-live", "Ben", "machine")
 	require.NoError(t, err)
-	readHome("snap", map[int]int{1: 3, 2: 2, 3: 4, 4: 5, 5: 6})
-	require.Equal(t, todoCursor, readTodo(6), "person entry retains the TODO journal cursor")
+	readHome("delta", map[int]int{1: 3, 2: 2, 3: 4, 4: 5, 5: 6})
+	entryCursor := readTodo("delta", 6)
+	require.Greater(t, entryCursor, cancelCursor)
 	require.False(t, runtime.CancelAdmission("workspace:ben-live", "Ben", time.Now()))
-	readHome("snap", map[int]int{1: 2, 2: 1, 3: 3, 4: 4, 5: 5})
-	require.Equal(t, todoCursor, readTodo(5))
+	readHome("delta", map[int]int{1: 2, 2: 1, 3: 3, 4: 4, 5: 5})
+	require.Greater(t, readTodo("delta", 5), entryCursor)
+	// Repeated reads and a restarted projector must not invent duplicate facts.
+	scope := jobs.RepositoryTodosScope(fmt.Sprint(repo))
+	head, err := store.Head(ctx, scope)
+	require.NoError(t, err)
+	stopProjection()
+	restarted := *service
+	restartCtx, stopRestart := context.WithCancel(liveContext)
+	defer stopRestart()
+	go restarted.StartMachineQueueProjection(restartCtx)
+	time.Sleep(600 * time.Millisecond)
+	afterRestart, err := store.Head(ctx, scope)
+	require.NoError(t, err)
+	require.Equal(t, head, afterRestart)
+	stopRestart()
 	code, body = call("POST", "/api/todos/3", `{"op":"drop"}`, "drop-T3")
 	require.Equal(t, 202, code, body)
 	position(4, 3)

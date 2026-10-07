@@ -221,6 +221,9 @@ func (s *MythicalService) notify(ctx context.Context, q *db.Queries, repositoryI
 
 // Start runs the worker until ctx ends.
 func (s *MythicalService) Start(ctx context.Context) {
+	if s.installParallelRequired {
+		go s.StartMachineQueueProjection(ctx)
+	}
 	sweepEvery := s.sweepEvery
 	if sweepEvery <= 0 {
 		sweepEvery = mythicalSweepInterval
