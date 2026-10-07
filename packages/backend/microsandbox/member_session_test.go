@@ -25,19 +25,28 @@ with open(%q,'a') as f:f.write(json.dumps([operands,sys.stdin.buffer.read().deco
 `, python, log)), 0700))
 	member := MemberIdentity{"ben", 20001, true}
 	ws := &workspace{metadata: metadata{ID: "branch-a", Machine: "machine-a", State: "running"}}
-	r := &Runtime{config: Config{Bundle: pinned(t, bundle)}, cli: &cli{binary: binary, home: directory}, workspaces: map[string]*workspace{"branch-a": ws}}
+	r := &Runtime{config: Config{Bundle: pinned(t, bundle), HostPorts: []uint16{4000}}, cli: &cli{binary: binary, home: directory}, workspaces: map[string]*workspace{"branch-a": ws}}
 	current := []MemberIdentity{member}
 	r.BindMemberRoster(func(ctx context.Context, id string, visit func([]MemberIdentity) error) error { return visit(current) })
 	credential, err := r.SessionCredentialsForMember(t.Context(), "branch-a", member)
 	require.NoError(t, err)
 	token := []byte("smithers_member")
+	r.config.HostPorts = nil
+	beforeIssuer, err := os.ReadFile(log)
+	require.NoError(t, err)
+	_, err = credential.PutSessionToken(t.Context(), "branch-a", "session-a", token, "")
+	require.ErrorContains(t, err, "backend bridge issuer is unavailable")
+	afterIssuer, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, beforeIssuer, afterIssuer, "missing issuer refuses before guest effects")
+	r.config.HostPorts = []uint16{4000}
 	digest := workspaceapi.SessionCredentialIdentity(token)
 	path, err := credential.PutSessionToken(t.Context(), "branch-a", "session-a", token, "")
 	require.NoError(t, err)
 	require.Equal(t, workspaceapi.SessionTokenRoot+"/session-a/token", path)
 	body, err := os.ReadFile(log)
 	require.NoError(t, err)
-	require.Contains(t, string(body), `["put-member-token", "ben", "20001", "session-a", "absent"]`)
+	require.Contains(t, string(body), `["put-member-token", "ben", "20001", "session-a", "absent", "http://127.0.0.1:4000"]`)
 	require.Contains(t, string(body), `"smithers_member"`)
 	_, err = credential.OpenTerminal(t.Context(), "branch-a", "session-a", digest, workspaceapi.Command{Args: []string{"/bin/sh"}, Environment: map[string]string{"SMITHERS_TOKEN_FILE": path, "SMITHERS_URL": "http://127.0.0.1:4000"}})
 	require.Error(t, err, "an unbound daemon must not create a legacy PTY")

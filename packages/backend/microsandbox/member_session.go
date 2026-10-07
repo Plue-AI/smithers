@@ -35,6 +35,10 @@ func (c *MemberCredentials) PutSessionToken(ctx context.Context, id, session str
 	if token == nil {
 		return "", fmt.Errorf("missing session credential")
 	}
+	if len(c.runtime.config.HostPorts) == 0 || c.runtime.config.HostPorts[0] == 0 {
+		return "", fmt.Errorf("session credential: backend bridge issuer is unavailable")
+	}
+	issuer := fmt.Sprintf("http://127.0.0.1:%d", c.runtime.config.HostPorts[0])
 	if _, err := c.runtime.EnsureMember(ctx, id, c.member); err != nil {
 		return "", err
 	}
@@ -42,7 +46,7 @@ func (c *MemberCredentials) PutSessionToken(ctx context.Context, id, session str
 	if err != nil {
 		return "", err
 	}
-	if _, err = c.runtime.guest(ctx, ws.Machine, token, "put-member-token", c.member.Login, strconv.Itoa(c.member.UID), session, tokenIdentityArgument(expected)); err != nil {
+	if _, err = c.runtime.guest(ctx, ws.Machine, token, "put-member-token", c.member.Login, strconv.Itoa(c.member.UID), session, tokenIdentityArgument(expected), issuer); err != nil {
 		return "", err
 	}
 	return workspaceapi.SessionTokenRoot + "/" + session + "/token", nil
