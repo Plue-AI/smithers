@@ -65,6 +65,17 @@ func TestOutsideChangeAdmissionSharesBurstCommit(t *testing.T) {
 		}
 		return nil
 	}
+	// Authentication and complete object verification precede the admission
+	// port. Neither refusal may leave a signal intent or call the pinned host.
+	_, err = ingest.Apply(ctx, link.Connection, jobs.Scope{TenantID: "different-repository", PrincipalID: scope.PrincipalID}, event)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	require.Zero(t, calls)
+	objects.missing = []string{"unavailable-object"}
+	missingAck, err := ingest.Apply(ctx, link.Connection, scope, event)
+	require.NoError(t, err)
+	require.Equal(t, AckMissingObjects, missingAck.Outcome)
+	require.Zero(t, calls)
+	objects.missing = nil
 	_, err = ingest.Apply(ctx, link.Connection, scope, event)
 	require.EqualError(t, err, "pinned delivery unavailable")
 	for _, table := range []string{"machine_event_receipts", "product_job_events", "burst_files", "product_job_requests"} {
@@ -82,6 +93,14 @@ func TestOutsideChangeAdmissionSharesBurstCommit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, AckDuplicate, ack.Outcome)
 	require.Equal(t, 2, calls, "a committed duplicate never admits another note")
+	// Reconnection can assign a new transport event identity to the same
+	// logical burst. Deduplication must remain bound to the committed burst.
+	event.EventID = [16]byte{4}
+	event.Seq = 2
+	ack, err = ingest.Apply(ctx, link.Connection, scope, event)
+	require.NoError(t, err)
+	require.Equal(t, AckDuplicate, ack.Outcome)
+	require.Equal(t, 2, calls)
 	var signals int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationSignal).Scan(&signals))
 	require.Equal(t, 1, signals, "lost burst acknowledgement leaves exactly one durable signal intent")
