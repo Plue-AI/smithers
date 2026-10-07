@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +55,23 @@ func TestConfirmAgentEditConsumerInstall(t *testing.T) {
 
 func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt string, flowBody ...string) {
 	t.Helper()
+	// These always-on install tests need the real wiki library. Resolve the
+	// workspace build locally instead of requiring a suite-wide native opt-in
+	// that also activates unrelated reference-host workspace journeys.
+	if strings.TrimSpace(os.Getenv("SMITHERS_FFI_LIBRARY_PATH")) == "" {
+		_, source, _, ok := runtime.Caller(0)
+		require.True(t, ok)
+		ext := "so"
+		if runtime.GOOS == "darwin" {
+			ext = "dylib"
+		} else if runtime.GOOS == "windows" {
+			ext = "dll"
+		}
+		library := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../../target/debug/libsmithers_ffi."+ext))
+		_, err := os.Stat(library)
+		require.NoError(t, err, "build smithers-ffi or set SMITHERS_FFI_LIBRARY_PATH")
+		t.Setenv("SMITHERS_FFI_LIBRARY_PATH", library)
+	}
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben", DisplayName: "Ben"})
