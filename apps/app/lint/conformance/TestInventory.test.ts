@@ -179,7 +179,7 @@ interface ExclusiveRunner {
   readonly runner: { readonly name: string; readonly entry: { readonly path: string }; readonly args: readonly string[] }
 }
 const exclusiveRunners: ExclusiveRunner[] = inspectTarget(`console.log(JSON.stringify([
-  Package.viewStories, Package.journeyJ1Activation, Package.journeyTodoFromIssue,
+  Package.viewStories, Package.journeyJ1Activation, Package.journeySetup, Package.journeyWikiObsidian, Package.journeyTodoFromIssue,
   Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge
 ].map(target => metadata(target).attrs)))`)
 
@@ -235,7 +235,7 @@ const exclusiveOwns = (path: string, target: ExclusiveRunner, source: string): b
     target.runner.args.length === 0 && path === "e2e/playwright/view-stories.spec.ts" &&
     runsStep(spawnArgv(source, undefined), ["pnpm", "exec", "playwright", "test", "--config", "playwright.config.ts", path])
   if (entry === "scripts/run-real-e2e.ts") return target.runner.args.length === 1 &&
-    target.runner.args[0] === "j1-activation.spec.ts" && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
+    ["j1-activation.spec.ts", "setup.spec.ts", "wiki-obsidian.spec.ts"].includes(target.runner.args[0]!) && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
     path === `e2e/real/${target.runner.args[0]}` && invokesRealPlaywright(source) &&
     runnerEvidence(source).forwarding
   if (entry === "scripts/run-journey-j2.ts") return target.runner.args.length === 1 &&
@@ -267,6 +267,7 @@ const owners = (path: string): string[] => {
 
 test("exclusive browser ownership requires the exported target and executable selection", () => {
   const paths = ["e2e/playwright/view-stories.spec.ts", "e2e/real/j1-activation.spec.ts",
+    "e2e/real/setup.spec.ts", "e2e/real/wiki-obsidian.spec.ts",
     "e2e/real/todo-from-issue.spec.ts", "e2e/real/todo-needs-you.spec.ts",
     "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts"]
   expect(exclusiveRunners).toHaveLength(paths.length)

@@ -122,7 +122,7 @@ const check = Smithers.Typecheck({
 const unitTests = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   // Isolate files that mutate process globals until #3696 removes that pollution.
-  runner: Smithers.testSuite(["src", "./proof", "e2e/contracts", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"], { isolate: true }),
+  runner: Smithers.testSuite(["src", "./proof", "e2e/contracts", "e2e/support", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"], { isolate: true }),
   // 6,740 tests across 520 files took 813s on a clean 2026-09-29 checkout;
   // the shared 600s default killed CI while Bun was still running tests.
   timeout: "20m",
@@ -241,6 +241,30 @@ const journeyJ1Activation = Smithers.NodeTest({
   deps: [],
   exclusive: true,
   cwd
+})
+
+/** Reference-install qualification; ordinary real-E2E runs exclude this journey. */
+const journeySetup = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["setup.spec.ts"]),
+  timeout: "60m",
+  env: { SMITHERS_JOURNEY: "setup.spec.ts", SMITHERS_CHAT_STUB: "0" },
+  cache: false,
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [], exclusive: true, cwd
+})
+
+/** Reference-install qualification; ordinary real-E2E runs exclude this journey. */
+const journeyWikiObsidian = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["wiki-obsidian.spec.ts"]),
+  timeout: "60m",
+  env: { SMITHERS_JOURNEY: "wiki-obsidian.spec.ts", SMITHERS_REAL_E2E_HOST: "local", SMITHERS_CHAT_STUB: "0" },
+  cache: false,
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [], exclusive: true, cwd
 })
 
 /** Dark reference-host journeys; wildcard selections omit these gates. */
@@ -460,5 +484,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
 })
