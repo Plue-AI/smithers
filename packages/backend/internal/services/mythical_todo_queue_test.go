@@ -59,4 +59,36 @@ func TestTodoQueueReasonAndPositionRealPostgres(t *testing.T) {
 		listed[card["n"].(int64)] = card["queue"]
 	}
 	require.Equal(t, map[int64]any{1: nil, 2: machine(1), 3: machine(2)}, listed)
+
+	// Stack order differs from TODO number order, with a working item between
+	// queued items. Both read paths retain the same queue and reason.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET stack_position=stack_position+10 WHERE repository_id=$1`, repoID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET stack_position=CASE number WHEN 3 THEN 1 WHEN 1 THEN 2 ELSE 3 END,
+		reason=CASE number WHEN 2 THEN $2 ELSE reason END WHERE repository_id=$1`, repoID, todoDailyLimitReason)
+	require.NoError(t, err)
+	cards, err = s.Todos(ctx, repoID)
+	require.NoError(t, err)
+	require.Equal(t, []int64{3, 1, 2}, []int64{cards[0]["n"].(int64), cards[1]["n"].(int64), cards[2]["n"].(int64)})
+	require.Equal(t, machine(1), cards[0]["queue"])
+	require.NotContains(t, cards[1], "queue")
+	require.Equal(t, map[string]any{"reason": "daily_limit", "position": int64(2)}, cards[2]["queue"])
+	for _, listedCard := range cards {
+		single, err := s.Todo(ctx, repoID, listedCard["n"].(int64))
+		require.NoError(t, err)
+		require.Equal(t, listedCard["queue"], single["queue"])
+	}
+	// With install admission enabled, a TODO without runtime demand has no
+	// machine queue position. The list must retain the single-card behavior.
+	s.installParallelRequired = true
+	cards, err = s.Todos(ctx, repoID)
+	require.NoError(t, err)
+	require.NotContains(t, cards[0], "queue")
+	require.Equal(t, map[string]any{"reason": "daily_limit", "position": int64(2)}, cards[2]["queue"])
+	for _, listedCard := range cards {
+		single, err := s.Todo(ctx, repoID, listedCard["n"].(int64))
+		require.NoError(t, err)
+		require.Equal(t, listedCard["queue"], single["queue"])
+	}
+
 }
