@@ -93,7 +93,7 @@ func (r runProjectionReader) snapshot(ctx context.Context, kind string, after *r
 		return runProjectionSnapshot{}, err
 	}
 	snapshot := answer.Payload
-	if !answer.OK || snapshot.Rows == nil || snapshot.Cursor.RunID != r.run || snapshot.Cursor.Projection != kind || snapshot.Cursor.Value < 0 || snapshot.Cursor.Value > 9007199254740991 || snapshot.Cursor.Offset < 0 {
+	if !answer.OK || snapshot.Rows == nil || snapshot.Cursor.RunID != r.run || snapshot.Cursor.Projection != kind || snapshot.Cursor.Selector["_tag"] != kind || snapshot.Cursor.Selector["runId"] != r.run || snapshot.Cursor.Value < 0 || snapshot.Cursor.Value > 9007199254740991 || snapshot.Cursor.Offset < 0 || snapshot.Cursor.Offset > 9007199254740991 {
 		return runProjectionSnapshot{}, fmt.Errorf("run projection unavailable")
 	}
 	return snapshot, nil
@@ -110,6 +110,13 @@ func (r runProjectionReader) page(ctx context.Context, after *int64) (live.LogPa
 		}
 		if len(summary.Rows) != 1 {
 			return live.LogPage{}, fmt.Errorf("run summary missing")
+		}
+		var identity struct {
+			RunID  string `json:"runId"`
+			FlowID string `json:"flowId"`
+		}
+		if json.Unmarshal(summary.Rows[0], &identity) != nil || identity.RunID != r.run || identity.FlowID == "" {
+			return live.LogPage{}, fmt.Errorf("invalid run summary")
 		}
 		steps, err := r.snapshot(ctx, "run-tree", nil)
 		if err != nil {
