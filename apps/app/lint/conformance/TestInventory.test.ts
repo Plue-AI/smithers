@@ -177,7 +177,7 @@ interface ExclusiveRunner {
 }
 const exclusiveRunners: ExclusiveRunner[] = inspectTarget(`console.log(JSON.stringify([
   Package.viewStories, Package.journeyJ1Activation, Package.journeyTodoFromIssue,
-  Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge
+  Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge, Package.journeyAskRepository
 ].map(target => metadata(target).attrs)))`)
 
 // Read only the actual Bun.spawn argv. The J2 wrapper interpolates its one
@@ -265,7 +265,7 @@ const owners = (path: string): string[] => {
 test("exclusive browser ownership requires the exported target and executable selection", () => {
   const paths = ["e2e/playwright/view-stories.spec.ts", "e2e/real/j1-activation.spec.ts",
     "e2e/real/todo-from-issue.spec.ts", "e2e/real/todo-needs-you.spec.ts",
-    "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts"]
+    "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts", "e2e/real/ask-repository.spec.ts"]
   expect(exclusiveRunners).toHaveLength(paths.length)
   for (const target of exclusiveRunners) {
     const source = read(target.runner.entry.path)
