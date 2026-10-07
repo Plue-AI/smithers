@@ -103,6 +103,7 @@ impl Live {
             Frame::Data { stream: 0, bytes }
                 if !state.input_eof
                     && !state.closed
+                    && !state.ended
                     && bytes.len() <= state.input_credit as usize =>
             {
                 state.input_received = state
@@ -112,7 +113,9 @@ impl Live {
                 state.input_credit -= bytes.len() as u32;
                 state.input.extend(bytes);
             }
-            Frame::Eof { stream: 0 } if !state.input_eof && !state.closed => state.input_eof = true,
+            Frame::Eof { stream: 0 } if !state.input_eof && !state.closed && !state.ended => {
+                state.input_eof = true
+            }
             Frame::Window { bytes } if bytes as u64 <= state.sent - state.ack => {
                 state.ack += bytes as u64;
                 trim(&mut state);
@@ -125,7 +128,9 @@ impl Live {
                     return Err(io::Error::last_os_error());
                 }
             }
-            Frame::Resize { cols, rows } if self.kind == Kind::Pty && !state.closed => {
+            Frame::Resize { cols, rows }
+                if self.kind == Kind::Pty && !state.closed && !state.ended =>
+            {
                 let input = self.input.lock().map_err(|_| refused())?;
                 let fd = input.as_ref().ok_or_else(refused)?.as_raw_fd();
                 let window = libc::winsize {
@@ -182,7 +187,7 @@ impl Live {
             .get_or_insert(now);
         Ok(())
     }
-    pub fn attach(&self, received: u64, now: Instant) -> io::Result<u64> {
+    pub fn attach(&self, received: u64, now: Instant) -> io::Result<(u64, u64, bool)> {
         let mut state = self.state.lock().map_err(|_| refused())?;
         if state.closed
             || state
@@ -196,7 +201,10 @@ impl Live {
         state.ack = received;
         trim(&mut state);
         state.detached = None;
-        Ok(state.input_received)
+        // The attach snapshot replaces any lost relative-credit messages.
+        state.returned = 0;
+        state.input_credit = CREDIT - (state.input_received - state.input_written) as u32;
+        Ok((state.input_received, state.input_written, state.input_eof))
     }
     /// Replay data from the exact byte offset, retaining stdout/stderr order.
     /// Returned frames are bounded by the same 256 KiB outstanding-data cap.
@@ -444,6 +452,22 @@ fn drive(process: &mut Process, state: &Arc<Mutex<State>>, kind: Kind) -> io::Re
 fn signal_name(signal: i32) -> io::Result<String> {
     // A process can die from more signals than the host may send.
     let name = match signal {
+        libc::SIGILL => "ILL",
+        libc::SIGTRAP => "TRAP",
+        libc::SIGABRT => "ABRT",
+        libc::SIGBUS => "BUS",
+        libc::SIGFPE => "FPE",
+        libc::SIGSEGV => "SEGV",
+        libc::SIGPIPE => "PIPE",
+        libc::SIGALRM => "ALRM",
+        libc::SIGSTKFLT => "STKFLT",
+        libc::SIGXCPU => "XCPU",
+        libc::SIGXFSZ => "XFSZ",
+        libc::SIGVTALRM => "VTALRM",
+        libc::SIGPROF => "PROF",
+        libc::SIGIO => "IO",
+        libc::SIGPWR => "PWR",
+        libc::SIGSYS => "SYS",
         libc::SIGINT => "INT",
         libc::SIGTERM => "TERM",
         libc::SIGHUP => "HUP",
@@ -565,7 +589,7 @@ mod tests {
         let now = Instant::now();
         live.detach(now).unwrap();
         assert_eq!(
-            live.attach(100000, now + Duration::from_secs(1)).unwrap(),
+            live.attach(100000, now + Duration::from_secs(1)).unwrap().0,
             0
         );
         let frames = live.replay(100000).unwrap();
@@ -614,6 +638,21 @@ mod tests {
         assert!(
             live.receive(Frame::Signal {
                 name: "TERM".into()
+            })
+            .is_err()
+        );
+    }
+    #[test]
+    fn fatal_exit_signal_does_not_expand_host_signal_admission() {
+        let live = fixture("kill -PIPE $$");
+        wait(&live, |frames| {
+            frames
+                .iter()
+                .any(|f| matches!(f,Frame::ExitSignal {name,core:false} if name=="PIPE"))
+        });
+        assert!(
+            live.receive(Frame::Signal {
+                name: "PIPE".into()
             })
             .is_err()
         );

@@ -28,6 +28,28 @@ pub fn valid_signal(name: &str) -> bool {
         "INT" | "TERM" | "HUP" | "KILL" | "QUIT" | "USR1" | "USR2"
     )
 }
+pub fn valid_exit_signal(name: &str) -> bool {
+    valid_signal(name)
+        || matches!(
+            name,
+            "ILL"
+                | "TRAP"
+                | "ABRT"
+                | "BUS"
+                | "FPE"
+                | "SEGV"
+                | "PIPE"
+                | "ALRM"
+                | "STKFLT"
+                | "XCPU"
+                | "XFSZ"
+                | "VTALRM"
+                | "PROF"
+                | "IO"
+                | "PWR"
+                | "SYS"
+        )
+}
 impl Frame {
     pub fn validate(&self) -> io::Result<()> {
         let valid = match self {
@@ -36,7 +58,8 @@ impl Frame {
             }
             Self::Eof { stream } => *stream <= 2,
             Self::Resize { cols, rows } => *cols > 0 && *rows > 0,
-            Self::Signal { name } | Self::ExitSignal { name, .. } => valid_signal(name),
+            Self::Signal { name } => valid_signal(name),
+            Self::ExitSignal { name, .. } => valid_exit_signal(name),
             Self::Window { bytes } => *bytes > 0 && *bytes <= CREDIT,
             Self::Exit { .. } | Self::Close {} => true,
         };
