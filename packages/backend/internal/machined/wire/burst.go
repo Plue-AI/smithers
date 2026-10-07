@@ -83,16 +83,7 @@ func DecodeBurst(payload []byte) (Burst, error) {
 	f := fields(payload[1:], "burst")
 	b := Burst{Versions: hex.EncodeToString(f[4])}
 	copy(b.ID[:], f[1])
-	b.Actor.Kind = f[2][0]
-	switch b.Actor.Kind {
-	case 1:
-		a := fields(f[2][1:], "principal")[1]
-		b.Actor.Principal = append([]byte(nil), a[4:]...)
-	case 2:
-		b.Actor.Session = binary.BigEndian.Uint32(fields(f[2][1:], "session_actor")[1])
-	case 3:
-		b.Actor.Run = textValue(fields(f[2][1:], "run_actor")[1])
-	}
+	b.Actor = decodeActor(f[2])
 	list := cursor{f[3]}
 	n, _ := list.number(2)
 	for i := uint64(0); i < n; i++ {
@@ -108,4 +99,19 @@ func DecodeBurst(payload []byte) (Burst, error) {
 		b.Parts = binary.BigEndian.Uint16(f[6])
 	}
 	return b, nil
+}
+
+// decodeActor projects a union only after its enclosing message validates.
+func decodeActor(raw []byte) Actor {
+	actor := Actor{Kind: raw[0]}
+	switch actor.Kind {
+	case 1:
+		value := fields(raw[1:], "principal")[1]
+		actor.Principal = append([]byte(nil), value[4:]...)
+	case 2:
+		actor.Session = binary.BigEndian.Uint32(fields(raw[1:], "session_actor")[1])
+	case 3:
+		actor.Run = textValue(fields(raw[1:], "run_actor")[1])
+	}
+	return actor
 }

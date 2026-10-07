@@ -158,8 +158,14 @@ func (i *Ingestor) Dispatch(ctx context.Context, link *Link, branch string) erro
 			return err
 		}
 		if event.Seq == 0 {
-			continue
-		} // transient hints never receive durable receipts
+			if i.Bursts == nil || i.Bursts.Pool != i.Pool {
+				return ErrNotReady
+			}
+			if err = i.Bursts.Hint(ctx, link.Connection, branch, event); err != nil {
+				return err
+			}
+			continue // transient hints never receive durable receipts or acks
+		}
 		ack, err := i.Commit(ctx, link.Connection, branch, event)
 		if err != nil {
 			return err

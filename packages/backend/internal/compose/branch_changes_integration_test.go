@@ -16,14 +16,13 @@ import (
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
 // Composed /api/live consumes verified host-store versions while the branch sleeps.
 // This fixture supplies the remote burst; it does not claim a real watcher run.
 func TestBranchChangesProductionLiveBoundary(t *testing.T) {
-	f := presenceInstall(t)
+	f := presenceInstall(t, true)
 	require.Equal(t, int64(2), f.user.ID)
 	registry := &machined.Registry{}
 	boot := [16]byte{1}
@@ -73,7 +72,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	id := [16]byte{2}
 	payload := wire.Union(1, wire.Field(1, id[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
 	event := machined.Event{Seq: 1, EventID: [16]byte{3}, Payload: payload}
-	scope := jobs.Scope{TenantID: fmt.Sprint(f.row.RepositoryID), PrincipalID: "branch:" + f.row.ID}
+	pump := &machined.Ingestor{Pool: f.pool, Bursts: ingest}
 	// Split the same real versions tree into two transport parts. The
 	// mounted live topic must expose nothing until all parts are durable.
 	filesFields, decodeErr := wire.Fields("burst", payload[1:])
@@ -91,7 +90,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	partial := event
 	partial.EventID = [16]byte{33}
 	partial.Payload = partPayload(1, encodedFiles[:midpoint])
-	partialAck, partialErr := ingest.Apply(t.Context(), c, scope, partial)
+	partialAck, partialErr := pump.Commit(t.Context(), c, f.row.ID, partial)
 	require.NoError(t, partialErr)
 	require.Equal(t, machined.AckApplied, partialAck.Outcome)
 	partialSocket := f.dial(t)
@@ -106,7 +105,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.NoError(t, os.MkdirAll(refDir, 0700))
 	lock := filepath.Join(refDir, "02000000-0000-0000-0000-000000000000.lock")
 	require.NoError(t, os.WriteFile(lock, nil, 0600))
-	_, err = ingest.Apply(t.Context(), c, scope, event)
+	_, err = pump.Commit(t.Context(), c, f.row.ID, event)
 	require.ErrorContains(t, err, "retain burst ref")
 	var committed int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='branch.burst'`).Scan(&committed))
@@ -118,10 +117,10 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.JSONEq(t, `[]`, string(readPresenceFrame(t, failedSocket).Data))
 	failedSocket.CloseNow()
 	require.NoError(t, os.Remove(lock))
-	ack, err := ingest.Apply(t.Context(), c, scope, event)
+	ack, err := pump.Commit(t.Context(), c, f.row.ID, event)
 	require.NoError(t, err)
 	require.Equal(t, machined.AckApplied, ack.Outcome)
-	ack, err = ingest.Apply(t.Context(), c, scope, event)
+	ack, err = pump.Commit(t.Context(), c, f.row.ID, event)
 	require.NoError(t, err)
 	require.Equal(t, machined.AckDuplicate, ack.Outcome)
 	// A sleeping branch still serves its retained file versions and authors.
@@ -153,6 +152,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	var snapshot struct {
 		Changed []struct {
 			Path, Change string
+			Digest       string         `json:"post_digest"`
 			Writer       map[string]any `json:"last_writer"`
 		}
 		Open []any
@@ -162,6 +162,39 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.Equal(t, "presence-owner", snapshot.Changed[0].Writer["login"])
 	require.Empty(t, snapshot.Open)
 	require.Equal(t, "modified", snapshot.Changed[0].Change)
+	require.Equal(t, fmt.Sprintf("%x", post), snapshot.Changed[0].Digest)
+	// Transient daemon writes reach the same live topic without fabricating
+	// a burst or receipt. This uses the real PostgreSQL LISTEN broker.
+	hintSocket := f.dial(t)
+	sendPresenceFrame(t, hintSocket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:files"}`, f.row.ID))
+	readPresenceFrame(t, hintSocket)
+	hint := machined.Event{Payload: wire.Union(1, wire.Field(1, wire.String("src/f0.ts")), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, post[:]))}
+	require.ErrorIs(t, ingest.Hint(t.Context(), c, f.row.ID, hint), machined.ErrNotReady)
+	require.NoError(t, c.Reconciled())
+	require.NoError(t, ingest.Hint(t.Context(), c, f.row.ID, hint))
+	invalidated := readPresenceFrame(t, hintSocket)
+	var hinted struct {
+		Changed []json.RawMessage `json:"changed"`
+		Written []struct {
+			Kind   string         `json:"kind"`
+			Path   string         `json:"path"`
+			Digest string         `json:"post_digest"`
+			Actor  map[string]any `json:"actor"`
+		} `json:"written"`
+	}
+	require.NoError(t, json.Unmarshal(invalidated.Data, &hinted))
+	require.Len(t, hinted.Changed, 12)
+	require.Len(t, hinted.Written, 1)
+	require.Equal(t, "file_written", hinted.Written[0].Kind)
+	require.Equal(t, "src/f0.ts", hinted.Written[0].Path)
+	require.Equal(t, fmt.Sprintf("%x", post), hinted.Written[0].Digest)
+	require.Equal(t, "presence-owner", hinted.Written[0].Actor["login"])
+	hintSocket.CloseNow()
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='branch.burst'`).Scan(&committed))
+	require.Equal(t, 1, committed)
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts`).Scan(&committed))
+	require.Equal(t, 2, committed)
+
 	require.Equal(t, "member:2", snapshot.Changed[0].Writer["id"])
 	require.NotNil(t, activity.Cursor)
 	require.Equal(t, int64(1), *activity.Cursor)
@@ -170,7 +203,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	next.Seq = 2
 	next.EventID = [16]byte{4}
 	next.Payload = wire.Union(1, wire.Field(1, nextID[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
-	_, err = ingest.Apply(t.Context(), c, scope, next)
+	_, err = pump.Commit(t.Context(), c, f.row.ID, next)
 	require.NoError(t, err)
 	resumed := f.dial(t)
 	sendPresenceFrame(t, resumed, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity","cursor":1}`, f.row.ID))
@@ -194,7 +227,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 		next.Seq = uint64(i + 2)
 		next.EventID = [16]byte{9, byte(i)}
 		next.Payload = wire.Union(1, wire.Field(1, id[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
-		_, err = ingest.Apply(t.Context(), c, scope, next)
+		_, err = pump.Commit(t.Context(), c, f.row.ID, next)
 		require.NoError(t, err)
 	}
 	gapSocket := f.dial(t)
