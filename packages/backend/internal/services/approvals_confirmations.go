@@ -310,6 +310,7 @@ type preparedConfirmation struct {
 	subject, input  json.RawMessage
 	revision, title string
 	card            map[string]any
+	mergeHead       string
 }
 
 // prepareConfirmation adapts existing transactional TODO consumers. Its switch
