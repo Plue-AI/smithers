@@ -659,21 +659,6 @@
     },
     {
       "argv": [
-        "review",
-        "50",
-        "--repo",
-        "owner/repo"
-      ],
-      "method": "POST",
-      "path": "/api/reviews",
-      "body": {
-        "number": 50,
-        "repo": "owner/repo",
-        "conversation": "main"
-      }
-    },
-    {
-      "argv": [
         "agent",
         "edit",
         "app",
