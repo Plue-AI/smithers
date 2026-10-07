@@ -56,7 +56,14 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 	if err != nil {
 		return jobs.Event{}, err
 	}
-	return jobs.RecordProjectedFactInTx(ctx, tx, todoOperationScope(item), operation, kind, state, raw, data)
+	event, err := jobs.RecordProjectedFactInTx(ctx, tx, todoOperationScope(item), operation, kind, state, raw, data)
+	if err != nil {
+		return jobs.Event{}, err
+	}
+	if err := s.recordFlowFact(ctx, tx, item.RepositoryID); err != nil {
+		return jobs.Event{}, err
+	}
+	return event, nil
 }
 
 func (s *MythicalService) todoHomeFact(ctx context.Context, repository int64) (json.RawMessage, error) {

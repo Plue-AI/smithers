@@ -251,7 +251,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 			created["issue"] = issue.Number
 		}
 		fact, _ := json.Marshal(created)
-		if _, err = s.recordTodoFlowFact(ctx, tx, item, uuid.NewString(), "todo.created", "queued", fact); err != nil {
+		if _, err = s.recordTodoFact(ctx, tx, item, uuid.NewString(), "todo.created", "queued", fact); err != nil {
 			return err
 		}
 		if _, err = q.RequestMythicalStack(ctx, repositoryID); err != nil {

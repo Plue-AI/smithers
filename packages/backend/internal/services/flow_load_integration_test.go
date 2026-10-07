@@ -211,12 +211,14 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 	require.NoError(t, err)
 	before, err := store.Head(ctx, FlowLiveScope(h.repoID))
 	require.NoError(t, err)
+	todoBefore, err := store.Head(ctx, todoOperationScope(item))
+	require.NoError(t, err)
 	record := func() {
 		t.Helper()
 		tx, err := h.pool.Begin(ctx)
 		require.NoError(t, err)
 		defer tx.Rollback(ctx)
-		_, err = h.service.recordTodoFlowFact(ctx, tx, item, uuid.NewString(), "todo.run_updated", todoState(item), json.RawMessage(`{}`))
+		_, err = h.service.recordTodoFact(ctx, tx, item, uuid.NewString(), "todo.run_updated", todoState(item), json.RawMessage(`{}`))
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit(ctx))
 	}
@@ -235,6 +237,23 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 	page, err := store.Replay(ctx, FlowLiveScope(h.repoID), before, 100)
 	require.NoError(t, err)
 	require.Len(t, page.Events, 2)
+	// Flow publication must preserve the provider's historical TODO card.
+	todoPage, err := store.Replay(ctx, todoOperationScope(item), todoBefore, 100)
+	require.NoError(t, err)
+	require.Len(t, todoPage.Events, 3)
+	for i, event := range todoPage.Events {
+		var projection struct {
+			Card struct {
+				State string `json:"state"`
+			} `json:"card"`
+		}
+		require.NoError(t, json.Unmarshal(event.Data, &projection))
+		want := "working"
+		if i == 2 {
+			want = "cancelled"
+		}
+		require.Equal(t, want, projection.Card.State)
+	}
 	for i, event := range page.Events {
 		var data struct {
 			Card []FlowCard `json:"card"`
