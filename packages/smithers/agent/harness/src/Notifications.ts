@@ -110,7 +110,7 @@ const drainOf = (receipt: NotificationQueue.DrainReceipt, options: Options): Ste
   const notifications = receipt.notifications
   const inserts: Array<ModelRequest.Message> = []
   const seatChanges: Array<Steering.SeatChange | Steering.ThinkingChange> = []
-  const bursts = new Set<string>()
+  const bursts = new Map<string, string>()
   const actors = new Map<string, { actor: unknown; files: Set<string> }>()
   for (const notification of notifications) {
     const raw = notification.payload
@@ -135,14 +135,19 @@ const drainOf = (receipt: NotificationQueue.DrainReceipt, options: Options): Ste
       ) {
         throw new Error("Invalid committed outside-change notification")
       }
-      if (bursts.has(payload.id)) continue
-      bursts.add(payload.id)
+      const key = JSON.stringify(Object.fromEntries(Object.entries(actor).sort(([a], [b]) => a.localeCompare(b))))
+      const fact = JSON.stringify({ actor: JSON.parse(key), files: [...new Set(payload.files)].sort() })
+      const previous = bursts.get(payload.id)
+      if (previous !== undefined) {
+        if (previous !== fact) throw new Error("Conflicting committed outside-change identity")
+        continue
+      }
+      bursts.set(payload.id, fact)
       if (
         options.codingParticipantId !== undefined && actor.id === options.codingParticipantId && actor.kind === "agent"
       ) continue
       // Stable field order makes equivalent actor records coalesce without
       // collapsing distinct participants who happen to share a display label.
-      const key = JSON.stringify(Object.fromEntries(Object.entries(actor).sort(([a], [b]) => a.localeCompare(b))))
       let group = actors.get(key)
       if (group === undefined) {
         group = { actor: JSON.parse(key), files: new Set() }
