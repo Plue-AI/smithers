@@ -96,6 +96,10 @@ func (r *sleepCountRuntime) ListFiles(ctx context.Context, id, path string) ([]w
 	return r.WorkspaceRuntime.ListFiles(ctx, id, path)
 }
 
+func TestBranchSleepAuthenticatedCaptureInstallHTTP(t *testing.T) {
+	branchSleepInstall(t, "wire")
+}
+
 func TestBranchSleepCapturedReadsNeverWake(t *testing.T) {
 	branchSleepInstall(t, "reads")
 }
@@ -231,7 +235,11 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	case "missing_identity":
 		providers.SessionIdentity = nil
 	}
-	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchCapture: captureProvider, BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &flowRegistry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
+	var registry *machined.Registry
+	if scenario == "wire" {
+		registry = new(machined.Registry)
+	}
+	server.Config.Handler = startSplitProcess(t, Options{Machined: registry, FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchCapture: captureProvider, BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &flowRegistry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 
 	server.Start()
 	defer server.Close()
@@ -364,6 +372,59 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	if scenario == "failure" {
 		return
 	}
+	if scenario == "wire" {
+		link, peer := presenceTestLink(t, registry, id)
+		require.NoError(t, link.Reconciled())
+		require.NoError(t, peer.SetDeadline(time.Now().Add(10*time.Second)))
+		headBytes, err := hex.DecodeString(head)
+		require.NoError(t, err)
+		treeBytes, err := hex.DecodeString(git("-C", seed, "rev-parse", head+"^{tree}"))
+		require.NoError(t, err)
+		baseBytes, err := hex.DecodeString(base)
+		require.NoError(t, err)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			acknowledged := false
+			for {
+				frame, err := wire.Read(peer)
+				if err != nil {
+					return
+				}
+				if frame.Kind == wire.Events {
+					fields, err := wire.Fields("ack", frame.Payload[1:])
+					require.NoError(t, err)
+					require.Equal(t, []byte{byte(machined.AckApplied)}, fields[2])
+					acknowledged = true
+					continue
+				}
+				request, method, _, err := frame.Request()
+				require.NoError(t, err)
+				var fields [][]byte
+				switch wire.Method(method) {
+				case wire.Capture:
+					fields = [][]byte{wire.Field(1, headBytes), wire.Field(2, treeBytes), wire.Field(3, wire.U16(0))}
+				case wire.Status:
+					depth := uint32(1)
+					if acknowledged {
+						depth = 0
+					}
+					fields = [][]byte{wire.Field(1, []byte{3}), wire.Field(2, wire.U16(2)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(depth)), wire.Field(5, headBytes), wire.Field(6, wire.U16(0))}
+				case wire.SetRoster:
+				default:
+					t.Errorf("unexpected guest method %d", method)
+					return
+				}
+				require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(request)), wire.Field(2, wire.Union(method, fields...)))}))
+				if wire.Method(method) == wire.Capture {
+					event := machined.Event{Seq: 1, EventID: [16]byte{1}, Payload: wire.Union(2, wire.Field(1, headBytes), wire.Field(2, treeBytes), wire.Field(3, baseBytes))}
+					require.NoError(t, wire.Write(peer, transcriptEventFrame(event)))
+				}
+			}
+		}()
+		defer func() { peer.Close(); <-done }()
+		capture = registry.Capture
+	}
 	sleep(200)
 	row, err = q.GetWorkspace(ctx, id)
 	require.NoError(t, err)
@@ -371,6 +432,15 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	require.Equal(t, head, row.HeadCommitID)
 	require.EqualValues(t, 3, counted.stops.Load())
 	assertHeadToken(false)
+	if scenario == "wire" {
+		var receipts int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1`, id).Scan(&receipts))
+		require.Equal(t, 1, receipts, "HTTP sleep drains the production committed capture receipt")
+		var projected services.BranchMachineResponse
+		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &projected))
+		require.Equal(t, "asleep", projected.State)
+		return
+	}
 	sleep(200)
 	require.EqualValues(t, 3, counted.stops.Load(), "duplicate sleep must not capture or stop again")
 	// The spec's branch operation is durable and returns before capture drains.
@@ -743,7 +813,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	credential = ""
 	// A native capture response alone is not a sleep receipt. Exercise the
 	// production Registry through the install route while delivery is pending.
-	registry := new(machined.Registry)
+	registry = new(machined.Registry)
 	authority, err := registry.MintBoot(id, "capture-vm")
 	require.NoError(t, err)
 	link, daemon := externalTranscriptLink(t, registry, id, authority)
