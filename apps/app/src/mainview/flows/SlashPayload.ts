@@ -477,6 +477,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "runs.trace.live": (args) => required("runId", args, "runs.trace.live needs a run id"),
   "runs.trace.view": (args) => {
+    const structured = structuredFields("runs.trace.view", args, ["runId", "view", "sourceCard", "state"])
+    if (structured) return structured
     const [runId, view, ...rest] = tokensOf(args)
     if (runId === undefined) return no("runs.trace.view needs a run id")
     if (view !== "turns" && view !== "timeline" && view !== "graph" && view !== "steps" && view !== "devtools") return no("runs.trace.view needs turns, timeline, graph, steps or devtools")

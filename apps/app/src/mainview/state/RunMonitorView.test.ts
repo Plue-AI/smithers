@@ -10,13 +10,14 @@ test("run detail selection persists through the flow, reopening and storage relo
   const store = await createAppStore({ kind: "localStorage", storage })
   const controller = controllerFor(store, silentAgent)
   await controller.presentRun("recorded-run", "Recorded run", false)
-  const result = await controller.commands.submit({ name: "run.view", actor: "user",
-    payload: { cardId: "run:recorded-run", selected: "step:attempt:checks", tab: "journal", at: 3 } })
+  const result = await controller.commands.submit({ name: "runs.trace.view", actor: "user",
+    payload: { runId: "recorded-run", view: "timeline", state: { selected: "step:attempt:checks", tab: "journal", at: 3 } } })
+  expect(controller.commands.find("run.view")).toBeUndefined()
   expect(result.status).toBe("executed")
   await controller.presentRun("recorded-run", "Recorded run", false)
   const card = store.collections.cards.get("run:recorded-run")
   expect(card?.kind === "run" && card.payload.memberViews?.[controller.design.viewer()]).toEqual({ selected: "step:attempt:checks", tab: "journal", at: 3 })
-  await controller.commands.submit({ name: "run.view", actor: "user", payload: { cardId: "run:recorded-run", selected: "cell-2" } })
+  await controller.commands.submit({ name: "runs.trace.view", actor: "user", payload: { runId: "recorded-run", view: "turns", state: { selected: "cell-2" } } })
   await controller.dispose()
   const restored = await createAppStore({ kind: "localStorage", storage })
   const saved = restored.collections.cards.get("run:recorded-run")
@@ -27,10 +28,10 @@ test("run detail selection persists through the flow, reopening and storage relo
 test("run view refuses a missing card and invalid scrubber input", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = controllerFor(store, silentAgent)
-  const missing = await controller.commands.submit({ name: "run.view", actor: "user", payload: { cardId: "missing", selected: "cell" } })
+  const missing = await controller.commands.submit({ name: "runs.trace.view", actor: "user", payload: { runId: "missing", view: "turns", state: { selected: "cell" } } })
   expect(missing.status).toBe("failed")
   for (const at of [-1, 1.5]) {
-    const invalid = await controller.commands.submit({ name: "run.view", actor: "user", payload: { cardId: "missing", at } })
+    const invalid = await controller.commands.submit({ name: "runs.trace.view", actor: "user", payload: { runId: "missing", view: "turns", state: { at } } })
     expect(invalid.status).toBe("failed")
   }
   expect(store.collections.cards.size).toBe(0)
@@ -86,7 +87,7 @@ test("members retain separate selections on the same install run", async () => {
     // projections are cleared on sign-in; each member selects independently.
     if (shared) await store.dispatch({ type: "card.upsert", actor: "system", card: shared }).isPersisted.promise
     await controller.presentRun("shared", "Shared", false)
-    const result = await controller.commands.submit({ name: "run.view", actor: "user", payload: { cardId: "run:shared", selected: `${login}-cell` } })
+    const result = await controller.commands.submit({ name: "runs.trace.view", actor: "user", payload: { runId: "shared", view: "turns", state: { selected: `${login}-cell` } } })
     expect(result).toMatchObject({ status: "executed" })
     shared = store.collections.cards.get("run:shared")
   }
@@ -94,4 +95,14 @@ test("members retain separate selections on the same install run", async () => {
   const card = store.collections.cards.get("run:shared")
   expect(card?.kind === "run" && card.payload.memberViews).toEqual({ alice: { selected: "alice-cell" }, bob: { selected: "bob-cell" } })
   expect(card?.kind === "run" && card.payload.view).toBeUndefined()
+})
+
+
+test("recorded run detail actions retain their selection through canonical decoding", async () => {
+  const { MessageSchema, ToastSchema } = await import("./AppState")
+  const action = MessageSchema.shape.action.parse({ flow: "run.view", label: "Journal", args: JSON.stringify({ cardId: "run:recorded", selected: "checks", tab: "journal", at: 2 }) })!
+  expect(ToastSchema.shape.action.parse({ flow: "run.view", label: "Journal", args: JSON.stringify({ cardId: "run:recorded", selected: "checks", tab: "journal", at: 2 }) })).toEqual(action)
+  expect(JSON.parse(MessageSchema.shape.action.parse({ flow: "run.view", label: "Invalid", args: '{"cardId":"unrelated"}' })!.args!)).toEqual({})
+  expect(action.flow).toBe("runs.trace.view")
+  expect(JSON.parse(action.args!)).toEqual({ runId: "recorded", sourceCard: "run:recorded", view: "turns", state: { selected: "checks", tab: "journal", at: 2 } })
 })

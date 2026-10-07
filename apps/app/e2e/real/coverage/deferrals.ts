@@ -70,7 +70,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "flow.plan.tab", "input.mode", "palette.actions", "palette.recent",
      "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
     "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
-    "run.view", "toast.dismiss", "wiki.pane", "wiki.view"
+    "toast.dismiss", "wiki.pane", "wiki.view"
   ],
   /** Developer tooling, not a user journey. */
   diagnostics: [

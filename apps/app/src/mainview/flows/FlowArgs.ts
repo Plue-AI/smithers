@@ -25,7 +25,7 @@ export interface FlowInput {
   readonly "file.reapply": { readonly path: string }
   readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
   readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
-  readonly "runs.trace.view": { readonly runId: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools" }
+  readonly "runs.trace.view": { readonly runId: string; readonly sourceCard?: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools"; readonly state?: { readonly selected?: string; readonly at?: number; readonly tab?: string } }
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
   readonly "runs.signal": { readonly runId: string; readonly name: string; readonly payload?: string }
   readonly "runs.graph.follow": { readonly runId: string; readonly follow: boolean }
@@ -190,7 +190,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "file": payload => JSON.stringify(payload),
   "model.assign": payload => JSON.stringify(payload),
   "flow.new": payload => JSON.stringify(payload),
-  "runs.trace.view": payload => line(token(payload, "runId"), token(payload, "view")),
+  "runs.trace.view": payload => payload.state !== undefined || payload.sourceCard !== undefined ? JSON.stringify(payload) : line(token(payload, "runId"), token(payload, "view")),
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
   "runs.signal": payload => line(token(payload, "runId"), token(payload, "name"), typeof payload.payload === "string" ? payload.payload : undefined),
   "runs.graph.follow": payload => line(token(payload, "runId"), payload.follow ? "on" : "off"),

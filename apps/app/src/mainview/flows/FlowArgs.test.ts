@@ -315,3 +315,10 @@ for (const tag of ["branch.bring-in", "branch.discard-foreign"] as const) test(`
   expect(entry).toBeDefined()
   expect(payloadFor(tag, flowArgs(tag, input), entry!.metadata.grammar)).toEqual({ payload: input })
 })
+
+
+test("run detail controls retain private selection and source through the canonical trace door", () => {
+  const payload = { runId: "recorded", sourceCard: "run:recorded", view: "timeline" as const,
+    state: { selected: "checks with spaces", tab: "journal", at: 3 } }
+  expect(payloadFor("runs.trace.view", flowArgs("runs.trace.view", payload))).toEqual({ payload })
+})

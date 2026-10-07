@@ -7,7 +7,7 @@ import { Schema } from "effect"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
 import { flow, type CommandActions } from "./Declare"
-import { carriedPayload, type Grammar } from "../SlashPayload"
+import { type Grammar } from "../SlashPayload"
 import { activeTraces } from "../../state/seams/DesignWorld/run"
 
 /** The `runs` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
@@ -31,11 +31,6 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   // The doors share the install's authenticated run topic, retained preflight
   // evidence, and the design provider outside an install.
   return [
-  flow({ name: "run.view", summary: "Select a run detail", args: "<JSON view>", grammar: carriedPayload("run.view"),
-    input: Schema.Struct({ cardId: Schema.String, selected: Schema.optional(Schema.String),
-      at: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-      tab: Schema.optional(Schema.Literals(["run", "journal", "custom"])) }),
-    handler: ({ cardId, ...patch }) => actions.setRunView(cardId, patch) }),
   flow({ name: "monitor", summary: "Every run, with its debug view", slash: "/monitor", cli: ["monitor"],
     group: "Advanced", journey: ["J11"], visibility: "advanced", actors: ["person", "app_agent", "external_agent"],
     minimumRole: "member", agent: "run", http: { method: "GET", path: "/api/runs" },
@@ -219,11 +214,15 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({
     name: "runs.trace.view", visibility: "in-card",
     summary: "Show a run's turn explanations, full execution timeline, graph, step list or DevTools in its embedded card",
-    runtimeAny: ["cloud"],
     hidden: true,
     args: "[sourceCard=id] <runId> <turns|timeline|graph|steps|devtools>",
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, view: Schema.Literals(["turns", "timeline", "graph", "steps", "devtools"]) }),
-    handler: ({ runId, view, sourceCard }) => actions.traceView(runId, view, sourceCard)
+    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, view: Schema.Literals(["turns", "timeline", "graph", "steps", "devtools"]),
+      state: Schema.optional(Schema.Struct({ selected: Schema.optional(Schema.String),
+        at: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+        tab: Schema.optional(Schema.Literals(["run", "journal", "custom"])) })) }),
+    form: { fields: { state: { hidden: true } } },
+    handler: ({ runId, view, sourceCard, state }) => state === undefined
+      ? actions.traceView(runId, view, sourceCard) : actions.setRunView(sourceCard ?? `run:${runId}`, state)
   }),
   flow({
     /* Pan and zoom stay userOnly gestures (AGENTS.md:35); which node the camera chases is a fact on the card. */

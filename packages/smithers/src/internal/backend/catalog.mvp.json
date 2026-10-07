@@ -8257,75 +8257,6 @@
       }
     },
     {
-      "name": "run.view",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Select a run detail",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "cardId": {
-              "type": "string"
-            },
-            "selected": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "at": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "tab": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "run",
-                    "journal",
-                    "custom"
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "cardId"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "runs",
       "slash": "/runs",
       "cli": [
@@ -9353,6 +9284,55 @@
                 "graph",
                 "steps",
                 "devtools"
+              ]
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "selected": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "at": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "tab": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "run",
+                            "journal",
+                            "custom"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
               ]
             }
           },

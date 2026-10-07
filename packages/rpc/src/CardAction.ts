@@ -202,7 +202,7 @@ export interface CardCommandInput {
   readonly "github": undefined
   readonly "github.retry": undefined
   readonly "monitor": undefined
-  readonly "run.view": { readonly cardId: string; readonly selected?: string; readonly at?: number; readonly tab?: string }
+  readonly "runs.trace.view": { readonly runId: string; readonly sourceCard?: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools"; readonly state?: { readonly selected?: string; readonly at?: number; readonly tab?: string } }
   readonly "context.inspect": { readonly branch: string; readonly answer: string }
   readonly "run.inspect": { readonly id: string }
   readonly "flow.source": { readonly name: string }

@@ -81,7 +81,7 @@ const RunBody = ({ card, maximized }: { readonly card: CardOf<"run">; readonly m
   if (model === undefined && served.error) return <FailureNotice failure={unavailableFailure("RunUnavailable", "Run unavailable", served.error)} />
   if (model === undefined && source !== undefined) return <ViewSkeleton />
   return <RunContainer model={served.model && model ? { ...model, journal: model.journal ?? [] } : model} dispatch={dispatch}
-    view={{ ...view, maximized }} onView={patch => { void dispatch("run.view", { cardId: card.id, ...patch }) }} />
+    view={{ ...view, maximized }} onView={patch => { void dispatch("runs.trace.view", { runId: card.payload.id, sourceCard: card.id, view: patch.tab === "journal" ? "timeline" : "turns", state: patch }) }} />
 }
 export const runCardFamily: CardFamily<"run"> = {
   run: { render: (card, actions) => <RunBody card={card} maximized={actions.presentation === "maximized"} />, pill: () => "" }

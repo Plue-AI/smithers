@@ -549,8 +549,18 @@ const savedDocsRead = (args?: string): string => {
   }
   return JSON.stringify({ mode: "read", ...(page === undefined ? {} : { page }) })
 }
+const savedRunView = (args?: string): string => {
+  try {
+    const input: unknown = JSON.parse(args ?? "{}")
+    if (typeof input === "object" && input !== null && "cardId" in input && typeof input.cardId === "string" && input.cardId.startsWith("run:")) {
+      const { cardId, ...state } = input
+      return JSON.stringify({ runId: cardId.slice(4), sourceCard: cardId, view: "turns", state })
+    }
+  } catch { /* Invalid historical input must refuse rather than target another run. */ }
+  return "{}"
+}
 const currentAction = <T extends { readonly flow: string; readonly args?: string }>(action: T): Omit<T, "flow" | "args"> & { flow: string; args?: string } => ({
-  ...action, flow: currentFlowName(action.flow), ...(action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
+  ...action, flow: currentFlowName(action.flow), ...(action.flow === "run.view" ? { args: savedRunView(action.args) } : action.flow === "debug.seams" ? { args: "--health" } : ["env.set", "agent.codex", "agent.claude"].includes(action.flow) ? { args: undefined } : action.flow === "docs.read"
     ? { args: savedDocsRead(action.args) } : {})
 })
 const MessageActionSchema = MessageActionBaseSchema.transform(currentAction)
