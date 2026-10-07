@@ -65,6 +65,7 @@ export const FLOW_NAMES = [
   "code.diagnostics",
 
   "agent",
+  "agent.edit",
   "monitor",
   "stack",
   "stack.move",

@@ -16,12 +16,12 @@ import (
 // FlowsHandler serves the install's flow catalog (spec §6.3 GET /api/flows),
 // the model the Flow card and the app agent's flow commands read. Any member's
 // browser session reads it.
-type FlowEditService interface {
-	FileFlowEdit(context.Context, int64, int64, string, services.FlowEditInput, string) (services.MythicalItemView, error)
+type RepositoryEditService interface {
+	FileRepositoryEdit(context.Context, int64, int64, string, string, services.RepositoryEditInput, string) (services.MythicalItemView, error)
 }
 
 type FlowsHandler struct {
-	Edits     FlowEditService
+	Edits     RepositoryEditService
 	Queries   *db.Queries
 	Proposals services.FlowProposalReader
 	Runs      *services.InstallFlowRuns
@@ -97,7 +97,11 @@ func (h *FlowsHandler) catalog(r *http.Request) ([]services.FlowCard, error) {
 }
 
 func (h *FlowsHandler) Edit(w http.ResponseWriter, r *http.Request) {
-	repository, user, ok := authorizeInstallRepository(w, r, h.Queries, "flow.edit")
+	command, name := "flow.edit", chi.URLParam(r, "name")
+	if role := chi.URLParam(r, "role"); role != "" {
+		command, name = "agent.edit", role
+	}
+	repository, user, ok := authorizeInstallRepository(w, r, h.Queries, command)
 	if !ok {
 		return
 	}
@@ -105,14 +109,14 @@ func (h *FlowsHandler) Edit(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 503, Class: "infra", Code: "confirmation_unavailable", Message: "Flow edit unavailable"})
 		return
 	}
-	var input services.FlowEditInput
+	var input services.RepositoryEditInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
 	decoder.DisallowUnknownFields()
 	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_flow_edit", Message: "Invalid flow edit"})
 		return
 	}
-	item, err := h.Edits.FileFlowEdit(r.Context(), repository, user, chi.URLParam(r, "name"), input, r.Header.Get("Idempotency-Key"))
+	item, err := h.Edits.FileRepositoryEdit(r.Context(), repository, user, command, name, input, r.Header.Get("Idempotency-Key"))
 	if err != nil {
 		todoRouteError(w, err)
 		return

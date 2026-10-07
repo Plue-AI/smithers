@@ -1535,6 +1535,38 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+  /api/agents/{role}/edit:
+    post:
+      x-composition: install
+      summary: Propose agent instruction edits as a TODO
+      description: Delegated callers receive a private confirmation bound to the activated instruction source. Only the requesting person's session can commit it. The diff is quoted as untrusted context, never applied or executed. The app agent uses .smithers/instructions/app.md; planner, implementer and reviewer instructions belong to the TODO flow. Model settings are separate owner-only operations.
+      operationId: post_api_agents_role_edit
+      tags:
+        - Agent
+      security: [{sessionCookie: []}, {tokenAuth: []}]
+      parameters:
+        - {name: role, in: path, required: true, schema: {type: string}}
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string, maxLength: 256}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [request]
+              properties:
+                name: {type: string}
+                request: {type: string, minLength: 1}
+                diff: {type: string}
+      responses:
+        '202': {description: Private pending confirmation for a delegated caller, or an admitted TODO for a person's session}
+        '400': {description: Invalid request}
+        '401': {description: Not signed in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: No Active instruction source}
+        '409': {description: Idempotency mismatch}
+        '503': {description: Confirmation or TODO consumer unavailable}
   /api/agents/{role}/model:
     x-composition: install
     put:

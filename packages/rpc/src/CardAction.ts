@@ -222,6 +222,7 @@ export interface CardCommandInput {
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "flows": undefined
   readonly "flow": { readonly name: string }
+  readonly "agent.edit": { readonly name: "planner" | "implementer" | "reviewer" | "app"; readonly request: string; readonly diff?: string }
   readonly "flow.edit": { readonly name: string }
   readonly "flow.run": { readonly name: string; readonly input?: Readonly<Record<string, unknown>> }
   readonly "flow.new": { readonly name: string }
