@@ -137,7 +137,9 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(frame.Data, &home))
 				require.Empty(t, home.Items)
-				require.Equal(t, 1, home.Counts["merged"])
+				// Finished TODOs leave Home's active counts; their learning
+				// and wiki refresh runs remain independently visible below.
+				require.Zero(t, home.Counts["merged"])
 				expected := []map[string]any{}
 				if row.visible != "" {
 					expected = append(expected, map[string]any{"id": operation, "title": "Learning · T1", "state": row.visible, "actions": []any{}})
