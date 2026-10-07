@@ -3,7 +3,7 @@ import { refusalOf } from "@smthrs/rpc/Refusal"
 import type { CommandResult } from "../../flows/entries/Declare"
 import type { SeamContext } from "./SeamContext"
 
-export type BranchControl = "sleep" | "wake" | "rebase" | "add-to-stack" | "return-to-item" | "keep-moved"
+export type BranchControl = "sleep" | "wake" | "rebase" | "return-to-item" | "keep-moved"
 export interface BranchControlOptions {
   /** Each owning provider supplies its production activation receipt independently. */
   readonly ready: (operation: BranchControl) => boolean
