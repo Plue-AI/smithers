@@ -190,10 +190,14 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		browserFlowTyped(w, http.StatusForbidden, "todo_requires_stack_admission", "This branch runs a TODO. Act on the TODO.")
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
+	bindingKind := "browser-flow"
+	if strings.HasPrefix(workspace.TargetBookmark, "scratch/") {
+		bindingKind = flowdispatch.DraftBindingKind
+	}
 	return request, flowruntime.Target{
 		TenantID:    "repository:" + strconv.FormatInt(view.Repository.ID, 10),
 		PrincipalID: "user:" + strconv.FormatInt(user.ID, 10),
-		WorkspaceID: workspace.ID, BindingKind: "browser-flow", BindingID: request.Repo,
+		WorkspaceID: workspace.ID, BindingKind: bindingKind, BindingID: request.Repo,
 	}, workspace, true
 }
 
