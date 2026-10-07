@@ -80,6 +80,25 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r)
 				return
 			}
+			if command == "file.restore" {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+				if err != nil {
+					pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid restore request"))
+					return
+				}
+				_, resolved, err := routes.DecodeFileRestore(bytes.NewReader(raw))
+				if err != nil {
+					var apiError *pkgerrors.APIError
+					if stdErrors.As(err, &apiError) {
+						pkgerrors.WriteError(w, apiError)
+					} else {
+						pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid restore request"))
+					}
+					return
+				}
+				command = resolved
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+			}
 			if command == "todo.new" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 				if err != nil {
