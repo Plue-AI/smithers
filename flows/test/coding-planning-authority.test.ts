@@ -28,11 +28,11 @@ import { CapabilityPattern } from "../../packages/smithers/flows/capability/src/
 import { Rule } from "../../packages/smithers/flows/capability/src/Permission.ts"
 import * as CapabilitySet from "../../packages/smithers/flows/kernel/src/CapabilitySet.ts"
 import * as KernelSpawner from "../../packages/smithers/flows/kernel/src/ChildProcessSpawner.ts"
-import * as ProcessConfinement from "../../packages/smithers/flows/kernel/src/ProcessConfinement.ts"
 import * as KernelFileSystem from "../../packages/smithers/flows/kernel/src/FileSystem.ts"
 import * as GrantStore from "../../packages/smithers/flows/kernel/src/GrantStore.ts"
 import * as Workspace from "../../packages/smithers/flows/kernel/src/Workspace.ts"
 import * as AtomicFileSystem from "../../packages/smithers/flows/platform-node/src/AtomicFileSystem.ts"
+import * as ProcessConfinement from "../../packages/smithers/flows/platform-node/src/ProcessConfinement.ts"
 import { evidenceOnly } from "../coding/planning-authority.ts"
 
 const all = [new CapabilityPattern({ action: "*", resource: "*" })]
@@ -134,7 +134,7 @@ const fixture = async (t: TestContext, contributed = false) => {
     Layer.provide(workspace)
   )
   const platform = Layer.mergeAll(KernelFileSystem.layer, KernelSpawner.layer).pipe(
-    Layer.provide(ProcessConfinement.layerNoop),
+    Layer.provideMerge(ProcessConfinement.layer()),
     Layer.provideMerge(Layer.mergeAll(grants, workspace)),
     Layer.provideMerge(AtomicFileSystem.layer.pipe(Layer.provide(NodeServices.layer))),
     Layer.provideMerge(NodeServices.layer)
