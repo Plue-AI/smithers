@@ -108,3 +108,8 @@ test("matrix qualification retains every rebase point in both presence contexts"
   expect(() => qualify(undefined)).toThrow("people-absent")
   expect(() => qualify(["rebase-mid"])).toThrow("people-absent/rebase-post-apply")
 })
+
+test("five candidate-fixture kills cannot qualify the production propose boundary", () => {
+  expect(() => requireReachedGoFaultMatrix(githubLog(), githubNames, [...githubPoints, "github-production-propose"]))
+    .toThrow("github-production-propose")
+})
