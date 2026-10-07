@@ -1,3 +1,4 @@
+import { describedFailure, FailureNotice } from "../FailureNotice"
 /*
  * The Run card (T-FLW-07): maps the run to RunView's props and binds every
  * press through cardActions. Embedded, the card offers Inspect; maximized (the
@@ -75,7 +76,7 @@ const RunBody = ({ card, maximized }: { readonly card: CardOf<"run">; readonly m
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
   const model = served.model ?? controller.contextRun(card.payload.id) ?? monitorOf(world, card.payload.id)
-  if (model === undefined && served.error) return <p role="alert">{served.error}</p>
+  if (model === undefined && served.error) return <FailureNotice failure={describedFailure("RunUnavailable", { fault: "infra", sentence: "Run unavailable", actions: [] }, served.error)} />
   if (model === undefined && source !== undefined) return <ViewSkeleton />
   return <RunContainer model={served.model && model ? { ...model, journal: model.journal ?? [] } : model} dispatch={dispatch}
     view={{ ...view, maximized }} onView={patch => { void dispatch("run.view", { cardId: card.id, ...patch }) }} />

@@ -164,3 +164,12 @@ test("Earlier hides live confirmation actions and returning restores the same pe
   expect(pending.state).toBe("pending")
   expect(writes).toEqual([])
 })
+
+
+test("duplicate and cyclic branches carry typed diagnostic reasons", () => {
+  const row = (name: string, parent?: string) => ({ name, kind: "scratch", state: "open", machine: { id: name }, forked_from: parent ? { ref: parent } : null })
+  for (const [rows, sentence] of [[ [row("a"), row("a")], "Repeated branch" ], [[row("a", "b"), row("b", "a")], "Cyclic branch tree"]] as const) {
+    try { branchTree(rows); throw new Error("accepted invalid branch tree") }
+    catch (value) { expect(value).toMatchObject({ _tag: "BranchNavigationFailure", sentence }) }
+  }
+})

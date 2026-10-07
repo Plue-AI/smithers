@@ -1,9 +1,14 @@
+import { Data } from "effect"
 import { z } from "zod"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import { ContextItemSchema } from "@smthrs/rpc/CardPrimitives"
 import { MessageSchema } from "../AppState"
 import type { ControllerContext } from "../controller/context"
 import type { LiveTopics } from "../useTopic"
+
+export class SharedConversationFailure extends Data.TaggedError("SharedConversationFailure")<{ readonly sentence: "Theme unavailable" | "Conversation unavailable" | "View unavailable" }> {
+  override get message() { return this.sentence }
+}
 
 // Imports reuse the durable message decoder and cannot decode as executable turns.
 const SharedTurnSchema = z.object({
@@ -46,7 +51,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
         // The schema permits explicit theme assignments only. No tool payload,
         // arbitrary command, shared mutation or model continuation reaches this door.
         const outcome = await ctx.commands.submit({ name: "theme", payload: { mode: instruction.mode }, actor: "agent" })
-        if (outcome.status !== "executed") throw new Error("Theme unavailable")
+        if (outcome.status !== "executed") throw new SharedConversationFailure({ sentence: "Theme unavailable" })
         await ctx.store.settled?.()
         if (valid(revision)) await ctx.store.dispatch({ type: "conversation.ui.applied", actor: "system", owner, id }).isPersisted.promise
       }).catch(error => { if (valid(revision)) ctx.failures.report("seam.failure", error, "conversation-ui") }).finally(() => applying.delete(id))
@@ -59,7 +64,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     const revision = generation, at = branch, viewing = viewRevision
     try {
       const response = await ctx.boundedFetch(`${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}`, { credentials: "same-origin" })
-      if (!response.ok) throw new Error("Conversation unavailable")
+      if (!response.ok) throw new SharedConversationFailure({ sentence: "Conversation unavailable" })
       const conversation = SharedConversationSchema.parse(await response.json())
       if (valid(revision)) publish({ ...snapshot, conversation, error: undefined })
       const viewResponse = await ctx.boundedFetch(`${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}/view-state`, { credentials: "same-origin" })
@@ -78,11 +83,11 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
       if (!valid(revision)) return
       const path = `${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}/view-state`
       const response = await ctx.boundedFetch(path, { credentials: "same-origin" })
-      if (!response.ok) throw new Error("View unavailable")
+      if (!response.ok) throw new SharedConversationFailure({ sentence: "View unavailable" })
       const { queue: _queue, instructions: _instructions, ...previous } = ConversationViewSchema.parse(await response.json())
       if (!valid(revision)) return
       const written = await ctx.boundedFetch(path, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...previous, ...patch }) })
-      if (!written.ok) throw new Error("View unavailable")
+      if (!written.ok) throw new SharedConversationFailure({ sentence: "View unavailable" })
       const view = ConversationViewSchema.parse(await written.json())
       if (valid(revision)) publish({ ...snapshot, view, queue: snapshot.queue, error: snapshot.error === "View unavailable" ? undefined : snapshot.error })
     }).catch(error => { if (valid(revision)) { publish({ ...snapshot, error: "View unavailable" }); ctx.failures.report("seam.failure", error, "conversation-view") } })

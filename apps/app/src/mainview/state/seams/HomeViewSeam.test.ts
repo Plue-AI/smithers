@@ -60,6 +60,7 @@ test("a refused write keeps the committed filter and reports failure", async () 
     seam.onView({ filter: "working" })
     await waitFor(() => errors.length === 1)
     expect(seam.get().filter).toBe("queued")
+    expect(errors[0]).toMatchObject({ _tag: "HomeViewFailure", sentence: "Home view: 403" })
   } finally { stop(); seam.dispose() }
 })
 
@@ -85,4 +86,16 @@ test("Home menu persists with the filter, closes durably, and refuses invalid ro
     expect(seam.get().filter).toBe("queued")
     expect(() => seam.onView({ menu: -1 })).toThrow("Invalid Home menu")
   } finally { stop(); seam.dispose() }
+})
+
+
+test("invalid Home responses and menus carry a typed failure", async () => {
+  const errors: unknown[] = []
+  const seam = createHomeViewSeam({ owner: () => "Ben", subscribeOwner: () => () => {}, report: value => errors.push(value), http: async () => Response.json([]) })
+  try {
+    await seam.read()
+    expect(errors).toEqual([expect.objectContaining({ _tag: "HomeViewFailure", sentence: "Invalid Home view" })])
+    try { seam.onView({ menu: 0 }); throw new Error("accepted invalid menu") }
+    catch (value) { expect(value).toMatchObject({ _tag: "HomeViewFailure", sentence: "Invalid Home menu" }) }
+  } finally { seam.dispose() }
 })

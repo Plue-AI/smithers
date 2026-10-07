@@ -339,3 +339,24 @@ test("install conversation binds imported snapshots through the shared renderer 
     expect(starts).toBe(0)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })
+
+
+test("a recorded shared turn failure keeps raw text behind collapsed Details", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async input => String(input) === "/api/conversations/main"
+      ? Response.json({ id: "main", entries: [{ ...ben, state: "failed", frames: [{ runId: "run-ben", type: "done", reason: "stop", error: "RAW TURN TRACE" }] }] })
+      : new Response("{}", { status: 404 })
+  })
+  const host = document.createElement("div"), root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await waitFor(() => host.querySelector('[data-shared-turn] details') !== null)
+    const failure = host.querySelector('[data-shared-turn] [data-failure="SharedTurnFailed"]')!
+    expect(failure.querySelector("p")?.textContent).toBe("Smithers could not finish that. Not your fault.")
+    expect(failure.querySelector("details")?.textContent).toBe("DetailsRAW TURN TRACE")
+    expect(failure.querySelector("details")?.open).toBe(false)
+  } finally { flushSync(() => root.unmount()); await controller.dispose() }
+})

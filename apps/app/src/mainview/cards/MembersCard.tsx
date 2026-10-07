@@ -1,3 +1,5 @@
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import { failureDetail } from "@smthrs/rpc/UserFailure"
 import { serviceFailureSentence } from "../state/ServiceFailureCopy"
 import { useSyncExternalStore, type ComponentType } from "react"
 import { useController } from "../ControllerContext"
@@ -19,10 +21,10 @@ export function MembersCard({ roster, role, dispatch, View = MembersView, view, 
 }) {
   const snapshot = useSyncExternalStore(roster.subscribe, roster.get, roster.get)
   const retry = cardActions(dispatch, [{ tag: "members", label: "Retry", command_input: undefined }])
-  const failure = snapshot.error && snapshot.refused === undefined ? <div role="alert" data-error-class={snapshot.error.class}>
-    <span>{snapshot.error.message}{snapshot.error.class === "infra" || snapshot.error.class === "github" ? ". Not your fault." : ""}</span>
+  const failure = snapshot.error && snapshot.refused === undefined ? <FailureNotice data-error-class={snapshot.error.class} failure={describedFailure("MembersRequestFailed", { fault: snapshot.error.class === "infra" || snapshot.error.class === "transient" ? "infra" : snapshot.error.class === "github" ? "dependency" : snapshot.error.class === "user" ? "user" : snapshot.error.class === "capacity" ? "factory" : snapshot.error.class === "conflict" ? "wait" : "policy",
+    sentence: `${snapshot.error.code === "unavailable" ? "Members unavailable" : serviceFailureSentence(snapshot.error)}${snapshot.error.class === "infra" || snapshot.error.class === "github" ? ". Not your fault." : ""}`, actions: [] }, failureDetail(snapshot.error))}>
     <button {...retry.actionProps("members")}>Retry</button>
-  </div> : null
+  </FailureNotice> : null
   if (!snapshot.model) return failure
   const source = MembersCardSchema.parse(snapshot.model)
   const definitions: CardActionDefinition[] = []

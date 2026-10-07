@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { ActorSchema } from "@smthrs/rpc/CardPrimitives"
 import type { LiveTopics } from "../useTopic"
 import { z } from "zod"
@@ -6,6 +7,10 @@ import { accountOwnerOf } from "../AccountOwner"
 import type { SeamContext } from "./SeamContext"
 import { designBranchTree } from "./DesignWorld/shell"
 import type { DesignWorld } from "./DesignWorld"
+
+export class BranchNavigationFailure extends Data.TaggedError("BranchNavigationFailure")<{ readonly sentence: "Repeated branch" | "Cyclic branch tree" | "Branches unavailable" }> {
+  override get message() { return this.sentence }
+}
 
 const Rows = z.array(z.object({ name: z.string().min(1), kind: z.string(), state: z.string(),
   forked_from: z.object({ ref: z.string() }).nullish(), machine: z.object({ id: z.string() }) }))
@@ -17,7 +22,7 @@ export function branchTree(value: unknown): BranchTreeNodeCard[] {
   nodes.set("main", { id: "main", name: "main", kind: "main", present: [], children: [], action: { tag: "branch", label: "Open", args: { name: "main" } } })
   for (const row of rows) {
     if (row.name === "main") continue
-    if (nodes.has(row.name)) throw new Error("Repeated branch")
+    if (nodes.has(row.name)) throw new BranchNavigationFailure({ sentence: "Repeated branch" })
     nodes.set(row.name, { id: row.name, name: row.name, kind: row.kind === "item" ? "item" : "scratch", present: [], children: [], action: { tag: "branch", label: "Open", args: { name: row.name } } })
   }
   for (const row of rows) {
@@ -25,7 +30,7 @@ export function branchTree(value: unknown): BranchTreeNodeCard[] {
     const seen = new Set([row.name])
     let parent = row.forked_from?.ref
     while (parent && parent !== "main") {
-      if (seen.has(parent)) throw new Error("Cyclic branch tree")
+      if (seen.has(parent)) throw new BranchNavigationFailure({ sentence: "Cyclic branch tree" })
       seen.add(parent)
       parent = rows.find(candidate => candidate.name === parent)?.forked_from?.ref
     }
@@ -80,12 +85,12 @@ export function createBranchNavigationSeam(ctx: SeamContext, design: DesignWorld
           // The branch API uses offset cursors; never follow an arbitrary Link URL.
           for (let offset = 0; offset < 10000; offset += 100) {
             const response = await ctx.http(`${ctx.baseUrl}/api/branches?limit=100&cursor=${offset}`, { credentials: "same-origin" })
-            if (!response.ok) throw new Error("Branches unavailable")
+            if (!response.ok) throw new BranchNavigationFailure({ sentence: "Branches unavailable" })
             const page = Rows.parse(await response.json())
             rows.push(...page)
             if (page.length < 100) { nodes = branchTree(rows); break }
           }
-          if (!nodes) throw new Error("Branches unavailable")
+          if (!nodes) throw new BranchNavigationFailure({ sentence: "Branches unavailable" })
         } catch (error) {
           if (design.enabled === false) throw error
           real = false

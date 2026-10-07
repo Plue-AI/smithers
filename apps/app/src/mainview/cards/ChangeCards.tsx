@@ -973,7 +973,7 @@ export const DiffCardBody = ({
 }: { readonly card: DiffCard } & ChangeCardActions) => {
   const { payload } = card
   const controller = useContext(ControllerContext)
-  if (payload.branchDiffRequest && payload.error) return <p role="alert">{payload.error}</p>
+  if (payload.branchDiffRequest && payload.error) return <FailureNotice failure={describedFailure("DiffFailed", CHANGE_FAILURES.diff, payload.error)} />
   if (payload.branchFiles) return <>{payload.branchFiles.map(model => {
     const bindings = cardActions((tag, input) => {
       if (tag === "file.restore") void controller?.commands.submit({ name: "file.restore", payload: { ...input, branch: model.branch }, actor: "user", originCardId: card.id })

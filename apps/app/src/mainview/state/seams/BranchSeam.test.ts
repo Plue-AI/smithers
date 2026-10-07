@@ -80,3 +80,11 @@ test("server-resolved numeric authors render without inventing a roster identity
   expect(model.activity[0]?.text).toBe("changed 1 file")
   expect(model.changed_files[0]?.authors).toEqual([model.activity[0]!.actor])
 })
+
+
+test("invalid activity frames retain typed diagnostic reasons", () => {
+  for (const [previous, delta, sentence] of [[undefined, [], "Invalid activity delta"], [[], [{}], "Invalid activity entry"]] as const) {
+    try { projectBranchActivity(previous, delta); throw new Error("accepted invalid activity") }
+    catch (value) { expect(value).toMatchObject({ _tag: "BranchActivityFailure", sentence }) }
+  }
+})

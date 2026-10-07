@@ -202,3 +202,14 @@ test("a failed roster read keeps committed rows and offers the shared members Re
   expect(html).toContain('@ben')
   expect(calls).toEqual([])
 })
+
+
+test("a roster failure keeps server text inside collapsed Details", () => {
+  const html = renderToStaticMarkup(<MembersCard roster={{ get: () => ({ error: { class: "infra", code: "unavailable", message: "RAW SERVER TRACE" } }), subscribe: () => () => {} }}
+    role="owner" dispatch={() => {}} view={{ maximized: false }} onView={() => {}} />)
+  expect(html).toContain("Members unavailable. Not your fault.")
+  expect(html).toContain("RAW SERVER TRACE")
+  expect(html).toContain("<details")
+  expect(html).not.toContain("<details open")
+  expect(html.indexOf("RAW SERVER TRACE")).toBeGreaterThan(html.indexOf("<details"))
+})

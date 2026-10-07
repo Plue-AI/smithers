@@ -1,3 +1,4 @@
+import { describedFailure, FailureNotice } from "../FailureNotice"
 import { useLiveQuery } from "@tanstack/react-db"
 import { flowEditTodoInput } from "../flows/entries/flow"
 import { ViewSkeleton } from "../ViewSkeleton"
@@ -120,7 +121,7 @@ const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
   if (model === undefined && controller.flowCatalog !== undefined) return served.error !== undefined
-    ? <p role="alert">{served.error}</p>
+    ? <FailureNotice failure={describedFailure("FlowsUnavailable", { fault: "infra", sentence: "Flows unavailable", actions: [] }, served.error)} />
     : served.flows === undefined ? <ViewSkeleton /> : <p role="alert">{`No flow ${card.payload.name}`}</p>
   const proposed = model === undefined || payload.proposal === undefined ? model : { ...model, proposal: payload.proposal }
   return <FlowCard model={proposed} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : served.error !== undefined ? UNAVAILABLE_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}

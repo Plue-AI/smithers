@@ -1047,3 +1047,15 @@ for (const state of ["pending", "landing", "landed", "failed"] as const) {
     native.host.remove()
   })
 }
+
+
+test("a failed branch diff hides its transport detail behind Details", () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<DiffCardBody card={diffCard({ branchDiffRequest: "main:a.ts", error: "RAW DIFF TRACE" })} onRunCommand={() => {}} />))
+    expect(host.querySelector('[role="alert"] p')?.textContent).toBe("Smithers could not load this diff. Not your fault.")
+    expect(host.querySelector("details")?.textContent).toContain("RAW DIFF TRACE")
+    expect(host.querySelector("details")?.open).toBe(false)
+  } finally { flushSync(() => root.unmount()) }
+})

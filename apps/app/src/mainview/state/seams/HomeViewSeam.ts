@@ -1,8 +1,13 @@
+import { Data } from "effect"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import type { HomeViewProps } from "@smthrs/rpc/HomeCard"
 import { TodoStateSchema } from "@smthrs/rpc/CardPrimitives"
 import { randomUuid } from "../../runtime/RandomUuid"
 import type { SeamFetch } from "./SeamContext"
+
+export class HomeViewFailure extends Data.TaggedError("HomeViewFailure")<{ readonly sentence: "Invalid Home view" | "Invalid Home menu" | `Home view: ${number}` }> {
+  override get message() { return this.sentence }
+}
 
 /** Private main-conversation preferences; shared Home facts never contain these. */
 export function createHomeViewSeam(options: {
@@ -33,9 +38,9 @@ export function createHomeViewSeam(options: {
   const valid = (revision: number, principal: string | undefined) => !disposed && revision === generation && principal !== undefined && principal === options.owner()
   const request = async (init?: RequestInit): Promise<Record<string, unknown>> => {
     const response = await options.http("/api/conversations/main/view-state", { credentials: "same-origin", ...init })
-    if (!response.ok) throw new Error(`Home view: ${response.status}`)
+    if (!response.ok) throw new HomeViewFailure({ sentence: `Home view: ${response.status}` })
     const body: unknown = await response.json()
-    if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Invalid Home view")
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new HomeViewFailure({ sentence: "Invalid Home view" })
     return body as Record<string, unknown>
   }
   const apply = (body: Record<string, unknown>) => {
@@ -86,7 +91,7 @@ export function createHomeViewSeam(options: {
     const changes: Record<string, unknown> = {}
     if ("filter" in patch) changes.filter = patch.filter === undefined ? null : TodoStateSchema.parse(patch.filter)
     if ("menu" in patch) {
-      if (patch.menu !== undefined && (!Number.isSafeInteger(patch.menu) || patch.menu <= 0)) throw new Error("Invalid Home menu")
+      if (patch.menu !== undefined && (!Number.isSafeInteger(patch.menu) || patch.menu <= 0)) throw new HomeViewFailure({ sentence: "Invalid Home menu" })
       changes.menu = patch.menu ?? null
     }
     const revision = generation, principal = owner

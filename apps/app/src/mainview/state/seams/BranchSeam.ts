@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { BranchActivityEntry, BranchParticipant } from "@smthrs/rpc/BranchCard"
 import { toActor, type ActorContext } from "../ProductActor"
 import { branchFileRows } from "@smthrs/rpc/FileCard"
@@ -5,6 +6,10 @@ import { z } from "zod"
 import { ActorSchema, MachineStateSchema, TodoStateSchema } from "@smthrs/rpc/CardPrimitives"
 import type { BranchCard } from "@smthrs/rpc/BranchCard"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
+
+export class BranchActivityFailure extends Data.TaggedError("BranchActivityFailure")<{ readonly sentence: "Invalid activity delta" | "Invalid activity entry" }> {
+  override get message() { return this.sentence }
+}
 
 /** Demo hosts keep their seed when topics are absent; installs never use it. */
 export const branchSeedAvailable = (host: { readonly bootstrap?: AppBootstrap; readonly live?: unknown }): boolean =>
@@ -89,10 +94,10 @@ export function createBrowserPresence(options: {
 
 /** Activity is a bounded log; replayed rows replace by identity without duplication. */
 export function projectBranchActivity(previous: unknown, delta: unknown): unknown {
-  if (!Array.isArray(previous) || !Array.isArray(delta)) throw new Error("Invalid activity delta")
+  if (!Array.isArray(previous) || !Array.isArray(delta)) throw new BranchActivityFailure({ sentence: "Invalid activity delta" })
   const rows = new Map<string, unknown>()
   for (const entry of [...previous, ...delta]) {
-    if (!entry || typeof entry !== "object" || typeof entry.id !== "string") throw new Error("Invalid activity entry")
+    if (!entry || typeof entry !== "object" || typeof entry.id !== "string") throw new BranchActivityFailure({ sentence: "Invalid activity entry" })
     rows.set(entry.id, entry)
   }
   return [...rows.values()].slice(-200)
