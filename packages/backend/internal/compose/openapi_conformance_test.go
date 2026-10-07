@@ -179,7 +179,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			InstallScorecard:    &routes.InstallScorecardHandler{Authorize: func(*http.Request) error { return nil }, Service: &services.ScorecardService{}},
 			BillingCapabilities: conformanceBillingCapabilities(cfg),
 			Recommender:         &routes.RecommendationHandler{}, ModelStream: &routes.ModelStreamHandler{}, Mythical: deps.mythical,
-			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{}, AdminGrant: &routes.AdminGrantHandler{},
+			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{DB: deps.pool}, AdminGrant: &routes.AdminGrantHandler{},
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
 			EgressPolicy:     &routes.RepositoryEgressPolicyHandler{},
@@ -599,7 +599,7 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 			cfg := testConfigAllFlagsOn()
 			cfg.Auth.Mode = mode
 			cfg.Server.PublicURL = "http://example.com"
-			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{})
+			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{}, conformanceServices{pool: pool, billing: &routes.BillingHandler{}, jobs: &routes.RepositoryJobHandler{}})
 			dispatcher := &browserFlowRecordingDispatcher{}
 			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
 			mountBrowserFlow(router, cfg, q, &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher})
@@ -661,7 +661,7 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				{"PUT", "/api/gateways/host/repository-jobs/ci/check-receipts/request", 404, 503},
 				{"GET", "/api/repos/cutowner/repo/agent-sessions/old/egress", 404, 500},
 				{"GET", "/api/admin/users", 404, 403},
-				{"GET", "/api/admin/system/health", 403, 403},
+				{"GET", "/api/admin/system/health", 200, 403},
 				{"POST", "/api/recommend", 404, 404},
 				{"POST", "/api/recommend/outcome", 404, 404},
 				{"POST", "/api/repos/cutowner/repo/changes/change/split", 404, 404},

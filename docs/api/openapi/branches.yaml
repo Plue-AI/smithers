@@ -403,6 +403,27 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/branches/{b}/archive:
+    post:
+      x-composition: install
+      summary: Archive a scratch branch
+      operationId: post_api_branches_b_archive
+      tags:
+        - Branches
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: b, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Archived branch
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Branch'}
+        '401': {description: Sign in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Branch unavailable}
+        '409': {description: Branch cannot be archived}
+        '503': {description: Branch archive unavailable}
 components:
   schemas:
     Branch:

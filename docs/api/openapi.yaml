@@ -2726,6 +2726,27 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/branches/{b}/archive:
+    post:
+      x-composition: install
+      summary: Archive a scratch branch
+      operationId: post_api_branches_b_archive
+      tags:
+        - Branches
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: b, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Archived branch
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Branch'}
+        '401': {description: Sign in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Branch unavailable}
+        '409': {description: Branch cannot be archived}
+        '503': {description: Branch archive unavailable}
   /api/build-cache/healthz:
     get:
       summary: GET /api/build-cache/healthz
@@ -20209,6 +20230,64 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           description: Review delivery unavailable
+  /api/runs/{id}:
+    post:
+      x-composition: install
+      summary: Retry or dismiss a background run
+      operationId: post_api_runs_id
+      tags:
+        - Runs
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [op]
+              properties:
+                op: {type: string, enum: [retry, dismiss]}
+      responses:
+        '200':
+          description: Dismissed run
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HomeBackgroundReceipt'}
+        '202':
+          description: Retry requested
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HomeBackgroundReceipt'}
+        '400': {description: Invalid run action}
+        '401': {description: Sign in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Run unavailable}
+        '409': {description: Run cannot be changed}
+        '503': {description: Background runs unavailable}
+  /api/runs/{id}/background-status:
+    get:
+      x-composition: install
+      summary: Read a background run receipt
+      operationId: get_api_runs_id_background_status
+      tags:
+        - Runs
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        '200':
+          description: Background run receipt
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HomeBackgroundReceipt'}
+        '401': {description: Sign in}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Run unavailable}
+        '503': {description: Background runs unavailable}
   /api/search/code:
     get:
       summary: GET /api/search/code
@@ -26133,6 +26212,12 @@ components:
           properties:
             n: {type: integer, minimum: 1}
             title: {type: string}
+    HomeBackgroundReceipt:
+      type: object
+      required: [state, run_id]
+      properties:
+        state: {type: string}
+        run_id: {type: integer, format: int64}
     HomeCard:
       description: HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
       type: object

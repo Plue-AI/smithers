@@ -118,7 +118,7 @@ describe("the generated product API client", () => {
     // Includes order acknowledgment, owner main reset, run-bound Learning evidence,
     // the mounted native stack candidate/proposal transport (#3533),
     // and durable install flow admission, launch and receipt reads (#3438).
-    expect(expected).toHaveLength(543)
+    expect(expected).toHaveLength(546)
     expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty("post.parameters.3.schema.enum", ["candidate", "propose"])
     expect(spec.paths["/api/agents/{name}"]).toHaveProperty("get.operationId", "get_api_agents_name")
     expect(spec.paths["/api/model/test/receipt"]).toHaveProperty("get.operationId", "get_api_model_test_receipt")

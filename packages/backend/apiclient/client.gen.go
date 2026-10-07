@@ -1661,6 +1661,12 @@ type LearningProposalCardTodo struct {
 	Title string `json:"title"`
 }
 
+// HomeBackgroundReceipt is generated from docs/api/openapi.yaml.
+type HomeBackgroundReceipt struct {
+	State string `json:"state"`
+	RunID int64  `json:"run_id"`
+}
+
 // HomeCard — HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
 type HomeCard struct {
 	Repository           string                       `json:"repository"`
@@ -2352,6 +2358,11 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 	StopReason     *string    `json:"stop_reason,omitempty"`
 	FailureMessage *string    `json:"failure_message,omitempty"`
 	ExpiresAt      time.Time  `json:"expires_at"`
+}
+
+// PostAPIRunsIDBody is generated from docs/api/openapi.yaml.
+type PostAPIRunsIDBody struct {
+	Op string `json:"op"`
 }
 
 // DeleteAPISecretsBody is generated from docs/api/openapi.yaml.
@@ -3111,6 +3122,13 @@ func (c *Client) GetAPIBranchesBFiles(ctx context.Context, b string, params GetA
 	}
 	var out []GetAPIBranchesBFilesResponseItem
 	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files", query, nil, &out)
+	return out, err
+}
+
+// PostAPIBranchesBArchive calls POST /api/branches/{b}/archive.
+func (c *Client) PostAPIBranchesBArchive(ctx context.Context, b string) (Branch, error) {
+	var out Branch
+	err := c.do(ctx, "POST", "/api/branches/"+url.PathEscape(b)+"/archive", nil, nil, &out)
 	return out, err
 }
 
@@ -5813,6 +5831,20 @@ func (c *Client) PostAPIReviews(ctx context.Context, idempotencyKey string) erro
 func (c *Client) GetAPIReviewsID(ctx context.Context, id string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/reviews/"+url.PathEscape(id), nil, nil, &out)
+	return out, err
+}
+
+// PostAPIRunsID calls POST /api/runs/{id}.
+func (c *Client) PostAPIRunsID(ctx context.Context, id int64, idempotencyKey string, body PostAPIRunsIDBody) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/runs/"+url.PathEscape(strconv.FormatInt(id, 10)), nil, body, &out)
+	return out, err
+}
+
+// GetAPIRunsIDBackgroundStatus calls GET /api/runs/{id}/background-status.
+func (c *Client) GetAPIRunsIDBackgroundStatus(ctx context.Context, id int64) (HomeBackgroundReceipt, error) {
+	var out HomeBackgroundReceipt
+	err := c.do(ctx, "GET", "/api/runs/"+url.PathEscape(strconv.FormatInt(id, 10))+"/background-status", nil, nil, &out)
 	return out, err
 }
 

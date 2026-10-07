@@ -1042,6 +1042,11 @@ export type LearningProposalCard = {
   }
 }
 
+export type HomeBackgroundReceipt = {
+  state: string
+  run_id: number
+}
+
 /** HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved. */
 export type HomeCard = {
   repository: string
@@ -1798,6 +1803,16 @@ export interface GetApiBranchesBFilesInput {
 /** GET /api/branches/{b}/files: List branch files */
 export const getApiBranchesBFiles = (transport: Transport, input: GetApiBranchesBFilesInput): Promise<GetApiBranchesBFilesResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/files${search({ path: input.query?.path })}`) as Promise<GetApiBranchesBFilesResponse>
+
+export type PostApiBranchesBArchiveResponse = Branch
+
+export interface PostApiBranchesBArchiveInput {
+  readonly path: { readonly b: string }
+}
+
+/** POST /api/branches/{b}/archive: Archive a scratch branch */
+export const postApiBranchesBArchive = (transport: Transport, input: PostApiBranchesBArchiveInput): Promise<PostApiBranchesBArchiveResponse> =>
+  transport.request("POST", `/api/branches/${segment(input.path.b)}/archive`) as Promise<PostApiBranchesBArchiveResponse>
 
 export type GetApiBuildCacheHealthzResponse = AnyJSON
 
@@ -5784,6 +5799,32 @@ export interface GetApiReviewsIdInput {
 /** GET /api/reviews/{id}: Read a review request and its result */
 export const getApiReviewsId = (transport: Transport, input: GetApiReviewsIdInput): Promise<GetApiReviewsIdResponse> =>
   transport.request("GET", `/api/reviews/${segment(input.path.id)}`) as Promise<GetApiReviewsIdResponse>
+
+export type PostApiRunsIdBody = {
+  op: "retry" | "dismiss"
+}
+
+export type PostApiRunsIdResponse = HomeBackgroundReceipt | HomeBackgroundReceipt
+
+export interface PostApiRunsIdInput {
+  readonly path: { readonly id: number }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiRunsIdBody
+}
+
+/** POST /api/runs/{id}: Retry or dismiss a background run */
+export const postApiRunsId = (transport: Transport, input: PostApiRunsIdInput): Promise<PostApiRunsIdResponse> =>
+  transport.request("POST", `/api/runs/${segment(input.path.id)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiRunsIdResponse>
+
+export type GetApiRunsIdBackgroundStatusResponse = HomeBackgroundReceipt
+
+export interface GetApiRunsIdBackgroundStatusInput {
+  readonly path: { readonly id: number }
+}
+
+/** GET /api/runs/{id}/background-status: Read a background run receipt */
+export const getApiRunsIdBackgroundStatus = (transport: Transport, input: GetApiRunsIdBackgroundStatusInput): Promise<GetApiRunsIdBackgroundStatusResponse> =>
+  transport.request("GET", `/api/runs/${segment(input.path.id)}/background-status`) as Promise<GetApiRunsIdBackgroundStatusResponse>
 
 export type GetApiSearchCodeResponse = AnyJSON
 
