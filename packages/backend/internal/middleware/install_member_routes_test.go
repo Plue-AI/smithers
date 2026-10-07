@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 )
 
 // The member route table, by literal request: the app's install reads, the
@@ -22,6 +22,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/user/workflow-runs/active-count", "repo.read"},
 		{http.MethodGet, "/api/public/repos", "public"},
 		{http.MethodGet, "/api/user", "self"},
+		{http.MethodGet, "/api/repos/local-owner/demo/workspace/sessions", "branches.read"},
+		{http.MethodGet, "/api/repos/local-owner/demo/workspace/sessions/owned", "branch.read"},
 		{http.MethodPost, "/api/workflow/rpc", "flow.relay"},
 		{http.MethodPost, "/api/workflow/provision", "box.resume"},
 		{http.MethodGet, "/api/workflow/rpc", ""},
@@ -97,7 +99,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/branches/branch-id/activity", "branch.read"},
 		{http.MethodPost, "/api/branches/branch-id/activity", ""},
 		{http.MethodPost, "/api/branches/branch-id/diff", ""},
-		{http.MethodPost, "/api/branches/smithers%2Fretry", "branch.answer"},
+		{http.MethodPost, "/api/branches/smithers%2Fretry", "branch.control"},
 		{http.MethodGet, "/api/branches", "branches.read"},
 		{http.MethodGet, "/api/branches/branch-id/files/src/retry.ts", "branch.read"},
 		{http.MethodPost, "/api/branches/branch-id/files/src/retry.ts", "file.restore"},
@@ -129,24 +131,24 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/user/tokens", "self"},
 		{http.MethodGet, "/api/members/alice", ""},
 		{http.MethodGet, "/api/secrets", "secrets.read"},
-		{http.MethodPut, "/api/secrets", "secrets.set"},
-		{http.MethodDelete, "/api/secrets", "secrets.delete"},
-		{http.MethodPatch, "/api/secrets/KEY", "secrets.scope"},
-		{http.MethodDelete, "/api/secrets/KEY", "secrets.delete"},
-		{http.MethodPost, "/api/repos/acme/app/secrets", "secrets.set"},
-		{http.MethodPatch, "/api/repos/acme/app/secrets/API_KEY", "secrets.scope"},
-		{http.MethodDelete, "/api/repos/acme/app/secrets/API_KEY", "secrets.delete"},
+		{http.MethodPut, "/api/secrets", "secrets.write"},
+		{http.MethodDelete, "/api/secrets", "secrets.write"},
+		{http.MethodPatch, "/api/secrets/KEY", "secrets.write"},
+		{http.MethodDelete, "/api/secrets/KEY", "secrets.write"},
+		{http.MethodPost, "/api/repos/acme/app/secrets", "secrets.write"},
+		{http.MethodPatch, "/api/repos/acme/app/secrets/API_KEY", "secrets.write"},
+		{http.MethodDelete, "/api/repos/acme/app/secrets/API_KEY", "secrets.write"},
 		{http.MethodGet, "/api/external/sessions", "external.read"},
 		{http.MethodGet, "/api/repos/acme/app/secrets", "secrets.read"},
 		{http.MethodGet, "/api/repos/acme/app/agent-environment", "secrets.read"},
-		{http.MethodPut, "/api/repos/acme/app/agent-environment", "secrets.set"},
+		{http.MethodPut, "/api/repos/acme/app/agent-environment", "secrets.write"},
 		{http.MethodPut, "/api/repos/acme/app/agent-environment/secrets/API_KEY/x", ""},
 		{http.MethodPut, "/api/repos/acme/app/secrets/API_KEY", ""},
 		{http.MethodPost, "/api/repos/acme/app/secrets/API_KEY", ""},
 		{http.MethodDelete, "/api/repos/acme/app/secrets", ""},
 		{http.MethodPatch, "/api/repos/acme/app/secrets/API_KEY/x", ""},
-		{http.MethodPut, "/api/repos/acme/app/agent-environment/secrets/API_KEY", "secrets.set"},
-		{http.MethodDelete, "/api/repos/acme/app/agent-environment/secrets/API_KEY", "secrets.delete"},
+		{http.MethodPut, "/api/repos/acme/app/agent-environment/secrets/API_KEY", "secrets.write"},
+		{http.MethodDelete, "/api/repos/acme/app/agent-environment/secrets/API_KEY", "secrets.write"},
 		{http.MethodPost, "/api/orgs/acme/secrets", ""},
 		{http.MethodDelete, "/api/orgs/acme/secrets/API_KEY", ""},
 		{http.MethodPost, "/api/repos/acme/app/variables", ""},
@@ -205,6 +207,6 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/agent/turn/erase", ""},
 		{http.MethodGet, "/api/install/scorecard", "install.scorecard"},
 	} {
-		require.Equal(t, tc.command, InstallMemberCommand(tc.method, tc.path), "%s %s", tc.method, tc.path)
+		assert.Equal(t, tc.command, InstallMemberCommand(tc.method, tc.path), "%s %s", tc.method, tc.path)
 	}
 }

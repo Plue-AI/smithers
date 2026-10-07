@@ -252,6 +252,26 @@ func (s *WorkspaceService) failWorkspaceSession(ctx context.Context, sessionID s
 	s.notifyWorkspaceSession(ctx, sessionID, "failed")
 }
 
+// authorizeInstallWorkspaceMetadata preserves the one catalog decision for
+// direct and routed reads, then binds the caller and installed repository.
+func (s *WorkspaceService) authorizeInstallWorkspaceMetadata(ctx context.Context, command string, repositoryID, userID int64) (context.Context, error) {
+	if s.installQueries == nil {
+		return ctx, nil
+	}
+	decision, err := Authorize(ctx, s.installQueries, command)
+	if err != nil {
+		return ctx, err
+	}
+	repository, err := InstallRepositoryID(ctx, s.installQueries)
+	if err != nil {
+		return ctx, err
+	}
+	if repository != repositoryID || decision.UserID != userID {
+		return ctx, confirmationPermission()
+	}
+	return WithInstallAuthorization(ctx, command, decision), nil
+}
+
 // GetSession returns a single workspace session by ID. Viewing session status
 // is a read-level operation, so a read share (e.g. a pair viewer) is
 // sufficient; mutating and credential paths stay write-level.
@@ -260,11 +280,24 @@ func (s *WorkspaceService) GetSession(ctx context.Context, sessionID string, rep
 		return WorkspaceSessionResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
 
+	ctx, err := s.authorizeInstallWorkspaceMetadata(ctx, "branch.read", repositoryID, userID)
+	if err != nil {
+		return WorkspaceSessionResponse{}, err
+	}
 	session, err := s.loadWorkspaceSessionWithAccess(ctx, sessionID, repositoryID, userID, WorkspaceAccessRead)
 	if err != nil {
 		return WorkspaceSessionResponse{}, err
 	}
 
+	if s.installQueries != nil {
+		workspace, err := s.q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: session.WorkspaceID, RepositoryID: repositoryID})
+		if err != nil {
+			return WorkspaceSessionResponse{}, err
+		}
+		if err := s.authorizeWorkspaceReadBinding(ctx, workspace); err != nil {
+			return WorkspaceSessionResponse{}, err
+		}
+	}
 	return toWorkspaceSessionResponse(session), nil
 }
 
@@ -272,6 +305,10 @@ func (s *WorkspaceService) GetSession(ctx context.Context, sessionID string, rep
 func (s *WorkspaceService) ListSessions(ctx context.Context, repositoryID, userID int64, page, perPage int) ([]WorkspaceSessionResponse, int64, error) {
 	if s.q == nil {
 		return nil, 0, pkgerrors.Internal("workspace store unavailable")
+	}
+	ctx, err := s.authorizeInstallWorkspaceMetadata(ctx, "branches.read", repositoryID, userID)
+	if err != nil {
+		return nil, 0, err
 	}
 	if page < 1 {
 		page = 1

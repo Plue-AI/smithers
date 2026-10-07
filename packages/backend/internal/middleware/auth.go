@@ -574,7 +574,8 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "code.hover", regexp.MustCompile(`^/api/branches/[^/]+/lsp$`)},
 	{http.MethodGet, "code.hover", regexp.MustCompile(`^/api/branches/[^/]+/lsp/[^/]+$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace-snapshots(?:/[^/]+)?$`)},
-	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
+	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(workspaces|workspace/sessions)$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace/sessions/[^/]+$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodGet, "ssh", regexp.MustCompile(`^/api/ssh$`)},
 	{http.MethodGet, "ssh", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(workspaces|workspace/sessions)/[^/]+/ssh$`)},
@@ -590,7 +591,6 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodPost, "branch.add-to-stack", regexp.MustCompile(`^/api/branches/[^/]+/add-to-stack$`)},
 	// The dispatcher resolves the concrete answer command from the body.
-	{http.MethodPost, "branch.answer", regexp.MustCompile(`^/api/branches/[^/]+$`)},
 	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	// All retained workflow aliases resolve the same concrete catalog action.
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workflows(?:/[0-9]+)?$`)},

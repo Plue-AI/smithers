@@ -1084,6 +1084,10 @@ func (s *WorkspaceService) ListWorkspaces(ctx context.Context, repositoryID, use
 	if s.q == nil {
 		return nil, 0, pkgerrors.Internal("workspace store unavailable")
 	}
+	ctx, err := s.authorizeInstallWorkspaceMetadata(ctx, "branches.read", repositoryID, userID)
+	if err != nil {
+		return nil, 0, err
+	}
 	if page < 1 {
 		page = 1
 	}
