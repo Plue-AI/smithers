@@ -635,6 +635,20 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 					want = tc.plue
 				}
 				require.Equal(t, want, rec.Code, "%s %s: %s", tc.method, tc.path, rec.Body.String())
+				if mode == config.AuthModeSelfHosted && want == http.StatusNotFound {
+					for _, credential := range []string{"", "Bearer invalid", "session"} {
+						absent := httptest.NewRequest(tc.method, config.PublicOrigin(cfg)+tc.path, strings.NewReader(`{}`))
+						absent.Header.Set("Content-Type", "application/json")
+						if credential == "session" {
+							absent.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: "expired-session"})
+						} else if credential != "" {
+							absent.Header.Set("Authorization", credential)
+						}
+						response := httptest.NewRecorder()
+						router.ServeHTTP(response, absent)
+						require.Equal(t, http.StatusNotFound, response.Code, "%s %s %s", tc.method, tc.path, credential)
+					}
+				}
 				if tc.path == "/api/health" {
 					require.Equal(t, "ok", rec.Body.String())
 				}

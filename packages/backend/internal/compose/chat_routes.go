@@ -20,11 +20,6 @@ import (
 // Chat streams a durable journal until the model leg terminates, so these
 // routes deliberately live outside the ordinary API's 30-second JSON timeout.
 func mountChatPublic(router chi.Router, runtime *chat.Runtime, queries *db.Queries, cfg *config.Config) {
-	// Retired clients must get 404 even when the generic /api subtree would
-	// otherwise enter owner-only middleware. These refusals never read a body.
-	for _, path := range []string{"/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"} {
-		router.Post(path, http.NotFound)
-	}
 	if runtime == nil {
 		return
 	}
