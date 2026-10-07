@@ -92,6 +92,7 @@ func backup(ctx context.Context, cfg BackupConfig, retainFreeze bool) (directory
 		if reopened {
 			return
 		}
+		stopRenewal()
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		err = errors.Join(err, cfg.Authority.Reopen(cleanup, op))
@@ -209,7 +210,10 @@ func backup(ctx context.Context, cfg BackupConfig, retainFreeze bool) (directory
 	}
 	directory = filepath.Join(cfg.State, "backups", backupName(manifest))
 	if !retainFreeze {
-		if err := cfg.Authority.Reopen(work, op); err != nil {
+		stopRenewal()
+		reopen, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := cfg.Authority.Reopen(reopen, op); err != nil {
 			return directory, err
 		}
 	}
