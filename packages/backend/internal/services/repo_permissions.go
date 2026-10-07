@@ -686,6 +686,11 @@ func authorizeWorkspaceHead(ctx context.Context, q *db.Queries, subject InstallS
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
 	}
+	_, decision, authErr := authenticateInstallExecutionCredential(ctx, q)
+	if authErr != nil {
+		return InstallAuthorization{}, authErr
+	}
+
 	if q == nil || !info.IsTokenAuth || !info.TokenSystemIssued || info.CredentialKind() != middleware.CredentialMachine ||
 		!info.Scopes.Has(middleware.ScopeWriteRepository) || middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) ||
 		subject.RepositoryID <= 0 || subject.WorkspaceID == "" || info.RepositoryRestriction() != subject.RepositoryID || !strings.EqualFold(info.WorkspaceRestriction(), subject.WorkspaceID) {
@@ -708,14 +713,7 @@ func authorizeWorkspaceHead(ctx context.Context, q *db.Queries, subject InstallS
 	if repository != subject.RepositoryID {
 		return deny()
 	}
-	role, err := InstallRoleOf(ctx, q, info.User.ID)
-	if err != nil {
-		return InstallAuthorization{}, err
-	}
-	if role == "" {
-		return deny()
-	}
-	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+	return decision, nil
 }
 
 // Children retain the existing issuer-only children scope and stored ancestry.
@@ -728,6 +726,11 @@ func authorizeWorkspaceChildren(ctx context.Context, q *db.Queries, command stri
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
 	}
+	token, decision, authErr := authenticateInstallExecutionCredential(ctx, q)
+	if authErr != nil {
+		return InstallAuthorization{}, authErr
+	}
+
 	if q == nil || !info.IsTokenAuth || !info.TokenSystemIssued || info.CredentialKind() != middleware.CredentialMachine || !middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || subject.RepositoryID <= 0 || subject.WorkspaceID == "" || info.RepositoryRestriction() != subject.RepositoryID || !strings.EqualFold(info.WorkspaceRestriction(), subject.WorkspaceID) {
 		return deny()
 	}
@@ -747,13 +750,6 @@ func authorizeWorkspaceChildren(ctx context.Context, q *db.Queries, command stri
 	}
 	if parent.RepositoryID != subject.RepositoryID || parent.UserID != info.User.ID || parent.DeletedAt.Valid {
 		return deny()
-	}
-	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
-	if stdErrors.Is(err, pgx.ErrNoRows) {
-		return deny()
-	}
-	if err != nil {
-		return InstallAuthorization{}, err
 	}
 	if token.Name != workspaceChildrenTokenName(parent.ID) || !token.SystemIssued || token.UserID != info.User.ID {
 		return deny()
@@ -782,14 +778,7 @@ func authorizeWorkspaceChildren(ctx context.Context, q *db.Queries, command stri
 	if repository != subject.RepositoryID {
 		return deny()
 	}
-	role, err := InstallRoleOf(ctx, q, info.User.ID)
-	if err != nil {
-		return InstallAuthorization{}, err
-	}
-	if role == "" {
-		return deny()
-	}
-	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+	return decision, nil
 }
 
 // The pool keeps its existing named publisher credential and workspace owner
@@ -835,15 +824,13 @@ func authorizeWorkspaceProviderPool(ctx context.Context, q *db.Queries, subject 
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
 	}
+	token, decision, authErr := authenticateInstallExecutionCredential(ctx, q)
+	if authErr != nil {
+		return InstallAuthorization{}, authErr
+	}
+
 	if q == nil || !info.IsTokenAuth || !info.TokenSystemIssued || info.CredentialKind() != middleware.CredentialMachine || !info.Scopes.Has(middleware.ScopeReadWorkspace) || subject.RepositoryID <= 0 || subject.WorkspaceID == "" || subject.ChildWorkspaceID != "" || info.RepositoryRestriction() != subject.RepositoryID || !strings.EqualFold(info.WorkspaceRestriction(), subject.WorkspaceID) {
 		return deny()
-	}
-	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
-	if stdErrors.Is(err, pgx.ErrNoRows) {
-		return deny()
-	}
-	if err != nil {
-		return InstallAuthorization{}, err
 	}
 	if !token.SystemIssued || token.UserID != info.User.ID || token.Name != providerPoolTokenPrefix+subject.WorkspaceID {
 		return deny()
@@ -865,14 +852,7 @@ func authorizeWorkspaceProviderPool(ctx context.Context, q *db.Queries, subject 
 	if repository != subject.RepositoryID {
 		return deny()
 	}
-	role, err := InstallRoleOf(ctx, q, info.User.ID)
-	if err != nil {
-		return InstallAuthorization{}, err
-	}
-	if role == "" {
-		return deny()
-	}
-	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+	return decision, nil
 }
 
 // InstallExecutionCredential distinguishes hidden execution reads from member
@@ -882,36 +862,45 @@ func InstallExecutionCredential(ctx context.Context) bool {
 	return info != nil && info.IsTokenAuth && (info.CredentialKind() == middleware.CredentialAgentRun || info.CredentialKind() == middleware.CredentialMachine)
 }
 
-func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
-	deny := func() (InstallAuthorization, error) {
-		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this TODO"}
+func authenticateInstallExecutionCredential(ctx context.Context, q *db.Queries) (db.AccessToken, InstallAuthorization, error) {
+	deny := func() (db.AccessToken, InstallAuthorization, error) {
+		return db.AccessToken{}, InstallAuthorization{}, confirmationPermission()
 	}
-	dead := func() (InstallAuthorization, error) {
-		return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+	dead := func() (db.AccessToken, InstallAuthorization, error) {
+		return db.AccessToken{}, InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)
-	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued {
+	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued || !InstallExecutionCredential(ctx) {
 		return deny()
 	}
-	// Authenticate the stored credential and its member before considering
-	// scope or subject. A dead credential cannot become a live 403 merely by
-	// selecting a different TODO or omitting its workspace binding.
 	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
 	if stdErrors.Is(err, pgx.ErrNoRows) {
 		return dead()
 	}
 	if err != nil {
-		return InstallAuthorization{}, err
+		return db.AccessToken{}, InstallAuthorization{}, err
 	}
 	if !token.SystemIssued || token.UserID != info.User.ID || token.Scopes != info.RawScopes || token.TokenHash != info.TokenHash || token.ExpiresAt.Valid && !token.ExpiresAt.Time.After(time.Now()) {
 		return dead()
 	}
 	role, err := InstallRoleOf(ctx, q, info.User.ID)
 	if err != nil {
-		return InstallAuthorization{}, err
+		return db.AccessToken{}, InstallAuthorization{}, err
 	}
 	if role == "" {
 		return dead()
+	}
+	return token, InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
+func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
+	deny := func() (InstallAuthorization, error) {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this TODO"}
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	_, decision, err := authenticateInstallExecutionCredential(ctx, q)
+	if err != nil {
+		return InstallAuthorization{}, err
 	}
 	if middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || !info.Scopes.Has(middleware.ScopeReadRepository) || subject.RepositoryID <= 0 || subject.TodoNumber <= 0 || info.RepositoryRestriction() != subject.RepositoryID {
 		return deny()
@@ -954,7 +943,7 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 	if repository != subject.RepositoryID {
 		return deny()
 	}
-	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+	return decision, nil
 }
 
 func authorizeStackCandidate(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
