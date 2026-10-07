@@ -710,7 +710,10 @@ func (r *rehearsal) setupSource() bool {
 	}) {
 		return false
 	}
-	if !r.step("3 Owner sign-in", "GET /api/auth/github → GET /api/auth/github/callback", "302 → 302; sign_in done; browser session", "T-ACC-01", func() error {
+	if !r.step("3 Owner sign-in", "POST /api/install/setup/sign_in → GET /api/auth/github → GET /api/auth/github/callback", "202 → 302 → 302; sign_in done; browser session", "T-ACC-01, T-INS-06", func() error {
+		if _, err := r.expect("POST", "/api/install/setup/sign_in", `{}`, 202); err != nil {
+			return err
+		}
 		if _, err := r.expect("GET", "/api/auth/github", "", 302); err != nil {
 			return err
 		}
