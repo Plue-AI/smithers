@@ -589,6 +589,13 @@ func TestGitHubInboundContainmentProductionPoll(t *testing.T) {
 				require.Equal(t, "T3 merged before T2; T2's change is in T3's commit", folded.Reason)
 				require.Equal(t, third.PRNumber.Int64, via.Pull)
 				require.Equal(t, merged.MergeCommitSHA, via.Commit)
+				var projected json.RawMessage
+				require.NoError(t, pool.QueryRow(h.ctx, `SELECT data->'card' FROM product_job_events WHERE event_type='todo.github_merged' AND data->>'item'=$1`, uuidString(second.ID)).Scan(&projected))
+				var card map[string]any
+				require.NoError(t, json.Unmarshal(projected, &card))
+				require.Equal(t, "merged", card["state"], "live delivery retains the committed contained transition")
+				require.Equal(t, float64(3), card["merged_via"])
+
 			} else {
 				require.Nil(t, mythicalChecksOf(f.item(second.Number.Int64)).MergedVia)
 			}
