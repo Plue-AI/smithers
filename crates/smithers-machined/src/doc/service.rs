@@ -38,6 +38,7 @@ struct State<D: Disk> {
     peers: BTreeMap<u32, Peer>,
     output: VecDeque<Frame>,
     notices: Vec<Notice>,
+    awareness_clocks: BTreeMap<(u32, u64), u32>,
 }
 fn error(e: Error) -> hooks::Error {
     hooks::Error {
@@ -86,6 +87,7 @@ impl<D: Disk> Service<D> {
                 peers: BTreeMap::new(),
                 output: VecDeque::new(),
                 notices: vec![],
+                awareness_clocks: BTreeMap::new(),
             }),
             clock,
         }
@@ -234,6 +236,7 @@ impl<D: Disk> Documents for Service<D> {
         let mut s = self.state()?;
         s.host.close(stream, self.now()).map_err(error)?;
         s.peers.remove(&stream);
+        s.awareness_clocks.retain(|(id, _), _| *id != stream);
         s.output.retain(|f| f.stream != stream);
         Ok(())
     }
@@ -246,7 +249,76 @@ impl<D: Disk> Documents for Service<D> {
             .get(&f.stream)
             .ok_or_else(|| error(Error::Invalid))?;
         if input.msg == 2 {
-            // Awareness was stamped and admitted by the authenticated host.
+            if input.data.len() > 64 * 1024 {
+                return Err(error(Error::Invalid));
+            }
+            let update = yrs::sync::AwarenessUpdate::decode_v1(&input.data)
+                .map_err(|_| error(Error::Invalid))?;
+            if update.clients.len() != 1 || update.encode_v1() != input.data {
+                return Err(error(Error::Invalid));
+            }
+            let (client, entry) = update.clients.iter().next().unwrap();
+            let by = std::str::from_utf8(&input.actor).map_err(|_| error(Error::Invalid))?;
+            let value: serde_json::Value =
+                serde_json::from_str(&entry.json).map_err(|_| error(Error::Invalid))?;
+            let (colour, line) = if value.is_null() {
+                ("", None)
+            } else {
+                let object = value.as_object().ok_or_else(|| error(Error::Invalid))?;
+                if object
+                    .keys()
+                    .any(|k| !matches!(k.as_str(), "actor" | "colour" | "line"))
+                    || value["actor"]["id"].as_str() != Some(by)
+                {
+                    return Err(error(Error::Forged));
+                }
+                let colour = value["colour"]
+                    .as_str()
+                    .ok_or_else(|| error(Error::Invalid))?;
+                let line = match object.get("line") {
+                    None | Some(serde_json::Value::Null) => None,
+                    Some(line) => {
+                        let path = line["path"].as_str().ok_or_else(|| error(Error::Invalid))?;
+                        let n = line["line"]
+                            .as_u64()
+                            .and_then(|n| u32::try_from(n).ok())
+                            .ok_or_else(|| error(Error::Invalid))?;
+                        Some((path, n))
+                    }
+                };
+                (colour, line)
+            };
+            let path = peer.path.clone();
+            let key = (f.stream, client.get());
+            if s.awareness_clocks
+                .get(&key)
+                .is_some_and(|clock| *clock >= entry.clock)
+            {
+                return frame(
+                    f.stream,
+                    Document {
+                        msg: 4,
+                        data: input.data,
+                        ..Default::default()
+                    },
+                );
+            }
+            s.host
+                .peer_awareness(f.stream, client.get(), by, colour, line)
+                .map_err(error)?;
+            s.awareness_clocks.insert(key, entry.clock);
+            for id in s.host.streams_for(&path) {
+                if id != f.stream {
+                    s.output.push_back(frame(
+                        id,
+                        Document {
+                            msg: 4,
+                            data: input.data.clone(),
+                            ..Default::default()
+                        },
+                    )?);
+                }
+            }
             return frame(
                 f.stream,
                 Document {
@@ -301,6 +373,19 @@ impl<D: Disk> Documents for Service<D> {
                     let peer = s.peers.get_mut(&f.stream).unwrap();
                     peer.seq = input.seq;
                     peer.last = Some(fingerprint);
+                }
+                let path = s.peers[&f.stream].path.clone();
+                for id in s.host.streams_for(&path) {
+                    if id != f.stream {
+                        s.output.push_back(frame(
+                            id,
+                            Document {
+                                msg: 3,
+                                data: SyncMessage::Update(bytes.clone()).encode_v1(),
+                                ..Default::default()
+                            },
+                        )?);
+                    }
                 }
                 // No save acknowledgment here: only flush/tick can issue one.
                 frame(

@@ -945,6 +945,81 @@ mod dispatcher {
         };
         state
     }
+    #[test]
+    fn rpc_presence_and_updates_reach_other_document_streams() {
+        let (_, _, service, mut cx, id, epoch) = setup();
+        let other = open(&mut cx);
+        service.poll(&mut cx).unwrap();
+        let state = sync(&mut cx, id);
+        let doc = core::document(Some(epoch.client_id as u64));
+        doc.get_or_insert_text("content");
+        doc.get_or_insert_map("authors");
+        core::apply(&doc, core::decode(&state).unwrap()).unwrap();
+        let sv = doc.transact().state_vector();
+        doc.get_or_insert_text("content")
+            .insert(&mut doc.transact_mut(), 3, "!");
+        let bytes = doc.transact().encode_state_as_update_v1(&sv);
+        rpc::dispatch(&input(id, 1, "host", SyncMessage::Update(bytes)), &mut cx).unwrap();
+        let frames = service.poll(&mut cx).unwrap();
+        assert!(frames
+            .iter()
+            .any(|f| f.stream == other && Document::decode_v2(&f.payload).unwrap().msg == 3));
+        let presence = |clock, json: &str| {
+            let update = yrs::sync::AwarenessUpdate {
+                clients: [(
+                    yrs::ClientID::new(epoch.client_id as u64),
+                    yrs::sync::awareness::AwarenessUpdateEntry {
+                        clock,
+                        json: json.into(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            };
+            Frame {
+                kind: 4,
+                stream: id,
+                payload: Document {
+                    msg: 2,
+                    actor: b"host".to_vec(),
+                    data: update.encode_v1(),
+                    ..Default::default()
+                }
+                .encode_v2()
+                .unwrap(),
+            }
+        };
+        let json = r##"{"actor":{"id":"host","kind":"person","via":"app"},"colour":"#123456","line":{"path":"a.rs","line":2}}"##;
+        let accepted = rpc::dispatch(&presence(1, json), &mut cx).unwrap();
+        assert_eq!(Document::decode_v2(&accepted.payload).unwrap().msg, 4);
+        assert_eq!(service.projections(&mut cx).unwrap()[0].editors[0].line, 2);
+        assert!(service
+            .poll(&mut cx)
+            .unwrap()
+            .iter()
+            .any(|f| f.stream == other && Document::decode_v2(&f.payload).unwrap().msg == 4));
+        for invalid in [
+            json.replace("host", "alice"),
+            json.replace("a.rs", "elsewhere.rs"),
+            json.replace("\"line\":2", "\"line\":0"),
+            json.replace("\"colour\"", "\"cursor\""),
+        ] {
+            let response = rpc::dispatch(&presence(2, &invalid), &mut cx).unwrap();
+            assert_eq!(response.payload[0], 255);
+            assert_eq!(service.projections(&mut cx).unwrap()[0].editors[0].line, 2);
+        }
+        let cleared = rpc::dispatch(&presence(2, "null"), &mut cx).unwrap();
+        assert_eq!(Document::decode_v2(&cleared.payload).unwrap().msg, 4);
+        assert!(service.projections(&mut cx).unwrap()[0].editors.is_empty());
+        assert_eq!(
+            Document::decode_v2(&rpc::dispatch(&presence(1, json), &mut cx).unwrap().payload)
+                .unwrap()
+                .msg,
+            4
+        );
+        assert!(service.projections(&mut cx).unwrap()[0].editors.is_empty());
+    }
+
     fn setup() -> (
         Shared,
         Arc<Clock>,
