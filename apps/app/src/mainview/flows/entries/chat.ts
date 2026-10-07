@@ -1,4 +1,4 @@
-import { copyText } from "@smthrs/ui"
+import { copyText } from "@smthrs/ui/copy"
 import type { CommandGesture } from "../CommandGesture"
 /*
  * The `chat` flows. One module per namespace: a lane that adds or edits a
@@ -101,7 +101,10 @@ export const chatCopyFlows = (_actions: CommandActions): ReadonlyArray<FlowEntry
      * nothing at all. The refusal is awaited and answered.
      */
     handler: async ({ text }: { readonly text: string }, _signal: AbortSignal, _call: unknown, gesture?: CommandGesture) => {
-      const result = await copyText(text, gesture?.copyText)
+      // UI contracts.md: a refused native write falls back to DOM copy.
+      // A reserved browser write is native activation, not an authoritative host override.
+      let result = await copyText(text, gesture?.copyText)
+      if (!result.ok && gesture?.copyText !== undefined) result = await copyText(text)
       return result.ok ? { value: "Copied to clipboard." } : "The copy didn't go through — select the text and copy it yourself."
     }
   }
