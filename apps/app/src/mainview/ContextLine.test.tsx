@@ -44,8 +44,8 @@ test("Context opens a pinned file through cardActions, the registered flow and t
     const render = () => flushSync(() => root.render(<ContextLine count={1} expanded={expanded} onView={patch => { expanded = patch.expanded; render() }} {...actions} />))
     render()
     expect(host.querySelectorAll("button")).toHaveLength(1)
-    host.querySelector<HTMLButtonElement>(".mvp-context-toggle")!.click()
-    const source = host.querySelector<HTMLButtonElement>(".mvp-context-chip")!
+    host.querySelector<HTMLButtonElement>(".context-toggle")!.click()
+    const source = host.querySelector<HTMLButtonElement>(".context-chip")!
     expect(source.tagName).toBe("BUTTON")
     source.focus(); expect(document.activeElement).toBe(source)
     expect(source.dataset.flow).toBe("file")
@@ -63,7 +63,7 @@ test("an unpinned page leaves disclosure readable without an active card action"
   const host = document.createElement("div"), root = createRoot(host)
   flushSync(() => root.render(<ContextLine count={1} expanded={true} onView={() => {}} {...actions} />))
   expect(host.querySelectorAll("button")).toHaveLength(1)
-  expect(host.querySelector(".mvp-context-text")?.tagName).toBe("SPAN")
+  expect(host.querySelector(".context-text")?.tagName).toBe("SPAN")
   expect(host.textContent).toContain("Retries")
   flushSync(() => root.unmount())
 })
