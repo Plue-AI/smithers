@@ -102,6 +102,10 @@ func workingConversationWithContext(t *testing.T, reader chat.ContextRepository,
 					return
 				}
 			}
+			if strings.Contains(prompt, "FAIL") {
+				http.Error(w, "scripted provider failure", http.StatusServiceUnavailable)
+				return
+			}
 			answer = "Host answer."
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
