@@ -83,13 +83,25 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     expect(backend).toBeDefined()
     return backend!.pid
   }
+  const expectations = JSON.parse(readFileSync(new URL("./fixtures/host-service-r4.json", import.meta.url), "utf8"))
   const tokens: string[] = []
+  let setupCookie = ""
+  const setupSteps = async () => {
+    const response = await fetch("http://localhost:4000/api/install", {
+      headers: { Cookie: setupCookie }, signal: AbortSignal.timeout(5000)
+    })
+    expect(response.status).toBe(expectations.install_status)
+    const status = await response.json() as { steps: Array<{ id: string; status: string }> }
+    expect(Array.isArray(status.steps)).toBe(true)
+    expect(status.steps.length).toBeGreaterThan(0)
+    return status.steps
+  }
   const tokenOf = (output: string) => {
     const data = JSON.parse(output)
     expect(Object.keys(data)).toEqual(["setup_urls"])
     const url = new URL(data.setup_urls[0])
-    expect(url.origin).toBe("http://localhost:4000")
-    expect(url.pathname).toBe("/setup")
+    expect(url.origin).toBe(expectations.setup_origin)
+    expect(url.pathname).toBe(expectations.setup_path)
     const token = url.searchParams.get("token")!
     expect(!!token).toBe(true)
     tokens.push(token)
@@ -101,11 +113,19 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     const startedAt = Date.now()
     const started = run("start", "--bundle", ownedBundle, "--json")
     expect(started.status, started.stderr).toBe(0)
-    expect(Date.now() - startedAt, "first start must print setup URLs within 60 seconds").toBeLessThanOrEqual(60_000)
+    expect(Date.now() - startedAt, "first start must print setup URLs within 60 seconds").toBeLessThanOrEqual(expectations.first_start_limit_ms)
     const firstToken = tokenOf(started.stdout), pid = backendPID()
+    const exchange = await fetch(`http://localhost:4000/setup?token=${encodeURIComponent(firstToken)}`, {
+      redirect: "manual", signal: AbortSignal.timeout(5000)
+    })
+    expect(exchange.status).toBe(expectations.exchange_status)
+    expect(exchange.headers.get("location")).toBe(expectations.exchange_location)
+    setupCookie = exchange.headers.getSetCookie().find((cookie) => cookie.startsWith(expectations.setup_cookie + "="))?.split(";")[0] ?? ""
+    expect(setupCookie).not.toBe("")
+    const beforeRestartSteps = await setupSteps()
     const socket = statSync(join(state, "run/host.sock"))
     expect(socket.isSocket()).toBe(true)
-    expect(socket.mode & 0o777).toBe(0o600)
+    expect(socket.mode & 0o777).toBe(expectations.socket_mode)
     expect(socket.uid).toBe(process.getuid!())
     expect(existsSync(join(state, "run/setup-urls.json"))).toBe(false)
     const repeated = run("start", "--bundle", ownedBundle, "--json")
@@ -121,13 +141,13 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     process.kill(pid, "SIGKILL")
     // Observe launchd recovery before invoking start: start could otherwise
     // bootstrap an unloaded job and conceal a broken crash-restart contract.
-    const deadline = Date.now() + 30_000
+    const deadline = Date.now() + expectations.restart_limit_ms
     let recovered = false
     while (Date.now() < deadline) {
       await new Promise((done) => setTimeout(done, 1000))
       try {
         const response = await fetch("http://127.0.0.1:4000/readyz", { signal: AbortSignal.timeout(1000) })
-        if (response.status === 200) {
+        if (response.status === 200 && backendPID() !== pid) {
           recovered = true
           break
         }
@@ -139,6 +159,7 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     expect(createHash("sha256").update(tokenOf(restarted.stdout)).digest("hex"))
       .not.toBe(createHash("sha256").update(firstToken).digest("hex"))
     expect(backendPID()).not.toBe(pid)
+    expect(await setupSteps()).toEqual(beforeRestartSteps)
     expect(run("stop").status).toBe(0)
     const remaining = spawnSync("/bin/ps", ["-p", servicePIDs.join(","), "-o", "pid="], { encoding: "utf8" }).stdout
       .trim()
@@ -148,6 +169,7 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     const resumed = run("start", "--bundle", resolve(bundle!))
     expect(resumed.status, resumed.stderr).toBe(0)
     tokenOf(resumed.stdout)
+    expect(await setupSteps()).toEqual(beforeRestartSteps)
     const resumedPID = backendPID()
     const other = join(home, "relocated-bundle")
     cpSync(ownedBundle, other, { recursive: true, verbatimSymlinks: true })
@@ -182,6 +204,10 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
       join(receipt, "manifest.sha256"),
       createHash("sha256").update(readFileSync(join(bundle!, "manifest.json"))).digest("hex")
     )
+    writeFileSync(join(receipt, "restart-session.json"), JSON.stringify({
+      crash_restart_session_retained: true, stop_start_session_retained: true,
+      steps: beforeRestartSteps
+    }, null, 2))
     writeFileSync(
       join(receipt, "limitations.json"),
       JSON.stringify({

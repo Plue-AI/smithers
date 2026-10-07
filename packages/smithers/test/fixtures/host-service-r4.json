@@ -1,0 +1,15 @@
+{
+  "label": "sh.smithers.host",
+  "handoff_argument": "--setup-handoff=socket",
+  "setup_origin": "http://localhost:4000",
+  "setup_path": "/setup",
+  "setup_cookie": "smithers_setup_session",
+  "exchange_status": 303,
+  "exchange_location": "/",
+  "install_status": 200,
+  "first_start_limit_ms": 60000,
+  "restart_limit_ms": 30000,
+  "socket_mode": 384,
+  "throttle_seconds": 5,
+  "exit_timeout_seconds": 30
+}

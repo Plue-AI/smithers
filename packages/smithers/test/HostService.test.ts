@@ -16,6 +16,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as Host from "../src/internal/backend/HostService.ts"
 
+const hostExpectations = JSON.parse(readFileSync(new URL("./fixtures/host-service-r4.json", import.meta.url), "utf8"))
 const roots: string[] = []
 afterEach(() => {
   vi.restoreAllMocks()
@@ -52,6 +53,19 @@ const fixture = () => {
 }
 
 describe("restored launchd service", () => {
+  it("matches the committed r4 service contract on every host", () => {
+    const text = Host.hostPlist({ bundle: "/fixture/bundle", stateDir: "/fixture/state", home: "/fixture/home" }, {})
+    for (const value of [
+      hostExpectations.label, "/fixture/bundle/bin/smithers-server", hostExpectations.handoff_argument,
+      "/fixture/state", "/fixture/state/logs/host.log", "/fixture/home",
+      "/fixture/bundle/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    ]) expect(text).toContain(`<string>${value}</string>`)
+    expect(text).toMatch(new RegExp(`<key>ThrottleInterval</key>\\s*<integer>${hostExpectations.throttle_seconds}</integer>`))
+    expect(text).toMatch(new RegExp(`<key>ExitTimeOut</key>\\s*<integer>${hostExpectations.exit_timeout_seconds}</integer>`))
+    for (const field of ["RunAtLoad", "KeepAlive"]) expect(text).toMatch(new RegExp(`<key>${field}</key>\\s*<true/>`))
+    for (const field of ["UserName", "GroupName", "RootDirectory"]) expect(text).not.toContain(`<key>${field}</key>`)
+  })
+
   it("persists only the launcher's network policy and reloads when it changes", async () => {
     const f = fixture()
     vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:45678")
