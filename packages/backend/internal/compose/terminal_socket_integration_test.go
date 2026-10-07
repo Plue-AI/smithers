@@ -242,6 +242,8 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 	require.True(t, manager.OwnsSubject(f.user.ID, f.row.RepositoryID, f.row.ID, opened.ID))
 	require.False(t, manager.OwnsSubject(alice.ID, f.row.RepositoryID, f.row.ID, opened.ID))
 	var count int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_shares WHERE workspace_id=$1`, f.row.ID).Scan(&count))
+	require.Zero(t, count, "owner-uid terminals grant no legacy shared-user access")
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions`).Scan(&count))
 	require.Zero(t, count)
 	dial := func(cookie string) *websocket.Conn {
