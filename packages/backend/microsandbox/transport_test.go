@@ -675,3 +675,33 @@ func TestMSBStateHomeIgnoresTheEnvironment(t *testing.T) {
 	require.Equal(t, []string{"HOME=" + filepath.Clean(account.HomeDir), "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "MSB_BACKEND=local", "NO_COLOR=1"},
 		client.environment(), "no ambient variable, such as the one that selects msb's guest kernel, reaches msb")
 }
+
+// The skill is data, never an executable. Exercise the same manifest and
+// guest-helper boundary used on machine startup, including retained drift.
+func TestTerminalSkillApprovedPlanting(t *testing.T) {
+	bundle, _ := approvedBundleFixture(t)
+	body := []byte("---\nname: smithers\n---\nUse smthrs.\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(bundle, "share/skills/smithers"), 0o755))
+	approveBundleFile(t, bundle, terminalSkillPath, body, 0o644)
+	runtime, argv, guestRoot := guestArtifactMSB(t, bundle)
+	program := filepath.Join(bundle, filepath.FromSlash(terminalSkillPath))
+	planted, err := runtime.plantArtifact(context.Background(), "machine", program)
+	require.NoError(t, err)
+	require.Equal(t, "/opt/smithers/bundle/"+terminalSkillPath, planted)
+	got, info := guestPlanted(t, guestRoot, terminalSkillPath)
+	require.Equal(t, body, got)
+	require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	_, err = runtime.plantArtifact(context.Background(), "machine", program)
+	require.NoError(t, err)
+	require.Equal(t, 1, guestCalls(t, argv, "managed-artifact"))
+	target := filepath.Join(guestRoot, "opt/smithers/bundle", filepath.FromSlash(terminalSkillPath))
+	require.NoError(t, os.Chmod(target, 0o755))
+	_, err = runtime.plantArtifact(context.Background(), "machine", program)
+	require.NoError(t, err)
+	_, info = guestPlanted(t, guestRoot, terminalSkillPath)
+	require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	require.NoError(t, os.Remove(target))
+	require.NoError(t, os.Symlink(program, target))
+	_, err = runtime.plantArtifact(context.Background(), "machine", program)
+	require.Error(t, err)
+}

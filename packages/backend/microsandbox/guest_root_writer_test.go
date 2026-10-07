@@ -98,3 +98,27 @@ with tempfile.TemporaryDirectory() as directory:
  assert len(admitted)==3,'failed setup launched a home writer'
 `)
 }
+
+func TestTerminalSkillDiscoveryRunsAsSessionUser(t *testing.T) {
+	boundaryPython(t, `
+import pathlib,pwd
+with tempfile.TemporaryDirectory() as directory:
+ root=pathlib.Path(directory);home=root/'home';home.mkdir();skill=root/'skill';skill.mkdir()
+ (skill/'SKILL.md').write_text('generated skill')
+ g.TERMINAL_SKILL_DIR=str(skill);g.TOOL_HOME=str(root/'absent-tools');g.ENV_FILE=str(root/'absent-env')
+ entry=pwd.struct_passwd(('session','x',os.getuid(),os.getgid(),'session',str(home),'/bin/sh'))
+ g.home_defaults(entry)
+ for relative in ('.claude/skills/smithers','.agents/skills/smithers'):
+  link=home/relative
+  assert link.is_symlink() and link.readlink()==skill
+  assert (link/'SKILL.md').read_text()=='generated skill'
+ g.home_defaults(entry)
+ link=home/'.claude/skills/smithers';link.unlink();link.mkdir();(link/'SKILL.md').write_text('personal')
+ g.home_defaults(entry)
+ assert (link/'SKILL.md').read_text()=='personal'
+ entry=pwd.struct_passwd(('foreign','x',os.getuid()+1,os.getgid(),'foreign',str(home),'/bin/sh'))
+ try:g.home_defaults(entry)
+ except SystemExit:pass
+ else:raise AssertionError('home discovery admitted another uid')
+`)
+}

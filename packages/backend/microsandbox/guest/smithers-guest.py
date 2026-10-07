@@ -1939,14 +1939,18 @@ def managed_artifact_request(relative, digest):
     return parts
 
 
+def managed_artifact_mode(relative):
+    return 0o644 if relative == "share/skills/smithers/SKILL.md" else 0o755
+
+
 def managed_artifact_current(relative, digest):
     parts = managed_artifact_request(relative, digest)
-    return protected_file_current(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, MANAGED_ARTIFACT_LIMIT)
+    return protected_file_current(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, MANAGED_ARTIFACT_LIMIT, managed_artifact_mode(relative))
 
 
 def install_managed_artifact(relative, digest, body):
     parts = managed_artifact_request(relative, digest)
-    install_protected_file(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, body, MANAGED_ARTIFACT_LIMIT)
+    install_protected_file(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, body, MANAGED_ARTIFACT_LIMIT, managed_artifact_mode(relative))
 
 
 def protected_directory(names, create):
@@ -1983,7 +1987,7 @@ def protected_directory(names, create):
         raise
 
 
-def protected_file_current(names, target, digest, limit):
+def protected_file_current(names, target, digest, limit, mode=0o755):
     # Whether the root-owned file target under names already holds exactly
     # the approved bytes with mode 0755. Anything but a root-owned regular
     # file there refuses: it is never followed, read or replaced.
@@ -2006,7 +2010,7 @@ def protected_file_current(names, target, digest, limit):
             info = os.fstat(handle.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID:
                 fail(3, "protected file is not a root-owned file")
-            if stat.S_IMODE(info.st_mode) != 0o755 or info.st_size > limit:
+            if stat.S_IMODE(info.st_mode) != mode or info.st_size > limit:
                 return False
             checksum = hashlib.sha256()
             remaining = limit + 1
@@ -2021,7 +2025,7 @@ def protected_file_current(names, target, digest, limit):
         os.close(parent)
 
 
-def install_protected_file(names, target, digest, body, limit):
+def install_protected_file(names, target, digest, body, limit, mode=0o755):
     # Atomically replace target under names with body, mode 0755, only when
     # body is exactly the approved digest: an exclusive no-follow temporary
     # file in the held parent descriptor, then a rename over it.
@@ -2043,7 +2047,7 @@ def install_protected_file(names, target, digest, body, limit):
         with os.fdopen(fd, "wb") as handle:
             handle.write(body)
             handle.flush()
-            os.fchmod(handle.fileno(), 0o755)
+            os.fchmod(handle.fileno(), mode)
             os.fsync(handle.fileno())
         os.rename(temporary, target, src_dir_fd=parent, dst_dir_fd=parent)
         temporary = None
@@ -2069,6 +2073,9 @@ HOME_LINKS = {
     "pnpm_config_cache_dir": ".cache/pnpm",
 }
 GO_SETTINGS = ("GOTOOLCHAIN", "GOPROXY", "GOFLAGS", "GOMODCACHE", "GOCACHE")
+
+
+TERMINAL_SKILL_DIR = "/opt/smithers/bundle/share/skills/smithers"
 
 
 def home_defaults(entry):
@@ -2100,6 +2107,22 @@ def home_defaults(entry):
             os.close(fd)
         except FileNotFoundError:
             pass
+    skill = TERMINAL_SKILL_DIR
+    if os.path.isfile(skill + "/SKILL.md"):
+        home = safe_directory(entry.pw_dir)
+        try:
+            for relative in (".claude/skills/smithers", ".agents/skills/smithers"):
+                parent, leaf = home_parent(home, relative, entry)
+                try:
+                    try:
+                        os.symlink(skill, leaf, dir_fd=parent)
+                    except FileExistsError:
+                        # Never replace a person's skill or follow its link.
+                        pass
+                finally:
+                    os.close(parent)
+        finally:
+            os.close(home)
     if not os.path.exists(ENV_FILE):
         return
     environment = base_environment()

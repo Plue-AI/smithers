@@ -42,8 +42,10 @@ test.skipIf(process.env.SMITHERS_SERVER_BUNDLE_INTEGRATION !== "1")("production 
     const commands = [...readme.matchAll(/^\.\/(bin\/\S+)/gm)]
     expect(commands.length).toBe(3)
     for (const command of commands) expect(existsSync(join(relocated, command[1]!))).toBe(true)
-    const paths = ["README.md", "bin/smthrs", "bin/smithers-server", "bin/smithers-backend", "bin/msb", "bin/node", "licenses/node-LICENSE", "bin/git", "bin/jj", "bin/smithers-coding-host", "bin/smithers-model-host", "bin/flow-hosts.json", "bin/libsmithers_ffi.dylib", "bin/smithers-jj-export", "bin/linux-arm64/smithers-jj-export", "bin/linux-arm64/jj", `postgres/${postgres.bin}/postgres`, "lib/libkrunfw.5.dylib", "views/mainview/index.html", "share/microsandbox/smithers-guest.py", "share/microsandbox/base-image.oci.tar", "share/microsandbox/base-image.json"]
+    const paths = ["README.md", "bin/smthrs", "bin/smithers-server", "bin/smithers-backend", "bin/msb", "bin/node", "licenses/node-LICENSE", "bin/git", "bin/jj", "bin/smithers-coding-host", "bin/smithers-model-host", "bin/flow-hosts.json", "bin/libsmithers_ffi.dylib", "bin/smithers-jj-export", "bin/linux-arm64/smithers-jj-export", "bin/linux-arm64/jj", `postgres/${postgres.bin}/postgres`, "lib/libkrunfw.5.dylib", "views/mainview/index.html", "share/microsandbox/smithers-guest.py", "share/microsandbox/base-image.oci.tar", "share/microsandbox/base-image.json", "share/skills/smithers/SKILL.md"]
     const manifest = JSON.parse(readFileSync(join(relocated, "manifest.json"), "utf8"))
+    expect(manifest.files.find((entry: { path: string }) => entry.path === "share/skills/smithers/SKILL.md").mode).toBe(0o644)
+    expect(readFileSync(join(relocated, "share/skills/smithers/SKILL.md"), "utf8")).toBe(readFileSync(join(root, "packages/smithers/skills/smithers/SKILL.md"), "utf8"))
     const files = Object.fromEntries(manifest.files.map((entry: { path: string; sha256: string }) => [entry.path, entry]))
     expect(manifest.platform).toBe("darwin-arm64")
     expect(manifest.revision).toBe(spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim())
