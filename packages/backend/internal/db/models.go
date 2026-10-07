@@ -2743,6 +2743,8 @@ type WorkflowRun struct {
 	LogBytes             int64              `json:"log_bytes"`
 	LogEntryCount        int64              `json:"log_entry_count"`
 	CancelReason         string             `json:"cancel_reason"`
+	DismissedBy          pgtype.Int8        `json:"dismissed_by"`
+	DismissedAt          pgtype.Timestamptz `json:"dismissed_at"`
 }
 
 type WorkflowRunCodingHost struct {
