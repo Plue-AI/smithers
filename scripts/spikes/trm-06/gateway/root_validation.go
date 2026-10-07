@@ -231,48 +231,56 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 		stream.Close()
 		return errors.New("forged boot accepted")
 	}
-	for i, request := range []string{
-		`{"type":"open_session","kind":"exec","argv":["/bin/sh","-c","printf canary > /var/tmp/trm06-outside"],"uid":0}`,
+	requests := []string{
+		`{`, `null`, `[]`, `{} trailing`,
+		`{"type":"open_session","kind":"exec","argv":["/bin/sh"],"uid":0}`,
 		`{"type":"open_session","kind":"exec","argv":["/bin/sh"],"user":"agent"}`,
+		`{"type":"open_session","kind":"exec","argv":["/bin/sh"],"gid":0}`,
+		`{"type":"open_session","kind":"exec","argv":["/bin/sh"],"groups":[0]}`,
+		`{"type":"open_session","kind":"exec","argv":["/bin/sh"],"cwd":"/home/agent"}`,
+		`{"type":"open_session","kind":"exec","argv":["/bin/sh"],"env":{"PATH":"/workspace"}}`,
+		`{"type":"open_session","kind":"exec","argv":["/bin/sh"],"cgroup":"../../outside"}`,
 		`{"type":"close_session","id":"../../outside"}`,
+		`{"type":"close_session","id":"s-0000000000000000"}`,
+		`{"type":"attach_session","id":"../../outside","received":0}`,
+		`{"type":"attach_session","id":"s-0000000000000000","received":18446744073709551615}`,
+		`{"type":"kill_sessions","user":"agent"}`,
+		`{"type":"restart","cgroup":"/"}`,
 		`{"type":"open_session","kind":"tcp","port":0}`,
+		`{"type":"open_session","kind":"tcp","port":65536}`,
+		`{"type":"open_session","kind":"tcp","port":3000,"host":"192.0.2.1"}`,
 		`{"type":"open_session","kind":"exec","kind":"pty","argv":["/bin/sh"]}`,
-	} {
+		`{"type":"open_session","kind":"exec","argv":["/bin/sh\u0000"]}`,
+	}
+	for i, request := range requests {
 		stream, err := control.connect(ctx)
 		if err != nil {
 			return err
 		}
-		stream.SetDeadline(time.Now().Add(5 * time.Second))
-		err = binary.Write(stream, binary.BigEndian, uint32(len(request)))
-		if err == nil {
-			err = writeAll(stream, []byte(request))
-		}
+		body, err := validationRefusal(stream, []byte(request), uint32(len(request)))
+		stream.Close()
 		if err != nil {
-			stream.Close()
+			return fmt.Errorf("envelope fixture %d: %w", i, err)
+		}
+		if err = os.WriteFile(filepath.Join(evidence, fmt.Sprintf("refusal-%d.json", i)), body, 0600); err != nil {
 			return err
 		}
-		var length uint32
-		err = binary.Read(stream, binary.BigEndian, &length)
-		if err == nil {
-			if length > 4096 {
-				stream.Close()
-				return errors.New("oversized refusal")
-			}
-			body := make([]byte, length)
-			_, err = io.ReadFull(stream, body)
-			var reply controlReply
-			if err != nil || strictControlReply(body, &reply) != nil || reply.Class != "invalid" || reply.Code != "session_refused" {
-				stream.Close()
-				return errors.New("invalid session envelope lacked an explicit refusal")
-			}
-			_ = os.WriteFile(filepath.Join(evidence, fmt.Sprintf("refusal-%d.json", i)), body, 0600)
+	}
+	for _, length := range []uint32{0, 65537, 4294967295} {
+		stream, err := control.connect(ctx)
+		if err != nil {
+			return err
 		}
+		body, err := validationRefusal(stream, nil, length)
 		stream.Close()
-		if err != nil && err != io.EOF {
-			return fmt.Errorf("invalid session envelope did not close: %w", err)
+		if err != nil {
+			return fmt.Errorf("length fixture %d: %w", length, err)
+		}
+		if err = os.WriteFile(filepath.Join(evidence, fmt.Sprintf("length-%d.json", length)), body, 0600); err != nil {
+			return err
 		}
 	}
-	for _, bad := range []string{`{"type":"signal","name":"STOP"}`, `{"type":"signal","name":"TERM","uid":0}`, `{"type":"window","bytes":0}`, `{"type":"window","bytes":262145}`, `{"type":"data","stream":3,"bytes":[1]}`} {
+	for _, bad := range []string{`{"type":"signal","name":"STOP"}`, `{"type":"signal","name":"TERM","uid":0}`, `{"type":"window","bytes":0}`, `{"type":"window","bytes":262145}`, `{"type":"data","stream":3,"bytes":[1]}`, `{"type":"data","stream":0,"bytes":[]}`, `{"type":"eof","stream":3}`, `{"type":"resize","cols":0,"rows":24}`, `{"type":"signal","name":"TERM","name":"KILL"}`, `{"type":"exit","code":0}`, `{"type":"data","stream":0,"bytes":[256]}`} {
 		stream, err := control.connect(ctx)
 		if err != nil {
 			return err
@@ -417,4 +425,43 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 		}
 	}
 	return os.WriteFile(filepath.Join(evidence, "identity-cgroup-sample.json"), sample, 0600)
+}
+
+// A timeout, malformed reply or unrelated response never proves refusal. EOF
+// is acceptable only because this fully written request was rejected by closing
+// the authenticated transport, and independent sentinel/process samples follow.
+func validationRefusal(stream net.Conn, body []byte, length uint32) ([]byte, error) {
+	if err := stream.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(stream, binary.BigEndian, length); err != nil {
+		return nil, err
+	}
+	if len(body) > 0 {
+		if err := writeAll(stream, body); err != nil {
+			return nil, err
+		}
+	}
+	var replyLength uint32
+	if err := binary.Read(stream, binary.BigEndian, &replyLength); err != nil {
+		if err == io.EOF {
+			return []byte(`{"transport_closed":true}`), nil
+		}
+		return nil, err
+	}
+	if replyLength == 0 || replyLength > 4096 {
+		return nil, errors.New("invalid refusal length")
+	}
+	replyBody := make([]byte, replyLength)
+	if _, err := io.ReadFull(stream, replyBody); err != nil {
+		return nil, err
+	}
+	var reply controlReply
+	if err := strictControlReply(replyBody, &reply); err != nil {
+		return nil, err
+	}
+	if reply.Class != "invalid" || reply.Code != "session_refused" {
+		return nil, errors.New("invalid envelope lacked an explicit refusal")
+	}
+	return replyBody, nil
 }
