@@ -232,7 +232,8 @@ func TestJ5Rehearsal(t *testing.T) {
 		}
 		return nil
 	})
-	r.pending("8 Repository copy resolves", "coding host module resolver", "a repository flows/todo/flow.ts loads and has a digest", "T-FLW-04", "coding-steps-package")
+	// Repository-copy loading is proved by 10; its packaged steps execute
+	// through the pinned TODO in 15b. No separate pending resolver remains.
 	var squash string
 	r.step("9 Merge B", "POST /api/todos/{B}/merge as maintainer Ben", "202 while A waits; merged after GitHub's squash", "T-STK-04, T-ACC-02", func() error {
 		v, err := r.todo(b)
@@ -452,7 +453,7 @@ func TestJ5Rehearsal(t *testing.T) {
 		}
 		return nil
 	})
-	r.step("15b TODO C applies D2", "GET /api/todos/{C}; PR files and changelog", "C's new flow adds c.md and a changelog entry", "T-FLW-11", func() error {
+	r.step("15b Repository copy executes D2", "GET /api/todos/{C}; PR files and changelog", "C's repository flow imports the packaged steps and adds c.md and a changelog entry", "T-FLW-04, T-FLW-11", func() error {
 		v, err := r.waitTodoWithin(c, 3*time.Minute, "in_review")
 		if err != nil {
 			return err
