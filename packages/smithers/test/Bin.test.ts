@@ -2205,7 +2205,7 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
     }
   )
 
-  it("writes a seat the host can resolve, chosen from the environment doctor reads", () => {
+  it("writes a seat the host can resolve, chosen from the provider environment", () => {
     const cwd = stageEmptyProject()
     try {
       const environment = { ...withoutSeats(), OPENAI_API_KEY: "sk-not-used-by-init" }

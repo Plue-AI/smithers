@@ -340,14 +340,16 @@ describe("a parked budget", () => {
   }, 60_000)
 
   it("fails a run whose latency raise is denied instead of asking again on resume", async () => {
-    // The first response takes 150 ms against a 100 ms ceiling, so the second
+    // The first response takes 6 s against a 5 s ceiling, so the second
     // call parks. The elapsed time keeps growing while parked, and the denial
     // must still answer the request it was made on (#2739).
-    const observed = await parkedRun("deny", { declaration: ["  milliseconds: 100"], delayMs: 150 })
+    // Leave enough startup time for the initial durable snapshot on a loaded host.
+    const observed = await parkedRun("deny", { declaration: ["  milliseconds: 5000"], delayMs: 6000 })
 
     expect(observed.parked).toMatchObject({ status: "parked", waitingReason: "budget" })
     expect(observed.last).toBe("control.run.failed")
     expect(observed.settled?.status).toBe("failed")
+    expect(observed.callsWhileParked).toBe(1)
     expect(observed.bodies).toHaveLength(1)
   }, 60_000)
 })
