@@ -24,6 +24,7 @@ const crateInputs = Smithers.Filegroup({
   srcs: [Smithers.glob("**/*"), flowsJjPackage.nativeSources, machinedPackage.buildInputs]
 })
 const proofMockInputs = Smithers.Filegroup({ cwd: ".specs/design/mock", srcs: [Smithers.glob("src/**/*")] })
+const docsInputs = Smithers.Filegroup({ cwd, srcs: [Smithers.glob("src/docs/pages/*.md")] })
 
 /**
  * Uncached release assembly: external toolchains and registry inputs are validated by the assembler,
@@ -551,5 +552,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, proofRecord, proofPage, webSources, ...securityReview }
 })

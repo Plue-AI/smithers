@@ -1,5 +1,6 @@
 /** Build graph entry for the thin packaged model-host executable. */
 import { Smithers } from "@smthrs/targets"
+import { Package as appPackage } from "../app/PACKAGE.ts"
 import { Package as modelHostPackage } from "../../packages/smithers/agent/model-host/PACKAGE.ts"
 
 import { Package as harnessPackage } from "../../packages/smithers/agent/harness/PACKAGE.ts"
@@ -8,14 +9,13 @@ const cwd = "apps/model-host"
 const sources = Smithers.glob("src/**/*.ts")
 /** The app's docs pages and their loader, which build.mjs bundles as `smithers:docs`. */
 const docsSources = [
-  Smithers.glob("//apps/app/src/docs/pages/*.md"),
   Smithers.file("//apps/app/src/docs/Docs.ts"),
   Smithers.file("//apps/app/src/docs/toc.ts"),
   Smithers.file("//apps/app/src/mainview/cards/MarkdownLinks.ts")
 ]
 
 /** Source identity for backend rehearsals that launch the production host. */
-const backendInputs = Smithers.Filegroup({ srcs: [sources, Smithers.file("build.mjs"), ...docsSources], cwd })
+const backendInputs = Smithers.Filegroup({ srcs: [sources, Smithers.file("build.mjs"), ...docsSources, appPackage.docsInputs], cwd })
 
 const check = Smithers.Typecheck({
   srcs: [sources],
@@ -29,7 +29,7 @@ const check = Smithers.Typecheck({
 const bundle = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("build.mjs")),
   srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json"), ...docsSources],
-  deps: [modelHostPackage.lib, harnessPackage.lib],
+  deps: [modelHostPackage.lib, harnessPackage.lib, appPackage.docsInputs],
   cwd
 })
 
@@ -41,7 +41,7 @@ const test = Smithers.NodeTest({
   srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json"), ...docsSources,
     Smithers.file("../../packages/smithers/agent/harness/test/fixtures/external/codex-0.160/rollout.jsonl"),
     Smithers.file("../../packages/smithers/agent/harness/test/fixtures/external/claude-code-2.1/session.jsonl")],
-  deps: [modelHostPackage.lib, harnessPackage.lib],
+  deps: [modelHostPackage.lib, harnessPackage.lib, appPackage.docsInputs],
   cwd
 })
 
