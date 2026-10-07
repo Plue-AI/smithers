@@ -43,6 +43,9 @@ func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string,
 	if err != nil {
 		return nil, err
 	}
+	if row.Status != "running" {
+		return nil, pkgerrors.Conflict("branch is asleep")
+	}
 	var before, post, change string
 	err = s.burstPool.QueryRow(ctx, `SELECT COALESCE(f.before_blob,''),COALESCE(f.post_digest,'absent'),f.change FROM burst_files f JOIN product_job_events e ON e.event_id=f.event_id WHERE e.tenant_id=$1 AND e.principal_id=$2 AND e.data->>'versions'=$3 AND f.path=$4 ORDER BY e.sequence DESC LIMIT 1`, fmt.Sprint(repositoryID), "branch:"+row.ID, version, filePath).Scan(&before, &post, &change)
 	if err == pgx.ErrNoRows {
@@ -57,6 +60,18 @@ func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string,
 	if base != post {
 		return nil, pkgerrors.Conflict("file version base differs")
 	}
+	content, err := s.readBurstBefore(ctx, repositoryID, filePath, version, before)
+	if err != nil {
+		return nil, err
+	}
+	return s.WriteWorkspaceFiles(ctx, row.ID, repositoryID, userID, []workspaceapi.FileMutation{{Path: filePath, BaseDigest: post, Content: content}})
+}
+
+// readBurstBefore verifies the retained blob before exposing or restoring bytes.
+func (s *WorkspaceService) readBurstBefore(ctx context.Context, repositoryID int64, filePath, version, before string) ([]byte, error) {
+	return s.readBurstFile(ctx, repositoryID, "a/"+filePath, version, before)
+}
+func (s *WorkspaceService) readBurstFile(ctx context.Context, repositoryID int64, objectPath, version, before string) ([]byte, error) {
 	var content []byte
 	if before != "" {
 		slug, err := s.workspaceRepoSlug(ctx, repositoryID)
@@ -64,7 +79,7 @@ func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string,
 			return nil, err
 		}
 		owner, repo, _ := strings.Cut(slug, "/")
-		file, err := s.burstVersions.GetFileAtCommit(ctx, owner, repo, version, "a/"+filePath)
+		file, err := s.burstVersions.GetFileAtCommit(ctx, owner, repo, version, objectPath)
 		if err != nil {
 			return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "file version unavailable")
 		}
@@ -94,5 +109,34 @@ func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string,
 			return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "invalid file version")
 		}
 	}
-	return s.WriteWorkspaceFiles(ctx, row.ID, repositoryID, userID, []workspaceapi.FileMutation{{Path: filePath, BaseDigest: post, Content: content}})
+	return content, nil
+}
+
+func (s *WorkspaceService) CompareBranchFile(ctx context.Context, branch string, repositoryID, userID int64, filePath, version string) (WorkspaceFileContent, error) {
+	if s.burstPool == nil || s.burstVersions == nil {
+		return WorkspaceFileContent{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "file versions unavailable")
+	}
+	if len(version) != 40 || strings.Trim(version, "0123456789abcdef") != "" {
+		return WorkspaceFileContent{}, pkgerrors.BadRequest("invalid file version")
+	}
+	if err := ValidateRepositoryPath(filePath); err != nil {
+		return WorkspaceFileContent{}, err
+	}
+	row, err := s.PresenceBranch(ctx, branch, repositoryID, userID)
+	if err != nil {
+		return WorkspaceFileContent{}, err
+	}
+	var before string
+	err = s.burstPool.QueryRow(ctx, `SELECT COALESCE(f.before_blob,'') FROM burst_files f JOIN product_job_events e ON e.event_id=f.event_id WHERE e.tenant_id=$1 AND e.principal_id=$2 AND e.data->>'versions'=$3 AND f.path=$4 ORDER BY e.sequence DESC LIMIT 1`, fmt.Sprint(repositoryID), "branch:"+row.ID, version, filePath).Scan(&before)
+	if err == pgx.ErrNoRows {
+		return WorkspaceFileContent{}, pkgerrors.NotFound("file version not found")
+	}
+	if err != nil {
+		return WorkspaceFileContent{}, err
+	}
+	content, err := s.readBurstBefore(ctx, repositoryID, filePath, version, before)
+	if err != nil {
+		return WorkspaceFileContent{}, err
+	}
+	return workspaceFileContent(filePath, content), nil
 }

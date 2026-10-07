@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -17,11 +19,19 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// BranchFileHandler reads only through the existing Source-ready mirror reader.
-// It has no launcher or working-copy transport.
+type BranchFileContentService interface {
+	ReadBranchFile(context.Context, string, int64, int64, string, string) (services.WorkspaceFileContent, error)
+	CompareBranchFile(context.Context, string, int64, int64, string, string) (services.WorkspaceFileContent, error)
+	BranchFileFact(context.Context, string, int64, int64, string) (*services.BranchFileFact, error)
+}
+
+// BranchFileHandler selects immutable mirror bytes or the existing confined reader.
 type BranchFileHandler struct {
-	Source   services.InstallSource
-	Branches BranchReadService
+	Source    services.InstallSource
+	Branches  BranchReadService
+	Live      BranchFileContentService
+	Authorize func(*http.Request, string) (int64, int64, error)
+	Actor     func(context.Context, json.RawMessage) (json.RawMessage, error)
 }
 
 func (h *BranchFileHandler) Read(w http.ResponseWriter, r *http.Request) {
@@ -48,10 +58,81 @@ func (h *BranchFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, pkgerrors.BadRequest("invalid file path"))
 		return
 	}
-	// A mirror revision cannot answer a working-copy digest or a burst
-	// comparison. Refuse these selectors until their provider is composed;
-	// silently dropping them would present unrelated bytes as a live reload.
+	// Selectors are handled only by their authoritative provider. Never
+	// silently drop a digest and answer unrelated mirror bytes.
 	query := r.URL.Query()
+
+	if query.Has("compare") && h.Live != nil && h.Authorize != nil {
+		if query.Has("digest") {
+			writeRouteError(w, r, pkgerrors.BadRequest("conflicting file selectors"))
+			return
+		}
+		repository, member, err := h.Authorize(r, "branch.read")
+		if err != nil {
+			writeRouteError(w, r, err)
+			return
+		}
+		content, err := h.Live.CompareBranchFile(r.Context(), branch, repository, member, filePath, query.Get("compare"))
+		if err != nil {
+			writeRouteError(w, r, err)
+			return
+		}
+		if content.Encoding == "base64" {
+			writeRouteError(w, r, pkgerrors.BadRequest("binary file cannot be compared"))
+			return
+		}
+		pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"text": content.Content})
+		return
+	}
+	if branch != "main" && query.Get("at") == "" && !query.Has("compare") && h.Live != nil && h.Authorize != nil {
+		repository, member, authErr := h.Authorize(r, "branch.read")
+		if authErr != nil {
+			writeRouteError(w, r, authErr)
+			return
+		}
+
+		fact, err := h.Live.BranchFileFact(r.Context(), branch, repository, member, filePath)
+		if err != nil {
+			writeRouteError(w, r, err)
+			return
+		}
+		content, readErr := h.Live.ReadBranchFile(r.Context(), branch, repository, member, filePath, query.Get("digest"))
+		var apiErr *pkgerrors.APIError
+		gone := fact != nil && (fact.Change == "deleted" || fact.Change == "renamed") && errors.As(readErr, &apiErr) && apiErr.Status == 404
+		if readErr != nil && !gone {
+			writeRouteError(w, r, readErr)
+			return
+		}
+		projection := map[string]any{"kind": "text", "text": content.Content}
+		if content.Encoding == "base64" {
+			projection = map[string]any{"kind": "binary", "bytes": content.Size}
+		}
+		model := map[string]any{"path": filePath, "branch": branch, "language": "", "digest": content.Digest, "content": projection, "mode": "read_only", "diagnostics": []any{}, "authors": []any{}, "editors": []any{}}
+		if gone {
+			model["digest"] = "absent"
+		}
+		if fact != nil && (gone || content.Digest == fact.Digest) && h.Actor != nil && string(fact.Actor) != "null" {
+			actor, err := h.Actor(r.Context(), fact.Actor)
+			if err != nil {
+				writeRouteError(w, r, err)
+				return
+			}
+			model["last_writer"] = actor
+			if gone {
+				state := map[string]any{"kind": "deleted", "by": actor}
+				if fact.Change == "renamed" {
+					state["kind"] = "renamed"
+					state["to"] = fact.RenamedTo
+				}
+				model["gone"] = state
+			}
+			if fact.Version != "" {
+				model["outside"] = map[string]any{"version": fact.Version, "post_digest": fact.Digest, "at": fact.At.Format(time.RFC3339Nano)}
+			}
+		}
+		pkgerrors.WriteJSON(w, http.StatusOK, model)
+		return
+	}
 	if query.Has("digest") || query.Has("compare") {
 		writeRouteError(w, r, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "live file provider unavailable"))
 		return

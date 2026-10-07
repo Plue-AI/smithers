@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -1066,7 +1067,17 @@ func buildRouter(
 				branches.Answers, _ = extras.Mythical.Service.(routes.BranchAnswerService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
-			files := &routes.BranchFileHandler{Branches: branches.Reads}
+			files := &routes.BranchFileHandler{Branches: branches.Reads, Authorize: routes.InstallBranchAuthorizer(queries)}
+			files.Actor = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+				topics := &liveTopics{presence: &branchPresence{queries: queries}}
+				if extras.Members != nil {
+					topics.presence.members = extras.Members.Service
+				}
+				return topics.changeActorResolver(ctx)(raw)
+			}
+			if workspaceHandler != nil {
+				files.Live, _ = workspaceHandler.Service.(routes.BranchFileContentService)
+			}
 			if repoHandler != nil {
 				if repos, ok := repoHandler.Service.(*services.RepoService); ok {
 					files.Source = services.InstallSource{Pool: pool, Repos: repos, Members: ownerBoundary}

@@ -91,7 +91,7 @@ export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOption
 const Result = z.object({ files: z.array(DiffCardSchema) })
 
 /** One persisted request owns the read, its card and its debounced toast. */
-export const createBranchDiffReader = (ctx: ControllerContext) => {
+export const createBranchDiffReader = (ctx: ControllerContext, options?: BranchFileOptions) => {
   const running = new Set<string>()
   const watches = new Map<string, () => void>()
   const changed = new Set<string>()
@@ -107,7 +107,10 @@ export const createBranchDiffReader = (ctx: ControllerContext) => {
     void ctx.withToast(`branch-diff.${request}`, card.title, card.title, async () => {
       let failure = "Diff unavailable"
       try {
-        const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(branch)}/diff`, { credentials: "same-origin" })
+        const scope = options?.scope(branch)
+        if (scope?.sleeping && !scope.capturedHead) throw new Error("Snapshot unavailable")
+        const selector = scope?.sleeping ? `?at=${encodeURIComponent(scope.capturedHead!)}` : ""
+        const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(branch)}/diff${selector}`, { credentials: "same-origin" })
         const body: unknown = await response.json()
         const parsed = response.ok ? Result.safeParse(body) : undefined
         const latest = current(card.id, request, epoch)
