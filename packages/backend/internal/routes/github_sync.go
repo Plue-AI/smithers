@@ -24,6 +24,11 @@ func (h *GitHubSyncHandler) unavailable(w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(services.GitHubSyncUnavailable{Code: "github_sync_unavailable", Class: "infra", Message: "GitHub sync is unavailable"})
 }
 func (h *GitHubSyncHandler) writeError(w http.ResponseWriter, r *http.Request, err error) {
+	var conflict *services.TodoControlError
+	if errors.As(err, &conflict) {
+		todoRouteError(w, err)
+		return
+	}
 	var unavailable *services.GitHubSyncUnavailable
 	if errors.As(err, &unavailable) {
 		h.unavailable(w)
