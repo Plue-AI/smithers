@@ -4,11 +4,12 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 class PreflightTests(unittest.TestCase):
     def test_launch_refuses_unapproved_inputs_before_toolchain(self):
-        for mutation in ['changed', 'extra', 'missing', 'symlink', 'missing-main']:
+        for mutation in ['changed', 'extra', 'missing', 'symlink', 'missing-main', 'host-code', 'image', 'toolchain', 'plist', 'root-helper']:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 spike = root / 'scripts/spikes/col-01'
@@ -34,10 +35,19 @@ class PreflightTests(unittest.TestCase):
                 elif mutation == 'symlink':
                     helper.rename(helper.with_name('target'))
                     helper.symlink_to('target')
-                else:
+                elif mutation == 'host-code':
+                    (spike / 'run.sh').write_text((spike / 'run.sh').read_text() + '\n# branch build\n')
+                elif mutation == 'missing-main':
                     git('update-ref', '-d', 'refs/remotes/origin/main')
+                import os
+                env = {k: v for k, v in os.environ.items() if k not in [
+                    "GOFLAGS", "GOENV", "PYTHONPATH", "PYTHONHOME", "RUSTC_WRAPPER", "RUSTUP_TOOLCHAIN"]}
+                key = {'image': 'SPIKE_IMAGE', 'toolchain': 'SPIKE_TOOLCHAIN',
+                       'plist': 'SPIKE_PLIST', 'root-helper': 'SPIKE_ROOT_HELPER'}.get(mutation)
+                if key:
+                    env[key] = str(helper)
                 result = subprocess.run(['bash', str(spike / 'run.sh'), 'rtt'],
-                                        capture_output=True, text=True)
+                                        capture_output=True, text=True, env=env)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn('SPIKE SECURITY BLOCKED:', result.stderr)
                 self.assertFalse((root / '.artifacts').exists())
@@ -56,6 +66,7 @@ class PreflightTests(unittest.TestCase):
             git('-c', 'user.name=Probe', '-c', 'user.email=probe@example.invalid',
                 '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture')
             git('update-ref', 'refs/remotes/origin/main', 'HEAD')
-            result = preflight.verify(root)
+            with patch.dict("os.environ", {}, clear=True):
+                result = preflight.verify(root)
             self.assertEqual(result['main_pinned_runtime_commit'], git('rev-parse', 'HEAD').decode().strip())
             self.assertEqual(len(result['runtime_inputs']), 1)
