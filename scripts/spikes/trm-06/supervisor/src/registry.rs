@@ -116,6 +116,14 @@ impl<R: Resources> Registry<R> {
         entry.detached.get_or_insert(now);
         Ok(())
     }
+    /// Transport teardown can race a successful kill/restart. A removed entry
+    /// is already drained; an entry still present must retain its owner check.
+    pub fn detach_if_present(&mut self, owner: Owner, id: &str, now: Instant) -> io::Result<()> {
+        if self.sessions.contains_key(id) {
+            self.detach(owner, id, now)?;
+        }
+        Ok(())
+    }
     pub fn attach(&mut self, owner: Owner, id: &str, now: Instant) -> io::Result<()> {
         let entry = self.owned(owner, id)?;
         if entry.closed
@@ -235,6 +243,19 @@ mod tests {
             })
             .is_err()
         );
+    }
+    #[test]
+    fn transport_teardown_after_drain_does_not_recreate_ownership() {
+        let mut r = Registry::start(Kernel::default()).unwrap();
+        let id = r.reserve(Owner::Ben, Kind::Exec, None).unwrap();
+        assert!(
+            r.detach_if_present(Owner::Agent, &id, Instant::now())
+                .is_err()
+        );
+        r.kill(Selector::User(Owner::Ben)).unwrap();
+        r.detach_if_present(Owner::Ben, &id, Instant::now())
+            .unwrap();
+        assert!(r.sessions.is_empty());
     }
     #[test]
     fn thirty_second_grace_has_exact_boundary_and_cannot_be_extended() {

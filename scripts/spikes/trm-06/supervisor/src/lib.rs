@@ -30,3 +30,6 @@ pub mod terminal;
 
 #[cfg(target_os = "linux")]
 pub mod confinement;
+
+#[cfg(target_os = "linux")]
+pub mod daemon;

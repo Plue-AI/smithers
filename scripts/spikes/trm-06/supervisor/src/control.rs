@@ -73,6 +73,16 @@ impl Supervisor {
             live: BTreeMap::new(),
         })
     }
+    /// Called by the installed daemon's timer even when no relay is connected.
+    /// Closing keeps lingering processes owned until an explicit cgroup drain.
+    pub fn maintain(&mut self, now: Instant) -> io::Result<()> {
+        self.registry.expire(now)
+    }
+    pub fn shutdown(&mut self) -> io::Result<()> {
+        self.registry.restart()?;
+        self.live.clear();
+        Ok(())
+    }
     fn open(&mut self, launch: Launch) -> io::Result<(String, Arc<Live>)> {
         let Launch {
             kind,
@@ -205,7 +215,7 @@ pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::R
             .lock()
             .map_err(|_| refused())?
             .registry
-            .detach(Owner::Ben, &id, now)?;
+            .detach_if_present(Owner::Ben, &id, now)?;
         result
     } else {
         response(&mut stream, reply)
