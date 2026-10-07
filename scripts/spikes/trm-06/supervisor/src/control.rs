@@ -350,13 +350,21 @@ mod tests {
             let (mut server, _) = listener.accept().unwrap();
             let worker = std::thread::spawn(move || {
                 let started = Instant::now();
-                assert!(read_control(&mut server).is_err());
-                assert!(started.elapsed() < Duration::from_secs(4));
+                let error = read_control(&mut server).unwrap_err();
+                assert!(matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ));
+                assert!(started.elapsed() < Duration::from_secs(3));
             });
+            client
+                .set_read_timeout(Some(Duration::from_secs(4)))
+                .unwrap();
             client.write_all(&payload).unwrap();
             // A further byte arrives before expiry but cannot reset the budget.
             std::thread::sleep(Duration::from_millis(1200));
             client.write_all(b" ").unwrap();
+            assert_eq!(client.read(&mut [0]).unwrap(), 0);
             worker.join().unwrap();
         }
     }
