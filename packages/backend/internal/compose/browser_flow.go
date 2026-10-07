@@ -2,6 +2,8 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -126,10 +128,11 @@ func browserFlowProvisioning(w http.ResponseWriter) {
 
 func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provision bool) (browserFlowRequest, flowruntime.Target, db.Workspace, bool) {
 	var request browserFlowRequest
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
 	// Every flow runs on a box: its coding host serves the catalog. There is
 	// no repository-level host to fall back to (#2194).
-	if decoder.Decode(&request) != nil || !browserFlowRepo.MatchString(request.Repo) || !validBrowserWorkspaceID(request.WorkspaceID) {
+	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF || !browserFlowRepo.MatchString(request.Repo) || !validBrowserWorkspaceID(request.WorkspaceID) {
 		browserFlowRefusal(w, http.StatusBadRequest, "Body must name a repository and a box (workspaceId).")
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
@@ -151,12 +154,17 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 				return request, flowruntime.Target{}, db.Workspace{}, false
 			}
 		}
-		decision, err := services.Authorize(r.Context(), api.installQueries, command)
+		subject, lookup := api.installSubject(r.Context(), request)
+		decision, err := services.Authorize(r.Context(), api.installQueries, command, subject)
 		if err != nil {
 			writeConfirmationDispatchError(w, err)
 			return request, flowruntime.Target{}, db.Workspace{}, false
 		}
-		*r = *r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision))
+		if lookup != nil {
+			writeConfirmationDispatchError(w, lookup)
+			return request, flowruntime.Target{}, db.Workspace{}, false
+		}
+		*r = *r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject))
 	} else if !provision {
 		var action string
 		switch request.Procedure {
@@ -220,6 +228,83 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 	}, workspace, true
 }
 
+// installSubject binds the decoded relay request to its stored workspace. The
+// guest's current host lease still decides whether that workspace can execute.
+func (api *browserFlowAPI) installSubject(ctx context.Context, request browserFlowRequest) (services.InstallSubject, error) {
+	denied := &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+	if api.installQueries == nil {
+		return services.InstallSubject{}, denied
+	}
+	owner, name, _ := strings.Cut(request.Repo, "/")
+	repository, err := api.installQueries.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(owner), LowerName: strings.ToLower(name)})
+	if err != nil {
+		return services.InstallSubject{}, denied
+	}
+	installed, err := services.InstallRepositoryID(ctx, api.installQueries)
+	if err != nil {
+		return services.InstallSubject{}, err
+	}
+	if installed != repository.ID {
+		return services.InstallSubject{}, denied
+	}
+	user := middleware.UserFromContext(ctx)
+	if user == nil {
+		return services.InstallSubject{}, denied
+	}
+	workspace, err := api.installQueries.GetFlowWorkspaceForUserRepo(ctx, db.GetFlowWorkspaceForUserRepoParams{
+		ID: request.WorkspaceID, RepositoryID: repository.ID, UserID: user.ID,
+	})
+	if err != nil || workspace.RepositoryID != repository.ID || workspace.DeletedAt.Valid {
+		return services.InstallSubject{}, denied
+	}
+	raw, err := json.Marshal(struct {
+		Request      browserFlowRequest
+		Owner        int64
+		Status, Kind string
+		Rebuild      bool
+	}{request, workspace.UserID, workspace.Status, workspace.Kind, workspace.RebuildRequiredAt.Valid})
+	if err != nil {
+		return services.InstallSubject{}, denied
+	}
+	digest := sha256.Sum256(raw)
+	return services.InstallSubject{RepositoryID: repository.ID, WorkspaceID: workspace.ID,
+		Source: workspace.TargetBookmark, Base: workspace.VmID, Generation: int64(workspace.ProvisioningGeneration),
+		Resource: request.Procedure, PayloadDigest: hex.EncodeToString(digest[:])}, nil
+}
+
+// Reuse the original decision after the limiter and before each admission.
+// A replaced payload, workspace generation or relay target cannot inherit it.
+func (api *browserFlowAPI) checkInstallBinding(ctx context.Context, request browserFlowRequest, target flowruntime.Target, provision bool) error {
+	if !api.install {
+		return nil
+	}
+	subject, err := api.installSubject(ctx, request)
+	if err != nil {
+		return err
+	}
+	command := "box.resume"
+	if !provision {
+		command, err = browserFlowCommand(request)
+		if err != nil {
+			return err
+		}
+	}
+	decision, err := services.Authorize(ctx, api.installQueries, command, subject)
+	if err != nil {
+		return err
+	}
+	kind := "browser-flow"
+	if strings.HasPrefix(subject.Source, "scratch/") {
+		kind = flowdispatch.DraftBindingKind
+	}
+	if target.TenantID != "repository:"+strconv.FormatInt(subject.RepositoryID, 10) ||
+		target.PrincipalID != "user:"+strconv.FormatInt(decision.UserID, 10) ||
+		target.WorkspaceID != subject.WorkspaceID || target.BindingKind != kind || target.BindingID != request.Repo {
+		return &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+	}
+	return nil
+}
+
 func validBrowserWorkspaceID(value string) bool {
 	id, err := uuid.Parse(value)
 	return err == nil && id.String() == value
@@ -228,7 +313,7 @@ func validBrowserWorkspaceID(value string) bool {
 // wake answers whether the box is running. A sleeping box is resumed in the
 // background, once; a resume that failed is answered to the next caller. A
 // box its owner stopped is resumed only by provision, never by a read.
-func (api *browserFlowAPI) wake(ctx context.Context, workspace db.Workspace, provision bool) (bool, error) {
+func (api *browserFlowAPI) wake(ctx context.Context, request browserFlowRequest, target flowruntime.Target, workspace db.Workspace, provision bool) (bool, error) {
 	if workspace.Status == "running" {
 		return true, nil
 	}
@@ -237,6 +322,9 @@ func (api *browserFlowAPI) wake(ctx context.Context, workspace db.Workspace, pro
 	}
 	if workspace.Status == "suspended" || (provision && workspace.Status == "stopped") {
 		api.resumes.Start(ctx, workspace.ID, func(ctx context.Context) error {
+			if err := api.checkInstallBinding(ctx, request, target, provision); err != nil {
+				return err
+			}
 			_, err := api.boxes.ResumeWorkspace(ctx, workspace.ID, workspace.RepositoryID, workspace.UserID)
 			return err
 		})
@@ -261,11 +349,15 @@ func browserFlowWakeFailed(w http.ResponseWriter, err error) {
 // any run. Until then it wakes the box and starts the host in the
 // background, answering "provisioning", which the app polls.
 func (api *browserFlowAPI) provision(w http.ResponseWriter, r *http.Request) {
-	_, target, workspace, ok := api.prepare(w, r, true)
+	request, target, workspace, ok := api.prepare(w, r, true)
 	if !ok {
 		return
 	}
-	running, err := api.wake(r.Context(), workspace, true)
+	if err := api.checkInstallBinding(r.Context(), request, target, true); err != nil {
+		writeConfirmationDispatchError(w, err)
+		return
+	}
+	running, err := api.wake(r.Context(), request, target, workspace, true)
 	if err != nil {
 		browserFlowWakeFailed(w, err)
 		return
@@ -336,7 +428,7 @@ func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
 	// a call the relay can classify without the box's host (a plan, a run
 	// of a saved plan, an unreadable payload) is refused before the box
 	// wakes.
-	if err := api.dispatcher.RefuseRelay(r.Context(), target, request.Procedure, request.Payload); err != nil {
+	if err := api.dispatcher.RefuseRelay(r.Context(), target, request.Procedure, append(json.RawMessage(nil), request.Payload...)); err != nil {
 		browserFlowRelayRefused(w, err)
 		return
 	}
@@ -352,7 +444,11 @@ func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
 
 func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request browserFlowRequest, target flowruntime.Target, workspace db.Workspace) {
 	snapshot := request.Procedure == "Projection.Snapshot"
-	running, err := api.wake(r.Context(), workspace, false)
+	if err := api.checkInstallBinding(r.Context(), request, target, false); err != nil {
+		writeConfirmationDispatchError(w, err)
+		return
+	}
+	running, err := api.wake(r.Context(), request, target, workspace, false)
 	if err != nil {
 		browserFlowWakeFailed(w, err)
 		return
