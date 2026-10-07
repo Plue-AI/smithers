@@ -182,7 +182,7 @@ func TestPublicAdminAuditUsesAuthenticatedIdentityAndPeerAddress(t *testing.T) {
 	ctx := httpapi.AdminUserAuditContext(request)
 	actor, ok := operations.AdminAuditActorFromContext(ctx)
 	require.True(t, ok)
-	require.Equal(t, operations.AdminAuditActor{UserID: 7, Username: "alice", IPAddress: "127.0.0.1:5400"}, actor)
+	require.Equal(t, operations.AdminAuditActor{UserID: 7, Username: "alice", IPAddress: "127.0.0.1"}, actor)
 	require.Equal(t, "kept", ctx.Value(marker{}))
 	_, ok = operations.AdminAuditActorFromContext(request.Context())
 	require.False(t, ok)
