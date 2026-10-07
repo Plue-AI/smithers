@@ -105,3 +105,31 @@ test("the review slash and retained button alias accept the specified #PR spelli
     expect(payloadFor(door, "#50 owner/repo")).toEqual({ payload: { number: 50, repo: "owner/repo" } })
   }
 })
+
+test("an approved Review resumes the admitted operation and its confirmation toast without another launch", async () => {
+  const observation = deferred<Response>(), calls: string[] = [], notices: string[] = []
+  const h = await harness(async (url, init) => {
+    expect(init?.method).not.toBe("POST")
+    calls.push(url)
+    return observation.promise
+  })
+  const seam = createReviewSeam({ ...h.ctx, withToast: async (key, ...args) => { notices.push(key); return h.ctx.withToast!(key, ...args) } }, 1)
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Confirm")
+  const { MemberConfirmationSchema } = await import("@smthrs/rpc/ConfirmCard")
+  const row = MemberConfirmationSchema.parse({ id: "10000000-0000-4000-8000-000000000001", command: "review", state: "approved", revision: "pinned-review",
+    expires_at: "2099-01-01T00:00:00Z", payload: { input: { number: 50, repo: "owner/repo", conversation: "main" },
+      card: { ...fixtures.one_click.model, action: { tag: "review", verb: "Review" } }, effect: { review: "review-op", request: "confirmation:10000000-0000-4000-8000-000000000001" } } })
+  await seam.observeConfirmation(row)
+  await seam.observeConfirmation(row)
+  expect(calls).toEqual(["/api/reviews/review-op"])
+  expect(notices).toEqual(["todo.request.confirmation:10000000-0000-4000-8000-000000000001"])
+  expect(h.settled).toEqual([])
+  expect(h.store.session().reviewRequests?.[0]).toMatchObject({ operationId: "review-op", state: "running", confirmationId: row.id })
+  observation.resolve(Response.json({ state: "completed", change }))
+  await waitFor(() => h.store.session().reviewRequests?.[0]?.state === "completed")
+  await waitFor(() => h.settled.length === 1)
+  await seam.observeConfirmation(row)
+  expect(calls).toHaveLength(1)
+  expect(h.store.collections.cards.get("review-review-op")?.kind).toBe("change")
+  h.close()
+})
