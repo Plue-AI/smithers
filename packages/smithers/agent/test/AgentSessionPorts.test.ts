@@ -14,7 +14,9 @@
  * shape of a fixture rather than the behavior of a store.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import { PersistenceError } from "@smthrs/control/ControlError"
+import { NoMatchingWait, PersistenceError, Unauthorized } from "@smthrs/control/ControlError"
+import { Control } from "@smthrs/control/Control"
+import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as ControlRuntimeModule from "@smthrs/control/ControlRuntime"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import type { Envelope, Principal } from "@smthrs/control/ControlSchema"
@@ -34,6 +36,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { fileBundle } from "../../control/test/DurableStack.ts"
+import { live as controlLive } from "../../control/test/TestStack.ts"
 import * as AgentSession from "../src/AgentSession.ts"
 
 const envelope: Envelope = { capabilities: [], flows: [], budget: {} }
@@ -255,6 +258,23 @@ describe("AgentSession.deliverSignal", () => {
       const runId = yield* startControlRun
       yield* parkedRun(runId, signal.name)
       const before = yield* state.waiting(runId)
+      const engine = yield* FlowRuntime.FlowRuntime
+      const refusal = yield* Effect.gen(function*() {
+        const control = yield* Control
+        const input = { runId, signal, idempotencyKey: "public-outside-note" }
+        const first = yield* control.signal(input).pipe(Effect.flip)
+        const replay = yield* control.signal(input).pipe(Effect.flip)
+        return { first, replay }
+      }).pipe(Effect.provide(controlLive({
+        runtime: Layer.succeed(ControlRuntime)(runtime),
+        executor: ControlExecutor.makeNoop({
+          deliverSignal: (request) => AgentSession.deliverSignal(request).pipe(
+            Effect.provideService(DurableEngineState.DurableEngineState, state),
+            Effect.provideService(FlowRuntime.FlowRuntime, engine),
+            Effect.provideService(ControlRuntime, runtime)
+          )
+        })
+      })))
       yield* runtime.admitSignal("outside-note", runId, signal)
       const command = (yield* runtime.signalCommand("outside-note"))!
       const delivery = yield* AgentSession.deliverSignal(command)
@@ -263,6 +283,7 @@ describe("AgentSession.deliverSignal", () => {
       yield* AgentSession.drainRecordedSignals
       return {
         delivery,
+        refusal,
         before,
         after: yield* state.waiting(runId),
         pending: yield* runtime.pendingResumes,
@@ -270,6 +291,8 @@ describe("AgentSession.deliverSignal", () => {
       }
     }))
     expect(observed.delivery).toBe("refused")
+    expect(observed.refusal.first).toBeInstanceOf(Unauthorized)
+    expect(observed.refusal.replay).toBeInstanceOf(NoMatchingWait)
     expect(Option.isSome(observed.before)).toBe(true)
     expect(observed.after).toEqual(observed.before)
     expect(observed.pending).toEqual([])
