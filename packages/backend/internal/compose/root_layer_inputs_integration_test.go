@@ -31,12 +31,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowmanifest"
+	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/sandbox/sandboxfake"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -470,7 +473,14 @@ func startRootLayerHarness(t *testing.T) *rootLayerHarness {
 	return startRootLayerHarnessRuntime(t, false)
 }
 
-func startRootLayerHarnessRuntime(t *testing.T, direct bool) *rootLayerHarness {
+type rootLayerCodingFixture struct {
+	bundle   *installbundle.Bundle
+	registry flowmanifest.Registry
+	profile  microsandbox.HostProfile
+}
+
+func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayerCodingFixture) *rootLayerHarness {
+	require.LessOrEqual(t, len(coding), 1)
 	// GitHub IDs are globally unique. Distinct fake installations must not
 	// share the process-wide installation-token cache's ID namespace.
 	fixtureID := 1_000_000 + rootLayerFixtureID.Add(1)
@@ -536,7 +546,21 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool) *rootLayerHarness {
 		require.NotEmpty(t, real, "direct harness requires the real runtime")
 		binary = real
 	}
-	h.runtime = newRootLayerRuntime(t, binary, true)
+	h.runtime = newRootLayerRuntime(t, binary, true, func(config *microsandbox.Config) {
+		if len(coding) == 0 {
+			return
+		}
+		fixture := coding[0]
+		address, err := url.Parse(h.origin)
+		require.NoError(t, err)
+		port, err := strconv.ParseUint(address.Port(), 10, 16)
+		require.NoError(t, err)
+		config.Binary = ""
+		config.Bundle = fixture.bundle
+		config.BundlePrograms = []string{fixture.registry.Coding.Executable}
+		config.HostProfile = &fixture.profile
+		config.HostPorts = []uint16{uint16(port)}
+	})
 	// Model access (step 5) needs the composed chat host, as in the J1
 	// rehearsal: the trusted model host runs on a process runtime, never in
 	// the workspace microVM runtime under test. Reuse the rehearsal Gateway
@@ -573,12 +597,22 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool) *rootLayerHarness {
 	t.Cleanup(gateway.Close)
 	chatHost, err := modelhost.New(resolver, launcher, modelhost.WithProviderStandIn(gateway.URL))
 	require.NoError(t, err)
+	options := Options{Repository: h.repoClient, Workspace: h.runtime, ComputeProvider: sandboxfake.New(), ChatHost: offlineGatewayHost{chatHost}, FlowHostProductAPIURL: h.origin}
+	if len(coding) > 0 {
+		fixture := coding[0]
+		coder := startRehearsalCodingModel(t, node, root, t.TempDir())
+		options.FlowHostRegistry = &fixture.registry
+		options.InstallBranchMachines = true
+		options.HostProfile = &fixture.profile
+		options.PlatformModelKeys = modelproxy.NewStaticKeys(map[string]string{modelproxy.ProviderCerebras: "scripted-coding-key", modelproxy.ProviderVercel: "scripted-evaluator-key"})
+		options.ModelProxyUpstreams = map[string]string{modelproxy.ProviderCerebras: coder.url, modelproxy.ProviderVercel: coder.url}
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	ready := make(chan http.Handler, 1)
 	done := make(chan error, 1)
 	go func() {
 		// No MachineImages: step 6 binds the microVM runtime's own builder.
-		done <- StartWithOptions(ctx, nil, h.stdout, h.logs, Options{Repository: h.repoClient, Workspace: h.runtime, ComputeProvider: sandboxfake.New(), ChatHost: offlineGatewayHost{chatHost}, FlowHostProductAPIURL: h.origin}, func(handler http.Handler) { ready <- handler })
+		done <- StartWithOptions(ctx, nil, h.stdout, h.logs, options, func(handler http.Handler) { ready <- handler })
 	}()
 	select {
 	case handler := <-ready:
@@ -615,11 +649,14 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool) *rootLayerHarness {
 	return h
 }
 
-func newRootLayerRuntime(t *testing.T, binary string, environments bool) *microsandbox.Runtime {
+func newRootLayerRuntime(t *testing.T, binary string, environments bool, configure ...func(*microsandbox.Config)) *microsandbox.Runtime {
 	config := microsandbox.Config{Binary: binary, Root: t.TempDir(), CPUs: 1, MemoryMiB: 1024, DiskMiB: 4096, MaxRunningVMs: 2,
 		SkipQualification: os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") != "1"}
 	if environments {
 		config.Environments = &microsandbox.EnvironmentConfig{PrepareCPUs: 1, PrepareMemoryMiB: 1024, PrepareDiskMiB: 4096, MinFreeBytes: 1 << 30, LayerBudgetBytes: 8 << 30}
+	}
+	for _, apply := range configure {
+		apply(&config)
 	}
 	runtime, err := microsandbox.New(t.Context(), config)
 	require.NoError(t, err)
