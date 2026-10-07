@@ -1,3 +1,4 @@
+import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 import { CardSchema, conversationTabIdOf } from "../AppState"
 import type { Session } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
@@ -14,6 +15,7 @@ export const createReviewSeam = (ctx: SeamContext, pollMs = 1000) => {
   const identity = () => ctx.store.collections.identitySessions.get("identity")
   const owner = () => identity()?.login ?? ""
   const current = (row: Request) => ctx.isDisposed?.() !== true && identity()?.state === "signed-in" && owner() === row.owner && row.origin === ctx.baseUrl
+  const notice = (row: Request) => row.confirmationId ? `todo.request.confirmation:${row.confirmationId}` : `review.${row.id}`
   const save = (row: Request) => ctx.dispatch({ type: "review.requests.changed", actor: ctx.actor(),
     requests: [...(ctx.store.session().reviewRequests ?? []).filter(each => each.id !== row.id), row] }).isPersisted.promise
   const run = (requested: Request) => {
@@ -68,16 +70,31 @@ export const createReviewSeam = (ctx: SeamContext, pollMs = 1000) => {
         return unreachableSentence("review", error)
       }
     }
-    const pending = ctx.withToast ? ctx.withToast(`review.${requested.id}`, "Review", "Review", work, false, () => stillCurrent(requested)) : work()
+    const pending = ctx.withToast ? ctx.withToast(notice(requested), "Review", "Review", work, false, () => stillCurrent(requested)) : work()
     void pending.then(result => {
       if (typeof result === "string" && !ctx.withToast && stillCurrent(requested)) {
-        ctx.dispatch({ type: "toast.shown", actor: "system", key: `review.${requested.id}`, title: "Review" })
-        ctx.dispatch({ type: "toast.resolved", actor: "system", key: `review.${requested.id}`, status: "failed", detail: result })
+        ctx.dispatch({ type: "toast.shown", actor: "system", key: notice(requested), title: "Review" })
+        ctx.dispatch({ type: "toast.resolved", actor: "system", key: notice(requested), status: "failed", detail: result })
       }
     }).finally(() => shared.pending.delete(requested.id)).catch(error => ctx.report?.("review", error))
   }
   for (const row of ctx.store.session().reviewRequests ?? []) if (current(row) && ["requested", "running"].includes(row.state)) run(row)
   return {
+    observeConfirmation: async (confirmation: MemberConfirmation): Promise<void> => {
+      const operationId = confirmation.payload.effect?.review
+      if (ctx.actor() !== "user" || identity()?.state !== "signed-in" || confirmation.command !== "review" || confirmation.state !== "approved" || !operationId) return
+      const id = `confirmation:${confirmation.id}`
+      const existing = (ctx.store.session().reviewRequests ?? []).find(row => row.id === id && current(row))
+      if (existing) { if (!existing.terminal) run(existing); return }
+      const input = confirmation.payload.input
+      if (typeof input.number !== "number" || !Number.isSafeInteger(input.number) || input.number <= 0 || typeof input.conversation !== "string") return
+      const resolved = resolveTargetRepo(ctx.store, typeof input.repo === "string" && input.repo ? input.repo : undefined)
+      if ("error" in resolved) return
+      const row: Request = { id, confirmationId: confirmation.id, operationId, origin: ctx.baseUrl, owner: owner(), repo: resolved.repo,
+        number: input.number, conversation: input.conversation, tabId: conversationTabIdOf(ctx.store.session()), state: "running" }
+      await save(row)
+      run(row)
+    },
     request: async (number: number, explicit?: string) => {
       if (ctx.actor() !== "user") return "Confirm review."
       if (identity()?.state !== "signed-in") return "Sign in"
