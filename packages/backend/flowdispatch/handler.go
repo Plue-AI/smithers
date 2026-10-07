@@ -765,11 +765,18 @@ func (service *Service) settle(ctx context.Context, lease *jobs.Lease, checkpoin
 	case "cancelled":
 		state = jobs.StateCancelled
 	}
+	if certifier, ok := service.projector.(FailureCertifier); ok && state == jobs.StateFailed {
+		certified, err := certifier.CertifyFlowFailure(context.WithoutCancel(ctx), ProjectionUpdate{OperationID: lease.Claim().OperationID, Scope: lease.Claim().Scope, State: state, Checkpoint: checkpoint})
+		if err != nil {
+			return safeFailure{code: "failure_evidence_unavailable", retryable: true}
+		}
+		checkpoint.FailureMissingTool = certified
+	}
 	if err := service.project(context.WithoutCancel(ctx), lease, state, checkpoint); err != nil {
 		return err
 	}
 	receipt := mustJSON(terminalReceipt{
-		Kind: "runtime-terminal", Runtime: checkpoint.Identity, Receipt: checkpoint.Receipt,
+		Kind: "runtime-terminal", Runtime: checkpoint.Identity, Receipt: checkpoint.Receipt, MissingTool: checkpoint.FailureMissingTool,
 		Run: checkpoint.Run, Cursor: checkpoint.Cursor, Projection: checkpoint.Projection,
 	})
 	switch state {

@@ -200,7 +200,11 @@ func todoFailure(item db.MythicalItem) map[string]any {
 	if failure == nil {
 		return map[string]any{"step": mythicalFailStopped, "class": "factory", "message": "Smithers stopped this TODO", "retryable": true}
 	}
-	return map[string]any{"step": failure.Kind, "class": failure.Fault, "message": sentence, "retryable": true}
+	result := map[string]any{"step": failure.Kind, "class": failure.Fault, "message": sentence, "retryable": true}
+	if tool := mythicalChecksOf(item).MissingTool; tool != nil {
+		result["missing_tool"] = map[string]string{"name": tool.Name, "file": tool.File}
+	}
+	return result
 }
 
 // mythicalSentence starts an authored reason as a sentence.
