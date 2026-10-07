@@ -99,3 +99,19 @@ test("invalid Home responses and menus carry a typed failure", async () => {
     catch (value) { expect(value).toMatchObject({ _tag: "HomeViewFailure", sentence: "Invalid Home menu" }) }
   } finally { seam.dispose() }
 })
+
+
+test("a disposed Home seam remains readable while the old card unmounts", async () => {
+  const requests: string[] = []
+  const seam = createHomeViewSeam({ owner: () => "Ben", subscribeOwner: () => () => {}, report: error => { throw error },
+    http: async path => { requests.push(path); return Response.json({ home: { filter: "queued" } }) } })
+  const stop = seam.subscribe(() => {})
+  await waitFor(() => seam.get().filter === "queued")
+  stop(); seam.dispose()
+  expect(seam.get()).toEqual({ maximized: false })
+  const before = requests.length
+  seam.onView({ on_screen: true, filter: "working" })
+  await seam.read()
+  expect(seam.get()).toEqual({ maximized: false })
+  expect(requests).toHaveLength(before)
+})

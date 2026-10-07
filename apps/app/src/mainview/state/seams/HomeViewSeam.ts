@@ -30,8 +30,10 @@ export function createHomeViewSeam(options: {
   let timer: ReturnType<typeof setTimeout> | undefined
   let stopOwner: (() => void) | undefined
   const listeners = new Set<() => void>()
-  const get = () => rows.get("main")!.view
+  const emptyView: HomeViewProps["view"] = { maximized: false }
+  const get = () => rows.get("main")?.view ?? emptyView
   const publish = (view: HomeViewProps["view"]) => {
+    if (disposed) return
     rows.update("main", draft => { draft.view = view })
     for (const notify of listeners) notify()
   }
