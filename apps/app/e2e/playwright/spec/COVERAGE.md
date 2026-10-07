@@ -17,6 +17,8 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
+| C-COL-06 | [C-COL-06.spec.ts](C-COL-06.spec.ts) | fixme-before-implementation | T-COL-03r |
+| A-BRANCH-ARCHIVE | [A-BRANCH-ARCHIVE.spec.ts](A-BRANCH-ARCHIVE.spec.ts) | passing | T-MCH-09 |
 | C-DUR-05 | [C-DUR-05.spec.ts](C-DUR-05.spec.ts) | fixme-before-implementation | T-COL-13 |
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
 | C-FM-01 | [C-FM-01.spec.ts](C-FM-01.spec.ts) | fixme-before-implementation | T-FM-01 |
@@ -445,3 +447,5 @@ T-ACC-03 retains the mocked pending/reload UI projection and replaces the C-ACC-
 T-APP-05 wave 2 pass 6: [install Flow card](../flow-card-install.spec.ts) additionally covers named system flow mount, list refresh and reload with no mutation controls. System flows remain absent from `/flows`; named-card subscriptions read the served endpoint. This is app HTTP projection evidence; joint merge/load/pinning and reference-host isolation remain pending.
 T-ACC-04 `TestDelegatedMergeSettlementNativeInstall` runs Chromium against the composed install with real PostgreSQL and the Linux FFI repository host. It covers an issued delegated credential, forged approval refusal, stale revision expiry, fresh cookie-only keyboard approval, exactly one head-bound GitHub-fake squash write, native mirrored main, private receipt and Merged after reload. Machine-demand failure fences new launches while accepted Merge settlement continues. Its accepted in-review TODO is fixture input; this is not Mac/microVM or unassisted install-to-merge evidence. Run with `SMITHERS_CONFIRMATION_SETTLEMENT=1` and the native FFI/export paths.
 T-MCH-09 scratch archive: [A-BRANCH-ARCHIVE.spec.ts](A-BRANCH-ARCHIVE.spec.ts) browser contract passed (1 Chromium case): durable request, pending HTTP with usable Chat, duplicate input and reload. Composed PostgreSQL/HTTP archive and fail-closed cleanup passed separately. C-MCH-05 remains fixme pending authenticated capture/broker composition and real-microVM recovery/security qualification.
+
+Cycle 40: C-COL-06 adds two pending File projections for admitted/refused daemon connections. Codec corpus, HMAC, protocol and binary refusals remain integration evidence, never browser qualification. The existing scratch archive spec now has a catalog ledger row. C-UI-03 is covered by notifications.spec.ts. All 162 checks and 58 Appendix A entries have ledger coverage.
