@@ -169,12 +169,26 @@ func buildRouter(
 	// There is no handler, credential issuance or model admission behind these addresses.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+			if len(parts) >= 5 && parts[0] == "api" && parts[1] == "repos" {
+				if parts[4] == "branch-locks" || (config.IsSingleOwner(cfg.Auth) && len(parts) == 7 && parts[4] == "agent-sessions" && parts[6] == "egress") || (len(parts) == 7 && parts[4] == "changes" && parts[6] == "split" && request.Method == http.MethodPost) {
+					http.NotFound(w, request)
+					return
+				}
+			}
+			if request.URL.Path == "/api/repository-setup" || strings.HasPrefix(request.URL.Path, "/api/repository-setup/") {
+				http.NotFound(w, request)
+				return
+			}
 			if request.URL.Path == "/api/app-timelines" || strings.HasPrefix(request.URL.Path, "/api/app-timelines/") {
 				http.NotFound(w, request)
 				return
 			}
 			if request.Method == http.MethodPost {
 				switch request.URL.Path {
+				case "/api/recommend", "/api/recommend/outcome":
+					http.NotFound(w, request)
+					return
 				case "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel":
 					http.NotFound(w, request)
 					return

@@ -635,7 +635,7 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 					want = tc.plue
 				}
 				require.Equal(t, want, rec.Code, "%s %s: %s", tc.method, tc.path, rec.Body.String())
-				if mode == config.AuthModeSelfHosted && want == http.StatusNotFound {
+				if want == http.StatusNotFound {
 					for _, credential := range []string{"", "Bearer invalid", "session"} {
 						absent := httptest.NewRequest(tc.method, config.PublicOrigin(cfg)+tc.path, strings.NewReader(`{}`))
 						absent.Header.Set("Content-Type", "application/json")
