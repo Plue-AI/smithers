@@ -123,15 +123,16 @@ same final log. GitHub remains the explicit exclusion. Keyboard-generated
 zero-detail clicks remain enabled. Native logs contain event kind, UTC time and
 origin only; never key names, coordinates, text or setup-token queries.
 
-`flow-activation.spec.ts` adds a prepared J5 continuation. On a fresh canary,
-prepare T1 as the real factory edit adding `pnpm test` and a `changelog` step
-that updates `CHANGELOG.md`; leave it In review and ready for human merge.
-T2 must be Needs you with an open question in its original attempt. The pass
-reviews T1's GitHub patch, merges from the TODO card, observes the new Active
-version, verifies T2's identity stays pinned, and creates T3 to observe its new
-pin and real PR/check evidence. It supports the same keyboard and theme settings.
-This does not cover chat teaching, immutable closure retry, learning proposals,
-or watchdog qualification; those portions of C-J5-01 remain outstanding.
+`flow-activation.spec.ts` now starts J5 from an empty canary with the built-in
+TODO flow Active. The lead types the teaching request and must receive a Flow
+card with the proposed source diff before any TODO exists. Make TODO and Commit
+file T1; T2 then asks a real question and stays waiting on the old version.
+The edit is first in stack order so Ben can merge it while T2 waits. The pass
+reviews T1's GitHub patch and original pin, observes activation, verifies T2's
+identity stays pinned, and creates T3 with the new pin and real PR/check evidence.
+It requires keyboard mode and a theme. This source is not reference execution;
+immutable closure retry, learning proposals and watchdog obligations still need
+completion before C-J5-01 qualifies.
 
 The prepared keyboard continuation now checks Escape from Home's order menu
 and from Chat restores focus to the initiating order button. Locator key

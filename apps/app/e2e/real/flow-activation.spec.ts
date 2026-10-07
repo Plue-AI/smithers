@@ -3,12 +3,11 @@ import { scenario } from "./coverage/types"
 import { withReference, createTodo, openTodo, todoCard, runSlash, expect, attachJson, required } from "./todo/reference"
 import { journeyActivate } from "./support/keyboard-journey-input"
 
-// Prepared continuation of J5, after the person has taught the factory and its
-// change reached In review. T1 adds pnpm test and CHANGELOG.md; T2 is still
-// waiting for an answer in the prior flow. Preparation is real app work, never SQL seeding.
-// The same live run must remain pinned through T1's merge and flow-load.
-// This continuation alone does not qualify the entire C-J5-01 check.
-test("C-J5-01 merged factory edit activates only for new TODO attempts", scenario("journey-flow-activation", {
+// Fresh-canary J5 teaching and activation. File the factory edit first so it
+// can be merged while T2 waits: append-only stack order forbids merging over
+// a waiting predecessor. Both are real app work, never fixture preparation.
+// Immutable closure retry, learning and watchdog checks remain separate.
+test("C-J5-01 chat teaching activates only for new TODO attempts", scenario("journey-flow-activation", {
   capabilities: [], coverage: ["host:local", "host:production", "door:slash", "door:button", "surface:flow", "surface:todo", "dimension:keyboard", "path:success", "evidence:flow-version-pinning"]
 }), async ({ browser }, info) => {
   test.setTimeout(1_800_000)
@@ -18,16 +17,36 @@ test("C-J5-01 merged factory edit activates only for new TODO attempts", scenari
     const page = f.members.Will.page
     const flow = () => f.read("Will", "/api/flows/todo")
     const active = (card: any) => card.versions.find((version: any) => version.state === "active")
+    expect(await f.read("Will", "/api/todos")).toEqual([])
     const initial = await flow()
+    expect(initial.source).toEqual({ builtin: true })
     const old = active(initial)
     expect(old.id).toMatch(/^[0-9a-f]{64}$/)
-    const proposed = initial.versions.find((version: any) => version.state === "proposed" && version.todo === 1)
+    await runSlash(page, "Every TODO must run `pnpm test` and update the changelog.")
+    const teaching = page.locator('.flow-view').last()
+    await expect(teaching).toBeVisible({ timeout: 120_000 })
+    const diff = teaching.locator(".flow-proposal pre")
+    await expect(diff).toContainText("flows/todo/flow.ts", { timeout: 120_000 })
+    await expect(diff).toContainText("pnpm test")
+    await expect(diff).toContainText("CHANGELOG.md")
+    // The proposed diff is still a conversation card, not a committed TODO.
+    expect(await f.read("Will", "/api/todos")).toEqual([])
+    await journeyActivate(teaching.getByRole("button", { name: "Make TODO", exact: true }))
+    const draft = page.locator('.smithers-card[data-kind="draft"]').last()
+    await expect(draft.getByLabel("Prompt", { exact: true })).toHaveValue(/pnpm test/)
+    await journeyActivate(draft.getByRole("button", { name: "Commit", exact: true }))
+    await expect.poll(async () => (await f.read("Will", "/api/todos/1")).state, { timeout: 660_000 }).toBe("in_review")
+    // Keep a genuine old-version attempt alive during merge and flow-load.
+    await createTodo(page, "Ask me which file to edit before editing. Wait for my answer.")
+    await expect.poll(async () => (await f.read("Will", "/api/todos/2")).state, { timeout: 660_000 }).toBe("needs_you")
+    const proposed = (await flow()).versions.find((version: any) => version.state === "proposed" && version.todo === 1)
     expect(proposed).toBeDefined()
     expect(proposed.id).toMatch(/^[0-9a-f]{64}$/)
     expect(proposed.id).not.toBe(old.id)
     expect(proposed.steps.some((step: any) => step.id === "changelog")).toBe(true)
     const change = await f.read("Will", "/api/todos/1")
     expect(change.state).toBe("in_review")
+    expect(change.flow_version.digest).toBe(old.id)
     const running = await f.read("Will", "/api/todos/2")
     expect(running.state).toBe("needs_you")
     expect(running.run.id).toEqual(expect.any(String))
@@ -46,7 +65,9 @@ test("C-J5-01 merged factory edit activates only for new TODO attempts", scenari
     await expect(card).toContainText("Changelog")
     await openTodo(page, 1)
     await expect.poll(async () => (await f.read("Will", "/api/todos/1")).merge?.state, { timeout: 120_000 }).toBe("ready")
-    await journeyActivate(todoCard(page, 1).getByRole("button", { name: "Merge", exact: true }))
+    const ben = f.members.Ben.page
+    await openTodo(ben, 1)
+    await journeyActivate(todoCard(ben, 1).getByRole("button", { name: "Merge", exact: true }))
     await expect.poll(async () => (await f.read("Will", "/api/todos/1")).state, { timeout: 300_000 }).toBe("merged")
     const pull = await f.github("Will", "GET", `/pulls/${change.pr.number}`) as any
     expect(pull.merged).toBe(true)
