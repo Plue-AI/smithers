@@ -302,7 +302,7 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 				return &TodoAnsweredError{AnsweredBy: wait.AnsweredBy}
 			case wait.SettledAt != nil:
 				return todoControlConflict("The agent no longer asks this question")
-			case len(todoOpenWaits(item)) == 0 || wait.Signal == nil:
+			case len(todoOpenWaits(item)) == 0 || (wait.Signal == nil && wait.Kind != "conflict"):
 				return todoControlConflict("TODO is settled")
 			}
 			if wait.Kind == "conflict" {
