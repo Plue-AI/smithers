@@ -93,3 +93,21 @@ func TestInstallSetupErrorRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(encoded, &roundtrip))
 	require.Equal(t, step.Error, roundtrip.Error)
 }
+
+func TestInitialInstallAddressExplicitPort(t *testing.T) {
+	for _, bind := range []string{"127.0.0.1:47401", "[::1]:65533", "localhost:1"} {
+		body, err := json.Marshal(map[string]any{"bind": bind, "origins": []string{"http://localhost:4000"}})
+		require.NoError(t, err)
+		input, err := ValidateInitialInstallAddress(body)
+		require.NoError(t, err)
+		require.Equal(t, bind, input.Bind)
+		_, err = ValidateInstallSetupBody("address", body)
+		require.Error(t, err, "the setup card keeps its fixed port")
+	}
+	for _, bind := range []string{"127.0.0.1:0", "127.0.0.1:65534", "127.0.0.1:65535", "127.0.0.1:-1", "127.0.0.1:abc", "factory:47401"} {
+		body, err := json.Marshal(map[string]any{"bind": bind, "origins": []string{"http://localhost:4000"}})
+		require.NoError(t, err)
+		_, err = ValidateInitialInstallAddress(body)
+		require.Error(t, err, bind)
+	}
+}

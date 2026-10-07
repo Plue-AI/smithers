@@ -405,6 +405,7 @@ boundary("packaged setup mint pipe rotates before claim and is silent after clai
       }
       if (await Promise.race([child.exited, Bun.sleep(30_000).then(() => undefined)]) === undefined) { child.kill("SIGKILL"); await child.exited }
     }
+    writeFileSync(join(temporary, "fixture-stop"), "done\n", { mode: 0o600 })
     fixture.stdin.end()
     await fixture.exited
     await fixtureOutput

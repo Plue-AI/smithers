@@ -3,7 +3,6 @@ package testkit
 // This subprocess fixture supplies only the external GitHub boundary. The
 // installed launcher, private PostgreSQL, owner transaction and cookies are real.
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -294,11 +293,53 @@ func TestPackagedSetupGitHubFixture(t *testing.T) {
 	ready, _ := json.Marshal(map[string]string{"control": control.URL, "proxy": proxy.URL, "cert": certPath})
 	require.NoError(t, os.WriteFile(filepath.Join(root, "fixture-ready.json"), ready, 0600))
 	fmt.Println("PACKAGED_FIXTURE=" + string(ready))
-	_, _ = bufio.NewReader(os.Stdin).ReadByte()
+	// go test does not forward its stdin to the test binary. Keep the external
+	// fixture alive until the launcher harness writes its completion marker.
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(filepath.Join(root, "fixture-stop")); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("packaged fixture completion marker timed out")
 }
 
 func TestPackagedSetupGitHubFixtureProxy(t *testing.T) {
 	t.Setenv("SMITHERS_PACKAGED_FIXTURE_ROOT", t.TempDir())
 	t.Setenv("SMITHERS_PACKAGED_FIXTURE_SMOKE", "1")
 	TestPackagedSetupGitHubFixture(t)
+}
+
+func TestPackagedSetupGitHubFixtureLifetime(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("SMITHERS_PACKAGED_FIXTURE_ROOT", root)
+	t.Setenv("SMITHERS_PACKAGED_FIXTURE_SMOKE", "")
+	done := make(chan struct{})
+	go func() { defer close(done); TestPackagedSetupGitHubFixture(t) }()
+	stop := func() { _ = os.WriteFile(filepath.Join(root, "fixture-stop"), []byte("done\n"), 0600) }
+	t.Cleanup(func() { stop(); <-done })
+	readyPath := filepath.Join(root, "fixture-ready.json")
+	require.Eventually(t, func() bool { _, err := os.Stat(readyPath); return err == nil }, 10*time.Second, 50*time.Millisecond)
+	var ready struct {
+		Control string `json:"control"`
+	}
+	raw, err := os.ReadFile(readyPath)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &ready))
+	select {
+	case <-done:
+		t.Fatal("fixture exited before completion marker")
+	default:
+	}
+	response, err := http.Get(ready.Control + "/status")
+	require.NoError(t, err)
+	require.Equal(t, 500, response.StatusCode, "live external boundary reports absent private database")
+	response.Body.Close()
+	stop()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("fixture did not stop")
+	}
 }

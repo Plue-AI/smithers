@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -89,7 +90,12 @@ func validateInstallSetupBody(step string, raw []byte, requireNetworkOrigin bool
 	switch step {
 	case "address":
 		host, port, err := net.SplitHostPort(input.Bind)
-		if input.Bind != "" && (err != nil || port != "4000" || !(host == "localhost" || net.ParseIP(host) != nil)) {
+		portNumber, portErr := strconv.Atoi(port)
+		validPort := portErr == nil && portNumber >= 1 && portNumber <= 65533
+		if requireNetworkOrigin {
+			validPort = port == "4000"
+		}
+		if input.Bind != "" && (err != nil || !validPort || !(host == "localhost" || net.ParseIP(host) != nil)) {
 			return input, pkgerrors.BadRequest("invalid bind address")
 		}
 		if len(input.Origins) == 0 || len(input.Origins) > 10 {
