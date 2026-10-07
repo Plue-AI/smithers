@@ -1823,6 +1823,16 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if next, saved, err := st.enforceTodoWatchdog(ctx, item); next != nil || err != nil {
 		return next, saved, err
 	}
+	// Captured edits belong to this attempt. Until its pending-work boundary
+	// consumes them, do not turn invalidated verification into a coding retry
+	// or publish an older candidate. Running composition work may still settle.
+	if mythicalChecksOf(item).Capture != nil {
+		switch item.State {
+		case "integrating", "verifying", "proposing", "waiting", "proposed":
+			return nil, false, nil
+		}
+	}
+
 	if item.State == "proposed" && todoReopenedAttempt(item) && !mythicalMergeFenced(item) && !item.PausedAt.Valid {
 		for _, feedback := range mythicalChecksOf(item).Steers {
 			if feedback.ReleasePending && feedback.Attempt == item.Attempt+1 {
@@ -5099,6 +5109,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	Capture               *MachineCapturePending             `json:"capture,omitempty"`
 	MissingTool           *flowdispatch.CertifiedMissingTool `json:"missing_tool,omitempty"`
 	PlanReceipt           *todoRequestReceipt                `json:"planReceipt,omitempty"`
 	RouteReceipt          *todoRequestReceipt                `json:"routeReceipt,omitempty"`

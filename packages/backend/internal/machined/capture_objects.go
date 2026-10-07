@@ -91,3 +91,41 @@ func (s GitCaptureObjects) PublishCapture(ctx context.Context, branch string, ca
 	}
 	return false, fmt.Errorf("publish capture head: %w", err)
 }
+
+// CommitTree reads an immutable commit as data inside the caller's repository
+// maintenance exclusion. It never snapshots or executes repository code.
+func (s GitCaptureObjects) CommitTree(ctx context.Context, branch, head string) (string, error) {
+	if !objectID(head) {
+		return "", wire.BadValue
+	}
+	repo, err := (GitBurstObjects{Resolve: s.Resolve}).repository(ctx, branch)
+	if err != nil {
+		return "", err
+	}
+	raw, err := burstGit(ctx, repo, 1<<20, "cat-file", "commit", head)
+	if err != nil {
+		return "", err
+	}
+	line, _, _ := strings.Cut(string(raw), "\n")
+	tree, ok := strings.CutPrefix(line, "tree ")
+	if !ok || !objectID(tree) {
+		return "", wire.BadValue
+	}
+	return tree, nil
+}
+
+func (s GitCaptureObjects) BranchHead(ctx context.Context, branch string) (string, error) {
+	repo, err := (GitBurstObjects{Resolve: s.Resolve}).repository(ctx, branch)
+	if err != nil {
+		return "", err
+	}
+	raw, err := burstGit(ctx, repo, 64, "rev-parse", "--verify", "refs/smithers/branches/"+branch+"/head")
+	if err != nil {
+		return "", err
+	}
+	head := strings.TrimSpace(string(raw))
+	if !objectID(head) {
+		return "", wire.BadValue
+	}
+	return head, nil
+}

@@ -1,0 +1,174 @@
+package services
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+)
+
+// MachineCapturePending is retained work, not a replacement verified candidate.
+// Onto names the actual host branch head under repository maintenance exclusion.
+type MachineCapturePending struct {
+	Head  string `json:"head"`
+	Tree  string `json:"tree"`
+	Base  string `json:"base"`
+	Onto  string `json:"onto"`
+	Stale bool   `json:"stale"`
+}
+
+// MachineCaptureObjects reads only immutable host objects and the fenced head.
+// It must not execute a guest command or acquire another database connection.
+type MachineCaptureObjects interface {
+	CommitTree(context.Context, string, string) (string, error)
+	BranchHead(context.Context, string) (string, error)
+}
+
+type MachineCaptureProjection struct {
+	tx        pgx.Tx
+	workspace db.Workspace
+	items     []db.MythicalItem
+}
+
+// PrepareMachineCaptureTx takes the same stack -> items -> workspace locks as
+// publication before any native ref can move. Call only from authenticated
+// machine ingestion; a payload never grants permission to select a branch.
+func PrepareMachineCaptureTx(ctx context.Context, tx pgx.Tx, branch string) (*MachineCaptureProjection, error) {
+	if tx == nil {
+		return nil, errors.New("capture transaction unavailable")
+	}
+	id, err := uuid.Parse(branch)
+	if err != nil || id.String() != branch {
+		return nil, errors.New("invalid capture branch")
+	}
+	q := db.New(tx)
+	before, err := q.GetWorkspace(ctx, branch)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, before.RepositoryID); err != nil {
+		return nil, err
+	}
+	items, err := q.LockMythicalStackOrder(ctx, before.RepositoryID)
+	if err != nil {
+		return nil, err
+	}
+	var repository int64
+	if err = tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, branch).Scan(&repository); err != nil {
+		return nil, err
+	}
+	if repository != before.RepositoryID {
+		return nil, errors.New("capture branch changed repository")
+	}
+	current, err := q.GetWorkspace(ctx, branch)
+	if err != nil {
+		return nil, err
+	}
+	return &MachineCaptureProjection{tx: tx, workspace: current, items: items}, nil
+}
+
+// ValidatePublication runs only for a new receipt, after the ordered locks and
+// duplicate check, but before any native publication. Replaying an acknowledged
+// capture must remain possible while a later merge holds its durable fence.
+func (p *MachineCaptureProjection) ValidatePublication() error {
+	if p == nil || p.tx == nil {
+		return errors.New("capture projection unavailable")
+	}
+	for _, item := range p.items {
+		if item.WorkspaceID == p.workspace.ID && mythicalTodo(item) && mythicalMergeFenced(item) {
+			return errors.New("capture blocked by merge in flight")
+		}
+	}
+	return nil
+}
+
+// Apply runs after object verification/publication but in the same transaction
+// as the receipt. It preserves candidate/run/pin history and only withdraws
+// verification; a later equal capture never re-enables an invalidated candidate.
+func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captured, applied bool, objects MachineCaptureObjects) error {
+	if p == nil || p.tx == nil || objects == nil {
+		return errors.New("capture projection unavailable")
+	}
+	for _, oid := range []string{capture.Head, capture.Tree, capture.Base} {
+		if !codingCommitID.MatchString(oid) {
+			return errors.New("invalid capture identity")
+		}
+	}
+	head, err := objects.BranchHead(ctx, p.workspace.ID)
+	if err != nil {
+		return err
+	}
+	if !codingCommitID.MatchString(head) || (applied && head != capture.Head) || (!applied && (head == capture.Head || head == capture.Base)) {
+		return errors.New("capture publication changed")
+	}
+	pending := MachineCapturePending{Head: capture.Head, Tree: capture.Tree, Base: capture.Base, Onto: head, Stale: !applied}
+	q := db.New(p.tx)
+	changed, needed := false, !applied
+	var retained *MachineCapturePending
+	if len(p.workspace.CapturePending) > 0 {
+		retained = new(MachineCapturePending)
+		if err = json.Unmarshal(p.workspace.CapturePending, retained); err != nil {
+			return err
+		}
+		needed = true
+	}
+	// An ordinary later capture is not proof that a stale capture was rebased.
+	// Retain that recovery obligation until an explicit reconciliation consumes it.
+	if applied && retained != nil && retained.Stale {
+		pending = *retained
+		pending.Onto = head
+	}
+	for _, item := range p.items {
+		if item.WorkspaceID != p.workspace.ID || !mythicalTodo(item) {
+			continue
+		}
+		checks := mythicalChecksOf(item)
+		mismatch := pending.Stale || checks.Capture != nil
+		if item.CandidateHead != "" {
+			tree, err := objects.CommitTree(ctx, p.workspace.ID, item.CandidateHead)
+			if err != nil {
+				return err
+			}
+			if !codingCommitID.MatchString(tree) {
+				return errors.New("candidate tree unavailable")
+			}
+			mismatch = mismatch || tree != capture.Tree
+		}
+		if !mismatch {
+			continue
+		}
+		needed = true
+		checks.Capture = &pending
+		checks.Land = nil
+		item.CandidateVerified = false
+		item.Checks = checks.encode()
+		if _, err = q.SaveMythicalItem(ctx, item); err != nil {
+			return err
+		}
+		changed = true
+	}
+	var raw []byte
+	if needed {
+		raw, err = json.Marshal(pending)
+		if err != nil {
+			return err
+		}
+	}
+	if _, err = p.tx.Exec(ctx, `UPDATE workspaces SET capture_pending=$2,updated_at=NOW() WHERE id=$1`, p.workspace.ID, raw); err != nil {
+		return err
+	}
+	if changed {
+		rows, err := q.RequestMythicalStack(ctx, p.workspace.RepositoryID)
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return errors.New("capture stack unavailable")
+		}
+	}
+	return nil
+}

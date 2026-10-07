@@ -208,3 +208,37 @@ func TestMachineReceiptReplayBindsEventPayload(t *testing.T) {
 	_, err = writer.Commit(t.Context(), link.Connection, branch, event)
 	require.ErrorIs(t, err, ErrNotReady)
 }
+
+func TestMachineEventPreparationRefusals(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	registry := new(Registry)
+	boot, err := registry.MintBoot(branch, "capture-preparation")
+	require.NoError(t, err)
+	link, _ := connectTest(t, registry, branch, boot)
+	called := 0
+	writer := func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error) {
+		called++
+		return Acknowledgement{Outcome: AckApplied}, nil
+	}
+	for _, test := range []struct {
+		name    string
+		prepare EventPreparation
+		direct  EventWriter
+	}{
+		{"preparation failed", func(context.Context, pgx.Tx, string, Event) (EventWriter, error) {
+			return nil, errors.New("projection unavailable")
+		}, nil},
+		{"preparation absent writer", func(context.Context, pgx.Tx, string, Event) (EventWriter, error) { return nil, nil }, nil},
+		{"ambiguous writers", func(context.Context, pgx.Tx, string, Event) (EventWriter, error) { return writer, nil }, writer},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ingestor := &Ingestor{Pool: pool, Prepare: test.prepare, Write: test.direct}
+			_, err := ingestor.Commit(t.Context(), link.Connection, branch, capturedEvent(1, boot.ID))
+			require.Error(t, err)
+			var receipts int
+			require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+			require.Zero(t, receipts)
+			require.Zero(t, called)
+		})
+	}
+}

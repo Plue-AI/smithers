@@ -10,6 +10,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 // withMachineRepositoryTx resolves the host store using the event's existing
@@ -59,22 +60,32 @@ func withMachineRepositoryTx(ctx context.Context, tx pgx.Tx, branch string, host
 	return host.WithMachineRepository(ctx, scope.OwnerSlug, scope.RepoName, visit)
 }
 
-// machineCaptureWriter binds the same authenticated repository capability as
-// object import to the receipt transaction. Recovery/pending-work projection is
-// mandatory and runs before the receipt can commit. Stack writers must acquire
-// their stack/item fences before entering this workspace-scoped writer.
-func machineCaptureWriter(host *repohost.Client, reconcile func(context.Context, pgx.Tx, string, wire.Captured, bool) error) machined.EventWriter {
-	return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.Acknowledgement, error) {
-		ack := machined.Acknowledgement{Seq: event.Seq}
-		if reconcile == nil {
-			return ack, machined.ErrNotReady
+// prepareMachineCaptureWriter locks stack/items before the workspace or receipt
+// FK, then binds capture publication and pending work to this transaction.
+func prepareMachineCaptureWriter(host *repohost.Client) machined.EventPreparation {
+	return func(ctx context.Context, tx pgx.Tx, branch string, _ machined.Event) (machined.EventWriter, error) {
+		if host == nil {
+			return nil, machined.ErrNotReady
 		}
-		err := withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
-			writer := &machined.CaptureIngest{Objects: machined.GitCaptureObjects{Resolve: func(context.Context, string) (string, error) { return path, nil }}, Reconcile: reconcile}
-			var err error
-			ack, err = writer.Write(ctx, tx, branch, event)
-			return err
-		})
-		return ack, err
+		projection, err := services.PrepareMachineCaptureTx(ctx, tx, branch)
+		if err != nil {
+			return nil, err
+		}
+		return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.Acknowledgement, error) {
+			ack := machined.Acknowledgement{Seq: event.Seq}
+			if err := projection.ValidatePublication(); err != nil {
+				return ack, err
+			}
+			err := withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
+				objects := machined.GitCaptureObjects{Resolve: func(context.Context, string) (string, error) { return path, nil }}
+				writer := &machined.CaptureIngest{Objects: objects, Reconcile: func(ctx context.Context, _ pgx.Tx, _ string, capture wire.Captured, applied bool) error {
+					return projection.Apply(ctx, capture, applied, objects)
+				}}
+				var err error
+				ack, err = writer.Write(ctx, tx, branch, event)
+				return err
+			})
+			return ack, err
+		}, nil
 	}
 }

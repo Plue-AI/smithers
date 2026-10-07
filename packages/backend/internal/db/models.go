@@ -1865,15 +1865,16 @@ type ProductJobDispatch struct {
 }
 
 type ProductJobEvent struct {
-	TenantID    string          `json:"tenant_id"`
-	PrincipalID string          `json:"principal_id"`
-	Sequence    int64           `json:"sequence"`
-	EventID     string          `json:"event_id"`
-	OperationID string          `json:"operation_id"`
-	EventType   string          `json:"event_type"`
-	State       string          `json:"state"`
-	Data        json.RawMessage `json:"data"`
-	RecordedAt  time.Time       `json:"recorded_at"`
+	TenantID           string          `json:"tenant_id"`
+	PrincipalID        string          `json:"principal_id"`
+	Sequence           int64           `json:"sequence"`
+	EventID            string          `json:"event_id"`
+	OperationID        string          `json:"operation_id"`
+	EventType          string          `json:"event_type"`
+	State              string          `json:"state"`
+	Data               json.RawMessage `json:"data"`
+	RecordedAt         time.Time       `json:"recorded_at"`
+	RepositorySequence pgtype.Int8     `json:"repository_sequence"`
 }
 
 type ProductJobRequest struct {
@@ -2899,6 +2900,7 @@ type Workspace struct {
 	DiskMb                  pgtype.Int4        `json:"disk_mb"`
 	ForkedFromItem          pgtype.UUID        `json:"forked_from_item"`
 	ForkedFromBase          string             `json:"forked_from_base"`
+	CapturePending          []byte             `json:"capture_pending"`
 }
 
 type WorkspaceChild struct {

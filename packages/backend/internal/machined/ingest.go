@@ -20,16 +20,23 @@ import (
 // return AckMissingObjects and leave no receipt so the same event can retry.
 type EventWriter func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error)
 
+// EventPreparation acquires projection locks and returns this transaction's
+// writer before the receipt INSERT takes foreign-key locks. It must only read
+// and lock: a duplicate delivery does not execute the returned writer.
+type EventPreparation func(context.Context, pgx.Tx, string, Event) (EventWriter, error)
+
 // Ingestor is the authenticated dispatcher's commit-before-ack boundary. An
 // absent writer refuses admission rather than recording a receipt for lost work.
 type Ingestor struct {
 	Pool  *pgxpool.Pool
 	Write EventWriter
+	// Prepare and Write are exclusive; use Prepare for ordered cross-row locks.
+	Prepare EventPreparation
 }
 
 func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch string, event Event) (Acknowledgement, error) {
 	ack := Acknowledgement{Seq: event.Seq}
-	if i == nil || i.Pool == nil || i.Write == nil {
+	if i == nil || i.Pool == nil || (i.Write == nil && i.Prepare == nil) || (i.Write != nil && i.Prepare != nil) {
 		return ack, ErrNotReady
 	}
 	if connection == nil || connection.registry == nil {
@@ -72,6 +79,16 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 		defer cancel()
 		_ = tx.Rollback(cleanup)
 	}()
+	writer := i.Write
+	if i.Prepare != nil {
+		writer, err = i.Prepare(ctx, tx, branch, event)
+		if err != nil {
+			return ack, err
+		}
+		if writer == nil {
+			return ack, ErrNotReady
+		}
+	}
 	eventID := fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
 	// The unique insert serializes concurrent replay across connections/processes.
 	inserted, err := tx.Exec(ctx, `INSERT INTO machine_event_receipts(workspace_id,event_id,outcome,payload_digest,capture_payload) VALUES($1,$2,'pending',$3,$4) ON CONFLICT(workspace_id,event_id) DO NOTHING`, branch, eventID, digest[:], capture)
@@ -103,7 +120,7 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 			return ack, errors.New("invalid machine event receipt")
 		}
 	} else {
-		ack, err = i.Write(ctx, tx, branch, event)
+		ack, err = writer(ctx, tx, branch, event)
 		if err != nil {
 			return Acknowledgement{Seq: event.Seq}, err
 		}
