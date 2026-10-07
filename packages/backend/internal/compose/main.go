@@ -1844,6 +1844,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			limit:   middleware.GlobalAPIRateLimit(queries)}
 		mountBrowserFlow(router, cfg, queries, browser)
 	}
+	var modelTests *modelhost.OwnerModels
 	if chatService != nil && options.topology.servesHTTP() {
 		if config.IsSingleOwner(cfg.Auth) {
 			chatService.runtime.Handler.ResolveBranch = conversationBranchResolver(workspaceService)
@@ -1858,6 +1859,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		ownerModels := modelhost.OwnerModels{Pool: pool, Codec: webhookSecretCodec}
 		if tester, ok := options.ChatHost.(modelhost.ModelTester); ok {
 			ownerModels.Tester = tester
+			modelTests = &ownerModels
 		}
 		mountModelPublic(router, ownerModels, queries, cfg)
 	}
@@ -2009,6 +2011,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if flowWorker != nil {
 		launchWorker(func() { flow.maintainRetired(workerCtx) })
+	}
+	if modelTests != nil && options.topology.workers() {
+		launchWorker(func() {
+			if err := modelTests.RunModelTests(workerCtx); err != nil && workerCtx.Err() == nil {
+				slog.Error("model test worker stopped", "error", err)
+			}
+		})
 	}
 	if installSetup != nil {
 		launchWorker(func() {

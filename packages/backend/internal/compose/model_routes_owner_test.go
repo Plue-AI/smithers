@@ -148,7 +148,7 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 	require.Equal(t, "model-a", after.Agents[3].Model.ID)
 	const modelB = `{"model":{"protocol":"openai-chat","modelId":"model-b","credential":"OPENAI_API_KEY"}}`
 	for _, person := range []string{"ben", "alice"} {
-		for _, write := range []struct{ method, path, body string }{{"PUT", "/api/agents/reviewer/model", modelB}, {"PUT", "/api/model/default", modelB}, {"POST", "/api/model/credential", `{}`}, {"POST", "/api/model/test", `{}`}} {
+		for _, write := range []struct{ method, path, body string }{{"PUT", "/api/agents/reviewer/model", modelB}, {"PUT", "/api/model/default", modelB}, {"POST", "/api/model/credential", `{}`}, {"POST", "/api/model/test", `{}`}, {"GET", "/api/model/test/receipt?requestId=private-probe-id", ""}} {
 			res := call(person, write.method, write.path, write.body)
 			require.Equal(t, 403, res.Code, res.Body.String())
 			require.Contains(t, res.Body.String(), `"class":"permission"`)
