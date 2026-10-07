@@ -9,7 +9,7 @@ scripts/spikes/col-01/run.sh
 Requires Apple Silicon, the pinned Rust toolchain, Go, pnpm, Chromium installed
 for the app's Playwright version, local `msb 0.6.16` and PostgreSQL binaries
 (`initdb`, `pg_ctl`). An npm msb launcher is resolved to its native binary;
-`SPIKE_MSB_BIN` may specify that native binary explicitly. The isolated browser package pins Yjs 13.6.32, Playwright 1.62.1 and the
+`SPIKE_MSB_BIN` overrides are rejected by preflight. The isolated browser package pins Yjs 13.6.32, Playwright 1.62.1 and the
 app's lib0 0.2.117; its launcher installs only offline from the existing store.
 No container runtime or guest build toolchain is needed. The Rust toolchain cross-links static Linux
 binaries with its bundled musl and LLD.
@@ -80,16 +80,11 @@ exact one-way network measurement. Per-editor p95 also gates concurrent runs.
 The default also shallow-clones public `main` inside the VM, installs dependencies
 with pinned Node 26.5.0 / pnpm 11.25.0 (dependency installation is offline and
 requires `SPIKE_SNAPSHOT_STORE_ARCHIVE`, an absolute path to a tar archive of
-an already populated pnpm 11 store for Linux ARM64). Build it on the reference
-host with `scripts/spikes/col-01/store.sh <main SHA> <absolute dir>`: one
-disposable DefaultImage microVM with public network runs a frozen install of that
-revision and writes `<dir>/store.tar`, then is removed. The archive holds the
-`--store-dir` root without `v11/projects` (symlinks back to the build checkout,
-which the guest's safe extract rejects), so it carries the `v11/` directory pnpm appends,
-plus `cache/` registry metadata, which an offline frozen install also reads;
-`pnpm store path` already ends in `v11`, and an archive of that directory is not
-found by `--store-dir`. Build it from the `main` the guest will clone, then set
-the variable before running. The archive is copied into the guest,
+an already populated pnpm 11 store for Linux ARM64). `store.sh` refuses preparation until a qualified non-root guest launcher
+and fresh-machine offline validation are available. Its former direct msb path
+ran checkout and installs as root and has been removed. Supply a complete
+Linux ARM64 store prepared through reviewed provisioning; no archive is
+produced by this refusal. The archive is copied into the guest,
 extracted safely, and passed explicitly as `--store-dir`; its SHA-256 is retained.
 A Mac-only store may omit Linux optional dependencies and is insufficient.
 Missing packages fail closed; no network-heavy install runs on the reference host, and measures jj 0.39.0 snapshots for
