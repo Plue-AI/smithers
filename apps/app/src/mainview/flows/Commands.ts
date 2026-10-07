@@ -610,8 +610,24 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     if (invoker !== "user" && invoker !== "agent" && target.metadata.confirm !== undefined) {
       return { status: "failed", error: `/${nameOf(target)} requires a person's confirmation.` }
     }
+    const authorizeTarget = async (): Promise<CommandOutcome | undefined> => {
+      if (invocation !== undefined && invocation.authorized !== Cell.declarationDigest(target.binding.descriptor)) {
+        const decision = await Effect.runPromise(Effect.result(invocation.authorize.authorize({
+          name: nameOf(target),
+          capabilities: target.binding.descriptor.capabilities,
+          slot: invocation.slot
+        })), { signal: invocation.signal })
+        if (decision._tag === "Failure") {
+          invocation.refused(decision.failure)
+          return { status: "failed", error: commandFailureSentence(nameOf(target), decision.failure) }
+        }
+      }
+    }
     if (invoker === "agent" && !modelInvocable(target)) {
-      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
+      // Host authority takes precedence over the person-only policy. Neither
+      // decision invokes the binding or opens a card.
+      const denied = await authorizeTarget()
+      return denied ?? { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
     }
     // A user-only flow refuses every non-person actor, automatic `system` calls
     // included (#3717): a future automatic caller that forwards a name from data
@@ -778,19 +794,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       }
     }
     if (invoker === "agent") {
-      if (invocation !== undefined && invocation.authorized !== Cell.declarationDigest(target.binding.descriptor)) {
-        const request = {
-          name: nameOf(target),
-          capabilities: target.binding.descriptor.capabilities,
-          slot: invocation.slot
-        }
-        const authorization = invocation.authorize.authorize(request)
-        const decision = await Effect.runPromise(Effect.result(authorization), { signal: invocation.signal })
-        if (decision._tag === "Failure") {
-          invocation.refused(decision.failure)
-          return { status: "failed", error: commandFailureSentence(nameOf(target), decision.failure) }
-        }
-      }
+      const denied = await authorizeTarget()
+      if (denied !== undefined) return denied
       // Bind this continuation explicitly. No shared mutable actor or authority
       // can leak into another concurrent command, and card metadata grants nothing.
       if (nameOf(target) === "form.submit") {
@@ -869,10 +874,6 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       const clean = canonicalCommandName(name)
       const early = lifecycle?.before?.({ name: clean, actor: "smithers", source: "command", invocation }, args)
       if (early !== undefined) return early
-      const target = find(clean)
-      if (target !== undefined && !modelInvocable(target)) {
-        return { status: "failed", error: userOnlyError(clean, target.metadata.agentReason) }
-      }
       return runAs("agent", clean, args, new Set(), {
         ...(invocation ?? unscopedInvocation),
         signal: signal ?? invocation?.signal
@@ -883,10 +884,6 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       if (actor === "user") return runAs("user", clean, display, new Set(), invocation, payload, undefined, gesture, originCardId)
       const early = lifecycle?.before?.({ name: clean, actor: "smithers", source: "form", invocation }, display, payload)
       if (early !== undefined) return early
-      const target = find(clean)
-      if (target !== undefined && !modelInvocable(target)) {
-        return { status: "failed", error: userOnlyError(clean, target.metadata.agentReason) }
-      }
       return runAs("agent", clean, display, new Set(), { ...(invocation ?? unscopedInvocation) }, payload)
     },
     callable,
