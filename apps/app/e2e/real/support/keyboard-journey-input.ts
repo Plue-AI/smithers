@@ -1,6 +1,16 @@
 import type { Locator, Page } from "@playwright/test"
 import { assertKeyboardFocus, assertKeyboardOnly, installKeyboardOnly, installNativeKeyboardOnly, recordKeyboardFocus, type KeyboardFocus, type KeyboardInput } from "./keyboardOnly"
 
+/** Placement labels include the live TODO title. Match its numbered prefix at
+ * a word boundary, never Before T2 against Before T20. Exact labels win. */
+const optionLabel = async (target: Locator, label: string): Promise<string> => {
+  const options = (await target.locator("option").allTextContents()).map(value => value.trim())
+  const exact = options.filter(value => value === label)
+  const matches = exact.length ? exact : options.filter(value => value.startsWith(`${label} `))
+  if (matches.length !== 1) throw new Error("Journey option is absent or ambiguous")
+  return matches[0]!
+}
+
 /** Reach controls through actual Tab input; locator evaluation only observes focus. */
 export function keyboardJourneyInput(page: Page, origin: string, capture?: () => Promise<void>) {
   const inputs: KeyboardInput[] = []
@@ -31,13 +41,11 @@ export function keyboardJourneyInput(page: Page, origin: string, capture?: () =>
   }
   const select = async (target: Locator, label: string) => {
     await reach(target)
-    const options = await target.locator("option").allTextContents()
-    const index = options.findIndex(value => value.trim() === label)
-    if (index < 0) throw new Error("C-UI-01 required option is absent")
+    const resolved = await optionLabel(target, label)
     // Native select typeahead works on macOS, where Home does not select the first option.
-    await page.keyboard.type(label)
+    await page.keyboard.type(resolved)
     const selected = await target.locator("option:checked").textContent()
-    if (selected?.trim() !== label) throw new Error("C-UI-01 keyboard option selection failed")
+    if (selected?.trim() !== resolved) throw new Error("C-UI-01 keyboard option selection failed")
     await page.keyboard.press("Tab")
     await observe()
   }
@@ -103,5 +111,5 @@ export async function journeyChecked(target: Locator, checked: boolean): Promise
 export async function journeySelect(target: Locator, label: string): Promise<void> {
   const input = keyboardInputFor(target.page())
   if (input) await input.select(target, label)
-  else await pointerDoor(target, async () => { await target.selectOption({ label }) })
+  else await pointerDoor(target, async () => { await target.selectOption({ label: await optionLabel(target, label) }) })
 }

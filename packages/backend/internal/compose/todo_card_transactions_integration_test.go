@@ -171,6 +171,33 @@ func TestTodoCardCommitAndAmendTransactions(t *testing.T) {
 	require.Equal(t, []any{"B"}, revisions[1].(map[string]any)["acceptance"])
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE repository_id=$1 AND source='todo'`, repo).Scan(&count))
 	require.Equal(t, 1, count)
+	t.Run("queued insertion is shared and replayed once", func(t *testing.T) {
+		tail := call("POST", "/api/todos", `{"title":"Tail","prompt":"Keep the tail queued","place":{"mode":"append"}}`, "queued-tail", 202)
+		require.EqualValues(t, 2, tail["n"])
+		const body = `{"title":"Inserted","prompt":"Add a jitter helper","place":{"mode":"before","n":2}}`
+		inserted := call("POST", "/api/todos", body, "queued-before", 202)
+		require.EqualValues(t, 3, inserted["n"])
+		require.Equal(t, inserted, call("POST", "/api/todos", body, "queued-before", 202))
+		request, err := http.NewRequest(http.MethodGet, origin+"/api/todos", nil)
+		require.NoError(t, err)
+		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: aliceToken})
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var listed []map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&listed))
+		require.Len(t, listed, 3)
+		for i, number := range []int{1, 3, 2} {
+			require.EqualValues(t, number, listed[i]["n"])
+			require.Equal(t, "queued", listed[i]["state"])
+		}
+		retained := call("GET", path, "", "", 200)
+		require.Equal(t, revisions, retained["prompt_revisions"])
+		var events int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE tenant_id=$1 AND event_type='todo.created' AND data->>'n'='3'`, fmt.Sprint(repo)).Scan(&events))
+		require.Equal(t, 1, events)
+	})
 	// A native guest result is injected at the runtime boundary on this Linux
 	// host. The completed receipt, verifier and HTTP card are production paths.
 	source, digest := strings.Repeat("a", 40), strings.Repeat("b", 64)

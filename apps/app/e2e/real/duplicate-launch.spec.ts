@@ -21,12 +21,23 @@ test("T-REL-02 duplicate Commit and command replay retain one TODO and attempt",
     const commit = draft.getByRole("button", { name: "Commit", exact: true })
     await journeyReach(commit)
     await captureJourney(page)
+    await commit.evaluate(element => {
+      const attempts: { at: string; disabled: boolean }[] = []
+      ;(window as any).__duplicateCommitAttempts = attempts
+      element.addEventListener("keydown", event => {
+        if (event instanceof KeyboardEvent && event.key === "Enter") attempts.push({ at: new Date().toISOString(), disabled: (element as HTMLButtonElement).disabled })
+      })
+    })
     const created = page.waitForResponse(response => response.request().method() === "POST" &&
       new URL(response.url()).pathname === "/api/todos")
     // Two actual activations of the same focused door, without a locator focus
     // shortcut or waiting for launch completion between them.
     await page.keyboard.press("Enter")
     await page.keyboard.press("Enter")
+    const buttonAttempts = await page.evaluate(() => (window as any).__duplicateCommitAttempts)
+    // A second Enter in Chat after focus moved is not a second Commit attempt.
+    expect(buttonAttempts).toHaveLength(2)
+    expect(buttonAttempts[0].disabled).toBe(false)
     const response = await created
     expect(response.status()).toBe(202)
     const accepted = await response.json()
@@ -71,7 +82,7 @@ test("T-REL-02 duplicate Commit and command replay retain one TODO and attempt",
     const events = await f.read("Will", "/api/todos/1/events")
     expect(events.Events.filter((event: any) => event.Type === "todo.created")).toHaveLength(1)
     await keyboardInputFor(page)!.observe()
-    await attachJson(info, "duplicate-launch", { n: accepted.n, identity, commandReplays: 2, buttonActivations: 2,
+    await attachJson(info, "duplicate-launch", { n: accepted.n, identity, commandReplays: 2, buttonAttempts,
       createdEvents: 1, state: after.state })
   })
 })

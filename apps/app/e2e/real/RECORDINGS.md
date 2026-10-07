@@ -99,6 +99,16 @@ also retains the partial timeline. These one-to-two-second samples do not prove
 the check's one-second projection latency bound or immutable closure/watchdog
 obligations; those still need their independent reference evidence.
 
+`todo-placement.spec.ts` now supplies the prepared J7 insert/amend source. Prepare
+T1 In review, T2 Working and T3 Queued through the real app; the run refuses any
+other opening state. Ben inserts T4 Before T3, amends T2 and checks shared and
+rendered order, retained branch/run/attempt, revision attribution, delivered
+steer, verified candidate base and GitHub draft readback. No held fixture step
+is released by this recording: both live attempts must finish themselves. It
+has not run on the reference host and does not qualify all C-J7-01 admission
+ordering obligations. Placement input resolves the live TODO title after its
+number and refuses missing or ambiguous choices; T2 never matches T20.
+
 The keyboard entry also lists three prepared-install passes: branch/terminal,
 stack/flow/monitor doors; outside saves; and backend restart. They are
 reference-only scaffolding, not passing journey receipts. The branch pass needs

@@ -80,6 +80,35 @@ test("shared real journey doors traverse before typing, preserve editor text, an
   } finally { await browser.close(); server.stop(true) }
 }, 30_000)
 
+for (const mode of ["keyboard", "pointer"] as const) test(`${mode} placement resolves a TODO title without choosing T20 for T2`, async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
+    <style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
+    <select aria-label="Place"><option value="append">Append</option>
+      <option value="20">Before T20 Document delivery</option><option value="2">Before T2 Retry webhooks</option></select>
+    <select aria-label="Exact"><option value="titled">Before T2 Retry webhooks</option><option value="exact">Before T2</option></select>
+    <select aria-label="Ambiguous"><option>Before T2 One</option><option>Before T2 Two</option></select>
+    <input aria-label="Chat">
+  `, { headers: { "Content-Type": "text/html" } }) })
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage(), origin = `http://127.0.0.1:${server.port}`
+    await page.goto(origin)
+    const keys = mode === "keyboard" ? registerKeyboardJourney(page, origin) : undefined
+    await journeySelect(page.getByLabel("Place", { exact: true }), "Before T2")
+    expect(await page.getByLabel("Place", { exact: true }).inputValue()).toBe("2")
+    await journeySelect(page.getByLabel("Exact", { exact: true }), "Before T2")
+    expect(await page.getByLabel("Exact", { exact: true }).inputValue()).toBe("exact")
+    await expect(journeySelect(page.getByLabel("Place", { exact: true }), "Before T3")).rejects.toThrow("absent or ambiguous")
+    expect(await page.getByLabel("Place", { exact: true }).inputValue()).toBe("2")
+    await expect(journeySelect(page.getByLabel("Ambiguous", { exact: true }), "Before T2")).rejects.toThrow("absent or ambiguous")
+    if (keys) {
+      await journeyEnter(page.getByLabel("Chat"), "Still usable")
+      keys.finish()
+      expect(keys.snapshot().inputs.every(input => input.result === "allowed")).toBe(true)
+    }
+  } finally { await browser.close(); server.stop(true) }
+}, 30_000)
+
 test("capture sees a transient card before activation dismisses it", async () => {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
     <style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
