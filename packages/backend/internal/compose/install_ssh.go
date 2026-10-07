@@ -68,3 +68,16 @@ func startInstallSSH(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool
 	go func() { _ = server.Serve(listener) }()
 	return server, port, func() { _ = listener.Close(); stop() }, nil
 }
+
+// Only the hosted grant composition advertises a private workspace SSH hop.
+// Install member channels use the authenticated daemon transport instead.
+func legacyWorkspaceSSHOption(cfg *config.Config) services.WorkspaceServiceOption {
+	return func(service *services.WorkspaceService) {
+		if config.IsSingleOwner(cfg.Auth) {
+			return
+		}
+		services.WithWorkspaceSSHHost(cfg.Sandbox.WorkspaceSSHHost)(service)
+		services.WithWorkspaceSSHDialHost(cfg.Sandbox.WorkspaceSSHDialHost)(service)
+		services.WithWorkspaceSSHHostKeyDir(cfg.SSH.HostKeyDir)(service)
+	}
+}
