@@ -13,6 +13,9 @@ import (
 func TestInstallMemberCommandRoutes(t *testing.T) {
 	for _, tc := range []struct{ method, path, command string }{
 		{http.MethodGet, "/api/user", "self"},
+		{http.MethodPost, "/api/workflow/rpc", "flow.relay"},
+		{http.MethodPost, "/api/workflow/provision", "box.resume"},
+		{http.MethodGet, "/api/workflow/rpc", ""},
 		{http.MethodGet, "/api/branches/main/files/src/b.ts", "branch.read"},
 		{http.MethodGet, "/api/branches/main/files/.smithers/machine.json", "branch.read"},
 		{http.MethodPost, "/api/auth/logout", "self"},
