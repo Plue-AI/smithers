@@ -436,6 +436,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 			{"repository", `UPDATE workspaces SET repository_id=$2 WHERE id=$1`, otherRepo.ID, repo.ID},
 			{"owner", `UPDATE workspaces SET user_id=$2 WHERE id=$1`, otherOwner.ID, machineOwner},
 			{"branch", `UPDATE workspaces SET target_bookmark=$2 WHERE id=$1`, "smithers/rebound-item", "smithers/sleep-item"},
+			{"source_commit", `UPDATE workspaces SET source_commit=$2 WHERE id=$1`, base, ""},
 		} {
 			t.Run("rebound_"+binding.name, func(t *testing.T) {
 				_, err := pool.Exec(ctx, `UPDATE workspaces SET status='pending',disk_reclaimed_at=NOW(),branch_archived_at=NOW() WHERE id=$1`, id)

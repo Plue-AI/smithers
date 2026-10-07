@@ -86,8 +86,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepository(ctx context.Context,
 	// final compare-and-set must not discard recovery markers for an earlier
 	// snapshot when a new capture is awaiting projection. The guest receipt also
 	// belongs to the exact machine/repository/owner/branch binding read before
-	// preparation; a replacement binding must retry its own reconstruction.
-	result, err := tx.Exec(ctx, `UPDATE workspaces SET disk_reclaimed_at=NULL,branch_archived_at=NULL,updated_at=NOW() WHERE id=$1 AND head_commit_id=$2 AND disk_reclaimed_at=$3 AND deleted_at IS NULL AND capture_pending IS NULL AND vm_id=$4 AND repository_id=$5 AND user_id=$6 AND target_bookmark=$7`, row.ID, row.HeadCommitID, row.DiskReclaimedAt, row.VmID, row.RepositoryID, row.UserID, row.TargetBookmark)
+	// preparation, including its original pushed-ref identity; a replacement
+	// binding must retry its own reconstruction.
+	result, err := tx.Exec(ctx, `UPDATE workspaces SET disk_reclaimed_at=NULL,branch_archived_at=NULL,updated_at=NOW() WHERE id=$1 AND head_commit_id=$2 AND disk_reclaimed_at=$3 AND deleted_at IS NULL AND capture_pending IS NULL AND vm_id=$4 AND repository_id=$5 AND user_id=$6 AND target_bookmark=$7 AND source_commit=$8`, row.ID, row.HeadCommitID, row.DiskReclaimedAt, row.VmID, row.RepositoryID, row.UserID, row.TargetBookmark, row.SourceCommit)
 	if err != nil {
 		return err
 	}
