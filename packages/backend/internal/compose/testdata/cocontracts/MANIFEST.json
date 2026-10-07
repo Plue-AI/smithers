@@ -26,14 +26,75 @@
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "0a7bbdb52dd8fb3f5f0ba3ad48ef67ebf625e1a4b1da13f53f9f4a812d3e42ef"
+      "vector": "a",
+      "sha256": "619baf6041ef2dcdc08a5797629344a6ef3ec2e6f490b986df84b424f1bd1bb6"
     },
     {
       "name": "hello_host_proof",
       "direction": "host-to-daemon",
       "expected": "ok",
       "local": false,
-      "sha256": "b194c9a24e58ed7a83be1dc2038ff78ef9ab3a67bcd1f7d8903b74fdcdc3e584"
+      "vector": "a",
+      "sha256": "d77a78b69337e681c7038de4517aa4b6fc1d5e9520838e9ae9ef723f79df8956"
+    },
+    {
+      "name": "hello_host_proof_bad_mac",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "vector": "a",
+      "handshake": "auth_failed",
+      "sha256": "27a80391cf75df9d584edc96464ddf801cecaa10697549c412038911c70f74c2"
+    },
+    {
+      "name": "hello_challenge_older",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "vector": "a",
+      "handshake": "version_mismatch",
+      "sha256": "6171cbd62660ec28dc51312800a3cb7a49015f0d8d2a7abef2f21f2441fb104e"
+    },
+    {
+      "name": "hello_host_proof_older",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "vector": "a",
+      "handshake": "version_mismatch",
+      "sha256": "ef26b5717408845d40e13850081014b1f87e0372d4e33bfa9f3e926b9bc18593"
+    },
+    {
+      "name": "hello_challenge_newer",
+      "direction": "daemon-to-host",
+      "expected": "version_mismatch",
+      "local": false,
+      "vector": "a",
+      "sha256": "2756072d882e8951d61b8e46692c0a7a7228afd07e0d6e9d592a497e361555be"
+    },
+    {
+      "name": "hello_host_proof_newer",
+      "direction": "host-to-daemon",
+      "expected": "version_mismatch",
+      "local": false,
+      "vector": "a",
+      "sha256": "7f86d8f8b24b662d9fcd5ce2a9a2baed8726fc03545ea306fb1bdeaf338305c3"
+    },
+    {
+      "name": "hello_challenge_b",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "vector": "b",
+      "sha256": "d2cc33bca302b1859878662f9f82f0adbc9d37bc9d4ec156eeeecaeda0fc68ba"
+    },
+    {
+      "name": "hello_host_proof_b",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "vector": "b",
+      "sha256": "a7dc464291d5cdd820edab5d00d05fa39a8898d0b194c72aa004fb760bf5ffe0"
     },
     {
       "name": "hello_machine",
@@ -41,6 +102,13 @@
       "expected": "ok",
       "local": false,
       "sha256": "025700b9290474b8c22e7c17fa7ad11d6709600da513e45c5ec7ee0eb5082129"
+    },
+    {
+      "name": "hello_machine_b",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "04cd2212ea66c052075b9852c02336d8e053a9c3a04e5f3c3883f31a4e465f5c"
     },
     {
       "name": "hello_welcome",
@@ -69,6 +137,13 @@
       "expected": "ok",
       "local": false,
       "sha256": "2c5bd9d42c8486a7440bc7a35ef0ea3918bcb6f7787e310e5980a39b9783ab71"
+    },
+    {
+      "name": "goodbye_handshake_order",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "4f9bb69a366433e296b944f5cc1387590a3b04b4dcbe1c254be6977fe97acd4f"
     },
     {
       "name": "req_status",
@@ -187,7 +262,7 @@
       "direction": "host-to-daemon",
       "expected": "ok",
       "local": false,
-      "sha256": "46a017e9277a74dcc597341b5f0a23b495d6d6a6b1dac20e1e156a1d3c611e7f"
+      "sha256": "5b6f05a15a8dace7af8bd0dc31ae87883f543a743f6704a3f8497899cbb9e736"
     },
     {
       "name": "res_unsupported_kill_sessions",
@@ -446,84 +521,63 @@
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "940234e2f4de30b898dfb6b3e4eb1f310cead72b66d11cad41dec0d66d4a48c3"
+      "sha256": "fd748be59a1dff53ab92b31d7d613968d2d84d7dc5d6da70f1b9cb0de7a1b152"
     },
     {
       "name": "ev_burst_rename_delete",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "76710dc20150b5de820df487d9c1183e9054c8de9a149ecc0077177e0ffd5aba"
+      "sha256": "76495c44163e70e7c3ef116bfdaf7447ab695301d0f9ae29d2a9881a46e064ca"
     },
     {
       "name": "ev_burst_part",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "6f2e1b5601f3cab37c036f392d9b89b505e65b623ec91d4ac19c67cbcfb7386b"
+      "sha256": "e0e0b5724eb241382ffa28ca03ebe4874d37ac08683f7131d86c061a24bacef6"
     },
     {
       "name": "ev_captured",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "99a2c7eab578c0e142f672dc9383fde3f3a05d3b61351c0415c28a5beb0883e2"
+      "sha256": "599e477c38830dae2f764c9b1bb3336c073377f011a1f43202254ed2266543da"
     },
     {
       "name": "ev_reconciled_moved",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "c897b0a97b9fa4b70c6901e52dbc22a6592151b4383f8545d3b05763e6d58a83"
+      "sha256": "29f1cd05a23e80524175ad54d2787c8d7fadc99206f0c8fa3e64e079666625f4"
     },
     {
       "name": "ev_reconciled_conflict",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "b9775e6de26eb7f7c01e9bdb773a74f858960a71f65df88a5a652dd6781caf98"
+      "sha256": "5eba9866ecbd7d567fd2def20baddfb4d344ff2f6ce5221e95c41b3fcb8057f1"
     },
     {
       "name": "ev_reserved_moved_off",
       "direction": "daemon-to-host",
       "expected": "missing_field",
       "local": false,
-      "sha256": "45fb0cab2cfc2b943e95f63c65775355d898f2aaec90fdb85ad4c7c6d409c042"
-    },
-    {
-      "name": "ev_reserved_transcript",
-      "direction": "daemon-to-host",
-      "expected": "missing_field",
-      "local": false,
-      "sha256": "c2014403c4f063ec7fe76c37d983a85002a4a25644c13c4010fa48ff28b1dbac"
+      "sha256": "4e25d0c568dab8a43316196887053bf365ac64a6dc04607dfc72bb49f069fbaa"
     },
     {
       "name": "ev_reserved_doc_edit",
       "direction": "daemon-to-host",
-      "expected": "ok",
+      "expected": "bad_value",
       "local": false,
-      "sha256": "4aa388b4a80e47b4cbd4c405face753dfac6a16a56a821c9b3d8991e68dd4760"
+      "sha256": "2241c634977d45348ae36275ed2d88d8ae4f55fb2c2cfcd1e70fcd577d83306f"
     },
     {
-      "name": "ev_transcript",
+      "name": "ev_reserved_doc_edit_body",
       "direction": "daemon-to-host",
-      "expected": "ok",
+      "expected": "bad_value",
       "local": false,
-      "sha256": "4901ef746fa542db9df41a5e2c96fbbfbac656f2bdf8a1ffa8c172be6c1ef18a"
-    },
-    {
-      "name": "ev_transcript_bad_utf8",
-      "direction": "daemon-to-host",
-      "expected": "bad_utf8",
-      "local": false,
-      "sha256": "9feb505dfd064f97694c4604d783b63ae3298fbbaa82922dab869fb4ee1d20bb"
-    },
-    {
-      "name": "ev_transcript_partial",
-      "direction": "daemon-to-host",
-      "expected": "bad_utf8",
-      "local": false,
-      "sha256": "fe2cb02ffa75adb389946cd30037433690ca549657a479ff62aa2d0e96e79bbf"
+      "sha256": "c95ecc81c23753b5f94aa5ef9d7e1df9bddc4feab7088ab28ae429717403cb30"
     },
     {
       "name": "hint_file_written",
@@ -603,6 +657,34 @@
       "sha256": "a33e35037c5792e6beb2770d0eaccb9df1c1e9ee89442b08d4e73fe061ee5430"
     },
     {
+      "name": "obj_resend_data",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "e8d066fa3cd749a9bf7f6138c2702054bbf31a776ccdaad9501759bf4ddeea08"
+    },
+    {
+      "name": "obj_resend_eof",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "2ab23eca307b65a34c93347cf09c64c6322c613b1b8178388b1642a5611022f8"
+    },
+    {
+      "name": "obj_replay_data",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "26beb4eda8438aa0a5ee0f97b3aa628cf3df7535647b2702f9337c5bbac07f96"
+    },
+    {
+      "name": "obj_replay_eof",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "6961f8fbd3c4bd24c751d170b25c9a4dde08bbcecbb0e57027d5bed2c8f4951d"
+    },
+    {
       "name": "obj_host_data",
       "direction": "host-to-daemon",
       "expected": "ok",
@@ -639,21 +721,21 @@
     },
     {
       "name": "sess_data_out",
-      "direction": "host-to-daemon",
+      "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
       "sha256": "406c6dc27012b61a9dd60c45f3bd6833965b0c94659af1efa7299f41ecaa457f"
     },
     {
       "name": "sess_data_err",
-      "direction": "host-to-daemon",
+      "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
       "sha256": "7b1f9fb4db8dcadadaa6021f4450d79111f3fbc02719dfc6e6e0746628b97f71"
     },
     {
       "name": "sess_eof",
-      "direction": "host-to-daemon",
+      "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
       "sha256": "061a62c0600e582f1842b75c2daeed18807c8b1c88de711d799ae60dbcff005c"
@@ -674,14 +756,14 @@
     },
     {
       "name": "sess_exit_code",
-      "direction": "host-to-daemon",
+      "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
       "sha256": "d40e6cb8d905dc67e36bbc304fb2ebf6c9b6f0a94c76dbeff891a7ae66c40f34"
     },
     {
       "name": "sess_exit_signal",
-      "direction": "host-to-daemon",
+      "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
       "sha256": "79962341fbdcea007e4c310fbc348c41201af254261d25491da3a856a5de8738"
@@ -702,7 +784,7 @@
     },
     {
       "name": "sess_refused_unsupported",
-      "direction": "host-to-daemon",
+      "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
       "sha256": "f8986598c222a4d17f20f5e418005c73ac165928924e77bc271c52383910653f"
@@ -716,7 +798,7 @@
     },
     {
       "name": "doc_refused_unsupported",
-      "direction": "host-to-daemon",
+      "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
       "sha256": "753b62de68a6166c6e14e76a44bc4f8cb4dd8ed4aa8270500e09bb7f959c7db9"
@@ -817,7 +899,168 @@
       "direction": "host-to-daemon",
       "expected": "trailing_bytes",
       "local": false,
-      "sha256": "e625fe251262e45df98932500f7e54e386309cd59b01bc81f9f1d05e177f477c"
+      "sha256": "dfe232c11777065783270d8f7297cc2ccc9cd390a988c77d78337b7aec578a53"
+    },
+    {
+      "name": "bad_unknown_message_hello",
+      "direction": "host-to-daemon",
+      "expected": "unknown_message",
+      "local": false,
+      "sha256": "f80dec80766a410e75c610e74af5742213c5f0118917622bfa392c467c2bf5b6"
+    },
+    {
+      "name": "bad_unknown_message_events",
+      "direction": "host-to-daemon",
+      "expected": "unknown_message",
+      "local": false,
+      "sha256": "cd552223dd846d17efe592e6f63fcc49f14bb4e68750d80db99ec871a545a30a"
+    },
+    {
+      "name": "bad_unknown_message_presence",
+      "direction": "host-to-daemon",
+      "expected": "unknown_message",
+      "local": false,
+      "sha256": "ea8f7dfb28ac1216b89b2b394763a346e74ba5c2d2dc10af14bd489b102c2ba6"
+    },
+    {
+      "name": "bad_unknown_method",
+      "direction": "host-to-daemon",
+      "expected": "unknown_method",
+      "local": false,
+      "sha256": "10e99fcbf1d2101a6a76d709161dd6ca5a682f39c4f8453df1170e53f8ff8e73"
+    },
+    {
+      "name": "bad_stream_zero_documents",
+      "direction": "host-to-daemon",
+      "expected": "bad_stream",
+      "local": false,
+      "sha256": "37e66a6266a748ab7fa7a99600233fefebaa41cc06e46b364223e58d2e2c1ef5"
+    },
+    {
+      "name": "bad_stream_zero_sessions",
+      "direction": "host-to-daemon",
+      "expected": "bad_stream",
+      "local": false,
+      "sha256": "e506171f52b53003cde2d648ffbbaf3bbbaeb8f53fbe914bc48f3b8d7a6b935e"
+    },
+    {
+      "name": "bad_stream_zero_objects",
+      "direction": "host-to-daemon",
+      "expected": "bad_stream",
+      "local": false,
+      "sha256": "2a7ef24ebea8b6f3f7ebbebdf681fb1cbcdb6ff21cc4477147aa62d96ee70118"
+    },
+    {
+      "name": "bad_oversized_hello",
+      "direction": "host-to-daemon",
+      "expected": "frame_too_large",
+      "local": false,
+      "sha256": "42e0078cee79712ea907790c55623a39e4fd29f5435987d6df3e5a5de8c35f44"
+    },
+    {
+      "name": "bad_oversized_events",
+      "direction": "host-to-daemon",
+      "expected": "frame_too_large",
+      "local": false,
+      "sha256": "45edf85b3e2c03a1b41993d2cefeb81ff8614c0606ae7474501c4444ba2eadb7"
+    },
+    {
+      "name": "bad_oversized_presence",
+      "direction": "host-to-daemon",
+      "expected": "frame_too_large",
+      "local": false,
+      "sha256": "30aa6edba50dd6dad8589d6fd6546ef853ef5d42253fb3fe5a93761535aa4c39"
+    },
+    {
+      "name": "bad_oversized_documents",
+      "direction": "host-to-daemon",
+      "expected": "frame_too_large",
+      "local": false,
+      "sha256": "1d99416c1a787e73f0c02b9c5bfb187db95c7b8305dc8bcc420deb84d8a2647a"
+    },
+    {
+      "name": "bad_oversized_sessions",
+      "direction": "host-to-daemon",
+      "expected": "frame_too_large",
+      "local": false,
+      "sha256": "8969e6c5348b28627d638c32f5adaf3a24e2b7535a86df5a544372447e5e867f"
+    },
+    {
+      "name": "bad_oversized_objects",
+      "direction": "host-to-daemon",
+      "expected": "frame_too_large",
+      "local": false,
+      "sha256": "a717aa3ea1cc33b49429ec0285b5f66bcb7c1b1959cf6c6c106e10dd42d3af8d"
+    },
+    {
+      "name": "bad_value_str_over_4096",
+      "direction": "host-to-daemon",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "2892273d8b77397ddf4e148a0856ee930048b685986b9e59e7882360d8d2b585"
+    },
+    {
+      "name": "bad_value_principal_over_1024",
+      "direction": "host-to-daemon",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "79761f1b0308b9f6b59983d3b8beaa5dcbc26ccfe0a2ec7f4e751cc1cd5de5e0"
+    },
+    {
+      "name": "bad_value_credential_over_1024",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "bf10516d25e577bea5d2886ec7b276de43928d087a38a02e6ab910864c3c402a"
+    },
+    {
+      "name": "bad_value_sessions_over_512",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "3f6766be8871f2d73c74e11b992f010fa2ae413cd1ab16f9485af938cc7cb43d"
+    },
+    {
+      "name": "bad_value_goodbye_detail_over_1024",
+      "direction": "host-to-daemon",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "423910013c4c7c71ddefaf6cf8b796988f20a77c445d01063dd4c1c870d7bc1e"
+    },
+    {
+      "name": "bad_value_sess_data_over_65536",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "ad55666a11220eab3ad333b6741da763eebfcb4d4cb5e0c05de4bace437c8315"
+    },
+    {
+      "name": "bad_value_obj_resize",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "619b2c8a2148cbf6fed0dd63cc0106bcb46134b0bed7e3674aabbf4ece3365fe"
+    },
+    {
+      "name": "bad_value_obj_data_fd",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "f32b1322d3c38f2365f38beb881b122d15077e04aa6c8663ee13be03f8a6ded0"
+    },
+    {
+      "name": "bad_value_sess_exit_form",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "f5510604a487c244476385280ad522d1ac226aeb95f9d99da995d1f3639f4864"
+    },
+    {
+      "name": "bad_value_ack_outcome",
+      "direction": "host-to-daemon",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "71f11a6595ef8a22e7670afb5dc0447e961cb7276b1af58a89771f1b6878cf51"
     },
     {
       "name": "content_at_limit",
@@ -925,20 +1168,6 @@
       "sha256": "543f4eb435b780c3d27d4fc2113f203823e206b508ebf325b1f100afc18d5a60"
     },
     {
-      "name": "hello_challenge_v2",
-      "direction": "daemon-to-host",
-      "expected": "ok",
-      "local": false,
-      "sha256": "478b6274a16d501cb51ecf3e61588e5ae1981c13b099d6d8243f59d2b2d19e58"
-    },
-    {
-      "name": "hello_host_proof_v2",
-      "direction": "host-to-daemon",
-      "expected": "ok",
-      "local": false,
-      "sha256": "33c4ae220d62e97657276fe56e6929966bab3a7c2f3046d2214536cccd0d2a41"
-    },
-    {
       "name": "doc-input-v2",
       "direction": "host-to-daemon",
       "expected": "ok",
@@ -1013,7 +1242,7 @@
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "99a97e7dca911099812a9b5a1f8d9ac99e7fde1b5192a08cbaf505c79dc3cb70"
+      "sha256": "11a4eff5519809bf66d10e3ad9a489236416cf159d32e53b1d334979890be36b"
     },
     {
       "name": "req_write_files",
@@ -1060,66 +1289,358 @@
   ],
   "sequences": {
     "seq_working_together": [
-      "req_set_roster",
-      "res_set_roster",
-      "req_open_doc_s3",
-      "doc-epoch",
-      "doc-input-v2",
-      "doc-saved-v2",
-      "req_write_file",
-      "res_write_file_raced",
-      "req_set_roster_empty",
-      "res_set_roster"
+      {
+        "conn": "a",
+        "frame": "req_set_roster"
+      },
+      {
+        "conn": "a",
+        "frame": "res_set_roster"
+      },
+      {
+        "conn": "a",
+        "frame": "req_open_doc_s3"
+      },
+      {
+        "conn": "a",
+        "frame": "doc-epoch"
+      },
+      {
+        "conn": "a",
+        "frame": "doc-input-v2"
+      },
+      {
+        "conn": "a",
+        "frame": "doc-saved-v2"
+      },
+      {
+        "conn": "a",
+        "frame": "req_write_file"
+      },
+      {
+        "conn": "a",
+        "frame": "res_write_file_raced"
+      },
+      {
+        "conn": "a",
+        "frame": "req_set_roster_empty"
+      },
+      {
+        "conn": "a",
+        "frame": "res_set_roster"
+      }
     ],
     "seq_handshake": [
-      "hello_challenge",
-      "hello_host_proof",
-      "hello_machine",
-      "hello_welcome"
+      {
+        "conn": "a",
+        "frame": "hello_challenge"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_host_proof"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_machine"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_welcome"
+      }
     ],
     "seq_write_stale": [
-      "req_write_file",
-      "err_stale"
+      {
+        "conn": "a",
+        "frame": "req_write_file"
+      },
+      {
+        "conn": "a",
+        "frame": "err_stale"
+      }
     ],
     "seq_capture": [
-      "obj_data",
-      "obj_eof",
-      "ev_captured",
-      "ack_captured"
+      {
+        "conn": "a",
+        "frame": "obj_data"
+      },
+      {
+        "conn": "a",
+        "frame": "obj_eof"
+      },
+      {
+        "conn": "a",
+        "frame": "ev_captured"
+      },
+      {
+        "conn": "a",
+        "frame": "ack_captured"
+      }
     ],
     "seq_missing_objects": [
-      "ack_missing_objects",
-      "obj_data",
-      "obj_eof",
-      "ev_burst",
-      "ack_applied"
+      {
+        "conn": "a",
+        "frame": "ack_missing_objects"
+      },
+      {
+        "conn": "a",
+        "frame": "obj_resend_data"
+      },
+      {
+        "conn": "a",
+        "frame": "obj_resend_eof"
+      },
+      {
+        "conn": "a",
+        "frame": "ev_burst"
+      },
+      {
+        "conn": "a",
+        "frame": "ack_applied"
+      }
     ],
     "seq_duplicate_receipt": [
-      "ev_burst",
-      "ack_duplicate"
+      {
+        "conn": "a",
+        "frame": "ev_burst"
+      },
+      {
+        "conn": "a",
+        "frame": "ack_duplicate"
+      }
     ],
     "seq_reconnect_replay": [
-      "hello_challenge",
-      "hello_host_proof",
-      "hello_machine",
-      "hello_welcome",
-      "ev_burst",
-      "ev_captured"
+      {
+        "conn": "a",
+        "frame": "hello_challenge"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_host_proof"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_machine"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_welcome"
+      },
+      {
+        "conn": "a",
+        "frame": "obj_replay_data"
+      },
+      {
+        "conn": "a",
+        "frame": "obj_replay_eof"
+      },
+      {
+        "conn": "a",
+        "frame": "ev_burst"
+      },
+      {
+        "conn": "a",
+        "frame": "ev_captured"
+      }
     ],
     "seq_reserved_doc_s2": [
-      "doc_reserved_sync",
-      "doc_refused_unsupported"
+      {
+        "conn": "a",
+        "frame": "doc_reserved_sync"
+      },
+      {
+        "conn": "a",
+        "frame": "doc_refused_unsupported"
+      }
     ],
     "seq_newer_boot": [
-      "goodbye_superseded"
+      {
+        "conn": "a",
+        "frame": "hello_challenge"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_host_proof"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_machine"
+      },
+      {
+        "conn": "a",
+        "frame": "hello_welcome"
+      },
+      {
+        "conn": "b",
+        "frame": "hello_challenge_b"
+      },
+      {
+        "conn": "b",
+        "frame": "hello_host_proof_b"
+      },
+      {
+        "conn": "b",
+        "frame": "hello_machine_b"
+      },
+      {
+        "conn": "b",
+        "frame": "hello_welcome"
+      },
+      {
+        "conn": "a",
+        "frame": "goodbye_superseded"
+      },
+      {
+        "conn": "c",
+        "frame": "hello_challenge_b"
+      },
+      {
+        "conn": "c",
+        "frame": "hello_host_proof_b"
+      },
+      {
+        "conn": "c",
+        "frame": "hello_machine"
+      },
+      {
+        "conn": "c",
+        "frame": "goodbye_auth_failed"
+      }
     ],
     "seq_wake_objects": [
-      "obj_host_data",
-      "obj_host_eof",
-      "obj_host_close",
-      "req_wake_reconcile"
+      {
+        "conn": "a",
+        "frame": "obj_host_data"
+      },
+      {
+        "conn": "a",
+        "frame": "obj_host_eof"
+      },
+      {
+        "conn": "a",
+        "frame": "obj_host_close"
+      },
+      {
+        "conn": "a",
+        "frame": "req_wake_reconcile"
+      }
     ]
   },
-  "document_protocol": 2,
-  "legacy_protocols": []
+  "mac": {
+    "definition": "HMAC-SHA256(relay secret, \"smithers-machined host\" || u16 big-endian protocol || boot_id || nonce); the label is ASCII without a length or NUL, boot_id is the 16 raw bytes, nonce the 32 raw bytes, the key the 32 bytes the boot file writes as 64 hex",
+    "source": "Python hmac, cross-checked with openssl"
+  },
+  "handshake_vectors": {
+    "a": {
+      "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "boot_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+      "nonce": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "protocol": 6,
+      "mac_input": "736d6974686572732d6d616368696e656420686f73740006a0a1a2a3a4a5a6a7a8a9aaabacadaeaf202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "mac": "a8576aa0f194da143e428b0f14e1086803bef3dfe9da31bb3c790e631e5f8aaa"
+    },
+    "b": {
+      "secret": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "boot_id": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+      "nonce": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "protocol": 6,
+      "mac_input": "736d6974686572732d6d616368696e656420686f73740006b0b1b2b3b4b5b6b7b8b9babbbcbdbebf606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "mac": "fefaa8ae085f3aba14a0c7af9ef5af51aee815db37a0e75d77fae6cdc6f76fef"
+    }
+  },
+  "refusal_sequences": {
+    "seq_order_daemon": {
+      "by": "daemon",
+      "expected": "handshake_order",
+      "steps": [
+        {
+          "conn": "a",
+          "frame": "hello_challenge"
+        },
+        {
+          "conn": "a",
+          "frame": "req_status"
+        }
+      ]
+    },
+    "seq_order_host": {
+      "by": "host",
+      "expected": "handshake_order",
+      "steps": [
+        {
+          "conn": "a",
+          "frame": "hello_challenge"
+        },
+        {
+          "conn": "a",
+          "frame": "hello_host_proof"
+        },
+        {
+          "conn": "a",
+          "frame": "res_status"
+        }
+      ]
+    },
+    "seq_version_older_daemon": {
+      "by": "daemon",
+      "expected": "version_mismatch",
+      "steps": [
+        {
+          "conn": "a",
+          "frame": "hello_challenge"
+        },
+        {
+          "conn": "a",
+          "frame": "hello_host_proof_older"
+        }
+      ]
+    },
+    "seq_version_newer_daemon": {
+      "by": "daemon",
+      "expected": "version_mismatch",
+      "steps": [
+        {
+          "conn": "a",
+          "frame": "hello_challenge"
+        },
+        {
+          "conn": "a",
+          "frame": "hello_host_proof_newer"
+        }
+      ]
+    },
+    "seq_version_older_host": {
+      "by": "host",
+      "expected": "version_mismatch",
+      "steps": [
+        {
+          "conn": "a",
+          "frame": "hello_challenge_older"
+        }
+      ]
+    },
+    "seq_version_newer_host": {
+      "by": "host",
+      "expected": "version_mismatch",
+      "steps": [
+        {
+          "conn": "a",
+          "frame": "hello_challenge_newer"
+        }
+      ]
+    },
+    "seq_bad_mac_daemon": {
+      "by": "daemon",
+      "expected": "auth_failed",
+      "steps": [
+        {
+          "conn": "a",
+          "frame": "hello_challenge"
+        },
+        {
+          "conn": "a",
+          "frame": "hello_host_proof_bad_mac"
+        }
+      ]
+    }
+  }
 }

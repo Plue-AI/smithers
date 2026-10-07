@@ -35,7 +35,7 @@ func daemonHandshakeVersion(stream net.Conn, a BootAuthority, credential string,
 	if err != nil {
 		return err
 	}
-	if !wire.VerifyHostMAC(a.Secret[:], a.ID[:], nonce, fields[2]) {
+	if !wire.VerifyHostMAC(a.Secret[:], version, a.ID[:], nonce, fields[2]) {
 		return wire.AuthFailed
 	}
 	if err := wire.Write(stream, wire.Frame{Kind: wire.Hello, Payload: wire.Union(3,

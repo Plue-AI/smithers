@@ -168,20 +168,50 @@ fn fake_host_replays_sequences_through_stream_decoder() {
         .join("../../packages/backend/internal/compose/testdata/cocontracts/MANIFEST.json");
     let manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    for (_, sequence) in manifest["sequences"].as_object().unwrap() {
-        let mut bytes = vec![];
-        let mut frames = vec![];
-        for name in sequence.as_array().unwrap() {
-            let b = fixture(name.as_str().unwrap());
-            frames.push(Frame::decode(&b).unwrap());
-            bytes.extend(b)
+    // Steps name their connection (ADR 0004 ruling 4); each is its own stream.
+    for (name, sequence) in manifest["sequences"].as_object().unwrap() {
+        let steps: Vec<(String, String)> = sequence
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["conn"].as_str().expect("step conn").to_owned(),
+                    s["frame"].as_str().expect("step frame").to_owned(),
+                )
+            })
+            .collect();
+        let mut streams: std::collections::BTreeMap<&str, Vec<u8>> = Default::default();
+        for (conn, frame) in &steps {
+            streams.entry(conn).or_default().extend(fixture(frame));
         }
-        let mut host = Cursor::new(bytes);
-        for frame in frames {
-            assert_eq!(Frame::read(&mut host).unwrap(), frame)
+        let mut hosts: std::collections::BTreeMap<&str, Cursor<Vec<u8>>> = streams
+            .into_iter()
+            .map(|(conn, bytes)| (conn, Cursor::new(bytes)))
+            .collect();
+        for (conn, frame) in &steps {
+            let want = Frame::decode(&fixture(frame)).unwrap();
+            assert_eq!(
+                Frame::read(hosts.get_mut(conn.as_str()).unwrap()).unwrap(),
+                want,
+                "{name}/{conn}/{frame}"
+            )
         }
-        assert_eq!(host.position() as usize, host.get_ref().len())
+        for (conn, host) in hosts {
+            assert_eq!(
+                host.position() as usize,
+                host.get_ref().len(),
+                "{name}/{conn}"
+            )
+        }
     }
+    let conns: std::collections::BTreeSet<&str> = manifest["sequences"]["seq_newer_boot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["conn"].as_str().unwrap())
+        .collect();
+    assert_eq!(conns.into_iter().collect::<Vec<_>>(), ["a", "b", "c"]);
 }
 #[test]
 fn malformed_control_preserves_correlation_without_invoking_hooks() {

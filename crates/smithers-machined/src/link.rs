@@ -88,12 +88,18 @@ pub fn authenticate(
         .map_err(|_| ProtocolError::Truncated)?;
         let proof = read_hello(&mut stream, 2)?;
         let fields = conn::fields("proof", &proof.payload[1..])?;
-        // The codec reads retained v1 and v2 records. A live peer must still
-        // prove the exact protocol advertised by this ready composition.
+        // Protocol equality first (the decoder still reads older recorded
+        // versions), then the MAC, which covers the protocol (ADR 0004 ruling 1).
         if fields[0].1 != conn::PROTOCOL.to_be_bytes() {
             return Err(ProtocolError::VersionMismatch);
         }
-        if !conn::verify_host_mac(&identity.secret, &identity.boot, &nonce, fields[1].1) {
+        if !conn::verify_host_mac(
+            &identity.secret,
+            conn::PROTOCOL,
+            &identity.boot,
+            &nonce,
+            fields[1].1,
+        ) {
             return Err(ProtocolError::AuthFailed);
         }
         let mut credential = (identity.credential.len() as u32).to_be_bytes().to_vec();

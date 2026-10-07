@@ -44,7 +44,7 @@ impl Source {
 
 #[test]
 fn transcript_wire_literal() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/backend/internal/compose/testdata/cocontracts/ev_transcript.bin");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/backend/internal/compose/testdata/cocontracts/transcript/ev_transcript.bin");
     let frame = crate::conn::Frame::decode(&std::fs::read(path).unwrap()).unwrap();
     let durable = Durable::decode(&frame.payload).unwrap();
     let (source,record)=Source::decode(&durable.event).unwrap();

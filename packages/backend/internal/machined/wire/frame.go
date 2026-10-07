@@ -149,17 +149,22 @@ func Write(w io.Writer, f Frame) error {
 	}
 	return nil
 }
-func HostMAC(secret, boot, nonce []byte) [32]byte {
+
+// HostMAC is HostProof.mac: HMAC-SHA256(secret, "smithers-machined host" ||
+// u16 big-endian protocol || boot_id || nonce). The protocol is authenticated,
+// so a relay cannot rewrite it unseen (ADR 0004 ruling 1).
+func HostMAC(secret []byte, protocol uint16, boot, nonce []byte) [32]byte {
 	m := hmac.New(sha256.New, secret)
-	m.Write([]byte("smithers-machined/v1 host"))
+	m.Write([]byte("smithers-machined host"))
+	m.Write(U16(protocol))
 	m.Write(boot)
 	m.Write(nonce)
 	var out [32]byte
 	copy(out[:], m.Sum(nil))
 	return out
 }
-func VerifyHostMAC(secret, boot, nonce, proof []byte) bool {
-	m := HostMAC(secret, boot, nonce)
+func VerifyHostMAC(secret []byte, protocol uint16, boot, nonce, proof []byte) bool {
+	m := HostMAC(secret, protocol, boot, nonce)
 	return hmac.Equal(m[:], proof)
 }
 
@@ -189,6 +194,10 @@ func (c *cursor) value(typ string) error {
 		v, e := c.number(1)
 		if e != nil {
 			return e
+		}
+		if reserved[typ][byte(v)] {
+			// ADR 0004 ruling 3: refused before the body is decoded.
+			return BadValue
 		}
 		t, ok := variants[byte(v)]
 		if !ok {

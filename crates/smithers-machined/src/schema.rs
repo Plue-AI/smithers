@@ -140,7 +140,6 @@ fn union(name: &str, variant: u8) -> Option<&'static str> { match (name,variant)
 ("event",3) => Some("reconciled"),
 ("event",4) => Some("moved_off"),
 ("event",5) => Some("transcript"),
-("event",6) => Some("empty"),
 ("hint",1) => Some("written"),
 ("presence",1) => Some("snapshot"),
 _ => None, } }

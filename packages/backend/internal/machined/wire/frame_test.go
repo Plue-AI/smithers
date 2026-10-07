@@ -3,7 +3,9 @@ package wire
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -28,17 +30,51 @@ func TestIndependentAck(t *testing.T) {
 		t.Fatal(e, hex.EncodeToString(got))
 	}
 }
+
+// TestMAC checks the production proof against MANIFEST.json's committed
+// handshake vectors, which Python's hmac computed from the ADR definition.
 func TestMAC(t *testing.T) {
-	secret := []byte("secret")
-	boot := bytes.Repeat([]byte{0x44}, 16)
-	nonce := bytes.Repeat([]byte{0x33}, 32)
-	want, _ := hex.DecodeString("9aa6c9a2700eaf0ab0273ca2e43138f0733aaca5d40ced66734236de8f1e8173")
-	got := HostMAC(secret, boot, nonce)
-	if !bytes.Equal(want, got[:]) {
-		t.Fatalf("%x", got)
+	raw, err := os.ReadFile("../../compose/testdata/cocontracts/MANIFEST.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !VerifyHostMAC(secret, boot, nonce, want) || VerifyHostMAC([]byte("other"), boot, nonce, want) {
-		t.Fatal("proof identity")
+	var m struct {
+		Protocol uint16
+		Vectors  map[string]struct {
+			Secret   string
+			BootID   string `json:"boot_id"`
+			Nonce    string
+			MacInput string `json:"mac_input"`
+			Mac      string
+		} `json:"handshake_vectors"`
+	}
+	if err = json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Protocol != Protocol || len(m.Vectors) == 0 {
+		t.Fatalf("MANIFEST protocol %d, codec %d", m.Protocol, Protocol)
+	}
+	h := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	for name, v := range m.Vectors {
+		secret, boot, nonce, want := h(v.Secret), h(v.BootID), h(v.Nonce), h(v.Mac)
+		if input := append(append(append([]byte("smithers-machined host"), U16(Protocol)...), boot...), nonce...); !bytes.Equal(input, h(v.MacInput)) {
+			t.Fatalf("%s: mac input", name)
+		}
+		got := HostMAC(secret, Protocol, boot, nonce)
+		if !bytes.Equal(want, got[:]) {
+			t.Fatalf("%s: %x", name, got)
+		}
+		bad := append([]byte(nil), want...)
+		bad[31] ^= 1
+		if !VerifyHostMAC(secret, Protocol, boot, nonce, want) || VerifyHostMAC(secret, Protocol, boot, nonce, bad) || VerifyHostMAC(secret, Protocol-1, boot, nonce, want) || VerifyHostMAC([]byte("other"), Protocol, boot, nonce, want) {
+			t.Fatalf("%s: proof identity", name)
+		}
 	}
 }
 

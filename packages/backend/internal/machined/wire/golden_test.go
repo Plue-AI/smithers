@@ -19,15 +19,19 @@ func TestWireCorpus(t *testing.T) {
 	var m struct {
 		Protocol uint16
 		Frames   []struct {
-			Name, Expected, SHA256 string
-			Local                  bool
+			Name, Expected, SHA256, Vector, Handshake string
+			Local                                     bool
 		}
+		Vectors map[string]struct {
+			Secret, Nonce string
+			BootID        string `json:"boot_id"`
+		} `json:"handshake_vectors"`
 	}
 	if e = json.Unmarshal(manifest, &m); e != nil {
 		t.Fatal(e)
 	}
 	if m.Protocol != Protocol {
-		t.Fatalf("fixture protocol %d, live protocol %d", m.Protocol, Protocol)
+		t.Fatalf("MANIFEST protocol %d, codec %d", m.Protocol, Protocol)
 	}
 	for _, tc := range m.Frames {
 		t.Run(tc.Name, func(t *testing.T) {
@@ -43,6 +47,22 @@ func TestWireCorpus(t *testing.T) {
 				f, e = DecodeLocal(b)
 			} else {
 				f, e = Decode(b)
+			}
+			// A current-protocol HostProof answering a committed challenge: the
+			// production verifier accepts exactly the vector's mac. Version
+			// refusals are proven by MANIFEST refusal_sequences instead.
+			if tc.Vector != "" && e == nil && f.Payload[0] == 2 && tc.Handshake != "version_mismatch" {
+				v := m.Vectors[tc.Vector]
+				fields, err := Fields("proof", f.Payload[1:])
+				secret, _ := hex.DecodeString(v.Secret)
+				boot, _ := hex.DecodeString(v.BootID)
+				nonce, _ := hex.DecodeString(v.Nonce)
+				if err != nil || len(secret) != 32 || len(boot) != 16 || len(nonce) != 32 {
+					t.Fatal("vector", tc.Vector, err)
+				}
+				if ok := VerifyHostMAC(secret, Protocol, boot, nonce, fields[2]); ok != (tc.Handshake == "") {
+					t.Fatalf("proof verified %t, handshake %q", ok, tc.Handshake)
+				}
 			}
 			if tc.Expected != "ok" {
 				if e == nil || e.Error() != tc.Expected {

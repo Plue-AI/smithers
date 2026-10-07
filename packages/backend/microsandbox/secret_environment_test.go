@@ -35,7 +35,7 @@ func environmentLink(t *testing.T, r *machined.Registry) (*machined.Link, net.Co
 			return
 		}
 		fields, err := wire.Fields("proof", proof.Payload[1:])
-		if err != nil || !wire.VerifyHostMAC(a.Secret[:], a.ID[:], nonce, fields[2]) {
+		if err != nil || !wire.VerifyHostMAC(a.Secret[:], wire.Protocol, a.ID[:], nonce, fields[2]) {
 			done <- wire.AuthFailed
 			return
 		}

@@ -51,6 +51,12 @@ func (a BootAuthority) File(bridgePort uint16) []byte {
 	return []byte(fmt.Sprintf("boot_id=%x\nrelay_secret=%x\ncredential=%s\n%s", a.ID, a.Secret, a.Credential, topology))
 }
 
+// goodbye tells the peer why the handshake ended (ADR 0004: the side that
+// detects errors 1-4 or 13-16 sends Goodbye{code} if it can, then closes).
+func goodbye(stream io.Writer, code wire.ProtocolError) {
+	_ = wire.Write(stream, wire.Frame{Kind: wire.Hello, Payload: wire.Union(5, wire.Field(1, []byte{byte(code)}))})
+}
+
 // Connect authenticates the daemon reached through the runtime's existing byte
 // stream. The expected branch comes from the host binding, never the handshake.
 // Invalid newcomers do not close the current lease. No RPC is ready on return.
@@ -78,6 +84,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		return nil, err
 	}
 	if challenge.Kind != wire.Hello || challenge.Payload[0] != 1 {
+		goodbye(stream, wire.HandshakeOrder)
 		return nil, wire.HandshakeOrder
 	}
 	fields, err := wire.Fields("challenge", challenge.Payload[1:])
@@ -103,7 +110,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 	if !valid {
 		return nil, ErrUnauthorized
 	}
-	proof := wire.HostMAC(secret[:], id[:], fields[4])
+	proof := wire.HostMAC(secret[:], wire.Protocol, id[:], fields[4])
 	if err := wire.Write(stream, wire.Frame{Kind: wire.Hello, Payload: wire.Union(2, wire.Field(1, fields[2]), wire.Field(2, proof[:]))}); err != nil {
 		return nil, err
 	}
@@ -112,6 +119,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		return nil, err
 	}
 	if hello.Kind != wire.Hello || hello.Payload[0] != 3 {
+		goodbye(stream, wire.HandshakeOrder)
 		return nil, wire.HandshakeOrder
 	}
 	values, err := wire.Fields("hello", hello.Payload[1:])

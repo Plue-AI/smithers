@@ -10,10 +10,36 @@ fn hex(s: &str) -> Vec<u8> {
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
         .collect()
 }
+fn manifest() -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(root().join("MANIFEST.json")).unwrap()).unwrap()
+}
+struct Vector {
+    secret: Vec<u8>,
+    boot: [u8; 16],
+    nonce: [u8; 32],
+    mac: Vec<u8>,
+    input: Vec<u8>,
+}
+fn vector(manifest: &serde_json::Value, name: &str) -> Vector {
+    let v = &manifest["handshake_vectors"][name];
+    let field = |k: &str| hex(v[k].as_str().unwrap_or_else(|| panic!("vector {name}.{k}")));
+    Vector {
+        secret: field("secret"),
+        boot: field("boot_id").try_into().unwrap(),
+        nonce: field("nonce").try_into().unwrap(),
+        mac: field("mac"),
+        input: field("mac_input"),
+    }
+}
+/// A HostProof answering a committed challenge: the production verifier must
+/// accept exactly the vector's mac.
+fn proof_verifies(manifest: &serde_json::Value, entry: &serde_json::Value, frame: &Frame) -> bool {
+    let v = vector(manifest, entry["vector"].as_str().unwrap());
+    let fields = conn::fields("proof", &frame.payload[1..]).unwrap();
+    conn::verify_host_mac(&v.secret, conn::PROTOCOL, &v.boot, &v.nonce, fields[1].1)
+}
 fn fixtures(ok: bool) {
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root().join("MANIFEST.json")).unwrap()).unwrap();
-    assert_eq!(manifest["protocol"].as_u64(), Some(conn::PROTOCOL as u64));
+    let manifest = manifest();
     for entry in manifest["frames"].as_array().unwrap() {
         let name = entry["name"].as_str().unwrap();
         let expected = entry["expected"].as_str().unwrap();
@@ -31,6 +57,19 @@ fn fixtures(ok: bool) {
         };
         if ok {
             let frame = decoded.unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            // A current-protocol proof verifies exactly when no handshake
+            // refusal is recorded; version refusals run as refusal_sequences.
+            let handshake = entry["handshake"].as_str();
+            if entry["vector"].is_string()
+                && frame.payload[0] == 2
+                && handshake != Some("version_mismatch")
+            {
+                assert_eq!(
+                    proof_verifies(&manifest, entry, &frame),
+                    handshake.is_none(),
+                    "{name}"
+                );
+            }
             let literal = Frame {
                 kind: json["kind"].as_u64().unwrap() as u8,
                 stream: json["stream"].as_u64().unwrap() as u32,
@@ -49,6 +88,9 @@ fn fixtures(ok: bool) {
                 "frame_too_large" => ProtocolError::FrameTooLarge,
                 "unknown_kind" => ProtocolError::UnknownKind,
                 "bad_stream" => ProtocolError::BadStream,
+                "unknown_message" => ProtocolError::UnknownMessage,
+                "unknown_method" => ProtocolError::UnknownMethod,
+                "version_mismatch" => ProtocolError::VersionMismatch,
                 "unknown_field" => ProtocolError::UnknownField,
                 "unordered_field" => ProtocolError::UnorderedField,
                 "missing_field" => ProtocolError::MissingField,
@@ -101,15 +143,110 @@ fn all_truncations_refuse_without_panicking() {
     }
 }
 #[test]
-fn nonce_hmac_proof_is_bound_to_boot_and_secret() {
-    use smithers_machined::conn::{host_mac, verify_host_mac};
-    let expected = hex("9aa6c9a2700eaf0ab0273ca2e43138f0733aaca5d40ced66734236de8f1e8173");
-    let got = host_mac(b"secret", &[0x44; 16], &[0x33; 32]);
-    assert_eq!(got.as_slice(), expected);
-    assert!(verify_host_mac(b"secret", &[0x44; 16], &[0x33; 32], &got));
-    assert!(!verify_host_mac(b"other", &[0x44; 16], &[0x33; 32], &got));
-    assert!(!verify_host_mac(b"secret", &[0x45; 16], &[0x33; 32], &got));
-    assert!(!verify_host_mac(b"secret", &[0x44; 16], &[0x34; 32], &got));
+fn manifest_protocol_is_the_codec_protocol() {
+    assert_eq!(manifest()["protocol"].as_u64(), Some(conn::PROTOCOL as u64));
+}
+/// The committed vectors were computed with Python's hmac from the ADR text.
+#[test]
+fn host_proof_matches_committed_hmac_vectors() {
+    use smithers_machined::conn::{host_mac, verify_host_mac, PROTOCOL};
+    let manifest = manifest();
+    let names: Vec<String> = manifest["handshake_vectors"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert!(!names.is_empty());
+    for name in names {
+        let v = vector(&manifest, &name);
+        let input = [
+            b"smithers-machined host".as_slice(),
+            &PROTOCOL.to_be_bytes(),
+            &v.boot,
+            &v.nonce,
+        ]
+        .concat();
+        assert_eq!(input, v.input, "{name} mac input");
+        let got = host_mac(&v.secret, PROTOCOL, &v.boot, &v.nonce);
+        assert_eq!(got.as_slice(), v.mac, "{name}");
+        assert!(verify_host_mac(
+            &v.secret, PROTOCOL, &v.boot, &v.nonce, &got
+        ));
+        let mut bad = got;
+        bad[31] ^= 1;
+        assert!(!verify_host_mac(
+            &v.secret, PROTOCOL, &v.boot, &v.nonce, &bad
+        ));
+        assert!(!verify_host_mac(
+            &v.secret,
+            PROTOCOL - 1,
+            &v.boot,
+            &v.nonce,
+            &got
+        ));
+        assert!(!verify_host_mac(
+            b"other", PROTOCOL, &v.boot, &v.nonce, &got
+        ));
+    }
+}
+/// Daemon-detected handshake refusals run through the production daemon
+/// handshake (`link::authenticate`) over TCP. The daemon's nonce is random, so
+/// its Challenge is compared up to the nonce; every host frame is the
+/// committed bytes; the daemon must end with `Goodbye{expected}`.
+#[test]
+fn daemon_handshake_refusals_match_corpus() {
+    use smithers_machined::link::{self, Identity};
+    use std::net::{TcpListener, TcpStream};
+    let manifest = manifest();
+    let v = vector(&manifest, "a");
+    let mut ran = 0;
+    for (name, seq) in manifest["refusal_sequences"].as_object().unwrap() {
+        if seq["by"] != "daemon" {
+            continue;
+        }
+        ran += 1;
+        let expected = match seq["expected"].as_str().unwrap() {
+            "handshake_order" => ProtocolError::HandshakeOrder,
+            "version_mismatch" => ProtocolError::VersionMismatch,
+            "auth_failed" => ProtocolError::AuthFailed,
+            other => panic!("{name}: {other}"),
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let identity = Identity::new(
+            v.boot,
+            v.secret.clone().try_into().unwrap(),
+            b"boot-token".to_vec(),
+        )
+        .unwrap();
+        let daemon = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            link::authenticate(socket, &identity, 7, &[1]).err()
+        });
+        let mut host = TcpStream::connect(addr).unwrap();
+        host.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        for step in seq["steps"].as_array().unwrap() {
+            let frame = step["frame"].as_str().unwrap();
+            let bytes = std::fs::read(root().join(format!("{frame}.bin"))).unwrap();
+            if frame.starts_with("hello_challenge") {
+                let got = Frame::read(&mut host).unwrap().encode().unwrap();
+                // magic, protocol and boot_id are fixed; the 32-byte nonce is random.
+                assert_eq!(got[..got.len() - 32], bytes[..bytes.len() - 32], "{name}");
+            } else {
+                std::io::Write::write_all(&mut host, &bytes).unwrap();
+            }
+        }
+        assert_eq!(daemon.join().unwrap(), Some(expected), "{name}");
+        let goodbye = Frame::read(&mut host).unwrap();
+        assert_eq!(
+            goodbye.payload,
+            vec![5, 0, 0, 0, 2, 1, expected as u8],
+            "{name}"
+        );
+    }
+    assert!(ran > 0, "no daemon-detected refusal sequences");
 }
 
 #[test]

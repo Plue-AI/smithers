@@ -511,7 +511,7 @@ func externalTranscriptLink(t *testing.T, registry *machined.Registry, branch st
 			if err != nil {
 				return err
 			}
-			if !wire.VerifyHostMAC(authority.Secret[:], authority.ID[:], nonce, fields[2]) {
+			if !wire.VerifyHostMAC(authority.Secret[:], wire.Protocol, authority.ID[:], nonce, fields[2]) {
 				return wire.AuthFailed
 			}
 			if err = wire.Write(peer, wire.Frame{Kind: wire.Hello, Payload: wire.Union(3, wire.Field(1, wire.Bytes([]byte(authority.Credential))), wire.Field(2, make([]byte, 16)), wire.Field(3, wire.U64(1)), wire.Field(4, wire.U16(0)))}); err != nil {

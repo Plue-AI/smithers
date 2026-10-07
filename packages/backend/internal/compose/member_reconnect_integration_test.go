@@ -65,7 +65,7 @@ func exerciseRevocationReconnect(t *testing.T, pool *pgxpool.Pool, writer db.Use
 				done <- err
 				return
 			}
-			if !wire.VerifyHostMAC(authority.Secret[:], authority.ID[:], nonce, fields[2]) {
+			if !wire.VerifyHostMAC(authority.Secret[:], wire.Protocol, authority.ID[:], nonce, fields[2]) {
 				done <- wire.AuthFailed
 				return
 			}

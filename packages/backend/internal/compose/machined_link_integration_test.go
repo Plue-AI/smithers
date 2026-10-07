@@ -73,7 +73,7 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 			peer <- err
 			return
 		}
-		if !wire.VerifyHostMAC(authority.Secret[:], authority.ID[:], nonce, fields[2]) {
+		if !wire.VerifyHostMAC(authority.Secret[:], wire.Protocol, authority.ID[:], nonce, fields[2]) {
 			peer <- wire.AuthFailed
 			return
 		}

@@ -89,7 +89,12 @@ var unions = map[string]map[byte]string{
 	"target":        {1: "target_user", 2: "run_actor", 3: "session_actor"},
 	"outcome":       {1: "empty", 2: "moved", 3: "conflict"},
 	"events":        {1: "durable", 2: "hint_wrapper", 3: "ack"},
-	"event":         {1: "burst", 2: "captured", 3: "reconciled", 4: "moved_off", 5: "transcript", 6: "empty"},
+	"event":         {1: "burst", 2: "captured", 3: "reconciled", 4: "moved_off", 5: "transcript"},
 	"hint":          {1: "written"},
 	"presence":      {1: "snapshot"},
 }
+
+// reserved union variants are refused with BadValue whatever their body
+// (ADR 0004 ruling 3). Event 6 (doc_edit) waits for T-COL-08a. Event 5 is
+// decoded by T-AGT-02's shipped transcript codec; see #3626.
+var reserved = map[string]map[byte]bool{"event": {6: true}}

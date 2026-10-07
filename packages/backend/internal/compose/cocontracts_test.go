@@ -18,12 +18,34 @@ import (
 	"time"
 )
 
+// seqStep is one frame on one named connection (ADR 0004 ruling 4).
+type seqStep struct{ Conn, Frame string }
+
 type wireManifest struct {
-	Frames []struct {
-		Name, Expected, SHA256 string
-		Local                  bool
+	Protocol uint16
+	Frames   []struct {
+		Name, Direction, Expected, SHA256, Vector, Handshake string
+		Local                                                bool
 	}
-	Sequences map[string][]string
+	Vectors map[string]struct {
+		Secret, Nonce string
+		BootID        string `json:"boot_id"`
+	} `json:"handshake_vectors"`
+	Sequences        map[string][]seqStep
+	RefusalSequences map[string]struct {
+		By, Expected string
+		Steps        []seqStep
+	} `json:"refusal_sequences"`
+}
+
+// hostSends reports the manifest direction, so replays never guess by name.
+func (m wireManifest) hostSends(name string) bool {
+	for _, f := range m.Frames {
+		if f.Name == name {
+			return f.Direction == "host-to-daemon"
+		}
+	}
+	panic("unknown frame " + name)
 }
 
 func wireFixtures(t *testing.T) wireManifest {
@@ -38,6 +60,9 @@ func wireFixtures(t *testing.T) wireManifest {
 	}
 	if len(m.Frames) < 100 {
 		t.Fatal("missing daemon corpus")
+	}
+	if m.Protocol != wire.Protocol {
+		t.Fatalf("MANIFEST protocol %d, Go wire.Protocol %d", m.Protocol, wire.Protocol)
 	}
 	return m
 }
@@ -104,29 +129,74 @@ func TestMachinedWireGoldenFrames(t *testing.T) {
 	}
 	for name, seq := range m.Sequences {
 		t.Run(name, func(t *testing.T) {
-			var b []byte
-			for _, n := range seq {
-				b = append(b, wireBytes(t, n)...)
+			// Each connection is its own byte stream.
+			streams := map[string][]byte{}
+			for _, s := range seq {
+				if s.Conn == "" {
+					t.Fatal("sequence step without conn")
+				}
+				streams[s.Conn] = append(streams[s.Conn], wireBytes(t, s.Frame)...)
 			}
-			r := bytes.NewReader(b)
-			for _, n := range seq {
-				f, e := wire.Read(r)
+			readers := map[string]*bytes.Reader{}
+			for conn, b := range streams {
+				readers[conn] = bytes.NewReader(b)
+			}
+			for _, s := range seq {
+				f, e := wire.Read(readers[s.Conn])
 				if e != nil {
 					t.Fatal(e)
 				}
 				out, e := wire.Encode(f)
-				if e != nil || !bytes.Equal(out, wireBytes(t, n)) {
-					t.Fatal(n, e)
+				if e != nil || !bytes.Equal(out, wireBytes(t, s.Frame)) {
+					t.Fatal(s.Frame, e)
 				}
 			}
-			if r.Len() != 0 {
-				t.Fatal("unread frames")
+			for conn, r := range readers {
+				if r.Len() != 0 {
+					t.Fatal("unread frames on", conn)
+				}
 			}
 		})
 	}
 }
+
+// TestMachinedWireProofs checks every current-protocol HostProof against the
+// committed vector it answers: the vector's mac verifies, a wrong one does not.
+func TestMachinedWireProofs(t *testing.T) {
+	m := wireFixtures(t)
+	checked := map[string]bool{}
+	for _, tc := range m.Frames {
+		if tc.Vector == "" || tc.Expected != "ok" || tc.Handshake == "version_mismatch" {
+			continue
+		}
+		f, e := wire.Decode(wireBytes(t, tc.Name))
+		if e != nil {
+			t.Fatal(tc.Name, e)
+		}
+		if f.Payload[0] != 2 {
+			continue
+		}
+		fields, e := wire.Fields("proof", f.Payload[1:])
+		if e != nil {
+			t.Fatal(tc.Name, e)
+		}
+		v := m.Vectors[tc.Vector]
+		secret, _ := hex.DecodeString(v.Secret)
+		boot, _ := hex.DecodeString(v.BootID)
+		nonce, _ := hex.DecodeString(v.Nonce)
+		if ok := wire.VerifyHostMAC(secret, wire.Protocol, boot, nonce, fields[2]); ok != (tc.Handshake == "") {
+			t.Fatalf("%s: proof verified %t, handshake %q", tc.Name, ok, tc.Handshake)
+		}
+		checked[tc.Handshake] = true
+	}
+	if !checked[""] || !checked["auth_failed"] {
+		t.Fatal("corpus lacks an accepted or a refused proof", checked)
+	}
+}
+
 func TestMachinedWireRefusals(t *testing.T) {
-	for _, tc := range wireFixtures(t).Frames {
+	m := wireFixtures(t)
+	for _, tc := range m.Frames {
 		if tc.Expected == "ok" {
 			continue
 		}
@@ -247,8 +317,20 @@ func TestMachinedWireFixturesMatchGenerator(t *testing.T) {
 // is exclusively the committed binary/JSON corpus, never newly encoded bytes.
 func replayFake(t *testing.T, names []string, receive func(string) bool) {
 	t.Helper()
-	steps := make([]testfake.Step, len(names))
+	seq := make([]seqStep, len(names))
 	for i, name := range names {
+		seq[i] = seqStep{Conn: "a", Frame: name}
+	}
+	replaySteps(t, seq, receive)
+}
+
+// replaySteps runs one fake daemon per named connection and drives every
+// step in the sequence's global order across those connections.
+func replaySteps(t *testing.T, seq []seqStep, receive func(string) bool) {
+	t.Helper()
+	steps := make([]testfake.Step, len(seq))
+	for i, s := range seq {
+		name := s.Frame
 		f, err := wire.Decode(wireBytes(t, name))
 		if err != nil {
 			t.Fatal(err)
@@ -274,17 +356,36 @@ func replayFake(t *testing.T, names []string, receive func(string) bool) {
 		}
 		steps[i] = testfake.Step{Receive: receive(name), Frame: f}
 	}
-	host, peer := net.Pipe()
-	defer host.Close()
-	defer peer.Close()
-	host.SetDeadline(time.Now().Add(5 * time.Second))
-	peer.SetDeadline(time.Now().Add(5 * time.Second))
-	done := make(chan error, 1)
-	go func() { done <- testfake.Serve(peer, steps); peer.Close() }()
-	var got, want []byte
-	for i, name := range names {
+	type link struct {
+		host      net.Conn
+		done      chan error
+		got, want []byte
+	}
+	links := map[string]*link{}
+	for _, s := range seq {
+		if links[s.Conn] != nil {
+			continue
+		}
+		var mine []testfake.Step
+		for i, other := range seq {
+			if other.Conn == s.Conn {
+				mine = append(mine, steps[i])
+			}
+		}
+		host, peer := net.Pipe()
+		defer host.Close()
+		defer peer.Close()
+		host.SetDeadline(time.Now().Add(5 * time.Second))
+		peer.SetDeadline(time.Now().Add(5 * time.Second))
+		l := &link{host: host, done: make(chan error, 1)}
+		go func() { l.done <- testfake.Serve(peer, mine); peer.Close() }()
+		links[s.Conn] = l
+	}
+	for i, s := range seq {
+		name, l := s.Frame, links[s.Conn]
+		host := l.host
 		expected := wireBytes(t, name)
-		want = append(want, expected...)
+		l.want = append(l.want, expected...)
 		if steps[i].Receive {
 			// Exercise the production host encoder, recording exactly what it writes.
 			var encoded bytes.Buffer
@@ -294,7 +395,7 @@ func replayFake(t *testing.T, names []string, receive func(string) bool) {
 			if _, err := host.Write(encoded.Bytes()); err != nil {
 				t.Fatal(err)
 			}
-			got = append(got, encoded.Bytes()...)
+			l.got = append(l.got, encoded.Bytes()...)
 		} else {
 			actual := make([]byte, len(expected))
 			if _, err := io.ReadFull(host, actual); err != nil {
@@ -307,15 +408,17 @@ func replayFake(t *testing.T, names []string, receive func(string) bool) {
 			if f.Kind != steps[i].Frame.Kind || f.Stream != steps[i].Frame.Stream || !bytes.Equal(f.Payload, steps[i].Frame.Payload) {
 				t.Fatal(name, "host decoded fields")
 			}
-			got = append(got, actual...)
+			l.got = append(l.got, actual...)
 		}
 	}
-	if !bytes.Equal(got, want) {
-		t.Fatal("literal transcript mismatch")
-	}
-	host.Close()
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	for conn, l := range links {
+		if !bytes.Equal(l.got, l.want) {
+			t.Fatal("literal transcript mismatch on", conn)
+		}
+		l.host.Close()
+		if err := <-l.done; err != nil {
+			t.Fatal(conn, err)
+		}
 	}
 }
 
@@ -340,11 +443,18 @@ func TestMachinedFakeFaultReplay(t *testing.T) {
 			if !ok || len(seq) == 0 {
 				t.Fatal("missing contract sequence", name)
 			}
-			replayFake(t, seq, func(n string) bool {
-				return n == "hello_host_proof" || n == "hello_welcome" || n == "goodbye_superseded" || n == "doc_reserved_sync" || n == "obj_host_data" || n == "obj_host_eof" || n == "obj_host_close" || len(n) >= 4 && (n[:4] == "req_" || n[:4] == "ack_")
-			})
+			replaySteps(t, seq, m.hostSends)
 		})
 	}
+	t.Run("newer_boot_names_three_connections", func(t *testing.T) {
+		conns := map[string]bool{}
+		for _, s := range m.Sequences["seq_newer_boot"] {
+			conns[s.Conn] = true
+		}
+		if len(conns) != 3 {
+			t.Fatal("seq_newer_boot must span connections a, b and c", conns)
+		}
+	})
 	t.Run("credential_refusal", func(t *testing.T) {
 		replayFake(t, []string{"req_read_file", "err_unauthorized"}, func(n string) bool { return n == "req_read_file" })
 	})
@@ -355,8 +465,8 @@ func TestMachinedFakeFaultReplay(t *testing.T) {
 		// End the first transport without an ack, then replay the committed
 		// reconnect ordering and accept the committed duplicate receipt.
 		replayFake(t, []string{"ev_burst"}, func(string) bool { return false })
-		replayFake(t, m.Sequences["seq_reconnect_replay"], func(n string) bool { return n == "hello_host_proof" || n == "hello_welcome" })
-		replayFake(t, m.Sequences["seq_duplicate_receipt"], func(n string) bool { return n == "ack_duplicate" })
+		replaySteps(t, m.Sequences["seq_reconnect_replay"], m.hostSends)
+		replaySteps(t, m.Sequences["seq_duplicate_receipt"], m.hostSends)
 	})
 	for _, pair := range [][2]string{{"req_status", "res_status"}, {"req_read_file", "res_read_file"}, {"req_write_file", "res_write_file"}, {"req_capture", "res_capture"}, {"req_wake_reconcile", "res_wake_moved"}, {"req_open_doc", "res_unsupported_open_doc"}, {"req_close_doc", "res_unsupported_close_doc"}} {
 		t.Run(pair[0], func(t *testing.T) { replayFake(t, pair[:], func(n string) bool { return n == pair[0] }) })
@@ -426,7 +536,7 @@ func TestWorkingTogetherWireContract(t *testing.T) {
 	if len(seq) != 10 {
 		t.Fatal("missing working-together transcript")
 	}
-	replayFake(t, seq, func(n string) bool { return n == "doc-input-v2" || len(n) >= 4 && n[:4] == "req_" })
+	replaySteps(t, seq, func(n string) bool { return n == "doc-input-v2" || len(n) >= 4 && n[:4] == "req_" })
 	input, err := wire.DecodeDocumentV2(wireBytes(t, "doc-input-v2")[9:])
 	if err != nil {
 		t.Fatal(err)

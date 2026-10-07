@@ -278,7 +278,7 @@ func presenceTestLink(t *testing.T, registry *machined.Registry, branch string) 
 			done <- err
 			return
 		}
-		if !wire.VerifyHostMAC(authority.Secret[:], authority.ID[:], nonce, fields[2]) {
+		if !wire.VerifyHostMAC(authority.Secret[:], wire.Protocol, authority.ID[:], nonce, fields[2]) {
 			done <- wire.AuthFailed
 			return
 		}

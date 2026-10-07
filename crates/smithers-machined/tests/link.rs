@@ -30,7 +30,7 @@ fn host(stream: &mut TcpStream, secret: &[u8], good: bool) {
     let boot: [u8; 16] = fields[2].1.try_into().unwrap();
     let nonce: [u8; 32] = fields[3].1.try_into().unwrap();
     let mac = if good {
-        conn::host_mac(secret, &boot, &nonce)
+        conn::host_mac(secret, conn::PROTOCOL, &boot, &nonce)
     } else {
         [0; 32]
     };
@@ -145,7 +145,7 @@ fn handshake_order_refuses_before_credentials_and_welcome_is_required() {
                 2,
                 &[
                     conn::field(1, conn::PROTOCOL.to_be_bytes()),
-                    conn::field(2, conn::host_mac(&[9; 32], &boot, &nonce)),
+                    conn::field(2, conn::host_mac(&[9; 32], conn::PROTOCOL, &boot, &nonce)),
                 ],
             )
             .write(&mut stream)
@@ -347,7 +347,7 @@ fn authenticated_dispatch_requires_reconcile_and_roster_on_every_link() {
 }
 
 #[test]
-fn retained_v1_decode_does_not_negotiate_unsequenced_live_documents() {
+fn protocol_one_proof_is_version_mismatch_before_mac() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let worker = thread::spawn(move || {
@@ -363,15 +363,19 @@ fn retained_v1_decode_does_not_negotiate_unsequenced_live_documents() {
     let fields = conn::fields("challenge", &challenge.payload[1..]).unwrap();
     let boot = fields[2].1.try_into().unwrap();
     let nonce = fields[3].1.try_into().unwrap();
-    hello(
+    // The mac is valid for protocol 1 and this nonce, so only the live
+    // version check can refuse it, and it must do so before the MAC.
+    let payload = conn::tagged(
         2,
         &[
             conn::field(1, 1u16.to_be_bytes()),
-            conn::field(2, conn::host_mac(&[9; 32], &boot, &nonce)),
+            conn::field(2, conn::host_mac(&[9; 32], 1, &boot, &nonce)),
         ],
-    )
-    .write(&mut socket)
-    .unwrap();
+    );
+    let mut proof = (payload.len() as u32).to_be_bytes().to_vec();
+    proof.extend([0, 0, 0, 0, 0]);
+    proof.extend(payload);
+    std::io::Write::write_all(&mut socket, &proof).unwrap();
     assert_eq!(
         Frame::read(&mut socket).unwrap().payload,
         vec![5, 0, 0, 0, 2, 1, 13]

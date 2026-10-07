@@ -233,6 +233,12 @@ impl<'a> Cursor<'a> {
         }
         if is_union(typ) {
             let v = self.number(1)? as u8;
+            // ADR 0004 ruling 3: a reserved variant is refused before its body
+            // is decoded. Event 6 (doc_edit) waits for T-COL-08a; event 5 is
+            // decoded by T-AGT-02's shipped transcript codec (see #3626).
+            if typ == "event" && v == 6 {
+                return Err(BadValue);
+            }
             let name = union(typ, v).ok_or(match typ {
                 "call" | "local_call" => UnknownMethod,
                 "host_actor" => BadValue,
@@ -376,21 +382,31 @@ pub fn unsupported(id: u32) -> Frame {
     }
 }
 
-/// Nonce proof, never the relay secret, crosses the connection.
-pub fn host_mac(secret: &[u8], boot: &[u8; 16], nonce: &[u8; 32]) -> [u8; 32] {
+/// Nonce proof, never the relay secret, crosses the connection. HostProof.mac
+/// is HMAC-SHA256(secret, "smithers-machined host" || u16 big-endian protocol
+/// || boot_id || nonce), so the protocol is authenticated (ADR 0004 ruling 1).
+pub fn host_mac(secret: &[u8], protocol: u16, boot: &[u8; 16], nonce: &[u8; 32]) -> [u8; 32] {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts every key length");
-    mac.update(b"smithers-machined/v1 host");
+    mac.update(b"smithers-machined host");
+    mac.update(&protocol.to_be_bytes());
     mac.update(boot);
     mac.update(nonce);
     mac.finalize().into_bytes().into()
 }
-pub fn verify_host_mac(secret: &[u8], boot: &[u8; 16], nonce: &[u8; 32], proof: &[u8]) -> bool {
+pub fn verify_host_mac(
+    secret: &[u8],
+    protocol: u16,
+    boot: &[u8; 16],
+    nonce: &[u8; 32],
+    proof: &[u8],
+) -> bool {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts every key length");
-    mac.update(b"smithers-machined/v1 host");
+    mac.update(b"smithers-machined host");
+    mac.update(&protocol.to_be_bytes());
     mac.update(boot);
     mac.update(nonce);
     mac.verify_slice(proof).is_ok()
