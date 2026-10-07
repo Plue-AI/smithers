@@ -53,6 +53,13 @@ type conversationRehearsal struct {
 
 func workingConversation(t *testing.T) *conversationRehearsal {
 	t.Helper()
+	return workingConversationWithContext(t, nil)
+}
+
+// A supplied context provider isolates credential lifecycle proof from native
+// repository IO. The ordinary conversation rehearsals retain the native reader.
+func workingConversationWithContext(t *testing.T, reader chat.ContextRepository, configure ...func(*localChat, *chat.RuntimeOptions)) *conversationRehearsal {
+	t.Helper()
 	f := &conversationRehearsal{slow: make(chan struct{}, 4), release: make(chan struct{})}
 	publicListener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -142,8 +149,15 @@ func workingConversation(t *testing.T) *conversationRehearsal {
 		auth := services.NewAuthService(q, cfg.Auth, nil, nil)
 		auth.Members = &services.Members{Pool: local.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
 		options.API = services.InstallAPI{Auth: auth}
-		reader := conversationContextSource(t, local)
-		options.ContextRepository = reader.Read
+		if reader == nil {
+			native := conversationContextSource(t, local)
+			options.ContextRepository = native.Read
+		} else {
+			options.ContextRepository = reader
+		}
+		for _, change := range configure {
+			change(local, options)
+		}
 		local.api = func(runtime *chat.Runtime) http.Handler {
 			cfg.Server.PublicURL = f.origin
 			branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(local.pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)))
