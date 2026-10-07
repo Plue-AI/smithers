@@ -549,6 +549,8 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "learning.dismiss", regexp.MustCompile(`^/api/proposals/[^/]+/dismiss$`)},
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows(/[^/]+|/runs/[^/]+)?$`)},
 	{http.MethodPost, "flow.run", regexp.MustCompile(`^/api/flows(/[^/]+/run)?$`)},
+	{http.MethodPost, "background.retry", regexp.MustCompile(`^/api/runs/[0-9]+$`)},
+	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/runs/[0-9]+/background-status$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
 	{http.MethodPost, "file.restore", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace-snapshots(?:/[^/]+)?$`)},

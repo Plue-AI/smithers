@@ -178,6 +178,7 @@ var migrationRegistry = []migrationSpec{
 	{140, "migrations/0140_native_host_share_admission.sql"},
 	{141, "migrations/0141_stack_attention.sql"},
 	{142, "migrations/0142_workspace_moved_off.sql"},
+	{143, "migrations/0143_home_background_dismissal.sql"},
 }
 
 type migration struct {

@@ -227,6 +227,7 @@ export const APP_TRANSITION_TYPES = {
   "branch.requests.changed": true,
   "issue.todo.requests.changed": true,
   "coding.provider.requests.changed": true,
+  "home.background.requests.changed": true,
   "stack.wiki.requests.changed": true,
   "github.sync.request.changed": true,
   "terminal.requests.changed": true,
@@ -2173,6 +2174,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "github.sync.request.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.githubSyncRequest = transition.request })
+          break
+        }
+        case "home.background.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.homeBackgroundRequests = transition.requests })
           break
         }
         case "stack.wiki.requests.changed": {

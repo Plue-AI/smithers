@@ -62,6 +62,7 @@ type mythicalRepoHost interface {
 type MythicalService struct {
 	movedReturn             MovedOffReturn
 	installAuthorization    bool
+	homeBackground          *HomeBackground
 	rebasePresence          func(context.Context, int64, string) (RebasePresence, error)
 	installParallel         *InstallCapacityService
 	installParallelRequired bool
