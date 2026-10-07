@@ -2058,7 +2058,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if installSetup != nil {
 		launchWorker(func() {
-			err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "install-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, Operations: []string{"install.setup.address", "install.setup.repository", "install.setup.models", "install.setup.source", "install.setup.machine"}}, installSetup.Handle)
+			err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "install-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, Operations: []string{"install.setup.address", "install.setup.sign_in", "install.setup.repository", "install.setup.models", "install.setup.source", "install.setup.machine"}}, installSetup.Handle)
 			if err != nil && workerCtx.Err() == nil {
 				slog.Error("install setup worker stopped", "error", err)
 			}
