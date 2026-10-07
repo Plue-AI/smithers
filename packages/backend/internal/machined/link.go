@@ -134,6 +134,16 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 	}
 	lease.boot.link = l
 	l.objectImporter = r.objects
+	// Register before releasing admission's lock, so consumer shutdown cannot
+	// miss a connection admitted concurrently with its final worker snapshot.
+	r.eventsMu.Lock()
+	if r.eventsClosing || (r.events != nil && !r.events.start(l)) {
+		r.eventsMu.Unlock()
+		r.mu.Unlock()
+		_ = l.Close()
+		return nil, ErrNotReady
+	}
+	r.eventsMu.Unlock()
 	r.mu.Unlock()
 	admitted = true
 	if l.objectImporter != nil {

@@ -135,20 +135,7 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 // link when acknowledging an older event: doing so could release a new boot's
 // outbox entry with the same sequence number.
 func (i *Ingestor) Dispatch(ctx context.Context, link *Link, branch string) error {
-	for {
-		event, err := link.Receive(ctx)
-		if err != nil {
-			return err
-		}
-		if event.Seq == 0 {
-			continue
-		} // transient hints never receive durable receipts
-		ack, err := i.Commit(ctx, link.Connection, branch, event)
-		if err != nil {
-			return err
-		}
-		if err = link.Ack(ctx, branch, ack); err != nil {
-			return err
-		}
-	}
+	return dispatchEvents(ctx, link, branch, func(ctx context.Context, link *Link, branch string, event Event) (Acknowledgement, error) {
+		return i.Commit(ctx, link.Connection, branch, event)
+	})
 }

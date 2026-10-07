@@ -27,6 +27,11 @@ type Registry struct {
 	boots      map[[16]byte]*boot
 	rosterSync func(context.Context, string) error
 	objects    ObjectImporter
+	// Consumer cancellation cannot wait for mu: an in-flight writer holds
+	// that fence until its cancelled transaction rolls back.
+	eventsMu      sync.Mutex
+	eventsClosing bool
+	events        *eventConsumer
 }
 
 type boot struct {
@@ -88,6 +93,13 @@ func (r *Registry) BindBoot(branch, machine string, id [16]byte, credential []by
 // Close fences every boot before closing transport streams. A reader exiting
 // during shutdown cannot restore authority or evict a replacement registry.
 func (r *Registry) Close() error {
+	r.eventsMu.Lock()
+	r.eventsClosing = true
+	consumer := r.events
+	r.eventsMu.Unlock()
+	if consumer != nil {
+		consumer.cancel()
+	}
 	r.mu.Lock()
 	r.closed = true
 	var connections []*Connection
@@ -102,6 +114,9 @@ func (r *Registry) Close() error {
 	var errs []error
 	for _, c := range connections {
 		errs = append(errs, c.closeStream())
+	}
+	if consumer != nil {
+		consumer.stop()
 	}
 	return errors.Join(errs...)
 }
