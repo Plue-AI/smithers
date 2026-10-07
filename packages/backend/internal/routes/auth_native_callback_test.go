@@ -16,8 +16,9 @@ import (
 
 func TestAuthNativeCallbackStateRoundTrip(t *testing.T) {
 	t.Parallel()
-	for _, callbackState := range []string{"", strings.Repeat("A", 43)} {
-		t.Run(callbackState, func(t *testing.T) {
+	for _, tc := range []struct{ state, agent string }{{"", ""}, {strings.Repeat("A", 43), ""}, {strings.Repeat("A", 43), "extra"}, {"", "codex"}} {
+		callbackState := tc.state
+		t.Run(callbackState+"/"+tc.agent, func(t *testing.T) {
 			var verifier string
 			handler := AuthHandler{AuthConfig: defaultRouteAuthConfig(), Service: mockAuthService{
 				startGitHubScopesFn: func(_ context.Context, stateVerifier, scopes string) (string, error) {
@@ -31,6 +32,11 @@ func TestAuthNativeCallbackStateRoundTrip(t *testing.T) {
 				},
 				createTokenFn: func(_ context.Context, userID int64, request services.CreateTokenRequest) (services.CreateTokenResult, error) {
 					require.Equal(t, int64(1), userID)
+					via := tc.agent
+					if via == "" {
+						via = "cli"
+					}
+					require.Equal(t, via, request.Via)
 					require.Equal(t, []string{"read:user", "write:workspace", "write:agent"}, request.Scopes)
 					return services.CreateTokenResult{Token: "smithers_fixture_native"}, nil
 				},
@@ -38,6 +44,9 @@ func TestAuthNativeCallbackStateRoundTrip(t *testing.T) {
 			query := url.Values{"callback_port": {"41523"}, "scopes": {"read:user,write:workspace,write:agent"}}
 			if callbackState != "" {
 				query.Set("callback_state", callbackState)
+			}
+			if tc.agent != "" {
+				query.Set("agent", tc.agent)
 			}
 			start := httptest.NewRecorder()
 			handler.GetGitHubOAuthCLIStart(start, httptest.NewRequest(http.MethodGet, "/api/auth/github/cli?"+query.Encode(), nil))
@@ -77,7 +86,7 @@ func TestAuthNativeCallbackStateRefusesInvalidAndUnboundState(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, response.Code)
 		require.Empty(t, response.Result().Cookies())
 	}
-	for _, cookie := range []string{"41523:other:" + strings.Repeat("A", 43), "41523:current:short", "41523:current:" + strings.Repeat("A", 43) + ":extra"} {
+	for _, cookie := range []string{"41523:other:" + strings.Repeat("A", 43), "41523:current:short", "41523:current:" + strings.Repeat("A", 43) + ":extra:unbound", "41523:current:" + strings.Repeat("A", 43) + ":smithers", "41523:current:" + strings.Repeat("A", 43) + ":terminal"} {
 		request := httptest.NewRequest(http.MethodGet, "/callback", nil)
 		request.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: "current"})
 		request.AddCookie(&http.Cookie{Name: cliCallbackCookieName, Value: cookie})
