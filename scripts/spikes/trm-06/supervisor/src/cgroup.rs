@@ -213,6 +213,126 @@ impl Group {
 #[cfg(test)]
 mod replacement_tests {
     use super::*;
+    // Real openat/read/write syscalls with concurrent pathname replacement.
+    // These ordinary files are supplemental descriptor tests, not kernel cgroup
+    // or installed-root evidence; the independent reference campaign is required.
+    #[test]
+    fn cleanup_and_enrollment_remain_on_held_child_during_replacement() {
+        for replacement in ["directory", "symlink"] {
+            let root = std::env::temp_dir().join(format!(
+                "trm06-child-{}-{}-{replacement}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let child = root.join("s-0000000000000001");
+            let outside = root.join("outside");
+            std::fs::create_dir(&child).unwrap();
+            std::fs::create_dir(&outside).unwrap();
+            for directory in [&child, &outside] {
+                std::fs::write(directory.join("cgroup.kill"), b"0").unwrap();
+                std::fs::write(directory.join("cgroup.events"), b"populated 0\n").unwrap();
+                std::fs::write(directory.join("cgroup.procs"), b"0").unwrap();
+            }
+            // Deliberately conflicting replacement population: cleanup must
+            // observe the held child, never infer empty from a different path.
+            std::fs::write(outside.join("cgroup.events"), b"populated 1\n").unwrap();
+            let group = Group {
+                fd: OwnedFd::from(File::open(&child).unwrap()),
+            };
+            let attacker_root = root.clone();
+            let (ready, attacked) = std::sync::mpsc::channel();
+            let attacker = std::thread::spawn(move || {
+                std::fs::rename(&child, attacker_root.join("held-child")).unwrap();
+                if replacement == "directory" {
+                    std::fs::create_dir(&child).unwrap();
+                    for name in ["cgroup.kill", "cgroup.events", "cgroup.procs"] {
+                        std::fs::copy(outside.join(name), child.join(name)).unwrap();
+                    }
+                } else {
+                    std::os::unix::fs::symlink(&outside, &child).unwrap();
+                }
+                ready.send(()).unwrap();
+            });
+            attacked.recv_timeout(Duration::from_secs(2)).unwrap();
+            attacker.join().unwrap();
+            Group::kill_all(&[&group]).unwrap();
+            File::from(group.enrollment_fd().unwrap())
+                .write_all(b"7")
+                .unwrap();
+            assert_eq!(
+                std::fs::read(root.join("held-child/cgroup.kill")).unwrap(),
+                b"1"
+            );
+            assert_eq!(
+                std::fs::read(root.join("held-child/cgroup.procs")).unwrap(),
+                b"7"
+            );
+            for directory in [root.join("outside"), root.join("s-0000000000000001")] {
+                assert_eq!(std::fs::read(directory.join("cgroup.kill")).unwrap(), b"0");
+                assert_eq!(std::fs::read(directory.join("cgroup.procs")).unwrap(), b"0");
+                assert_eq!(
+                    std::fs::read(directory.join("cgroup.events")).unwrap(),
+                    b"populated 1\n"
+                );
+            }
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn raced_control_symlinks_refuse_before_outside_reads_or_writes() {
+        for control in ["cgroup.kill", "cgroup.events", "cgroup.procs"] {
+            let root = std::env::temp_dir().join(format!(
+                "trm06-control-{}-{}-{control}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let sentinel = root.join("outside");
+            std::fs::write(&sentinel, b"outside-fixture\0").unwrap();
+            let before = std::fs::metadata(&sentinel).unwrap();
+            std::fs::write(root.join(control), b"0").unwrap();
+            let group = Group {
+                fd: OwnedFd::from(File::open(&root).unwrap()),
+            };
+            let attacker_root = root.clone();
+            std::thread::spawn(move || {
+                std::fs::remove_file(attacker_root.join(control)).unwrap();
+                std::os::unix::fs::symlink(
+                    attacker_root.join("outside"),
+                    attacker_root.join(control),
+                )
+                .unwrap();
+            })
+            .join()
+            .unwrap();
+            let mut handles = Handles {
+                children: vec![group.fd.try_clone().unwrap()],
+                started: Instant::now(),
+            };
+            let error = match control {
+                "cgroup.kill" => handles.kill(0).unwrap_err(),
+                "cgroup.events" => handles.empty(0).unwrap_err(),
+                _ => group.enrollment_fd().unwrap_err(),
+            };
+            assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+            assert_eq!(std::fs::read(&sentinel).unwrap(), b"outside-fixture\0");
+            let after = std::fs::metadata(&sentinel).unwrap();
+            assert_eq!(
+                (before.ino(), before.uid(), before.mode()),
+                (after.ino(), after.uid(), after.mode())
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
     #[test]
     fn directory_replacement_does_not_adopt_new_inode() {
         let root = std::env::temp_dir().join(format!(
