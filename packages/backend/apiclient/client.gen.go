@@ -1856,6 +1856,13 @@ func (v PutAPIConversationViewStateResponse) MarshalJSON() ([]byte, error) {
 	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
+// PostAPIAgentsRoleEditBody is generated from docs/api/openapi.yaml.
+type PostAPIAgentsRoleEditBody struct {
+	Name    *string `json:"name,omitempty"`
+	Request string  `json:"request"`
+	Diff    *string `json:"diff,omitempty"`
+}
+
 // GetAPIAuthGithubCliParams is the query of GET /api/auth/github/cli.
 type GetAPIAuthGithubCliParams struct {
 	Agent         *string
@@ -1932,6 +1939,13 @@ type GetAPIExternalSessionsParams struct {
 	Agent   string
 	Session string
 	Offset  *int64
+}
+
+// PostAPIFlowsNameEditBody is generated from docs/api/openapi.yaml.
+type PostAPIFlowsNameEditBody struct {
+	Name    *string `json:"name,omitempty"`
+	Request string  `json:"request"`
+	Diff    *string `json:"diff,omitempty"`
 }
 
 // PostAPIGatewaysHostFileWriteGrantsBody is generated from docs/api/openapi.yaml.
@@ -2800,6 +2814,11 @@ func (c *Client) GetAPIAgentsName(ctx context.Context, name string) (AnyJSON, er
 	return out, err
 }
 
+// PostAPIAgentsRoleEdit calls POST /api/agents/{role}/edit.
+func (c *Client) PostAPIAgentsRoleEdit(ctx context.Context, role string, idempotencyKey string, body PostAPIAgentsRoleEditBody) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/agents/"+url.PathEscape(role)+"/edit", nil, body, nil)
+}
+
 // PutAPIAgentsRoleModel calls PUT /api/agents/{role}/model.
 func (c *Client) PutAPIAgentsRoleModel(ctx context.Context, role string, body any) (AnyJSON, error) {
 	var out AnyJSON
@@ -3111,6 +3130,11 @@ func (c *Client) GetAPIFlowsName(ctx context.Context, name string) (FlowCard, er
 	var out FlowCard
 	err := c.do(ctx, "GET", "/api/flows/"+url.PathEscape(name), nil, nil, &out)
 	return out, err
+}
+
+// PostAPIFlowsNameEdit calls POST /api/flows/{name}/edit.
+func (c *Client) PostAPIFlowsNameEdit(ctx context.Context, name string, idempotencyKey string, body PostAPIFlowsNameEditBody) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/flows/"+url.PathEscape(name)+"/edit", nil, body, nil)
 }
 
 // PostAPIGatewaysHostFileWriteGrants calls POST /api/gateways/{hostID}/file-write-grants.
