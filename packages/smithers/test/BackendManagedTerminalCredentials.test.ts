@@ -77,6 +77,8 @@ it("authenticates only the issuer's session file and freezes the bridge origin",
     .response("POST", "/probe", {})).rejects.toMatchObject({ code: "token_file_unavailable" })
   await expect(client.response("POST", "/probe", {}, { token: "foreign-explicit-token" }))
     .rejects.toMatchObject({ code: "token_file_unavailable" })
+  await expect(client.response("POST", "/probe", {}, { headers: { Authorization: "token foreign-header-token" } }))
+    .rejects.toMatchObject({ code: "token_file_unavailable" })
   await expect(new Client({ environment: { ...f.environment, SMITHERS_TERMINAL_SESSION: undefined } })
     .response("POST", "/probe", {})).rejects.toMatchObject({ code: "token_file_unavailable" })
   expect(f.calls()).toBe(1)
