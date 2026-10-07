@@ -402,7 +402,21 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
 			return row, err
 		}
+		waking := !create && row.Status == "suspended"
+		if waking {
+			if err := s.transitionBranchMachine(ctx, row, "suspended", "starting", ""); err != nil {
+				return row, err
+			}
+		}
 		observed, err = s.runtime.StartWorkspace(startCtx, row.ID)
+		if waking && err != nil {
+			recovery, cancel := detachedRuntimeContext(ctx, 10*time.Second)
+			actual, inspectErr := s.runtime.InspectWorkspace(recovery, row.ID)
+			if inspectErr == nil && actual.State == workspaceapi.WorkspaceStopped {
+				_ = s.transitionBranchMachine(recovery, row, "starting", "suspended", "")
+			}
+			cancel()
+		}
 		if isNoCapacityError(err) {
 			return s.refuseResumeForNoCapacity(ctx, row, err)
 		}
@@ -992,6 +1006,7 @@ func (s *WorkspaceService) WorkspaceRuntimeTerminalAvailable() bool {
 }
 
 func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID string, repositoryID, userID int64, columns, rows uint16) (workspaceapi.Terminal, error) {
+	ctx = context.WithValue(personMachineDemand(ctx), sessionMachineDemandKey{}, sessionID)
 	if !s.WorkspaceRuntimeTerminalAvailable() {
 		return nil, pkgerrors.Internal("workspace terminal unavailable")
 	}

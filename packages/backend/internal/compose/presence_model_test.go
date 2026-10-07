@@ -10,7 +10,7 @@ import (
 
 func TestBranchPresenceModelMachineAndSSH(t *testing.T) {
 	for _, tc := range []struct{ status, state string }{
-		{"running", "awake"}, {"suspended", "asleep"}, {"stopped", "asleep"},
+		{"releasing", "releasing"}, {"running", "awake"}, {"suspended", "asleep"}, {"stopped", "asleep"},
 		{"starting", "waking"}, {"pending", "waking"}, {"failed", "failed"},
 		{"deleted", "closed"}, {"", "closed"},
 	} {
