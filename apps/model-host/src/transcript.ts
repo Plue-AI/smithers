@@ -1,4 +1,4 @@
-import * as Transcript from "@smthrs/harness/ExternalTranscript"
+import * as Transcript from "@smthrs/harness/Transcript"
 import { Result, Schema } from "effect"
 
 const Context = Schema.Struct({
@@ -19,7 +19,8 @@ const Base = { pending: Schema.String, line: Schema.Number, seq: Schema.Number }
 const Codex = Schema.Struct({
   ...Base,
   session: Schema.optional(Schema.Struct({ id: Schema.String, format_version: Schema.String, cwd: Schema.String })),
-  goal: Schema.optional(Schema.String)
+  goal: Schema.optional(Schema.String),
+  calls: Schema.optional(Schema.Record(Schema.String, Schema.Struct({ name: Schema.String, input: Schema.String })))
 })
 const Claude = Schema.Struct({
   ...Base,
@@ -31,8 +32,8 @@ const Checkpoint = Schema.Struct({
   offset: Schema.Number,
   pending: Schema.Literal(""),
   profile: Schema.String,
-  source_generation: Schema.String,
-  decoder: Schema.Unknown
+  context: Context,
+  native: Schema.Unknown
 })
 
 // The backend supplies registry identities and the checkpoint from its receipt
@@ -50,57 +51,24 @@ export const normalizeTranscript = (value: unknown) => {
     throw new Error("invalid transcript envelope")
   }
   const previous = input.state === undefined ? undefined : Schema.decodeUnknownSync(Checkpoint)(input.state)
-  if (previous === undefined ? input.start !== 0 : previous.offset !== input.start ||
-    previous.profile !== input.profile || previous.source_generation !== context.source_generation) {
+  if (previous === undefined ? input.start !== 0 : previous.offset !== input.start || previous.profile !== input.profile) {
     throw new Error("invalid transcript checkpoint")
   }
   const codex = input.profile === "codex/0.160.0"
-  const decode = (): Result.Result<Transcript.Decoded<Transcript.CodexState | Transcript.ClaudeState>, Transcript.ExternalTranscriptError> => {
-    if (codex) {
-      const state = previous === undefined ? Transcript.codexStart : Schema.decodeUnknownSync(Codex)(previous.decoder)
-      validateState(state)
-      if (state.session !== undefined && state.session.format_version !== "codex-rollout/0.160") throw new Error("profile changed")
-      return Transcript.decodeCodex(state, input.record + "\n")
-    }
-    const state = previous === undefined ? Transcript.claudeStart : Schema.decodeUnknownSync(Claude)(previous.decoder)
-    validateState(state)
-    return Transcript.decodeClaude(state, input.record + "\n")
+  const state = previous === undefined ? undefined : {
+    ...previous,
+    profile: input.profile,
+    native: codex ? Schema.decodeUnknownSync(Codex)(previous.native) : Schema.decodeUnknownSync(Claude)(previous.native)
   }
-  const result = decode()
-  if (Result.isFailure(result)) throw new Error(result.failure.code)
+  if (state !== undefined) validateState(state.native)
+  const result = codex
+    ? Transcript.decodeCodex(input.profile, context, input.record + "\n", state)
+    : Transcript.decodeClaudeCode(input.profile, context, input.record + "\n", state)
+  if (Result.isFailure(result)) throw new Error(result.failure._tag)
   const decoded = result.success
-  validateState(decoded.state)
-  const expected = codex ? "codex-rollout/0.160" : "claude-code/2.1"
-  if (codex && typeof decoded.state.session === "object" && decoded.state.session.format_version !== expected) throw new Error("profile changed")
-  if (decoded.entries.some(entry => entry.format_version !== expected)) throw new Error("profile changed")
-  return {
-    entries: decoded.entries.map(entry => {
-      const part = entry.part
-      const kind = part.type === "prompt" ? "prompt" : part.type === "text" ? "assistant" :
-        part.type === "reasoning" ? "thinking" : part.type === "tool" ?
-        (part.status === "running" ? "tool_request" : "tool_result") :
-        part.type === "edit" ? "edit" : part.type === "error" ? "error" : "attachment"
-      return {
-        id: `${context.source_generation}:${entry.source_id}`,
-        source_id: entry.source_id,
-        source_offset: input.start,
-        origin: "external",
-        read_only: true,
-        agent: entry.agent_kind,
-        source_format_version: input.profile,
-        session_id: context.session_id,
-        participant_id: context.participant_id,
-        owner_id: context.owner_id,
-        author_id: kind === "prompt" ? context.owner_id : context.participant_id,
-        kind,
-        body: part.type === "prompt" || part.type === "text" || part.type === "reasoning" ? part.text : part,
-        ...("call_id" in part ? { call_id: part.call_id } : {}),
-        failed: (part.type === "tool" && part.status === "error") || (part.type === "edit" && part.outcome === "failed")
-      }
-    }),
-    state: { offset: input.end, pending: "", profile: input.profile, source_generation: context.source_generation, decoder: decoded.state },
-    needs_more: false
-  }
+  validateState(decoded.state.native)
+  if (decoded.needs_more || decoded.state.offset !== input.end) throw new Error("invalid decoder framing")
+  return decoded
 }
 
 const validateState = (state: { pending: string; line: number; seq: number }) => {

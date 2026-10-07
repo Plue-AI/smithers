@@ -31,9 +31,10 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
     assert.equal((await post({}, "wrong")).status, 401)
     assert.equal((await post({})).status, 422)
     const context = { owner_id: "42", participant_id: "01000000-0000-0000-0000-000000000000", session_id: "9", source_generation: "02000000-0000-0000-0000-000000000000:1" }
-    for (const [fixture, file, profile, count, firstSource, toolCall] of [
-      ["codex-0.160", "rollout.jsonl", "codex/0.160.0", 32, "01a10d62-91c7-7163-b038-72dab55a2e8c:10", "exec-72424bde-7b89-43fe-9962-8fe21e4a3d4b"],
-      ["claude-code-2.1", "session.jsonl", "claude-code/2.1.0", 36, "93469675-c700-423f-be09-43aefb36a280:6", "toolu_01JD3dL8cHy7FW7iBubC6yjY"]
+    for (const [fixture, file, profile] of [
+      ["codex-0.160", "rollout.jsonl", "codex/0.160.0"],
+      ["claude-code-2.1", "session.jsonl", "claude-code/2.1.0"],
+      ["codex-machine-0.160", "rollout.jsonl", "codex/0.160.0"]
     ]) {
       const bytes = await readFile(new URL(`../../../packages/smithers/agent/harness/test/fixtures/external/${fixture}/${file}`, import.meta.url), "utf8")
       let state
@@ -55,31 +56,30 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
         state = JSON.parse(JSON.stringify(output.state))
         offset = end
       }
-      assert.equal(entries.length, count)
-      assert.equal(entries[0].source_id, firstSource)
-      assert.equal(entries[0].author_id, "42")
-      assert.equal(entries[0].kind, "prompt")
-      if (fixture === "codex-0.160") assert.equal(entries[0].body, "How do I use ultrafast")
-      const tool = entries.find(entry => entry.call_id === toolCall)
-      assert.equal(tool.kind, "tool_result")
-      assert.equal(tool.author_id, context.participant_id)
-      assert.equal(tool.body.call_id, toolCall)
-      for (const entry of entries) {
-        assert.equal(entry.session_id, "9")
-        assert.equal(entry.participant_id, context.participant_id)
-        assert.equal(entry.owner_id, "42")
-        assert.equal(entry.origin, "external")
-        assert.equal(entry.read_only, true)
-        assert.equal(entry.id, `${context.source_generation}:${entry.source_id}`)
+      const golden = JSON.parse(await readFile(new URL(`../../../packages/smithers/agent/harness/test/fixtures/external/${fixture}/drafts.expected.json`, import.meta.url), "utf8"))
+      // Independent committed expectations, adapted only to the registered HTTP identities.
+      const expected = golden.entries.map(entry => ({...entry,
+        id: JSON.stringify([entry.agent,context.session_id,context.source_generation,entry.source_offset,entry.source_id,JSON.parse(entry.id)[5]]),
+        owner_id:context.owner_id,participant_id:context.participant_id,session_id:context.session_id,
+        author_id:entry.kind === "prompt" ? context.owner_id : context.participant_id
+      }))
+      assert.deepEqual(entries, expected)
+      assert.deepEqual(state.context, context)
+      if(fixture === "codex-machine-0.160") {
+        assert(entries.some(entry=>entry.kind === "edit" && entry.failed))
+        assert(entries.some(entry=>entry.kind === "tool_result" && entry.failed))
       }
       const record = "{}"
       const next = { profile, context, record, start: offset, end: offset + 3, state }
       for (const forged of [
         { ...next, start: offset + 1 }, { ...next, end: Number.MAX_SAFE_INTEGER + 1 },
         { ...next, context: { ...context, owner_id: "../../other-home" } },
+        { ...next, context: { ...context, owner_id: "43" } },
+        { ...next, context: { ...context, session_id: "10" } },
+        { ...next, context: { ...context, participant_id: "03000000-0000-0000-0000-000000000000" } },
         { ...next, context: { ...context, source_generation: "02000000-0000-0000-0000-000000000000:2" } },
-        { ...next, state: { ...state, decoder: { ...state.decoder, pending: "unfinished" } } },
-        { ...next, state: { ...state, decoder: { ...state.decoder, seq: -1 } } },
+        { ...next, state: { ...state, native: { ...state.native, pending: "unfinished" } } },
+        { ...next, state: { ...state, native: { ...state.native, seq: -1 } } },
         { ...next, profile: "codex/unsupported" }, { ...next, record: "{}\n{}" }
       ]) assert.equal((await post(forged)).status, 422)
     }
