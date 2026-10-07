@@ -650,7 +650,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("revoked replay did not finish")
 	}
-	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='write:repository,read:user,via:unlisted-tool' WHERE token_hash=$1`, hashes[0])
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='write:repository,read:user,via:unlisted_tool' WHERE token_hash=$1`, hashes[0])
 	require.NoError(t, err)
 	status, unknown := call(0, false, "/api/todos", "unknown-actor", `{"title":"No new TODO","prompt":"No new TODO"}`)
 	require.Equal(t, 403, status, unknown)
