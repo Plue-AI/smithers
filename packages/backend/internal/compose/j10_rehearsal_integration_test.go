@@ -965,7 +965,7 @@ func TestJ10Rehearsal(t *testing.T) {
 				}
 			}
 		})
-	r.pending("6 App agent retries the sync", "POST /api/agent/turn 'retry the GitHub sync'", "github.retry runs at once with no confirmation (agent: run); fresh within 10 s", "T-GH-07", "agent-retry")
+	r.pending("6 App agent retries the sync", "POST /api/conversations/main/prompt 'retry the GitHub sync'", "github.retry runs at once with no confirmation (agent: run); fresh within 10 s", "T-GH-07", "agent-retry")
 	r.pending("6 Refusal names the App installation", "GitHub: the App's installation suspended → GET /api/github/sync; Home", "state refused with the installation as the cause and a link to Settings", "T-GH-07", "installation-refused")
 
 	// C-J10-07: main rewritten on GitHub (last: it ends main following).
