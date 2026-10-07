@@ -189,7 +189,8 @@ func (m *Members) LinkGitHub(ctx context.Context, id, userID int64, login string
 // Add puts a GitHub user on the roster. Their role seeds from their GitHub
 // permission; a person without write access there is refused with no row.
 func (m *Members) Add(ctx context.Context, login string) error {
-	if _, err := Authorize(ctx, db.New(m.Pool), "members.add"); err != nil {
+	decision, err := Authorize(ctx, db.New(m.Pool), "members.add")
+	if err != nil {
 		return err
 	}
 	if !ValidMemberLogin(login) {
@@ -226,7 +227,7 @@ func (m *Members) Add(ctx context.Context, login string) error {
 		// the repository's access settings (T-APP-06, class user).
 		return &AccessError{Status: http.StatusForbidden, Class: "user", Code: "needs_github_access", Message: "Needs access on GitHub", Fix: repo.accessURL()}
 	}
-	tx, _, err := m.memberMutation(ctx)
+	tx, _, err := m.memberMutation(ctx, decision.UserID, repo.ID)
 	if err != nil {
 		return err
 	}
@@ -338,7 +339,8 @@ func (m *Members) roster(ctx context.Context, canWrite bool) (MembersProjection,
 
 // ChangeRole sets a member's role. The owner's role never changes.
 func (m *Members) ChangeRole(ctx context.Context, login, role string) error {
-	if _, err := Authorize(ctx, db.New(m.Pool), "members.role"); err != nil {
+	decision, err := Authorize(ctx, db.New(m.Pool), "members.role")
+	if err != nil {
 		return err
 	}
 	if !ValidMemberLogin(login) {
@@ -351,7 +353,7 @@ func (m *Members) ChangeRole(ctx context.Context, login, role string) error {
 	if err != nil {
 		return err
 	}
-	tx, owner, err := m.memberMutation(ctx)
+	tx, owner, err := m.memberMutation(ctx, decision.UserID, repo.ID)
 	if err != nil {
 		return err
 	}
