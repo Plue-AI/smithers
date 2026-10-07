@@ -875,7 +875,7 @@ func authorizeExecutionTodoRead(ctx context.Context, q *db.Queries, subject Inst
 		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Credential cannot read this TODO"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)
-	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued || !info.Scopes.Has(middleware.ScopeReadRepository) || subject.RepositoryID <= 0 || subject.TodoNumber <= 0 || info.RepositoryRestriction() != subject.RepositoryID {
+	if q == nil || info == nil || info.User == nil || !info.TokenSystemIssued || middleware.ParseTokenWorkspaceChildrenCredential(info.RawScopes) || !info.Scopes.Has(middleware.ScopeReadRepository) || subject.RepositoryID <= 0 || subject.TodoNumber <= 0 || info.RepositoryRestriction() != subject.RepositoryID {
 		return deny()
 	}
 	workspaceID := info.WorkspaceRestriction()

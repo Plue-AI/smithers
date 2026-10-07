@@ -102,11 +102,18 @@ func TestInstallSystemTodoReadLiteralCellsPostgres(t *testing.T) {
 	// A stale run binding and a narrower file grant cannot become TODO reads.
 	stale := token(3, strings.Replace(runScopes, item.RequestRunID, uuid.NewString(), 1))
 	narrow := token(4, runScopes+","+strings.Join(middleware.PathRestrictionScopes([]string{"src/**"}), ","))
-	children := token(5, "read:repository,write:workspace,workspace:"+f.row.ID+","+middleware.WorkspaceChildrenCredentialScope())
-	for _, credential := range []string{stale, narrow, children} {
+	// Exact parent/repository scopes do not grant a children profile TODO reads.
+	children := token(5, "read:repository,read:workspace,write:workspace,"+middleware.RepositoryRestrictionScope(f.row.RepositoryID)+",workspace:"+f.row.ID+","+middleware.WorkspaceChildrenCredentialScope())
+	for _, credential := range []string{stale, narrow} {
 		status, body, _ := call("/api/todos/1", credential)
 		require.Equal(t, 403, status, body)
 	}
+	t.Run("children profile has no parent TODO grant", func(t *testing.T) {
+		status, body, commands := call("/api/todos/1", children)
+		require.Equal(t, 403, status, body)
+		require.Contains(t, body, `"code":"permission"`)
+		require.Equal(t, []string{"todo.read"}, commands)
+	})
 	// Bound decisions cannot be reused for a different TODO number.
 	runHash := sha256.Sum256([]byte(run))
 	var tokenID int64
