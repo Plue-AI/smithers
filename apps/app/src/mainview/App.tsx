@@ -465,7 +465,7 @@ function AppContent() {
       >
       <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
             initialMessageId={sharedConversation.view?.scroll_anchor ?? initialReadId}
-            readAnchor={controller.sharedConversation ? undefined : { messageId: latestReadId ?? "",
+            readAnchor={controller.sharedConversation && !(latestEntry?.kind === "card" && latestEntry.card.kind === "docs") ? undefined : { messageId: latestReadId ?? "",
               targetId: latestEntry?.kind === "card" && latestEntry.card.kind === "docs" ? latestEntry.card.payload.anchor : undefined,
               actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
               requestId: readRequestRef.current,
