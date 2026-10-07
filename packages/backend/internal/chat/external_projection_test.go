@@ -18,12 +18,13 @@ func TestExternalProjectionReadOnlyMessageContract(t *testing.T) {
 			if kind == "prompt" {
 				current.Author = "42"
 			}
-			row := SharedTurn{ExternalDraft: &current, ID: "journal-id", RunID: "private-run", Frames: []json.RawMessage{json.RawMessage(`{"private":"sentinel"}`)}, externalActor: externalActor(owner, current, 2), externalAt: 2000, externalOrdinal: 4}
+			row := SharedTurn{ExternalDraft: &current, ID: "journal-id", Sequence: 17, RunID: "private-run", Frames: []json.RawMessage{json.RawMessage(`{"private":"sentinel"}`)}, externalActor: externalActor(owner, current, 2), externalAt: 2000, externalOrdinal: 4}
 			encoded, err := json.Marshal(row)
 			require.NoError(t, err)
 			var message map[string]any
 			require.NoError(t, json.Unmarshal(encoded, &message))
 			require.Equal(t, "journal-id", message["id"])
+			require.Equal(t, float64(17), message["sequence"])
 			require.Equal(t, "external", message["origin"])
 			require.Equal(t, true, message["read_only"])
 			require.Equal(t, "codex", message["agent_kind"])

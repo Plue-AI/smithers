@@ -186,6 +186,7 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	var conversation chat.SharedConversation
 	require.NoError(t, json.Unmarshal([]byte(shared), &conversation))
 	require.Len(t, conversation.Entries, 1)
+	require.Positive(t, conversation.Entries[0].Sequence, "the served import retains its durable entry cursor")
 	id := conversation.Entries[0].ID
 	for _, cookie := range []string{benCookie, aliceCookie} {
 		call("PATCH", "/api/conversations/"+branch.ID+"/turns/"+id, `{"prompt":"mutate imported"}`, cookie, 403)
@@ -451,7 +452,7 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		// seam; no fake message projection is injected at this boundary.
 		bun, err := exec.LookPath("bun")
 		require.NoError(t, err)
-		check := exec.CommandContext(t.Context(), bun, "-e", `import { SharedConversationSchema } from "./apps/app/src/mainview/state/seams/SharedConversationSeam.ts"; const conversation = SharedConversationSchema.parse(JSON.parse(await Bun.stdin.text())); if (conversation.entries.length !== 69) throw new Error("lost imported history"); for (const row of conversation.entries) { if (row.origin !== "external" || row.read_only !== true || row.turnId !== undefined || row.runId !== undefined) throw new Error("executable imported history"); }`)
+		check := exec.CommandContext(t.Context(), bun, "-e", `import { SharedConversationSchema } from "./apps/app/src/mainview/state/seams/SharedConversationSeam.ts"; const conversation = SharedConversationSchema.parse(JSON.parse(await Bun.stdin.text())); if (conversation.entries.length !== 69) throw new Error("lost imported history"); for (const row of conversation.entries) { if (!Number.isSafeInteger(row.sequence) || row.sequence <= 0 || row.origin !== "external" || row.read_only !== true || row.turnId !== undefined || row.runId !== undefined) throw new Error("executable imported history"); }`)
 		check.Dir = root
 		check.Stdin = strings.NewReader(history)
 		output, err := check.CombinedOutput()

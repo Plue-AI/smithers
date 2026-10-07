@@ -60,7 +60,7 @@ const ImportedTurnSchema = z.object({
 })
 export const SharedConversationSchema = z.object({
   id: z.string(),
-  entries: z.array(z.union([ImportedTurnSchema, MessageSchema.refine(message => message.origin === "external"), SharedTurnSchema]))
+  entries: z.array(z.union([ImportedTurnSchema, MessageSchema.safeExtend({ sequence: z.number().int().positive().safe().optional() }).refine(message => message.origin === "external"), SharedTurnSchema]))
 }).transform(conversation => ({ ...conversation, entries: conversation.entries.map((entry, ordinal) =>
   "role" in entry ? { ...entry, ordinal } : entry) }))
 export type SharedConversation = z.infer<typeof SharedConversationSchema>

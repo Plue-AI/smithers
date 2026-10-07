@@ -524,3 +524,10 @@ test("published imports remain read-only with their durable sequence", () => {
   }] })
   expect(result.entries[0]).toMatchObject({ origin: "external", read_only: true, text: "Read this import", role: "user", sequence: 9 })
 })
+
+
+test("served read-only messages retain their durable cursor through the shared seam", () => {
+  const entry = { id: "import-message", origin: "external", sequence: 9, agent_kind: "codex", format_version: "codex/0.160.0", source_id: "source", session_id: "session", participant_id: "participant", read_only: true, actor: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://example.test/ben.png", color_index: 0 }, role: "user", text: "Read this import", status: "complete", createdAt: 0, ordinal: 0 }
+  expect(SharedConversationSchema.parse({ id: "main", entries: [entry] }).entries[0]).toMatchObject({ origin: "external", sequence: 9, read_only: true })
+  expect(SharedConversationSchema.safeParse({ id: "main", entries: [{ ...entry, sequence: 0 }] }).success).toBe(false)
+})

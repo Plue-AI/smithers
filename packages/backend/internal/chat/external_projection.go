@@ -57,6 +57,9 @@ func (turn SharedTurn) MarshalJSON() ([]byte, error) {
 		"createdAt": at, "ordinal": turn.externalOrdinal,
 		"authorLogin": turn.AuthorLogin,
 	}
+	if turn.Sequence > 0 {
+		message["sequence"] = turn.Sequence
+	}
 	if turn.AuthorName != "" {
 		message["authorName"] = turn.AuthorName
 	}
