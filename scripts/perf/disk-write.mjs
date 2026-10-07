@@ -50,6 +50,29 @@ export function verifyActivity(entries, baseline, member) {
   return added
 }
 
+// Serialized into the real browser; the composed-router test uses the same
+// subscriber with a real WebSocket transport and authenticated session.
+export async function subscribeFiles({ origin, branch }) {
+  window.__diskFrames = []
+  window.__diskSocket = new WebSocket(origin.replace(/^http/, 'ws') + '/api/live', 'smithers.live.v1')
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('live subscription timeout')), 10000)
+    const seen = new Set()
+    window.__diskSocket.onopen = () => {
+      for (const [id, suffix] of [[801, 'files'], [802, 'activity']]) window.__diskSocket.send(JSON.stringify({ t: 'sub', id, topic: `branch:${branch}:${suffix}` }))
+    }
+    window.__diskSocket.onerror = () => { clearTimeout(timer); reject(new Error('live socket failed')) }
+    window.__diskSocket.onmessage = ({ data }) => {
+      if (typeof data !== 'string') return
+      const frame = JSON.parse(data)
+      window.__diskFrames.push(frame)
+      if (frame.t === 'err' || frame.t === 'gap') { clearTimeout(timer); reject(new Error(`live publisher refused: ${frame.code ?? frame.t}`)); return }
+      if (frame.t === 'snap') seen.add(frame.id)
+      if (seen.has(801) && seen.has(802)) { clearTimeout(timer); resolve() }
+    }
+  })
+}
+
 export async function run(env = process.env) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   const result = { timestamp, check: 'C-PERF-04', status: 'failed', samples: [], clock: 'second Mac Node performance.now(): SSH submission to browser binding (upper bound)' }
@@ -81,26 +104,7 @@ export async function run(env = process.env) {
     await page.getByTestId('composer-input').press('Enter')
     await page.locator('.cm-content').waitFor({ timeout: 15000 })
     // Subscribe independently: an unsupported publisher fails before any write.
-    await page.evaluate(async ({ origin, branch }) => {
-      window.__diskFrames = []
-      window.__diskSocket = new WebSocket(origin.replace(/^http/, 'ws') + '/api/live')
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('live subscription timeout')), 10000)
-        const seen = new Set()
-        window.__diskSocket.onopen = () => {
-          for (const [id, suffix] of [[801, 'files'], [802, 'activity']]) window.__diskSocket.send(JSON.stringify({ t: 'sub', id, topic: `branch:${branch}:${suffix}` }))
-        }
-        window.__diskSocket.onerror = () => { clearTimeout(timer); reject(new Error('live socket failed')) }
-        window.__diskSocket.onmessage = ({ data }) => {
-          if (typeof data !== 'string') return
-          const frame = JSON.parse(data)
-          window.__diskFrames.push(frame)
-          if (frame.t === 'err' || frame.t === 'gap') { clearTimeout(timer); reject(new Error(`live publisher refused: ${frame.code ?? frame.t}`)); return }
-          if (frame.t === 'snap') seen.add(frame.id)
-          if (seen.has(801) && seen.has(802)) { clearTimeout(timer); resolve() }
-        }
-      })
-    }, config)
+    await page.evaluate(subscribeFiles, config)
     const initial = await page.evaluate(() => window.__diskFrames)
     if (!initial.some(frame => frame.id === 802 && frame.t === 'snap')) throw new Error('activity snapshot required')
     const activity = activityEntries(initial)
