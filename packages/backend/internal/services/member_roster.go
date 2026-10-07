@@ -80,12 +80,21 @@ func (m *Members) installationAccess(ctx context.Context, repo memberRepository)
 	if err == nil && status != http.StatusOK {
 		return "", memberGitHubFailure(status)
 	}
+	if err != nil {
+		var upstream *pkgerrors.APIError
+		if errors.As(err, &upstream) && upstream.Code == pkgerrors.CodeGitHubRateLimited {
+			return "", err
+		}
+	}
 	if err != nil || status != http.StatusOK || installation.ID <= 0 {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	token, err := m.memberToken(ctx, installation.ID)
 	if err != nil {
 		var upstream *pkgerrors.APIError
+		if errors.As(err, &upstream) && upstream.Code == pkgerrors.CodeGitHubRateLimited {
+			return "", err
+		}
 		if errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403 || upstream.Status == 404) {
 			return "", memberGitHubFailure(upstream.Status)
 		}
