@@ -126,13 +126,9 @@ const requiredGates = new Map([
  * entry here therefore also has to name its section of the known-limitations
  * page, and the fault-gaps row has to link to it.
  *
- * Empty. Case 22's terminal-log half was the last entry: rc.0 shipped no
- * redacting logger, so the gate was red by design and `e2e-faults` carried
- * `continueOnError` for it. The redaction deliverable landed the
- * logger, the gate went green with no edit to the case, and `e2e-faults` became
- * a required CI job. While this map is empty the matrix is expected to be green
- * end to end; adding an entry back means putting `continueOnError` back on that
- * job in the root `PACKAGE.ts` in the same commit.
+ * Empty. Case 22's terminal-log half was the last entry. The nightly
+ * reliability job now owns this matrix and never makes failures advisory.
+ * A recorded limitation does not waive a required durability case.
  *
  * An entry is keyed like {@link requiredGates} and carries
  * `limitation: { row, anchor }`: `row` is how its fault-gaps row starts
@@ -312,22 +308,16 @@ describe("the fault-suite skip audit", () => {
     ])
   })
 
-  it("keeps the fault job's CI status in step with the required-red set", () => {
-    // The comment over `requiredRedGates` states this rule; without a case it
-    // is enforced by nothing. A red gate the matrix is required to carry means
-    // `e2e-faults` cannot fail the pipeline, and an empty map means it must.
-    const build = readFileSync(join(root, "PACKAGE.ts"), "utf8")
-    const faultsJob = build.slice(build.indexOf("id: \"e2e-faults\""))
-    const jobBody = faultsJob.slice(0, faultsJob.indexOf("\n    }"))
-    const advisory = /continueOnError:\s*true/.test(jobBody)
-    const required = /requiredJobs:[^\]]*"e2e-faults"/.test(build)
-    if (requiredRedGates.size === 0) {
-      assert.ok(!advisory, "requiredRedGates is empty, so e2e-faults must not carry continueOnError")
-      assert.ok(required, "requiredRedGates is empty, so e2e-faults belongs in requiredJobs")
-    } else {
-      assert.ok(advisory, "a required red gate is listed, so e2e-faults must carry continueOnError")
-      assert.ok(!required, "a required red gate is listed, so e2e-faults must not be in requiredJobs")
+  it("keeps nightly faults required without an ordinary-CI duplicate", () => {
+    const workflow = parseWorkflow(readFileSync(join(root, ".github/workflows/reliability.yml"), "utf8"))
+    const job = workflow.jobs["e2e-faults"]
+    assert.ok(job, "the nightly reliability matrix must exist")
+    assert.equal(job["continue-on-error"], undefined, "fault failures must remain failures")
+    for (const step of job.steps) {
+      assert.equal(step["continue-on-error"], undefined, "no fault step may hide failure")
     }
+    const build = readFileSync(join(root, "PACKAGE.ts"), "utf8")
+    assert.ok(!build.includes('id: "e2e-faults"'), "ordinary CI must not run a second fault matrix")
   })
 
   it("keeps the skip allow-list pointed at files that exist", () => {
@@ -401,12 +391,18 @@ describe("the fault matrix is wired to a gate", () => {
     }
   })
 
-  it("selects the whole matrix from the generated CI workflow", () => {
-    const ci = readFileSync(join(root, ".github", "workflows", "ci.yml"), "utf8")
-    const workflow = parseWorkflow(ci)
-    const runs = Object.values(workflow.jobs).flatMap((job) => job.steps ?? []).flatMap((step) => step.run ? [step.run] : [])
-    assert.equal(runs.filter((run) => /^pnpm exec smthrs test '\/\/packages\/\.\.\.:faults' --jobs 1(?: --known-red '\.github\/ci-known-red\.json')?(?: --verbose)?$/.test(run)).length, 1,
-      "the generated workflow must run the fault matrix once, serially over every package that declares one")
+  it("selects the whole matrix nightly and retains the release fault gate", () => {
+    for (const [file, command] of [
+      ["reliability.yml", `pnpm exec smthrs test '//packages/...:faults' --jobs 1 --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose`],
+      ["release.yml", "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --verbose"]
+    ]) {
+      const workflow = parseWorkflow(readFileSync(join(root, ".github", "workflows", file), "utf8"))
+      const runs = Object.values(workflow.jobs).flatMap((job) => job.steps ?? []).flatMap((step) => step.run ? [step.run] : [])
+      assert.equal(runs.filter((run) => run === command).length, 1,
+        `${file} must select the complete fault matrix once, serially and without known-red allowances`)
+    }
+    const ci = parseWorkflow(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"))
+    assert.equal(ci.jobs["e2e-faults"], undefined, "the matrix belongs to nightly reliability")
   })
 
   it("keeps every fault tree inside a package the workspace typechecks", () => {
