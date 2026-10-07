@@ -104,7 +104,10 @@ try {
   await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/branches"))
   const fork = requests.find(request => request.method === "POST" && request.path === "/api/branches")!
   assert.deepEqual(fork.body, { from: "T1" })
-  assert.equal(fork.status, 409, JSON.stringify(fork))
+  // This read-only fixture deliberately has no machine runtime qualification.
+  // Fork refuses admission before resolving or retaining the source revision.
+  assert.equal(fork.status, 503, JSON.stringify(fork))
+  assert.deepEqual(fork.refusal, { class: "infra", code: "branch_machine_unavailable", message: "Branch unavailable" })
   assert.ok(requests.some(request => request.path === "/api/todos/1" && request.status === 200))
   assert.ok(requests.some(request => request.path.endsWith("/files/src/retry.ts") && request.status === 200))
   assert.ok(requests.filter(request => request.method === "POST").every(request => request.path === "/api/branches" || request.path === "/api/todos/1/answer"), "reads never wake the sleeping branch")
