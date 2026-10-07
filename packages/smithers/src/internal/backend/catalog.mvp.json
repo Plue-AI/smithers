@@ -11233,7 +11233,10 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a terminal on a branch",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/terminals"
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
