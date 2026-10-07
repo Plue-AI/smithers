@@ -251,29 +251,57 @@ ${scenario === "rejected" ? "exit 1" : ""}
   }
 }
 
-for (const gate of ["driftCi", "targetIndex", "ci", "trackedHygiene", "conflictMarkers"]) {
-  test(`git: mandatory ${gate} refuses --no-test before publication`, () => {
-    const directory = mkdtempSync(join(tmpdir(), "smithers-drift-refusal-"))
-    try {
-      copyHygiene(directory)
-      ok(directory, "git", ["init", "-b", "main"])
-      ok(directory, "git", ["config", "user.name", "Commit test"])
-      ok(directory, "git", ["config", "user.email", "test@example.com"])
-      ok(directory, "git", ["add", "."])
-      ok(directory, "git", ["commit", "-m", "initial"])
-      const before = ok(directory, "git", ["rev-parse", "HEAD"])
-      if (gate === "targetIndex") writeFileSync(join(directory, ".smithers/target-index.json"), "[]\n")
-      else if (gate === "trackedHygiene") writeFileSync(join(directory, "leak.ts"), `export const leak = 'scratchpad/${"lanes"}/a'\n`)
-      else if (gate === "conflictMarkers") writeFileSync(join(directory, "marker.txt"), "<<<<<<< broken\n")
-      else writeFileSync(join(directory, ".github/workflows", gate === "driftCi" ? "drift.yml" : "ci.yml"), "name: Stale\n")
-      const result = command(directory, process.execPath, [script, "--push", "--no-test", "manual recovery"])
-      assert.notEqual(result.status, 0)
-      assert.match(result.stderr, /NOT LANDED/)
-      assert.doesNotMatch(result.stdout, /^LANDED /m)
-      assert.equal(ok(directory, "git", ["rev-parse", "HEAD"]), before)
-      assert.equal(ok(directory, "git", ["diff", "--cached"]), "")
-    } finally { rmSync(directory, { recursive: true, force: true }) }
-  })
+for (const vcs of ["git", "jj"]) {
+  for (const mode of ["test", "no-test"]) {
+    for (const gate of ["driftCi", "targetIndex", "ci", "trackedHygiene", "conflictMarkers", "workflowInput"]) {
+      test(`${vcs}: mandatory ${gate} refuses --${mode} before publication`, () => {
+        const directory = mkdtempSync(join(tmpdir(), "smithers-drift-refusal-"))
+        const remote = mkdtempSync(join(tmpdir(), "smithers-drift-remote-"))
+        try {
+          copyHygiene(directory)
+          ok(directory, "git", ["init", "-b", "main"])
+          ok(directory, "git", ["config", "user.name", "Commit test"])
+          ok(directory, "git", ["config", "user.email", "test@example.com"])
+          ok(directory, "git", ["add", "."])
+          ok(directory, "git", ["commit", "-m", "initial"])
+          const before = ok(directory, "git", ["rev-parse", "HEAD"])
+          ok(remote, "git", ["init", "--bare", "-b", "main"])
+          ok(directory, "git", ["remote", "add", "origin", remote])
+          ok(directory, "git", ["push", "origin", "main"])
+          writeFileSync(join(remote, "hooks/pre-receive"), '#!/bin/sh\nprintf attempted >> "$GIT_DIR/push-attempts"\n', { mode: 0o755 })
+          if (vcs === "jj") {
+            ok(directory, "jj", ["git", "init", "--colocate"])
+            ok(directory, "jj", ["config", "set", "--repo", "user.name", "Commit test"])
+            ok(directory, "jj", ["config", "set", "--repo", "user.email", "test@example.com"])
+          }
+          if (gate === "workflowInput") {
+            const declaration = readFileSync(join(directory, "PACKAGE.ts"), "utf8")
+            writeFileSync(join(directory, "PACKAGE.ts"), declaration.replace('install: true', 'install: true, workflowLint: S.CiToolchain.Actionlint({ release: "1.7.11", workflows: [".github/workflows/missing.yml"] })'))
+          } else if (gate === "targetIndex") writeFileSync(join(directory, ".smithers/target-index.json"), "[]\n")
+          else if (gate === "trackedHygiene") writeFileSync(join(directory, "leak.ts"), `export const leak = 'scratchpad/${"lanes"}/a'\n`)
+          else if (gate === "conflictMarkers") writeFileSync(join(directory, "marker.txt"), "<<<<<<< broken\n")
+          else writeFileSync(join(directory, ".github/workflows", gate === "driftCi" ? "drift.yml" : "ci.yml"), "name: Stale\n")
+          // Exercise the actual label separately: the early hygiene preflight must
+          // not substitute for a passing trackedHygiene target contract.
+          const label = gate === "workflowInput" ? "//:targetIndex" :
+            ["trackedHygiene", "conflictMarkers"].includes(gate) ? `//scripts:${gate}` : `//:${gate}`
+          const checked = command(directory, process.execPath, [resolve(import.meta.dirname, "../packages/smithers/build/build-cli/src/main.ts"), "lint", label])
+          assert.notEqual(checked.status, 0, checked.stdout + checked.stderr)
+          const result = command(directory, process.execPath, [script, "--push", ...(mode === "test" ? ["--test", "true"] : ["--no-test", "manual recovery"])])
+          assert.notEqual(result.status, 0)
+          assert.match(result.stderr, /NOT LANDED/)
+          assert.doesNotMatch(result.stdout, /^LANDED /m)
+          assert.equal(ok(directory, "git", ["rev-parse", "HEAD"]), before)
+          assert.equal(ok(directory, "git", ["diff", "--cached"]), "")
+          assert.equal(ok(remote, "git", ["rev-parse", "main"]), before)
+          assert.throws(() => readFileSync(join(remote, "push-attempts")), { code: "ENOENT" })
+        } finally {
+          rmSync(directory, { recursive: true, force: true })
+          rmSync(remote, { recursive: true, force: true })
+        }
+      })
+    }
+  }
 }
 
 test("git: credential store refuses before tests, gates and push", () => {
