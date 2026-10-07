@@ -152,6 +152,8 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main='onto' WHERE repository_id=$1`, repo.ID)
+	require.NoError(t, err)
 	call(t, 409, "still_conflicted")
 	retained, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
@@ -162,6 +164,17 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	call(t, 409, "stale_conflict")
 	require.Zero(t, provider.signals)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, checks)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main='moved-main' WHERE repository_id=$1`, repo.ID)
+	require.NoError(t, err)
+	validations := provider.validations
+	call(t, 409, "stale_conflict")
+	require.Equal(t, validations, provider.validations)
+	require.Zero(t, provider.signals)
+	retained, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, checks, string(retained.Checks))
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main='onto' WHERE repository_id=$1`, repo.ID)
 	require.NoError(t, err)
 	provider.unresolved = nil
 	call(t, 202, "")

@@ -76,6 +76,8 @@ func TestTodoConflictDoneRetainsBinding(t *testing.T) {
 	var err error
 	item, err = o.service.queries().SaveMythicalItem(session, item)
 	require.NoError(t, err)
+	_, err = o.pool.Exec(session, `UPDATE mythical_stacks SET landed_main='onto' WHERE repository_id=$1`, o.repoID)
+	require.NoError(t, err)
 	input := TodoAnswerInput{Wait: "conflict-1", Answer: "done"}
 	refused := func(code string) {
 		t.Helper()
@@ -106,6 +108,13 @@ func TestTodoConflictDoneRetainsBinding(t *testing.T) {
 	checks.Rebase.Onto = "onto"
 	item.Checks = checks.encode()
 	item, err = o.service.queries().SaveMythicalItem(session, item)
+	require.NoError(t, err)
+	_, err = o.pool.Exec(session, `UPDATE mythical_stacks SET landed_main='new-main' WHERE repository_id=$1`, o.repoID)
+	require.NoError(t, err)
+	before = len(fake.calls)
+	refused("stale_conflict")
+	require.Len(t, fake.calls, before)
+	_, err = o.pool.Exec(session, `UPDATE mythical_stacks SET landed_main='onto' WHERE repository_id=$1`, o.repoID)
 	require.NoError(t, err)
 	fake.paths = nil
 	require.NoError(t, o.service.AnswerTodo(session, o.repoID, o.userID, item.Number.Int64, input))
