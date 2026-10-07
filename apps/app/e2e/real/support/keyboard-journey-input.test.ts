@@ -79,3 +79,23 @@ test("shared real journey doors traverse before typing, preserve editor text, an
     expect(() => keys.finish()).toThrow("refused input")
   } finally { await browser.close(); server.stop(true) }
 }, 30_000)
+
+test("capture sees a transient card before activation dismisses it", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
+    <style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
+    <section class="smithers-card">Decision <button onclick="this.parentElement.remove(); document.querySelector('input').focus()">Confirm</button></section>
+    <input aria-label="Chat">
+  `, { headers: { "Content-Type": "text/html" } }) })
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage(), observed: string[] = []
+    await page.goto(`http://127.0.0.1:${server.port}`)
+    const keys = registerKeyboardJourney(page, `http://127.0.0.1:${server.port}`, async () => {
+      observed.push(await page.locator(".smithers-card").count() ? "decision" : "dismissed")
+    })
+    await journeyActivate(page.getByRole("button", { name: "Confirm" }))
+    expect(observed).toEqual(["decision", "dismissed"])
+    expect(await page.getByLabel("Chat").evaluate(element => element === document.activeElement)).toBe(true)
+    keys.finish()
+  } finally { await browser.close(); server.stop(true) }
+}, 30_000)

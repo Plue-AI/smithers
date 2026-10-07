@@ -2,15 +2,15 @@ import type { Locator, Page } from "@playwright/test"
 import { assertKeyboardFocus, assertKeyboardOnly, installKeyboardOnly, recordKeyboardFocus, type KeyboardFocus, type KeyboardInput } from "./keyboardOnly"
 
 /** Reach controls through actual Tab input; locator evaluation only observes focus. */
-export function keyboardJourneyInput(page: Page, origin: string) {
+export function keyboardJourneyInput(page: Page, origin: string, capture?: () => Promise<void>) {
   const inputs: KeyboardInput[] = []
   const focus: KeyboardFocus[] = []
   installKeyboardOnly(page.context(), origin, inputs)
-  const observe = () => recordKeyboardFocus(page, focus)
+  const observe = async () => { await recordKeyboardFocus(page, focus); await capture?.() }
   const reach = async (target: Locator) => {
     await target.waitFor({ state: "visible" })
     for (let count = 0; count < 200; count++) {
-      if (await target.evaluate(element => element === document.activeElement)) return
+      if (await target.evaluate(element => element === document.activeElement)) { await capture?.(); return }
       await page.keyboard.press(process.platform === "darwin" && page.context().browser()?.browserType().name() === "webkit" ? "Alt+Tab" : "Tab")
     }
     throw new Error("C-UI-01 required control is unreachable by Tab")
@@ -53,8 +53,8 @@ export function keyboardJourneyInput(page: Page, origin: string) {
 }
 
 const journeys = new WeakMap<Page, ReturnType<typeof keyboardJourneyInput>>()
-export function registerKeyboardJourney(page: Page, origin: string) {
-  const input = keyboardJourneyInput(page, origin)
+export function registerKeyboardJourney(page: Page, origin: string, capture?: () => Promise<void>) {
+  const input = keyboardJourneyInput(page, origin, capture)
   journeys.set(page, input)
   return input
 }

@@ -109,3 +109,9 @@ next TODO through the app, and compares its exact `{slug, revision, digest}`
 citation and GitHub README bytes with checked-in expectations. The issue pass
 sends two Enter activations, requires one browser launch, then replays the same
 Idempotency-Key and requires the original HTTP status and result.
+
+In keyboard mode, selected-theme card capture also runs after traversal and
+before activation, then again after input. This retains transient cards that
+are dismissed before HTTP readback. Unchanged card markup is deduplicated;
+readback and completion still capture settled changes. The pre-input capture
+starts only after theme selection, never during setup credential entry.

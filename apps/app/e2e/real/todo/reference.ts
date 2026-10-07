@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { registerKeyboardJourney, journeyActivate } from "../support/keyboard-journey-input"
 import { execFileSync } from "node:child_process"
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test"
@@ -49,16 +50,31 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
   if (theme !== undefined && theme !== "light" && theme !== "dark") throw new JourneyUnavailable("SMITHERS_JOURNEY_THEME must be light or dark")
   if (process.env.SMITHERS_JOURNEY_KEYBOARD !== undefined && process.env.SMITHERS_JOURNEY_KEYBOARD !== "1") throw new JourneyUnavailable("SMITHERS_JOURNEY_KEYBOARD must be 1 or absent")
   let capture = 0
-  const checkpoint = async (actor: Actor) => {
+  const captured = new Map<string, string>()
+  const captureReady = new Set<Actor>()
+  const captureCards = async (actor: Actor) => {
+    if (!theme || !captureReady.has(actor)) return
     const page = members[actor].page
-    const keys = keyboard.get(actor)
-    if (keys?.snapshot().inputs.some(input => input.result === "allowed")) await keys.observe()
-    if (!theme) return
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
     const cards = page.locator(".smithers-card:visible")
-    for (const card of await cards.all()) {
+    for (const [index, card] of (await cards.all()).entries()) {
+      // Hash only for deduplication; never retain field values or markup as logs.
+      const digest = createHash("sha256").update(await card.evaluate(element => JSON.stringify({
+        html: element.outerHTML,
+        fields: Array.from(element.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input,textarea,select"))
+          .map(field => ({ value: field.value, checked: field instanceof HTMLInputElement ? field.checked : undefined,
+            selected: field instanceof HTMLSelectElement ? field.selectedIndex : undefined, focused: field === document.activeElement }))
+      }))).digest("hex")
+      const key = `${actor}:${index}:${await card.getAttribute("data-testid")}:${await card.getAttribute("data-kind")}`
+      if (captured.get(key) === digest) continue
       await info.attach(`card-${theme}-${actor}-${++capture}`, { body: await card.screenshot(), contentType: "image/png" })
+      captured.set(key, digest)
     }
+  }
+  const checkpoint = async (actor: Actor) => {
+    const keys = keyboard.get(actor)
+    if (keys?.snapshot().inputs.some(input => input.result === "allowed")) await keys.observe()
+    await captureCards(actor)
   }
   try {
     const status = execFileSync(required("SMITHERS_JOURNEY_SMTHRS"), ["host", "status", "--json"], { encoding: "utf8" })
@@ -72,12 +88,13 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
       contexts.push(context)
       await context.tracing.start({ screenshots: true, snapshots: true })
       const page = await context.newPage()
-      if (process.env.SMITHERS_JOURNEY_KEYBOARD === "1") keyboard.set(actor, registerKeyboardJourney(page, origin))
+      if (process.env.SMITHERS_JOURNEY_KEYBOARD === "1") keyboard.set(actor, registerKeyboardJourney(page, origin, () => captureCards(actor)))
       await page.goto(`${origin}/${repo}`)
       await awaitBoot(page)
       members[actor] = { context, page }
       if (theme && await page.locator("html").getAttribute("data-theme") !== theme) await runSlash(page, "/theme")
       if (theme) await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
+      captureReady.add(actor)
     }
     const github = async (actor: Actor, method: string, path: string, data?: unknown): Promise<any> => {
       const response = await members[actor].context.request.fetch(`https://api.github.com/repos/${repo}${path}`, {
