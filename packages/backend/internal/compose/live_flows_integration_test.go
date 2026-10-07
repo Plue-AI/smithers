@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -119,6 +121,18 @@ func TestInstallFlowsServesPersistedGuestSteps(t *testing.T) {
 	require.NoError(t, err)
 	_, err = q.ActivateFlowVersion(ctx, repository, "todo", digest)
 	require.NoError(t, err)
+
+	// Persist the guest projection through the shared provider, as settlement
+	// does. A new install composition must replay it at the same source cursor.
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	cards, err := services.RepositoryFlowCatalog(ctx, db.New(tx), repository)
+	require.NoError(t, err)
+	projection, err := json.Marshal(map[string]any{"card": cards})
+	require.NoError(t, err)
+	event, err := jobs.RecordProjectedFactInTx(ctx, tx, services.FlowLiveScope(repository), uuid.NewString(), "flows.changed", "completed", json.RawMessage(`{}`), projection)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
 	runtime, err := process.New(process.Config{Root: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
@@ -138,6 +152,26 @@ func TestInstallFlowsServesPersistedGuestSteps(t *testing.T) {
 			var cards []services.FlowCard
 			require.NoError(t, json.NewDecoder(response.Body).Decode(&cards))
 			require.NoError(t, response.Body.Close())
+
+			bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			conn, _, err := websocket.Dial(bounded, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{
+				Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Cookie": {"smithers_session=" + cookie}, "Origin": {origin}},
+			})
+			require.NoError(t, err)
+			defer conn.CloseNow()
+			require.NoError(t, conn.Write(bounded, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"flows","cursor":0}`)))
+			_, raw, err := conn.Read(bounded)
+			require.NoError(t, err)
+			var frame liveFrame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			require.Equal(t, "delta", frame.T, string(raw))
+			require.NotNil(t, frame.Cursor)
+			require.Equal(t, event.Sequence, *frame.Cursor)
+			var replayed jobs.Event
+			require.NoError(t, json.Unmarshal(frame.Data, &replayed))
+			require.JSONEq(t, string(projection), string(replayed.Data))
+			conn.CloseNow()
 			server.Close()
 			require.Equal(t, digest, cards[0].Versions[0].ID)
 			require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
