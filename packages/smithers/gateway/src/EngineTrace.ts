@@ -286,15 +286,16 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
         continue
       }
       const nodeKey = identity(key, recorded.nodeId)
+      const action = recorded.action ?? execution.graph?.nodes.find(node => node.id === recorded.nodeId)?.action
       let node = nodes.get(nodeKey)
       if (node === undefined || Option.isSome(scheduled)) {
         const instance = (instances.get(nodeKey) ?? 0) + 1
         instances.set(nodeKey, instance)
-        node = span(`engine-node:${nodeKey}#${instance}`, "call", inspectLabel(recorded.action ?? recorded.nodeId), envelope.emittedAtMs, detail(row, envelope))
+        node = span(`engine-node:${nodeKey}#${instance}`, "call", inspectLabel(action ?? recorded.nodeId), envelope.emittedAtMs, detail(row, envelope))
         nodes.set(nodeKey, node)
         execution.span.children.push(node)
       }
-      if (recorded.action !== undefined) node.label = inspectLabel(recorded.action)
+      if (action !== undefined) node.label = inspectLabel(action)
       node.detail = { ...detail(row, envelope), sequence: node.detail.sequence }
       if (Option.isSome(scheduled)) {
         node.status = "running"

@@ -1530,9 +1530,12 @@ test("declared monitor nodes use recorded live states and retain unreached depen
     ] } }),
     event(2, "flows.engine.node-scheduled", { nodeId: "active", kind: "action", attempt: 1 }),
     event(3, "flows.engine.node-settled", { nodeId: "failed", outcome: "failed", attempts: 1 }),
-    event(4, "flows.engine.node-settled", { nodeId: "wait", outcome: "deferred", attempts: 1 })
+    event(4, "flows.engine.node-settled", { nodeId: "wait", outcome: "deferred", attempts: 1 }),
+    event(5, "flows.engine.node-scheduled", { nodeId: "unlisted", kind: "action", attempt: 1 })
   ]
-  expect(monitorFromJournal(RUN, rows).attempts[0]!.graph).toEqual([
+  const monitor = monitorFromJournal(RUN, rows)
+  expect(monitor.attempts[0]!.steps.map(step => step.label)).toEqual(["Edited the files", "Ran checks", "Waited", "unlisted"])
+  expect(monitor.attempts[0]!.graph).toEqual([
     { id: "engine-node:graph%3A0:active", label: "Edited the files", state: "current", deps: [] },
     { id: "engine-node:graph%3A0:failed", label: "Ran checks", state: "failed", deps: [] },
     { id: "engine-node:graph%3A0:wait", label: "Waited", state: "waiting", deps: [] },
