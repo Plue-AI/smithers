@@ -93,6 +93,25 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 		code, body := call("POST", "/api/todos", fmt.Sprintf(`{"title":%q,"prompt":"Add a line","place":{"mode":"append"}}`, title), title)
 		require.Equal(t, 202, code, body)
 	}
+	// The list projection and single-card door expose the same queue positions.
+	request := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/todos", nil)
+	request.Header.Set("Origin", cfg.Server.PublicURL)
+	request.RemoteAddr = "127.0.0.1:51900"
+	request.AddCookie(&http.Cookie{Name: "smithers_session", Value: browserCookie})
+	listed := httptest.NewRecorder()
+	router.ServeHTTP(listed, request)
+	require.Equal(t, 200, listed.Code, listed.Body.String())
+	var cards []map[string]any
+	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &cards))
+	require.Len(t, cards, 3)
+	for i, card := range cards {
+		require.EqualValues(t, i+1, card["n"])
+		expected := map[string]any{"reason": "machine", "position": float64(i + 1)}
+		require.Equal(t, expected, card["queue"])
+		code, single := call("GET", fmt.Sprintf("/api/todos/%d", i+1), "", "")
+		require.Equal(t, 200, code, single)
+		require.Equal(t, expected, single["queue"])
+	}
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, repo, strings.Repeat("a", 40))
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposing',candidate_verified=true,candidate_base=CASE number WHEN 1 THEN $2 WHEN 2 THEN $3 ELSE $4 END,candidate_head=CASE number WHEN 1 THEN $3 WHEN 2 THEN $4 ELSE $5 END WHERE repository_id=$1`, repo, strings.Repeat("a", 40), strings.Repeat("b", 40), strings.Repeat("c", 40), strings.Repeat("d", 40))
