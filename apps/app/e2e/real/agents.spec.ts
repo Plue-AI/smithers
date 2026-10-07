@@ -136,6 +136,13 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   await attachJson(info, "reviewer-owner-setting", settings)
   await runSlash(f.members.Alice.page, "/agents")
   await expect(f.members.Alice.page.getByTestId("agent-model-reviewer")).toHaveCount(0)
+  await runSlash(f.members.Alice.page, "/agents")
+  for (const id of ["planner", "implementer", "reviewer", "app"]) {
+   await expect(f.members.Alice.page.locator(`[data-agent="${id}"]`)).toBeVisible()
+   await expect(f.members.Alice.page.getByTestId(`agent-model-${id}`)).toHaveCount(0)
+  }
+  await expect(f.members.Alice.page.locator('[data-agent="reviewer"]')).toContainText(modelB)
+  await info.attach("member-agent-card", { body: await f.members.Alice.page.getByTestId("card-agents").innerText(), contentType: "text/plain" })
   const denied = await f.members.Alice.context.request.put("/api/agents/reviewer/model", {
    data: { model: { protocol: "openai-responses", modelId: modelA, credential: "OPENAI_API_KEY" } }
   })
@@ -212,7 +219,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   }
   const original = await readInstructions()
   await page.locator('[data-agent="app"] [data-flow="files.read"]').press("Enter")
-  await expect(page.getByText(original.content.text, { exact: true }).last()).toBeVisible()
+  await expect(page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true }).locator(".cm-line")).toHaveText(original.content.text.split("\n"))
   const beforeInstructions = await f.read("Will", "/api/todos")
   await ask(modelA, 'Update your instructions in .smithers/instructions/app.md to always end answers with the word DONE. Propose a TODO and wait for my confirmation.')
   const proposal = page.locator('.smithers-card[data-kind="confirm"]').filter({ hasText: ".smithers/instructions/app.md" }).last()
@@ -240,6 +247,15 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    await expect(page.locator('.smithers-card[data-kind="commands"]').last().getByText(name, { exact: true })).toHaveCount(0)
   }
   await info.attach("owner-help", { body: await page.locator('.smithers-card[data-kind="commands"]').last().innerText(), contentType: "text/plain" })
+  await fillComposer(page, "/")
+  const palette = page.getByTestId("palette")
+  await expect(palette).toBeVisible()
+  await expect(palette).toContainText("help")
+  for (const name of ["model.compose", "model.ask", "model.fixture", "model.save", "model.remove", "model.assign"]) {
+   await expect(palette.locator(`[data-flow="${name}"]`)).toHaveCount(0)
+  }
+  await info.attach("owner-palette", { body: await palette.innerText(), contentType: "text/plain" })
+  await fillComposer(page, "")
   await page.reload()
   await runSlash(page, "/agents")
   await expect(page.locator('[data-agent="reviewer"]')).toContainText(modelB)

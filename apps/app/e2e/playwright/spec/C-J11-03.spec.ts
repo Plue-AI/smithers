@@ -170,3 +170,33 @@ test("C-J11-03: a member reads agent models and instructions without assignment 
  await expect(page.getByTestId("agent-model-reviewer")).toHaveCount(0)
  expect(writes).toEqual([])
 })
+
+
+test("C-J11-03: Settings reads the install roles and refreshes them after reload", async ({ page }) => {
+ await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
+ await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [] } }))
+ let coding = "model-a"
+ const writes: string[] = []
+ await page.route("**/api/install", route => {
+  if (route.request().method() !== "GET") writes.push(route.request().method())
+  return route.fulfill({ json: { ...installFixture(), models: [
+   { role: "fast", provider: "Cerebras", key: "saved", model: "model-f" },
+   { role: "coding", provider: "OpenAI", key: "saved", model: coding },
+   { role: "jev", provider: "AI Gateway", key: "saved", model: "model-j" }
+  ] } })
+ })
+ await page.goto("/smithersai/smithers")
+ await say(page, "/settings")
+ const settings = page.locator('[data-kind="settings"]').last()
+ for (const label of ["Fast model", "Coding model", "Decisions"])
+  await expect(settings.getByText(label, { exact: true })).toBeVisible()
+ await expect(settings.getByTestId("settings-model-fast")).toHaveText("model-f")
+ await expect(settings.getByTestId("settings-model-coding")).toHaveText("model-a")
+ await expect(settings.getByTestId("settings-model-jev")).toHaveText("model-j")
+ coding = "model-b"
+ await page.reload()
+ await say(page, "/settings")
+ await expect(settings.getByTestId("settings-model-coding")).toHaveText("model-b")
+ await expect(settings.getByTestId("settings-model-fast")).toHaveText("model-f")
+ expect(writes).toEqual([])
+})
