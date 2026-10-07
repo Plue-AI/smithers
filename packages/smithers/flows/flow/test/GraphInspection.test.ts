@@ -48,7 +48,7 @@ describe("guest declaration inspection", () => {
       body: ({ text }) => Node.succeed(text.toUpperCase())
     })
     const inspection = Graph.inspect(flow)
-    expect(inspection.steps).toEqual([])
+    expect(inspection.steps).toEqual([{ id: "root", label: "computed" }])
     expect(inspection.diagnostics[0]?.code).toBe("declaration_requires_input")
     expect(inspection.diagnostics[0]?.message).toContain("function application")
     expect(Graph.build(flow, { text: "real" }).nodes.length).toBeGreaterThan(0)
