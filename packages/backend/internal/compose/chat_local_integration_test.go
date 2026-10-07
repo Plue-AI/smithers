@@ -177,25 +177,26 @@ func TestLiveProviderChatPersistsAndReplays(t *testing.T) {
 }
 
 type localChat struct {
-	nodeBinary   string
-	hostBundle   string
-	api          func(*chat.Runtime) http.Handler
-	ctx          context.Context
-	pool         *pgxpool.Pool
-	ownerID      int64
-	repoID       int64
-	actor        *db.User
-	codec        *webhook.AESGCMSecretCodec
-	resolver     *modelhost.OwnerSecretResolver
-	host         *modelhost.Host
-	composition  *chatComposition
-	public       *httptest.Server
-	client       *http.Client
-	logs         *lockedBuffer
-	stopOnce     sync.Once
-	stopDispatch context.CancelFunc
-	dispatchDone chan error
-	serveDone    chan error
+	nodeBinary      string
+	hostBundle      string
+	api             func(*chat.Runtime) http.Handler
+	configureExtras func(*routerExtras)
+	ctx             context.Context
+	pool            *pgxpool.Pool
+	ownerID         int64
+	repoID          int64
+	actor           *db.User
+	codec           *webhook.AESGCMSecretCodec
+	resolver        *modelhost.OwnerSecretResolver
+	host            *modelhost.Host
+	composition     *chatComposition
+	public          *httptest.Server
+	client          *http.Client
+	logs            *lockedBuffer
+	stopOnce        sync.Once
+	stopDispatch    context.CancelFunc
+	dispatchDone    chan error
+	serveDone       chan error
 }
 
 type localTurn struct {
