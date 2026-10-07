@@ -369,4 +369,14 @@ func TestPinnedTodoHostUsesImmutableSourceExport(t *testing.T) {
 	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
 	require.NoError(t, err)
 	require.NotContains(t, spec.Environment, "SMITHERS_FLOW_SOURCE_PINNED", "scratch flow runs keep the working-copy source")
+	binding.BindingKind, authority.Target.BindingKind = "draft-flow", "draft-flow"
+	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_DRAFT_VERSION"])
+	require.Equal(t, "1", spec.Environment["SMITHERS_CODING_LOCAL_OWNER"])
+	require.NotContains(t, spec.Environment, "SMITHERS_TODO_EXECUTION_DIGEST")
+	authority.ExecutionPin = &flowruntime.Pin{Flow: "todo", SourceCommit: binding.SourceRevision, ExecutionDigest: strings.Repeat("c", 64)}
+	_, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.ErrorContains(t, err, "draft host cannot carry")
+
 }
