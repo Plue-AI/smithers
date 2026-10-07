@@ -665,4 +665,48 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	require.Equal(t, "unauthenticated", result["code"])
 	require.Equal(t, 5, count("approvals"))
 	require.Equal(t, 5, count("mythical_items"))
+	// Branch answers must pass the same member boundary as TODO controls.
+	// A body marker grants no authority: only the two qualified commands run.
+	t.Run("member branch answers", func(t *testing.T) {
+		issuer := services.NewAuthService(q, cfg.Auth, nil, nil)
+		issuer.Members = &services.Members{Pool: pool}
+		turn := liveAppTurnCredentialFixture(t, pool, users[1].ID)
+		credential, err := issuer.MintForTurn(ctx, users[1].ID, turn, 1)
+		require.NoError(t, err)
+		tokens[1] = credential.Token
+		head := strings.Repeat("1", 40)
+		branch := "smithers/member-answer"
+		checks := fmt.Sprintf(`{"todo":true,"branch":%q,"foreignHead":%q,"waits":[{"id":"foreign-1","kind":"foreign_push","sha":%q,"prompt":"Outside push","since":"2026-10-06T12:00:00Z"}]}`, branch, head, head)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked',checks=$1,pending_op=NULL WHERE number=1`, []byte(checks))
+		require.NoError(t, err)
+		path := "/api/branches/smithers%2Fmember-answer"
+		payload := func(op string) string { return fmt.Sprintf(`{"op":%q,"id":"foreign-1","revision":%q}`, op, head) }
+		before := count("approvals")
+		status, bad := call(1, false, path, "bad-branch-command", payload("merge"))
+		require.Equal(t, 400, status, bad)
+		require.Equal(t, before, count("approvals"))
+		for _, op := range []string{"bring-in", "discard-foreign"} {
+			status, pending := call(1, false, path, "branch-"+op, payload(op))
+			require.Equal(t, 202, status, pending)
+			require.Equal(t, "pending", pending["state"])
+			status, replay := call(1, false, path, "branch-"+op, payload(op))
+			require.Equal(t, 202, status, replay)
+			require.Equal(t, pending, replay)
+			var foreign string
+			require.NoError(t, pool.QueryRow(ctx, `SELECT COALESCE(checks->>'foreignHead','') FROM mythical_items WHERE number=1`).Scan(&foreign))
+			require.Equal(t, head, foreign, "confirmation admission cannot answer the push")
+		}
+		require.Equal(t, before+2, count("approvals"))
+		status, forbidden := call(2, true, path, "member-discard", payload("discard-foreign"))
+		require.Equal(t, 403, status, forbidden)
+		require.Equal(t, "permission", forbidden["code"])
+		status, accepted := call(1, true, path, "person-discard", payload("discard-foreign"))
+		require.Equal(t, 202, status, accepted)
+		require.Equal(t, "accepted", accepted["state"])
+		require.Equal(t, before+2, count("approvals"), "session answers execute directly")
+		var foreign string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT COALESCE(checks->>'foreignHead','') FROM mythical_items WHERE number=1`).Scan(&foreign))
+		require.Empty(t, foreign)
+	})
+
 }
