@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ type CodeDocuments struct {
 type codeDocument struct {
 	host        *CodeDocuments
 	key         string
+	actor       []byte
 	mu          sync.Mutex
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -73,7 +75,7 @@ func (h *CodeDocuments) open(ctx context.Context, key string, open func(context.
 	d := h.docs[key]
 	if d == nil {
 		lifetime, cancel := context.WithCancel(context.Background())
-		d = &codeDocument{host: h, key: key, ctx: lifetime, cancel: cancel, ready: make(chan struct{}), done: make(chan struct{}), subscribers: make(map[*codeSubscription]bool)}
+		d = &codeDocument{host: h, key: key, actor: append([]byte(nil), actor...), ctx: lifetime, cancel: cancel, ready: make(chan struct{}), done: make(chan struct{}), subscribers: make(map[*codeSubscription]bool)}
 		h.docs[key] = d
 		go d.run(open)
 	}
@@ -107,7 +109,7 @@ func (h *CodeDocuments) open(ctx context.Context, key string, open func(context.
 		if client == 0 {
 			continue
 		}
-		delta, err := d.doc.SetAuthor(uint64(client), string(actor))
+		delta, err := d.doc.SetAuthor(uint64(client), hex.EncodeToString(actor))
 		if errors.Is(err, livedocument.ErrRefused) {
 			continue
 		}
@@ -237,7 +239,7 @@ func (d *codeDocument) connect(open func(context.Context) (DocumentStream, error
 	if err != nil {
 		return err
 	}
-	if err = d.send(startup, wire.Document{Msg: wire.DocumentInput, Actor: []byte("host"), Data: syncPayload(0, sv)}); err != nil {
+	if err = d.send(startup, wire.Document{Msg: wire.DocumentInput, Actor: d.actor, Data: syncPayload(0, sv)}); err != nil {
 		return err
 	}
 	hasEpoch := false
@@ -277,7 +279,7 @@ func (d *codeDocument) connect(open func(context.Context) (DocumentStream, error
 			if e != nil {
 				return e
 			}
-			if e = d.send(startup, wire.Document{Msg: wire.DocumentInput, Actor: []byte("host"), Data: syncPayload(1, state)}); e != nil {
+			if e = d.send(startup, wire.Document{Msg: wire.DocumentInput, Actor: d.actor, Data: syncPayload(1, state)}); e != nil {
 				return e
 			}
 			continue

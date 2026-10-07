@@ -2,7 +2,7 @@
 //! already opened workspace/store descriptors after the kernel probes pass.
 use super::super::{
     state::{Digest, Record},
-    Error, Result, MAX_STATE_BYTES, MAX_TEXT_BYTES,
+    Error, Result, MAX_TEXT_BYTES,
 };
 use super::{Disk, Displaced, Recovery};
 use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags};
@@ -109,7 +109,7 @@ impl<V: Versions> LinuxDisk<V> {
             Ok(file) => file,
             Err(_) => return Ok(None),
         };
-        let bytes = match read(&mut file, 2 * MAX_TEXT_BYTES + MAX_STATE_BYTES + 132) {
+        let bytes = match read(&mut file, crate::doc::state::MAX_RECORD_BYTES) {
             Ok(bytes) => bytes,
             Err(_) => return Ok(None),
         };

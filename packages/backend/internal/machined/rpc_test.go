@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -233,22 +234,27 @@ func TestRegistryAckCanonicalAndRefusals(t *testing.T) {
 	require.ErrorIs(t, r.Ack(t.Context(), "a", Acknowledgement{Seq: 1, Outcome: AckRejected, Error: &SessionError{Code: "invented"}}), wire.BadValue)
 }
 
-func TestRegistryDocumentRequiresSequencedLiveProtocol(t *testing.T) {
-	r := new(Registry)
-	authority, err := r.MintBoot("a", "vm")
-	require.NoError(t, err)
-	host, guest := net.Pipe()
-	defer host.Close()
-	defer guest.Close()
-	done := make(chan error, 1)
-	go func() { done <- daemonHandshakeVersion(guest, authority, authority.Credential, 1) }()
-	link, err := r.Connect(t.Context(), "a", host)
-	require.NoError(t, err)
-	defer link.Close()
-	require.NoError(t, <-done)
-	require.NoError(t, link.Reconciled())
-	_, err = r.OpenDocument(t.Context(), "a", "README.md", []byte("actor"))
-	require.ErrorIs(t, err, ErrNotReady)
+func TestRegistryDocumentRequiresOpaqueActorLiveProtocol(t *testing.T) {
+	for _, version := range []uint16{1, 2, 3, 4} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			r := new(Registry)
+			authority, err := r.MintBoot("a", "vm")
+			require.NoError(t, err)
+			host, guest := net.Pipe()
+			defer host.Close()
+			defer guest.Close()
+			done := make(chan error, 1)
+			go func() { done <- daemonHandshakeVersion(guest, authority, authority.Credential, version) }()
+			link, err := r.Connect(t.Context(), "a", host)
+			require.NoError(t, err)
+			defer link.Close()
+			require.NoError(t, <-done)
+			require.NoError(t, link.Reconciled())
+			_, err = r.OpenDocument(t.Context(), "a", "README.md", []byte("actor"))
+			require.ErrorIs(t, err, ErrNotReady)
+
+		})
+	}
 }
 
 func TestRegistryReconnectUsesCurrentRosterBeforeReady(t *testing.T) {

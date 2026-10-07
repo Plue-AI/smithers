@@ -54,11 +54,17 @@ fn error(e: Error) -> hooks::Error {
         ..hooks::Error::unsupported()
     }
 }
+// Principal envelopes are opaque bytes. A reversible key must not use lossy
+// UTF-8 or confuse a binary reference with another actor's displayed name.
+fn principal_key(bytes: &[u8]) -> hooks::Result<String> {
+    if bytes.is_empty() || bytes.len() > 1024 {
+        return Err(error(Error::Invalid));
+    }
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
 fn actor(a: &Actor) -> hooks::Result<String> {
     Ok(match a {
-        Actor::Principal(bytes) => std::str::from_utf8(bytes)
-            .map_err(|_| error(Error::Invalid))?
-            .into(),
+        Actor::Principal(bytes) => principal_key(bytes)?,
         Actor::Session(id) => format!("session:{id}"),
         Actor::Run(id) => format!("run:{id}"),
         Actor::Outside => "outside".into(),
@@ -194,7 +200,8 @@ impl<D: Disk> Documents for Service<D> {
         self.state()?.host.ready().map_err(error)
     }
     fn open_authenticated(&self, path: &str, by: &[u8]) -> hooks::Result<u32> {
-        let by = std::str::from_utf8(by).map_err(|_| error(Error::Invalid))?;
+        let key = principal_key(by)?;
+        let by = key.as_str();
         if by.is_empty() {
             return Err(error(Error::Forged));
         }
@@ -291,7 +298,8 @@ impl<D: Disk> Documents for Service<D> {
                 return Err(error(Error::Invalid));
             }
             let (client, entry) = update.clients.iter().next().unwrap();
-            let by = std::str::from_utf8(&input.actor).map_err(|_| error(Error::Invalid))?;
+            let key = principal_key(&input.actor)?;
+            let by = key.as_str();
             let value: serde_json::Value =
                 serde_json::from_str(&entry.json).map_err(|_| error(Error::Invalid))?;
             let (colour, line) = if value.is_null() {
@@ -368,7 +376,8 @@ impl<D: Disk> Documents for Service<D> {
         if message.encode_v1() != input.data {
             return Err(error(Error::Invalid));
         }
-        let by = std::str::from_utf8(&input.actor).map_err(|_| error(Error::Invalid))?;
+        let key = principal_key(&input.actor)?;
+        let by = key.as_str();
         match message {
             SyncMessage::SyncStep1(sv) => {
                 let epoch = s.host.epoch(f.stream).map_err(error)?;

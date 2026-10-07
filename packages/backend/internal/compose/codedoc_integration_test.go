@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -157,13 +158,19 @@ func TestDocRelayWireContract(t *testing.T) {
 	require.Empty(t, text)
 	opened, sent, _ := f.daemon.Recorded()
 	require.Len(t, opened, 1)
-	require.Equal(t, []byte("host"), opened[0].Actor)
+	require.Equal(t, []byte{0x00, 0xff, 0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d}, opened[0].Actor)
 	require.GreaterOrEqual(t, len(sent), 3)
 	for _, b := range sent {
 		msg, e := wire.DecodeDocumentV2(b)
 		require.NoError(t, e)
 		require.Equal(t, wire.DocumentInput, msg.Msg)
+		require.Equal(t, opened[0].Actor, msg.Actor, "initial sync and edits retain the admitted opaque actor")
 	}
+	p.mu.Lock()
+	sameAuthor, authorErr := p.doc.SetAuthor(uint64(client), "00ff800102030405060708090a0b0c0d")
+	p.mu.Unlock()
+	require.NoError(t, authorErr)
+	require.Equal(t, []byte{0, 0}, sameAuthor, "the saved CRDT stores a lossless key for the original binary reference")
 }
 func TestDocRelayAuthorization(t *testing.T) {
 	for _, attack := range []string{"foreign client", "authors map"} {
@@ -509,7 +516,7 @@ func TestDocRelayAuthorizationAwareness(t *testing.T) {
 	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{2, 0, 0, 0, 7}, awareness(client)...)))
 	select {
 	case msg := <-observed:
-		require.Equal(t, []byte("Be"), msg.Actor)
+		require.Equal(t, []byte{0x00, 0xff, 0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d}, msg.Actor)
 		raw := msg.Data
 		for i := 0; i < 4; i++ {
 			_, n := binary.Uvarint(raw)
@@ -518,7 +525,7 @@ func TestDocRelayAuthorizationAwareness(t *testing.T) {
 		}
 		var value map[string]any
 		require.NoError(t, json.Unmarshal(raw, &value))
-		require.Equal(t, "Be", value["actor"].(map[string]any)["id"])
+		require.Equal(t, "00ff800102030405060708090a0b0c0d", value["actor"].(map[string]any)["id"])
 		require.NotEqual(t, "red", value["colour"])
 		require.Equal(t, float64(3), value["line"])
 		require.NotContains(t, value, "permission")
@@ -553,4 +560,70 @@ func TestDocRelayEpochResync(t *testing.T) {
 	require.Contains(t, string(raw), `"epoch":"ff112233445566778899aabbccddeeff"`)
 	kind, _ = f.read(t)
 	require.Equal(t, websocket.MessageBinary, kind)
+}
+
+func TestDocRelayReplacementBootDiscardsOldActorCache(t *testing.T) {
+	f := newDocFixture(t)
+	original := f.relay.Connection
+	originalAuthorize := f.relay.Authorize
+	var readmit atomic.Bool
+	f.relay.Authorize = func(ctx context.Context, topic live.DocumentTopic, repository, member int64) ([]byte, string) {
+		actor, refusal := originalAuthorize(ctx, topic, repository, member)
+		if refusal == "" && readmit.Load() {
+			actor = []byte{1, 0xfe, 0x80, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+		}
+		return actor, refusal
+	}
+	link, drop := context.WithCancel(t.Context())
+	defer drop()
+	var replacement atomic.Pointer[machined.Connection]
+	f.relay.Connection = func(ctx context.Context, branch string) (*machined.Connection, live.DocumentRPC) {
+		if current := replacement.Load(); current != nil {
+			return current, f.daemon
+		}
+		binding, rpc := original(ctx, branch)
+		return binding, codeRPC(func(ctx context.Context, path string, actor []byte) (machined.DocumentStream, error) {
+			stream, err := rpc.OpenDocument(ctx, path, actor)
+			return interruptedDocument{stream, link}, err
+		})
+	}
+	f.sub(t, "doc:code:branch-a:retry.ts")
+	client := f.assigned(t)
+	f.update(t, codeInsert(client, "old machine"))
+	require.Eventually(t, func() bool {
+		_, sent, _ := f.daemon.Recorded()
+		for _, raw := range sent {
+			msg, err := wire.DecodeDocumentV2(raw)
+			if err == nil && msg.Seq > 0 && strings.Contains(string(msg.Data), "old machine") {
+				return true
+			}
+		}
+		return false
+	}, time.Second, time.Millisecond)
+	registry := new(machined.Registry)
+	var boot [16]byte
+	boot[0] = 2
+	require.NoError(t, registry.BindBoot("branch-a", "replacement-machine", boot, []byte("replacement")))
+	binding, err := registry.Admit(boot, []byte("replacement"), io.NopCloser(strings.NewReader("")))
+	require.NoError(t, err)
+	defer binding.Close()
+	require.NoError(t, binding.Reconciled())
+	replacement.Store(binding)
+	drop()
+	f.text(t, `{"t":"gap","id":7}`)
+	opened, sent, _ := f.daemon.Recorded()
+	require.Len(t, opened, 1, "old pending edits must never open a replacement machine")
+	oldSent := len(sent)
+	readmit.Store(true)
+	f.sub(t, "doc:code:branch-a:retry.ts")
+	f.assigned(t)
+	opened, sent, _ = f.daemon.Recorded()
+	require.Len(t, opened, 2)
+	require.Equal(t, []byte{1, 0xfe, 0x80, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}, opened[1].Actor)
+	for _, raw := range sent[oldSent:] {
+		msg, err := wire.DecodeDocumentV2(raw)
+		require.NoError(t, err)
+		require.Equal(t, opened[1].Actor, msg.Actor)
+		require.NotContains(t, string(msg.Data), "old machine")
+	}
 }

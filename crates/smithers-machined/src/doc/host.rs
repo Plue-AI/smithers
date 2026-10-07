@@ -92,6 +92,7 @@ pub struct Projection {
 }
 struct Document {
     doc: Doc,
+    retired_clients: BTreeSet<u64>,
     epoch: [u8; 16],
     base: String,
     last_disk: Digest,
@@ -211,7 +212,7 @@ impl<D: Disk> Host<D> {
             return Err(Error::Invalid);
         }
         if before == after {
-            authors::checked_actor_update(&doc.doc, bytes, actor)?;
+            authors::checked_current_actor_update(&doc.doc, bytes, actor, &doc.retired_clients)?;
         } else {
             // Registration is exactly one map item per new author, not a
             // channel for hidden text structs or unresolved future deletes.
@@ -334,6 +335,7 @@ impl<D: Disk> Host<D> {
                     let saved = digest(record.text.as_bytes());
                     Document {
                         doc,
+                        retired_clients: record.retired_clients,
                         epoch: record.epoch,
                         base: record.text,
                         last_disk: saved,
@@ -365,6 +367,7 @@ impl<D: Disk> Host<D> {
                         .map_err(|_| Error::Invalid)?;
                     Document {
                         doc,
+                        retired_clients: BTreeSet::new(),
                         epoch: fresh_epoch,
                         base: text.into(),
                         last_disk: digest(&bytes),
@@ -490,7 +493,7 @@ impl<D: Disk> Host<D> {
         if !self.clients.contains_key(&(stream, actor.into())) {
             return Err(Error::Forged);
         }
-        authors::checked_actor_update(&doc.doc, bytes, actor)?;
+        authors::checked_current_actor_update(&doc.doc, bytes, actor, &doc.retired_clients)?;
         // Validate limits in a scratch replica before changing live state.
         let scratch = core::document(None);
         scratch.get_or_insert_text("content");
@@ -564,10 +567,11 @@ impl<D: Disk> Host<D> {
     ) -> Result<()> {
         self.gates.check()?;
         let doc = self.entry(stream)?;
-        if authors::entries(&doc.doc)?
-            .get(&client.to_string())
-            .map(String::as_str)
-            != Some(actor)
+        if doc.retired_clients.contains(&client)
+            || authors::entries(&doc.doc)?
+                .get(&client.to_string())
+                .map(String::as_str)
+                != Some(actor)
         {
             return Err(Error::Forged);
         }
@@ -661,7 +665,7 @@ impl<D: Disk> Host<D> {
         }
         // Restore uses this same boundary and clears gone only after a real save.
         if current != text || doc.gone.is_some() {
-            let client = authors::allocate(&doc.doc, actor)?;
+            let client = authors::allocate_current(&doc.doc, actor, &doc.retired_clients)?;
             let update = reconcile::replace(&doc.doc, text, client)?;
             core::apply(&doc.doc, core::decode(&update).map_err(|_| Error::Invalid)?)
                 .map_err(|_| Error::Invalid)?;
@@ -699,7 +703,7 @@ impl<D: Disk> Host<D> {
         if merged.text.len() > MAX_TEXT_BYTES {
             return Err(Error::ReadOnly);
         }
-        let client = authors::allocate(&doc.doc, actor)?;
+        let client = authors::allocate_current(&doc.doc, actor, &doc.retired_clients)?;
         let update = reconcile::replace(&doc.doc, &merged.text, client)?;
         core::apply(&doc.doc, core::decode(&update).map_err(|_| Error::Invalid)?)
             .map_err(|_| Error::Invalid)?;
@@ -766,6 +770,7 @@ impl<D: Disk> Host<D> {
             previous_text: doc.base.clone(),
             text: text.clone(),
             state: core::state(&doc.doc),
+            retired_clients: doc.retired_clients.clone(),
         };
         disk.store_record(key, &record)?;
         let token = disk.swap_text(path, key, text.as_bytes())?;

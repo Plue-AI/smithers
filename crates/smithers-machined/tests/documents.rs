@@ -550,7 +550,7 @@ fn record_checksum_bounds_and_state_text_consistency() {
     let (mut h, _) = host("🦀");
     h.flush_all(0).unwrap();
     let bytes = h.disk.records[&digest(b"a.rs")].clone();
-    assert_eq!(&bytes[..8], b"SMTHDOC1");
+    assert_eq!(&bytes[..8], b"SMTHDOC2");
     assert_eq!(Record::decode(&bytes).unwrap().text, "🦀");
     for at in 0..bytes.len() {
         let mut bad = bytes.clone();
@@ -989,7 +989,7 @@ mod dispatcher {
                 .unwrap(),
             }
         };
-        let json = r##"{"actor":{"id":"host","kind":"person","via":"app"},"colour":"#123456","line":{"path":"a.rs","line":2}}"##;
+        let json = r##"{"actor":{"id":"686f7374","kind":"person","via":"app"},"colour":"#123456","line":{"path":"a.rs","line":2}}"##;
         let accepted = rpc::dispatch(&presence(1, json), &mut cx).unwrap();
         assert_eq!(Document::decode_v2(&accepted.payload).unwrap().msg, 4);
         assert_eq!(service.projections(&mut cx).unwrap()[0].editors[0].line, 2);
@@ -999,7 +999,7 @@ mod dispatcher {
             .iter()
             .any(|f| f.stream == other && Document::decode_v2(&f.payload).unwrap().msg == 4));
         for invalid in [
-            json.replace("host", "alice"),
+            json.replace("686f7374", "616c696365"),
             json.replace("a.rs", "elsewhere.rs"),
             json.replace("\"line\":2", "\"line\":0"),
             json.replace("\"colour\"", "\"cursor\""),
@@ -1020,11 +1020,8 @@ mod dispatcher {
         assert!(service.projections(&mut cx).unwrap()[0].editors.is_empty());
         rpc::dispatch(&presence(3, json), &mut cx).unwrap();
         service.poll(&mut cx).unwrap();
-        let closed = rpc::dispatch(
-            &control(14, &[conn::field(1, id.to_be_bytes())]),
-            &mut cx,
-        )
-        .unwrap();
+        let closed =
+            rpc::dispatch(&control(14, &[conn::field(1, id.to_be_bytes())]), &mut cx).unwrap();
         assert_ne!(closed.payload[0], 255);
         assert!(service.projections(&mut cx).unwrap()[0].editors.is_empty());
         let frames = service.poll(&mut cx).unwrap();
@@ -1195,9 +1192,171 @@ mod dispatcher {
             );
             assert_eq!(
                 authors::entries(&doc).unwrap()[&epoch.client_id.to_string()],
-                "host"
+                "686f7374"
             );
         }
+    }
+    #[test]
+    fn protocol_five_keeps_retained_text_author_records_without_relabeling() {
+        let (mut legacy, stream) = host("abc");
+        let original = legacy.client(stream, "686f7374", 0).unwrap();
+        legacy.flush_all(0).unwrap();
+        // Independent retained-v1 layout: no retired-client trailer existed.
+        let raw = legacy.disk.records.get_mut(&digest(b"a.rs")).unwrap();
+        raw.truncate(raw.len() - 36); // empty v2 count + checksum
+        raw[..8].copy_from_slice(b"SMTHDOC1");
+        raw.extend(digest(raw));
+        let disk = Shared(Arc::new(Mutex::new(legacy.disk.clone())));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Arc::new(Service::new(
+            Host::new(disk.clone(), gates(), ids()),
+            clock.clone(),
+        ));
+        let mut cx = LockCx::new(hooks::Hooks {
+            documents: service.clone(),
+            clock,
+            ..Default::default()
+        });
+        let id = open(&mut cx);
+        let output = service.poll(&mut cx).unwrap();
+        let epoch = Document::decode_v2(&output[0].payload).unwrap();
+        assert_ne!(u64::from(epoch.client_id), original);
+        let doc = editor(&sync(&mut cx, id), 3333);
+        let retained = authors::entries(&doc).unwrap();
+        assert_eq!(retained[&original.to_string()], "686f7374");
+        assert_eq!(retained[&epoch.client_id.to_string()], "686f7374");
+        // Matching text from a historical principal must not grant its old
+        // client clock to a different principal whose new key has that text.
+        let forged = editor(&sync(&mut cx, id), original);
+        let before = forged.transact().state_vector();
+        forged
+            .get_or_insert_text("content")
+            .push(&mut forged.transact_mut(), "forged");
+        let update = forged.transact().encode_state_as_update_v1(&before);
+        assert_eq!(
+            rpc::dispatch(
+                &input(id, 1, "host", SyncMessage::Update(update.clone())),
+                &mut cx
+            )
+            .unwrap()
+            .payload[0],
+            255
+        );
+        service.flush_all(&mut cx).unwrap();
+        let persisted = Record::decode(&disk.0.lock().unwrap().records[&digest(b"a.rs")]).unwrap();
+        assert!(persisted.retired_clients.contains(&original));
+        assert!(!persisted
+            .retired_clients
+            .contains(&u64::from(epoch.client_id)));
+        let mut malformed = persisted.clone();
+        malformed.retired_clients.insert(u64::MAX);
+        assert!(Record::decode(&malformed.encode().unwrap()).is_err());
+        let mut reopened = Host::new(disk.clone(), gates(), ids());
+        let reopened_stream = reopened.open("a.rs", [9; 16], 1).unwrap();
+        assert_eq!(
+            reopened.peer_update(reopened_stream, "686f7374", &update, 1),
+            Err(Error::Forged)
+        );
+        assert_eq!(
+            reopened.peer_awareness(
+                reopened_stream,
+                original,
+                "686f7374",
+                "#123456",
+                Some(("a.rs", 1))
+            ),
+            Err(Error::Forged)
+        );
+        let restored = persisted.document().unwrap();
+        assert_ne!(
+            authors::allocate_current(&restored, "686f7374", &persisted.retired_clients).unwrap(),
+            original
+        );
+
+        assert_eq!(
+            doc.get_or_insert_text("content")
+                .get_string(&doc.transact()),
+            "abc"
+        );
+    }
+    #[test]
+    fn binary_principal_survives_document_dispatch_and_saved_author_reopen() {
+        let (disk, clock, _initial, mut cx, _, _) = setup();
+        let principal = vec![0x00, 0xff, 0x80, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+        let service = Arc::new(Service::new(
+            Host::new(disk.clone(), gates(), ids()),
+            clock.clone(),
+        ));
+        cx.hooks.documents = service.clone();
+        let reply = rpc::dispatch(
+            &control(
+                13,
+                &[
+                    conn::field(1, [0, 4, b'a', b'.', b'r', b's']),
+                    conn::field(
+                        2,
+                        conn::actor_bytes(&hooks::Actor::Principal(principal.clone())),
+                    ),
+                ],
+            ),
+            &mut cx,
+        )
+        .unwrap();
+        let result = conn::fields("response", &reply.payload[1..]).unwrap()[1].1;
+        assert_eq!(result[0], 13);
+        let id = u32::from_be_bytes(
+            conn::fields("result13", &result[1..]).unwrap()[0]
+                .1
+                .try_into()
+                .unwrap(),
+        );
+        let output = service.poll(&mut cx).unwrap();
+        let epoch = Document::decode_v2(&output[0].payload).unwrap();
+        let doc = editor(&sync(&mut cx, id), epoch.client_id as u64);
+        let key = "00ff800102030405060708090a0b0c0d";
+        assert_eq!(
+            authors::entries(&doc).unwrap()[&epoch.client_id.to_string()],
+            key
+        );
+        let before = doc.transact().state_vector();
+        doc.get_or_insert_text("content")
+            .push(&mut doc.transact_mut(), "!");
+        let update = doc.transact().encode_state_as_update_v1(&before);
+        let packet = |by: Vec<u8>| Frame {
+            kind: 4,
+            stream: id,
+            payload: Document {
+                msg: 1,
+                seq: 1,
+                actor: by,
+                data: SyncMessage::Update(update.clone()).encode_v1(),
+                ..Default::default()
+            }
+            .encode_v2()
+            .unwrap(),
+        };
+        // Distinct invalid UTF-8 references cannot collapse into a replacement
+        // character and acquire one another's CRDT client id.
+        let mut other = principal.clone();
+        other[1] = 0xfe;
+        assert_eq!(
+            rpc::dispatch(&packet(other), &mut cx).unwrap().payload[0],
+            255
+        );
+        assert_eq!(
+            rpc::dispatch(&packet(principal), &mut cx).unwrap().payload[0],
+            3
+        );
+        service.flush_all(&mut cx).unwrap();
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"abc!");
+        let recovered = Arc::new(Service::new(Host::new(disk, gates(), ids()), clock));
+        cx.hooks.documents = recovered.clone();
+        let next = open(&mut cx);
+        let saved = editor(&sync(&mut cx, next), 8888);
+        assert_eq!(
+            authors::entries(&saved).unwrap()[&epoch.client_id.to_string()],
+            key
+        );
     }
     #[test]
     fn yjs_two_clients_converge_through_dispatch_after_1000_concurrent_edits() {
@@ -1206,12 +1365,15 @@ mod dispatcher {
         use std::process::{Command, Stdio};
         let (disk, _clock, service, mut cx, id, epoch) = setup();
         let host = editor(&sync(&mut cx, id), epoch.client_id as u64);
-        for (seq, (client, actor)) in [(4242, "alice"), (4243, "bob")].into_iter().enumerate() {
+        for (seq, (client, actor, key)) in [(4242, "alice", "616c696365"), (4243, "bob", "626f62")]
+            .into_iter()
+            .enumerate()
+        {
             let before = host.transact().state_vector();
             host.get_or_insert_map("authors").insert(
                 &mut host.transact_mut(),
                 client.to_string(),
-                actor,
+                key,
             );
             let update = host.transact().encode_state_as_update_v1(&before);
             assert_eq!(
@@ -1408,7 +1570,7 @@ mod dispatcher {
             assert!(authors::entries(&doc)
                 .unwrap()
                 .values()
-                .any(|actor| actor == "Rebased onto T2"));
+                .any(|actor| actor == "52656261736564206f6e746f205432"));
             let frames = service.poll(&mut cx).unwrap();
             assert!(frames
                 .iter()
@@ -1594,7 +1756,7 @@ mod dispatcher {
         // Host registers a browser's client id before forwarding its edits.
         let before = peer.transact().state_vector();
         peer.get_or_insert_map("authors")
-            .insert(&mut peer.transact_mut(), "4242", "alice");
+            .insert(&mut peer.transact_mut(), "4242", "616c696365");
         let register = peer.transact().encode_state_as_update_v1(&before);
         let reply = rpc::dispatch(
             &input(id, 1, "alice", SyncMessage::Update(register)),
@@ -1705,7 +1867,7 @@ fn host_author_registration_cannot_smuggle_deleted_foreign_text_or_reassign_auth
     let peer = editor(&initial, client);
     let before = peer.transact().state_vector();
     peer.get_or_insert_map("authors")
-        .insert(&mut peer.transact_mut(), "4242", "alice");
+        .insert(&mut peer.transact_mut(), "4242", "616c696365");
     // Visible text is unchanged, but the update introduces a hidden clock.
     let text = peer.get_or_insert_text("content");
     text.insert(&mut peer.transact_mut(), 0, "hidden");

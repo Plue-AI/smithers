@@ -24,7 +24,7 @@ func TestCodeDocumentCoalescedDeletionReceipt(t *testing.T) {
 	doc, err := library.Open(livedocument.Code, nil)
 	require.NoError(t, err)
 	defer doc.Close()
-	_, err = doc.SetAuthor(42, "alice")
+	_, err = doc.SetAuthor(42, "616c696365")
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

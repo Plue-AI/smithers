@@ -3,6 +3,7 @@ package live
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
@@ -48,7 +49,7 @@ func stampDocumentAwareness(raw []byte, clientID uint32, actor []byte, doc *live
 				allowed[key] = v
 			}
 		}
-		allowed["actor"], _ = json.Marshal(map[string]string{"id": string(actor), "kind": "person", "via": "app"})
+		allowed["actor"], _ = json.Marshal(map[string]string{"id": hex.EncodeToString(actor), "kind": "person", "via": "app"})
 		colour := sha256.Sum256(actor)
 		allowed["colour"], _ = json.Marshal(fmt.Sprintf("#%02x%02x%02x", colour[0], colour[1], colour[2]))
 		raw, e = json.Marshal(allowed)

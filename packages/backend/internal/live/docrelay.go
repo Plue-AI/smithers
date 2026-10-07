@@ -91,7 +91,8 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 		}
 		return nil
 	}
-	if err := connection.RequireReady(doc.Branch); err != nil {
+	scope, err := connection.PresenceScope(doc.Branch)
+	if err != nil {
 		if errors.Is(err, machined.ErrNotReady) {
 			return Source{}, Unsupported
 		}
@@ -102,15 +103,19 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 		if err := ready(); err != nil {
 			return nil, err
 		}
-		return r.Host.open(ctx, topic, func(peer context.Context) (DocumentStream, error) {
+		return r.Host.open(ctx, topic+":"+scope, func(peer context.Context) (DocumentStream, error) {
 			current, transport := r.Connection(peer, doc.Branch)
 			if current == nil || transport == nil {
 				return nil, machined.ErrNotReady
 			}
-			if err := current.RequireReady(doc.Branch); err != nil {
+			currentScope, err := current.PresenceScope(doc.Branch)
+			if err != nil {
 				return nil, err
 			}
-			return transport.OpenDocument(peer, doc.Path, []byte("host"))
+			if currentScope != scope {
+				return nil, errDocumentGap
+			}
+			return transport.OpenDocument(peer, doc.Path, actor)
 		}, actor)
 	}}}, ""
 }

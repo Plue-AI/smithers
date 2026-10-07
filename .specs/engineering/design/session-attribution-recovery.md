@@ -38,6 +38,14 @@ retains the original actor and fences further use without killing sibling
 commands in the same run. This is a required execution primitive; the older
 coding launcher has not yet been replaced.
 
+Protocol 5 makes document author maps and awareness use lossless hexadecimal
+keys for opaque principal bytes. The host sends the admitting actor on open and
+synchronization, preserves each subscriber's actor on edits, and discards cached
+unreceipted edits when the authenticated boot changes. Stored author maps remain
+readable. The installed Rust document service exists, but Go still has no default
+production document authorizer/relay. These cross-language component receipts
+do not complete that wiring or prove installed save/restart behavior.
+
 ## Required behavior
 
 [Engineering spec §9](../spec.md) requires observed edits and external-agent

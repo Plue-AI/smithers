@@ -96,7 +96,7 @@ func newDocFixture(t *testing.T, script ...[]byte) *docFixture {
 		if member != owner.ID || repository != repo.ID || topic.Path == "secret" {
 			return nil, live.Forbidden
 		}
-		return []byte("Be"), ""
+		return []byte{0x00, 0xff, 0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d}, ""
 	}, Connection: func(context.Context, string) (*machined.Connection, live.DocumentRPC) {
 		return connection, machined.Documents(client, "branch-a")
 	}}

@@ -20,6 +20,9 @@ const SessionActorProtocol = 3
 
 // SessionKillProtocol adds confirmed cancellation of one session cgroup.
 const SessionKillProtocol = 4
+
+// DocumentActorProtocol uses lossless hexadecimal keys for opaque document actors.
+const DocumentActorProtocol = 5
 const MaxWorkspaceFileBytes = 1048576
 const InitialCredit = 262144
 const (
@@ -325,7 +328,7 @@ func (c *cursor) value(typ string) error {
 	case "version":
 		width = 2
 		min = 1
-		max = SessionKillProtocol
+		max = DocumentActorProtocol
 	case "state", "session_kind":
 		min = 1
 		max = 3

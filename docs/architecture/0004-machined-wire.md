@@ -434,3 +434,27 @@ older live peers refuse this operation instead of falling back to closing stdin
 or signaling only a process group. Target 3 is host-only: the local socket's
 method set is unchanged. `close_session` retains its ordinary stream-close
 semantics and does not certify that an exec command or its descendants stopped.
+
+### Opaque document authors (connection protocol 5, 2026-10-07)
+
+Principal envelopes carry opaque bytes, including the binary committed actor
+references. Document author maps and awareness IDs encode those bytes as lowercase
+hexadecimal, without a prefix. Go mirrors and the Rust authority use the same
+lossless representation. Decoding bytes as UTF-8, replacing invalid characters,
+or using a member's display name is not an identity conversion.
+
+The shared document peer uses the admitting actor for open and synchronization;
+there is no synthetic `host` principal. Individual edits retain each subscriber's
+own admitted actor. The mirror is scoped to the authenticated boot: reconnect to
+the same boot retries only unreceipted edits; a replacement boot emits a gap and
+requires fresh subscription instead of replaying another machine's actor/cache.
+
+Hosts require protocol 5 for live document opens. Older wire recordings and
+stored CRDT author maps remain readable and are not rewritten; freshly allocated
+clients use the new key format. `SMTHDOC2` records persist the retired client IDs
+from a decoded `SMTHDOC1` record. Those clients retain their historical labels,
+but cannot authorize new edits or presence, even when an old label happens to
+equal a new actor's hexadecimal key. Host writes allocate a current client
+instead of extending a retired clock. The metadata survives save and reopen. This does not by itself bind the production
+SQL authorizer, activate the document subsystem, or complete the coding-launcher
+and other producer migrations.
