@@ -361,6 +361,66 @@ def delete_session_token(session, expected, user="agent", uid=None):
 
 
 
+def owner_session_token(op, uid, session, expected):
+    assert 20000 <= uid <= 2147483647 and os.getuid() == os.geteuid() == uid
+    assert op in ('put', 'delete') and re.fullmatch('[a-z0-9][a-z0-9-]{0,63}', session)
+    assert expected == 'absent' or re.fullmatch('[a-f0-9]{64}', expected)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    parent = os.open('/run', flags)
+    for name, owner in [('smithers', 0), (str(uid), uid)]:
+        child = os.open(name, flags, dir_fd=parent)
+        os.close(parent)
+        parent = child
+        info = os.fstat(parent)
+        assert info.st_uid == owner and not info.st_mode & 0o022
+        if owner == uid:
+            assert stat.S_IMODE(info.st_mode) == 0o700
+    for name in ['token', 'sessions', session]:
+        try:
+            os.mkdir(name, 0o700, dir_fd=parent)
+        except FileExistsError:
+            pass
+        child = os.open(name, flags, dir_fd=parent)
+        os.close(parent)
+        parent = child
+        info = os.fstat(parent)
+        assert info.st_uid == uid and stat.S_IMODE(info.st_mode) == 0o700
+    fcntl.flock(parent, fcntl.LOCK_EX)
+    try:
+        fd = os.open('token', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    except FileNotFoundError:
+        assert expected == 'absent' or op == 'delete'
+        current = None
+    else:
+        info = os.fstat(fd)
+        assert stat.S_ISREG(info.st_mode) and info.st_uid == uid and info.st_nlink == 1
+        assert stat.S_IMODE(info.st_mode) == 0o600
+        current = os.read(fd, 514)
+        os.close(fd)
+        assert current.endswith(b'\n') and hashlib.sha256(current[:-1]).hexdigest() == expected
+    if op == 'put':
+        body = sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1)
+        assert 0 < len(body) <= 512 and all(32 < x < 127 for x in body)
+        temporary = '.token-' + secrets.token_hex(16)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        try:
+            with os.fdopen(fd, 'wb') as out:
+                out.write(body + b'\n')
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary, 'token', src_dir_fd=parent, dst_dir_fd=parent)
+            os.fsync(parent)
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+    elif current is not None:
+        os.unlink('token', dir_fd=parent)
+        os.fsync(parent)
+    os.close(parent)
+
+
 def session_binding_identity(user, uid):
     if os.geteuid() != 0 or not re.fullmatch(r"[a-z0-9_-]{1,32}", user) or user in ("root", "machined"):
         fail(3, "invalid session binding identity")
@@ -2509,11 +2569,13 @@ def main(args):
         return
     if command == "put-member-token" and len(args) == 5:
         entry = session_binding_identity(args[1], args[2])
-        put_session_token(args[3], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1), args[4], args[1], entry.pw_uid)
+        drop_to(args[1], entry.pw_uid)
+        owner_session_token("put", entry.pw_uid, args[3], args[4])
         return
     if command == "delete-member-token" and len(args) == 5:
         entry = session_binding_identity(args[1], args[2])
-        delete_session_token(args[3], args[4], args[1], entry.pw_uid)
+        drop_to(args[1], entry.pw_uid)
+        owner_session_token("delete", entry.pw_uid, args[3], args[4])
         return
     if command == "put-token" and len(args) == 3:
         put_session_token(args[1], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1), args[2])

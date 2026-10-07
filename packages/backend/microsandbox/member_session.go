@@ -19,7 +19,12 @@ type MemberCredentials struct {
 	member  MemberIdentity
 }
 
-func (r *Runtime) SessionCredentialsForMember(ctx context.Context, id string, member MemberIdentity) (*MemberCredentials, error) {
+type MemberSessionCredentials interface {
+	workspaceapi.SessionCredentialWriter
+	OpenTerminal(context.Context, string, string, string, workspaceapi.Command) (workspaceapi.Terminal, error)
+}
+
+func (r *Runtime) SessionCredentialsForMember(ctx context.Context, id string, member MemberIdentity) (MemberSessionCredentials, error) {
 	if _, err := r.EnsureMember(ctx, id, member); err != nil {
 		return nil, err
 	}

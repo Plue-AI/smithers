@@ -41,6 +41,9 @@ func terminalFixture(t *testing.T) (*Terminal, func([]byte), func() wire.Frame) 
 	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.OpenSession), wire.Field(1, wire.U32(17)))))}))
 	terminal := <-done
 	require.NotNil(t, terminal)
+	// POST completion ends admission, not the returned session. All subsequent
+	// byte/control assertions run after the opening request has gone away.
+	cancel()
 	return terminal, func(p []byte) { sendSession(t, peer, p) }, func() wire.Frame { f, err := wire.Read(peer); require.NoError(t, err); return f }
 }
 
@@ -67,6 +70,7 @@ func TestTerminalConsumerReturnsCreditOnlyForReadBytes(t *testing.T) {
 	var exit *ExitError
 	require.ErrorAs(t, err, &exit)
 	require.Equal(t, int32(7), exit.Code)
+	require.Equal(t, 7, exit.ExitStatus())
 	_, err = terminal.Read(make([]byte, 1))
 	require.ErrorAs(t, err, &exit)
 }
@@ -108,6 +112,7 @@ func TestTerminalConsumerCancellationAndSignalExit(t *testing.T) {
 	var exit *ExitError
 	require.ErrorAs(t, err, &exit)
 	require.Equal(t, byte(2), exit.Signal)
+	require.Equal(t, 130, exit.ExitStatus())
 	require.False(t, exit.Core)
 	terminal, _, _ = terminalFixture(t)
 	terminal.cancel()

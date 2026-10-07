@@ -234,6 +234,8 @@ mod tests {
             ("ben", "root"),
             ("20001", "0"),
             ("terminal-a/token", "terminal-b/token"),
+            ("/20001/token/", "/20002/token/"),
+            ("/20001/token/", "/"),
             ("terminal-a\"", "../escape\""),
             ("SMITHERS_URL", "OTHER_URL"),
             ("696e66", "FFFF66"),
