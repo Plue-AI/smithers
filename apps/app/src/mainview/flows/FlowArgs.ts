@@ -80,6 +80,8 @@ export interface FlowInput {
   readonly "triggers.run": { readonly slug: string; readonly repo?: string }
   /** Carried as JSON: `triggers.pause` declares `grammar: carried(...)`, which reads one object and refuses a positional line. */
   readonly "triggers.pause": { readonly slug: string; readonly repo?: string }
+  /** Carried as JSON like `triggers.pause`: the Home OK button carries the order and the revision it saw (#3452). */
+  readonly "order.ok": { readonly id: string; readonly revision: number }
   readonly "wiki.heading": { readonly line: string; readonly cardId?: string }
   readonly "billing.upgrade": { readonly plan: string }
   readonly "runs.list": { readonly repo?: string; readonly status?: string; readonly flow?: string; readonly lineage?: string; readonly sourceCard?: string }
@@ -282,6 +284,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "triggers.resume": (payload) => line(token(payload, "slug"), token(payload, "repo")),
   "triggers.run": (payload) => line(token(payload, "slug"), token(payload, "repo")),
   "triggers.pause": (payload) => JSON.stringify(payload),
+  "order.ok": (payload) => JSON.stringify(payload),
   "wiki.heading": (payload) => line(token(payload, "line"), token(payload, "cardId")),
 
 }
