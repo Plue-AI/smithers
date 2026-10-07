@@ -21,7 +21,7 @@ import (
 // not an approvals store with no executor. Requests create no TODO; only the
 // member's authenticated Confirm press does, atomically and once.
 func TestConfirmTodoConsumerInstall(t *testing.T) {
-	testConfirmTodoConsumerInstall(t, "Keep the greeting", "Keep the exact greeting.")
+	testConfirmTodoConsumerInstall(t, "Keep the greeting", "Keep the exact greeting.", "codex")
 }
 
 // Literal flow-edit prompts cross the same installed TODO and confirmation
@@ -31,11 +31,15 @@ func TestConfirmFlowEditConsumerInstall(t *testing.T) {
 		{"request", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists"},
 		{"diff", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n> +pnpm test\n> +```\n> +<script>untrusted</script>"},
 	} {
-		t.Run(tc.name, func(t *testing.T) { testConfirmTodoConsumerInstall(t, "Change the TODO flow: Run tests", tc.prompt) })
+		for _, via := range []string{"codex", "claude-code", "cli"} {
+			t.Run(tc.name+"/"+via, func(t *testing.T) {
+				testConfirmTodoConsumerInstall(t, "Change the TODO flow: Run tests", tc.prompt, via)
+			})
+		}
 	}
 }
 
-func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt string) {
+func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via string) {
 	t.Helper()
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
@@ -70,7 +74,7 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt string) 
 	token := "smithers_" + strings.Repeat("c", 40)
 	tokenSum := sha256.Sum256([]byte(token))
 	tokenHash := hex.EncodeToString(tokenSum[:])
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "codex-confirm", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: via + "-confirm", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository,via:" + via, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
 	handler := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
 	call := func(method, path, body, key string, delegated bool, cookies ...string) *httptest.ResponseRecorder {
@@ -142,6 +146,22 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt string) 
 	require.Equal(t, wantPrompt, prompt)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, receipt.ID).Scan(&state))
 	require.Equal(t, "approved", state)
+	// Declining a separate request must not append anything. A later approve
+	// cannot revive it, even when it carries a fresh idempotency key.
+	cancel := call("POST", "/api/todos", input, "delegated-cancel", true)
+	require.Equal(t, 202, cancel.Code, cancel.Body.String())
+	var canceled services.ConfirmationReceipt
+	require.NoError(t, json.Unmarshal(cancel.Body.Bytes(), &canceled))
+	require.NotEqual(t, receipt.ID, canceled.ID)
+	for range 2 {
+		response := call("POST", "/api/confirmations/"+canceled.ID+"/deny", `{}`, "person-deny", false)
+		require.Equal(t, 200, response.Code, response.Body.String())
+	}
+	revive := call("POST", "/api/confirmations/"+canceled.ID+"/approve", `{}`, "person-revive", false)
+	require.Equal(t, 409, revive.Code, revive.Body.String())
+	require.Contains(t, revive.Body.String(), `"code":"confirmation_resolved"`)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE source='todo'`).Scan(&count))
+	require.Equal(t, 1, count)
 	// A person's direct create uses the same writer and appends behind the
 	// confirmed request. Replaying its key never creates a third stack item.
 	for range 2 {
