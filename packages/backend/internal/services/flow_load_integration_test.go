@@ -229,7 +229,7 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 		require.NoError(t, tx.Commit(ctx))
 	}
 	record()
-	todoPage, err = store.Replay(ctx, todoOperationScope(item), todoBefore, 100)
+	todoPage, err := store.Replay(ctx, todoOperationScope(item), todoBefore, 100)
 	require.NoError(t, err)
 	require.Len(t, todoPage.Events, 1)
 	var todoProjection struct {

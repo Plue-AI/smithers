@@ -771,7 +771,16 @@ func (r *rehearsal) setupSource() bool {
 		if _, err := r.expect("POST", "/api/install/setup/models", `{}`, 202); err != nil {
 			return err
 		}
-		return r.waitStep("models")
+		if err := r.waitStep("models"); err != nil {
+			return err
+		}
+		if r.coder.url != "" {
+			// The install's factory inherits a supported owner-paid Gateway
+			// model; TEST_PROVIDER above is the app's local provider fixture.
+			_, err := r.expect("PUT", "/api/agents/coding/model", `{"model":{"protocol":"openai-chat","modelId":"openai/gpt-4o-mini","credential":"AI_GATEWAY_API_KEY","baseUrl":"https://ai-gateway.vercel.sh"}}`, 200)
+			return err
+		}
+		return nil
 	}) {
 		return false
 	}
