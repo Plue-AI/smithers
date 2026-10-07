@@ -12,7 +12,7 @@ import (
 )
 
 func TestCapturedContinuationHoldsOtherWork(t *testing.T) {
-	for _, name := range []string{"ready", "stale", "paused", "unsettled publication", "foreign push", "unreconciled prefix", "verify still running", "review still running", "held text", "delivered text", "reopened"} {
+	for _, name := range []string{"ready", "stale", "wake conflict", "wake awaits capture", "paused", "unsettled publication", "foreign push", "unreconciled prefix", "verify still running", "review still running", "held text", "delivered text", "reopened"} {
 		t.Run(name, func(t *testing.T) {
 			main := strings.Repeat("b", 40)
 			item := db.MythicalItem{WorkspaceID: "10000000-0000-4000-8000-000000000001", CandidateBase: main, Source: "todo", State: "proposed", Attempt: 2, FlowDigest: pgtype.Text{String: strings.Repeat("a", 64), Valid: true}}
@@ -20,6 +20,10 @@ func TestCapturedContinuationHoldsOtherWork(t *testing.T) {
 			switch name {
 			case "stale":
 				checks.Capture.Stale = true
+			case "wake conflict":
+				checks.Capture.Conflict = true
+			case "wake awaits capture":
+				checks.Capture.ReconciledOnto = main
 			case "paused":
 				item.PausedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
 			case "unsettled publication":

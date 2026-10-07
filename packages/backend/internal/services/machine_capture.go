@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,11 @@ type MachineCapturePending struct {
 	Base  string `json:"base"`
 	Onto  string `json:"onto"`
 	Stale bool   `json:"stale"`
+	// A wake result does not name a snapshot. Only a later capture based on
+	// this target can discharge the stale capture after a clean reconciliation.
+	ReconciledOnto  string `json:"reconciled_onto,omitempty"`
+	Conflict        bool   `json:"conflict,omitempty"`
+	ReconcileWaitID string `json:"reconcile_wait_id,omitempty"`
 }
 
 // MachineCaptureObjects reads only immutable host objects and the fenced head.
@@ -116,9 +122,16 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 		}
 		needed = true
 	}
+	// A newly stale snapshot supersedes capture bytes, not the open conflict
+	// or the wait it owns. A later matching recovery must still settle that wait.
+	if !applied && retained != nil {
+		pending.Conflict = retained.Conflict
+		pending.ReconcileWaitID = retained.ReconcileWaitID
+	}
 	// An ordinary later capture is not proof that a stale capture was rebased.
 	// Retain that recovery obligation until an explicit reconciliation consumes it.
-	if applied && retained != nil && retained.Stale {
+	resolved := applied && retained != nil && retained.Stale && !retained.Conflict && retained.ReconciledOnto == capture.Base
+	if applied && retained != nil && retained.Stale && !resolved {
 		pending = *retained
 		pending.Onto = head
 	}
@@ -127,6 +140,17 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 			continue
 		}
 		checks := mythicalChecksOf(item)
+		if resolved && retained.ReconcileWaitID != "" {
+			var now time.Time
+			if err := p.tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+				return err
+			}
+			for i := range checks.Waits {
+				if checks.Waits[i].ID == retained.ReconcileWaitID && checks.Waits[i].Kind == "conflict" && checks.Waits[i].SettledAt == nil {
+					checks.Waits[i].SettledAt = &now
+				}
+			}
+		}
 		mismatch := pending.Stale || checks.Capture != nil
 		if item.CandidateHead != "" {
 			tree, err := objects.CommitTree(ctx, p.workspace.ID, item.CandidateHead)

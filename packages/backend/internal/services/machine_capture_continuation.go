@@ -18,7 +18,7 @@ import (
 func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	checks := mythicalChecksOf(item)
 	capture := checks.Capture
-	if capture == nil || capture.Stale || todoReopenedAttempt(item) || item.PausedAt.Valid || len(item.PendingOp) > 0 || checks.ForeignHead != "" {
+	if capture == nil || capture.Stale || capture.Conflict || capture.ReconciledOnto != "" || todoReopenedAttempt(item) || item.PausedAt.Valid || len(item.PendingOp) > 0 || checks.ForeignHead != "" {
 		return nil, false, nil
 	}
 	if _, pinned := mythicalPinOf(item); !pinned {

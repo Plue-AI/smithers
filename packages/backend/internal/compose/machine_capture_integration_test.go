@@ -178,6 +178,83 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 	ack(peer, 12, machined.AckApplied)
 	pending(&services.MachineCapturePending{Head: stale.Head, Tree: stale.Tree, Base: stale.Base, Onto: first.Head, Stale: true})
 
+	reconciled := func(seq uint64, id byte, old, onto string, paths ...string) machined.Event {
+		decode := func(s string) []byte { v, e := hex.DecodeString(s); require.NoError(t, e); return v }
+		outcome := byte(1)
+		fields := [][]byte{wire.Field(1, decode(old)), wire.Field(2, decode(onto))}
+		if len(paths) > 0 {
+			outcome = 2
+		}
+		fields = append(fields, wire.Field(3, []byte{outcome}))
+		if len(paths) > 0 {
+			raw := wire.U16(uint16(len(paths)))
+			for _, path := range paths {
+				raw = append(raw, wire.String(path)...)
+			}
+			fields = append(fields, wire.Field(4, raw))
+		}
+		return machined.Event{Seq: seq, EventID: [16]byte{id}, Payload: wire.Union(3, fields...)}
+	}
+	t.Run("wake result waits for a matching capture", func(t *testing.T) {
+		before := services.MachineCapturePending{Head: stale.Head, Tree: stale.Tree, Base: stale.Base, Onto: first.Head, Stale: true}
+		settled := before
+		settled.ReconciledOnto = first.Head
+		result := reconciled(13, 6, base, first.Head)
+		_, err := pool.Exec(t.Context(), `ALTER TABLE product_job_events ADD CONSTRAINT reject_reconciled CHECK (event_type <> 'branch.reconciled') NOT VALID`)
+		require.NoError(t, err)
+		send(peer, result)
+		_, err = wire.Read(peer)
+		require.Error(t, err)
+		pending(&before)
+		head(first.Head)
+		var receipts int
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts WHERE event_id=$1`, "06000000-0000-0000-0000-000000000000").Scan(&receipts))
+		require.Zero(t, receipts)
+		_, err = pool.Exec(t.Context(), `ALTER TABLE product_job_events DROP CONSTRAINT reject_reconciled`)
+		require.NoError(t, err)
+		_, peer = presenceTestLink(t, registry, branch)
+		result.Seq = 1
+		send(peer, result)
+		ack(peer, 1, machined.AckApplied)
+		pending(&settled)
+		head(first.Head)
+		result.Seq = 2
+		send(peer, result)
+		ack(peer, 2, machined.AckDuplicate)
+		pending(&settled)
+		var facts int
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='branch.reconciled'`).Scan(&facts))
+		require.Equal(t, 1, facts)
+		// A replayed old snapshot is not the required post-reconciliation capture.
+		send(peer, event(3, 7, first))
+		ack(peer, 3, machined.AckApplied)
+		pending(&settled)
+		fresh := wire.Captured{Head: git("reconciled snapshot\n", "commit-tree", stale.Tree, "-p", first.Head), Tree: stale.Tree, Base: first.Head}
+		send(peer, event(4, 8, fresh))
+		ack(peer, 4, machined.AckApplied)
+		pending(&services.MachineCapturePending{Head: fresh.Head, Tree: fresh.Tree, Base: fresh.Base, Onto: fresh.Head})
+		head(fresh.Head)
+		// A delayed wake target cannot bless the newer host head, including
+		// native publication that has not reached the SQL projection yet.
+		newer := git("newer host head\n", "commit-tree", first.Tree, "-p", fresh.Head)
+		git("", "update-ref", ref, newer)
+		// A delayed wake target cannot bless the newer host head.
+		send(peer, reconciled(5, 9, base, first.Head))
+		ack(peer, 5, machined.AckStaleBase)
+		pending(&services.MachineCapturePending{Head: fresh.Head, Tree: fresh.Tree, Base: fresh.Base, Onto: newer, Stale: true})
+		head(fresh.Head)
+		send(peer, reconciled(6, 10, strings.Repeat("f", 40), fresh.Head))
+		ack(peer, 6, machined.AckMissingObjects)
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts WHERE event_id=$1`, "0a000000-0000-0000-0000-000000000000").Scan(&receipts))
+		require.Zero(t, receipts)
+		// Reusing a durable identity for different content closes the lease.
+		send(peer, reconciled(7, 6, base, fresh.Head))
+		_, err = wire.Read(peer)
+		require.Error(t, err)
+		git("", "gc", "--prune=now")
+		require.Equal(t, base, git("", "rev-parse", "refs/smithers/branches/"+branch+"/reconciliations/06000000-0000-0000-0000-000000000000/old"))
+	})
+
 	t.Run("TODO verification follows captured bytes", func(t *testing.T) {
 		todoBranch := b.box(b.repo, b.machines, "running", b.owner)
 		todoRef := "refs/smithers/branches/" + todoBranch + "/head"
@@ -280,13 +357,61 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 		send(todoPeer, event(11, 24, late))
 		ack(todoPeer, 11, machined.AckApplied)
 		require.NotEmpty(t, checks(read())["capture"], "late passed result must not bless changed bytes")
+		send(todoPeer, reconciled(12, 30, base, late.Head, "member.txt"))
+		ack(todoPeer, 12, machined.AckApplied)
+		conflicted := read()
+		require.False(t, conflicted.CandidateVerified)
+		var waits []services.TodoWait
+		require.NoError(t, json.Unmarshal(checks(conflicted)["waits"], &waits))
+		require.Len(t, waits, 1)
+		require.Equal(t, "conflict", waits[0].Kind)
+		require.Nil(t, waits[0].SettledAt)
+		require.NoError(t, json.Unmarshal(checks(conflicted)["capture"], &work))
+		require.True(t, work.Stale)
+		require.True(t, work.Conflict)
+		require.Equal(t, late.Head, work.ReconciledOnto)
+		send(todoPeer, reconciled(13, 30, base, late.Head, "member.txt"))
+		ack(todoPeer, 13, machined.AckDuplicate)
+		require.Equal(t, conflicted.Version, read().Version)
+		send(todoPeer, event(14, 34, first))
+		ack(todoPeer, 14, machined.AckStaleBase)
+		work = services.MachineCapturePending{}
+		require.NoError(t, json.Unmarshal(checks(read())["capture"], &work))
+		require.True(t, work.Conflict, "a newer stale snapshot retains the conflict")
+		require.Equal(t, waits[0].ID, work.ReconcileWaitID)
+
+		// Ordinary capture cannot erase a reported unresolved conflict.
+		same := late
+		same.Base = late.Head
+		send(todoPeer, event(15, 31, same))
+		ack(todoPeer, 15, machined.AckApplied)
+		work = services.MachineCapturePending{}
+		require.NoError(t, json.Unmarshal(checks(read())["capture"], &work))
+		require.True(t, work.Conflict)
+		// A later clean reconciliation still waits for its snapshot before settling.
+		send(todoPeer, reconciled(16, 32, base, late.Head))
+		ack(todoPeer, 16, machined.AckApplied)
+		require.NoError(t, json.Unmarshal(checks(read())["waits"], &waits))
+		require.Nil(t, waits[0].SettledAt)
+		send(todoPeer, event(17, 33, same))
+		ack(todoPeer, 17, machined.AckApplied)
+		work = services.MachineCapturePending{}
+		require.NoError(t, json.Unmarshal(checks(read())["capture"], &work))
+		require.False(t, work.Stale)
+		require.False(t, work.Conflict)
+		require.NoError(t, json.Unmarshal(checks(read())["waits"], &waits))
+		require.NotNil(t, waits[0].SettledAt)
+		require.Equal(t, initial.Attempt, read().Attempt)
+		require.Equal(t, initial.Generation, read().Generation)
+		require.Equal(t, initial.RequestRunID, read().RequestRunID)
+
 		// Refuse before touching any native ref when a merge may be in flight.
 		_, err = pool.Exec(t.Context(), `UPDATE mythical_items SET pending_op='{"kind":"merge","target":"1","desired":"approved","state":"unknown"}' WHERE id=$1`, id)
 		require.NoError(t, err)
-		send(todoPeer, event(12, 24, late))
-		ack(todoPeer, 12, machined.AckDuplicate)
+		send(todoPeer, event(18, 24, late))
+		ack(todoPeer, 18, machined.AckDuplicate)
 		blocked := wire.Captured{Head: git("blocked\n", "commit-tree", first.Tree, "-p", late.Head), Tree: first.Tree, Base: late.Head}
-		send(todoPeer, event(13, 25, blocked))
+		send(todoPeer, event(19, 25, blocked))
 		_, err = wire.Read(todoPeer)
 		require.Error(t, err)
 		require.Equal(t, late.Head, git("", "rev-parse", todoRef))

@@ -61,7 +61,7 @@ func withMachineRepositoryTx(ctx context.Context, tx pgx.Tx, branch string, host
 }
 
 // prepareMachineCaptureWriter locks stack/items before the workspace or receipt
-// FK, then binds capture publication and pending work to this transaction.
+// FK, then binds capture publication or wake settlement to this transaction.
 func prepareMachineCaptureWriter(host *repohost.Client) machined.EventPreparation {
 	return func(ctx context.Context, tx pgx.Tx, branch string, _ machined.Event) (machined.EventWriter, error) {
 		if host == nil {
@@ -78,6 +78,12 @@ func prepareMachineCaptureWriter(host *repohost.Client) machined.EventPreparatio
 			}
 			err := withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
 				objects := machined.GitCaptureObjects{Resolve: func(context.Context, string) (string, error) { return path, nil }}
+				if len(event.Payload) > 0 && event.Payload[0] == 3 {
+					writer := &machined.ReconcileIngest{Objects: objects, Apply: projection.Reconcile}
+					var err error
+					ack, err = writer.Write(ctx, tx, branch, event)
+					return err
+				}
 				writer := &machined.CaptureIngest{Objects: objects, Reconcile: func(ctx context.Context, _ pgx.Tx, _ string, capture wire.Captured, applied bool) error {
 					return projection.Apply(ctx, capture, applied, objects)
 				}}
