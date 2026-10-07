@@ -26,6 +26,7 @@ type liveRunFixture struct {
 	floor      int64
 	wrongRun   bool
 	wrongOrder bool
+	reads      int
 }
 
 func (f *liveRunFixture) CallRPC(_ context.Context, _ flowruntime.Target, procedure string, raw json.RawMessage) (json.RawMessage, error) {
@@ -48,11 +49,12 @@ func (f *liveRunFixture) CallRPC(_ context.Context, _ flowruntime.Target, proced
 	rows := []json.RawMessage{}
 	switch request.Selector.Tag {
 	case "run-summary":
+		f.reads++
 		state := "running"
 		if f.head == 8 {
 			state = "completed"
 		}
-		rows = append(rows, json.RawMessage(fmt.Sprintf(`{"runId":"fixture-run","flowId":"fixture","status":%q}`, state)))
+		rows = append(rows, json.RawMessage(fmt.Sprintf(`{"runId":"fixture-run","flowId":"fixture","status":%q,"statusRollup":{"sampledAt":%d}}`, state, f.reads)))
 	case "run-tree":
 		if f.head >= 4 {
 			state := "running"
@@ -111,6 +113,14 @@ func TestLiveRunComposedCheckpointAndReplay(t *testing.T) {
 	require.Equal(t, "snap", initial.T)
 	require.EqualValues(t, 1, *initial.Cursor)
 	require.JSONEq(t, `{"summary":{"runId":"fixture-run","flowId":"fixture","status":"running"},"steps":[],"events":[]}`, string(initial.Data))
+	// Readers at the same source position get the same bytes, even when the
+	// gateway's independently sampled health freshness has advanced.
+	other := f.dial(t)
+	sendPresenceFrame(t, other, `{"t":"sub","id":1,"topic":"run:fixture-run"}`)
+	repeated := readPresenceFrame(t, other)
+	require.Equal(t, initial.Cursor, repeated.Cursor)
+	require.Equal(t, initial.Data, repeated.Data)
+	other.CloseNow()
 	// The shipped LiveChannel decodes the real socket frames and carries its
 	// own cursor across a dropped connection. No route or socket is mocked.
 	client := exec.CommandContext(t.Context(), "bun", "testdata/live/run-client.mjs", f.origin, f.cookie)

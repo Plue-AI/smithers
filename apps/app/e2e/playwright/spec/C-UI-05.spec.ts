@@ -1,3 +1,4 @@
+import { runLiveInstall } from "./live-install"
 import { expect, test } from "../browserTest"
 import { installCloudFixture } from "../cloudFixture"
 import { say } from "./j1-fixtures"
@@ -112,4 +113,15 @@ test("C-UI-05: held admission leaves chat usable, and retry follows committed li
   await expect(card).toHaveCount(1)
   expect(requests).toHaveLength(1)
   expect(retries).toHaveLength(1)
+})
+
+// The control path runs on Linux without executing repository code. Full
+// machine failure/retry and stale-write qualification remains above.
+test("C-UI-05: composed admission stays pending while chat answers", async () => {
+  test.setTimeout(300_000)
+  const stdout = await runLiveInstall("^TestLiveTodoBrowserPostgres$")
+  expect(stdout).toContain("PASS live install: held admission keeps chat responsive and shows no uncommitted TODO")
+  expect(stdout).toContain("PASS live install: queued cards reconnect from committed snapshots after reload")
+  expect(stdout).toContain("PASS live install: reload reads the committed snapshot")
+  expect(stdout).toContain("--- PASS: TestLiveTodoBrowserPostgres")
 })

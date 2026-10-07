@@ -24,8 +24,10 @@ try {
   page.on("console", message => { if (message.type() === "error" && /TypeError|ReferenceError/.test(message.text())) errors.push(message.text()) })
   const subscriptions: Array<{ id: number; topic: string; cursor?: number }> = []
   const frames: Array<{ t: string; id: number; cursor?: number; data?: unknown }> = []
+  const reads: string[] = []
+  page.on("request", request => { if (request.url().includes("/api/todos")) reads.push(`${request.method()} ${request.url()}`) })
   let unblock: Promise<void> | undefined
-  let cut: (() => void) | undefined
+  const connections = new Set<() => void>()
   // Transparent proxy to the real install; fault injection changes delivery
   // only. Every forwarded snapshot/delta comes from committed PostgreSQL rows.
   await page.routeWebSocket("**/api/live", async socket => {
@@ -46,7 +48,9 @@ try {
       if (typeof raw === "string") frames.push(JSON.parse(raw))
       socket.send(raw)
     })
-    cut = () => { server.close(); socket.close({ code: 1001, reason: "network fault" }) }
+    const cut = () => { server.close(); socket.close({ code: 1001, reason: "network fault" }) }
+    connections.add(cut)
+    socket.onClose((code, reason) => { connections.delete(cut); server.close({ code, reason }) })
   })
   await page.goto(`${origin}/maya/demo`)
   const say = async (text: string) => {
@@ -56,17 +60,40 @@ try {
   await say("/todo.new Replay alpha")
   await page.getByRole("region", { name: "Draft", exact: true }).getByRole("button", { name: "Commit", exact: true }).click()
   const first = page.getByRole("article", { name: "TODO T1", exact: true })
+  await expect.poll(async () => (await page.request.get(`${origin}/__live_test/held`)).status()).toBe(204)
+  await expect(first).toHaveCount(0)
+  await expect(page.getByText("Commit pending", { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole("region", { name: "Draft", exact: true })).not.toContainText("Working")
+  await say("Can chat answer while the TODO waits?")
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+  await expect(page.getByText("Chat answered while the TODO waits", { exact: true }).first()).toBeVisible()
+  await expect(first).toHaveCount(0)
+  expect((await page.request.post(`${origin}/__live_test/release`)).status()).toBe(204)
   await expect(first).toBeVisible({ timeout: 30000 })
+  await expect(first).toContainText("Waiting for a machine")
+  console.log("PASS live install: held admission keeps chat responsive and shows no uncommitted TODO")
   await say("/todo.new Replay beta")
   await page.getByRole("region", { name: "Draft", exact: true }).getByRole("button", { name: "Commit", exact: true }).click()
   const second = page.getByRole("article", { name: "TODO T2", exact: true })
   await expect(second).toBeVisible({ timeout: 30000 })
-  await expect.poll(() => subscriptions.some(s => s.topic === "todo:1") && subscriptions.some(s => s.topic === "todo:2")).toBe(true)
+  const beforeReload = subscriptions.length
+  const beforeReloadFrames = frames.length
+  await page.reload()
+  await expect(first).toContainText("Waiting for a machine")
+  await expect(second).toContainText("Waiting for a machine")
+  await expect.poll(() => {
+    const mounted = subscriptions.slice(beforeReload)
+    return ["home", "todo:1", "todo:2"].every(topic => mounted.some(s => s.topic === topic
+      && frames.slice(beforeReloadFrames).some(frame => frame.id === s.id && frame.t === "snap")))
+  }).toBe(true)
+  console.log("PASS live install: queued cards reconnect from committed snapshots after reload")
   const before = subscriptions.length
   const beforeFrames = frames.length
+  const beforeReads = reads.length
   const at = Date.now()
   unblock = new Promise(resolve => setTimeout(resolve, 10000))
-  cut!()
+  expect(connections.size).toBe(1)
+  for (const cut of connections) cut()
   for (const n of [1, 2]) {
     const response = await fetch(`${origin}/api/todos/${n}`, { method: "POST", headers: {
       Cookie: "session=maya-browser-session; __csrf=csrf", Origin: origin,
@@ -79,6 +106,7 @@ try {
   await expect(second).not.toContainText("Dropped")
   await expect(first).toContainText("Dropped", { timeout: 20000 })
   await expect(second).toContainText("Dropped")
+  if (Date.now() - at < 10000) console.log(JSON.stringify({ reads: reads.slice(beforeReads), subscriptions: subscriptions.slice(before), frames: frames.slice(beforeFrames) }))
   expect(Date.now() - at).toBeGreaterThanOrEqual(10000)
   const resumed = subscriptions.slice(before).filter(s => s.topic === "todo:1" || s.topic === "todo:2")
   expect(resumed).toHaveLength(2)

@@ -103,7 +103,7 @@ fixtures and records the Notification API; it does not expose an OS permission
 dialog. C-UI-13 at its unit layer (`src/mainview/cards/ViewReachability.test.ts`)
 passed alongside notification/controller/toast tests (68 passed, 0 failed).
 | C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry, Answer with bound TODO and Resolve with bound branch, approval/conflict notices and owner merge notice/Hide covered; shared-history actor lines and keyboard jump covered; saved global preference hiding covered; per-conversation preference writes and summaries remain fixme | T-APP-07 |
-| C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
+| C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | real composed control path: held admission while chat answers, queued cards after reload, committed replay; full machine failure/retry and isolated stale-write journey remains fixme for the reference install | T-COL-02 |
 
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | passed: two install identities, live shared entries, author-only theme and independent card view reload; real-host acceptance separate | T-APP-16 |
 | C-UI-07 | [native browser acceptance](C-UI-07-native.spec.ts), [HTTP contract regression](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | Linux browser → authenticated composed prompt → packaged model host → PostgreSQL/native store; four pinned sources, real run Inspect, tab closure, admission deduplication and reload; native confinement/provider refusal/fallback pass. Mac journey and reference timing receipts remain required. Run `SMITHERS_CONTEXT_BROWSER=1 go test ./internal/compose -run TestLocalSharedPreflightBrowser` with PostgreSQL and the built FFI library. | T-APP-17 |
@@ -131,7 +131,7 @@ View; full reachability and remaining fixtures await their wiring tickets.
 
 | C-AGT-02 | [C-AGT-02.spec.ts](C-AGT-02.spec.ts) | mounted-install contract fake: light/dark × 1280/390; real sessions and authenticated refusal pending T-AGT-02 | T-AGT-02, T-AGT-03 |
 | C-COL-01 | [C-COL-01.spec.ts](C-COL-01.spec.ts) | fixme-before-implementation | T-COL-10, T-COL-03r, T-COL-08a, T-COL-08b, T-APP-14a |
-| C-COL-02 | [C-COL-02.spec.ts](C-COL-02.spec.ts) | [composed install browser](../../real/live-todo.browser.ts) covers real TODO commands/cards and two ordered historical Home deltas once after a 10 s outage, cursor replay and reload without API mocks; full named qualification remains fixme | T-COL-02 |
+| C-COL-02 | [C-COL-02.spec.ts](C-COL-02.spec.ts) | real composed install: PostgreSQL rollback/retention and ordered replay, held admission, queued reload, one live connection, two historical Home deltas exactly once after a 10 s outage; reference-host latency separate | T-COL-02 |
 | C-COL-03 | [C-COL-03.spec.ts](C-COL-03.spec.ts) | fixme-before-implementation | T-COL-03r, T-COL-03a, T-COL-03, T-STK-08, T-APP-14a |
 | C-COL-04 | [C-COL-04.spec.ts](C-COL-04.spec.ts) | fixme-before-implementation | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
 | C-COL-05 | [C-COL-05.spec.ts](C-COL-05.spec.ts) | fixme-before-implementation | T-COL-04, T-COL-04a, T-APP-10, T-APP-11 |

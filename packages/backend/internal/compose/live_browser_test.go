@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -14,13 +16,47 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/stretchr/testify/require"
 )
+
+// A deterministic model answer uses the real authenticated producer commit
+// door, journal and shared conversation. No browser API response is mocked.
+type liveBrowserChatHost struct{}
+
+func (liveBrowserChatHost) RunChatTurn(ctx context.Context, grant ports.ChatTurnGrant) error {
+	raw, err := json.Marshal(map[string]any{"turnId": grant.TurnID, "generation": grant.Generation, "expected": grant.Cursor, "frames": []any{
+		map[string]string{"runId": grant.RunID, "type": "delta", "kind": "text", "text": "Chat answered while the TODO waits"},
+		map[string]string{"runId": grant.RunID, "type": "done", "reason": "stop"},
+	}})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, grant.ProducerBaseURL+chat.CommitPath, strings.NewReader(string(raw)))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+grant.Token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("chat producer refused: %d %s", response.StatusCode, body)
+	}
+	return nil
+}
 
 // Opt-in browser proof over the complete install composition. PostgreSQL,
 // command dispatch, TODO cards and live replay are real; only network delivery
@@ -58,7 +94,7 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 	t.Setenv("SMITHERS_AUTH_SESSION_COOKIE_NAME", "session")
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
 	t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
-	api := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
+	api := startSplitProcess(t, Options{ChatHost: liveBrowserChatHost{}})
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
 	command := exec.CommandContext(ctx, "bun", "e2e/real/live-todo.browser.ts")
@@ -84,7 +120,34 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 	}
 	require.NotNil(t, vite, "browser fixture did not start")
 	proxy := httputil.NewSingleHostReverseProxy(vite)
+	held := atomic.Bool{}
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unhold := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unhold()
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Test-only network control around the production handler. A held
+		// request has neither reached admission nor committed a source event.
+		if r.URL.Path == "/__live_test/held" {
+			if held.Load() {
+				w.WriteHeader(http.StatusNoContent)
+			} else {
+				w.WriteHeader(http.StatusConflict)
+			}
+			return
+		}
+		if r.URL.Path == "/__live_test/release" {
+			unhold()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/todos" && !held.Swap(true) {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			api.ServeHTTP(w, r)
 		} else {
@@ -92,7 +155,7 @@ func TestLiveTodoBrowserPostgres(t *testing.T) {
 		}
 	})
 	server.Start()
-	defer server.Close()
+	defer func() { unhold(); server.Close() }()
 	_, err = fmt.Fprintln(stdin, "ready")
 	require.NoError(t, err)
 	_ = stdin.Close()

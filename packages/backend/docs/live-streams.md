@@ -85,9 +85,24 @@ through that cursor in source order. Gateway pages that split one journal entry
 are drained before advancing the numeric Live cursor. A missing retained entry
 returns `gap`, followed by a fresh snapshot on cursor-free resubscription.
 Unknown dispatch runs are refused; missing or stopped hosts remain unavailable.
-The monitor's cost, waits and journal presentation remain its owning projection's
-contract; this base topic does not invent those fields.
+The gateway's wall-clock `statusRollup` is excluded from the base summary so
+readers at one journal cursor receive identical bytes. The monitor's health,
+cost, waits and journal presentation remain its owning projection's contract;
+this base topic does not invent those fields.
 
 Cookie-bearing upgrades require the effective Origin; cookie-free bearer upgrades
 use the same credential loader, scoped authorizer and durable revocation watcher,
 and require no Origin. Machine/run credentials cannot open member Live sockets.
+
+The named `C-COL-02.spec.ts` journey starts the production install with an owned
+PostgreSQL database and the native wiki library, then drives the real app in
+Chromium. Set `SMITHERS_TEST_DATABASE_URL` and `SMITHERS_FFI_LIBRARY_PATH` (build
+the library with `cargo build --locked -p smithers-ffi`) before running it with
+`pnpm exec playwright test e2e/playwright/spec/C-COL-02.spec.ts --workers 1` from
+`apps/app`. It checks source rollback/retention and browser cursor replay across
+a ten-second outage. The same harness covers the control portion of C-UI-05:
+held admission, an independent chat answer, and queued-card reload. Its model
+answer commits through the authenticated producer callback; no API response or
+Live frame is mocked. Machine execution, failure/retry and stale-write cases
+still require the isolated reference install; these control tests do not prove
+machine isolation or reference-host latency.

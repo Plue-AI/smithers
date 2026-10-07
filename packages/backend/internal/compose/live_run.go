@@ -118,6 +118,14 @@ func (r runProjectionReader) page(ctx context.Context, after *int64) (live.LogPa
 		if json.Unmarshal(summary.Rows[0], &identity) != nil || identity.RunID != r.run || identity.FlowID == "" {
 			return live.LogPage{}, fmt.Errorf("invalid run summary")
 		}
+		// Gateway health includes wall-clock freshness, which can differ for
+		// two readers at one journal cursor. The shared base topic carries
+		// committed run facts; the monitor owns the time-sensitive rollup.
+		var committedSummary map[string]json.RawMessage
+		if err := json.Unmarshal(summary.Rows[0], &committedSummary); err != nil {
+			return live.LogPage{}, err
+		}
+		delete(committedSummary, "statusRollup")
 		steps, err := r.snapshot(ctx, "run-tree", nil)
 		if err != nil {
 			return live.LogPage{}, err
@@ -182,7 +190,7 @@ func (r runProjectionReader) page(ctx context.Context, after *int64) (live.LogPa
 				return live.LogPage{Gap: true}, nil
 			}
 		}
-		data, err := json.Marshal(map[string]any{"summary": summary.Rows[0], "steps": steps.Rows, "events": events})
+		data, err := json.Marshal(map[string]any{"summary": committedSummary, "steps": steps.Rows, "events": events})
 		return live.LogPage{Cursor: head, Data: data}, err
 	}
 	return live.LogPage{}, fmt.Errorf("run changed throughout snapshot read")
