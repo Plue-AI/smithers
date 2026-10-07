@@ -2,7 +2,8 @@
 use crate::conn::{field, fields, tagged, Durable, ProtocolError};
 use super::Record;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Source {
     pub session: u32,
     pub participant: [u8; 16],
