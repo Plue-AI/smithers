@@ -113,6 +113,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
           const snapshot = actions.live?.getSnapshot(`branch:${branch}`)
           const decoded = !snapshot?.error && z.object({ id: z.literal(branch), ssh_line: z.string().min(1) }).safeParse(snapshot?.data)
           if (decoded && decoded.success) return { value: decoded.data.ssh_line }
+          if (!snapshot?.error && actions.branchSshLine) return actions.branchSshLine(branch)
           if (actions.design.enabled === false || actions.bootstrap?.capabilities.includes("install")
             || (snapshot?.error && snapshot.error !== "unsupported" && snapshot.error !== "unknown_topic")) return "Branch unavailable"
         }

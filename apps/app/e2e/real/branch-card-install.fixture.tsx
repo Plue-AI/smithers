@@ -64,6 +64,18 @@ try {
   await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
   await waitFor(() => host.textContent?.includes("Asleep") === true)
   assert.ok(host.textContent?.includes("smithers/sleep-item"))
+  // The slash door resolves both a TODO and the canonical bookmark through
+  // authorized HTTP reads, then shares the mounted card's existing live topic.
+  const sshReads = requests.length
+  for (const subject of ["T1", "smithers/sleep-item"]) {
+    const copied = await controller.runCommandForResult("ssh", subject)
+    assert.deepEqual(copied, { status: "executed", value: "ssh -p 2222 smithers/sleep-item@127.0.0.1" })
+  }
+  assert.ok(requests.slice(sshReads).every(request => request.method === "GET"), "SSH resolution never admits or wakes")
+  assert.ok(requests.slice(sshReads).some(request => request.path === "/api/todos/1" && request.status === 200))
+  assert.ok(requests.slice(sshReads).some(request => request.path === "/api/branches/smithers%2Fsleep-item" && request.status === 200))
+  const missingSsh = await controller.runCommandForResult("ssh", "T999")
+  assert.equal(missingSsh.status, "failed", "unknown TODO never copies a seed SSH line")
   assert.ok(host.querySelector('[data-flow="todo"]'), "real item binding")
   assert.ok(host.querySelector('[data-flow="todo.steer"]'), "real steer binding")
   assert.equal(host.querySelector('[data-flow="box.resume"]'), null, "uncomposed wake stays dark")
@@ -82,5 +94,5 @@ try {
   assert.ok(requests.some(request => request.path === "/api/todos/1" && request.status === 200))
   assert.ok(requests.some(request => request.path.endsWith("/files/src/retry.ts") && request.status === 200))
   assert.ok(requests.filter(request => request.method === "POST").every(request => request.path === "/api/branches"), "reads never wake the sleeping branch")
-  console.log("PASS composed Branch slash, mount, item, file and Fork refusal; no wake")
+  console.log("PASS composed Branch slash, mount, SSH TODO/bookmark, item, file and Fork refusal; no wake")
 } finally { await act(async () => root.unmount()); await controller.dispose(); live.dispose() }
