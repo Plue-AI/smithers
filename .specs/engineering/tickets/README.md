@@ -142,6 +142,7 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | **Fast model through the Smithers sign-in (mvp.md §12 item 5)** | | | | | |
 | [T-FM-01](T-FM-01.md) | Install: fast model through the Smithers sign-in, key fallback and quota display | S2 | M | T-INS-06, T-FLW-08 | C-FM-01 |
 | [T-FM-02](T-FM-02.md) | Smithers fast-model gateway: per-install auth, metering and a card-free daily quota | S2 | M | — | C-FM-02 |
+| [T-MCH-16](T-MCH-16.md) | Secrets as files at a declared path; model logins from secrets (M-42) | S2 | M | T-MCH-12, T-MCH-11, T-SEC-01 | C-MCH-12 |
 | **Live layer and machine daemon** | | | | | |
 | [T-COL-10](T-COL-10.md) | Every file write carries `base_digest`; a stale write is refused | S1, S2 | M | S1: T-FLW-01 · S2: T-COL-03 | S1: C-COL-01, C-J1-04 |
 | [T-COL-02](T-COL-02.md) | Live channel `/api/live`: topics, cursors, backpressure | S1 | M | T-STK-01, T-ACC-03, T-INS-04, T-FLW-01 | C-COL-02, C-J1-04, C-PERF-02 |

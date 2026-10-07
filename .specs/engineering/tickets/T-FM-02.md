@@ -15,9 +15,10 @@ Out: billing, cards, plans and entitlements beyond the quota (pending Will); the
 ## Changes
 - Reuse `packages/backend/modelproxy` and `packages/backend/credits` (public); Plue composes and hosts them (design/hosting.md, gateway-only metering).
 - No prompt or completion content is persisted; metering rows hold install, tokens and time.
+- Emit a daily per-install token total (install, UTC day, tokens) the operator can export. Product sets the quota from it: 2x the p90 daily tokens per install over 7 days on the dogfood install, once T-FM-01 runs there (98, 2026-10-06). Ship with a conservative config default until then.
 
 ## Decisions and pre-review
-- smithers-3f owns the gateway and security review; smithers-98 sets the quota number; Will rules on any card step.
+- smithers-3f owns the gateway and security review; smithers-98 sets the quota number from the measured daily totals; Will rules on any card step.
 
 ## Tests
 

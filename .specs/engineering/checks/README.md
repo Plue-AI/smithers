@@ -120,6 +120,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-MCH-09](C-MCH-09.md) | Homes are per machine, created at first session (also for a member added while awake), never shared, kept across sleep | integration | S2 | T-MCH-11 |
 | [C-MCH-10](C-MCH-10.md) | Tool logins persist per machine across sleep and wake; Smithers never stores or copies tokens between machines | integration | S2 | T-MCH-11 |
 | [C-MCH-11](C-MCH-11.md) | Folded into T-MCH-06's tests | integration | S2 | T-MCH-06 |
+| [C-MCH-12](C-MCH-12.md) | Folded into T-MCH-16's tests | integration | S2 | T-MCH-16 |
 | **Remote machines (#3706)** | | | | |
 | [C-RMT-01](C-RMT-01.md) | Folded into T-RMT-01's tests | spike | W0 | T-RMT-01 |
 | [C-RMT-02](C-RMT-02.md) | Folded into T-RMT-02's tests | integration | S1 | T-RMT-02 |
