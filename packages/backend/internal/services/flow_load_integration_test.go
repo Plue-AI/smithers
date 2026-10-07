@@ -229,7 +229,7 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 		require.NoError(t, tx.Commit(ctx))
 	}
 	record()
-	todoPage, err := store.Replay(ctx, todoOperationScope(item), todoBefore, 100)
+	todoPage, err = store.Replay(ctx, todoOperationScope(item), todoBefore, 100)
 	require.NoError(t, err)
 	require.Len(t, todoPage.Events, 1)
 	var todoProjection struct {
@@ -252,7 +252,7 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, page.Events, 2)
 	// Flow publication must preserve the provider's historical TODO card.
-	todoPage, err := store.Replay(ctx, todoOperationScope(item), todoBefore, 100)
+	todoPage, err = store.Replay(ctx, todoOperationScope(item), todoBefore, 100)
 	require.NoError(t, err)
 	require.Len(t, todoPage.Events, 3)
 	for i, event := range todoPage.Events {
