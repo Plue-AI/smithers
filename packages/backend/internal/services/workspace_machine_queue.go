@@ -293,7 +293,7 @@ func (l *workspaceMythicalLanes) OrderTodoMachines(items []db.MythicalItem) {
 	}
 	holders := []string{}
 	for _, item := range items {
-		if item.Source == "todo" && item.WorkspaceID != "" {
+		if mythicalTodo(item) && item.WorkspaceID != "" {
 			holders = append(holders, machineQueueHolder(item.WorkspaceID))
 		}
 	}
