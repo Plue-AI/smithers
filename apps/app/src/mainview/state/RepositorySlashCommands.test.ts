@@ -29,11 +29,12 @@ test("the smithers repository's declared flows and the built-in stack command ar
   await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "smithersai/smithers", flows: repositoryFlowsOf(projection.flows) }).isPersisted.promise
   await settle()
   expect(controller.commands.find("review")?.metadata.args).toBe("<number> [owner/repo]")
-  for (const name of ["lint", "pr-triage", "issue-triage", "release-notes", "coding.request"]) {
+  for (const name of ["lint", "pr-triage", "issue-triage", "release-notes"]) {
     const entry = controller.commands.find(name)
     expect({ name, grammar: typeof entry?.metadata.grammar }).toEqual({ name, grammar: "function" })
   }
   expect(controller.commands.find("stack")).toBeDefined()
   expect(controller.commands.find("history.show")).toBeUndefined()
   expect(controller.commands.find("change.request")).toBeUndefined()
+  expect(controller.commands.find("coding.request")).toBeUndefined()
 })
