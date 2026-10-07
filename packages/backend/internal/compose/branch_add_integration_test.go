@@ -34,7 +34,7 @@ func TestBranchAddComposedInstall(t *testing.T) {
 	}
 }
 func TestBranchCaptureComposedInstall(t *testing.T) {
-	for _, mode := range []string{"s2-add", "s2-confirm", "s2-fork", "s2-item-fork", "s2-retained-item-fork", "s2-fail", "s2-stale", "s2-missing-membership", "s2-missing-authorize", "s2-missing-lane", "s2-missing-microvm", "s2-missing-identity"} {
+	for _, mode := range []string{"s2-add", "s2-confirm", "s2-fork", "s2-item-fork", "s2-unverified-item-fork", "s2-retained-item-fork", "s2-fail", "s2-stale", "s2-missing-membership", "s2-missing-authorize", "s2-missing-lane", "s2-missing-microvm", "s2-missing-identity"} {
 		t.Run(mode, func(t *testing.T) { runBranchAddComposed(t, mode) })
 	}
 }
@@ -170,6 +170,10 @@ func runBranchAddComposed(t *testing.T, remove string) {
 			require.NoError(t, err)
 			_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: workspace.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "smithers/source"})
 			require.NoError(t, err)
+			if remove == "s2-unverified-item-fork" {
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_head='',candidate_base='',candidate_verified=false,base_commit=$2 WHERE id=$1`, item.ID, base)
+				require.NoError(t, err)
+			}
 			if remove == "s2-retained-item-fork" {
 				_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='' WHERE id=$1`, item.ID)
 				require.NoError(t, err)

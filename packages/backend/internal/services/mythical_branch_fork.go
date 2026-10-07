@@ -422,10 +422,14 @@ func (s *MythicalService) forkSource(ctx context.Context, q *db.Queries, reposit
 			if err != nil {
 				return branchForkSource{}, err
 			}
-			if !isLowerHexRevision(item.CandidateBase) {
+			base := item.CandidateBase
+			if !isLowerHexRevision(base) {
+				base = item.BaseCommit
+			}
+			if !isLowerHexRevision(base) {
 				return branchForkSource{}, branchForkUnavailable("Fork base unavailable")
 			}
-			return branchForkSource{ref: ref, commit: head, base: item.CandidateBase, pin: repohost.BranchHeadRef(row.ID), parent: row.ID, item: item.ID, number: number}, nil
+			return branchForkSource{ref: ref, commit: head, base: base, pin: repohost.BranchHeadRef(row.ID), parent: row.ID, item: item.ID, number: number}, nil
 		}
 	}
 	pin := repohost.MythicalReservedRefNS + "keep/" + item.CandidateHead
