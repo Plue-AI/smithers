@@ -131,6 +131,34 @@ def add_artifact(root, manifest, relative, source, mode):
 
 
 
+def publish_manifest(root, manifest):
+    """Replace the manifest through a held staging directory, never a symlink.
+
+    The copied base already contains manifest.json. Atomic descriptor-relative
+    replacement avoids truncating a raced symlink's outside target.
+    """
+    parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary = ".trm06-manifest.json"
+    created = False
+    try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=parent)
+        created = True
+        with os.fdopen(fd, "wb") as output:
+            output.write((json.dumps(manifest, indent=2) + "\n").encode())
+            output.flush()
+            os.fsync(output.fileno())
+            artifact = os.fstat(output.fileno())
+        same_destination(root, [temporary], parent, artifact)
+        os.rename(temporary, "manifest.json", src_dir_fd=parent, dst_dir_fd=parent)
+        created = False
+        same_destination(root, ["manifest.json"], parent, artifact)
+        os.fsync(parent)
+    finally:
+        if created:
+            os.unlink(temporary, dir_fd=parent)
+        os.close(parent)
+
+
 def validate_supervisor(path):
     # A static Linux ARM64 binary needs no guest-selected dynamic interpreter.
     # Check the built bytes before staging, independently of Cargo's target name.
@@ -228,7 +256,7 @@ def assemble(repo, base, output, review_key):
                 add_artifact(output, manifest, "share/trm06/" + name, source / SPIKE / name, mode)
             add_artifact(output, manifest, "share/trm06/smithers-3f.pub", review_key, 0o644)
             manifest["files"].sort(key=lambda entry: entry["path"])
-            (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+            publish_manifest(output, manifest)
         except BaseException:
             shutil.rmtree(output)
             raise

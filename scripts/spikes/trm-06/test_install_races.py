@@ -14,6 +14,7 @@ import tempfile
 import types
 import unittest
 from unittest.mock import patch
+from race_schedule import RaceSchedule
 
 spec = importlib.util.spec_from_file_location("trm06_install", Path(__file__).with_name("install.py"))
 installer = importlib.util.module_from_spec(spec)
@@ -54,7 +55,7 @@ class InstallerReplacement(unittest.TestCase):
                         values[4] = 0
                         return os.stat_result(values)
 
-                    def scheduled_link(parent, name, held):
+                    def mutate():
                         nonlocal replaced
                         if target and not replaced:
                             path = root / target
@@ -67,9 +68,11 @@ class InstallerReplacement(unittest.TestCase):
                             else:
                                 path.mkdir(mode=0o755)
                             replaced = True
+                    def scheduled_link(parent, name, held):
+                        schedule.replace()
                         real_linked(parent, name, held)
 
-                    with patch.object(installer.os, "getuid", return_value=0), patch.object(installer.os, "geteuid", return_value=0), \
+                    with RaceSchedule(mutate) as schedule, patch.object(installer.os, "getuid", return_value=0), patch.object(installer.os, "geteuid", return_value=0), \
                          patch.object(installer.os, "open", side_effect=rooted_open), patch.object(installer.os, "fstat", side_effect=root_owned), \
                          patch.object(installer, "linked", side_effect=scheduled_link), \
                          patch.object(installer.sys, "stdin", types.SimpleNamespace(buffer=io.BytesIO(json.dumps(payload).encode()))), \

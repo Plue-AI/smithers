@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from race_schedule import RaceSchedule
 
 spec = importlib.util.spec_from_file_location("launcher", Path(__file__).with_name("launcher.py"))
 launcher = importlib.util.module_from_spec(spec)
@@ -58,11 +59,9 @@ class LauncherRaces(unittest.TestCase):
                     self.fixture(root)
                     original = launcher.read_held
                     mutated = False
-                    def read(fd, limit):
+                    def mutate():
                         nonlocal mutated
-                        data = original(fd, limit)
-                        # Change the chosen path after all digests were read.
-                        if data.startswith(b"main-fixture:bin/") and not mutated:
+                        if not mutated:
                             mutated = True
                             path = root / target
                             if replacement == "parent":
@@ -73,12 +72,16 @@ class LauncherRaces(unittest.TestCase):
                                 path.rename(path.with_name(path.name + "-held"))
                                 if replacement == "file": path.write_bytes(b"branch")
                                 else: path.symlink_to(path.with_name(path.name + "-held"))
+                    def read(fd, limit):
+                        data = original(fd, limit)
+                        if data.startswith(b"main-fixture:bin/") and not mutated:
+                            schedule.replace()
                         return data
                     # The manifest's parent is the fixture root; avoid renaming
                     # TemporaryDirectory itself and leaving an external fixture.
                     if target == "manifest.json" and replacement == "parent":
                         continue
-                    with patch.object(launcher, "ROOT", root), patch.object(launcher, "__file__", str(root / "share/trm06/launcher.py")), patch.object(launcher, "protected", side_effect=lambda p, *args: Path(p)), patch.object(launcher, "trusted"), patch.object(launcher, "read_held", side_effect=read), patch.object(launcher.sys, "argv", ["launcher", "run"]), patch.object(launcher, "execute_held") as execute:
+                    with RaceSchedule(mutate) as schedule, patch.object(launcher, "ROOT", root), patch.object(launcher, "__file__", str(root / "share/trm06/launcher.py")), patch.object(launcher, "protected", side_effect=lambda p, *args: Path(p)), patch.object(launcher, "trusted"), patch.object(launcher, "read_held", side_effect=read), patch.object(launcher.sys, "argv", ["launcher", "run"]), patch.object(launcher, "execute_held") as execute:
                         with self.assertRaises((ValueError, OSError)): launcher.main()
                         execute.assert_not_called()
 
@@ -145,3 +148,39 @@ class LauncherRaces(unittest.TestCase):
             launcher.execute_held(17, ["gateway", "run"])
             inherit.assert_called_once_with(17, True)
             execute.assert_called_once_with("/dev/fd/17", ["gateway", "run"], {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
+
+    @unittest.skipUnless(os.execve in os.supports_fd, "requires kernel fd execution")
+    def test_real_gateway_exec_environment_matrix(self):
+        # Observe the actual exec environment, not arguments to a mocked exec.
+        poison = {"PATH": "/branch", "HOME": "/branch", "PYTHONPATH": "/branch",
+                  "PYTHONHOME": "/branch", "PYTHONSTARTUP": "/branch/startup",
+                  "LD_PRELOAD": "/branch/canary.so", "LD_LIBRARY_PATH": "/branch",
+                  "DYLD_INSERT_LIBRARIES": "/branch/canary.dylib",
+                  "DYLD_LIBRARY_PATH": "/branch", "BASH_ENV": "/branch/startup",
+                  "ENV": "/branch/startup", "MSB_BACKEND": "remote"}
+        for values in [dict([item]) for item in poison.items()] + [poison]:
+            with self.subTest(keys=list(values)):
+                read, write = os.pipe()
+                fd = os.open("/usr/bin/env", os.O_RDONLY)
+                try:
+                    child = os.fork()
+                    if child == 0:
+                        try:
+                            os.close(read)
+                            os.dup2(write, 1)
+                            os.close(write)
+                            os.environ.update(values)
+                            launcher.execute_held(fd, ["env"])
+                        except BaseException:
+                            os._exit(99)
+                    os.close(write)
+                    write = None
+                    with os.fdopen(read, "rb") as output:
+                        observed = output.read()
+                    _, status = os.waitpid(child, 0)
+                    self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+                    self.assertEqual(observed, b"PATH=/usr/bin:/bin:/usr/sbin:/sbin\n")
+                finally:
+                    os.close(fd)
+                    if write is not None:
+                        os.close(write)

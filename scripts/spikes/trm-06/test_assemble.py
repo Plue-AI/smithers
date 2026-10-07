@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from race_schedule import RaceSchedule
 
 spec = importlib.util.spec_from_file_location("trm06_assemble", Path(__file__).with_name("assemble.py"))
 assemble = importlib.util.module_from_spec(spec)
@@ -164,7 +165,8 @@ class BundleAssembly(unittest.TestCase):
                 sentinel.write_bytes(b"outside-fixture")
                 before = sentinel.stat()
                 original = assemble.same_destination
-                def replace(root, parts, parent, artifact):
+                def mutate():
+                    root = base
                     target = root / "libexec/trm06-supervisor"
                     if mode.startswith("parent"):
                         (root / "libexec").rename(root / "original-libexec")
@@ -178,13 +180,50 @@ class BundleAssembly(unittest.TestCase):
                             target.symlink_to(sentinel)
                         else:
                             target.write_bytes(b"replacement")
+                def replace(root, parts, parent, artifact):
+                    schedule.replace()
                     return original(root, parts, parent, artifact)
-                with patch.object(assemble, "same_destination", side_effect=replace):
+                with RaceSchedule(mutate) as schedule, patch.object(assemble, "same_destination", side_effect=replace):
                     with self.assertRaises((ValueError, OSError)):
                         assemble.add_artifact(base, manifest, "libexec/trm06-supervisor", source, 0o755)
                 self.assertEqual(len(manifest["files"]), 1)
                 self.assertEqual(sentinel.read_bytes(), b"outside-fixture")
                 self.assertEqual((sentinel.stat().st_ino, sentinel.stat().st_uid, sentinel.stat().st_mode), (before.st_ino, before.st_uid, before.st_mode))
+
+    def test_manifest_publication_replacement_matrix(self):
+        for mode in ("positive", "manifest-symlink", "root-directory", "root-symlink"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                base, manifest = self.base(temporary)
+                sentinel = Path(temporary) / "outside"
+                sentinel.write_bytes(b"outside-fixture")
+                before = sentinel.stat()
+                original = assemble.same_destination
+                changed = False
+                def mutate():
+                    nonlocal changed
+                    if mode == "manifest-symlink":
+                        (base / "manifest.json").unlink()
+                        (base / "manifest.json").symlink_to(sentinel)
+                    elif mode.startswith("root"):
+                        base.rename(base.with_name("held-base"))
+                        if mode == "root-directory": base.mkdir()
+                        else: base.symlink_to(base.with_name("held-base"), target_is_directory=True)
+                    changed = True
+                def check(root, parts, parent, artifact):
+                    if not changed: schedule.replace()
+                    original(root, parts, parent, artifact)
+                with RaceSchedule(mutate) as schedule, patch.object(assemble, "same_destination", side_effect=check):
+                    if mode.startswith("root"):
+                        with self.assertRaises((ValueError, OSError)):
+                            assemble.publish_manifest(base, manifest)
+                    else:
+                        assemble.publish_manifest(base, manifest)
+                        self.assertFalse((base / "manifest.json").is_symlink())
+                        self.assertEqual(json.loads((base / "manifest.json").read_bytes()), manifest)
+                self.assertEqual(sentinel.read_bytes(), b"outside-fixture")
+                self.assertEqual((sentinel.stat().st_uid, sentinel.stat().st_mode, sentinel.stat().st_ino),
+                                 (before.st_uid, before.st_mode, before.st_ino))
+                self.assertFalse(list(Path(temporary).rglob(".trm06-manifest.json")))
 
     def test_entrypoint_refuses_wrong_base_before_build(self):
         with tempfile.TemporaryDirectory() as temporary:
