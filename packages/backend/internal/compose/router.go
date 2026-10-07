@@ -680,7 +680,9 @@ func buildRouter(
 			// RFD-004: guest head reports; a workspace-bound token reaches only this route.
 			headReport := append([]func(http.Handler) http.Handler{}, vmProvision...)
 			if config.IsSingleOwner(cfg.Auth) {
-				headReport = append(headReport, memberCommands(queries))
+				// The stored machine/workspace decision owns install scope and
+				// subject admission. Hosted repository-write policy stays above.
+				headReport = []func(http.Handler) http.Handler{middleware.RequireAuth, memberCommands(queries), repoAPIQuota, gateWorkspaces}
 			}
 			r.With(headReport...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/head", workspaceHandler.ReportWorkspaceHead)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/snapshot", workspaceHandler.CreateWorkspaceSnapshot)
