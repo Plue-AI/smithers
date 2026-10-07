@@ -25,6 +25,27 @@ const hostile = [
 const base = { id: "card-url", title: "t", status: "active", createdAt: 0, ordinal: 0 }
 
 describe("URL contracts", () => {
+  test("persisted commit cards keep URL validation when decoded as inert retired cards", () => {
+    for (const kind of ["commit", "commit-list"]) {
+      for (const field of ["commit", "commits", "parents"]) {
+        const card = (avatarUrl: unknown) => ({
+          ...base, kind, body: "old commit body",
+          payload: { [field]: field === "commit" ? { author: { avatarUrl } } : [{ author: { avatarUrl } }] }
+        })
+        for (const avatarUrl of ["https://avatars.githubusercontent.com/u/2", "http://localhost/avatar", null, undefined]) {
+          const parsed = CardSchema.parse(card(avatarUrl))
+          expect(parsed.kind).toBe("retired")
+          expect(parsed.status).toBe("acted")
+          expect(parsed.payload).toEqual({ was: kind })
+          expect(parsed).not.toHaveProperty("body")
+        }
+        for (const avatarUrl of [...hostile, 42, {}, []]) {
+          expect(CardSchema.safeParse(card(avatarUrl)).success).toBe(false)
+        }
+      }
+    }
+  })
+
   test("HttpUrlSchema accepts http(s) and nothing else", () => {
     for (const url of ["https://github.com/a/b/issues/1", "http://localhost:4000/login?x=1", "HTTPS://Example.com"]) {
       expect(HttpUrlSchema.safeParse(url).success).toBe(true)

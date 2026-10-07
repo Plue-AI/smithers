@@ -2433,6 +2433,19 @@ export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> &
     if (typeof value !== "object" || value === null) return value
     const row = value as Record<string, unknown>
     const payload = row.payload as Record<string, unknown> | undefined
+    // Retirement still refuses unsafe links in persisted commit metadata.
+    if ((row.kind === "commit" || row.kind === "commit-list") && payload) {
+      const commits = [payload.commit,
+        ...(Array.isArray(payload.commits) ? payload.commits : []),
+        ...(Array.isArray(payload.parents) ? payload.parents : [])]
+      for (const commit of commits) {
+        if (typeof commit !== "object" || commit === null) continue
+        const author = (commit as Record<string, unknown>).author
+        if (typeof author !== "object" || author === null) continue
+        const avatarUrl = (author as Record<string, unknown>).avatarUrl
+        if (avatarUrl !== undefined && avatarUrl !== null && !HttpUrlSchema.safeParse(avatarUrl).success) return value
+      }
+    }
     // Shared live Secrets models and old pinned metadata decode through one card kind.
     if (row.kind === "secrets" && payload && Array.isArray(payload.secrets) &&
       (payload.scope !== "repository" || payload.secrets.some(secret => typeof secret === "object" && secret !== null && "scope" in secret))) {
