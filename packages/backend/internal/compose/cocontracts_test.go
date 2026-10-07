@@ -189,7 +189,7 @@ func TestMachinedSkeletonDisabled(t *testing.T) {
 	if e == nil {
 		t.Fatal("skeleton started")
 	}
-	if exit, ok := e.(*exec.ExitError); !ok || exit.ExitCode() != 78 {
+	if exit, ok := e.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
 		t.Fatal(e, string(out))
 	}
 	entries, e := os.ReadDir(temp)

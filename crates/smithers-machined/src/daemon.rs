@@ -49,6 +49,13 @@ impl Daemon {
             .run_blocking("event_reconnect", |cx| cx.hooks.events.reconnect())
             .map_err(|_| ProtocolError::Truncated)?
             .map_err(|_| ProtocolError::Truncated)?;
+        self.executor
+            .lock
+            .run_blocking("presence_reconnect", |cx| {
+                cx.hooks.sessions.reset_presence()
+            })
+            .map_err(|_| ProtocolError::Truncated)?
+            .map_err(|_| ProtocolError::Truncated)?;
         let writer = Arc::new(Mutex::new(
             connection
                 .stream()

@@ -132,6 +132,10 @@ pub trait Documents: Send + Sync {
     }
 }
 pub trait Sessions: Send + Sync {
+    /// A newly authenticated host needs a snapshot even without session moves.
+    fn reset_presence(&self) -> Result<()> {
+        Ok(())
+    }
     fn disconnected(&self) -> Result<()> {
         Ok(())
     }
