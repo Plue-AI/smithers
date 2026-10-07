@@ -45,6 +45,7 @@ func TestUIInstructionsReachOnlyTheirAuthorsView(t *testing.T) {
 	_, err = store.Commit(ctx, CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{
 		json.RawMessage(`{"runId":"ui-run","type":"call.settled","link":0,"ordinal":0,"name":"card.dismiss","verdict":"run","ui":{"command":"card.dismiss","cardId":"card-7"}}`),
 		json.RawMessage(`{"runId":"ui-run","type":"call.settled","link":0,"ordinal":1,"name":"theme","verdict":"run","ui":{"command":"theme","mode":"dark"}}`),
+		json.RawMessage(`{"runId":"ui-run","type":"call.settled","link":0,"ordinal":2,"name":"runs.trace.view","verdict":"run","ui":{"command":"runs.trace.view","runId":"monitor-9","view":"turns","state":{"selected":"cell-1","at":3,"tab":"journal"}}}`),
 		frame("ui-run", "Done"), done("ui-run", "stop"),
 	}})
 	require.NoError(t, err)
@@ -64,12 +65,14 @@ func TestUIInstructionsReachOnlyTheirAuthorsView(t *testing.T) {
 		Instructions []json.RawMessage `json:"instructions"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(read(ben, "ui-ben", "/api/conversations/main/view-state")), &view))
-	require.Len(t, view.Instructions, 2)
+	require.Len(t, view.Instructions, 3)
 	require.JSONEq(t, `{"id":"`+admitted.TurnID+`:1:0","command":"card.dismiss","payload":{"cardId":"card-7"}}`, string(view.Instructions[0]))
 	require.JSONEq(t, `{"id":"`+admitted.TurnID+`:1:1","command":"theme","payload":{"mode":"dark"}}`, string(view.Instructions[1]))
+	require.JSONEq(t, `{"id":"`+admitted.TurnID+`:1:2","command":"runs.trace.view","payload":{"runId":"monitor-9","view":"turns","state":{"selected":"cell-1","at":3,"tab":"journal"}}}`, string(view.Instructions[2]))
 	require.NotContains(t, read(alice, "ui-alice", "/api/conversations/main/view-state"), `"instructions"`)
 	shared := read(alice, "ui-alice", "/api/conversations/main")
 	require.Contains(t, shared, "Done")
 	require.NotContains(t, shared, `"ui"`)
 	require.NotContains(t, shared, "card-7")
+	require.NotContains(t, shared, "monitor-9")
 }

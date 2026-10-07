@@ -5,6 +5,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -69,5 +70,16 @@ func TestUIInstructionDecodeSplitsCommandFromPayload(t *testing.T) {
 	for _, raw := range []string{`null`, `[]`, `{"mode":"dark"}`, `{"command":""}`, `{"command":1}`} {
 		_, err = decodeUIInstruction("turn:1:4", json.RawMessage(raw))
 		require.ErrorIs(t, err, ErrCorrupt, raw)
+	}
+}
+
+func TestMonitorUIInstructionRefusesUndeclaredState(t *testing.T) {
+	for _, state := range []string{`{}`, `null`, `{"selected":"cell-1","at":0,"tab":"journal"}`, `{"selected":null,"at":null,"tab":null}`, `"cell"`, `{"at":-1}`, `{"at":0.5}`, `{"tab":"owner"}`, `{"selected":{}}`, `{"shared":true}`, `{"at":1e0}`, `{"at":3.0}`, `{"at":1e309}`} {
+		var frame map[string]any
+		decoder := json.NewDecoder(strings.NewReader(`{"name":"runs.trace.view","ui":{"command":"runs.trace.view","runId":"run-9","view":"turns","state":` + state + `}}`))
+		decoder.UseNumber()
+		require.NoError(t, decoder.Decode(&frame))
+		want := state == `{"at":1e0}` || state == `{"at":3.0}` || state == `{}` || state == `null` || state == `{"selected":"cell-1","at":0,"tab":"journal"}` || state == `{"selected":null,"at":null,"tab":null}`
+		require.Equal(t, want, validUIInstruction(frame), state)
 	}
 }

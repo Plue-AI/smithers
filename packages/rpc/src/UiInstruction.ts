@@ -37,7 +37,7 @@ export const UI_INSTRUCTION_FIELDS = {
   "runs.trace.filter": ["sourceCard", "runId", "filter"],
   "runs.trace.live": ["sourceCard", "runId"],
   "runs.trace.select": ["sourceCard", "runId", "nodeId", "seq"],
-  "runs.trace.view": ["sourceCard", "runId", "view"],
+  "runs.trace.view": ["sourceCard", "runId", "view", "state"],
   "search.changes": ["query"],
   "search.files": ["query"],
   "search.flows": ["query"],
@@ -77,15 +77,29 @@ export const isUiInstructionCommand = (name: string): name is UiInstructionComma
 /**
  * The settled frame's `ui` field: the command beside its payload fields, so
  * `{ command: "theme", mode: "dark" }` is `/theme` with `{ mode: "dark" }`.
- * Every field is one the command declares, and every value is a scalar.
+ * Every field is one the command declares. Monitor view state is the sole
+ * structured payload; all other fields are scalars.
  * @since 1.0.0
  * @category schemas
  */
+const monitorState = z.strictObject({
+  selected: z.string().nullable().optional(),
+  at: z.number().int().nonnegative().nullable().optional(),
+  tab: z.enum(["run", "journal", "custom"]).nullable().optional()
+})
+
 export const UiInstructionFrameSchema = z.object({ command: z.enum(UI_INSTRUCTION_COMMANDS) })
-  .catchall(z.union([z.string(), z.number(), z.boolean()]))
+  .catchall(z.union([z.string(), z.number(), z.boolean(), monitorState, z.null()]))
   .superRefine((frame, context) => {
     const declared: ReadonlyArray<string> = UI_INSTRUCTION_FIELDS[frame.command]
     for (const field of Object.keys(frame)) {
+      if (field !== "command" && (frame[field] === null || typeof frame[field] === "object") &&
+        !(frame.command === "runs.trace.view" && field === "state")) {
+        context.addIssue({ code: "custom", path: [field], message: "Only monitor state carries a structured value" })
+      }
+      if (frame.command === "runs.trace.view" && field === "state" && !monitorState.nullable().safeParse(frame[field]).success) {
+        context.addIssue({ code: "custom", path: [field], message: "Invalid monitor state" })
+      }
       if (field !== "command" && !declared.includes(field)) {
         context.addIssue({ code: "custom", path: [field], message: `/${frame.command} declares no ${field}` })
       }

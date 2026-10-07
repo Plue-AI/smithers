@@ -150,7 +150,7 @@ func TestComposedAppInstructionsReadOnlyActivatedRevision(t *testing.T) {
 	require.NotContains(t, ask(), "Always end with")
 	revision("oversize")
 	failed := local.turn(t, fields)
-	require.NotContains(t, failed.stream, "answer")
+	require.NotContains(t, failed.stream, `"type":"delta"`)
 	require.Contains(t, failed.stream, "App instructions exceed the read limit.")
 	require.Empty(t, prompts, "invalid instructions refuse before provider dispatch")
 	mu.Lock()

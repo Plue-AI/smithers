@@ -258,6 +258,7 @@ const FILES_LINES = [
 // Literal Appendix B HTTP, file and UI-only commands.
 const HOST_COMMANDS = [
   "agent",
+  "agent.edit",
   "agents",
   "background.dismiss",
   "background.retry",
@@ -336,6 +337,7 @@ const HOST_COMMANDS = [
   "todo.steer",
   "todo.stop",
   "wiki.backlinks",
+  "wiki.delete",
   "wiki.graph",
   "wiki.open",
   "wiki.space",
@@ -1598,6 +1600,8 @@ describe("an install's host runs the catalog commands its grant allows, as the t
         "{\"sourceCard\":null,\"runId\":\"run-1\",\"nodeId\":\"build\",\"seq\":4}",
         { command: "runs.trace.select", runId: "run-1", nodeId: "build", seq: 4 }
       ],
+      ["runs.trace.view", JSON.stringify({ runId: "run-1", view: "turns", state: { selected: "cell-1", at: 3, tab: "journal" } }),
+        { command: "runs.trace.view", runId: "run-1", view: "turns", state: { selected: "cell-1", at: 3, tab: "journal" } }],
       ["help", undefined, { command: "help" }]
     ]
     for (const [name, args, ui] of cases) {

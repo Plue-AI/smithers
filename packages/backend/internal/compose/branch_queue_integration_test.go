@@ -171,7 +171,7 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("first turn did not start")
 	}
-	frames := fmt.Sprintf(`[{"runId":%q,"type":"delta","kind":"text","text":"Shared answer"},{"runId":%q,"type":"delta","kind":"reasoning","text":"private reasoning canary"},{"runId":%q,"type":"card","card":{"kind":"approval","payload":{"secret":"private Confirm canary"}}},{"runId":%q,"type":"card","card":{"kind":"todo-draft","payload":{"prompt":"private Draft canary"}}},{"runId":%q,"type":"call.settled","link":0,"ordinal":0,"name":"theme","verdict":"run","ui":{"command":"theme","mode":"dark"}}]`, first, first, first, first, first)
+	frames := fmt.Sprintf(`[{"runId":%q,"type":"delta","kind":"text","text":"Shared answer"},{"runId":%q,"type":"delta","kind":"reasoning","text":"private reasoning canary"},{"runId":%q,"type":"card","card":{"kind":"approval","payload":{"secret":"private Confirm canary"}}},{"runId":%q,"type":"card","card":{"kind":"todo-draft","payload":{"prompt":"private Draft canary"}}},{"runId":%q,"type":"call.settled","link":0,"ordinal":0,"name":"theme","verdict":"run","ui":{"command":"theme","mode":"dark"}},{"runId":%q,"type":"call.settled","link":0,"ordinal":1,"name":"runs.trace.view","verdict":"run","ui":{"command":"runs.trace.view","runId":"monitor-private","view":"turns","state":{"selected":"cell-private","at":3,"tab":"journal"}}}]`, first, first, first, first, first, first)
 	cursorJSON, err := json.Marshal(firstGrant.Cursor)
 	require.NoError(t, err)
 	producerRequest, err := http.NewRequest("POST", firstGrant.ProducerBaseURL+chat.CommitPath, strings.NewReader(fmt.Sprintf(`{"turnId":%q,"generation":%d,"expected":%s,"frames":%s}`, firstGrant.TurnID, firstGrant.Generation, cursorJSON, frames)))
@@ -189,6 +189,17 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	require.Contains(t, shared, firstID)
 	require.Contains(t, shared, "Shared answer")
 	require.NotContains(t, shared, `"ui"`)
+	require.NotContains(t, shared, "monitor-private")
+	var authorView struct {
+		Instructions []struct {
+			Command string          `json:"command"`
+			Payload json.RawMessage `json:"payload"`
+		} `json:"instructions"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(call("GET", "/api/conversations/main/view-state", "", benCookie, 200)), &authorView))
+	require.Len(t, authorView.Instructions, 2)
+	require.Equal(t, "runs.trace.view", authorView.Instructions[1].Command)
+	require.JSONEq(t, `{"runId":"monitor-private","view":"turns","state":{"selected":"cell-private","at":3,"tab":"journal"}}`, string(authorView.Instructions[1].Payload))
 	require.NotContains(t, call("GET", "/api/conversations/main/view-state", "", aliceCookie, 200), `"instructions"`)
 	require.Contains(t, call("GET", "/api/conversations/main/view-state", "", benCookie, 200), `"command":"theme","payload":{"mode":"dark"}`)
 	call("PUT", "/api/conversations/main/view-state", `{"instructions":[{"id":"forged","command":"theme","mode":"dark"}]}`, benCookie, 400)

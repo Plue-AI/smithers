@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"math"
 	"slices"
 )
 
@@ -30,7 +31,7 @@ var uiInstructionFields = map[string][]string{
 	"runs.trace.filter":    {"sourceCard", "runId", "filter"},
 	"runs.trace.live":      {"sourceCard", "runId"},
 	"runs.trace.select":    {"sourceCard", "runId", "nodeId", "seq"},
-	"runs.trace.view":      {"sourceCard", "runId", "view"},
+	"runs.trace.view":      {"sourceCard", "runId", "view", "state"},
 	"search.changes":       {"query"},
 	"search.files":         {"query"},
 	"search.flows":         {"query"},
@@ -48,7 +49,8 @@ var uiInstructionFields = map[string][]string{
 }
 
 // validUIInstruction checks a settled call's optional `ui` field: the call's
-// own UI-only command beside scalar values for fields that command declares.
+// own UI-only command beside its declared fields. Only runs.trace.view carries
+// the structured per-member monitor selection declared by the catalog.
 func validUIInstruction(frame map[string]any) bool {
 	instruction, present := frame["ui"]
 	if !present {
@@ -72,6 +74,42 @@ func validUIInstruction(frame map[string]any) bool {
 		}
 		if !slices.Contains(declared, field) {
 			return false
+		}
+		if command == "runs.trace.view" && field == "state" {
+			if value == nil {
+				continue
+			}
+			state, ok := value.(map[string]any)
+			if !ok {
+				return false
+			}
+			for key, entry := range state {
+				switch key {
+				case "selected":
+					if _, ok := entry.(string); !ok && entry != nil {
+						return false
+					}
+				case "at":
+					if entry == nil {
+						continue
+					}
+					n, ok := entry.(json.Number)
+					if !ok {
+						return false
+					}
+					position, err := n.Float64()
+					if err != nil || position < 0 || math.IsInf(position, 0) || math.Trunc(position) != position {
+						return false
+					}
+				case "tab":
+					if entry != nil && entry != "run" && entry != "journal" && entry != "custom" {
+						return false
+					}
+				default:
+					return false
+				}
+			}
+			continue
 		}
 		switch value.(type) {
 		case string, bool, json.Number:
