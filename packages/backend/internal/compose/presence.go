@@ -180,7 +180,7 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 	if err != nil {
 		return live.Source{}, live.Forbidden
 	}
-	if p.dispatcher == nil && row.Status != "suspended" && row.Status != "stopped" {
+	if p.dispatcher == nil && row.Status == "running" {
 		return live.Source{}, live.Unsupported
 	}
 	return live.Source{Key: "branch:" + row.ID, Every: 250 * time.Millisecond, MinInterval: 250 * time.Millisecond, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
@@ -191,10 +191,10 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			return nil, err
 		}
 		var leases []leaseParticipant
-		// An asleep machine has no live host roster. Its stored facts remain
-		// readable even when the install's dispatcher is fully composed.
-		asleep := current.Status == "suspended" || current.Status == "stopped"
-		if p.dispatcher != nil && !asleep {
+		// Only a running machine has a live host roster. Persisted waking,
+		// failed and asleep facts remain readable without starting a host.
+		running := current.Status == "running"
+		if p.dispatcher != nil && running {
 			raw, err := p.call(ctx, current, slug, "Branch.Roster", map[string]any{})
 			if err != nil {
 				return nil, err
@@ -202,7 +202,7 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			if err = json.Unmarshal(raw, &leases); err != nil {
 				return nil, err
 			}
-		} else if !asleep {
+		} else if running {
 			return nil, errors.New("awake branch roster unavailable")
 		}
 		// Multiple sessions retain leases but render one participant, at the newest
