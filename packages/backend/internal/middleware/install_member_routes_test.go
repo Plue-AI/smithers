@@ -74,7 +74,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/branches/smithers%2Fretry", "branch.answer"},
 		{http.MethodGet, "/api/branches", "branches.read"},
 		{http.MethodGet, "/api/branches/branch-id/files/src/retry.ts", "branch.read"},
-		{http.MethodPost, "/api/branches/branch-id/files/src/retry.ts", ""},
+		{http.MethodPost, "/api/branches/branch-id/files/src/retry.ts", "file.restore"},
 		{http.MethodGet, "/api/repos/acme/app/workspaces/branch-id/files/content", "branch.read"},
 		{http.MethodPut, "/api/repos/acme/app/workspaces/branch-id/files/content", "branch.join"},
 		{http.MethodPut, "/api/repos/acme/app/workspaces/branch-id/files", ""},

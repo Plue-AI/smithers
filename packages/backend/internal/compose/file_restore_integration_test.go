@@ -158,12 +158,19 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	sum := sha256.Sum256([]byte("w6-member-cookie"))
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
+	// An active member with the branch write share reaches the same command.
+	provider.files["src/a.ts"] = []byte("after\n")
+	seed("modified", post)
+	require.Equal(t, 200, call("src/a.ts", body, "w6-member-cookie"))
+	require.Equal(t, []byte("before\n"), provider.files["src/a.ts"])
+	require.Equal(t, fmt.Sprint(member.ID), provider.actor)
+	require.Equal(t, 3, provider.writes)
 	_, err = f.pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, f.row.RepositoryID, member.ID)
 	require.NoError(t, err)
 	beforeCalls := versions.calls
 	status := call("src/a.ts", deleted, "w6-member-cookie")
 	require.Contains(t, []int{401, 403}, status)
 	require.Equal(t, beforeCalls, versions.calls)
-	require.Equal(t, 2, provider.writes)
+	require.Equal(t, 3, provider.writes)
 	require.Empty(t, runtime.WorkspaceIDs(), "test-only provider did not start a host workspace")
 }
