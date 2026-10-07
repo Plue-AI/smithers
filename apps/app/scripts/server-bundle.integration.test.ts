@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { constants, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -97,6 +97,48 @@ test.skipIf(!required)("required bundled-server qualification has an assembled i
   expect(existsSync(join(bundle!, "bin/smithers-server"))).toBe(true)
 })
 const boundary = bundle === undefined ? test.skip : test
+// Qualifies the installed runtime's offline base boot independently of the
+// current guest helper. Only installed OS code runs in this disposable VM:
+// no copied runner, repository, branch helper or root script is supplied.
+// This is a base-boot receipt, not backend readiness or C-SEC-02 acceptance.
+boundary("bundled runtime boots its pinned installed base image offline", () => {
+  const metadataPath = "share/microsandbox/base-image.json"
+  const metadata = JSON.parse(readFileSync(join(bundle!, metadataPath), "utf8"))
+  expect(metadata.version).toBe(1)
+  expect(metadata.platform).toBe("linux-arm64")
+  expect(metadata.image).toMatch(/^node@sha256:[0-9a-f]{64}$/)
+  const manifest = JSON.parse(readFileSync(join(bundle!, "manifest.json"), "utf8"))
+  for (const path of ["bin/msb", "lib/libkrunfw.5.dylib", metadataPath]) {
+    const entry = manifest.files.find((file: { path: string }) => file.path === path)
+    expect(entry).toBeDefined()
+    expect(createHash("sha256").update(readFileSync(join(bundle!, path))).digest("hex")).toBe(entry.sha256)
+  }
+  const msb = join(bundle!, "bin/msb")
+  const name = `ins02-offline-${randomUUID()}`
+  const env = { HOME: homedir(), PATH: "/usr/bin:/bin:/usr/sbin:/sbin", MSB_BACKEND: "local", NO_COLOR: "1" }
+  const receipts: Array<{ argv: string[]; status: number | null; elapsedMs: number }> = []
+  const run = (args: string[]) => {
+    const started = performance.now()
+    const result = spawnSync(msb, args, { env, encoding: "utf8", timeout: 30_000 })
+    receipts.push({ argv: [msb, ...args], status: result.status, elapsedMs: performance.now() - started })
+    expect(result.error).toBeUndefined()
+    expect(result.status, result.stderr).toBe(0)
+    return result
+  }
+  try {
+    const started = performance.now()
+    run(["create", metadata.image, "--pull", "never", "--name", name, "--memory", "1G", "--cpus", "1", "--root-disk", "2G", "--no-net"])
+    // /bin/true comes from the installed OS image, never from this checkout.
+    run(["exec", "--stream", name, "--", "/bin/true"])
+    expect(performance.now() - started).toBeLessThan(30_000)
+    run(["status", name])
+  } finally {
+    run(["remove", "--force", name])
+  }
+  const receipt = process.env.SMITHERS_OFFLINE_BASE_RECEIPT
+  if (receipt) writeFileSync(receipt, JSON.stringify({ scope: "installed offline base boot only", passed: true,
+    image: metadata.image, receipts, completedAt: new Date().toISOString() }, null, 2) + "\n", { mode: 0o600 })
+}, 150_000)
 for (const fault of [
   { path: "bin/msb", refusal: "Bundled microVM runtime is unavailable" },
   { path: "lib/libkrunfw.5.dylib", refusal: "libkrunfw.5.dylib" }
