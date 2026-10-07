@@ -129,7 +129,7 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	require.NoError(t, memberSocket.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
 	memberHome := read(memberSocket)
 	require.JSONEq(t, string(homeInitial.Data), string(memberHome.Data))
-	_, err = pool.Exec(ctx, `UPDATE collaborators SET toasts_hidden=true, view_state=jsonb_build_object('main',jsonb_build_object('last_seen_seq',9)) WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET toasts_hidden=true, view_state=jsonb_build_object('main',jsonb_build_object('last_seen_seq',9,'toasts_hidden',false)) WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
 	require.NoError(t, err)
 	memberViewTopic := "view:" + strconv.FormatInt(member.ID, 10) + ":main"
 	require.NoError(t, memberSocket.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":2,"topic":%q}`, memberViewTopic))))

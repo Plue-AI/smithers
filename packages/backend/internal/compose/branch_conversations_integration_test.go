@@ -111,11 +111,11 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 		require.Equal(t, `{"type":"view_state"}`, message.Payload)
 	}
 	const path = "/api/conversations/main/view-state"
-	const benState = `{"scroll_anchor":"entry-8","card_view":{"todo-2":"maximized"},"last_seen_seq":8,"toasts_hidden":true}`
+	const benState = `{"scroll_anchor":"entry-8","card_view":{"todo-2":"maximized"},"last_seen_seq":8,"toasts_hidden":true,"global_toasts_hidden":false}`
 	require.JSONEq(t, benState, call("PUT", path, benState, benCookie, 200))
 	hint()
-	require.JSONEq(t, `{"toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"entry-2","toasts_hidden":false}`, call("PUT", path, `{"scroll_anchor":"entry-2"}`, aliceCookie, 200))
+	require.JSONEq(t, `{"global_toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"entry-2","toasts_hidden":false,"global_toasts_hidden":false}`, call("PUT", path, `{"scroll_anchor":"entry-2","toasts_hidden":false}`, aliceCookie, 200))
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
 	for _, method := range []string{"GET", "PUT"} {
 		req, err := http.NewRequest(method, origin+path, strings.NewReader(`{}`))
@@ -132,13 +132,13 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 		require.NotContains(t, string(privateBody), "entry-8")
 	}
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"entry-2","toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"entry-2","toasts_hidden":false,"global_toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
 	// Conversation hiding is independent; the global preference crosses
 	// conversations, never members. Scroll saves retain the local flag.
 	const otherPath = "/api/conversations/feature/view-state"
-	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":false}`, call("PUT", otherPath, `{"scroll_anchor":"named-entry"}`, benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":false,"global_toasts_hidden":false}`, call("PUT", otherPath, `{"scroll_anchor":"named-entry","toasts_hidden":false}`, benCookie, 200))
 	hint()
-	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":false}`, call("GET", "/api/conversations/"+feature.ID+"/view-state", "", benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":false,"global_toasts_hidden":false}`, call("GET", "/api/conversations/"+feature.ID+"/view-state", "", benCookie, 200))
 	call("GET", "/api/conversations/missing/view-state", "", benCookie, 404)
 	call("PUT", otherPath, `{"toasts_hidden":"false"}`, benCookie, 400)
 	call("PUT", otherPath, `{"global_toasts_hidden":1}`, benCookie, 400)
@@ -146,13 +146,13 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 	_, err = listener.Conn().WaitForNotification(quietCtx)
 	quietCancel()
 	require.ErrorIs(t, err, context.DeadlineExceeded, "a refused write emits no hint")
-	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":false}`, call("GET", otherPath, "", benCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"entry-9","toasts_hidden":true}`, call("PUT", path, `{"scroll_anchor":"entry-9"}`, benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"named-entry","toasts_hidden":false,"global_toasts_hidden":false}`, call("GET", otherPath, "", benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"entry-9","toasts_hidden":true,"global_toasts_hidden":false}`, call("PUT", path, `{"scroll_anchor":"entry-9"}`, benCookie, 200))
 	require.JSONEq(t, `{"toasts_hidden":false,"global_toasts_hidden":true}`, call("PUT", otherPath, `{"global_toasts_hidden":true}`, benCookie, 200))
 	require.JSONEq(t, `{"scroll_anchor":"entry-9","toasts_hidden":true,"global_toasts_hidden":true}`, call("GET", path, "", benCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"entry-2","toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
-	require.JSONEq(t, `{"toasts_hidden":false}`, call("PUT", otherPath, `{"global_toasts_hidden":false}`, benCookie, 200))
-	require.JSONEq(t, `{"scroll_anchor":"entry-9","toasts_hidden":true}`, call("GET", path, "", benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"entry-2","toasts_hidden":false,"global_toasts_hidden":false}`, call("GET", path, "", aliceCookie, 200))
+	require.JSONEq(t, `{"toasts_hidden":false,"global_toasts_hidden":false}`, call("PUT", otherPath, `{"global_toasts_hidden":false}`, benCookie, 200))
+	require.JSONEq(t, `{"scroll_anchor":"entry-9","toasts_hidden":true,"global_toasts_hidden":false}`, call("GET", path, "", benCookie, 200))
 	require.JSONEq(t, benState, call("PUT", path, benState, benCookie, 200))
 	require.JSONEq(t, benState, call("GET", path, "", benCookie, 200))
 	call("PUT", path, `[]`, benCookie, 400)
@@ -417,7 +417,7 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 		}
 	}
 	benSocket, aliceSocket := open(benCookie), open(aliceCookie)
-	const aliasState = `{"scroll_anchor":"alias-private-entry","toasts_hidden":false}`
+	const aliasState = `{"scroll_anchor":"alias-private-entry","toasts_hidden":false,"global_toasts_hidden":false}`
 	call("PUT", "/api/conversations/feature/view-state", aliasState, benCookie, 200)
 	send(benSocket, 4, fmt.Sprintf("view:%d:feature", ben.ID))
 	require.JSONEq(t, aliasState, string(receive(benSocket, 4, "snap").Data))
@@ -427,10 +427,10 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 	restoredAlias.CloseNow()
 	benTopic, aliceTopic := fmt.Sprintf("view:%d:main", ben.ID), fmt.Sprintf("view:%d:main", alice.ID)
 	send(benSocket, 1, benTopic)
-	require.JSONEq(t, `{"toasts_hidden":false}`, string(receive(benSocket, 1, "snap").Data))
+	require.JSONEq(t, `{"global_toasts_hidden":false}`, string(receive(benSocket, 1, "snap").Data))
 	send(aliceSocket, 1, aliceTopic)
-	require.JSONEq(t, `{"toasts_hidden":false}`, string(receive(aliceSocket, 1, "snap").Data))
-	const state = `{"scroll_anchor":"ben-private-entry","card_view":{"todo-2":"maximized"},"last_seen_seq":8,"toasts_hidden":false}`
+	require.JSONEq(t, `{"global_toasts_hidden":false}`, string(receive(aliceSocket, 1, "snap").Data))
+	const state = `{"scroll_anchor":"ben-private-entry","card_view":{"todo-2":"maximized"},"last_seen_seq":8,"toasts_hidden":false,"global_toasts_hidden":false}`
 	call("PUT", "/api/conversations/main/view-state", state, benCookie, 200)
 	require.JSONEq(t, state, string(receive(benSocket, 1, "snap").Data))
 	send(aliceSocket, 2, benTopic)
@@ -438,7 +438,7 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 	require.Equal(t, "forbidden", refusal.Code)
 	require.Empty(t, refusal.Data)
 	send(aliceSocket, 3, aliceTopic)
-	require.JSONEq(t, `{"toasts_hidden":false}`, string(receive(aliceSocket, 3, "snap").Data))
+	require.JSONEq(t, `{"global_toasts_hidden":false}`, string(receive(aliceSocket, 3, "snap").Data))
 	// Queued prompts reconnect through the same private projection. They
 	// never enter another member's view, even on the same branch.
 	var held struct {
@@ -488,7 +488,7 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 	require.Contains(t, benShared, `"authorName":"Ben"`)
 	require.Contains(t, benShared, `"participant_id":"claude-participant"`)
 	require.Contains(t, benShared, `"participant_id":"codex-participant"`)
-	require.Contains(t, benShared, `"call_id":"call-1"`)
+	require.Contains(t, benShared, `"correlation_id":"call-1"`)
 	require.Contains(t, benShared, `"read_only":true`)
 	require.JSONEq(t, benShared, call("GET", "/api/conversations/main", "", aliceCookie, 200))
 	importReconnect := open(aliceCookie)
