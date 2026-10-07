@@ -94,7 +94,7 @@ func cleanupSettlement(item db.MythicalItem) time.Time {
 
 func cleanupCaptureMatches(row db.Workspace, capture WorkspaceDiskReclaimCapture, settled, now time.Time) bool {
 	return !settled.IsZero() && !settled.After(now) && now.Sub(settled) >= 24*time.Hour &&
-		!row.DeletedAt.Valid && !row.DiskReclaimedAt.Valid && (row.Status == "suspended" || row.Status == "stopped") &&
+		!row.DeletedAt.Valid && !row.DiskReclaimedAt.Valid && len(row.CapturePending) == 0 && (row.Status == "suspended" || row.Status == "stopped") &&
 		capture.Settled && capture.Quiet && capture.BindingVerified && capture.CaptureComplete && capture.InventoryCurrent && capture.WorkspaceID == row.ID && capture.CaptureID != "" &&
 		capture.CandidateHead != "" && capture.CandidateHead == row.HeadCommitID && capture.RetainedHead == capture.CandidateHead
 }
