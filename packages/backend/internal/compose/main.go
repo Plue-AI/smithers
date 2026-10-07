@@ -1788,6 +1788,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		stopPresence := presence.consumeDaemons(ctx, options.Machined)
 		defer stopPresence()
 		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, external: sessions, install: installSetup, members: authService.Members}
+		topics.sources = repositorySourceFiles{client: repoHostClient}
 
 		if chatService != nil {
 			resolveBranch := conversationBranchResolver(workspaceService)

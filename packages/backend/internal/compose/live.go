@@ -22,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // liveTodos is what the home and todo:<n> topics read: the TODO cards GET
@@ -42,6 +43,7 @@ type liveSync interface {
 type liveTopics struct {
 	changePool    *pgxpool.Pool
 	queries       *db.Queries
+	sources       workspaceapi.SourceFiles
 	todos         liveTodos
 	sync          liveSync
 	install       *services.InstallSetupService
@@ -309,7 +311,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}, ""
 	case topic == "agents":
 		return live.Source{Key: topic, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
-			profiles, err := agentProfiles(ctx, t.queries)
+			profiles, err := agentProfiles(ctx, t.queries, t.sources)
 			if err != nil {
 				return nil, err
 			}
