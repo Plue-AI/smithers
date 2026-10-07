@@ -15,6 +15,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/smithersai/smithers/packages/backend/workspaceconformance"
 )
@@ -31,7 +33,14 @@ func realRuntime(t *testing.T, root string) *Runtime {
 		}
 		t.Skip("SMITHERS_MICROSANDBOX_BIN is not set")
 	}
-	runtime, err := New(context.Background(), Config{Binary: binary, Root: root, CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 3})
+	config := Config{Binary: binary, Root: root, CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 3}
+	if bundlePath := os.Getenv("SMITHERS_CHECK_BUNDLE"); bundlePath != "" {
+		bundle, err := installbundle.Open(bundlePath)
+		require.NoError(t, err)
+		config.Bundle, config.Binary = bundle, ""
+		config.Root = bundletest.ProtectedTempDir(t)
+	}
+	runtime, err := New(context.Background(), config)
 	require.NoError(t, err)
 	t.Cleanup(func() { sweepOwner(t, runtime) })
 	return runtime
@@ -227,7 +236,7 @@ func TestRealMicroVMServicePreviewAndRestart(t *testing.T) {
 	// A new backend process over the same state reattaches the same VM and
 	// its files; the previous process's services are not inferred alive.
 	require.NoError(t, runtime.Close())
-	restarted, err := New(context.Background(), Config{Binary: runtime.config.Binary, Root: root, CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 3})
+	restarted, err := New(context.Background(), runtime.config)
 	require.NoError(t, err)
 	t.Cleanup(func() { sweepOwner(t, restarted) })
 	observed, err := restarted.InspectWorkspace(ctx, "microvm-service")
