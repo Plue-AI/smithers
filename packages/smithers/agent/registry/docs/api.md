@@ -970,7 +970,8 @@ execution digest.
 
 `sourceRoot` is a host-owned retained checkout of the same project. Approved
 locators and executable digests stay under `identity`; entry bytes, schema
-exports, imported helpers and markdown resources load under `workspace`.
+exports, imported helpers, project lockfiles and markdown resources load under
+`workspace`.
 Locators outside `identity`, changed entry bytes, and a changed or unmeasured
 closure are refused. The host still verifies committed workspace routing and
 run approval before recovery; relocation grants no execution authority.

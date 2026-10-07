@@ -1031,6 +1031,29 @@ describe("the modules a flow's entry imports", () => {
       return yield* registry.get(name)
     }).pipe(Effect.provide(Registry.layerProject({ root })))
 
+  it.effect("verifies a retained module's lockfiles in its workspace and preserves approved identity", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const files = {
+        "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+        "flows/pinned/flow.ts": `import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Schema } from "effect"
+export default Flow.make("pinned", { description:"Retained", payload:{}, success:Schema.String, body:()=>Node.succeed("retained") })`
+      }
+      const identity = yield* project(files)
+      const workspace = yield* project(files)
+      const approved = yield* descriptorIn(identity, "pinned")
+      const digest = Descriptor.executionDigest(approved)
+      yield* fs.writeFileString(`${identity}/pnpm-lock.yaml`, "lockfileVersion: 'changed'\n")
+      const executable = yield* Executable.fromDescriptor(approved, options({ sourceRoot: { identity, workspace } }))
+      expect(executable.descriptor).toBe(approved)
+      expect(Descriptor.executionDigest(executable.descriptor)).toBe(digest)
+      yield* fs.writeFileString(`${workspace}/pnpm-lock.yaml`, "lockfileVersion: 'changed'\n")
+      expect((yield* Effect.flip(Executable.fromDescriptor(approved, options({ sourceRoot: { identity, workspace } })))).code)
+        .toBe("body_unavailable")
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
   it.effect("loads a retained module and its schema closure without changing approved locators", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem

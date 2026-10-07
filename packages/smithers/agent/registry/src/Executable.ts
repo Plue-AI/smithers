@@ -1472,6 +1472,9 @@ export const fromDescriptor = (
           })
         return new Descriptor.FlowDescriptor({
           ...descriptor,
+          // Dependency verification reads under the retained workspace too.
+          // The executable still exposes the original approved descriptor.
+          provenance: { ...descriptor.provenance, root: yield* locate(descriptor.provenance.root) },
           body: descriptor.body._tag === "Markdown"
             ? new Descriptor.BodyRefMarkdown({
               ...descriptor.body,
