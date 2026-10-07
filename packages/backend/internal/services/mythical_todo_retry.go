@@ -135,7 +135,7 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 				return err
 			}
 			receipt = TodoControlReceipt{State: "accepted", Attempt: attempt}
-			if err := recordTodoControl(ctx, tx, saved, input, credential, "todo.retried", receipt, map[string]any{
+			if err := s.recordTodoControl(ctx, tx, saved, input, credential, "todo.retried", receipt, map[string]any{
 				"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": attempt, "steer": input.Steer != nil,
 				"actor": todoActor(ctx, person), "from": todoState(item), "to": todoState(saved),
 			}); err != nil {

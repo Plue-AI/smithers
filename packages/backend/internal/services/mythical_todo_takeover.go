@@ -58,7 +58,7 @@ func (s *MythicalService) takeoverTodo(ctx context.Context, number int64, input 
 		}
 		item.OwnerID.Int64 = person.ID
 		receipt = TodoControlReceipt{State: "accepted", Number: number}
-		if err := recordTodoControl(ctx, tx, item, input, credential, "todo.owner_changed", receipt, map[string]any{
+		if err := s.recordTodoControl(ctx, tx, item, input, credential, "todo.owner_changed", receipt, map[string]any{
 			"item": uuidString(item.ID), "n": number, "from": previous, "owner": person.Username,
 			"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username},
 		}); err != nil {

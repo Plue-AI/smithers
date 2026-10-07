@@ -143,7 +143,7 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 				s.itemChanged(ctx, q, stack, successor.ID)
 			}
 			receipt = TodoControlReceipt{State: "accepted"}
-			if err := recordTodoControl(ctx, tx, saved, input, credential, "todo.dropped", receipt, map[string]any{
+			if err := s.recordTodoControl(ctx, tx, saved, input, credential, "todo.dropped", receipt, map[string]any{
 				"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "pr": len(saved.PendingOp) > 0,
 				"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved),
 			}); err != nil {

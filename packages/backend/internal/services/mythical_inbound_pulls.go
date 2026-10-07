@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // consumeGitHubPullTodos runs inside fetched delivery's transaction: the PR
@@ -241,7 +240,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 			}
 			if decision.Event != "" {
 				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version, "observation": fetched.PullObservation})
-				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.github_"+decision.Event, todoState(saved), data); err != nil {
+				if _, err := s.recordTodoFlowFact(ctx, tx, saved, uuid.NewString(), "todo.github_"+decision.Event, todoState(saved), data); err != nil {
 					return nil, err
 				}
 			}
