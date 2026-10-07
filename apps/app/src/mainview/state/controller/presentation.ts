@@ -128,7 +128,11 @@ export const createPresentationController = (
    * result, and pasting the payload into the chat as well would be noise.
    */
   const DEBUG_READ_LIMIT = 4000
-  const surfaceDebugRead = (title: string, payload: string): { readonly value: string } => {
+  const diagnosticScope = (): { login: string; branch: string } | undefined => {
+    const login = ctx.store.collections.identitySessions.get("identity")?.login
+    return login ? { login, branch: ctx.store.session().branchNavigation?.selected_branch ?? "main" } : undefined
+  }
+  const surfaceDebugRead = (title: string, payload: string, diagnostic = diagnosticScope()): { readonly value: string } => {
     if (ctx.commandActor !== "smithers") {
       const shown = payload.length <= DEBUG_READ_LIMIT
         ? payload
@@ -138,7 +142,8 @@ export const createPresentationController = (
       ctx.store.dispatch({
         type: "message.appended",
         actor: "system",
-        text: `${title}\n\n\`\`\`json\n${shown}\n\`\`\``
+        text: `${title}\n\n\`\`\`json\n${shown}\n\`\`\``,
+        ...(diagnostic === undefined ? {} : { diagnostic })
       })
     }
     return { value: payload }
@@ -212,6 +217,7 @@ export const createPresentationController = (
   const debugNet = (): { readonly value: string } => surfaceDebugRead("Network tap", netTap())
 
   const debugSeams = async (): Promise<string | void | { readonly value: string }> => {
+    const diagnostic = diagnosticScope()
     const epoch = ctx.accountEpoch
     const current = () => !ctx.disposed && ctx.accountEpoch === epoch
     if (!current()) return
@@ -227,7 +233,7 @@ export const createPresentationController = (
       if (!parsed.success || parsed.data.status !== (response.status === 200 ? "ok" : "degraded")) {
         return "The health read answered in a shape I didn't understand."
       }
-      return surfaceDebugRead("Seam health", JSON.stringify(parsed.data))
+      return surfaceDebugRead("Seam health", JSON.stringify(parsed.data), diagnostic)
     } catch {
       if (current()) return "The health read didn't answer — the admin route is unreachable."
     }

@@ -26,6 +26,7 @@ import { useController } from "./ControllerContext"
 import { EdgeMap } from "./EdgeMap"
 import type { InitMessage } from "./HostOpening"
 import type { Card, Message, Toast } from "./state/AppState"
+import { diagnosticVisible } from "./state/AppState"
 import { useHome, type HomeAnswer } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
@@ -229,7 +230,7 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const lines = [...new Map([
     ...(home && homeAnswer !== undefined ? [homeLine(homeAnswer)] : []),
     ...(controller.sharedConversation ? sharedRailLines(shared.conversation, { role }) : []),
-    ...railLines(controller.sharedConversation ? entries.filter(entry => entry.kind === "card" || entry.kind === "entry" || entry.kind === "message" && (entry.message.origin === "external" || entry.message.action !== undefined)) : entries, { role })
+    ...railLines(controller.sharedConversation ? entries.filter(entry => entry.kind === "card" || entry.kind === "entry" || entry.kind === "message" && (entry.message.origin === "external" || entry.message.action !== undefined || diagnosticVisible(entry.message, identities.find(identity => identity.id === "identity")?.login, controller.store.session().branchNavigation?.selected_branch ?? "main"))) : entries, { role })
   ].map(line => [line.entry_id, line] as const)).values()]
   const timeline = timelineActions(lines, homeDispatch(controller))
   const band = useMessageBand(lines.map(line => line.entry_id))

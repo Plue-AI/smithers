@@ -4,6 +4,7 @@ import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
 import { CardSchema } from "@smthrs/rpc/Cards"
 import { CARD_RENDERERS } from "../cards/CardRenderers"
 import { cardAvailable } from "../state/CardAvailability"
+import { MessageSchema, ToastSchema } from "../state/AppState"
 import { createAppStore } from "../state/AppStore"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { memoryStorage, silentAgent } from "../state/TestFixtures"
@@ -145,7 +146,13 @@ describe("Cut app surfaces", () => {
     })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in",
       login: "will", admin: true, scopesPlain: null }).isPersisted.promise
-    const result = await controller.commands.run("debug.seams", "")
+    expect(controller.commands.find("debug.seams")).toBeUndefined()
+    const recorded = { flow: "debug.seams", args: "", label: "Probe" }
+    const action = MessageSchema.shape.action.parse(recorded)!
+    expect(action).toMatchObject({ flow: "debug.backend", args: "--health" })
+    expect(ToastSchema.shape.action.parse(recorded)).toEqual(action)
+    expect((await controller.commands.runForAgent("debug.backend", "--health")).status).not.toBe("executed")
+    const result = await controller.commands.run("debug.backend", "--health")
     expect(result).toMatchObject({ status: "executed", value: JSON.stringify(health) })
     // Signing in refreshes install status, members and the main conversation independently.
     expect(requests.filter(path => path !== "/api/install")).toEqual(["/api/admin/system/health"])

@@ -10,6 +10,21 @@ import { memoryStorage, silentAgent, waitFor, writeLegacyCollection } from "./Te
 
 GlobalRegistrator.register()
 afterAll(async () => { await new Promise(resolve => setTimeout(resolve, 20)); await GlobalRegistrator.unregister() })
+test("private diagnostic scope survives the actual storage boundary", async () => {
+  const storage = memoryStorage()
+  const store = await createAppStore({ kind: "localStorage", storage })
+  const controller = createAppController(store, silentAgent)
+  await store.dispatch({ type: "message.appended", actor: "system", text: "Retained health receipt",
+    diagnostic: { login: "ben", branch: "main" } }).isPersisted.promise
+  await controller.dispose()
+  const restored = await createAppStore({ kind: "localStorage", storage })
+  const next = createAppController(restored, silentAgent)
+  try {
+    const receipt = [...restored.collections.messages.values()].find(row => row.text === "Retained health receipt")!
+    expect(receipt.diagnostic).toEqual({ login: "ben", branch: "main" })
+  } finally { await next.dispose() }
+})
+
 const ben = { id: "turn-ben", author: 1, authorLogin: "ben", runId: "run-ben", prompt: "List changed tests", state: "completed", frames: [
   { runId: "run-ben", type: "delta", kind: "text", text: "One changed test" }, { runId: "run-ben", type: "done", reason: "stop" }
 ] }
@@ -33,20 +48,28 @@ test("install shell reads shared authors and clears stale output across branch a
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "message.appended", actor: "system", text: "PRIVATE LEGACY HISTORY" }).isPersisted.promise
+    await store.dispatch({ type: "message.appended", actor: "system", text: "OWN DIAGNOSTIC", diagnostic: { login: "ben", branch: "main" } }).isPersisted.promise
+    await store.dispatch({ type: "message.appended", actor: "system", text: "OTHER PERSON DIAGNOSTIC", diagnostic: { login: "alice", branch: "main" } }).isPersisted.promise
+    await store.dispatch({ type: "message.appended", actor: "system", text: "OTHER BRANCH DIAGNOSTIC", diagnostic: { login: "ben", branch: "feature" } }).isPersisted.promise
     flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
     await waitFor(() => host.querySelector("[data-shared-turn]") !== null)
     expect(host.textContent).toContain("Smithers for ben")
     expect(host.textContent).toContain("One changed test")
     expect(host.textContent).not.toContain("PRIVATE LEGACY HISTORY")
+    expect(host.textContent).toContain("OWN DIAGNOSTIC")
+    expect(host.textContent).not.toContain("OTHER PERSON DIAGNOSTIC")
+    expect(host.textContent).not.toContain("OTHER BRANCH DIAGNOSTIC")
     await controller.selectConversationBranch("feature")
     await waitFor(() => requests.includes("/api/conversations/feature"))
     expect(host.querySelector("[data-shared-turn]")).toBeNull()
+    expect(host.textContent).not.toContain("OWN DIAGNOSTIC")
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     finish(Response.json({ id: "feature", entries: [ben] }))
     await new Promise(resolve => setTimeout(resolve, 30))
     expect(host.querySelector("[data-shared-turn]")).toBeNull()
     expect(controller.commands.find("chat.queue.resume")).toBeUndefined()
     expect(host.querySelector('[data-flow="chat.queue.resume"]')).toBeNull()
+    expect(host.textContent).not.toContain("DIAGNOSTIC")
     expect(starts).toBe(0)
     expect(requests.some(path => /\/api\/(agent|chat)\/turn$/.test(path))).toBe(false)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }

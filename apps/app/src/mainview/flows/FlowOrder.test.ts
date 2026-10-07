@@ -132,7 +132,6 @@ const PRE_SPLIT_ADMIN: ReadonlyArray<string> = [
   "debug.snapshot",
   "debug.events",
   "debug.net",
-  "debug.seams",
 ]
 
 describe("Flows.ts aggregator order", () => {

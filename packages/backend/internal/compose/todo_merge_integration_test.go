@@ -176,6 +176,12 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "merge-owner", LowerUsername: "merge-owner", DisplayName: "Merge owner"})
 	require.NoError(t, err)
+	if browserJourney && os.Getenv("SMITHERS_CATALOG_MERGE_BROWSER") == "1" {
+		// Developer diagnostics are hidden from ordinary owners; this person
+		// is both the real install owner and an explicitly enabled developer.
+		_, err = pool.Exec(ctx, `UPDATE users SET is_admin=true WHERE id=$1`, owner.ID)
+		require.NoError(t, err)
+	}
 	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "merge-member", LowerUsername: "merge-member", DisplayName: "Merge member"})
 	require.NoError(t, err)
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})

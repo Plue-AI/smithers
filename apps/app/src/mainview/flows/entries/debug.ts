@@ -50,10 +50,12 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
      */
     name: "debug.backend", visibility: "hidden" as const,
     summary: "Report the agent backend",
+    args: "[backend] [--health]",
     agent: "never" as const,
     agentReason: "admin diagnostics; the agent must never reason about its engine",
-    input: Schema.Struct({ backend: Schema.String }),
-    handler: ({ backend }) => actions.describeAgentBackend(backend)
+    input: Schema.Struct({ backend: Schema.String, probe: Schema.optional(Schema.Literals(["health"])) }),
+    form: { fields: { probe: { hidden: true } }, args: payload => payload.probe === "health" ? "--health" : String(payload.backend ?? "") },
+    handler: ({ backend, probe }) => probe === "health" ? actions.debugSeams() : actions.describeAgentBackend(backend)
   }),
   flow({
     /* The debug reads — one typed surface the panel AND the agent share. */
@@ -74,12 +76,6 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     summary: "Read the network tap",
     input: NoPayload,
     handler: () => actions.debugNet()
-  }),
-  flow({
-    name: "debug.seams", visibility: "hidden" as const,
-    summary: "Probe seam and upstream health",
-    input: NoPayload,
-    handler: () => actions.debugSeams()
   })
 ]
 

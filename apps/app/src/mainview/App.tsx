@@ -35,7 +35,7 @@ import { cloudWebHost, initMessage } from "./HostOpening"
 import { SHORTCUT_KEYS,ShortcutButton } from "./ShortcutButton"
 import { pathRepo } from "./RepoLink"
 import type { Card,Message } from "./state/AppState"
-import { conversationTabIdOf,inConversation } from "./state/AppState"
+import { conversationTabIdOf,diagnosticVisible,inConversation } from "./state/AppState"
 import { catalogRepositoryOf } from "./state/RepoContext"
 import { useCardRows,useFileCardRows,useFlowDurationRows,useTriggerListRows,useWorkflowCatalogRows } from "./state/useCardRows"
 import { ConfirmDialog } from "./SurfaceChrome"
@@ -145,7 +145,7 @@ function AppContent() {
   const earlier = session.branchNavigation?.open && session.branchNavigation.owner === (accountOwnerOf(identityRows[0]) ?? null) && session.branchNavigation.selected_branch === "earlier"
   const conversationTabId = conversationTabIdOf(session)
   // A recovery door is an acknowledgment only once its journal receipt exists.
-  const messages = messageRows.filter((message) => (!controller.sharedConversation || message.action !== undefined) && inConversation(message, conversationTabId) &&
+  const messages = messageRows.filter((message) => (!controller.sharedConversation || message.action !== undefined || diagnosticVisible(message, identityRows[0]?.login, session.branchNavigation?.selected_branch ?? "main")) && inConversation(message, conversationTabId) &&
     (message.action?.flow !== "sign-in" || savedSignInPrompts.some(receipt => receipt.id === message.id)))
   const conversationRows = cardRows.filter((card) => inConversation(card, conversationTabId))
   // Admin chrome follows the same capability-filtered registry as every act.
@@ -520,7 +520,7 @@ function AppContent() {
             {!earlier && !repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
             {!loginScreen && !repositoryNotice && <BranchNavigation />}
             {!earlier && controller.sharedConversation && <SharedConversation source={controller.sharedConversation} />}
-            {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.origin === "external" || entry.message.action !== undefined).map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
+            {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.origin === "external" || entry.message.action !== undefined || diagnosticVisible(entry.message, identityRows[0]?.login, session.branchNavigation?.selected_branch ?? "main")).map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "external" ? <ExternalEntry item={entry.item} conversation={entry.conversation} /> : entry.kind === "card" ?
                 (
                   <CardView

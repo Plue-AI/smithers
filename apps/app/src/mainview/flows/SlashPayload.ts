@@ -1016,7 +1016,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "repos.import.retry": (args) => required("jobId", args, "repos.import.retry needs the job id"),
   "sync.ops.show-more": (args) => required("cardId", args, "sync.ops.show-more needs the card id"),
-  "debug.backend": (args) => ok({ backend: args ?? "" }),
+  "debug.backend": (args) => args?.trim() === "--health" ? ok({ backend: "", probe: "health" }) : ok({ backend: args ?? "" }),
   "debug.errors": (args) => optional("query", args),
   /* `[cwd]`: an OPEN working copy by path, id, name, or key; blank means the active one (the server never takes a bare path). */
   /* THE FORM LAW: the generic form card's acts. `form.set`'s value is the rest of the line (blank clears). */

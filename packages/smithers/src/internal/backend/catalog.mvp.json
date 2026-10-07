@@ -3090,6 +3090,23 @@
           "properties": {
             "backend": {
               "type": "string"
+            },
+            "probe": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "health"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -3177,31 +3194,6 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read the network tap",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "debug.seams",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Probe seam and upstream health",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",

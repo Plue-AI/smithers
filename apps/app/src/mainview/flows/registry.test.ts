@@ -538,7 +538,8 @@ describe("command registry bindings", () => {
     // The debug reads compose the admin-only registry + trigger axis.
     expect(adminNames).toContain("debug.snapshot")
     expect(adminNames).toContain("debug.events")
-    expect(adminNames).toContain("debug.seams")
+    expect(adminNames).not.toContain("debug.seams")
+    expect(adminNames).toContain("debug.backend")
   })
 
   test("the trigger axis: user-only commands are invisible to and uncallable by the agent", async () => {

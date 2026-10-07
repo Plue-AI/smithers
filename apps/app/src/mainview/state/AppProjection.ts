@@ -3017,6 +3017,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             id: `message-appended-${recordId}`,
             role: "smithers",
             text: transition.text,
+            ...(transition.diagnostic === undefined ? {} : { diagnostic: transition.diagnostic }),
             ...(transition.action === undefined ? {} : { action: transition.action }),
             ...(transition.spoken === undefined ? {} : { spoken: transition.spoken }),
             ...(transition.context === undefined ? {} : { context: transition.context }),

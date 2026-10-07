@@ -550,7 +550,7 @@ const savedDocsRead = (args?: string): string => {
   return JSON.stringify({ mode: "read", ...(page === undefined ? {} : { page }) })
 }
 const currentAction = <T extends { readonly flow: string; readonly args?: string }>(action: T): Omit<T, "flow" | "args"> & { flow: string; args?: string } => ({
-  ...action, flow: currentFlowName(action.flow), ...(action.flow === "env.set" ? { args: undefined } : action.flow === "docs.read"
+  ...action, flow: currentFlowName(action.flow), ...(action.flow === "debug.seams" ? { args: "--health" } : action.flow === "env.set" ? { args: undefined } : action.flow === "docs.read"
     ? { args: savedDocsRead(action.args) } : {})
 })
 const MessageActionSchema = MessageActionBaseSchema.transform(currentAction)
@@ -577,6 +577,8 @@ export const MessageSchema = z.object({
   reasoning: z.string().optional(),
   status: z.enum(["complete", "failed", "interrupted"]),
   statusDetail: z.string().optional(),
+  /** A private developer read, scoped to the person and branch that requested it. */
+  diagnostic: z.object({ login: z.string().min(1), branch: z.string().min(1) }).strict().optional(),
   /** A message-ridden action (sign-in rides the opening message; retry rides the failed-OAuth one). */
   action: MessageActionSchema.optional(),
   /** The answered step retains its original prose and identity, but no executable action. */
@@ -1138,6 +1140,10 @@ export const conversationTabIdOf = (session: Pick<Session, "phase" | "turnTabId"
 /** Whether a row (message or card) belongs to the given conversation. */
 export const inConversation = (row: { readonly tabId?: string | undefined }, tabId: string | undefined): boolean =>
   (row.tabId ?? undefined) === tabId
+
+/** Private local diagnostic output supplements the shared host conversation. */
+export const diagnosticVisible = (message: Pick<Message, "diagnostic">, login: string | null | undefined, branch: string): boolean =>
+  login !== null && login !== undefined && message.diagnostic?.login === login && message.diagnostic.branch === branch
 
 export const MAIN_TAB_ID = "main"
 
@@ -1786,6 +1792,7 @@ export type AppTransition =
     /** The initiator of this app-authored reply, independently of its transcript role. */
     actor: "system" | "user" | "smithers"
     text: string
+    diagnostic?: Message["diagnostic"]
     /** The action that rides the message (sign-in, request access, retry, a confirm flow). */
     action?: Message["action"]
     /** The door is saying this refusal here, so its form card must not repeat it ({@link Message.spoken}). */
