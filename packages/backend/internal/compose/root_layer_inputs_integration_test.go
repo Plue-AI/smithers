@@ -153,14 +153,20 @@ func TestRootLayerInputsValidatedBeforeUse(t *testing.T) {
 		branchCommit := h.pushBranch(t, "r4-attacker", branch)
 		h.reader.reset()
 		from := h.msb.mark()
-		h.runtime.BindMemberRoster(nil)
+		rosterCalls := 0
+		h.runtime.BindMemberRoster(func(ctx context.Context, _ string, visit func(context.Context, []microsandbox.MemberIdentity) error) error {
+			rosterCalls++
+			return visit(ctx, nil)
+		})
 		workspaceID := uuid.NewString()
 		created, err := h.runtime.CreateWorkspace(h.ctx(t), workspaceapi.WorkspaceSpec{ID: workspaceID,
 			Source: &workspaceapi.WorkspaceSource{Repository: h.slug, Revision: "r4-attacker"}})
-		// This recording harness has no approved installed bundle. Root recipe
-		// inspection remains useful, but member provisioning must refuse.
-		require.ErrorContains(t, err, "member provisioning requires an approved installed bundle")
-		require.Empty(t, created.ID)
+		// The recording harness now supplies a pinned fixture bundle. The
+		// hostile branch is usable only through main's approved root envelope;
+		// real installed-bundle qualification remains a separate mini proof.
+		require.NoError(t, err)
+		require.Equal(t, workspaceID, created.ID)
+		require.Equal(t, 1, rosterCalls, "member admission uses the current roster")
 		calls := h.msb.since(from)
 		toolchain := rootRecipes(calls, "toolchain")
 		require.Len(t, toolchain, 1, "the branch's node 26 builds its own toolchain layer")
