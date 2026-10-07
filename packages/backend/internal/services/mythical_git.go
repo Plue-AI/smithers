@@ -72,10 +72,28 @@ type mythicalGit struct {
 func (g mythicalGit) command(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
 	// Object transport never consumes hooks or credential helpers from the
 	// repository config. It replaces inherited executable configuration.
-	cmd := gitHubMainPullCommand(ctx, append([]string{"-c", "core.hooksPath=" + os.DevNull,
-		"-c", "credential.helper=", "-c", "core.sshCommand=/usr/bin/ssh",
-		"-c", "protocol.ext.allow=never", "-c", "diff.external=",
-		"--git-dir", g.dir}, args...)...)
+	policy := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "credential.helper=", "-c", "core.sshCommand=/usr/bin/ssh", "-c", "protocol.ext.allow=never", "-c", "diff.external=", "-c", "core.fsmonitor=false", "-c", "core.alternateRefsCommand="}
+	if len(args) > 0 && args[0] == "merge-tree" {
+		// Attribute-selected custom drivers are executable repository config.
+		// Enumerate names as data, then replace every program with a trusted
+		// fail-closed driver. Git reports a normal conflict instead of running it.
+		inspect := gitHubMainPullCommand(ctx, append(append([]string{}, policy...), "--git-dir", g.dir, "config", "--local", "--includes", "--name-only", "--get-regexp", `^merge\..*\.driver$`)...)
+		names, err := inspect.Output()
+		var status *exec.ExitError
+		if err != nil && (!errors.As(err, &status) || status.ExitCode() != 1) {
+			return nil, fmt.Errorf("read merge driver policy: %w", err)
+		}
+		for _, name := range strings.Split(strings.TrimSpace(string(names)), "\n") {
+			if name != "" {
+				policy = append(policy, "-c", name+"=false")
+			}
+		}
+	}
+	if len(args) > 0 && (args[0] == "diff" || args[0] == "diff-tree" || args[0] == "show" || args[0] == "log") {
+		args = append([]string{args[0], "--no-ext-diff", "--no-textconv"}, args[1:]...)
+	}
+	policy = append(policy, "--git-dir", g.dir)
+	cmd := gitHubMainPullCommand(ctx, append(policy, args...)...)
 	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "LC_ALL=C")
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
