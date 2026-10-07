@@ -223,7 +223,7 @@ Event := union
   1 burst      { 1 burst_id: id128, 2 actor: Actor, 3 files: list<BurstFile>, 4 versions_commit: oid, 5 part: u16?, 6 parts: u16? }
   2 captured   { 1 head: oid, 2 tree: oid, 3 base: oid }
   3 reconciled { 1 from: oid, 2 onto: oid, 3 outcome: u8 (1 moved, 2 conflict), 4 paths: list<str>? }
-  4 moved_off  { 1 actor: Actor, 2 item: u64, 3 pre_move_commit: oid }
+  4 moved_off  { 1 actor: Actor, 2 item: u64, 3 pre_move_commit: oid, 4 returned: bool? }
   5 transcript    defined by wire review ruling 2 (below)
   6 doc_edit      reserved for T-COL-08a
 BurstFile := struct { 1 path: str, 2 change: u8 (1 added, 2 modified, 3 deleted, 4 renamed),
@@ -487,6 +487,8 @@ and other producer migrations.
    - a `signal` or `exit` message on an object stream: `bad_value` (a forbidden variant for that stream kind);
    - an unknown `msg` byte on a session or object stream: `unknown_message`, in both codecs;
    - a session `window` grant of 0 or above 262,144 bytes: `bad_value` (credit is 1..=262,144 per grant, and a side's outstanding credit never exceeds 262,144).
+
+6. **`moved_off` tag 4** (8a, 2026-10-07): `returned: bool`, optional. It was added by #3562 (0029cff154) before the bump rule existed and is part of protocol 7's surface. `true` means the branch has been returned to its item (§9.3.8 Return); absent or `false` means it is still moved off. A value other than 0 or 1 is `bad_value`. Fixture `ev_moved_off_returned` uses its own `event_id`, not one shared with another frame.
 
 ### Compared text batches (connection protocol 6, 2026-10-07)
 
