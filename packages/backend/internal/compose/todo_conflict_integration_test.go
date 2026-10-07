@@ -1,0 +1,116 @@
+package compose
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/stretchr/testify/require"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+type conflictDoorProvider struct {
+	unresolved []string
+	signals    int
+}
+
+func (p *conflictDoorProvider) UnresolvedPaths(context.Context, services.ConflictValidation) ([]string, error) {
+	return p.unresolved, nil
+}
+func (p *conflictDoorProvider) AdmitInTx(context.Context, pgx.Tx, flowdispatch.LaunchRequest) (jobs.RequestReceipt, error) {
+	panic("unexpected launch")
+}
+func (p *conflictDoorProvider) SignalInTx(context.Context, pgx.Tx, flowdispatch.SignalRequest) (jobs.RequestReceipt, error) {
+	p.signals++
+	return jobs.RequestReceipt{}, nil
+}
+
+// Real install HTTP/auth/storage, native validator contract fake. This does
+// not replace C-J7-03's microVM evidence or enable Resolve in the app.
+func TestConflictDoneComposedInstall(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx, q := t.Context(), db.New(pool)
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "pin-owner", LowerUsername: "pin-owner", DisplayName: "Owner"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
+	binding := []byte(fmt.Sprintf(`{"owner_login":"pin-owner","repository_name":"app","repository_id":%d}`, repo.ID))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+	access := []byte(fmt.Sprintf(`{"owner_login":"pin-owner","repository_name":"app","repository_id":%d,"last_access_check_at":"%s"}`, repo.ID, time.Now().UTC().Format(time.RFC3339)))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: access}))
+	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 1, false)
+	require.NoError(t, err)
+	source, digest := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "running", Checks: []byte(fmt.Sprintf(`{"todo":true,"run_launched":true,"run_attached":true,"flowSource":"%s"}`, source))})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=1,owner_id=$2,attempt=1,flow_digest=$3,request_run_id='pinned-run',workspace_id='11111111-1111-4111-8111-111111111111',revisions='[{"text":"Original","acceptance":[],"reason":"create"}]',title='Pinned source' WHERE id=$1`, item.ID, owner.ID, digest)
+	require.NoError(t, err)
+	hash := sha256.Sum256([]byte("pin-cookie"))
+	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES($1,$2,'pin-owner',NOW()+interval '1 hour')`, hex.EncodeToString(hash[:]), owner.ID)
+	require.NoError(t, err)
+	server := httptest.NewUnstartedServer(nil)
+	origin := "http://" + server.Listener.Addr().String()
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode, cfg.Server.PublicURL, cfg.Server.AllowedOrigins = "selfhost", origin, []string{origin}
+	service := services.NewMythicalService(pool, nil)
+
+	provider := &conflictDoorProvider{unresolved: []string{"a.txt"}}
+	service.SetLauncher(provider)
+	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
+	server.Start()
+	t.Cleanup(server.Close)
+	checks := `{"todo":true,"run_launched":true,"run_attached":true,"rebase":{"onto":"onto","name":"main"},"waits":[{"id":"conflict-1","kind":"conflict","paths":["a.txt"],"conflict_change":"change","onto_revision":"onto","signal":{"flow":"todo","run":"pinned-run","name":"conflict"}}]}`
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,integration='{"conflict":{"head":"change","onto":"onto","paths":["a.txt"]}}' WHERE id=$1`, item.ID, checks)
+	require.NoError(t, err)
+	call := func(expected int, code string) {
+		t.Helper()
+		req, err := http.NewRequest("POST", origin+"/api/todos/1/answer", strings.NewReader(`{"wait":"conflict-1","answer":"done"}`))
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		req.Header.Set("X-CSRF-Token", "csrf")
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
+		require.Equal(t, expected, res.StatusCode, body)
+		if code != "" {
+			require.Equal(t, code, body["code"])
+		}
+	}
+	call(503, "conflict_validation_unavailable")
+	service.SetConflictValidator(provider)
+	call(409, "still_conflicted")
+	retained, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, checks, string(retained.Checks))
+	require.Zero(t, provider.signals)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{rebase,onto}','"new-target"') WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	call(409, "stale_conflict")
+	require.Zero(t, provider.signals)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, checks)
+	require.NoError(t, err)
+	provider.unresolved = nil
+	call(202, "")
+	call(202, "")
+	require.Equal(t, 1, provider.signals)
+}
