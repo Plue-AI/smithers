@@ -13,7 +13,6 @@ import { memoryStorage, waitFor } from "./TestFixtures"
 import { scopedControllers } from "./ControllerTestScope"
 
 const createAppController = scopedControllers()
-import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 
 const kinds = ["repository-setup", "admin-health", "registration", "notifications", "connect", "agent", "grant-confirm", "flow-form"] as const
 const opened: AppStore[] = []
