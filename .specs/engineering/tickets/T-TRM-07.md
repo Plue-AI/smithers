@@ -113,3 +113,12 @@ subchecks and all nine reference-host steps remain pending; see
 `scripts/spikes/trm-06/reference-host.md`. A person on a second Mac must perform
 the editor recording. smithers-8a accepts the measured protocol result and
 amendments; smithers-3f accepts root boundaries and receipts.
+
+Wave-3 supplemental lifecycle evidence (Linux, no microVM): the probe now has
+an installed-provider daemon loop with idle grace maintenance, bounded owned
+connections and shutdown drain, plus a gateway lifecycle adapter that stops
+admission and pending opens before revocation. Authenticated SSH fixtures prove
+that a drain receipt follows guest confirmation and preserves failure; control
+cancellation closes the actual transport. These functions remain behind the
+unimplemented installed authority/launcher/init path. No root-validation,
+VS Code, real relay or measured timing result is supplied by these tests.

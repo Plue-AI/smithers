@@ -81,7 +81,22 @@ func (r relayControl) revoke(ctx context.Context) error {
 		return err
 	}
 	defer connection.Close()
-	reply, err := controlExchange(connection, map[string]string{"type": "kill_sessions"})
+	return confirmRevocation(ctx, connection)
+}
+
+// Cancellation closes the actual transport; it cannot leave a ten-second
+// control exchange running behind a five-second host revocation deadline.
+func confirmRevocation(ctx context.Context, connection net.Conn) error {
+	deadline := time.Now().Add(5 * time.Second)
+	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
+		deadline = callerDeadline
+	}
+	stop := context.AfterFunc(ctx, func() { connection.Close() })
+	defer stop()
+	reply, err := controlExchangeUntil(connection, map[string]string{"type": "kill_sessions"}, deadline)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err == nil && !reply.OK {
 		return errors.New("guest revocation not confirmed")
 	}

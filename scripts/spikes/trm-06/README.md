@@ -22,6 +22,10 @@ loopback; it cannot start as root or as another user.
 - `control.rs` dispatches authenticated open/attach/close/kill/restart operations.
   Member requests cannot select uid, cgroup, run, environment or cwd. The boot
   provider must mutually authenticate the installed relay before dispatch.
+- The installed-provider daemon loop owns at most 128 relay connections,
+  runs grace maintenance every 100 ms even with no relay traffic, and closes
+  owned transports before draining on shutdown or maintenance failure. Its
+  executable entrypoint remains gated; the loop is not activated by this lane.
 - The owned registry admits at most 256 sessions. Closed execs and foreground
   exits retain cgroup ownership for lingering children. Failed drain does not
   forget ownership; failed startup/restart refuses new admission. Disconnect
@@ -51,6 +55,10 @@ loopback; it cannot start as root or as another user.
   and maps session and literal loopback direct-tcpip channels to guest frames.
   The installed relay opener uses `DialWorkspacePort(970)` only, after provider
   boot authentication, with no direct dial or local executable fallback.
+- The gateway lifecycle adapter stops admission, cancels pending relay opens
+  and closes SSH connections before revocation. Its receipt waits for the real
+  guest drain; cancellation closes the control transport. The five-second
+  deadline includes shutdown. These adapters still require an installed provider.
 - Reattachment retains at most 256 KiB of stdin, resends only unaccepted bytes,
   skips previously delivered output EOF, and restores lost input credit. The
   probe attach reply includes accepted input (`received`), consumed input

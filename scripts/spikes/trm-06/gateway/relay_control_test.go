@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"testing"
+	"time"
 )
 
 func TestRelayRefusesMissingInstalledAuthentication(t *testing.T) {
@@ -40,5 +43,70 @@ func TestControlExchangeRequiresOwnedSessionOrConfirmedDrain(t *testing.T) {
 		if strictControlReply([]byte(body), &reply) == nil {
 			t.Fatalf("accepted %s", body)
 		}
+	}
+}
+
+func TestRevocationWaitsForDrainAndCancellationEndsActualControlRead(t *testing.T) {
+	host, guest := net.Pipe()
+	defer host.Close()
+	defer guest.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	completed := make(chan error, 1)
+	go func() { completed <- confirmRevocation(ctx, host) }()
+	var length uint32
+	if err := binary.Read(guest, binary.BigEndian, &length); err != nil {
+		t.Fatal(err)
+	}
+	body := make([]byte, length)
+	if _, err := io.ReadFull(guest, body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != `{"type":"kill_sessions"}` {
+		t.Fatalf("%s", body)
+	}
+	select {
+	case <-completed:
+		t.Fatal("completed before populated-zero reply")
+	default:
+	}
+	cancel()
+	select {
+	case err := <-completed:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("control read survived cancellation")
+	}
+	if _, err := guest.Write([]byte{0}); err == nil {
+		t.Fatal("canceled control transport remained open")
+	}
+}
+
+func TestRevocationUsesCallerDeadlineAndRequiresConfirmedDrain(t *testing.T) {
+	for _, body := range []string{`{"ok":true}`, `{"class":"invalid","code":"session_refused"}`, "stall"} {
+		t.Run(body, func(t *testing.T) {
+			host, guest := net.Pipe()
+			defer host.Close()
+			defer guest.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			peerDone := make(chan struct{})
+			go func() {
+				defer close(peerDone)
+				var length uint32
+				binary.Read(guest, binary.BigEndian, &length)
+				io.CopyN(io.Discard, guest, int64(length))
+				if body != "stall" {
+					(&frameWriter{w: guest}).write(json.RawMessage(body))
+				}
+			}()
+			err := confirmRevocation(ctx, host)
+			if (body == `{"ok":true}`) != (err == nil) {
+				t.Fatalf("reply %s error %v", body, err)
+			}
+			<-peerDone
+		})
 	}
 }
