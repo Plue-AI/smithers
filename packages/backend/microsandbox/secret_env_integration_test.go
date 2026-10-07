@@ -39,7 +39,7 @@ refusals={'parent-link': ('NotADirectoryError', None),
  'disk': ('SystemExit', 'not tmpfs'),
  'group': ('SystemExit', 'no team')}
 with tempfile.TemporaryDirectory() as root:
- root=os.path.realpath(root); os.mkdir(root+"/run"); parent=root+"/run/smithers"; os.mkdir(parent)
+ root=os.path.realpath(root); os.mkdir(root+"/run",0o755); parent=root+"/run/smithers"; os.mkdir(parent,0o755)
  outside=root+"/outside"; open(outside,"wb").write(b"root canary")
  real_open,real_stat,real_fstat=os.open,os.stat,os.fstat
  def opened(path,*args,**kwargs): return real_open(root if path=="/" else path,*args,**kwargs)
