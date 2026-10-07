@@ -100,13 +100,20 @@ impl Repository {
             .get_wc_commit_id(workspace.workspace_name())
             .ok_or_else(|| invalid("workspace has no working-copy commit"))?;
         let commit = repo.store().get_commit(id).map_err(invalid)?;
-        let tree = commit.tree();
-        let tree_id = tree
-            .tree_ids()
-            .as_resolved()
-            .ok_or_else(|| invalid("working copy has unresolved conflicts"))?
-            .clone();
-        Ok((oid(commit.id().as_bytes())?, oid(tree_id.as_bytes())?))
+        // Captures name the actual Git commit and its stored tree. A jj
+        // conflict has several logical tree terms; choosing a term loses a
+        // side, while refusing it prevents restart and durable capture during
+        // conflict resolution. Keep jj's conflict encoding intact in transit.
+        let git = jj_lib::git::get_git_repo(repo.store()).map_err(invalid)?;
+        let raw = git
+            .rev_parse_single(commit.id().hex().as_str())
+            .map_err(invalid)?
+            .object()
+            .map_err(invalid)?
+            .try_into_commit()
+            .map_err(invalid)?;
+        let tree = raw.tree_id().map_err(invalid)?;
+        Ok((oid(commit.id().as_bytes())?, oid(tree.as_bytes())?))
     }
     pub fn snapshot(&self) -> io::Result<(Oid, Oid)> {
         flows_jj::ops::snapshot(&self.root, None).map_err(invalid)?;
@@ -365,6 +372,46 @@ pub(crate) mod tests {
         assert_eq!(result.change_id(), prior.change_id());
         assert_eq!(result.description(), prior.description());
         assert_eq!(result.tree().has_conflict(), conflict);
+    }
+    #[test]
+    fn conflicted_rebase_reopens_captures_and_resolves_without_losing_sides() {
+        let (_dir, repo) = fixture();
+        fs::write(repo.root.join("file"), b"original\n").unwrap();
+        let base = repo.snapshot().unwrap().0;
+        child(&repo, base, "item edit");
+        fs::write(repo.root.join("file"), b"item version\n").unwrap();
+        let item = repo.snapshot().unwrap().0;
+        child(&repo, base, "main edit");
+        fs::write(repo.root.join("file"), b"main version\n").unwrap();
+        let onto = repo.snapshot().unwrap().0;
+        repo.move_to(item).unwrap();
+        let conflict = repo.rebase(onto).unwrap();
+        assert_rebase(&repo, conflict, onto, item, true);
+        let markers = fs::read(repo.root.join("file")).unwrap();
+        let reopened = Repository::open(&repo.root, &repo.state).unwrap();
+        assert_eq!(fs::read(repo.root.join("file")).unwrap(), markers);
+        let (head, tree) = reopened.snapshot().unwrap();
+        assert_eq!(head, conflict, "capture must retain the conflicted change");
+        // The wire tree is the Git commit's actual tree, not one side of jj's
+        // merge. The host verifies exactly this identity before acknowledging.
+        let (_, current_repo) = reopened.load().unwrap();
+        let git = jj_lib::git::get_git_repo(current_repo.store()).unwrap();
+        let raw = git.find_commit(gix::ObjectId::from(conflict)).unwrap();
+        assert_eq!(tree.as_slice(), raw.tree_id().unwrap().as_bytes());
+        assert!(
+            reopened.tree(conflict).is_err(),
+            "unresolved trees stay unavailable to clean-tree comparisons"
+        );
+        assert!(reopened.validate_rebase(onto).is_err());
+        assert_eq!(fs::read(repo.root.join("file")).unwrap(), markers);
+        fs::write(repo.root.join("file"), b"item and main resolved\n").unwrap();
+        let resolved = reopened.snapshot().unwrap().0;
+        assert_rebase(&reopened, resolved, onto, item, false);
+        assert_eq!(
+            fs::read(repo.root.join("file")).unwrap(),
+            b"item and main resolved\n"
+        );
+        assert!(reopened.contains(conflict).unwrap());
     }
     #[test]
     fn snapshot_and_native_recovery_preserve_working_copy_bytes() {

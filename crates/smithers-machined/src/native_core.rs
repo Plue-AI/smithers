@@ -382,6 +382,21 @@ mod tests {
         assert!(markers.contains("<<<<<<<"), "{markers}");
         assert!(markers.contains("item version"), "{markers}");
         assert!(markers.contains("main version"), "{markers}");
+        // A retained conflict remains serviceable and capturable. Readiness
+        // must not require the member to resolve a file before reconnecting.
+        core.ready().unwrap();
+        let depth = core.events.depth().unwrap();
+        let response = call(core.clone(), 4, &[]);
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(
+            fields[1].1[0], 4,
+            "capture must succeed with a retained conflict"
+        );
+        let result = conn::fields("result4", &fields[1].1[1..]).unwrap();
+        assert_eq!(result[0].1, head);
+        assert_eq!(result[1].1, core.native.current().unwrap().1);
+        assert_eq!(core.events.depth().unwrap(), depth + 1);
+        assert_eq!(fs::read_to_string(root.join("conflict")).unwrap(), markers);
         // Neither a second rebase nor a conflicted target overwrites the retained
         // conflict. The operation checkpoint also restores the original change.
         assert!(core.validate_rebase(onto).is_err());
