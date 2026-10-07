@@ -287,7 +287,9 @@
       ],
       "method": "POST",
       "path": "/api/branches/retry-webhooks",
-      "body": { "op": "rebase" }
+      "body": {
+        "op": "rebase"
+      }
     },
     {
       "argv": [
@@ -632,21 +634,6 @@
           "mode": "before",
           "n": 1
         }
-      }
-    },
-    {
-      "argv": [
-        "review",
-        "50",
-        "--repo",
-        "owner/repo"
-      ],
-      "method": "POST",
-      "path": "/api/reviews",
-      "body": {
-        "number": 50,
-        "repo": "owner/repo",
-        "conversation": "main"
       }
     },
     {
