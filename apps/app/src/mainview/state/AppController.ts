@@ -1,4 +1,5 @@
 import { draftIssueTodo } from "./seams/IssueTodoDraft"
+import { createBranchControlsSeam } from "./seams/BranchControlsSeam"
 import { createSharedPrompts } from "./controller/sharedPrompts"
 import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
 import { createEarlierHistoryController } from "./controller/earlierHistory"
@@ -546,6 +547,7 @@ export interface AppController extends IssueFlowsController {
   readonly selectConversationBranch: (name: string) => Promise<void>
   readonly setBranchNavigationView: (patch: { selected_branch?: string; selected_archive?: string; previous_branch?: string; open?: boolean }) => Promise<void>
   readonly setCardTab: (id: string, tab: string) => void
+  readonly branchControls?: import("./seams/BranchControlsSeam").BranchControls
   readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
@@ -691,6 +693,7 @@ export interface AppController extends IssueFlowsController {
 export interface AppServices {
   /** Host-owned branch authority and provider receipts; absent keeps S2 files dark. */
   readonly documentOptions?: { channel: LiveChannel; prerequisites: DocumentPrerequisites }
+  readonly branchControlOptions?: import("./seams/BranchControlsSeam").BranchControlOptions
   readonly branchOptions?: BranchFileOptions
   /** The page's `/api/live` channel; production supplies the tab's one channel, and a controller without it subscribes to no topic. */
   readonly live?: LiveTopics
@@ -1024,6 +1027,7 @@ export const createAppController = (
       return { value: `Opened ${body.name}` }
     } catch { return "Branch unavailable" }
   } : undefined
+  const branchControls = services.branchControlOptions ? createBranchControlsSeam(seamCtx, services.branchControlOptions) : undefined
   const forkBranch: AppController["forkBranch"] = installHost ? async input => {
     try {
       const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches`, { credentials: "same-origin", method: "POST",
@@ -2029,6 +2033,7 @@ export const createAppController = (
     setCardTab,
     ...(openBranch ? { openBranch } : {}),
     ...(forkBranch ? { forkBranch } : {}),
+    ...(branchControls ? { branchControls } : {}),
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,
