@@ -1100,6 +1100,110 @@ mod dispatcher {
         }
     }
     #[test]
+    fn yjs_two_clients_converge_through_dispatch_after_1000_concurrent_edits() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        use std::io::{BufRead, BufReader, Write};
+        use std::process::{Command, Stdio};
+        let (disk, _clock, service, mut cx, id, epoch) = setup();
+        let host = editor(&sync(&mut cx, id), epoch.client_id as u64);
+        for (seq, (client, actor)) in [(4242, "alice"), (4243, "bob")].into_iter().enumerate() {
+            let before = host.transact().state_vector();
+            host.get_or_insert_map("authors").insert(
+                &mut host.transact_mut(),
+                client.to_string(),
+                actor,
+            );
+            let update = host.transact().encode_state_as_update_v1(&before);
+            assert_eq!(
+                rpc::dispatch(
+                    &input(id, seq as u64 + 1, actor, SyncMessage::Update(update)),
+                    &mut cx
+                )
+                .unwrap()
+                .payload[0],
+                3
+            );
+        }
+        service.flush_all(&mut cx).unwrap();
+        service.poll(&mut cx).unwrap();
+        let mut child = Command::new("bun")
+            .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/yjs-interop.ts"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("Bun and app Yjs dependency required");
+        let mut to_client = child.stdin.take().unwrap();
+        writeln!(
+            to_client,
+            "{}",
+            serde_json::json!({"state": STANDARD.encode(sync(&mut cx, id))})
+        )
+        .unwrap();
+        let from_client = BufReader::new(child.stdout.take().unwrap());
+        let mut updates = 0;
+        let mut done = false;
+        for line in from_client.lines() {
+            let request: serde_json::Value = serde_json::from_str(&line.unwrap()).unwrap();
+            if request["done"].as_u64() == Some(1000) {
+                assert_eq!(
+                    request["text"].as_str().unwrap().as_bytes(),
+                    disk.0.lock().unwrap().files["a.rs"]
+                );
+                done = true;
+                break;
+            }
+            let seq = request["seq"].as_u64().unwrap();
+            let actor = request["actor"].as_str().unwrap();
+            let update = STANDARD
+                .decode(request["update"].as_str().unwrap())
+                .unwrap();
+            let reply = rpc::dispatch(&input(id, seq, actor, SyncMessage::Update(update)), &mut cx)
+                .unwrap();
+            assert_eq!(reply.payload[0], 3, "interop update {seq}");
+            service.flush_all(&mut cx).unwrap();
+            let frames = service.poll(&mut cx).unwrap();
+            let saved = frames
+                .iter()
+                .map(|f| Document::decode_v2(&f.payload).unwrap())
+                .find(|d| d.msg == 6)
+                .unwrap();
+            assert_eq!(saved.through_seq, seq);
+            let text = String::from_utf8(disk.0.lock().unwrap().files["a.rs"].clone()).unwrap();
+            writeln!(to_client, "{}", serde_json::json!({"state": STANDARD.encode(sync(&mut cx, id)), "text": text, "saved": saved.through_seq})).unwrap();
+            updates += 1;
+        }
+        assert!(child.wait().unwrap().success());
+        assert!(done);
+        assert_eq!(updates, 1020); // 1,000 edits + 20 transport retries.
+    }
+    #[test]
+    fn oversized_outside_event_never_records_a_bounded_prefix_as_a_version() {
+        let (disk, _, service, mut cx, id, _) = setup();
+        service.flush_all(&mut cx).unwrap();
+        service.poll(&mut cx).unwrap();
+        disk.0
+            .lock()
+            .unwrap()
+            .files
+            .insert("a.rs".into(), vec![b'x'; (1 << 20) + 1]);
+        assert_eq!(
+            service
+                .completed_write(&mut cx, "a.rs", &hooks::Actor::Outside)
+                .unwrap_err()
+                .code,
+            7
+        );
+        assert!(disk.0.lock().unwrap().versions.is_empty());
+        let doc = editor(&sync(&mut cx, id), 999);
+        assert_eq!(
+            doc.get_or_insert_text("content")
+                .get_string(&doc.transact()),
+            "abc"
+        );
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"].len(), (1 << 20) + 1);
+    }
+    #[test]
     fn unopened_text_write_compares_creates_and_reports_displaced_bytes() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
         let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
