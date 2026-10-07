@@ -110,6 +110,23 @@ func TestFlowLoadGuestRehearsal(t *testing.T) {
 		return
 	}
 	r.flowLoadBrowser(loaded, true)
+	r.step("3 Main sync provisions its bound wiki machine", "POST /api/github/sync; install workspace provisioning", "the current wiki workspace reaches running after main sync", "T-FLW-03", func() error {
+		for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
+			var id, status string
+			err := r.pool.QueryRow(r.ctx, `SELECT w.id,w.status FROM mythical_wikis k JOIN workspaces w ON w.id::text=k.workspace_id`).Scan(&id, &status)
+			if err == nil && status == "running" {
+				r.actual = "main sync retained the wiki binding and provisioned its machine"
+				return nil
+			}
+			if err == nil && status == "failed" {
+				return fmt.Errorf("bound wiki workspace %s failed provisioning", id)
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("bound wiki workspace did not reach running: %s %s (%v)", id, status, err)
+			}
+		}
+	})
+
 }
 
 func (r *rehearsal) flowLoadBrowser(active string, failed bool) bool {
@@ -142,22 +159,6 @@ func (r *rehearsal) flowLoadBrowser(active string, failed bool) bool {
 			return fmt.Errorf("composed Flow card browser: %w", err)
 		}
 		return nil
-	})
-	r.step("3 Main sync provisions its bound wiki machine", "POST /api/github/sync; install workspace provisioning", "the current wiki workspace reaches running after main sync", "T-FLW-03", func() error {
-		for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
-			var id, status string
-			err := r.pool.QueryRow(r.ctx, `SELECT w.id,w.status FROM mythical_wikis k JOIN workspaces w ON w.id::text=k.workspace_id`).Scan(&id, &status)
-			if err == nil && status == "running" {
-				r.actual = "main sync retained the wiki binding and provisioned its machine"
-				return nil
-			}
-			if err == nil && status == "failed" {
-				return fmt.Errorf("bound wiki workspace %s failed provisioning", id)
-			}
-			if time.Now().After(deadline) {
-				return fmt.Errorf("bound wiki workspace did not reach running: %s %s (%v)", id, status, err)
-			}
-		}
 	})
 
 }
