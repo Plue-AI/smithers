@@ -1029,13 +1029,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceRefDeleter(repoHostClient),
 		services.WithWorkspaceUserRefs(repoHostClient),
 		services.WithBranchHeads(repoHostClient),
-		services.WithBranchCapture(func(ctx context.Context, branch string) (string, error) {
-			if options.Machined == nil {
-				return "", machined.ErrNotReady
-			}
-			result, err := options.Machined.Capture(ctx, branch)
-			return result.Head, err
-		}),
+
 		services.WithWorkspaceSandboxMetrics(smithersMetrics),
 		services.WithWorkspaceGitBaseURL(workspaceGitBaseURL),
 		legacyWorkspaceSSHOption(cfg),
