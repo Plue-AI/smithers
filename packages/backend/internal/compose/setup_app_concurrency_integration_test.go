@@ -3,6 +3,7 @@ package compose
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"html"
 	"io"
 	"net/http"
@@ -137,10 +138,31 @@ func TestSetupBrowsersCreateOneGitHubAppPostgres(t *testing.T) {
 	for _, cookie := range append(browsers[winner], results[winner].cookies...) {
 		request.AddCookie(cookie)
 	}
+	// Lose the local completion after GitHub succeeded. The sealed external
+	// checkpoint survives; reconstruction must not exchange the code again.
+	_, err = pool.Exec(t.Context(), `CREATE FUNCTION interrupt_app_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='operation.completed' THEN RAISE EXCEPTION 'interrupted completion'; END IF; RETURN NEW; END $$; CREATE TRIGGER interrupt_app_completion BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION interrupt_app_completion()`)
+	require.NoError(t, err)
 	response, err = client.Do(request)
 	require.NoError(t, err)
 	response.Body.Close()
-	require.Equal(t, http.StatusSeeOther, response.StatusCode)
+	require.Equal(t, http.StatusInternalServerError, response.StatusCode)
+	var operation string
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT value->>'operation_id' FROM install_settings WHERE key='setup.step.app_manifest'`).Scan(&operation))
+	old := jobs.Claim{OperationID: operation, Scope: jobs.Scope{TenantID: "install", PrincipalID: "owner"}}
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT claim_token,generation,worker_id FROM product_job_dispatches WHERE operation_id=$1`, operation).Scan(&old.Token, &old.Generation, &old.WorkerID))
+	_, err = pool.Exec(t.Context(), `DROP TRIGGER interrupt_app_completion ON product_job_events; DROP FUNCTION interrupt_app_completion()`)
+	require.NoError(t, err)
+	restarted := services.NewGitHubAppManifestService(pool, services.NewGitHubAppCredentialStore(pool, codec), fake.URL, origins)
+	require.NoError(t, restarted.ReconcileConversion(t.Context()), "a live conversion keeps its fence")
+	_, err = pool.Exec(t.Context(), `UPDATE product_job_dispatches SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE operation_id=$1`, operation)
+	require.NoError(t, err)
+	require.NoError(t, restarted.ReconcileConversion(t.Context()))
+	jobStore, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	require.ErrorIs(t, jobStore.Complete(t.Context(), old, json.RawMessage(`{"stale":true}`)), jobs.ErrClaimLost)
+	var completions int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, operation).Scan(&completions))
+	require.Equal(t, 1, completions)
 	require.Len(t, fake.Writes(), 2, "one manifest creation and one conversion")
 	for _, key := range []string{"setup.step.app_manifest", "setup.projection.app_manifest"} {
 		var state string
