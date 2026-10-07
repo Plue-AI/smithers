@@ -24,11 +24,13 @@ import (
 )
 
 type conflictDoorProvider struct {
-	unresolved []string
-	signals    int
+	unresolved  []string
+	signals     int
+	validations int
 }
 
 func (p *conflictDoorProvider) UnresolvedPaths(context.Context, services.ConflictValidation) ([]string, error) {
+	p.validations++
 	return p.unresolved, nil
 }
 func (p *conflictDoorProvider) AdmitInTx(context.Context, pgx.Tx, flowdispatch.LaunchRequest) (jobs.RequestReceipt, error) {
@@ -75,10 +77,10 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
 	server.Start()
 	t.Cleanup(server.Close)
-	checks := `{"todo":true,"run_launched":true,"run_attached":true,"rebase":{"onto":"onto","name":"main"},"waits":[{"id":"conflict-1","kind":"conflict","paths":["a.txt"],"conflict_change":"change","onto_revision":"onto","signal":{"flow":"todo","run":"pinned-run","name":"conflict"}}]}`
+	checks := `{"todo":true,"run_launched":true,"run_attached":true,"flowSource":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rebase":{"onto":"onto","name":"main"},"waits":[{"id":"conflict-1","kind":"conflict","paths":["a.txt"],"conflict_change":"change","onto_revision":"onto","signal":{"flow":"todo","run":"pinned-run","name":"conflict"}}]}`
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,integration='{"conflict":{"head":"change","onto":"onto","paths":["a.txt"]}}' WHERE id=$1`, item.ID, checks)
 	require.NoError(t, err)
-	call := func(expected int, code string) {
+	call := func(t *testing.T, expected int, code string) {
 		t.Helper()
 		req, err := http.NewRequest("POST", origin+"/api/todos/1/answer", strings.NewReader(`{"wait":"conflict-1","answer":"done"}`))
 		require.NoError(t, err)
@@ -97,22 +99,53 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 			require.Equal(t, code, body["code"])
 		}
 	}
-	call(503, "conflict_validation_unavailable")
+	call(t, 503, "conflict_validation_unavailable")
 	service.SetConflictValidator(provider)
-	call(409, "still_conflicted")
+	// Missing or mismatched attempt providers refuse individually before native
+	// inspection or signal admission, with the person's retained wait unchanged.
+	for name, update := range map[string]string{
+		"workspace":        `workspace_id=''`,
+		"digest":           `flow_digest=NULL`,
+		"malformed digest": `flow_digest='not-a-pin'`,
+		"source":           `checks=checks-'flowSource'`,
+		"run":              `request_run_id=''`,
+		"signal":           `checks=checks #- '{waits,0,signal}'`,
+		"stale run":        `checks=jsonb_set(checks,'{waits,0,signal,run}','"another-run"')`,
+		"foreign flow":     `checks=jsonb_set(checks,'{waits,0,signal,flow}','"another-flow"')`,
+		"signal name":      `checks=jsonb_set(checks,'{waits,0,signal,name}','""')`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, "UPDATE mythical_items SET "+update+" WHERE id=$1", item.ID)
+			require.NoError(t, err)
+			before, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			validations := provider.validations
+			call(t, 503, "conflict_validation_unavailable")
+			require.Equal(t, validations, provider.validations)
+			after, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.JSONEq(t, string(before.Checks), string(after.Checks))
+			require.JSONEq(t, string(before.Integration), string(after.Integration))
+			require.Equal(t, before.CandidateHead, after.CandidateHead)
+			require.Zero(t, provider.signals)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='11111111-1111-4111-8111-111111111111',flow_digest=$2,request_run_id='pinned-run',checks=$3 WHERE id=$1`, item.ID, digest, checks)
+			require.NoError(t, err)
+		})
+	}
+	call(t, 409, "still_conflicted")
 	retained, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.JSONEq(t, checks, string(retained.Checks))
 	require.Zero(t, provider.signals)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{rebase,onto}','"new-target"') WHERE id=$1`, item.ID)
 	require.NoError(t, err)
-	call(409, "stale_conflict")
+	call(t, 409, "stale_conflict")
 	require.Zero(t, provider.signals)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, checks)
 	require.NoError(t, err)
 	provider.unresolved = nil
-	call(202, "")
-	call(202, "")
+	call(t, 202, "")
+	call(t, 202, "")
 	require.Equal(t, 1, provider.signals)
 	// Both branch doors are mounted and authorized, but the install has no
 	// native conflict/recovery provider. Neither request admits any rewrite.
