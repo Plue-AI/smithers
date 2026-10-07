@@ -1,8 +1,10 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,7 +68,10 @@ func TestFlowLoadGuestRehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.step("2 Broken flow retains Active", "GitHub main; POST /api/github/sync; GET /api/flows", "merged-failed with a file error; prior version stays Active", "T-FLW-03", func() error {
+	if !r.flowLoadBrowser(loaded, false) {
+		return
+	}
+	if !r.step("2 Broken flow retains Active", "GitHub main; POST /api/github/sync; GET /api/flows", "merged-failed with a file error; prior version stays Active", "T-FLW-03", func() error {
 		commit, err := r.pushGitHubMain("Break the TODO flow", map[string]string{"flows/todo/flow.ts": "export default (\n"})
 		if err != nil {
 			return err
@@ -101,6 +106,42 @@ func TestFlowLoadGuestRehearsal(t *testing.T) {
 				return fmt.Errorf("failed guest load did not settle: %s", r.flowLoadState())
 			}
 		}
+	}) {
+		return
+	}
+	r.flowLoadBrowser(loaded, true)
+}
+
+func (r *rehearsal) flowLoadBrowser(active string, failed bool) bool {
+	if os.Getenv("SMITHERS_FLOW_LOAD_BROWSER") != "1" {
+		return true
+	}
+	return r.step(fmt.Sprintf("Browser Flow card failed=%t", failed), "Chromium /flow todo; reload", "real served Active and load diagnostic survive reload", "T-FLW-03", func() error {
+		// Cookie's Go JSON fields differ from Playwright's; expose only the
+		// name and value of this owned fixture's authenticated session.
+		var wire []map[string]string
+		for _, cookie := range r.jar.Cookies(mustRehearsalURL(r.origin)) {
+			wire = append(wire, map[string]string{"name": cookie.Name, "value": cookie.Value})
+		}
+		cookies, err := json.Marshal(wire)
+		if err != nil {
+			return err
+		}
+		command := exec.CommandContext(r.ctx, "bun", "e2e/real/flow-load.browser.ts")
+		command.Dir = filepath.Join(r.root, "apps/app")
+		failure := "0"
+		if failed {
+			failure = "1"
+		}
+		command.Env = append(os.Environ(), "SMITHERS_FLOW_BROWSER_ORIGIN="+r.origin,
+			"SMITHERS_FLOW_BROWSER_ACTIVE="+active, "SMITHERS_FLOW_BROWSER_FAILED="+failure,
+			"SMITHERS_FLOW_BROWSER_COOKIES="+string(cookies))
+		output, err := command.CombinedOutput()
+		r.t.Log(string(output))
+		if err != nil {
+			return fmt.Errorf("composed Flow card browser: %w", err)
+		}
+		return nil
 	})
 	r.step("3 Main sync provisions its bound wiki machine", "POST /api/github/sync; install workspace provisioning", "the current wiki workspace reaches running after main sync", "T-FLW-03", func() error {
 		for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
