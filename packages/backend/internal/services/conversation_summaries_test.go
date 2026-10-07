@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -149,5 +150,55 @@ func TestConversationSummariesDurabilityAndStaleResult(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT extract(epoch FROM d.next_attempt_at-clock_timestamp())::float8 FROM product_job_dispatches d JOIN product_job_requests r ON r.id=d.operation_id WHERE r.operation=$1 ORDER BY r.created_at DESC LIMIT 1`, services.ConversationSummaryOperation).Scan(&quietDelay))
 	require.Greater(t, quietDelay, 0.0)
 	require.LessOrEqual(t, quietDelay, 1.0)
+
+	t.Run("sixty live events retain bounded cadence", func(t *testing.T) {
+		_, err = pool.Exec(ctx, `UPDATE chat_turns SET state='completed' WHERE id=$1`, admitted.TurnID)
+		require.NoError(t, err)
+		var calls atomic.Int64
+		summaries.Model = func(_ context.Context, _, _ int64, body json.RawMessage) (io.ReadCloser, error) {
+			if strings.Contains(string(body), "Cadence") {
+				calls.Add(1)
+			}
+			return io.NopCloser(strings.NewReader("{\"type\":\"delta\",\"kind\":\"text\",\"text\":\"Events summarized\"}\n{\"type\":\"done\"}\n")), nil
+		}
+		renew := func() {
+			_, e := pool.Exec(ctx, `UPDATE collaborators SET view_state=jsonb_build_object('main',jsonb_build_object('timeline_visible_until',$3::text)) WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner, time.Now().Add(30*time.Second).UTC().Format("2006-01-02T15:04:05.000Z"))
+			require.NoError(t, e)
+		}
+		renew()
+		accepted, e := store.Admit(ctx, chat.AdmitInput{Scope: scope, RunID: "cadence-run", Journal: chat.JournalRequest{Version: 1, LegID: "cadence-leg", Token: strings.Repeat("b", 64)}, Request: json.RawMessage(`{"sharedConversation":true,"conversationId":"main","runId":"cadence-run","messages":[{"role":"user","content":"Cadence"}]}`)})
+		require.NoError(t, e)
+		running, e := store.Claim(ctx, scope, accepted.TurnID, 5*time.Minute)
+		require.NoError(t, e)
+		active, stop := context.WithCancel(ctx)
+		workerDone := make(chan error, 1)
+		go func() {
+			workerDone <- jobStore.RunWorker(active, jobs.WorkerConfig{WorkerID: "summary-cadence", Capacity: 1, Lease: time.Minute, PollInterval: 10 * time.Millisecond, Operations: []string{services.ConversationSummaryOperation}}, summaries.Handle)
+		}()
+		defer func() { stop(); require.NoError(t, <-workerDone) }()
+		cursor := running.Cursor
+		first := time.Now()
+		for n := 1; n <= 60; n++ {
+			if n%15 == 0 {
+				renew()
+			}
+			result, e := store.Commit(ctx, chat.CommitInput{TurnID: running.TurnID, Generation: running.Generation, Token: running.Token, Expected: cursor, Frames: []json.RawMessage{json.RawMessage(fmt.Sprintf(`{"runId":"cadence-run","type":"delta","kind":"text","text":"event %d"}`, n))}})
+			require.NoError(t, e)
+			cursor = result.Cursor
+			// Continuous arrivals cannot starve the first thirty-second window.
+			if time.Since(first) > 32*time.Second {
+				require.Positive(t, calls.Load())
+			}
+			time.Sleep(time.Second)
+		}
+		last := time.Now()
+		require.Eventually(t, func() bool {
+			var revision int64
+			return pool.QueryRow(ctx, `SELECT summary_rev FROM chat_turns WHERE id=$1`, accepted.TurnID).Scan(&revision) == nil && revision == cursor.Position+1
+		}, 7*time.Second, 20*time.Millisecond)
+		require.Less(t, time.Since(last), 8*time.Second)
+		require.GreaterOrEqual(t, calls.Load(), int64(2))
+		require.LessOrEqual(t, calls.Load(), int64(4))
+	})
 
 }
