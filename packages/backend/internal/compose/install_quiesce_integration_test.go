@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +83,41 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
 	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}}
 	require.NoError(t, capacity.Set(ctx, owner.ID, 2))
+	// Exercise the production socket composition without a browser session.
+	if os.Getuid() != 0 {
+		require.NoError(t, os.Chmod(cfg.Install.StateDir, 0700))
+		closeHandoff, err := startInstallMaintenanceHandoff(ctx, cfg.Install.StateDir, pool, func(context.Context, io.Writer) error { return nil })
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, closeHandoff()) })
+		transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(cfg.Install.StateDir, "run/host.sock"))
+		}}
+		defer transport.CloseIdleConnections()
+		client := &http.Client{Transport: transport}
+		response, err := client.Post("http://install/maintenance/quiesce", "application/json", strings.NewReader(`{"op":"backup-cli"}`))
+		require.NoError(t, err)
+		body, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, 503, response.StatusCode)
+		require.Contains(t, string(body), "T-MCH-07 required")
+		var freezes int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
+		require.Zero(t, freezes)
+		response, err = client.Get("http://install/maintenance/check")
+		require.NoError(t, err)
+		body, err = io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, 503, response.StatusCode)
+		require.Contains(t, string(body), "T-MCH-07 required")
+		request, err := http.NewRequest("DELETE", "http://install/maintenance/quiesce", nil)
+		require.NoError(t, err)
+		response, err = client.Do(request)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, 204, response.StatusCode)
+	}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}})
 	request := func(method, path, token, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://localhost:4000"+path, strings.NewReader(body))

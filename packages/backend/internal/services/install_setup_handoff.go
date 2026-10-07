@@ -22,7 +22,7 @@ import (
 // A repeated read must replay the authority’s committed URLs without rotation.
 // There is no transport cache or token file. The owner authority determines
 // setup_closed, including claim-first reads, and clears its URLs during claim.
-func StartInstallSetupHandoff(ctx context.Context, stateDir string, emit func(context.Context, io.Writer) error) (func() error, error) {
+func StartInstallSetupHandoff(ctx context.Context, stateDir string, emit func(context.Context, io.Writer) error, maintenance ...http.Handler) (func() error, error) {
 	if emit == nil {
 		return nil, errors.New("setup URL authority unavailable")
 	}
@@ -69,13 +69,17 @@ func StartInstallSetupHandoff(ctx context.Context, stateDir string, emit func(co
 		return nil, err
 	}
 	server := &http.Server{
-		ReadHeaderTimeout: time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 2 * time.Second,
+		ReadHeaderTimeout: time.Second, WriteTimeout: 65 * time.Second, IdleTimeout: 2 * time.Second,
 		// The generic HTTP panic logger must never log owner-authority token bytes.
 		ErrorLog:    log.New(io.Discard, "", 0),
 		BaseContext: func(net.Listener) context.Context { return ctx },
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Content-Type", "application/json")
+			if (r.URL.Path == "/maintenance/quiesce" || r.URL.Path == "/maintenance/check") && len(maintenance) == 1 && maintenance[0] != nil {
+				maintenance[0].ServeHTTP(w, r)
+				return
+			}
 			if r.URL.Path != "/setup-urls" {
 				http.NotFound(w, r)
 				return

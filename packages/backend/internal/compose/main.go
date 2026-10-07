@@ -1677,7 +1677,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			return fmt.Errorf("mint setup authority: %w", err)
 		}
 		if stateDir := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR")); *setupHandoff == "socket" {
-			closeHandoff, err := services.StartInstallSetupHandoff(ctx, stateDir, authService.InstallSetup.Emit)
+			closeHandoff, err := startInstallMaintenanceHandoff(ctx, stateDir, pool, authService.InstallSetup.Emit)
 			if err != nil {
 				return fmt.Errorf("start setup handoff: %w", err)
 			}
