@@ -60,7 +60,8 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{"http://example.com"}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Setup: &services.InstallSetupService{Pool: pool}, Owners: q, Roster: q, Origins: middleware.FixedOrigins("http://example.com")})
 	// This is the production composition's model mount, on the install router.
-	mountModelPublic(router.(chi.Router), modelhost.OwnerModels{Pool: pool}, q, cfg)
+	seatsSource := &configSnapshotSource{}
+	mountModelPublic(router.(chi.Router), modelhost.OwnerModels{Pool: pool}, q, cfg, seatsSource)
 	call := func(person, method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "http://example.com"+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -144,6 +145,33 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 	recent = call("alice", "GET", "/api/agents", "")
 	require.NoError(t, json.Unmarshal(recent.Body.Bytes(), &recentPayload))
 	require.Empty(t, recentPayload.Agents[2].Runs)
+	// Only successfully activated repository declarations override their roles.
+	seatsSource.config = `{"seats":{"coding/review":"openai:repository-review"}}`
+	unactivated := call("alice", "GET", "/api/agents", "")
+	require.NotContains(t, unactivated.Body.String(), "repository-review")
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: fmt.Sprintf("agent.instructions.main:%d", repo.ID), Value: []byte(`"` + strings.Repeat("a", 40) + `"`)}))
+	activated := call("alice", "GET", "/api/agents", "")
+	require.Equal(t, 200, activated.Code, activated.Body.String())
+	var overlay struct {
+		Agents []struct {
+			ID    string `json:"id"`
+			Model struct {
+				ID string `json:"id"`
+			} `json:"model"`
+			Source string `json:"source"`
+		} `json:"agents"`
+	}
+	require.NoError(t, json.Unmarshal(activated.Body.Bytes(), &overlay))
+	require.Equal(t, "repository-review", overlay.Agents[2].Model.ID)
+	require.Equal(t, "repository", overlay.Agents[2].Source)
+	require.Equal(t, "model-a", overlay.Agents[0].Model.ID)
+	require.Equal(t, "owner", overlay.Agents[0].Source)
+	require.Equal(t, "model-a", overlay.Agents[3].Model.ID)
+	seatsSource.config = `{"seats":{"coding/plan":"auto"}}`
+	automatic := call("alice", "GET", "/api/agents", "")
+	require.Equal(t, 200, automatic.Code, automatic.Body.String())
+	require.Contains(t, automatic.Body.String(), `"id":"auto"`)
+	seatsSource.config = ""
 	const fast = `{"protocol":"openai-chat","modelId":"model-f","credential":"CEREBRAS_API_KEY","baseUrl":"https://api.cerebras.ai"}`
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:fast", Value: []byte(fast)}))
 	_, err = pool.Exec(ctx, `INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) VALUES($1,'CEREBRAS_API_KEY','https://api.cerebras.ai','sealed-fixture')`, owner.ID)

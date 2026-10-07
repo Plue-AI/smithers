@@ -1883,7 +1883,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			ownerModels.Tester = tester
 			modelTests = &ownerModels
 		}
-		mountModelPublic(router, ownerModels, queries, cfg)
+		mountModelPublic(router, ownerModels, queries, cfg, repositorySourceFiles{client: repoHostClient})
 	}
 	if root := strings.TrimSpace(os.Getenv("SMITHERS_WEB_ROOT")); root != "" {
 		mode := webapp.SelfHosted
