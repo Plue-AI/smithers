@@ -602,7 +602,7 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
 				require.NoError(t, err)
 				req.Host = "example.com"
-				if mode == config.AuthModeSelfHosted && path != "/api/workflow/rpc" {
+				if mode == config.AuthModeSelfHosted {
 					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
 					req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "cuts-csrf"})
 					req.Header.Set("Origin", config.PublicOrigin(cfg))
