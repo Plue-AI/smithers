@@ -2364,15 +2364,17 @@ type PostAPITerminalsBody struct {
 	Branch string `json:"branch"`
 }
 
+// PostAPITerminalsResponse is generated from docs/api/openapi.yaml.
+type PostAPITerminalsResponse struct {
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	UserID      int64  `json:"user_id"`
+	Status      string `json:"status"`
+}
+
 // PostAPIStackAttentionIDResponse is generated from docs/api/openapi.yaml.
 type PostAPIStackAttentionIDResponse struct {
 	State string `json:"state"`
-}
-
-// PostAPITerminalsResponse is generated from docs/api/openapi.yaml.
-type PostAPITerminalsResponse struct {
-	ID     string `json:"id"`
-	Branch string `json:"branch"`
 }
 
 // PostAPITodosBody is generated from docs/api/openapi.yaml.
@@ -5881,9 +5883,9 @@ func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 }
 
 // PostAPITerminals calls POST /api/terminals.
-func (c *Client) PostAPITerminals(ctx context.Context, body PostAPITerminalsBody) (PostAPITerminalsResponse, error) {
+func (c *Client) PostAPITerminals(ctx context.Context, idempotencyKey string, body PostAPITerminalsBody) (PostAPITerminalsResponse, error) {
 	var out PostAPITerminalsResponse
-	err := c.do(ctx, "POST", "/api/terminals", nil, body, &out)
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/terminals", nil, body, &out)
 	return out, err
 }
 
