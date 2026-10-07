@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,15 +14,25 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
 // Only the machine RPC is recorded: the mounted relay, cookie/CSRF middleware,
 // PostgreSQL workspace lookup and renewed host authority are production code.
 func TestBrowserFlowDraftComposedAdmission(t *testing.T) {
-	b := newRelayBoxes(t)
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	b := newRelayBoxesIn(t, pool)
+	b.exec(`INSERT INTO self_host_owners(user_id) VALUES($1)`, b.owner)
+	for key, value := range map[string]string{
+		"github.repository": fmt.Sprintf(`{"owner_login":%q,"repository_name":"repo","repository_id":%d}`, b.login, b.repo.ID),
+		"owner.access":      fmt.Sprintf(`{"owner_login":%q,"repository_name":"repo","repository_id":%d,"last_access_check_at":%q}`, b.login, b.repo.ID, time.Now().UTC().Format(time.RFC3339)),
+	} {
+		require.NoError(t, b.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: key, Value: []byte(value)}))
+	}
 	box := b.box(b.repo, b.owner, "running")
 	b.exec(`UPDATE workspaces SET target_bookmark='scratch/owner/draft' WHERE id=$1`, box)
 	cookie := "draft-session-" + box
@@ -32,9 +43,11 @@ func TestBrowserFlowDraftComposedAdmission(t *testing.T) {
 	api := b.api()
 	api.dispatcher = dispatcher
 	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = config.AuthModeSelfHosted
 	cfg.Auth.SessionCookieName = "session"
 	router := chi.NewRouter()
 	mountBrowserFlow(router, cfg, b.Queries, api)
+	require.True(t, api.install)
 	call := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/workflow/rpc", strings.NewReader(b.body(b.repo, box, "Plan", `{"flowId":"todo","input":{}}`)))
 		req.AddCookie(&http.Cookie{Name: "session", Value: cookie})

@@ -43,7 +43,11 @@ type relayBoxes struct {
 
 func newRelayBoxes(t *testing.T) *relayBoxes {
 	t.Helper()
-	pool := composeTestDatabase.Pool(t)
+	return newRelayBoxesIn(t, composeTestDatabase.Pool(t))
+}
+
+func newRelayBoxesIn(t *testing.T, pool *pgxpool.Pool) *relayBoxes {
+	t.Helper()
 	ctx := t.Context()
 	b := &relayBoxes{Queries: db.New(pool), t: t, pool: pool, canWrite: true,
 		login: "relay-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]}
