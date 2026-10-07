@@ -98,7 +98,7 @@ func TestBoundInstallAuthorization(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, decision, got)
 	// A dispatcher must not reuse read authority for another command.
-	_, err = Authorize(ctx, nil, "secrets.write")
+	_, err = Authorize(ctx, nil, "secrets.set")
 	assert.Error(t, err)
 	// A replacement credential for the same person gets a fresh decision.
 	replacement := &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "replacement"}
@@ -139,8 +139,8 @@ func TestInstallCommandCatalogPolicies(t *testing.T) {
 		{"branch.discard-foreign", "maintainer", "confirm", []string{"person", "app_agent"}},
 		{"learning.accept", "member", "confirm", []string{"person", "app_agent"}},
 		{"todo.takeover", "maintainer", "never", []string{"person"}},
-		{"members.write", "maintainer", "never", []string{"person"}},
-		{"secrets.write", "maintainer", "never", []string{"person"}},
+		{"members.add", "maintainer", "never", []string{"person"}},
+		{"secrets.set", "maintainer", "never", []string{"person"}},
 		{"settings.parallel", "owner", "never", []string{"person"}},
 	} {
 		t.Run(tt.command, func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestInstallCommandCatalogPolicies(t *testing.T) {
 }
 
 func TestTerminalProfileCannotUsePersonOnlyCommands(t *testing.T) {
-	for _, command := range []string{"members.list", "members.write", "secrets.read", "secrets.write", "install.read", "settings.parallel", "confirmations.read"} {
+	for _, command := range []string{"members.list", "members.add", "secrets.read", "secrets.set", "install.read", "settings.parallel", "confirmations.read"} {
 		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,via:terminal,branch:own,profile:terminal_s1"}
 		_, err := Authorize(middleware.ContextWithAuthInfo(context.Background(), info), nil, command)
 		var refusal *AccessError
@@ -170,7 +170,7 @@ func TestTerminalProfileCannotUsePersonOnlyCommands(t *testing.T) {
 func TestInstallCommandCatalogScopes(t *testing.T) {
 	for _, tt := range []struct{ command, scope string }{
 		{"todo.new", "write:repository"}, {"todo.read", "read:repository"}, {"members.list", "read:repository"},
-		{"secrets.write", "write:repository"}, {"self.read", "read:user"}, {"agent.turn", "read:user"}, {"telemetry.report", "read:user"},
+		{"secrets.set", "write:repository"}, {"self.read", "read:user"}, {"agent.turn", "read:user"}, {"telemetry.report", "read:user"},
 	} {
 		policy, ok := installCommandPolicy(tt.command)
 		assert.True(t, ok)
@@ -179,7 +179,7 @@ func TestInstallCommandCatalogScopes(t *testing.T) {
 }
 
 func TestMalformedDelegatedActorCannotRequestPersonAuthority(t *testing.T) {
-	for _, command := range []string{"members.write", "secrets.write", "todo.new", "todo.read"} {
+	for _, command := range []string{"members.add", "secrets.set", "todo.new", "todo.read"} {
 		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:unknown_tool", Scopes: middleware.ParseTokenScopes("write:repository")}
 		_, err := Authorize(middleware.ContextWithAuthInfo(context.Background(), info), nil, command)
 		var access *AccessError

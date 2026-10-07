@@ -294,10 +294,6 @@ func (r InstallRole) rank() int {
 // No role, actor or delegation policy is declared in the backend.
 func installCommandPolicy(command string) (CatalogPolicy, bool) {
 	switch command {
-	case "members.write":
-		command = "members.add"
-	case "secrets.write":
-		command = "secrets.set"
 	case "branch.join":
 		command = "branch"
 	}

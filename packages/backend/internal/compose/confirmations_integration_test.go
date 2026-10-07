@@ -183,8 +183,8 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 		{`{"command":"todo.read"}`, 403, "permission"},
 		{`{"command":"todo.steer"}`, 403, "permission"},
 		{`{"command":"stack.move"}`, 403, "permission"},
-		{`{"command":"members.write"}`, 403, "never"},
-		{`{"command":"secrets.write"}`, 403, "never"},
+		{`{"command":"members.add"}`, 403, "never"},
+		{`{"command":"secrets.set"}`, 403, "never"},
 		{`{"command":"settings.parallel"}`, 403, "never"},
 		{`{"command":"merge"}`, 503, "confirmation_unavailable"},
 	} {
@@ -295,7 +295,7 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	w = call("POST", "/api/confirmations", "", token, "refused-create", `{"command":"merge"}`)
 	require.Equal(t, 403, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"code":"permission"`)
-	w = call("POST", "/api/confirmations", "", token, "refused-create", `{"command":"members.write"}`)
+	w = call("POST", "/api/confirmations", "", token, "refused-create", `{"command":"members.add"}`)
 	require.Equal(t, 403, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"code":"permission"`)
 	// Killing the creating credential refuses before interpreting a replay.
