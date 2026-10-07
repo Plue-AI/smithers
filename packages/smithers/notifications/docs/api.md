@@ -42,7 +42,8 @@ Journal-backed durable admission and turn-boundary drain. Import from
 interface Service {
   readonly admit: (
     runId: string,
-    notification: Notification.Notification
+    notification: Notification.Notification,
+    version?: number
   ) => Effect.Effect<AdmissionReceipt, Journal.JournalError | NotificationError>
   readonly drain: (
     input: DrainInput
@@ -429,3 +430,10 @@ this keeps other producers' records out; it does not authenticate the writer.
 
 See [`@smthrs/control`](/api/control) for the run conditions the entries come
 from.
+
+Versioned human steers use a positive safe integer. A higher version replaces the
+pending payload at its original position, with the same owner and delivery
+binding. Promotion consumes the input: a later version returns `consumed: true`
+with the consumed notification, without writing or changing the delivered payload. Older versions are no-ops;
+reusing a version with different content refuses. Replacement and drain share
+the journal transaction, including rollback and cross-process serialization.

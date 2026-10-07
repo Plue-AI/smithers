@@ -28,6 +28,7 @@ func TestTodoSteerReauthorizesBeforeWakeAndDelivery(t *testing.T) {
 			runtime.status = "waiting"
 			var checks, resolves atomic.Int32
 			request := testSteerRequest()
+			request.InputVersion = 2
 			request.FlowID = "todo"
 			service, err := New(Config{Store: store,
 				Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
@@ -55,6 +56,7 @@ func TestTodoSteerReauthorizesBeforeWakeAndDelivery(t *testing.T) {
 			if revokeAt == 0 {
 				require.Equal(t, jobs.StateCompleted, result.State)
 				require.Len(t, runtime.steers, 1)
+				require.EqualValues(t, 2, runtime.steers[0].InputVersion)
 				require.EqualValues(t, 2, checks.Load())
 			} else {
 				require.Equal(t, jobs.StateFailed, result.State)
@@ -117,19 +119,21 @@ func testSteerRequest() SteerRequest {
 
 func TestSteerAdmissionRejectsInvalidInputs(t *testing.T) {
 	cases := map[string]func(*SteerRequest){
-		"request":         func(r *SteerRequest) { r.RequestID = " " },
-		"flow":            func(r *SteerRequest) { r.FlowID = " " },
-		"run":             func(r *SteerRequest) { r.RunID = " " },
-		"message":         func(r *SteerRequest) { r.MessageID = " " },
-		"body":            func(r *SteerRequest) { r.Body = " \n" },
-		"negative time":   func(r *SteerRequest) { r.CreatedAt = -1 },
-		"nan":             func(r *SteerRequest) { r.CreatedAt = math.NaN() },
-		"infinite time":   func(r *SteerRequest) { r.CreatedAt = math.Inf(1) },
-		"other tenant":    func(r *SteerRequest) { r.Target.TenantID = "other" },
-		"other principal": func(r *SteerRequest) { r.Target.PrincipalID = "other" },
-		"binding kind":    func(r *SteerRequest) { r.Target.BindingKind = "" },
-		"binding id":      func(r *SteerRequest) { r.Target.BindingID = "" },
-		"projection":      func(r *SteerRequest) { r.Projection = json.RawMessage(`{`) },
+		"negative version": func(r *SteerRequest) { r.InputVersion = -1 },
+		"unsafe version":   func(r *SteerRequest) { r.InputVersion = 9007199254740992 },
+		"request":          func(r *SteerRequest) { r.RequestID = " " },
+		"flow":             func(r *SteerRequest) { r.FlowID = " " },
+		"run":              func(r *SteerRequest) { r.RunID = " " },
+		"message":          func(r *SteerRequest) { r.MessageID = " " },
+		"body":             func(r *SteerRequest) { r.Body = " \n" },
+		"negative time":    func(r *SteerRequest) { r.CreatedAt = -1 },
+		"nan":              func(r *SteerRequest) { r.CreatedAt = math.NaN() },
+		"infinite time":    func(r *SteerRequest) { r.CreatedAt = math.Inf(1) },
+		"other tenant":     func(r *SteerRequest) { r.Target.TenantID = "other" },
+		"other principal":  func(r *SteerRequest) { r.Target.PrincipalID = "other" },
+		"binding kind":     func(r *SteerRequest) { r.Target.BindingKind = "" },
+		"binding id":       func(r *SteerRequest) { r.Target.BindingID = "" },
+		"projection":       func(r *SteerRequest) { r.Projection = json.RawMessage(`{`) },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {

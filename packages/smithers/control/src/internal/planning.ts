@@ -174,9 +174,15 @@ export const alreadyApplied = (key: IdempotencyKey, receipt: Receipt): Receipt =
   const runId = receipt._tag === "Accepted" || receipt._tag === "AlreadyApplied" || receipt._tag === "Terminal"
     ? receipt.runId
     : undefined
+  const input = receipt._tag === "Accepted" || receipt._tag === "AlreadyApplied"
+    ? {
+      ...(receipt.inputConsumed === undefined ? {} : { inputConsumed: receipt.inputConsumed }),
+      ...(receipt.inputBody === undefined ? {} : { inputBody: receipt.inputBody })
+    }
+    : {}
   return runId === undefined
-    ? { _tag: "AlreadyApplied", receiptId }
-    : { _tag: "AlreadyApplied", receiptId, runId }
+    ? { _tag: "AlreadyApplied", receiptId, ...input }
+    : { _tag: "AlreadyApplied", receiptId, runId, ...input }
 }
 
 /**
