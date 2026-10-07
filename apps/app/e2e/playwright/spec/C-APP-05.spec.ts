@@ -27,6 +27,6 @@ test("C-APP-05: a host turn replays after its author closes the tab", async ({ p
   await installCloudFixture(returned, { capabilities: ["install", "identity", "agent"] })
   await mountConversation(returned)
   await returned.goto("/")
-  await expect(returned.getByText("Repository summary.", { exact: true })).toBeVisible()
+  await expect(returned.getByTestId("transcript").getByText("Repository summary.", { exact: true })).toBeVisible()
   expect(writes).toBe(1)
 })
