@@ -188,22 +188,15 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 			if object.Deleted {
 				change = "deleted"
 			}
-			// Once a durable runtime intent exists, edits are activity-only: replacing
-			// an in-flight keyed remote effect would violate at-most-once delivery.
-			consumed := priorSteer >= 0 && !held
-			if priorSteer >= 0 {
-				var intent bool
-				if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests WHERE operation='flow.runtime.steer' AND request_id=$1)`, "todo-steer:"+checks.Steers[priorSteer].ID).Scan(&intent); err != nil {
-					return nil, err
-				}
-				consumed = consumed || intent
-			}
+			// Runtime turn-boundary promotion owns consumption. Versioned edits
+			// replace the pending input atomically there; admission is not consumption.
+			consumed := priorSteer >= 0 && checks.Steers[priorSteer].InputConsumed
 			decision := decideGitHubFact(mythicalGitHubFact{Kind: kind, Review: &gitHubReviewFact{State: object.State, Change: change, ActiveMember: active, OwnApp: ownApp, Duplicate: duplicate, Stale: stale, Held: held, Consumed: consumed, Empty: strings.TrimSpace(text) == ""}}, mythicalGitHubFactItem{State: todoState(item)}, s.now())
 			if decision.Review == nil {
 				continue
 			}
 			effect := decision.Review
-			reopened := effect.Input == "steer" && todoReopenedAttempt(item) && item.State == "proposed"
+			reopened := (priorSteer < 0 || held) && effect.Input == "steer" && todoReopenedAttempt(item) && item.State == "proposed"
 			_, ready := s.launcher.(mythicalSteerer)
 			if effect.Input == "steer" || effect.Input == "hold" {
 				if !s.todoSteering || s.todoFlow == nil || !ready {
@@ -233,17 +226,26 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 			}
 			var feedback todoSteer
 			if (effect.Input == "steer" || effect.Input == "hold") && strings.TrimSpace(text) != "" {
-				feedback = todoSteer{ID: uuid.NewString(), Request: "github:" + key, Credential: "github", GitHubAuthor: object.User.ID, Author: personID, Text: text, By: actor, Attribution: attribution, At: s.now().UTC(), Attempt: item.Attempt, ReleasePending: effect.Input == "hold" || reopened}
+				feedback = todoSteer{InputVersion: 1, ID: uuid.NewString(), Request: "github:" + key, Credential: "github", GitHubAuthor: object.User.ID, Author: personID, Text: text, By: actor, Attribution: attribution, At: s.now().UTC(), Attempt: item.Attempt, ReleasePending: effect.Input == "hold" || reopened}
 				if reopened || item.State == "blocked" || item.State == "queued" || item.State == "retrying" {
 					feedback.Attempt++
 				}
 				if priorSteer >= 0 {
 					feedback.ID = checks.Steers[priorSteer].ID
+					if !held {
+						feedback.Text, feedback.EditText = checks.Steers[priorSteer].Text, text
+						feedback.Attempt, feedback.ReleasePending = checks.Steers[priorSteer].Attempt, false
+						effect.Input = "steer"
+					}
+					feedback.InputVersion = checks.Steers[priorSteer].InputVersion + 1
+					if feedback.InputVersion < 2 {
+						feedback.InputVersion = 2
+					}
 					checks.Steers[priorSteer] = feedback
 				} else {
 					checks.Steers = append(checks.Steers, feedback)
 				}
-				if effect.Input == "steer" {
+				if effect.Input == "steer" && (priorSteer < 0 || held) {
 					checks.Land = nil
 					next.CandidateVerified = false
 					if decision.Event == "working" && !reopened {

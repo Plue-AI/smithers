@@ -40,6 +40,7 @@ import (
 type reviewFixtureReceiver struct {
 	flowruntime.Runtime
 	mu       sync.Mutex
+	consumed bool
 	messages map[string]flowruntime.Steer
 }
 
@@ -53,11 +54,14 @@ func (r *reviewFixtureReceiver) Steer(_ context.Context, input flowruntime.Steer
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	tag := "Accepted"
-	if _, applied := r.messages[input.MessageID]; applied {
+	prior, applied := r.messages[input.MessageID]
+	if applied && (r.consumed || input.InputVersion <= prior.InputVersion) {
 		tag = "AlreadyApplied"
+	} else {
+		r.messages[input.MessageID] = input
 	}
-	r.messages[input.MessageID] = input
-	return flowruntime.MutationResult{Operation: "steer", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: tag, ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
+	effective := r.messages[input.MessageID].Body
+	return flowruntime.MutationResult{Operation: "steer", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: tag, ReceiptID: input.ApplicationRequestID, RunID: input.RunID, InputConsumed: r.consumed, InputBody: &effective}}, nil
 }
 
 func TestGitHubCommentSteerThroughComposedInstall(t *testing.T) {
@@ -80,6 +84,14 @@ func TestGitHubCommentSteerCommitRecovery(t *testing.T) {
 	for _, checkpoint := range []string{"before-commit", "after-commit"} {
 		t.Run(checkpoint, func(t *testing.T) { testGitHubCommentSteerThroughComposedInstall(t, checkpoint) })
 	}
+}
+
+func TestGitHubConsumedCommentEditIsActivityOnly(t *testing.T) {
+	testGitHubCommentSteerThroughComposedInstall(t, "consumed-edit")
+}
+
+func TestGitHubCommentEditBeforeRuntimeDelivery(t *testing.T) {
+	testGitHubCommentSteerThroughComposedInstall(t, "edited")
 }
 
 type reviewWakeUnavailable struct{}
@@ -141,7 +153,7 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	require.NoError(t, err)
 	var wakeAvailable atomic.Bool
 	var wakeCalls atomic.Int64
-	wakeAvailable.Store(revocation == "" || revocation == "before-commit")
+	wakeAvailable.Store(revocation == "" || revocation == "before-commit" || revocation == "consumed-edit")
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
 		wakeCalls.Add(1)
 		if !wakeAvailable.Load() {
@@ -221,13 +233,13 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 		unchanged, readErr := q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, readErr)
 		require.Equal(t, "proposed", unchanged.State)
-		require.NotContains(t, string(unchanged.Checks), "github_inputs")
+		require.NotContains(t, string(unchanged.Checks), "githubInputs")
 		require.Zero(t, wakeCalls.Load())
 		_, err = pool.Exec(ctx, `DROP TRIGGER refuse_review_commit ON product_job_events`)
 		require.NoError(t, err)
 		hint()
 	}
-	if revocation != "" && revocation != "before-commit" {
+	if revocation != "" && revocation != "before-commit" && revocation != "consumed-edit" {
 
 		// Admission and the unavailable-runtime checkpoint are committed before
 		// revocation. The real dispatcher must recheck authority before retrying wake.
@@ -239,7 +251,25 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 		receiver.mu.Lock()
 		require.Empty(t, receiver.messages, "missing runtime cannot fall back to host execution")
 		receiver.mu.Unlock()
-		if revocation == "runtime-restored" || revocation == "after-commit" {
+		if revocation == "edited" {
+			require.True(t, upstream.UpdateComment("owner/app", comment, "Use the corrected backoff helper", time.Now()))
+			hint()
+			upstream.UpdatePull("owner/app", 1, func(p *githubfake.Pull) {
+				p.Repository, p.ID, p.Number, p.State = "owner/app", 101, 1, "open"
+				p.Head.SHA, p.Head.Ref, p.Base.Ref = "head", "smithers/review", "main"
+			})
+			row, readErr := q.GetGitHubSyncedRepo(ctx, db.GetGitHubSyncedRepoParams{OwnerLogin: "owner", RepoName: "app"})
+			require.NoError(t, readErr)
+			_, err = pool.Exec(ctx, `INSERT INTO github_synced_issues(synced_repo_id,resource,github_id,number,payload) VALUES($1,'pulls',101,1,$2::jsonb) ON CONFLICT(synced_repo_id,resource,number) DO UPDATE SET payload=EXCLUDED.payload`, row.ID, `{"id":101,"number":1,"head":{"sha":"head"}}`)
+			require.NoError(t, err)
+			require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
+			require.Eventually(t, func() bool {
+				var count int
+				err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&count)
+				return err == nil && count == 2
+			}, 10*time.Second, 10*time.Millisecond)
+		}
+		if revocation == "runtime-restored" || revocation == "after-commit" || revocation == "edited" {
 			wakeAvailable.Store(true)
 		} else {
 			switch revocation {
@@ -298,17 +328,28 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	var card map[string]any
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &card))
 	require.Equal(t, "working", card["state"])
-	require.Contains(t, response.Body.String(), "Use the existing backoff helper")
+	expectedBody := "Use the existing backoff helper"
+	if revocation == "edited" {
+		expectedBody = "Use the corrected backoff helper"
+	}
+	require.Contains(t, response.Body.String(), expectedBody)
 	require.NotContains(t, response.Body.String(), "FORGED WEBHOOK BODY")
 	receiver.mu.Lock()
 	for _, message := range receiver.messages {
-		require.Equal(t, "Use the existing backoff helper", message.Body)
+		require.Equal(t, expectedBody, message.Body)
+		if revocation == "edited" {
+			require.EqualValues(t, 2, message.InputVersion)
+		}
 		require.Equal(t, map[string]string{"person": "owner"}, message.Attribution)
 	}
 	receiver.mu.Unlock()
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input'`).Scan(&count))
-	require.Equal(t, 1, count)
+	expectedEvents := 1
+	if revocation == "edited" {
+		expectedEvents = 2
+	}
+	require.Equal(t, expectedEvents, count)
 	// Drive the same guarded review read used by the production TODO worker.
 	// The signed hints and incremental stream above admitted the original input;
 	// only a complete PR conversation snapshot may now prove its deletion.
@@ -321,6 +362,36 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	_, err = pool.Exec(ctx, `INSERT INTO github_synced_issues(synced_repo_id,resource,github_id,number,payload) VALUES($1,'pulls',101,1,$2::jsonb) ON CONFLICT(synced_repo_id,resource,number) DO UPDATE SET payload=EXCLUDED.payload`, row.ID, `{"id":101,"number":1,"head":{"sha":"head"}}`)
 	require.NoError(t, err)
 	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
+	if revocation == "consumed-edit" {
+		receiver.mu.Lock()
+		receiver.consumed = true
+		receiver.mu.Unlock()
+		settled, readErr := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, readErr)
+		settled.State = "proposed"
+		_, err = q.SaveMythicalItem(ctx, settled)
+		require.NoError(t, err)
+		require.True(t, upstream.UpdateComment("owner/app", comment, "Changed after consumption", time.Now()))
+		require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
+		require.Eventually(t, func() bool {
+			var completed int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND state='completed'`).Scan(&completed)
+			return err == nil && completed == 2
+		}, 10*time.Second, 10*time.Millisecond)
+		request := httptest.NewRequest("GET", "/api/todos/1", nil).WithContext(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"}))
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		require.Contains(t, response.Body.String(), `"state":"in_review"`)
+		receiver.mu.Lock()
+		for _, message := range receiver.messages {
+			require.Equal(t, "Use the existing backoff helper", message.Body)
+		}
+		receiver.mu.Unlock()
+		settled, err = q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Contains(t, string(settled.Checks), `"input_consumed": true`)
+	}
 	require.True(t, upstream.DeleteComment("owner/app", comment))
 	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
 	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
@@ -334,5 +405,9 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	require.Len(t, receiver.messages, 1, "deletion after delivery never repeats or retracts an effective steer")
 	receiver.mu.Unlock()
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&count))
-	require.Equal(t, 1, count)
+	expectedIntents := 1
+	if revocation == "edited" || revocation == "consumed-edit" {
+		expectedIntents = 2
+	}
+	require.Equal(t, expectedIntents, count)
 }

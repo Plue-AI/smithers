@@ -1836,7 +1836,7 @@ export const layer: Layer.Layer<
                     ...(input.message.attribution === undefined ? {} : { attribution: input.message.attribution })
                   },
                   payload: SteerPayload.encode(item)
-                }).pipe(
+                }, input.version).pipe(
                   Effect.mapError((cause) =>
                     cause instanceof NotificationQueue.NotificationError ? cause : new PersistenceError({
                       operation: "control.steer.notification",
@@ -1845,6 +1845,22 @@ export const layer: Layer.Layer<
                     })
                   )
                 )
+                const inputReceipt = (): Receipt => {
+                  if (input.version === undefined || item.kind !== "Message") {
+                    return accepted(input.idempotencyKey, input.runId)
+                  }
+                  const payload = admission.consumedNotification?.payload as { body?: string } | undefined
+                  return {
+                    _tag: "Accepted",
+                    receiptId: input.idempotencyKey,
+                    runId: input.runId,
+                    inputConsumed: admission.consumed === true,
+                    inputBody: payload?.body ?? item.body
+                  }
+                }
+                if (input.version !== undefined && (admission.consumed || admission.duplicate)) {
+                  return inputReceipt()
+                }
                 if (admission.decision === "rejected-full") {
                   return yield* Effect.fail(
                     new NotificationQueue.NotificationError({
@@ -1865,7 +1881,7 @@ export const layer: Layer.Layer<
                   createdAt: input.message.createdAt
                 })
                 yield* wake(run, input.message.messageId)
-                return accepted(input.idempotencyKey, input.runId)
+                return inputReceipt()
               })
             ))
         )
