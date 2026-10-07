@@ -120,7 +120,7 @@ const commandPaths = new Set([
 // B.6 plus Appendix A person-facing commands; manifest stays agent-filtered.
 const { catalogCommands } = await import(join(root, "packages/smithers/src/internal/backend/Catalog.ts"))
 const humanCommands = catalogCommands.filter(row => row.cli !== null && row.actors.includes("person") &&
-  (row.visibility === "core" || row.visibility === "advanced" || row.name === "debug.api")).map(row => ({ name: row.cli.join(" ") }))
+  (row.visibility === "core" || row.visibility === "advanced")).map(row => ({ name: row.cli.join(" ") }))
 for (const command of [...manifest.commands, ...humanCommands]) {
   const tokens = command.name.split(" ")
   if (tokens.some((token) => !/^[a-z][a-z0-9-]*$/.test(token))) throw new Error(`Invalid command path ${command.name}`)

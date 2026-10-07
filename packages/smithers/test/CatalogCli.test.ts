@@ -211,12 +211,12 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
     "confirm",
     "--confirmation",
     "stale"
-  ]])("refuses raw API invocation before transport: %s", async (...args) => {
+  ]])("rejects the UI-only playground CLI alias before transport: %s", async (...args) => {
     const f = await fixture()
     try {
       const result = await f.invoke(["debug", "api", ...args])
       expect(result.exitCode).toBe(1)
-      expect(JSON.parse(result.stdout)).toMatchObject({ class: "never", code: "never" })
+      expect(JSON.parse(result.stdout)).toMatchObject({ code: "COMMAND_NOT_FOUND" })
       expect(f.seen).toEqual([])
       expect(result.stdout).not.toContain("test-delegated-token")
     } finally {

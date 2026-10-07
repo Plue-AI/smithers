@@ -124,6 +124,75 @@
                 "null"
               ]
             },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "acceptance": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "after": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "before": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "branch",
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "branch archive",
+      "description": "Archive a scratch branch; waits for the person's confirmation",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
@@ -193,6 +262,28 @@
           "properties": {
             "branch": {
               "type": "string"
+            },
+            "conflict_change": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "onto_revision": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "verbose": {
               "default": false,
@@ -737,6 +828,12 @@
               ]
             },
             "sourceCard": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspaceId": {
               "type": [
                 "string",
                 "null"

@@ -4,6 +4,7 @@ Usage: smthrs branch <command>
 
 Commands:
   add-to-stack  Add a scratch branch as a TODO; waits for the person's confirmation
+  archive       Archive a scratch branch; waits for the person's confirmation
   fork          Fork a scratch branch
   rebase        Rebase this branch now
   show          Open a branch's card

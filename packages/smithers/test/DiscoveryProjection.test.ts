@@ -1,19 +1,15 @@
-import { readFileSync } from "node:fs"
 import { expect, it } from "vitest"
 import { makeCli } from "../src/Cli.ts"
 import { installCommandPaths } from "../src/internal/backend/InstallDiscovery.ts"
 
-it("keeps B.6 discovery explicit while human help includes Appendix A debug-api", async () => {
+it("keeps the person-only API playground outside CLI discovery", async () => {
   const cli = makeCli({ environment: {} }, { humanHelp: true })
   const capture = async (args: string[]) => {
     let output = ""
     await cli.serve(args, { env: {}, stdout: text => { output += text }, exit: code => expect(code).toBe(0) })
     return output
   }
-  expect(await capture(["--help"])).toMatch(/^\s+debug\s{2,}/m)
-  expect(await capture(["debug", "api", "--help"])).toContain("Usage: smthrs debug api")
-  expect(readFileSync(new URL("../../../apps/site/src/data/help/debug/api.txt", import.meta.url), "utf8"))
-    .toContain("Usage: smthrs debug api")
+  expect(await capture(["--help"])).not.toMatch(/^\s+debug\s{2,}/m)
   const paths = installCommandPaths(cli)
   const manifest = JSON.parse(await capture(["--llms-full", "--format", "json"]))
   const names = manifest.commands.map((row: { name: string }) => row.name)

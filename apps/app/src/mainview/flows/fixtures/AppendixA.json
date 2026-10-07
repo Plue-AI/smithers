@@ -488,6 +488,31 @@
     }
   },
   {
+    "name": "branch.archive",
+    "summary": "Archive a scratch branch",
+    "slash": "/branch.archive",
+    "cli": [
+      "branch",
+      "archive"
+    ],
+    "journey": [
+      "J7"
+    ],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/branches/{branch}/archive"
+    }
+  },
+  {
     "name": "branch.add-to-stack",
     "summary": "Add a scratch branch as a TODO",
     "slash": "/branch.add-to-stack",

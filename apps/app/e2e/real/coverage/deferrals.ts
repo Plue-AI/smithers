@@ -5,7 +5,6 @@ import { branches } from "./deferrals/branches"
 import { change } from "./deferrals/change"
 import { commits } from "./deferrals/commits"
 import { egress } from "./deferrals/egress"
-import { env } from "./deferrals/env"
 import { files } from "./deferrals/files"
 import { findings } from "./deferrals/findings"
 import { flow } from "./deferrals/flow"
@@ -34,8 +33,7 @@ import { wiki } from "./deferrals/wiki"
 
 /** Journeys the release depends on. Only a real scenario can account for them. */
 export const RELEASE_CRITICAL_ACTIONS: readonly string[] = [
-  "approval.approve", "approval.deny", "change.land", "secrets.connect", "secrets.connections",
-  "secrets.list", "secrets.revoke"
+  "approval.approve", "approval.deny", "change.land", "settings.model-key", "secrets"
 ]
 
 export type Deferral = "browser" | "diagnostics" | "owed" | "deferred: mvp.md §8/§16"
@@ -47,7 +45,6 @@ export const OWED_ACTIONS_BY_FAMILY = {
   change,
   commits,
   egress,
-  env,
   files,
   findings,
   flow,
@@ -85,9 +82,6 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     ...Object.values(OWED_ACTIONS_BY_FAMILY).flat(),
     // Frontrun additions: host-backed actions owe real scenarios (#2290).
     "agent",
-    "agent.model",
-    "agent.open",
-    "agent.turn",
     "branch.bring-in",
     "branch.discard-foreign",
     "branch.rebase-now",
@@ -100,7 +94,6 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "learning.dismiss",
     "main.reset-to-github",
     "merge.confirm",
-    "model",
     "model.assign",
     "model.edit",
     "model.list",
@@ -115,11 +108,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "settings.daily-admissions",
     "settings.model.set",
     "settings.preapprove-default",
-    "sync.retry",
-    "telemetry.report",
-    "todo.keep-moved",
     "todo.preapprove",
-    "todo.return-to-item",
     "todo.takeover",
     "todo.unapprove",
     // Current MVP doors still owe real-host scenarios (#2290). These are gaps, never executed coverage.
@@ -136,10 +125,8 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     // DARK (#3504): activation awaits the T-APP-16 context provider (#3446).
     "context.inspect",
     "debug-api",
-    "debug.api",
     "diff",
     "docs",
-    "docs.read",
     "draft.discard",
     "file",
     "file.restore",
@@ -163,7 +150,6 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "settings",
     "settings.address",
     "settings.capacity",
-    "settings.model-key",
     "settings.obsidian",
     "settings.parallel",
     "ssh",

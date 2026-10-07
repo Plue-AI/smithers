@@ -1,15 +1,21 @@
 import { expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
 import b from "./fixtures/AppendixBPolicy.json"
 import c from "./fixtures/AppendixC.json"
 import cli from "../../../../../packages/smithers/test/CatalogCli.fixture.json"
 import { assertCatalogPolicy, auditAppIds, auditCliPaths, auditRuntimeTags } from "../../../../../scripts/catalog-policy"
 
 test("literal B inventory expands shorthand without authorizing renamed aliases", () => {
-  expect(b.rows).toHaveLength(117)
+  const product = readFileSync(new URL("../../../../../.specs/product/mvp.md", import.meta.url), "utf8")
+  expect(product).toContain("| `/branch.archive` | Archive a scratch branch (T-MCH-09) | J7 | new |")
+  expect(product).toContain("| (new) `branch.archive` | Archive a scratch branch (T-MCH-09) | P, A✓, X✓ | Keep, Missing | branch |")
+  expect(b.rows).toHaveLength(118)
   expect(b.rows.flatMap(row => row.ids)).toContain("chat.queue.edit")
   expect(b.rows.flatMap(row => row.ids)).toContain("storage.recovery.export")
   expect(b.rows.flatMap(row => row.ids)).not.toContain("chat.edit")
   expect(auditAppIds(b.publicIds)).toEqual([])
+  expect(b.rows.find(row => row.ids.includes("branch.archive"))).toEqual({ section: "B.2", ids: ["branch.archive"], status: "keep", who: "P, A✓, X✓" })
+  expect(auditAppIds(["branch.archive", "branch.archive-all"])).toEqual([{ id: "branch.archive-all", reason: "unlisted" }])
   expect(auditAppIds(["auth.email", "todo.takeover", "history.bootstrap", "runs.graph.execution", "wiki.card.select"])).toEqual([])
   expect(auditAppIds(["history.todo", "box.open", "prs.land", "change.land", "chat.clear", "world.page", "invented"])).toEqual([
     { id: "history.todo", reason: "renamed" }, { id: "box.open", reason: "renamed" },

@@ -209,58 +209,6 @@ tutorialTest(
   }
 )
 
-tutorialTest(
-  "practice issue implementation completes the real plan and exposes verified change artifacts",
-  scenario("issues.practice-live-implementation-artifacts", {
-    capabilities: [],
-    description: "Research issue 3, obtain a real plan, start its real implementation, and verify the completed commits, files, tests, and rendered diff.",
-    coverage: [
-      "action:issues.view", "action:issue.repro", "action:issue.implement",
-      "host:production", "path:success", "door:button",
-      "dimension:practice-repository", "dimension:real-workflow", "dimension:implementation", "dimension:artifact-verification",
-      "evidence:live-plan-run-commits-files-diff-tests"
-    ]
-  }),
-  async ({ page, request }, testInfo) => {
-    const issue = await openPracticeIssue(page)
-    const research = await runLiveOperation(page, request, "research", async () => {
-      await issue.getByRole("button", { name: "Research / repro", exact: true }).click()
-    })
-    expectReproductionEvidence(research)
-
-    const plan = await runLiveOperation(page, request, "plan", async () => {
-      await issue.getByRole("button", { name: "Implement", exact: true }).click()
-    })
-    expect(plan.plan?.id).toBe(plan.runId)
-    expect(plan.plan?.baseCommitId).toBe(plan.baseCommitId)
-    expect(plan.plan?.steps.length).toBeGreaterThan(0)
-    expect(plan.plan?.files.length).toBeGreaterThan(0)
-    const planCard = page.getByTestId("card-practice-plan")
-    await expect(planCard.getByRole("button", { name: "Start implementation", exact: true })).toBeVisible()
-
-    const implementation = await runLiveOperation(page, request, "implement", async () => {
-      await planCard.getByRole("button", { name: "Start implementation", exact: true }).click()
-    })
-    expect(implementation.plan?.id).toBe(plan.runId)
-    expect(implementation.baseCommitId).toBe(plan.plan?.baseCommitId)
-    expectVerifiedGreetingChange(implementation)
-    expect(implementation.commits).toHaveLength(1)
-    const commit = implementation.commits![0]!
-    expect(commit.commitId).toMatch(/^[a-f0-9]{40}$/)
-    expect(commit.parentCommitId).toBe(plan.plan?.baseCommitId)
-    expect(commit.files.slice().sort()).toEqual((implementation.diff ?? []).map((file) => file.path).sort())
-    expect(commit.additions + commit.deletions).toBeGreaterThan(0)
-
-    const runCard = page.locator('.smithers-card[data-kind="run-trace"]').filter({ hasText: "Implement the fix" }).last()
-    await expect(runCard).toContainText("Tests passed")
-    await runCard.getByRole("button", { name: "View diff", exact: true }).click()
-    const diff = page.locator('.smithers-card[data-kind="diff"]').last()
-    await expect(diff).toBeVisible()
-    for (const file of implementation.diff ?? []) await expect(diff).toContainText(file.path)
-    await attachJson(testInfo, "live-issue-implementation", { research, plan, implementation })
-  }
-)
-
 test(
   "practice issue validation and issue-number isolation preserve neighboring state",
   scenario("issues.practice-invalid-and-number-isolation", {

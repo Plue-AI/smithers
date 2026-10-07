@@ -493,6 +493,14 @@
     {
       "section": "B.2",
       "ids": [
+        "branch.archive"
+      ],
+      "status": "keep",
+      "who": "P, A✓, X✓"
+    },
+    {
+      "section": "B.2",
+      "ids": [
         "files.read",
         "files.list",
         "files.open-diff",
@@ -1226,6 +1234,7 @@
     "branches",
     "branch",
     "branch.fork",
+    "branch.archive",
     "branch.add-to-stack",
     "branch.rebase",
     "terminal",

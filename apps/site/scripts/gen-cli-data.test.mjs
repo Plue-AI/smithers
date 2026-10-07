@@ -33,7 +33,7 @@ export const makeCli = () => ({
 })
 `)
   write("packages/smithers/src/internal/backend/Catalog.ts", `export const catalogCommands = [
-    {name: "debug.api", cli: ["debug", "api"], actors: ["person"], visibility: "hidden", agent: "never"},
+    {name: "debug-api", cli: null, actors: ["person"], visibility: "advanced", agent: "never"},
     {name: "admin.health", cli: ["admin", "health"], actors: ["person"], visibility: "hidden", agent: "never"}
   ]`)
   write("packages/smithers/src/Unsupported.ts", 'export const removedVerbs = []; export const removedFlags = []; export const migrationUrl = "https://smithers.sh/migration/1.0"\n')
@@ -69,7 +69,7 @@ test("CLI generation retains complete source facts and retires every public comm
   }
   assert.equal(existsSync(join(root, "apps/site/src/content/docs/docs/reference/cli/index.mdx")), false)
   assert.equal(existsSync(join(root, "apps/site/src/data/help/stale.txt")), false)
-  assert.match(read("apps/site/src/data/help/debug/api.txt"), /Canonical help/)
+  assert.equal(existsSync(join(root, "apps/site/src/data/help/debug/api.txt")), false)
   assert.equal(commands.some(command => command.name === "debug api"), false)
   assert.equal(existsSync(join(root, "apps/site/src/data/help/admin/health.txt")), false)
   const checked = run("--check")

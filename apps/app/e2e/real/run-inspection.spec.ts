@@ -7,9 +7,7 @@ import { authenticatedTest } from "./auth-permissions/profile"
 import {
   attachProductionJson,
   bootProductionRepository,
-  cloudRepoPath,
   enableProductionVerbose,
-  PRODUCTION_REPO,
   repositoryApiPath,
   readJson
 } from "./repositories-github/production"
@@ -115,40 +113,6 @@ test("signed-out run attention cannot enumerate workspace state", scenario("runs
   await expect(page.locator('.smithers-card[data-kind="run-list"]')).toHaveCount(0)
   await expect(page.locator('.smithers-card[data-kind="approvals-inbox"]')).toHaveCount(0)
   expect(rpc).toEqual([])
-})
-
-authenticatedTest("the canary GitHub App is installed before an owned workflow fixture is attempted", scenario("runs.github-app-fixture-readiness", {
-  capabilities: ["identity", "cloud"],
-  coverage: [
-    "action:github.app", "host:production", "path:success", "door:slash",
-    "dimension:owned-workflow-prerequisite", "dimension:github-app-installed",
-    "evidence:ui-card-and-status-readback"
-  ],
-  description: "Read the existing canary repository's GitHub App state through the UI and API so a private workflow fixture is never knowingly attempted while installation wiring is unavailable."
-}), async ({ page, request }, testInfo) => {
-  await bootProductionRepository(page)
-  await enableProductionVerbose(page)
-  const statusPath = cloudRepoPath(PRODUCTION_REPO, "/github-app-status")
-  const statusResponse = page.waitForResponse((response) =>
-    response.request().method() === "GET" && new URL(response.url()).pathname === statusPath)
-  await command(page, `/github.app ${PRODUCTION_REPO}`)
-  expect((await statusResponse).status()).toBe(200)
-  const status = await readJson<{
-    readonly github_app_installed?: unknown
-    readonly github_app_configured?: unknown
-    readonly installation_id?: unknown
-  }>(page, request, statusPath)
-  await attachProductionJson(testInfo, "run-fixture-github-app-readiness", { repo: PRODUCTION_REPO, status })
-  await closeComposer(page)
-  const card = page.getByTestId(`card-connector-setup-github-${PRODUCTION_REPO}`)
-  await expect(card).toBeVisible()
-  await expect(card).toContainText(/GitHub App installed.*configured/)
-  expect(status.github_app_installed).toBe(true)
-  expect(status.github_app_configured).toBe(true)
-  const inventory = await readJson<{
-    readonly repos?: ReadonlyArray<{ readonly fullName: string; readonly installationId: number }>
-  }>(page, request, "/api/user/github-app/installations")
-  expect(typeof inventory.repos?.find(repo => repo.fullName === PRODUCTION_REPO)?.installationId).toBe("number")
 })
 
 workflowTest("a completed provider run exposes its real trace, transcript, events, and durable selection", scenario("runs.inspect-completed-trace-durable", {

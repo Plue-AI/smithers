@@ -87,7 +87,7 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
 export const debugApiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   const available = typeof actions.debugApi?.available === "function" && actions.debugApi.available()
   return [flow({ ...debugApiOperation, name: "debug-api",
-    slash: "/debug-api", cli: ["debug", "api"], http: null, journey: [], group: "Advanced",
+    slash: "/debug-api", cli: null, http: null, journey: [], group: "Advanced",
     visibility: available ? "advanced" : "hidden", actors: ["person"], minimumRole: "member",
     summary: "Call the documented API", args: "[operationId]", hidden: !available,
     agent: "never" as const, agentReason: "raw API bypasses flow typing and approvals; agents use flows",

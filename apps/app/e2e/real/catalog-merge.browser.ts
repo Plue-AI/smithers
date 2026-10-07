@@ -45,6 +45,7 @@ try {
   await fillComposer(page, "/help")
   await page.keyboard.press("Enter")
   const help = page.getByRole("article", { name: "Commands", exact: true })
+  await expect(help.getByText("/branch.archive <branch>", { exact: true })).toBeVisible()
   await help.getByText("Advanced", { exact: true }).click()
   await help.getByRole("button", { name: /debug-api/ }).click()
   const debug = page.getByRole("article", { name: "Debug API", exact: true })

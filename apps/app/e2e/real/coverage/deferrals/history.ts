@@ -9,6 +9,9 @@ export const history = [
  * Frontrun 263c41d3d8: d46762b2c8 retires PR Land; 260cb49720 retires commit cards.
  */
 export const RETIRED_SCENARIOS = [
+  { id: "secrets.selfhost-connection-lifecycle", actions: ["secrets.connect", "secrets.connections", "secrets.revoke"], reason: "Appendix A/B: install Settings replaces the retired customer coding-account manager; write-only model-key acceptance remains release-critical and requires its own real-host receipt" },
+  { id: "runs.github-app-fixture-readiness", actions: ["github.app"], reason: "MVP single-install Settings replaces the Cloud canary's repository-specific App card; installed GitHub setup acceptance remains C-J1-04" },
+  { id: "issues.practice-live-implementation-artifacts", actions: ["issue.implement"], reason: "M-12: TODO Draft admission replaces the practice issue implementation and plan buttons; todo-from-issue.spec.ts owns the real-host replacement" },
   { id: "pull-requests.production-land-git-proof", actions: ["prs.land"], reason: "M-39 / Appendix B: person-reviewed /merge Tn replaces legacy PR queue landing; todo-merge.spec.ts owns the reference-host door" },
   { id: "pull-requests.production-stale-land-action", actions: ["prs.land"], reason: "M-39: the retired PR Land button cannot prove stale TODO merge confirmation behavior" },
   { id: "landings.local-change-land", actions: ["prs.land"], reason: "M-05, M-39: imported local changes are not TODOs; /merge takes a TODO, not a PR number and repository; todo-merge.spec.ts owns the reference-host replacement" },

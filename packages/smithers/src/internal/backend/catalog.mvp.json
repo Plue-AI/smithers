@@ -1362,7 +1362,9 @@
         "branch",
         "archive"
       ],
-      "journey": [],
+      "journey": [
+        "J7"
+      ],
       "group": "Branches and machines",
       "visibility": "core",
       "actors": [
@@ -2919,10 +2921,7 @@
     {
       "name": "debug-api",
       "slash": "/debug-api",
-      "cli": [
-        "debug",
-        "api"
-      ],
+      "cli": null,
       "journey": [],
       "group": "Advanced",
       "visibility": "advanced",
