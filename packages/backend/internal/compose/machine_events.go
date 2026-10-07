@@ -37,7 +37,7 @@ func machineBurstObservations(metrics *routes.SmithersMetrics, registry *machine
 	return bursts.Inc
 }
 
-func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, observeCommitted func(), moved ...*services.MythicalService) (func(), error) {
+func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, observeCommitted func(), notes *machined.OutsideChangeNotes, moved ...*services.MythicalService) (func(), error) {
 	if registry == nil {
 		return func() {}, nil
 	}
@@ -47,6 +47,9 @@ func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *p
 	// No live-presence fallback: only immutable references or retained receipts
 	// can establish an earlier actor after close, revocation or counter reuse.
 	burst := &machined.BurstIngest{Pool: pool, Objects: machineBurstStore{host}, ObserveCommitted: observeCommitted}
+	if notes != nil {
+		burst.OutsideChanges = notes.Admit
+	}
 	return registry.ConsumeEvents(ctx, func(ctx context.Context, link *machined.Link, branch string, event machined.Event) (machined.Acknowledgement, error) {
 		colors := map[string]int{}
 		if len(event.Payload) > 0 && event.Payload[0] == 4 && len(moved) > 0 && moved[0] != nil {

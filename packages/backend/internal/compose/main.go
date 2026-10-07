@@ -1911,11 +1911,20 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		externalSessionsHandler = &routes.ExternalSessionsHandler{Queries: queries, Sessions: sessions}
 
 		presence.publicOrigin = installAddress.Public
+		var outsideNotes *machined.OutsideChangeNotes
 		if flow != nil {
 			presence.dispatcher = flow.dispatcher
 			presence.hosts = flow.bindings
+			// The same machine host must authenticate pinned notification delivery
+			// and daemon stale-write enforcement. Missing qualification keeps the
+			// ordinary watcher projection running without admitting notes.
+			if host, ok := options.Workspace.(machined.CodingNoteHost); ok {
+				outsideNotes = &machined.OutsideChangeNotes{
+					Runs: &machined.PinnedCodingNoteRuns{Host: host}, Dispatcher: flow.dispatcher,
+				}
+			}
 		}
-		stopEvents, err := bindMachineEvents(ctx, options.Machined, pool, repoHostClient, machineBurstObservations(smithersMetrics, options.Machined), mythicalService)
+		stopEvents, err := bindMachineEvents(ctx, options.Machined, pool, repoHostClient, machineBurstObservations(smithersMetrics, options.Machined), outsideNotes, mythicalService)
 		if err != nil {
 			return fmt.Errorf("bind machine events: %w", err)
 		}

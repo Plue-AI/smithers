@@ -34,7 +34,15 @@ import (
 // store and real PostgreSQL, then the mounted live door reads those facts. The
 // single-connection writer pool catches accidental nested pool acquisition.
 func TestMachineEventsProductionLiveBinding(t *testing.T) {
+	testMachineEventsProductionLiveBinding(t, nil)
+}
+
+func testMachineEventsProductionLiveBinding(t *testing.T, configure func(presenceInstallFixture) *machined.OutsideChangeNotes) {
 	f := presenceInstall(t, true)
+	var notes *machined.OutsideChangeNotes
+	if configure != nil {
+		notes = configure(f)
+	}
 	ctx := t.Context()
 	_, err := f.pool.Exec(ctx, `UPDATE workspaces SET vm_id='machine' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
@@ -134,7 +142,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	observeBurst := machineBurstObservations(metrics, registry)
 	zero, one, four, five := 0.0, 1.0, 4.0, 5.0
 	readBursts(&zero)
-	stop, err := bindMachineEvents(ctx, registry, pool, client, observeBurst)
+	stop, err := bindMachineEvents(ctx, registry, pool, client, observeBurst, notes)
 	require.NoError(t, err)
 	t.Cleanup(stop)
 	require.True(t, registry.EventConsumerReady())

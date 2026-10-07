@@ -181,7 +181,7 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 			return ErrNotReady
 		}
 		var applyErr error
-		ack, applyErr = commitBurst(ctx, tx, objects, branch, scope, event, b, actor, multipart)
+		ack, applyErr = s.commitBurst(ctx, tx, objects, branch, scope, event, b, actor, multipart)
 		return applyErr
 	})
 	if err == nil && ack.Outcome == AckApplied && s.ObserveCommitted != nil {
@@ -190,7 +190,7 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	return ack, err
 }
 
-func commitBurst(ctx context.Context, tx pgx.Tx, objects BurstObjects, branch string, scope jobs.Scope, event Event, b wire.Burst, actor json.RawMessage, multipart bool) (Acknowledgement, error) {
+func (s *BurstIngest) commitBurst(ctx context.Context, tx pgx.Tx, objects BurstObjects, branch string, scope jobs.Scope, event Event, b wire.Burst, actor json.RawMessage, multipart bool) (Acknowledgement, error) {
 	ack := Acknowledgement{Seq: event.Seq}
 	missing, err := objects.VerifyBurst(ctx, branch, b)
 	if err != nil {

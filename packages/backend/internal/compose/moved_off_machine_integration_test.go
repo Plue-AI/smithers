@@ -37,7 +37,7 @@ func TestMovedOffMachineConsumerThroughInstallHTTP(t *testing.T) {
 	t.Cleanup(pool.Close)
 	service := services.NewMythicalService(pool, nil)
 	registry := new(machined.Registry)
-	stop, err := bindMachineEvents(ctx, registry, pool, repohost.NewLocalClient(http.NotFoundHandler(), "fixture"), nil, service)
+	stop, err := bindMachineEvents(ctx, registry, pool, repohost.NewLocalClient(http.NotFoundHandler(), "fixture"), nil, nil, service)
 	require.NoError(t, err)
 	t.Cleanup(stop)
 	link, guest := presenceTestLink(t, registry, f.row.ID)

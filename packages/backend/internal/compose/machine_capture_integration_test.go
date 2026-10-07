@@ -95,7 +95,7 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 	require.Equal(t, base, gotHead)
 	require.NoError(t, wakeAuthority.Rollback(t.Context()))
 	registry := new(machined.Registry)
-	stop, err := bindMachineEvents(t.Context(), registry, pool, client, nil)
+	stop, err := bindMachineEvents(t.Context(), registry, pool, client, nil, nil)
 	require.NoError(t, err)
 	t.Cleanup(stop)
 	event := func(seq uint64, id byte, c wire.Captured) machined.Event {

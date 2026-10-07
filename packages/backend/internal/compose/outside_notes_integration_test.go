@@ -69,3 +69,40 @@ func TestOutsideNotesComposedLiveBoundary(t *testing.T) {
 		})
 	})
 }
+
+// The install event binding and live socket are real. The pinned coding host's
+// capability registration remains a contract fake, not real-machine acceptance.
+func TestOutsideNotesMachineEventsProductionLiveBinding(t *testing.T) {
+	testMachineEventsProductionLiveBinding(t, func(f presenceInstallFixture) *machined.OutsideChangeNotes {
+		var item string
+		require.NoError(t, f.pool.QueryRow(t.Context(), `INSERT INTO mythical_items(repository_id,source,state,workspace_id,owner_id,request_run_id,flow_digest,checks) VALUES($1,'todo','running',$2,$3,'pinned-notes-run',$4,$5) RETURNING id`, f.row.RepositoryID, f.row.ID, f.user.ID, strings.Repeat("a", 64), `{"flowSource":"`+strings.Repeat("b", 40)+`"}`).Scan(&item))
+		store, err := jobs.NewStore(f.pool)
+		require.NoError(t, err)
+		dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			t.Error("event admission must not launch a host")
+			return nil, machined.ErrNotReady
+		})})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			var count int
+			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationSignal).Scan(&count))
+			require.Equal(t, 4, count, "four committed bursts; the transport replay admits none")
+			var raw []byte
+			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT payload FROM product_job_requests WHERE request_id=$1`, "outside-change:"+f.row.ID+":01000000-0000-0000-0000-000000000000").Scan(&raw))
+			var saved struct {
+				RunID   string `json:"runId"`
+				Payload struct {
+					Actor map[string]any `json:"actor"`
+					Files []string       `json:"files"`
+				} `json:"payload"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &saved))
+			require.Equal(t, "pinned-notes-run", saved.RunID)
+			require.Equal(t, "person", saved.Payload.Actor["kind"])
+			require.Equal(t, "ssh", saved.Payload.Actor["via"])
+			require.Equal(t, "Alice", saved.Payload.Actor["name"])
+			require.Equal(t, []string{"a.ts"}, saved.Payload.Files)
+		})
+		return &machined.OutsideChangeNotes{Runs: &machined.PinnedCodingNoteRuns{Host: noteHostContractFixture{}}, Dispatcher: dispatcher}
+	})
+}
