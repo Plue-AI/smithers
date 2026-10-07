@@ -1,6 +1,6 @@
 # Installed-product performance evidence (#3592)
 
-`node scripts/perf/run.mjs` runs configured projection measurements on macOS
+`node scripts/perf/run.mjs` runs configured first-token and projection measurements on macOS
 and names unavailable budgets. Exit 0 means all selected budgets passed; exit 1
 means a launched workload failed; exit 2 means the run is incomplete.
 Set `SMITHERS_PERF_ORIGIN` to the configured LAN/HTTPS origin and
@@ -187,3 +187,10 @@ logs, T-APP-14's edits, an acknowledgement-delay fixture and lifecycle qualifica
 Invoking it uses the shared runner and reports incomplete (exit 2). Contract tests
 emit no performance artifacts or passing check receipts. Browser C-PERF fixmes
 remain. The existing upstream warm-wake implementation is retained in full.
+
+The full runner also selects the C-PERF-01 composer driver when its same-origin
+conversation page, authenticated member fixture and second Mac are configured.
+It retains configured model identities, preflight statistics and before/after
+wake counters with the raw samples. Missing timing on the production Inspect
+trace fails a launched measurement; it cannot become a passing or skipped run.
+Machine budgets still require lifecycle qualification and production bindings.
