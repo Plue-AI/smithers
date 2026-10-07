@@ -463,6 +463,29 @@
     }
   },
   {
+    "name": "branch.archive",
+    "summary": "Archive a scratch branch",
+    "slash": "/branch.archive",
+    "cli": [
+      "branch",
+      "archive"
+    ],
+    "journey": [],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/branches/{branch}/archive"
+    }
+  },
+  {
     "name": "branch.fork",
     "summary": "Fork a scratch branch",
     "slash": "/branch.fork",
@@ -1073,7 +1096,10 @@
     "name": "debug-api",
     "summary": "Try any call in the open API",
     "slash": "/debug-api",
-    "cli": null,
+    "cli": [
+      "debug",
+      "api"
+    ],
     "journey": [],
     "group": "Advanced",
     "visibility": "advanced",
