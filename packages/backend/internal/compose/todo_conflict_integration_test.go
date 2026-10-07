@@ -78,6 +78,16 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	server.Start()
 	t.Cleanup(server.Close)
 	checks := `{"todo":true,"run_launched":true,"run_attached":true,"flowSource":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rebase":{"onto":"onto","name":"main"},"waits":[{"id":"conflict-1","kind":"conflict","paths":["a.txt"],"conflict_change":"change","onto_revision":"onto","signal":{"flow":"todo","run":"pinned-run","name":"conflict"}}]}`
+	// Bind the fake signal to the same production launch address as the item.
+	var bound map[string]any
+	require.NoError(t, json.Unmarshal([]byte(checks), &bound))
+	signal := bound["waits"].([]any)[0].(map[string]any)["signal"].(map[string]any)
+	tenant, principal := fmt.Sprintf("repository:%d", repo.ID), fmt.Sprintf("user:%d", owner.ID)
+	signal["scope"] = map[string]any{"tenantId": tenant, "principalId": principal}
+	signal["target"] = map[string]any{"tenantId": tenant, "principalId": principal, "workspaceId": "11111111-1111-4111-8111-111111111111", "bindingKind": "mythical-item", "bindingId": fmt.Sprintf("%s", item.ID)}
+	encoded, err := json.Marshal(bound)
+	require.NoError(t, err)
+	checks = string(encoded)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,integration='{"conflict":{"head":"change","onto":"onto","paths":["a.txt"]}}' WHERE id=$1`, item.ID, checks)
 	require.NoError(t, err)
 	call := func(t *testing.T, expected int, code string) {
@@ -104,15 +114,22 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	// Missing or mismatched attempt providers refuse individually before native
 	// inspection or signal admission, with the person's retained wait unchanged.
 	for name, update := range map[string]string{
-		"workspace":        `workspace_id=''`,
-		"digest":           `flow_digest=NULL`,
-		"malformed digest": `flow_digest='not-a-pin'`,
-		"source":           `checks=checks-'flowSource'`,
-		"run":              `request_run_id=''`,
-		"signal":           `checks=checks #- '{waits,0,signal}'`,
-		"stale run":        `checks=jsonb_set(checks,'{waits,0,signal,run}','"another-run"')`,
-		"foreign flow":     `checks=jsonb_set(checks,'{waits,0,signal,flow}','"another-flow"')`,
-		"signal name":      `checks=jsonb_set(checks,'{waits,0,signal,name}','""')`,
+		"workspace":                `workspace_id=''`,
+		"digest":                   `flow_digest=NULL`,
+		"malformed digest":         `flow_digest='not-a-pin'`,
+		"source":                   `checks=checks-'flowSource'`,
+		"run":                      `request_run_id=''`,
+		"signal":                   `checks=checks #- '{waits,0,signal}'`,
+		"stale run":                `checks=jsonb_set(checks,'{waits,0,signal,run}','"another-run"')`,
+		"foreign flow":             `checks=jsonb_set(checks,'{waits,0,signal,flow}','"another-flow"')`,
+		"missing scope":            `checks=checks #- '{waits,0,signal,scope}'`,
+		"foreign tenant":           `checks=jsonb_set(checks,'{waits,0,signal,target,tenantId}','"repository:999"')`,
+		"foreign principal":        `checks=jsonb_set(checks,'{waits,0,signal,target,principalId}','"user:999"')`,
+		"foreign signal authority": `checks=jsonb_set(jsonb_set(checks,'{waits,0,signal,scope,principalId}','"user:999"'),'{waits,0,signal,target,principalId}','"user:999"')`,
+		"foreign workspace":        `checks=jsonb_set(checks,'{waits,0,signal,target,workspaceId}','"another-branch"')`,
+		"foreign binding":          `checks=jsonb_set(checks,'{waits,0,signal,target,bindingId}','"another-item"')`,
+		"foreign kind":             `checks=jsonb_set(checks,'{waits,0,signal,target,bindingKind}','"browser-flow"')`,
+		"signal name":              `checks=jsonb_set(checks,'{waits,0,signal,name}','""')`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := pool.Exec(ctx, "UPDATE mythical_items SET "+update+" WHERE id=$1", item.ID)
