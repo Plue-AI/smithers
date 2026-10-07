@@ -115,6 +115,9 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			actions = append(actions, map[string]any{"tag": "branch.discard-foreign", "label": "Discard"})
 		}
 		projected := map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions}
+		if wait.Kind == "conflict" {
+			projected["paths"] = wait.Paths
+		}
 		if wait.SHA != "" {
 			projected["sha"] = wait.SHA
 		}

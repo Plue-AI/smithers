@@ -11,12 +11,15 @@ import (
 // TodoWait is an independent reason the item needs a member. Settled waits stay
 // in checks as evidence; projection considers only the open ones.
 type TodoWait struct {
-	ID         string     `json:"id"`
-	Kind       string     `json:"kind"`
-	Prompt     string     `json:"prompt"`
-	Since      time.Time  `json:"since"`
-	AnsweredBy string     `json:"answered_by,omitempty"`
-	SettledAt  *time.Time `json:"settled_at,omitempty"`
+	Paths          []string   `json:"paths,omitempty"`
+	ConflictChange string     `json:"conflict_change,omitempty"`
+	OntoRevision   string     `json:"onto_revision,omitempty"`
+	ID             string     `json:"id"`
+	Kind           string     `json:"kind"`
+	Prompt         string     `json:"prompt"`
+	Since          time.Time  `json:"since"`
+	AnsweredBy     string     `json:"answered_by,omitempty"`
+	SettledAt      *time.Time `json:"settled_at,omitempty"`
 	// SHA binds a foreign-push wait to the observed commit shown on its card.
 	SHA string `json:"sha,omitempty"`
 	// By is the wait's TodoCard actor: the pusher for a foreign push, or the
