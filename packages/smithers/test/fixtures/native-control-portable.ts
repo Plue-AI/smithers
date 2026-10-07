@@ -257,6 +257,15 @@ export default ({  description: "Changed after approval", input: Schema.Struct({
         Effect.gen(function*() {
           const control = yield* Control.Control
           trace("recovery host opened")
+          // This probe was interrupted in an unkeyed action. Reopening the
+          // configured catalog restores its code, not consent to repeat it.
+          yield* control.list({ _tag: "runs", filters: { runId } })
+          yield* Effect.sleep("2 seconds")
+          assert.equal(read().status, "suspended", "configured host must wait for explicit unkeyed retry consent")
+          assert.deepEqual(calls, [])
+          const resumed = yield* control.resume({ runId: runId!, idempotencyKey: "portable-resume" })
+          assert.equal(resumed._tag, "Accepted", JSON.stringify(resumed))
+          trace("explicit recovery accepted")
           yield* bounded("native recovery", poll)
           trace("native recovery completed")
           assert.deepEqual(calls, ["native-executed"])

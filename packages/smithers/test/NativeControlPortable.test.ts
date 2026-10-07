@@ -12,7 +12,7 @@ for (const runtime of ["node", "bun"]) {
     it(
       `${runtime} ${
         recovery
-          ? "refuses ordinary adoption and resumes with the configured catalog"
+          ? "refuses ordinary adoption and explicitly resumes with the configured catalog"
           : "executes an approved native module"
       }`,
       async () => {
