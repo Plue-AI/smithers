@@ -103,6 +103,17 @@ func (s *WorkspaceService) stopWorkspaceRetaining(ctx context.Context, store wor
 	if s.runtime == nil && workspace.VmID != "" && s.sandbox == nil {
 		return workspace, pkgerrors.Internal("workspace sandbox unavailable")
 	}
+	if owned, err := s.branchMachineOwned(ctx, workspace.UserID); err != nil {
+		return workspace, err
+	} else if owned {
+		if err := s.suspendWorkspace(ctx, workspace); err != nil {
+			return workspace, err
+		}
+		if _, err := store.StopWorkspaceRetainingRow(ctx, workspace.ID); err != nil {
+			return workspace, err
+		}
+		return s.q.GetWorkspace(ctx, workspace.ID)
+	}
 	// Unlike best-effort cleanup, an explicit stop must report a failed token
 	// revocation so it can be retried before marking the workspace stopped.
 	if workspace.HeadPushTokenID.Valid {
@@ -1097,15 +1108,13 @@ func (s *WorkspaceService) withholdRuntimeConversation(ctx context.Context, row 
 	return nil
 }
 
-// Sleep remains dark until the authoritative branch binding, authenticated
-// capture/object verification/outbox drain and state publisher are wired. The
-// legacy stop-first path cannot preserve acknowledged working-copy writes.
+// Explicit sleep and automatic release share capture-before-stop ordering.
 func (s *WorkspaceService) suspendWorkspace(ctx context.Context, workspace db.Workspace) (retErr error) {
 	defer func() { s.observeWorkspaceLifecycle("suspend", retErr) }()
 	if workspace.Status == "suspended" || workspace.Status == "stopped" {
 		return nil
 	}
-	return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch sleep requires verified capture, runtime binding and state publication")
+	return s.captureAndSleep(ctx, workspace, false)
 }
 
 // Automatic release has the same capture prerequisites as explicit sleep, and
@@ -1115,7 +1124,10 @@ func (s *WorkspaceService) suspendWorkspaceIfSessionless(ctx context.Context, wo
 	if workspace.Status != "running" {
 		return nil
 	}
-	return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "automatic branch release requires admission and verified capture")
+	if s.machineAdmission == nil {
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "automatic branch release requires admission and verified capture")
+	}
+	return s.captureAndSleep(ctx, workspace, true)
 }
 
 // vmAlreadyStopped reports whether a sandbox provider suspend failure means the VM is

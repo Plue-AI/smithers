@@ -48,6 +48,8 @@ func WithBranchHeads(heads BranchHeadReader) WorkspaceServiceOption {
 
 func branchMachineState(row db.Workspace) string {
 	switch row.Status {
+	case "releasing":
+		return "releasing"
 	case "running":
 		return "awake"
 	case "suspended", "stopped":
