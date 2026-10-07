@@ -89,6 +89,9 @@ import { dependencyPagesLayer, wikiRefreshRegistration } from "./wiki-route.ts"
 
 /** Operator configuration, never accepted from a workflow or gateway request. */
 export interface Options extends NativeOptions {
+  /** Installed registered-run atomic writer; never accepted in a flow payload. */
+  readonly fileMutationProvider?: (canonicalRoot: string) => CodingFileSystem.MutationProvider
+
   /** Exact system names from the backend's packaged flow catalog. */
   readonly systemFlows: ReadonlyArray<string>
   /** Machine-local immutable export of the server-authorized source commit. */
@@ -632,7 +635,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             { ...options, repositoryPath: root },
             fs,
             spawner,
-            canonicalRoot
+            canonicalRoot,
+            options.fileMutationProvider?.(canonicalRoot)
           )
         }).pipe(Effect.orDie)
     },
