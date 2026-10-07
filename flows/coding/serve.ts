@@ -114,6 +114,7 @@ if (parsed.values.version) {
   const repositoryProcesses = consumeCheckEnvironment(process.env)
   const options = {
     repositoryPath: root,
+    draftVersion: process.env.SMITHERS_FLOW_DRAFT_VERSION === "1",
     systemFlows,
     stateRoot,
     credential: bind.credential,

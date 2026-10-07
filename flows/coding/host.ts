@@ -90,6 +90,7 @@ export interface Options extends NativeOptions {
   /** Commit identity returned by the verified native source export, never copied from the launch envelope. */
   readonly flowSourceRevision?: string | undefined
   readonly todoExecutionDigest?: string | undefined
+  readonly draftVersion?: boolean | undefined
   /** Same operator credential used by Serve; enables the existing native gateway delegation. */
   readonly credential?: string | undefined
   /** Existing authority override, including a narrower operator policy. */
@@ -242,6 +243,9 @@ export const systemFlowsFromEnv = (
 }
 
 const configured = (options: Options) => {
+  if (options.draftVersion && (options.todoExecutionDigest !== undefined || options.sourcePublication !== "local-only")) {
+    throw new Error("Draft runs require local-only publication and no TODO pin")
+  }
   if (
     options.todoExecutionDigest !== undefined && (
       !/^[a-f0-9]{64}$/.test(options.todoExecutionDigest) || options.flowSourceRoot === undefined ||
@@ -567,7 +571,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
               builtins.registry,
               repositoryPolicy,
               options.systemFlows,
-              options.todoExecutionDigest
+              options.todoExecutionDigest,
+              options.draftVersion
             ))
         ).pipe(Layer.provide(native.layerRegistry(options.flowSourceRoot ?? options.repositoryPath)))
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(

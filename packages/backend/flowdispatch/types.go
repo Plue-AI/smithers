@@ -25,8 +25,8 @@ const (
 var (
 	ErrApprovalUnavailable = errors.New("flow dispatch: approval is not available")
 	ErrNotLaunchOperation  = errors.New("flow dispatch: operation is not a Flow launch")
-	// ErrTodoOutsideStack refuses the todo composition on any route other
-	// than the stack's pinned launch of an owner's TODO attempt.
+	// ErrTodoOutsideStack refuses TODO execution without a pinned stack
+	// attempt or an authorized scratch draft host.
 	ErrTodoOutsideStack       = errors.New("flow dispatch: the todo flow runs only from stack admission of a filed TODO")
 	ErrEngineFlowOutsideStack = errors.New("flow dispatch: coding request, delivery, verification and review are engine-only flows")
 	// ErrRelayPayload refuses a relayed call whose payload the relay cannot
@@ -44,6 +44,7 @@ var (
 const (
 	TodoFlow         = "todo"
 	StackBindingKind = "mythical-item"
+	DraftBindingKind = "draft-flow"
 )
 
 // pinMismatch is the failure of a launch whose host planned, or ran, other
@@ -72,11 +73,13 @@ func engineOnlyFlow(flowID string) bool {
 	return false
 }
 
-// todoLaunchAllowed is the one route to the todo composition: a stack item
-// launch carrying a complete pin of the todo flow.
+// todoLaunchAllowed separates pinned stack attempts from unpinned drafts.
 func todoLaunchAllowed(flowID string, target flowruntime.FlowRuntimeTarget, pin *flowruntime.Pin) bool {
 	if !IsTodoFlow(flowID) {
 		return true
+	}
+	if target.BindingKind == DraftBindingKind {
+		return flowID == TodoFlow && pin == nil
 	}
 	return target.BindingKind == StackBindingKind && pin != nil && pin.Valid() && pin.Flow == TodoFlow && flowID == TodoFlow
 }

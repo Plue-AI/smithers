@@ -452,14 +452,13 @@ export const bindRepositoryRegistry = (
   builtins: Registry.Registry,
   policy: string,
   systemFlows: ReadonlyArray<string>,
-  expectedTodoDigest?: string
+  expectedTodoDigest?: string,
+  draftVersion = false
 ): Registry.Registry => {
-  // The `todo` composition (flows/todo/flow.ts) runs only from stack admission
-  // with the real pinned-source and current-attempt providers (T-FLW-03/04,
-  // T-FLW-11). Until they bind a launch to its attempt, no generic route may
-  // reach it: refuse before module import, packaged or repository alike.
+  // Stack launches require the attempt pin. A separately authorized draft
+  // host may load working-copy TODO code with stack publication disabled.
   const retired = (name: string) => name === "coding/request" || name === "coding/vibe"
-  const dark = (name: string) => name === "todo" && expectedTodoDigest === undefined
+  const dark = (name: string) => name === "todo" && expectedTodoDigest === undefined && !draftVersion
   const names = new Set(systemFlows)
   const bundled = (name: string) => names.has(name)
   // Legacy packaged delegates retain their codecs and policy fence. These
