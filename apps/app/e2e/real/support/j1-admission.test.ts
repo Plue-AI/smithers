@@ -3,6 +3,21 @@ import { spawnSync } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
+for (const door of ["environment", "argv"] as const) test(`TODO journey ${door} selection refuses development-host fallback`, () => {
+  const env = { ...process.env }
+  for (const name of ["SMITHERS_REAL_BASE_URL", "SMITHERS_JOURNEY", "SMITHERS_J1_ACTIVATION"]) delete (env as NodeJS.ProcessEnv)[name]
+  if (door === "environment") env.SMITHERS_JOURNEY = "todo-from-issue.spec.ts"
+  const result = spawnSync("pnpm", ["exec", "playwright", "test", "--config", "playwright.real.config.ts",
+    ...(door === "argv" ? ["e2e/real/todo-from-issue.spec.ts"] : []), "--list", "--reporter", "list"], {
+    cwd: new URL("../../..", import.meta.url), env, encoding: "utf8", timeout: 30_000
+  })
+  expect(result.error).toBeUndefined()
+  expect(result.status).toBe(1)
+  expect(result.stderr).toContain("Release journey qualification requires a reference install origin")
+  expect(result.stderr).not.toContain("webServer")
+  expect(result.stderr).not.toContain("SMITHERS_REAL_E2E_REVISION is required")
+}, 35_000)
+
 // Exercise the public test-runner door: selecting the spec directly must refuse
 // before Playwright's reporter or webServer can start a development install.
 for (const spec of ["j1-activation.spec.ts", "j1.spec.ts", "keyboard-journeys.spec.ts"]) test(`direct ${spec} selection refuses a missing reference install during config admission`, () => {
