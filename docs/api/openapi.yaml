@@ -2610,6 +2610,34 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/ssh:
+    get:
+      x-composition: install
+      summary: Copy a branch SSH connection line
+      operationId: get_api_ssh
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - {name: branch, in: query, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Person-authorized branch connection metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [branch, host, port, value]
+                properties:
+                  branch: {type: string}
+                  host: {type: string}
+                  port: {type: integer}
+                  value: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '503': {description: Branch connection metadata unavailable}
   /api/build-cache/healthz:
     get:
       summary: GET /api/build-cache/healthz

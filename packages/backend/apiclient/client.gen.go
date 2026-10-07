@@ -1902,6 +1902,19 @@ type GetAPIBranchesBFilesResponseItem struct {
 	Size *int64 `json:"size,omitempty"`
 }
 
+// GetAPISSHParams is the query of GET /api/ssh.
+type GetAPISSHParams struct {
+	Branch string
+}
+
+// GetAPISSHResponse is generated from docs/api/openapi.yaml.
+type GetAPISSHResponse struct {
+	Branch string `json:"branch"`
+	Host   string `json:"host"`
+	Port   int64  `json:"port"`
+	Value  string `json:"value"`
+}
+
 // PostAPIConfirmationsIDApproveResponse is generated from docs/api/openapi.yaml.
 type PostAPIConfirmationsIDApproveResponse struct {
 	ID    string `json:"id"`
@@ -2956,6 +2969,15 @@ func (c *Client) GetAPIBranchesBFiles(ctx context.Context, b string, params GetA
 	}
 	var out []GetAPIBranchesBFilesResponseItem
 	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files", query, nil, &out)
+	return out, err
+}
+
+// GetAPISSH calls GET /api/ssh.
+func (c *Client) GetAPISSH(ctx context.Context, params GetAPISSHParams) (GetAPISSHResponse, error) {
+	query := url.Values{}
+	query.Set("branch", params.Branch)
+	var out GetAPISSHResponse
+	err := c.do(ctx, "GET", "/api/ssh", query, nil, &out)
 	return out, err
 }
 

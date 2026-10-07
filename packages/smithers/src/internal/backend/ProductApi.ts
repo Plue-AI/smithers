@@ -1691,6 +1691,21 @@ export interface GetApiBranchesBFilesInput {
 export const getApiBranchesBFiles = (transport: Transport, input: GetApiBranchesBFilesInput): Promise<GetApiBranchesBFilesResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/files${search({ path: input.query?.path })}`) as Promise<GetApiBranchesBFilesResponse>
 
+export type GetApiSshResponse = {
+  branch: string
+  host: string
+  port: number
+  value: string
+}
+
+export interface GetApiSshInput {
+  readonly query: { readonly branch: string }
+}
+
+/** GET /api/ssh: Copy a branch SSH connection line */
+export const getApiSsh = (transport: Transport, input: GetApiSshInput): Promise<GetApiSshResponse> =>
+  transport.request("GET", `/api/ssh${search({ branch: input.query.branch })}`) as Promise<GetApiSshResponse>
+
 export type GetApiBuildCacheHealthzResponse = AnyJSON
 
 /** GET /api/build-cache/healthz */
