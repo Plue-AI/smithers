@@ -483,3 +483,22 @@ func HasPinnedLaunches(ctx context.Context, store *jobs.Store, scope jobs.Scope,
 	}})
 	return store.HasActiveWithReceipt(ctx, scope, OperationLaunch, fragment)
 }
+
+// Monitor resolves only an existing fenced host; reading never starts a box.
+func (service *Service) Monitor(ctx context.Context, target flowruntime.Target, runID string, at *int64) (json.RawMessage, error) {
+	reader, ok := service.resolver.(flowruntime.ExistingResolver)
+	if !ok {
+		return nil, errors.New("flow dispatch: runtime has no read-only resolver")
+	}
+	runtime, err := reader.ResolveExistingFlowRuntime(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	monitor, ok := runtime.(interface {
+		Monitor(context.Context, string, *int64) (json.RawMessage, error)
+	})
+	if !ok {
+		return nil, errors.New("flow dispatch: runtime has no monitor reader")
+	}
+	return monitor.Monitor(ctx, runID, at)
+}

@@ -848,3 +848,13 @@ describe("RuntimeBridge", () => {
       expect(failure).toMatchObject({ code: "bind_failed", message: expect.stringContaining("runtime bridge") })
     }))
 })
+
+
+it.effect("refuses an unknown USD total rather than reporting model usage as free", () =>
+  Effect.gen(function*() {
+    const result = yield* Effect.flip(RuntimeBridge.monitor(service({ watch: () => Stream.make({
+      sequence:1,kind:"control.agent.model-settled",runId:"run-1",occurredAt:1,
+      payload:{usage:{inputTokens:5,outputTokens:3},text:"answer"}
+    }) }), "run-1"))
+    expect(result).toMatchObject({code:"unavailable",retryable:true})
+  }))

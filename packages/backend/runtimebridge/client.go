@@ -539,3 +539,31 @@ func ErrorCode(err error) string {
 	}
 	return fmt.Sprintf("%T", err)
 }
+
+// Monitor reads the canonical trace on an already resolved host. It is never a
+// command and cannot create a run, resume execution, or evaluate presentation code.
+func (c *Client) Monitor(ctx context.Context, runID string, at *int64) (json.RawMessage, error) {
+	input := map[string]any{"protocol": flowruntime.Protocol, "runId": runID}
+	if at != nil {
+		input["at"] = *at
+	}
+	var envelope struct {
+		Protocol string          `json:"protocol"`
+		OK       bool            `json:"ok"`
+		Error    wireError       `json:"error"`
+		Value    json.RawMessage `json:"value"`
+	}
+	if err := c.post(ctx, "/runtime/v1/monitor", input, &envelope); err != nil {
+		return nil, err
+	}
+	if err := checkEnvelope(envelope.Protocol, envelope.OK, envelope.Error); err != nil {
+		return nil, err
+	}
+	var identity struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(envelope.Value, &identity) != nil || identity.ID != runID {
+		return nil, errors.New("runtime bridge: monitor identity mismatch")
+	}
+	return envelope.Value, nil
+}
