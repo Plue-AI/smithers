@@ -125,7 +125,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		_ = lease.Close()
 		return nil, err
 	}
-	l := &Link{Connection: lease, stream: stream, pending: make(map[uint32]chan wire.Frame), events: make(chan Event, 64), presence: make(chan wire.Frame, 1), done: make(chan struct{}), next: 1, protocol: binary.BigEndian.Uint16(fields[2]), documents: make(map[uint32]chan []byte)}
+	l := &Link{Connection: lease, stream: stream, pending: make(map[uint32]chan wire.Frame), events: make(chan Event, 64), presence: make(chan wire.Frame, 1), done: make(chan struct{}), next: 1, protocol: binary.BigEndian.Uint16(fields[2]), documents: make(map[uint32]chan []byte), sessions: make(map[uint32]*SessionStream)}
 	r.mu.Lock()
 	if !lease.current() {
 		r.mu.Unlock()
@@ -148,6 +148,8 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 // independently of Capture's reply, which may wait for outbox acknowledgement.
 // A stalled consumer closes the link and lets the durable guest outbox replay.
 type Link struct {
+	sessionCallMu sync.Mutex
+	sessions      map[uint32]*SessionStream
 	*Connection
 	stream           net.Conn
 	writeMu          sync.Mutex
@@ -221,6 +223,24 @@ func (l *Link) read() {
 			delete(l.pending, id)
 			l.mu.Unlock()
 			if reply != nil {
+				value := fields[2]
+				if value[0] == byte(wire.OpenSession) || value[0] == byte(wire.TCPConnect) {
+					result, e := wire.Fields(fmt.Sprintf("result%d", value[0]), value[1:])
+					if e != nil {
+						return
+					}
+					session := binary.BigEndian.Uint32(result[1])
+					if !validSession(session) {
+						return
+					}
+					l.mu.Lock()
+					if l.sessions[session] != nil || len(l.sessions) >= 512 {
+						l.mu.Unlock()
+						return
+					}
+					l.sessions[session] = newSessionStream(l, session)
+					l.mu.Unlock()
+				}
 				reply <- f
 			}
 		case wire.Events:
@@ -276,6 +296,10 @@ func (l *Link) read() {
 			select {
 			case queue <- append([]byte(nil), f.Payload...):
 			default:
+				return
+			}
+		case wire.Sessions:
+			if !l.receiveSession(f) {
 				return
 			}
 		case wire.Objects:
