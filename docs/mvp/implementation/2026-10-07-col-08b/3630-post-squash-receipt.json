@@ -1,0 +1,138 @@
+{
+  "ticket": "T-COL-08b",
+  "issue": 3630,
+  "kind": "post-squash component verification",
+  "tested_commit": "5a91fb2c8de74c8033dc9b18642e24ec95633d6f",
+  "recorded_at": "2026-10-07T17:39:32.157990+00:00",
+  "host": "msb-lat-nyc-01",
+  "platform": "Linux; PostgreSQL 18; fake daemon at branch connection seam",
+  "environment": {
+    "LANE": "fr7-t-col-08b",
+    "SMITHERS_TEST_DATABASE_URL": "postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable",
+    "SMITHERS_FFI_LIBRARY_PATH": "/home/lane/.cache/cargo-target-gate/debug/libsmithers_ffi.so",
+    "ffi_sha256": "2e7d655a30cd7f7a05a5fe30e0c7c0e22d92678f86021f8c926a4ac6c81bd97c"
+  },
+  "checks": [
+    {
+      "cwd": "packages/backend",
+      "command": "export LANE=fr7-t-col-08b; source ~/lanes/env.sh; export SMITHERS_TEST_DATABASE_URL='postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable'; export SMITHERS_FFI_LIBRARY_PATH=/home/lane/.cache/cargo-target-gate/debug/libsmithers_ffi.so; go test ./internal/compose -run '^TestDocRelay' -count=1 -v",
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "--- PASS: TestDocRelayWireContract (3.31s)",
+        "--- PASS: TestDocRelayAuthorization (2.62s)",
+        "    --- PASS: TestDocRelayAuthorization/foreign_client (1.48s)",
+        "    --- PASS: TestDocRelayAuthorization/authors_map (1.14s)",
+        "--- PASS: TestDocRelayMirrorRecovery (1.29s)",
+        "--- PASS: TestDocRelayDarkLanding (6.13s)",
+        "    --- PASS: TestDocRelayDarkLanding/host (1.35s)",
+        "    --- PASS: TestDocRelayDarkLanding/authorizer (1.19s)",
+        "    --- PASS: TestDocRelayDarkLanding/connection (1.10s)",
+        "    --- PASS: TestDocRelayDarkLanding/daemon (1.27s)",
+        "    --- PASS: TestDocRelayDarkLanding/wiki (1.22s)",
+        "--- PASS: TestDocRelayDataOnly (1.37s)",
+        "--- PASS: TestDocRelayRevocation (2.67s)",
+        "    --- PASS: TestDocRelayRevocation/startup (1.35s)",
+        "    --- PASS: TestDocRelayRevocation/admitted (1.32s)",
+        "--- PASS: TestDocRelayBackpressure (1.58s)",
+        "--- PASS: TestDocRelaySharedMirror (1.51s)",
+        "--- PASS: TestDocRelayRebuildBarrier (1.32s)",
+        "--- PASS: TestDocRelayReconnectUnreceipted (2.48s)",
+        "--- PASS: TestDocRelayAuthorizationAwareness (1.84s)",
+        "--- PASS: TestDocRelayEpochResync (1.81s)",
+        "--- PASS: TestDocRelayReplacementBootDiscardsOldActorCache (2.55s)",
+        "PASS",
+        "ok  \tgithub.com/smithersai/smithers/packages/backend/internal/compose\t32.078s"
+      ]
+    },
+    {
+      "cwd": ".",
+      "command": "export LANE=fr7-t-col-08b; source ~/lanes/env.sh; cargo test -p smithers-machined --test golden",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "test header_refusal_order_and_bounded_read ... ok",
+        "test all_truncations_refuse_without_panicking ... ok",
+        "test protocol_four_session_cancellation_has_literal_cross_language_fields ... ok",
+        "test protocol_three_admission_has_literal_cross_language_fields ... ok",
+        "test manifest_protocol_is_the_codec_protocol ... ok",
+        "test host_proof_matches_committed_hmac_vectors ... ok",
+        "test daemon_handshake_refusals_match_corpus ... ok",
+        "test sequenced_document_golden_payloads ... ok",
+        "test wire_refusals ... ok",
+        "test wire_golden_frames ... ok",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s"
+      ]
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "export LANE=fr7-t-col-08b; source ~/lanes/env.sh; pnpm exec vitest run test/LiveDoc.test.ts",
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "Test Files  1 passed (1)",
+        "Tests  8 passed (8)"
+      ]
+    }
+  ],
+  "corrected_attempts": [
+    {
+      "command": "pnpm exec vitest run packages/rpc/test/LiveDoc.test.ts (repository root)",
+      "result": "Vitest not found; rerun from packages/rpc passed."
+    },
+    {
+      "command": "go test ./internal/compose -run '^TestDocRelay' -count=1 -v (without SMITHERS_FFI_LIBRARY_PATH)",
+      "passed": 0,
+      "failed": 13,
+      "result": "Native ABI setup failed; rerun with explicit shared library path passed."
+    }
+  ],
+  "topology": {
+    "adr": "docs/architecture/0003-live-code-co-editing.md:19",
+    "status": "Undecided by T-COL-11. Relay recommendation is provisional; no accepted daemon topology selects the conditional relay-only implementation.",
+    "mirror_tests": "Existing native mirror component tests executed with the complete TestDocRelay selection; this does not accept or activate mirror topology."
+  },
+  "limitations": [
+    "No product behavior changed; verifies already-landed composed-route behavior and literal cross-language fixtures.",
+    "Fake daemon routing evidence does not establish disk durability, p95 latency or real-machine activation.",
+    "T-COL-11 topology acceptance and reference-host C-SPK-03/C-SPK-07 remain pending.",
+    "Real Mac and microVM C-J3-04, C-DUR-04 K7 and C-PERF-03 proofs belong to T-COL-08 and remain pending on the offline Mac mini.",
+    "C-COL-01 browser stale restoration depends on file/restore and outside-version providers; relay reruns do not satisfy those remaining dependencies."
+  ],
+  "post_rebase_verification": {
+    "tested_main_commit": "404f385dadb6215addd249e53dae0b46f3182c4c",
+    "command": "export LANE=fr7-t-col-08b; source ~/lanes/env.sh; export SMITHERS_TEST_DATABASE_URL='postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable'; export SMITHERS_FFI_LIBRARY_PATH=/home/lane/.cache/cargo-target-gate/debug/libsmithers_ffi.so; go test ./internal/compose -run '^TestDocRelay' -count=1 -v",
+    "passed": 13,
+    "failed": 0,
+    "skipped": 0,
+    "output": [
+      "--- PASS: TestDocRelayWireContract (1.83s)",
+      "--- PASS: TestDocRelayAuthorization (2.64s)",
+      "    --- PASS: TestDocRelayAuthorization/foreign_client (1.42s)",
+      "    --- PASS: TestDocRelayAuthorization/authors_map (1.22s)",
+      "--- PASS: TestDocRelayMirrorRecovery (1.50s)",
+      "--- PASS: TestDocRelayDarkLanding (5.99s)",
+      "    --- PASS: TestDocRelayDarkLanding/host (1.24s)",
+      "    --- PASS: TestDocRelayDarkLanding/authorizer (1.18s)",
+      "    --- PASS: TestDocRelayDarkLanding/connection (1.15s)",
+      "    --- PASS: TestDocRelayDarkLanding/daemon (1.19s)",
+      "    --- PASS: TestDocRelayDarkLanding/wiki (1.22s)",
+      "--- PASS: TestDocRelayDataOnly (1.32s)",
+      "--- PASS: TestDocRelayRevocation (2.75s)",
+      "    --- PASS: TestDocRelayRevocation/startup (1.18s)",
+      "    --- PASS: TestDocRelayRevocation/admitted (1.56s)",
+      "--- PASS: TestDocRelayBackpressure (1.31s)",
+      "--- PASS: TestDocRelaySharedMirror (1.46s)",
+      "--- PASS: TestDocRelayRebuildBarrier (1.35s)",
+      "--- PASS: TestDocRelayReconnectUnreceipted (2.46s)",
+      "--- PASS: TestDocRelayAuthorizationAwareness (1.24s)",
+      "--- PASS: TestDocRelayEpochResync (1.48s)",
+      "--- PASS: TestDocRelayReplacementBootDiscardsOldActorCache (2.89s)",
+      "PASS",
+      "ok  \tgithub.com/smithersai/smithers/packages/backend/internal/compose\t29.697s"
+    ]
+  }
+}
