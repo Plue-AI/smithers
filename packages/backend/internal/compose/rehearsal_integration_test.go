@@ -711,8 +711,20 @@ func (r *rehearsal) setupSource() bool {
 	if !r.step("4 Repository", "POST /api/install/setup/repository → GET /api/install", "202 → repository done; owner verified; squash enabled; a default other than main blocked", "T-INS-06, T-ACC-01", func() error {
 		// A repository whose GitHub default branch is not main is blocked
 		// with its fix before anything is imported (spec §16.2).
-		if _, err := r.expect("POST", "/api/install/setup/repository?attempt=trunk", `{"repository":"rehearsal-owner/trunk-app"}`, 202); err != nil {
-			return err
+		// Sign-in is a durable background job; readiness can change after GET.
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			status, data, err := r.request("POST", "/api/install/setup/repository?attempt=trunk", `{"repository":"rehearsal-owner/trunk-app"}`)
+			if err != nil {
+				return err
+			}
+			if status == 202 {
+				break
+			}
+			if status != 409 || !strings.Contains(string(data), "previous setup step is incomplete") || time.Now().After(deadline) {
+				return fmt.Errorf("repository readiness: %d %s", status, data)
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
 		if err := r.waitStep("repository"); err == nil || !strings.Contains(err.Error(), "blocked") {
 			return fmt.Errorf("a trunk default was not blocked: %v", err)
