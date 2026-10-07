@@ -574,6 +574,7 @@ type WorkspaceService struct {
 	userRefs              UserRefHost
 	// branchHeads reads a scratch branch's head (WithBranchHeads).
 	branchHeads BranchHeadReader
+	diskReclaim WorkspaceDiskReclaimAuthority
 	q           WorkspaceQuerier
 	// transactions holds each workspace's provisioning lock (a transaction-
 	// scoped advisory lock).
