@@ -290,7 +290,19 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 	if op.Kind != "close" {
 		next = mythicalDropObligation(next)
 	}
-	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+	var saved db.MythicalItem
+	var err error
+	if next.State == "landed" && item.State != "landed" {
+		err = pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+			saved, err = db.New(tx).SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+			if err != nil {
+				return err
+			}
+			return st.s.admitLearningInTx(ctx, tx, saved)
+		})
+	} else {
+		saved, err = st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+	}
 	return &saved, err
 }
 
