@@ -36,6 +36,12 @@ var (
 	ErrForbidden       = errors.New("modelproxy: credential may not spend platform models")
 )
 
+// FactorySeat is a credential-free selection consumed before sealing a call.
+type FactorySeat struct {
+	Seat     string `json:"seat"`
+	Protocol string `json:"protocol,omitempty"`
+}
+
 // Handler serves POST {Path}/{provider}/{inference path}.
 type Handler struct {
 	Meter   Meter
@@ -50,8 +56,9 @@ type Handler struct {
 	// pays the provider, so no Smithers credit is reserved and any model the
 	// key serves is forwarded. Owner records each call and holds it to its
 	// repository's daily token budget; without Owner every call is refused.
-	OwnerPaid bool
-	Owner     OwnerUsage
+	OwnerPaid          bool
+	Owner              OwnerUsage
+	ResolveFactorySeat func(context.Context, Caller) (FactorySeat, error)
 }
 
 const (
@@ -67,6 +74,26 @@ var defaultClient = &http.Client{
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == Path+"/factory-seat" && r.Method == http.MethodGet {
+		caller, err := h.Callers.ResolveModelCaller(r)
+		if err != nil || caller.FactoryRole == "" {
+			WriteError(w, "", 403, "permission_error", "Factory role required.")
+			return
+		}
+		if h.ResolveFactorySeat == nil {
+			WriteError(w, "", 503, "api_error", "Factory model is unavailable.")
+			return
+		}
+		seat, err := h.ResolveFactorySeat(r.Context(), caller)
+		if err != nil {
+			WriteError(w, "", 503, "api_error", "Factory model is unavailable.")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(seat)
+		return
+	}
 	rest, ok := strings.CutPrefix(r.URL.Path, Path+"/")
 	if !ok {
 		rest, _ = strings.CutPrefix(r.URL.Path, APIPath+"/")

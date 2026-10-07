@@ -144,3 +144,19 @@ func TestBrowserFlowReadsPinnedTodoConfigurationPostgres(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 1, sources.reads)
 }
+
+func TestCodingHostModelIdentitySurvivesOwnerSwitchPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	pin := pinCodingHostModel(db.New(pool))
+	launch := flowhost.HostLaunch{Binding: flowhost.Binding{ID: "host-one"}}
+	first, err := pin(t.Context(), launch, "openai:model-a")
+	require.NoError(t, err)
+	next, err := pin(t.Context(), launch, "anthropic:model-b")
+	require.NoError(t, err)
+	require.Equal(t, "openai:model-a", first)
+	require.Equal(t, first, next)
+	launch.Binding.ID = "host-two"
+	fresh, err := pin(t.Context(), launch, "anthropic:model-b")
+	require.NoError(t, err)
+	require.Equal(t, "anthropic:model-b", fresh)
+}

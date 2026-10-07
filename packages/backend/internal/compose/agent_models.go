@@ -18,6 +18,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
 // Factory roles use the install's existing model bindings; no separate store.
@@ -209,5 +210,43 @@ func assignAgentModel(q *db.Queries, sources ...workspaceapi.SourceFiles) http.H
 			return
 		}
 		serveAgents(q, sources...)(w, r)
+	}
+}
+
+func resolveFactorySeat(q *db.Queries, sources workspaceapi.SourceFiles) func(context.Context, modelproxy.Caller) (modelproxy.FactorySeat, error) {
+	return func(ctx context.Context, caller modelproxy.Caller) (modelproxy.FactorySeat, error) {
+		repository, err := q.InstallRepositoryID(ctx)
+		if err != nil || repository != caller.RepositoryID {
+			return modelproxy.FactorySeat{}, modelproxy.ErrForbidden
+		}
+		roles := map[string]string{"planner": "coding/plan", "implementer": "coding/implement", "reviewer": "coding/review"}
+		role, known := roles[caller.FactoryRole]
+		if !known {
+			return modelproxy.FactorySeat{}, modelproxy.ErrForbidden
+		}
+		seats, err := activatedAgentSeats(ctx, q, sources)
+		if err != nil {
+			return modelproxy.FactorySeat{}, err
+		}
+		if seat, declared := seats[role]; declared {
+			return modelproxy.FactorySeat{Seat: seat}, nil
+		}
+		raw, err := q.EffectiveInstallAgentModel(ctx, caller.FactoryRole)
+		if err != nil {
+			return modelproxy.FactorySeat{}, err
+		}
+		var binding struct {
+			Protocol   string `json:"protocol"`
+			ModelID    string `json:"modelId"`
+			Credential string `json:"credential"`
+		}
+		if json.Unmarshal(raw, &binding) != nil || binding.ModelID == "" {
+			return modelproxy.FactorySeat{}, errors.New("invalid factory model")
+		}
+		seat, known := modelproxy.SeatFor(binding.Credential)
+		if !known {
+			return modelproxy.FactorySeat{}, errors.New("factory key is not offered")
+		}
+		return modelproxy.FactorySeat{Seat: seat.Provider + ":" + binding.ModelID, Protocol: binding.Protocol}, nil
 	}
 }

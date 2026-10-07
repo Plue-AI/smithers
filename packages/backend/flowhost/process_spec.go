@@ -55,6 +55,13 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 			environment[name] = value
 		}
 		credential := ModelCredential(launch.Binding.ID, launch.Credential)
+		// Only the install's composed coding project uses live factory seats.
+		// Hosted catalogs keep their existing model routing.
+		if len(launch.ProjectConfig) > 0 {
+			for _, role := range []string{"planner", "implementer", "reviewer"} {
+				environment["SMITHERS_MODEL_ROLE_"+strings.ToUpper(role)+"_KEY"] = RoleModelCredential(launch.Binding.ID, launch.Credential, role)
+			}
+		}
 		for _, seat := range launch.Catalog.ModelSeats {
 			environment[seat.KeyEnv] = credential
 		}
