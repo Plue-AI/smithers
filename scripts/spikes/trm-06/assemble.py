@@ -72,6 +72,25 @@ def validate_base(base, revision):
     return manifest
 
 
+def same_destination(root, parts, parent, artifact):
+    """Reopen without following a replaced ancestor before publishing identity."""
+    current = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
+            os.close(current)
+            current = child
+        held = os.fstat(parent)
+        observed = os.fstat(current)
+        if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
+            raise ValueError("overlay destination parent replaced")
+        observed = os.stat(parts[-1], dir_fd=current, follow_symlinks=False)
+        if not stat.S_ISREG(observed.st_mode) or observed.st_nlink != 1 or (observed.st_dev, observed.st_ino) != (artifact.st_dev, artifact.st_ino):
+            raise ValueError("overlay destination artifact replaced")
+    finally:
+        os.close(current)
+
+
 def add_artifact(root, manifest, relative, source, mode):
     parts = relative.split("/")
     if relative.startswith("/") or any(part in ("", ".", "..") for part in parts):
@@ -104,6 +123,8 @@ def add_artifact(root, manifest, relative, source, mode):
             output.flush()
             os.fchmod(output.fileno(), mode)
             os.fsync(output.fileno())
+            artifact_info = os.fstat(output.fileno())
+        same_destination(root, parts, parent, artifact_info)
         manifest["files"].append({"path": relative, "sha256": hash_value.hexdigest(), "stage": "host", "mode": mode})
     finally:
         os.close(parent)
@@ -176,6 +197,7 @@ def assemble(repo, base, output, review_key):
             manifest = validate_base(output, revision)
             add_artifact(output, manifest, "bin/trm06-gateway", gateway, 0o755)
             add_artifact(output, manifest, "libexec/trm06-supervisor", supervisor, 0o755)
+            validate_supervisor(output / "libexec/trm06-supervisor")
             for name, mode in FILES.items():
                 add_artifact(output, manifest, "share/trm06/" + name, source / SPIKE / name, mode)
             add_artifact(output, manifest, "share/trm06/smithers-3f.pub", review_key, 0o644)

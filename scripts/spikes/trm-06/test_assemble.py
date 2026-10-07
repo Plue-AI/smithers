@@ -128,6 +128,40 @@ class BundleAssembly(unittest.TestCase):
                 assemble.add_artifact(base, manifest, "share/trm06/launcher.py", source, 0o644)
             self.assertEqual(list(outside.iterdir()), [])
 
+    def test_replaced_destination_is_never_published_in_manifest(self):
+        for mode in ("parent-symlink", "parent-directory", "artifact-symlink", "artifact-regular"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                base, manifest = self.base(temporary)
+                source = Path(temporary) / "source"
+                source.write_bytes(b"main-artifact")
+                outside = Path(temporary) / "outside"
+                outside.mkdir()
+                sentinel = outside / "trm06-supervisor"
+                sentinel.write_bytes(b"outside-fixture")
+                before = sentinel.stat()
+                original = assemble.same_destination
+                def replace(root, parts, parent, artifact):
+                    target = root / "libexec/trm06-supervisor"
+                    if mode.startswith("parent"):
+                        (root / "libexec").rename(root / "original-libexec")
+                        if mode == "parent-symlink":
+                            (root / "libexec").symlink_to(outside, target_is_directory=True)
+                        else:
+                            (root / "libexec").mkdir()
+                    else:
+                        target.rename(target.with_name("original-supervisor"))
+                        if mode == "artifact-symlink":
+                            target.symlink_to(sentinel)
+                        else:
+                            target.write_bytes(b"replacement")
+                    return original(root, parts, parent, artifact)
+                with patch.object(assemble, "same_destination", side_effect=replace):
+                    with self.assertRaises((ValueError, OSError)):
+                        assemble.add_artifact(base, manifest, "libexec/trm06-supervisor", source, 0o755)
+                self.assertEqual(len(manifest["files"]), 1)
+                self.assertEqual(sentinel.read_bytes(), b"outside-fixture")
+                self.assertEqual((sentinel.stat().st_ino, sentinel.stat().st_uid, sentinel.stat().st_mode), (before.st_ino, before.st_uid, before.st_mode))
+
     def test_entrypoint_refuses_wrong_base_before_build(self):
         with tempfile.TemporaryDirectory() as temporary:
             base, _ = self.base(temporary)
