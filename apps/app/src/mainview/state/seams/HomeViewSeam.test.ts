@@ -9,6 +9,7 @@ test("reload disposal leaves a stable empty snapshot and ignores late view chang
     report: error => { throw error }, http: () => { requests++; return new Promise(done => { resolve = done }) } })
   const stop = seam.subscribe(() => { notifications++ })
   expect(owners).toBe(1)
+  await waitFor(() => requests === 1)
   seam.dispose()
   const empty = seam.get()
   expect(empty).toEqual({ maximized: false })
