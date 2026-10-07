@@ -41,7 +41,7 @@ func apiBodyLimit(r *http.Request) int64 {
 
 type routerExtras struct {
 	InstallQuiesce *services.InstallQuiesce
-	FlowRuns *services.InstallFlowRuns
+	FlowRuns       *services.InstallFlowRuns
 	// Confirmations requires the private browser View and qualified consumers.
 	Confirmations       *services.ApprovalsService
 	Members             *routes.MembersHandler
@@ -1108,6 +1108,7 @@ func buildRouter(
 				branches.Answers, _ = extras.Mythical.Service.(routes.BranchAnswerService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
+			r.Get("/ssh", branches.SSHLine(queries, config.PublicOrigin(cfg)))
 			files := &routes.BranchFileHandler{Branches: branches.Reads, Authorize: routes.InstallBranchAuthorizer(queries)}
 			files.Actor = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 				topics := &liveTopics{presence: &branchPresence{queries: queries}}
