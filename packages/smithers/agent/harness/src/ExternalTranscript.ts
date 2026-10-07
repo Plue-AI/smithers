@@ -144,7 +144,8 @@ export type Entry = typeof Entry.Type
 export const ExternalTranscriptErrorCode = Schema.Literals([
   "missing_version",
   "unsupported_version",
-  "malformed_record"
+  "malformed_record",
+  "unsupported_record"
 ])
 
 /**
@@ -174,7 +175,8 @@ Fault.register(
     // The agent wrote a transcript this release cannot read: a format change outside Smithers.
     missing_version: "dependency",
     unsupported_version: "dependency",
-    malformed_record: "dependency"
+    malformed_record: "dependency",
+    unsupported_record: "dependency"
   } satisfies Fault.Rows<ExternalTranscriptErrorCode>
 )
 
@@ -193,6 +195,8 @@ export const codexReleases: ReadonlyArray<string> = ["0.159", "0.160"]
  * @since 1.0.0-rc.1
  */
 export interface CodexState {
+  /** Inert code-mode requests awaiting their outputs; never executed by the decoder. */
+  readonly calls?: Readonly<Record<string, { readonly name: string; readonly input: string }>> | undefined
   /** Bytes after the last newline: a line the agent is still writing. */
   readonly pending: string
   /** Complete lines read so far. */
@@ -296,7 +300,9 @@ const itemPart = (item: Json, took: number): { readonly role: Entry["role"]; rea
     case "Reasoning": {
       // Codex keeps reasoning encrypted; only a summary it chose to write is readable.
       const summary = list(item["summary_text"]).map(text).filter(Boolean).join("\n")
-      return summary === "" ? (item["encrypted_content"] ? { role: "assistant", part: { type: "encrypted" } } : undefined) : { role: "assistant", part: { type: "reasoning", text: summary } }
+      return summary === ""
+        ? (item["encrypted_content"] ? { role: "assistant", part: { type: "encrypted" } } : undefined)
+        : { role: "assistant", part: { type: "reasoning", text: summary } }
     }
     case "CommandExecution": {
       const exit = typeof item["exit_code"] === "number" ? item["exit_code"] : undefined
@@ -368,14 +374,6 @@ const itemPart = (item: Json, took: number): { readonly role: Entry["role"]; rea
       const query = text(item["query"]) || text(action["query"]) || text(action["pattern"]) || text(action["url"])
       return { role: "assistant", part: { type: "search", call_id: text(item["id"]), query } }
     }
-    default:
-      return {
-        role: "assistant",
-        part: {
-          type: "error",
-          message: `Codex reported an item this release does not read: ${text(item["type"]) || "unnamed"}`
-        }
-      }
   }
 }
 
@@ -396,6 +394,7 @@ export const decodeCodex = (state: CodexState, chunk: string): Result.Result<Dec
   const lines = (state.pending + chunk).split("\n")
   const pending = lines.pop()!
   let { line, seq, session, goal } = state
+  const calls = new Map(Object.entries(state.calls ?? {}))
   const entries: Array<Entry> = []
   for (const raw of lines) {
     line++
@@ -435,13 +434,142 @@ export const decodeCodex = (state: CodexState, chunk: string): Result.Result<Dec
         })
       )
     }
-    if (row["type"] !== "event_msg") continue
+    const reject = (type: unknown) =>
+      Result.fail(
+        new ExternalTranscriptError({
+          code: typeof type === "string" ? "unsupported_record" : "malformed_record",
+          message: `Codex record on line ${line} has unsupported semantics: ${text(type) || "unnamed"}.`,
+          line
+        })
+      )
+    if (row["type"] === "response_item") {
+      if (
+        ![
+          "message",
+          "reasoning",
+          "custom_tool_call",
+          "custom_tool_call_output",
+          "function_call",
+          "function_call_output",
+          "agent_message"
+        ].includes(text(payload["type"]))
+      ) return reject(payload["type"])
+    } else if (row["type"] === "event_msg") {
+      if (
+        ![
+          "item_completed",
+          "error",
+          "turn_aborted",
+          "thread_goal_updated",
+          "task_started",
+          "task_complete",
+          "task_completed",
+          "token_count",
+          "thread_settings_applied",
+          "item_started",
+          "user_message",
+          "agent_message",
+          "agent_reasoning"
+        ].includes(text(payload["type"]))
+      ) return reject(payload["type"])
+    } else if (
+      !["turn_context", "world_state", "token_usage_record", "compacted", "inter_agent_communication_metadata"]
+        .includes(text(row["type"]))
+    ) {
+      return reject(row["type"])
+    }
+    let failedEdit: Part | undefined
+    if (row["type"] === "response_item" && payload["type"] === "custom_tool_call") {
+      const id = payload["call_id"], input = payload["input"], name = payload["name"]
+      if (
+        typeof id !== "string" || id === "" || typeof input !== "string" || typeof name !== "string" || name === "" ||
+        calls.has(id)
+      ) {
+        return Result.fail(
+          new ExternalTranscriptError({
+            code: "malformed_record",
+            message: `Codex tool request on line ${line} is malformed or repeated.`,
+            line
+          })
+        )
+      }
+      calls.set(id, { name, input })
+      continue
+    }
     let found: { readonly role: Entry["role"]; readonly part: Part; readonly turn?: string } | undefined
-    if (payload["type"] === "item_completed") {
+    if (
+      row["type"] === "response_item" && payload["type"] === "reasoning" &&
+      payload["encrypted_content"] !== undefined && payload["encrypted_content"] !== null
+    ) {
+      if (typeof payload["encrypted_content"] !== "string" || payload["encrypted_content"] === "") {
+        return Result.fail(
+          new ExternalTranscriptError({
+            code: "malformed_record",
+            message: `Codex encrypted body on line ${line} is malformed.`,
+            line
+          })
+        )
+      }
+      found = { role: "assistant", part: { type: "encrypted" } }
+    } else if (row["type"] === "response_item" && payload["type"] === "custom_tool_call_output") {
+      const id = text(payload["call_id"])
+      const command = calls.get(id)?.input
+      calls.delete(id)
+      const raw = payload["output"]
+      const output = typeof raw === "string" ? raw : list(raw).map((each) => text(record(each)["text"])).join("\n")
+      // Successful code-mode outputs duplicate completed native items. A failed script has no native
+      // FileChange item: retain the real report and its parent request instead of silently dropping it.
+      if (!output.startsWith("Script failed\n")) continue
+      if (command === undefined) {
+        return Result.fail(
+          new ExternalTranscriptError({
+            code: "malformed_record",
+            message: `Codex failed tool on line ${line} has no request.`,
+            line
+          })
+        )
+      }
+      found = {
+        role: "assistant",
+        part: { type: "tool", call_id: id, command, reads: [], status: "error", output, duration_ms: 0 }
+      }
+      const path = /apply_patch verification failed: Failed to find expected lines in ([^\n]+):\n/.exec(output)?.[1]
+      if (path !== undefined) {
+        failedEdit = { type: "edit", call_id: id, outcome: "failed", files: [{ path, change: "modified", diff: "" }] }
+      }
+    } else if (row["type"] !== "event_msg") {
+      continue
+    } else if (payload["type"] === "item_completed") {
       const started = payload["started_at_ms"], completed = payload["completed_at_ms"]
       const took = typeof started === "number" && typeof completed === "number" ? completed - started : 0
-      const part = itemPart(record(payload["item"]), Number.isFinite(took) && took > 0 ? took : 0)
+      const item = record(payload["item"])
+      if (
+        ![
+          "UserMessage",
+          "AgentMessage",
+          "Reasoning",
+          "CommandExecution",
+          "FileChange",
+          "ContextCompaction",
+          "SubAgentActivity",
+          "CollabAgentToolCall",
+          "Extension"
+        ].includes(text(item["type"]))
+      ) return reject(item["type"])
+      const part = itemPart(item, Number.isFinite(took) && took > 0 ? took : 0)
       found = part === undefined ? undefined : { ...part, turn: text(payload["turn_id"]) }
+    } else if (payload["type"] === "error" || payload["type"] === "turn_aborted") {
+      const message = text(payload["message"]) || text(payload["reason"])
+      if (message === "") {
+        return Result.fail(
+          new ExternalTranscriptError({
+            code: "malformed_record",
+            message: `Codex failure on line ${line} has no message or reason.`,
+            line
+          })
+        )
+      }
+      found = { role: "assistant", part: { type: "error", message }, turn: text(payload["turn_id"]) }
     } else if (payload["type"] === "thread_goal_updated") {
       const update = record(payload["goal"])
       const key = `${text(update["status"])}:${text(update["objective"])}`
@@ -468,8 +596,19 @@ export const decodeCodex = (state: CodexState, chunk: string): Result.Result<Dec
       role: found.role,
       part: found.part
     })
+    if (failedEdit !== undefined) {
+      entries.push({
+        ...entries[entries.length - 1]!,
+        source_id: `${session.id}:${line}#1`,
+        seq: seq++,
+        part: failedEdit
+      })
+    }
   }
-  return Result.succeed({ state: { pending, line, seq, session, goal }, entries })
+  return Result.succeed({
+    state: { pending, line, seq, session, goal, ...(calls.size === 0 ? {} : { calls: Object.fromEntries(calls) }) },
+    entries
+  })
 }
 
 /**
@@ -590,11 +729,11 @@ const claudeReads = (name: string, input: Json): ReadonlyArray<string> => {
 /** One finished tool call: its `tool_use` (when this transcript holds it) and the `tool_result` that ended it. */
 const claudeToolPart = (
   id: string,
-  call: ClaudeCall | undefined,
+  call: ClaudeCall,
   result: { readonly failed: boolean; readonly output: string; readonly report: Json; readonly took: number }
 ): Part => {
-  const name = call?.name ?? ""
-  const input = record(call?.input)
+  const name = call.name
+  const input = record(call.input)
   switch (name) {
     case "Edit":
     case "Write":
@@ -640,12 +779,6 @@ const claudeToolPart = (
   }
 }
 
-/** An `error` part for a record or block kind this release does not read, named so a person can report it. */
-const unread = (kind: "record" | "content block", type: unknown): Part => ({
-  type: "error",
-  message: `Claude Code wrote a ${kind} this release does not read: ${text(type) || "unnamed"}`
-})
-
 /** The owner's words in a user record, or `undefined` for Claude Code's own output of a local command. */
 const ownerText = (said: string): Part | undefined => {
   if (/^\[Request interrupted by user[^\]]*\]$/.test(said)) return { type: "error", message: said }
@@ -689,8 +822,27 @@ export const decodeClaude = (
     if (raw.trim() === "") continue
     const row = parseRow(raw)
     if (row === undefined) return fail("malformed_record", `Claude Code transcript line ${line} is not a JSON record.`)
-    // Conversation records chain by uuid; queue, mode, title, cost and file-history rows do not.
-    if (typeof row["uuid"] !== "string") continue
+    // These named bookkeeping rows never confer conversation identity, even if they carry a UUID.
+    if (
+      [
+        "mode",
+        "permission-mode",
+        "atis-latch",
+        "last-prompt",
+        "ai-title",
+        "queue-operation",
+        "file-history-snapshot",
+        "file-history-delta",
+        "custom-title",
+        "agent-name",
+        "cost-state",
+        "pr-link",
+        "progress"
+      ].includes(text(row["type"]))
+    ) continue
+    if (typeof row["uuid"] !== "string") {
+      return fail("unsupported_record", `Claude Code metadata on line ${line} is not supported.`)
+    }
     const release = text(row["version"])
     if (release === "") return fail("missing_version", `Claude Code transcript line ${line} names no release.`)
     const format_version = profileOf("claude-code", claudeReleases, release)
@@ -721,16 +873,22 @@ export const decodeClaude = (
           if (block["type"] === "tool_result") {
             const callId = text(block["tool_use_id"])
             const call = calls.get(callId)
+            if (call === undefined) {
+              return fail("malformed_record", `Claude Code tool result on line ${line} has no request.`)
+            }
             calls.delete(callId)
             const content = block["content"]
             said(claudeToolPart(callId, call, {
               failed: block["is_error"] === true,
               output: typeof content === "string" ? content : textOf(list(content).map(record)),
               report: record(row["toolUseResult"]),
-              took: call !== undefined && call.at > 0 && at > call.at ? at - call.at : 0
+              took: call.at > 0 && at > call.at ? at - call.at : 0
             }))
           } else if (block["type"] !== "text" && block["type"] !== "image") {
-            said(unread("content block", block["type"]))
+            return fail(
+              typeof block["type"] === "string" ? "unsupported_record" : "malformed_record",
+              `Claude Code content block on line ${line} is not supported.`
+            )
           }
         }
         const words = textOf(blocks)
@@ -761,10 +919,16 @@ export const decodeClaude = (
             case "redacted_thinking":
               break
             case "tool_use":
-              calls.set(text(block["id"]), { name: text(block["name"]), input: block["input"] ?? {}, at })
+              if (typeof block["id"] !== "string" || block["id"] === "" || calls.has(block["id"])) {
+                return fail("malformed_record", `Claude Code tool request on line ${line} is malformed or repeated.`)
+              }
+              calls.set(block["id"], { name: text(block["name"]), input: block["input"] ?? {}, at })
               break
             default:
-              said(unread("content block", block["type"]))
+              return fail(
+                typeof block["type"] === "string" ? "unsupported_record" : "malformed_record",
+                `Claude Code content block on line ${line} is not supported.`
+              )
           }
         }
         break
@@ -786,7 +950,10 @@ export const decodeClaude = (
         break
       }
       default:
-        said(unread("record", row["type"]))
+        return fail(
+          typeof row["type"] === "string" ? "unsupported_record" : "malformed_record",
+          `Claude Code record on line ${line} is not supported.`
+        )
     }
     found.forEach(({ part, role }, index) => {
       entries.push({

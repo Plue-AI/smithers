@@ -509,5 +509,12 @@ export const projectResult = (
  * Pure external-source decoders; never create executable journal identities.
  * @since 1.0.0-rc.1
  */
-export { decodeClaude, decodeCodex } from "./ExternalTranscript.ts"
-export type { Entry as ExternalEntry, Decoded as ExternalDecoded } from "./ExternalTranscript.ts"
+export type { Entry as ExternalEntry } from "./ExternalTranscript.ts"
+export { decodeClaudeCode, decodeCodex } from "./ExternalTranscriptDraft.ts"
+export type {
+  Context as ExternalContext,
+  Decoded as ExternalDecoded,
+  DecodeError as ExternalDecodeError,
+  Draft as ExternalDraft,
+  State as ExternalState
+} from "./ExternalTranscriptDraft.ts"

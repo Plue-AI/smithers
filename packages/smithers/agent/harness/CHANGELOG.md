@@ -4,6 +4,19 @@
 
 ### Added
 
+- Canonical `Transcript.decodeClaudeCode` and `Transcript.decodeCodex` adapters
+  produce inert, caller-attributed drafts and registration-bound checkpoints.
+  Profiles require validated CLI releases; unknown semantic records reject.
+
+### Removed
+
+- Raw decoder re-exports on `Transcript`; use `ExternalTranscript.decodeClaude`
+  and `ExternalTranscript.decodeCodex` for display projections. Canonical callers
+  supply an explicit profile and trusted registration context. See
+  `docs/external-transcripts.md` and the repository release support policy.
+
+### Added
+
 - `AgentEvent.ModelSelected` names the actual seat used by each capacity
   attempt. Exhaustive event matches must handle `model-selected`.
   `SeatFailedOver` also preserves optional retry delay, HTTP status and quota

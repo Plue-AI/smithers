@@ -1,0 +1,434 @@
+{
+  "entries": [
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",6311,\"01a1149c-1e6a-7411-b6a7-fb1c580c924a\",0]",
+      "source_id": "01a1149c-1e6a-7411-b6a7-fb1c580c924a",
+      "source_offset": 6311,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-owner",
+      "kind": "prompt",
+      "body": "This is a transcript capture in a disposable toy directory. Use apply_patch to create sample.txt containing alpha on its own line. Then use apply_patch to change alpha to beta. Run cat sample.txt to verify it. Do not inspect credentials or any files outside this directory. End with Done."
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",7000,\"msg_0cb45e174c9ffb30016ac5c9cc6b6887d08ecb9f79bc369469\",0]",
+      "source_id": "msg_0cb45e174c9ffb30016ac5c9cc6b6887d08ecb9f79bc369469",
+      "source_offset": 7000,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "I’ll create `sample.txt`, change `alpha` to `beta`, and verify it with `cat`."
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",8291,\"ctc_0cb45e174c9ffb30016ac5c9ccfd0887d0bb58bb0f313690dc\",0]",
+      "source_id": "ctc_0cb45e174c9ffb30016ac5c9ccfd0887d0bb58bb0f313690dc",
+      "source_offset": 8291,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.apply_patch(\"*** Begin Patch\\n*** Add File: /workspace/capture/sample.txt\\n+alpha\\n*** End Patch\"));\ntext(await tools.apply_patch(\"*** Begin Patch\\n*** Update File: /workspace/capture/sample.txt\\n@@\\n-alpha\\n+beta\\n*** End Patch\"));\ntext(await tools.exec_command({cmd:\"cat sample.txt\",workdir:\"/workspace/capture\",max_output_tokens:1000}));\n"
+      },
+      "call_id": "call_wLmhWSMVYwo4DiQiERYahQyv"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",9926,\"exec-b894488e-3c0b-47b4-a3cb-6510db50a6dd\",0]",
+      "source_id": "exec-b894488e-3c0b-47b4-a3cb-6510db50a6dd",
+      "source_offset": 9926,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "edit",
+      "body": {
+        "type": "edit",
+        "call_id": "exec-b894488e-3c0b-47b4-a3cb-6510db50a6dd",
+        "outcome": "applied",
+        "files": [
+          {
+            "path": "/workspace/capture/sample.txt",
+            "change": "added",
+            "diff": "@@ -0,0 +1,1 @@\n+alpha\n"
+          }
+        ]
+      },
+      "call_id": "exec-b894488e-3c0b-47b4-a3cb-6510db50a6dd",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",10471,\"exec-f0173419-e317-4cdd-9672-e14341f5ab7b\",0]",
+      "source_id": "exec-f0173419-e317-4cdd-9672-e14341f5ab7b",
+      "source_offset": 10471,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "edit",
+      "body": {
+        "type": "edit",
+        "call_id": "exec-f0173419-e317-4cdd-9672-e14341f5ab7b",
+        "outcome": "applied",
+        "files": [
+          {
+            "path": "/workspace/capture/sample.txt",
+            "change": "modified",
+            "diff": "@@ -1 +1 @@\n-alpha\n+beta\n"
+          }
+        ]
+      },
+      "call_id": "exec-f0173419-e317-4cdd-9672-e14341f5ab7b",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",11062,\"exec-10bea587-3f23-46c4-acb7-30d36f92b5d5\",0]",
+      "source_id": "exec-10bea587-3f23-46c4-acb7-30d36f92b5d5",
+      "source_offset": 11062,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "cat sample.txt"
+        }
+      },
+      "call_id": "exec-10bea587-3f23-46c4-acb7-30d36f92b5d5"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",11062,\"exec-10bea587-3f23-46c4-acb7-30d36f92b5d5\",1]",
+      "source_id": "exec-10bea587-3f23-46c4-acb7-30d36f92b5d5",
+      "source_offset": 11062,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "beta\n"
+      },
+      "call_id": "exec-10bea587-3f23-46c4-acb7-30d36f92b5d5",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",11802,\"ctco_01a1149c-572b-7080-9792-3d08a31c14fa\",0]",
+      "source_id": "ctco_01a1149c-572b-7080-9792-3d08a31c14fa",
+      "source_offset": 11802,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 0.1 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{}"
+          },
+          {
+            "type": "input_text",
+            "text": "{}"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"d9f170\",\"wall_time_seconds\":0.000003667,\"exit_code\":0,\"original_token_count\":2,\"output\":\"beta\\n\"}"
+          }
+        ]
+      },
+      "call_id": "call_wLmhWSMVYwo4DiQiERYahQyv",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",13333,\"msg_0cb45e174c9ffb30016ac5c9d325f487d09d6c6f144deb6d29\",0]",
+      "source_id": "msg_0cb45e174c9ffb30016ac5c9d325f487d09d6c6f144deb6d29",
+      "source_offset": 13333,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "Done."
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",19724,\"01a1149c-88ba-7103-8036-6a2ef0c237bf\",0]",
+      "source_id": "01a1149c-88ba-7103-8036-6a2ef0c237bf",
+      "source_offset": 19724,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-owner",
+      "kind": "prompt",
+      "body": "Second capture turn. Deliberately issue one apply_patch with a replacement hunk matching the nonexistent line gamma in sample.txt so it fails. Do not repair that deliberate failure. Then execute a shell command that prints capture-error and exits with status 7. Report both failures briefly. Do not inspect credentials or any files outside this directory."
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",20481,\"msg_0cb45e174c9ffb30016ac5c9e6086087d0aa34af8c0e80b820\",0]",
+      "source_id": "msg_0cb45e174c9ffb30016ac5c9e6086087d0aa34af8c0e80b820",
+      "source_offset": 20481,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "I’ll run the deliberate patch failure, leave it unrepaired, then run the command that exits with status 7."
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",21832,\"ctc_0cb45e174c9ffb30016ac5c9e73a8087d096bdccf80632949f\",0]",
+      "source_id": "ctc_0cb45e174c9ffb30016ac5c9e73a8087d096bdccf80632949f",
+      "source_offset": 21832,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.apply_patch(\"*** Begin Patch\\n*** Update File: /workspace/capture/sample.txt\\n@@\\n-gamma\\n+delta\\n*** End Patch\"));\ntext(await tools.exec_command({cmd:\"printf 'capture-error\\\\n'; exit 7\",workdir:\"/workspace/capture\",max_output_tokens:1000}));\n"
+      },
+      "call_id": "call_dbe0b931f54b4b7bbca20b5236d530ff"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",23376,\"ctco_01a1149c-b9f1-7032-9ca4-87d62eb61482\",0]",
+      "source_id": "ctco_01a1149c-b9f1-7032-9ca4-87d62eb61482",
+      "source_offset": 23376,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script failed\nWall time 0.0 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "Script error:\napply_patch verification failed: Failed to find expected lines in /workspace/capture/sample.txt:\ngamma"
+          }
+        ]
+      },
+      "call_id": "call_dbe0b931f54b4b7bbca20b5236d530ff",
+      "failed": true
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",23376,\"ctco_01a1149c-b9f1-7032-9ca4-87d62eb61482\",1]",
+      "source_id": "ctco_01a1149c-b9f1-7032-9ca4-87d62eb61482",
+      "source_offset": 23376,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "edit",
+      "body": {
+        "type": "edit",
+        "call_id": "call_dbe0b931f54b4b7bbca20b5236d530ff",
+        "outcome": "failed",
+        "files": [
+          {
+            "path": "/workspace/capture/sample.txt",
+            "change": "modified",
+            "diff": ""
+          }
+        ]
+      },
+      "call_id": "call_dbe0b931f54b4b7bbca20b5236d530ff",
+      "failed": true
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",24838,\"ctc_0cb45e174c9ffb30016ac5c9ebc10487d0bfc946a0094c3288\",0]",
+      "source_id": "ctc_0cb45e174c9ffb30016ac5c9ebc10487d0bfc946a0094c3288",
+      "source_offset": 24838,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec",
+        "input": "text(await tools.exec_command({cmd:\"printf 'capture-error\\\\n'; exit 7\",workdir:\"/workspace/capture\",max_output_tokens:1000}));\n"
+      },
+      "call_id": "call_d68edc3e96804d379932bb8e64a751d2"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",25373,\"exec-7040b11f-a9d6-419e-8f67-57c1287ef193\",0]",
+      "source_id": "exec-7040b11f-a9d6-419e-8f67-57c1287ef193",
+      "source_offset": 25373,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_request",
+      "body": {
+        "name": "exec_command",
+        "input": {
+          "command": "printf 'capture-error\\n'; exit 7"
+        }
+      },
+      "call_id": "exec-7040b11f-a9d6-419e-8f67-57c1287ef193"
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",25373,\"exec-7040b11f-a9d6-419e-8f67-57c1287ef193\",1]",
+      "source_id": "exec-7040b11f-a9d6-419e-8f67-57c1287ef193",
+      "source_offset": 25373,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec_command",
+        "output": "capture-error\n"
+      },
+      "call_id": "exec-7040b11f-a9d6-419e-8f67-57c1287ef193",
+      "failed": true
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",27004,\"ctco_01a1149c-c501-7852-849a-7309577f609a\",0]",
+      "source_id": "ctco_01a1149c-c501-7852-849a-7309577f609a",
+      "source_offset": 27004,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "tool_result",
+      "body": {
+        "name": "exec",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Script completed\nWall time 0.1 seconds\nOutput:\n"
+          },
+          {
+            "type": "input_text",
+            "text": "{\"chunk_id\":\"717c75\",\"wall_time_seconds\":0.000002459,\"exit_code\":7,\"original_token_count\":4,\"output\":\"capture-error\\n\"}"
+          }
+        ]
+      },
+      "call_id": "call_d68edc3e96804d379932bb8e64a751d2",
+      "failed": false
+    },
+    {
+      "id": "[\"codex\",\"registered-session\",\"generation-1\",28484,\"msg_0cb45e174c9ffb30016ac5c9ee9df887d0b17feff9da33a1ba\",0]",
+      "source_id": "msg_0cb45e174c9ffb30016ac5c9ee9df887d0b17feff9da33a1ba",
+      "source_offset": 28484,
+      "origin": "external",
+      "read_only": true,
+      "agent": "codex",
+      "source_format_version": "codex/0.160.0",
+      "session_id": "registered-session",
+      "participant_id": "trusted-participant",
+      "owner_id": "trusted-owner",
+      "author_id": "trusted-participant",
+      "kind": "assistant",
+      "body": "- `apply_patch` failed because `gamma` was absent from `sample.txt`; left unrepaired.\n- The shell command printed `capture-error` and exited with status 7."
+    }
+  ],
+  "state": {
+    "profile": "codex/0.160.0",
+    "context": {
+      "owner_id": "trusted-owner",
+      "participant_id": "trusted-participant",
+      "session_id": "registered-session",
+      "source_generation": "generation-1"
+    },
+    "pending": "",
+    "offset": 32035,
+    "native": {
+      "pending": "",
+      "line": 46,
+      "seq": 12,
+      "session": {
+        "id": "01a1149b-f90c-7833-87d0-6c4ff981df9c",
+        "format_version": "codex-rollout/0.160",
+        "cwd": "/workspace/capture"
+      }
+    }
+  },
+  "needs_more": false
+}
