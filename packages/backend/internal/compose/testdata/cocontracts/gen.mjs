@@ -45,7 +45,7 @@ emit('ev_burst_rename_delete',2,durable(8,un(1,f(1,id),f(2,un(2,f(1,num(1,4)))),
 emit('ev_burst_part',2,durable(9,un(1,f(1,id),f(2,un(4)),f(3,list(bf('a',1,f(5,oid),f(6,digest)))),f(4,oid),f(5,num(1,2)),f(6,num(2,2)))),0,'ok','daemon-to-host');
 emit('ev_captured',2,durable(8,un(2,f(1,oid),f(2,oid2),f(3,oid))),0,'ok','daemon-to-host');
 for(const [v,name]of [[1,'moved'],[2,'conflict']])emit('ev_reconciled_'+name,2,durable(10,un(3,f(1,oid),f(2,oid2),f(3,[v]),...(v==2?[f(4,list(str('a')))]:[]))),0,'ok','daemon-to-host');
-for(const [v,name]of [[4,'moved_off'],[5,'transcript'],[6,'doc_edit']])emit('ev_reserved_'+name,2,durable(11,un(v)),0,v===5?'missing_field':'ok','daemon-to-host');
+for(const [v,name]of [[4,'moved_off'],[5,'transcript'],[6,'doc_edit']])emit('ev_reserved_'+name,2,durable(11,un(v)),0,v===4||v===5?'missing_field':'ok','daemon-to-host');
 // T-AGT-02 variant 5: wire version, registry session, participant, source lifetime,
 // explicit adapter profile, generation, inclusive start/exclusive end, UTF-8 record.
 const transcript=(text=Buffer.from('{"type":"user"}'),version=1)=>un(5,f(1,num(version,2)),f(2,num(1,4)),f(3,id),f(4,digest.subarray(0,16)),f(5,str('claude-code/2.1.0')),f(6,num(1,8)),f(7,num(0,8)),f(8,num(text.length+1,8)),f(9,bytes(text)));
@@ -96,6 +96,8 @@ emit('res_set_roster',1,res(16),0,'ok','daemon-to-host');
 emit('res_write_file_raced',1,res(3,f(1,digest),f(2,st(f(1,str('src/a.ts')),f(2,Buffer.alloc(32,0x55))))),0,'ok','daemon-to-host');
 emit('bad_roster_missing_uid',1,req(16,f(1,list(st(f(1,str('ben')))))),0,'missing_field');
 emit('bad_raced_missing_digest',1,res(3,f(1,digest),f(2,st(f(1,str('src/a.ts'))))),0,'missing_field','daemon-to-host');
+// Variant 4 moved_off (#3562): session actor 7, TODO item 2, pre-move commit.
+emit('ev_moved_off',2,durable(11,un(4,f(1,un(2,f(1,num(7,4)))),f(2,num(2,8)),f(3,Buffer.from('1234567890abcdef1234567890abcdef12345678','hex')))),0,'ok','daemon-to-host');
 const previous=JSON.parse(readFileSync(dir+'MANIFEST.json','utf8'));
 const manifest={...previous,scope:"ADR 0004 daemon contract and T-COL-08b browser fixtures",document_protocol:2,protocol:2,legacy_protocols:[1],pins:{...previous.pins,yrs:'=0.27.4'},frames:entries.map(e=>({name:e.name,direction:e.direction,expected:e.expected,local:e.value?.local??false,sha256:createHash('sha256').update(e.b).digest('hex')})),sequences:{seq_working_together:['req_set_roster','res_set_roster','req_open_doc_s3','doc-epoch','doc-input-v2','doc-saved-v2','req_write_file','res_write_file_raced','req_set_roster_empty','res_set_roster'],seq_handshake:['hello_challenge','hello_host_proof','hello_machine','hello_welcome'],seq_write_stale:['req_write_file','err_stale'],seq_capture:['obj_data','obj_eof','ev_captured','ack_captured'],seq_missing_objects:['ack_missing_objects','obj_data','obj_eof','ev_burst','ack_applied'],seq_duplicate_receipt:['ev_burst','ack_duplicate'],seq_reconnect_replay:['hello_challenge','hello_host_proof','hello_machine','hello_welcome','ev_burst','ev_captured'],seq_reserved_doc_s2:['doc_reserved_sync','doc_refused_unsupported'],seq_newer_boot:['goodbye_superseded'],seq_wake_objects:['obj_host_data','obj_host_eof','obj_host_close','req_wake_reconcile']}};
 function save(name,bytes){if(check){if(!readFileSync(dir+name).equals(Buffer.from(bytes)))throw Error('fixture drift: '+name)}else writeFileSync(dir+name,bytes)}

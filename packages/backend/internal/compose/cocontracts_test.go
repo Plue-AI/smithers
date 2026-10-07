@@ -171,18 +171,14 @@ func TestMachinedSkeletonDisabled(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cmd := exec.Command("cargo", "build", "--locked", "-p", "smithers-machined", "--bin", "smithers-machined")
-	cmd.Dir = root
-	if out, e := cmd.CombinedOutput(); e != nil {
-		t.Fatalf("Rust build: %v\n%s", e, out)
-	}
+	binary := buildMachined(t, root)
 	listener, e := net.Listen("tcp", "127.0.0.1:0")
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer listener.Close()
 	temp := t.TempDir()
-	cmd = exec.Command(filepath.Join(root, "target/debug/smithers-machined"), "daemon")
+	cmd := exec.Command(binary, "daemon")
 	cmd.Dir = temp
 	cmd.Env = append(os.Environ(), "SMITHERS_MACHINED_HOST="+listener.Addr().String())
 	out, e := cmd.CombinedOutput()
@@ -204,6 +200,46 @@ func TestMachinedSkeletonDisabled(t *testing.T) {
 	cmd.Dir = root
 	if out, e := cmd.CombinedOutput(); e != nil {
 		t.Fatalf("Rust codec/dispatcher: %v\n%s", e, out)
+	}
+}
+
+// buildMachined returns the executable cargo reports for this build, so the
+// test never runs a stale binary from a fixed path when CARGO_TARGET_DIR or a
+// cargo config moves the target directory.
+func buildMachined(t *testing.T, root string) string {
+	t.Helper()
+	cmd := exec.Command("cargo", "build", "--locked", "-p", "smithers-machined", "--bin", "smithers-machined", "--message-format=json-render-diagnostics")
+	cmd.Dir = root
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, e := cmd.Output()
+	if e != nil {
+		t.Fatalf("Rust build: %v\n%s", e, stderr.Bytes())
+	}
+	binary := ""
+	for _, line := range bytes.Split(out, []byte("\n")) {
+		var msg struct {
+			Reason     string
+			Target     struct{ Name string }
+			Executable *string
+		}
+		if json.Unmarshal(line, &msg) == nil && msg.Reason == "compiler-artifact" && msg.Target.Name == "smithers-machined" && msg.Executable != nil {
+			binary = *msg.Executable
+		}
+	}
+	if binary == "" {
+		t.Fatalf("cargo reported no smithers-machined executable\n%s", stderr.Bytes())
+	}
+	return binary
+}
+
+// The committed corpus must be exactly what the independent byte tables in
+// gen.mjs produce; a hand-edited fixture or manifest is drift.
+func TestMachinedWireFixturesMatchGenerator(t *testing.T) {
+	cmd := exec.Command("node", "gen.mjs", "--check")
+	cmd.Dir = "testdata/cocontracts"
+	if out, e := cmd.CombinedOutput(); e != nil {
+		t.Fatalf("gen.mjs --check: %v\n%s", e, out)
 	}
 }
 
