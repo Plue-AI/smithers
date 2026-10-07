@@ -232,6 +232,11 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	// The independent member-access case operates on an awake branch.
 	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
+	// presenceInstall supplies a running coding-host binding. A write share
+	// cannot coexist with that host's owner credential; retire the fixture
+	// binding before exercising the independent member Restore boundary.
+	_, err = f.pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE workspace_id=$1 AND catalog_key='coding'`, f.row.ID)
+	require.NoError(t, err)
 	// A member removed after opening a version cannot restore it.
 	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "w6-member", LowerUsername: "w6-member"})
 	require.NoError(t, err)
