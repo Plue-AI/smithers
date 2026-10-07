@@ -2706,7 +2706,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
         "app_agent"
@@ -2781,7 +2781,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
         "app_agent"
@@ -2824,7 +2824,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
         "app_agent"
