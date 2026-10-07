@@ -677,3 +677,45 @@ describe("ControlRuntime.layerMemory", () => {
     expect(submitted.stampedAt).not.toBe(99)
   })
 })
+
+it("preserves operator consent across background resume requests until the delegation is cleared", async () => {
+  await withRuntime((runtime) =>
+    Effect.gen(function*() {
+      const { run } = yield* start(runtime)
+      yield* runtime.requestResume(run.runId, { consent: 42 })
+      const sequence = yield* runtime.requestResume(run.runId)
+      expect(yield* runtime.pendingResumes).toEqual([{
+        runId: run.runId,
+        sequence,
+        requestedAtMs: expect.any(Number),
+        consent: 42
+      }])
+      yield* runtime.clearResume(run.runId, sequence)
+      yield* runtime.requestResume(run.runId)
+      expect((yield* runtime.pendingResumes)[0]).not.toHaveProperty("consent")
+    })
+  )
+})
+
+it("filters terminal runs by parent and refuses resumes in every terminal state", async () => {
+  await withRuntime((runtime) =>
+    Effect.gen(function*() {
+      const { run } = yield* start(runtime)
+      expect(
+        (yield* runtime.queryRuns({ filters: { parentRunId: "other" }, limit: 10 })).items.map((item) => item.runId)
+      ).toEqual([])
+      for (const status of ["completed", "failed", "cancelled"] as const) {
+        const started = yield* start(runtime)
+        yield* runtime.requestResume(started.run.runId)
+        const fence = yield* runtime.claimFence(started.run.runId)
+        yield* runtime.writeStatus(started.run.runId, fence, status)
+        expect((yield* runtime.pendingResumes).map((pending) => pending.runId)).not.toContain(started.run.runId)
+        expect(yield* Effect.flip(runtime.requestResume(started.run.runId))).toBeInstanceOf(InvalidInput)
+      }
+      expect((yield* runtime.queryRuns({ filters: { terminal: true }, limit: 10 })).items.map((item) => item.runId)).not
+        .toContain(run.runId)
+      expect((yield* runtime.queryRuns({ filters: { terminal: false }, limit: 10 })).items.map((item) => item.runId))
+        .toEqual([run.runId])
+    })
+  )
+})

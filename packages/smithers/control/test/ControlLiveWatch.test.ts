@@ -571,3 +571,25 @@ describe("ControlLive.watch durable gap checks", () => {
     })
   }
 })
+
+it("redacts restricted watch persistence errors and preserves invalid cursor errors", async () => {
+  const journal = Layer.succeed(
+    Journal.Journal,
+    Journal.makeNoop({
+      entries: () => Effect.fail(new Journal.JournalError({ code: "unknown", message: "secret partition" }))
+    })
+  )
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const control = yield* Control
+      yield* (yield* ControlRuntime).plan({ flowId: "system/test", input: {} })
+      const reader = { id: "reader", kind: "test", stampedAt: 0 }
+      const failure = yield* Effect.flip(Stream.runCollect(control.watch({ reader, follow: false })))
+      expect(failure).toEqual(
+        new PersistenceError({ operation: "watch", message: "the watch lost journal entries and ended" })
+      )
+      const invalid = yield* Effect.flip(Stream.runCollect(control.watch({ reader, afterSequence: 1, follow: false })))
+      expect(invalid).toBeInstanceOf(InvalidInput)
+    }).pipe(Effect.provide(live({ journal, runtime: memoryRuntime({ flows }) })), Effect.scoped)
+  )
+})

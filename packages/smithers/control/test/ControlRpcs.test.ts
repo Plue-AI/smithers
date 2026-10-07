@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { Control } from "../src/Control.ts"
 import { isControlError } from "../src/ControlClient.ts"
 import { PlanDigestMismatch, RunNotFound, TransportError, Unauthorized } from "../src/ControlError.ts"
-import { bearerAuthenticator, ControlRpcs, layerAuth, layerNoopAuth } from "../src/ControlRpcs.ts"
+import { bearerAuthenticator, ControlRpcs, layerAuth, layerNoopAuth, RunVisibility } from "../src/ControlRpcs.ts"
 import { ControlRuntime } from "../src/ControlRuntime.ts"
 import type { Envelope, Principal, RunSummary, SteerMessage } from "../src/ControlSchema.ts"
 import * as ControlServer from "../src/ControlServer.ts"
@@ -454,4 +454,9 @@ describe("the identity an authenticated control mutation is journaled under", ()
     expect(principalOf(observed[0]?.payload)).toMatchObject({ id: "remote-operator", kind: "bearer" })
     expect(observed[0]?.payload).toMatchObject({ reason: "operator recovery" })
   })
+})
+
+it("defaults run visibility to restricted when no host policy is installed", async () => {
+  const visibility = await Effect.runPromise(RunVisibility)
+  expect(visibility.seesAllRuns(principal)).toBe(false)
 })

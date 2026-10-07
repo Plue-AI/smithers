@@ -109,6 +109,7 @@ export const controlPlane = (
     readonly loadFlows?: SqlControlRuntime.Options["loadFlows"]
     readonly currentFlows?: SqlControlRuntime.Options["currentFlows"]
     readonly adoptFlow?: SqlControlRuntime.Options["adoptFlow"]
+    readonly pinnedFlow?: SqlControlRuntime.Options["pinnedFlow"]
     readonly engineVersion?: string | undefined
     readonly principal?: SqlControlRuntime.Options["principal"]
   } = {}
@@ -123,6 +124,7 @@ export const controlPlane = (
         loadFlows: options.loadFlows,
         currentFlows: options.currentFlows,
         adoptFlow: options.adoptFlow,
+        pinnedFlow: options.pinnedFlow,
         engineVersion: options.engineVersion,
         principal: options.principal
       }).pipe(Layer.orDie),
@@ -146,6 +148,7 @@ export const durable = (
     readonly loadFlows?: SqlControlRuntime.Options["loadFlows"]
     readonly currentFlows?: SqlControlRuntime.Options["currentFlows"]
     readonly adoptFlow?: SqlControlRuntime.Options["adoptFlow"]
+    readonly pinnedFlow?: SqlControlRuntime.Options["pinnedFlow"]
     readonly engineVersion?: string | undefined
     readonly principal?: SqlControlRuntime.Options["principal"]
     readonly database?: Layer.Layer<DurableWriter | SqlClient.SqlClient | RunStore.RunStore, unknown> | undefined

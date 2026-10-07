@@ -772,6 +772,8 @@ describe("SqlControlRuntime", () => {
     [
       { alive: true, hostId: "mac", pid: 202, scope: "launched", accepted: false },
       { alive: false, hostId: "mac", pid: 202, scope: "launched", accepted: true },
+      { alive: false, hostId: "mac", pid: 303, scope: "launched", accepted: true },
+      { alive: false, hostId: "mac", pid: 404, scope: "launched", accepted: true },
       { alive: undefined, hostId: "mac", pid: 202, scope: "launched", accepted: false },
       { alive: false, hostId: "linux", pid: 202, scope: "launched", accepted: false },
       { alive: true, hostId: "mac", pid: 101, scope: "launched", accepted: true },
@@ -796,6 +798,11 @@ describe("SqlControlRuntime", () => {
           if (accepted) {
             expect(Exit.isSuccess(result)).toBe(true)
             expect((yield* store.get(runId)).owner).toMatchObject({ hostId, pid })
+            const fence = yield* caller.claimFence(runId)
+            expect((yield* caller.writeStatus(runId, fence, "running")).status).toBe("running")
+            if (pid !== owner.pid) {
+              expect(yield* Effect.flip(first.claimFence(runId))).toBeInstanceOf(ClaimLost)
+            }
           } else {
             expect(Exit.isFailure(result)).toBe(true)
             const error = yield* Effect.flip(result)

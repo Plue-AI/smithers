@@ -579,3 +579,27 @@ it.each(["9.9.9-test", undefined])(
     expect(observed.after.engineVersion).toBe(engineVersion)
   }
 )
+
+it.each([true, false, undefined])("uses pinned-flow availability %s when checking recorded code", async (pinned) => {
+  const observed = await scenario({
+    next: "digest-v2",
+    stack: () => ({
+      pinnedFlow: (flowId, digest) => {
+        expect([flowId, digest]).toEqual(["drift", "digest-v1"])
+        return Effect.succeed(pinned)
+      }
+    }),
+    act: (runId) => Effect.flatMap(ControlRuntime, (runtime) => runtime.codeDrift(runId))
+  })
+  expect(Exit.isSuccess(observed.acted)).toBe(true)
+  if (Exit.isSuccess(observed.acted)) {
+    expect(observed.acted.value).toEqual(
+      pinned === true ? undefined : new CodeDrift({
+        runId: observed.runId,
+        flowId: "drift",
+        recorded: "digest-v1",
+        ...(pinned === false ? {} : { current: "digest-v2" })
+      })
+    )
+  }
+})

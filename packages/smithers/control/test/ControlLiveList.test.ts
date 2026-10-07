@@ -3,7 +3,7 @@
  * decisions and mutations the shared contract does not exercise, and what each
  * collaborator's refusal is reported as.
  */
-import { Journal } from "@smthrs/journal"
+import { Journal, JournalEvent } from "@smthrs/journal"
 import { NotificationQueue } from "@smthrs/notifications"
 import { Registry } from "@smthrs/registry"
 import { DiscoveryWarning, SchemaRefMarkdownArgs } from "@smthrs/registry/Descriptor"
@@ -1652,4 +1652,78 @@ describe("a status filter over an executor's observation", () => {
     expect(items(observed)).toEqual([])
     expect(observed._tag === "runs" ? observed.nextCursor : "unread").toBeUndefined()
   })
+})
+
+it("restricts fire listings to runs launched by the reader and hides fires without runs", async () => {
+  await run(
+    Effect.gen(function*() {
+      const control = yield* Control
+      const { runId } = yield* start("system/test", "visible-fire")
+      const reader = { id: "memory", kind: "test", stampedAt: 0 }
+      expect(yield* control.list({ _tag: "fires", reader })).toEqual({
+        _tag: "fires",
+        items: [{ triggerId: "visible", occurrenceAtMs: 1, outcome: "launched", runId }]
+      })
+      expect(yield* control.list({ _tag: "fires", reader: { id: "other", kind: "test", stampedAt: 0 } })).toEqual({
+        _tag: "fires",
+        items: []
+      })
+    }),
+    live({
+      runtime: memoryRuntime({ flows }),
+      dispatch: DispatchReader.make({
+        list: () => Effect.succeed([]),
+        fires: () =>
+          Effect.succeed([
+            { triggerId: "visible", occurrenceAtMs: 1, outcome: "launched", runId: "run-1" },
+            { triggerId: "missing", occurrenceAtMs: 2, outcome: "launched", runId: "absent" },
+            { triggerId: "unlaunched", occurrenceAtMs: 3, outcome: "skipped" }
+          ])
+      })
+    })
+  )
+})
+
+it("lists a decoded empty plan input as JSON null", async () => {
+  const runtime = Layer.effect(ControlRuntime)(Effect.map(ControlRuntime, (runtime) =>
+    ControlRuntime.of({
+      ...runtime,
+      queryPlans: (request) =>
+        Effect.map(
+          runtime.queryPlans(request),
+          (page) => ({ ...page, plans: page.plans.map((plan) => ({ ...plan, decodedInput: undefined })) })
+        )
+    }))).pipe(Layer.provide(memoryRuntime({ flows })))
+  await run(
+    Effect.gen(function*() {
+      const control = yield* Control
+      const card = yield* control.plan({ flowId: "system/test", input: {} })
+      expect(yield* control.list({ _tag: "plans" })).toEqual({
+        _tag: "plans",
+        items: [{ card, input: null, decision: "pending" }]
+      })
+    }),
+    live({ runtime })
+  )
+})
+
+it.each([null, "text", []])("does not attribute a trigger to non-record input %j", async (input) => {
+  await run(Effect.gen(function*() {
+    const control = yield* Control
+    const card = yield* control.plan({ flowId: "system/test", input })
+    yield* control.approve({ ...card.approval, idempotencyKey: "approve:non-record" })
+    const receipt = yield* control.run({
+      _tag: "Plan",
+      planId: card.planId,
+      digest: card.digest,
+      envelope: card.envelope,
+      idempotencyKey: "run:non-record"
+    })
+    expect(receipt._tag).toBe("Accepted")
+    const journal = yield* Journal.Journal
+    const entries = yield* journal.entries({ runId: JournalEvent.RunId.make("run-1"), limit: 100 })
+    expect(entries.entries.find((entry) => entry.eventType === "control.run.accepted")?.payload).not.toHaveProperty(
+      "trigger"
+    )
+  }))
 })

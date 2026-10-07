@@ -15,13 +15,15 @@ describe("resume ownership documentation", () => {
   )
 
   it.each(["docs/concepts/authority.md", "docs/concepts/ownership.md", "docs/api.md"])(
-    "%s distinguishes explicit resume from the node-approval delegation",
+    "%s documents explicit resume consent delegation to a parked host",
     (path) => {
       const text = read(path)
       expect(text).not.toMatch(/`resume` still records the durable delegation/)
       expect(text).toContain("control.run.resume")
       expect(text).toContain("journal subscriber")
-      expect(text).toMatch(/does not (call|record)[\s\S]{0,100}`requestResume`/)
+      expect(text).toContain("requestResume")
+      expect(text).toContain("consent")
+      expect(text).toMatch(/live host parked|parking host/)
     }
   )
 })

@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect"
 import { RpcTest } from "effect/unstable/rpc"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { Unauthorized } from "../src/ControlError.ts"
 import { anyAuthenticator, bearerAuthenticator, ControlRpcs, layerAuth } from "../src/ControlRpcs.ts"
 import * as ControlServer from "../src/ControlServer.ts"
@@ -37,6 +37,24 @@ describe("minting and verifying", () => {
       exp: 61_000
     })
     expect(await Effect.runPromise(ScopedToken.verify(key, token, 60_999))).toEqual(claims)
+  })
+
+  it("uses the host clock when minting without a clock override", async () => {
+    const before = Date.now()
+    const { claims } = await minted({ now: undefined })
+    expect(claims.iat).toBeGreaterThanOrEqual(before)
+    expect(claims.iat).toBeLessThanOrEqual(Date.now())
+  })
+
+  it("dies when the host has no Web Crypto", async () => {
+    vi.stubGlobal("crypto", undefined)
+    try {
+      await expect(Effect.runPromise(ScopedToken.verify(key, "smt1.e30.AA", 0))).rejects.toThrow(
+        "Web Crypto is not available"
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("gives two tokens of the same grant different identities", async () => {
@@ -96,7 +114,7 @@ describe("minting and verifying", () => {
 
   it("refuses a signed body that is not a claims document", async () => {
     // Signed under the right key, so only the claims check can refuse it.
-    const sign = async (text: string) => {
+    const sign = async (text: string, encoded?: string) => {
       const encoder = new TextEncoder()
       const hmac = await crypto.subtle.importKey(
         "raw",
@@ -105,10 +123,12 @@ describe("minting and verifying", () => {
         false,
         ["sign"]
       )
-      const body = Buffer.from(text).toString("base64url")
+      const body = encoded ?? Buffer.from(text).toString("base64url")
       const signature = Buffer.from(await crypto.subtle.sign("HMAC", hmac, encoder.encode(`smt1.${body}`)))
       return `smt1.${body}.${signature.toString("base64url")}`
     }
+    const invalidBody = await sign("", "%%%")
+    expect(await Effect.runPromise(Effect.flip(ScopedToken.verify(key, invalidBody, 1)))).toBeInstanceOf(Unauthorized)
     for (const text of ["not json", "[]", JSON.stringify({ v: 2, id: "x", procedures: [], iat: 0, exp: 10 })]) {
       const refused = await Effect.runPromise(Effect.flip(ScopedToken.verify(key, await sign(text), 1)))
       expect(refused).toBeInstanceOf(Unauthorized)

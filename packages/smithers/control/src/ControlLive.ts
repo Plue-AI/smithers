@@ -1615,8 +1615,8 @@ export const layer: Layer.Layer<
             : error
         ),
         Stream.filterEffect((event) => {
-          const partition = event.runId
-          if (partition === undefined) return Effect.succeed(false)
+          // eventFromEntry, Lineage.derive and Steering.derive retain the journal partition.
+          const partition = event.runId!
           const known = decided.get(partition)
           if (known !== undefined) return Effect.succeed(known)
           return Effect.tap(

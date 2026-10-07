@@ -94,7 +94,11 @@ describe("run visibility per principal", () => {
         const s = yield* launch(as, aliceService, "alice-service")
         return {
           runs: { a, b, s },
-          alice: { list: yield* listed(yield* as(alice)), watch: yield* watched(yield* as(alice)) },
+          alice: {
+            list: yield* listed(yield* as(alice)),
+            watch: yield* watched(yield* as(alice)),
+            named: yield* Stream.runCollect((yield* as(alice)).Watch({ runId: a, follow: false }))
+          },
           bob: { list: yield* listed(yield* as(bob)), watch: yield* watched(yield* as(bob)) },
           service: { list: yield* listed(yield* as(aliceService)) },
           operator: { list: yield* listed(yield* as(operator)), watch: yield* watched(yield* as(operator)) },
@@ -107,6 +111,8 @@ describe("run visibility per principal", () => {
     )
     const { a, b, s } = observed.runs
     expect(observed.alice.list).toEqual([a])
+    expect(observed.alice.named.length).toBeGreaterThan(0)
+    expect(observed.alice.named.every((event) => event.runId === a)).toBe(true)
     expect(observed.bob.list).toEqual([b])
     expect(observed.service.list).toEqual([s])
     // A restricted watch carries no plan partition and no other launcher's run.
