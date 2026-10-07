@@ -12,7 +12,7 @@ import (
 )
 
 const getWorkflowRunByAgentToken = `-- name: GetWorkflowRunByAgentToken :one
-SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason
+SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason, dismissed_by, dismissed_at
 FROM workflow_runs
 WHERE agent_token_hash = $1
 `
@@ -42,6 +42,8 @@ func (q *Queries) GetWorkflowRunByAgentToken(ctx context.Context, agentTokenHash
 		&i.LogBytes,
 		&i.LogEntryCount,
 		&i.CancelReason,
+		&i.DismissedBy,
+		&i.DismissedAt,
 	)
 	return i, err
 }
@@ -52,7 +54,7 @@ SET agent_token_hash = $1,
     agent_token_expires_at = $2,
     updated_at = NOW()
 WHERE id = $3
-RETURNING id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason
+RETURNING id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason, dismissed_by, dismissed_at
 `
 
 type UpdateWorkflowRunAgentTokenParams struct {
@@ -86,6 +88,8 @@ func (q *Queries) UpdateWorkflowRunAgentToken(ctx context.Context, arg UpdateWor
 		&i.LogBytes,
 		&i.LogEntryCount,
 		&i.CancelReason,
+		&i.DismissedBy,
+		&i.DismissedAt,
 	)
 	return i, err
 }

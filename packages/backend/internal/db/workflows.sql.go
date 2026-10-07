@@ -191,7 +191,7 @@ WHERE EXISTS (
     WHERE wd.id = $2
       AND wd.repository_id = $1
 )
-RETURNING id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason
+RETURNING id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason, dismissed_by, dismissed_at
 `
 
 type CreateWorkflowRunParams struct {
@@ -241,6 +241,8 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunPa
 		&i.LogBytes,
 		&i.LogEntryCount,
 		&i.CancelReason,
+		&i.DismissedBy,
+		&i.DismissedAt,
 	)
 	return i, err
 }
@@ -576,7 +578,7 @@ func (q *Queries) GetWorkflowDefinitionByPath(ctx context.Context, arg GetWorkfl
 }
 
 const getWorkflowRun = `-- name: GetWorkflowRun :one
-SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason
+SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason, dismissed_by, dismissed_at
 FROM workflow_runs
 WHERE id = $1
   AND repository_id = $2
@@ -612,12 +614,14 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, arg GetWorkflowRunParams) 
 		&i.LogBytes,
 		&i.LogEntryCount,
 		&i.CancelReason,
+		&i.DismissedBy,
+		&i.DismissedAt,
 	)
 	return i, err
 }
 
 const getWorkflowRunByRunID = `-- name: GetWorkflowRunByRunID :one
-SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason
+SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason, dismissed_by, dismissed_at
 FROM workflow_runs
 WHERE id = $1
 `
@@ -647,6 +651,8 @@ func (q *Queries) GetWorkflowRunByRunID(ctx context.Context, id int64) (Workflow
 		&i.LogBytes,
 		&i.LogEntryCount,
 		&i.CancelReason,
+		&i.DismissedBy,
+		&i.DismissedAt,
 	)
 	return i, err
 }
@@ -1064,7 +1070,7 @@ func (q *Queries) ListWorkflowDefinitionsByRepo(ctx context.Context, arg ListWor
 }
 
 const listWorkflowRunsByDefinition = `-- name: ListWorkflowRunsByDefinition :many
-SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason
+SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason, dismissed_by, dismissed_at
 FROM workflow_runs
 WHERE workflow_definition_id = $1
   AND repository_id = $2
@@ -1116,6 +1122,8 @@ func (q *Queries) ListWorkflowRunsByDefinition(ctx context.Context, arg ListWork
 			&i.LogBytes,
 			&i.LogEntryCount,
 			&i.CancelReason,
+			&i.DismissedBy,
+			&i.DismissedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1128,7 +1136,7 @@ func (q *Queries) ListWorkflowRunsByDefinition(ctx context.Context, arg ListWork
 }
 
 const listWorkflowRunsByRepo = `-- name: ListWorkflowRunsByRepo :many
-SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason
+SELECT id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason, dismissed_by, dismissed_at
 FROM workflow_runs
 WHERE repository_id = $1
 ORDER BY id DESC
@@ -1173,6 +1181,8 @@ func (q *Queries) ListWorkflowRunsByRepo(ctx context.Context, arg ListWorkflowRu
 			&i.LogBytes,
 			&i.LogEntryCount,
 			&i.CancelReason,
+			&i.DismissedBy,
+			&i.DismissedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1406,7 +1416,7 @@ SET check_run_id = $1,
     check_run_url = $2,
     updated_at = NOW()
 WHERE id = $3
-RETURNING id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason
+RETURNING id, repository_id, workflow_definition_id, status, trigger_event, trigger_ref, trigger_commit_sha, dispatch_inputs, agent_token_hash, agent_token_expires_at, jjhub_token_id, check_run_id, check_run_url, started_at, completed_at, created_at, updated_at, execution_plane, log_bytes, log_entry_count, cancel_reason, dismissed_by, dismissed_at
 `
 
 type UpdateWorkflowRunCheckRunParams struct {
@@ -1440,6 +1450,8 @@ func (q *Queries) UpdateWorkflowRunCheckRun(ctx context.Context, arg UpdateWorkf
 		&i.LogBytes,
 		&i.LogEntryCount,
 		&i.CancelReason,
+		&i.DismissedBy,
+		&i.DismissedAt,
 	)
 	return i, err
 }

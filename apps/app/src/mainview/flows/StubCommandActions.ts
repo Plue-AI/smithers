@@ -186,6 +186,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   bindSecret: unexpected,
   setSecret: unexpected,
   deleteSecret: unexpected,
+  backgroundRun: unexpected,
   showStack: unexpected,
   bootstrapStack: unexpected,
   setStackParallel: unexpected,
