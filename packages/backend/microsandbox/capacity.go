@@ -93,6 +93,10 @@ func (r *Runtime) SetCapacityReader(reader func(context.Context) (int, error)) {
 // count and insertion are still atomic under mu.
 func (r *Runtime) prepareAdmission(ctx context.Context) (int, error) {
 	r.mu.Lock()
+	if r.admissionRecoveryPending {
+		r.mu.Unlock()
+		return 0, ErrAdmissionNotReady
+	}
 	names := make([]string, 0, len(r.auxCleanup))
 	for name := range r.auxCleanup {
 		names = append(names, name)
