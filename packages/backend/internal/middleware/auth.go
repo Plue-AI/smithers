@@ -469,6 +469,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "review", regexp.MustCompile(`^/api/reviews$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/reviews/[^/]+$`)},
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues/[0-9]+$`)},
+	{http.MethodPost, "main.reset-to-github", regexp.MustCompile(`^/api/stack/attention/[^/]+$`)},
 	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/(todos|stack)$`)},
 	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos/[0-9]+(/events|/attempts/[0-9]+/logs/[0-9a-f]{64})?$`)},
 	{http.MethodPost, "todo.new", regexp.MustCompile(`^/api/todos$`)},
