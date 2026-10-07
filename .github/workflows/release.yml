@@ -358,8 +358,8 @@ jobs:
           printf '%s\n' "$path_entry" >> "$GITHUB_PATH"
         shell: bash
       # The gate roster below is the required CI `test` job, copied verbatim
-      # from the generated .github/workflows/ci.yml, plus the fault matrix the
-      # required `e2e-faults` job runs. A release that drove the recursive
+      # from the generated .github/workflows/ci.yml, plus the fault matrix from
+      # scheduled reliability, retained as a required release gate. A release that drove the recursive
       # per-package scripts instead proved a different thing than CI proves,
       # and drifted: those runners need none of the toolchain above, so the
       # 1.0.0-rc.0 dry run reached the std package's ripgrep conformance suite
@@ -368,168 +368,168 @@ jobs:
       # silence, and the toolchain block above is a one-line copy per bump.
       - name: Examples
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs ci '//examples/...' --verbose
+        run: pnpm exec smthrs ci '//examples/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Workspace targets
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs ci '//packages/...' --jobs 2 --verbose
+        run: pnpm exec smthrs ci '//packages/...' --jobs 2 --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Script gates
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//scripts/...' --verbose
+        run: pnpm exec smthrs test '//scripts/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Repository flows
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//flows:pack' --verbose
+        run: pnpm exec smthrs test '//flows:pack' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Judge egress
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//flows:egress' --verbose
+        run: pnpm exec smthrs test '//flows:egress' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Repository flow fixtures
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//flows:repository' --verbose
+        run: pnpm exec smthrs test '//flows:repository' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Wiki and release fixtures
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//flows:fixtures' --verbose
+        run: pnpm exec smthrs test '//flows:fixtures' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Repository flows lint
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs lint '//flows/...' --verbose
+        run: pnpm exec smthrs lint '//flows/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Public export JSDoc
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs lint '//:jsdocTree' --verbose
+        run: pnpm exec smthrs lint '//:jsdocTree' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Script lint
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs lint '//scripts:lint' --verbose
+        run: pnpm exec smthrs lint '//scripts:lint' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: JSDoc rule harness
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//:jsdocRules' --verbose
+        run: pnpm exec smthrs test '//:jsdocRules' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Factory harness
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//:factoryHarness' --verbose
+        run: pnpm exec smthrs test '//:factoryHarness' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Agent eval suite (offline, baseline-gated)"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//evals/agent:test' --verbose
+        run: pnpm exec smthrs test '//evals/agent:test' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Agent eval typecheck
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs build '//evals/agent:check' --verbose
+        run: pnpm exec smthrs build '//evals/agent:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Authoring eval dataset (offline)"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//evals/authoring:test' --verbose
+        run: pnpm exec smthrs test '//evals/authoring:test' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Authoring eval typecheck
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs build '//evals/authoring:check' --verbose
+        run: pnpm exec smthrs build '//evals/authoring:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: SWE-bench offline fixtures
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//evals/swebench:offline' --jobs 1 --verbose
+        run: pnpm exec smthrs test '//evals/swebench:offline' --jobs 1 --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: SWE-bench rig typecheck
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs build '//evals/swebench:check' --verbose
+        run: pnpm exec smthrs build '//evals/swebench:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: SWE-bench rig lint
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs lint '//evals/swebench/...' --verbose
+        run: pnpm exec smthrs lint '//evals/swebench/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: UI typecheck
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs build '//apps/app:check' --verbose
+        run: pnpm exec smthrs build '//apps/app:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: UI unit tests
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//apps/app:unitTests' --verbose
+        run: pnpm exec smthrs test '//apps/app:unitTests' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: UI conformance lint
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//apps/app:conformance' --verbose
+        run: pnpm exec smthrs test '//apps/app:conformance' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: TUI typecheck, lint and tests
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs ci '//apps/tui/...' --verbose
+        run: pnpm exec smthrs ci '//apps/tui/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: TUI end-to-end suite
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//apps/tui:e2eTests' --verbose
+        run: pnpm exec smthrs test '//apps/tui:e2eTests' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
@@ -571,91 +571,98 @@ jobs:
           node-version-file: .node-version
       - name: Server typecheck and tests
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs ci '//apps/server/...' --verbose
+        run: pnpm exec smthrs ci '//apps/server/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Review flow
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs ci '//flows/review/...' --verbose
+        run: pnpm exec smthrs ci '//flows/review/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Bug worker
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs ci '//apps/bug-worker/...' --verbose
+        run: pnpm exec smthrs ci '//apps/bug-worker/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Project copy drift
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs lint '//:projectCopy' --verbose
+        run: pnpm exec smthrs lint '//:projectCopy' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Site
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs ci '//apps/site/...' --verbose
+        run: pnpm exec smthrs ci '//apps/site/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Review eval suite (offline, baseline-gated)"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//evals/review-seeded-bugs/...' --verbose
+        run: pnpm exec smthrs test '//evals/review-seeded-bugs/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Review eval typecheck
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs build '//evals/review-seeded-bugs:check' --verbose
+        run: pnpm exec smthrs build '//evals/review-seeded-bugs:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Recommend eval suite (offline, baseline-gated)"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//evals/recommend/...' --verbose
+        run: pnpm exec smthrs test '//evals/recommend/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Recommend eval typecheck
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs build '//evals/recommend:check' --verbose
+        run: pnpm exec smthrs build '//evals/recommend:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Generated workflow drift
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs lint '//:ci' --verbose
+        run: pnpm exec smthrs lint '//:ci' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Factory projection drift
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs lint '//:factoryProjection' --verbose
+        run: pnpm exec smthrs lint '//:factoryProjection' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Target index drift
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs lint '//:targetIndex' --verbose
+        run: pnpm exec smthrs lint '//:targetIndex' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
+      - name: "Package documentation tarballs"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs test '//scripts:packageDocs' --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
+        env:
+          "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
+          "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
+          "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Native FFI clippy and tests
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs build '//:nativeFfi' --verbose
+        run: pnpm exec smthrs build '//:nativeFfi' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
@@ -688,21 +695,21 @@ jobs:
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Build-script unit tests
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//crates/flows-jj:buildScript' --verbose
+        run: pnpm exec smthrs test '//crates/flows-jj:buildScript' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Rebuild and byte-compare flows_jj.wasm
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//crates/flows-jj:wasmReproducibility' --verbose
+        run: pnpm exec smthrs test '//crates/flows-jj:wasmReproducibility' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Build and test shared backend
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm exec smthrs test '//:backendGo' --verbose
+        run: pnpm exec smthrs test '//:backendGo' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"

@@ -121,3 +121,8 @@ builds `pgcrypto` with OpenSSL for product migrations and exports
 service remains the database for other integration cases. No system install,
 sudo, or shared-server stop is required. Source provisioning is separate from
 reference-host artifact approval and does not enable privileged cases.
+
+To run only the Linux fault job remotely, dispatch `reliability.yml` on `main`
+with `campaign: faults-linux`. Its default `all` and the nightly schedule keep
+all campaigns and both host selections. The Linux selection does not enable
+reference-host execution or approve check mappings.

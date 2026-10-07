@@ -4,6 +4,13 @@ on:
     - cron: '23 3 * * *'
   workflow_dispatch:
     inputs:
+      campaign:
+        description: 'Campaign'
+        type: choice
+        default: all
+        options:
+          - all
+          - faults-linux
       seed:
         description: 'Replay seed; empty chooses the current UTC day'
         type: string
@@ -11,10 +18,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: reliability-${{ github.ref }}
+  group: reliability-${{ github.ref }}-${{ inputs.campaign || 'all' }}
   cancel-in-progress: false
 jobs:
   benchmark-observations:
+    if: ${{ inputs.campaign != 'faults-linux' }}
     name: scheduler and journal counters, latency and retained resources
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -39,6 +47,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   sync-long-soak:
+    if: ${{ inputs.campaign != 'faults-linux' }}
     name: sync subscriber lifecycle (60 minute soak, Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     timeout-minutes: 70
@@ -84,6 +93,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   signal-state-machine:
+    if: ${{ inputs.campaign != 'faults-linux' }}
     name: durable signal state machine (rotating seed)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -128,6 +138,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   run-lifecycle-state-model:
+    if: ${{ inputs.campaign != 'faults-linux' }}
     name: run lifecycle state model (rotating seed)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -174,6 +185,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   jj-native-wasm-abi:
+    if: ${{ inputs.campaign != 'faults-linux' }}
     name: generated native and real WASM ABI corpus
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -237,7 +249,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        host: [linux, reference]
+        host: ${{ fromJSON(inputs.campaign == 'faults-linux' && '["linux"]' || '["linux","reference"]') }}
     runs-on: ${{ matrix.host == 'reference' && fromJSON('["self-hosted","macOS","ARM64","smithers-reference"]') || fromJSON('["ubuntu-latest"]') }}
     services:
       postgres:
@@ -337,7 +349,7 @@ jobs:
         run: "jj git init --colocate"
       - name: "Exclusive fault matrix"
         env:
-          SMITHERS_TEST_DATABASE_URL: ${{ matrix.host == 'linux' && format('postgres://smithers:fault-fixture@127.0.0.1:{0}/postgres?sslmode=disable', job.services.postgres.ports[5432]) || '' }}
+          SMITHERS_TEST_DATABASE_URL: ${{ matrix.host == 'linux' && format('postgres://smithers:fault-fixture@127.0.0.1:{0}/postgres?sslmode=disable', job.services.postgres.ports['5432']) || '' }}
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
       - name: "Upload smthrs results"
