@@ -1458,6 +1458,12 @@ func TestForeignPushFetchedWaitAndAcknowledgementAreAtomic(t *testing.T) {
 	item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "blocked", Checks: checks.encode(), IssueNumber: pgtype.Int8{Int64: 4, Valid: true}})
 	require.NoError(t, err)
 	require.True(t, inserted)
+	// The fetched activity projects the real TODO card, which needs the
+	// member bound by TODO admission (legacy insertion does not set it).
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET owner_id=$2 WHERE id=$1`, item.ID, repo.UserID.Int64)
+	require.NoError(t, err)
+	item, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
 	item.PRNumber, item.PRState, item.PRHead = pgtype.Int8{Int64: 4, Valid: true}, "open", strings.Repeat("a", 40)
 	item.CandidateHead, item.CandidateVerified, item.Reason = strings.Repeat("b", 40), true, "retain failure reason"
 	item.PausedAt = pgtype.Timestamptz{Time: time.Unix(11, 0).UTC(), Valid: true}
@@ -1639,6 +1645,10 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 				}
 				item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: state, Checks: checks.encode()})
 				require.NoError(t, err)
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET owner_id=$2 WHERE id=$1`, item.ID, repo.UserID.Int64)
+				require.NoError(t, err)
+				item, err = q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
 				item.PRHead, item.CandidateBase, item.CandidateHead, item.CandidateVerified = base, base, candidate, true
 				if pending != "" {
 					item.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "push", Target: "smithers/retry", Desired: candidate, Precondition: base, State: pending})
@@ -1704,6 +1714,9 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 				defer bridge.Close()
 				row := claims[0]
 				row.LandedMain = base
+				// Publication rechecks the durable prefix under the stack fence.
+				_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1 AND claim=$3`, repo.ID, base, row.Claim)
+				require.NoError(t, err)
 				makeStep := func() *mythicalItemStep {
 					restarted := NewMythicalService(pool, local.Client())
 					restarted.github = reader
