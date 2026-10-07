@@ -2449,6 +2449,16 @@ export interface PostApiModelTestInput {
 export const postApiModelTest = (transport: Transport, input?: PostApiModelTestInput): Promise<PostApiModelTestResponse> =>
   transport.request("POST", `/api/model/test`, input?.body) as Promise<PostApiModelTestResponse>
 
+export type GetApiModelTestReceiptResponse = AnyJSON
+
+export interface GetApiModelTestReceiptInput {
+  readonly query: { readonly requestId: string }
+}
+
+/** GET /api/model/test/receipt: Read a durable owner model probe */
+export const getApiModelTestReceipt = (transport: Transport, input: GetApiModelTestReceiptInput): Promise<GetApiModelTestReceiptResponse> =>
+  transport.request("GET", `/api/model/test/receipt${search({ requestId: input.query.requestId })}`) as Promise<GetApiModelTestReceiptResponse>
+
 export type PostApiModelVercelPathBody = AnyJSON
 
 export type PostApiModelVercelPathResponse = AnyJSON
@@ -5681,13 +5691,27 @@ export const postApiRepoConnection = (transport: Transport): Promise<PostApiRepo
 export const deleteApiRepoConnection = (transport: Transport): Promise<void> =>
   transport.request("DELETE", `/api/repo-connection`).then(() => undefined)
 
+export type PostApiReviewsResponse = ConfirmationReceipt | {
+  repository_id: number
+  requester_id: number
+  author_id: number
+  number: number
+  base: string
+  head: string
+  url: string
+  pin: Record<string, unknown>
+  operationId?: string
+  state?: string
+  conversation: string
+}
+
 export interface PostApiReviewsInput {
   readonly headers: { readonly "Idempotency-Key": string }
 }
 
 /** POST /api/reviews: Request review of a GitHub pull request */
-export const postApiReviews = (transport: Transport, input: PostApiReviewsInput): Promise<void> =>
-  transport.request("POST", `/api/reviews`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+export const postApiReviews = (transport: Transport, input: PostApiReviewsInput): Promise<PostApiReviewsResponse> =>
+  transport.request("POST", `/api/reviews`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiReviewsResponse>
 
 export type GetApiSearchCodeResponse = AnyJSON
 

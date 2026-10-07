@@ -730,7 +730,7 @@ func TestInstallAuthorizationOpenAPIResponses(t *testing.T) {
 		{"post", "/api/todos"}, {"patch", "/api/todos/{n}"}, {"post", "/api/todos/{n}"},
 		{"post", "/api/todos/{n}/merge"}, {"post", "/api/branches/{b}"},
 		{"post", "/api/proposals/{id}/accept"}, {"post", "/api/proposals/{id}/dismiss"},
-		{"post", "/api/confirmations"},
+		{"post", "/api/confirmations"}, {"post", "/api/reviews"},
 	} {
 		operation := mappingValue(mappingValue(paths, door.path), door.method)
 		require.NotNil(t, operation, door.path)
