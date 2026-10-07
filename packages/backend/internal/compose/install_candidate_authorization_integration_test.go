@@ -66,9 +66,10 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 	service := services.NewMythicalService(f.pool, host, services.WithMythicalInstallAuthorization(true))
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
+	cfg.Auth.SessionCookieName = "session"
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{"http://example.com"}
-	router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: service}})
+	router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, Members: &routes.MembersHandler{Service: &services.Members{Pool: f.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}})
 	scopes := "write:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspace.ID) + "," + middleware.AgentSessionRestrictionScope("current-run")
 	run := f.token(f.owner, "candidate-run", scopes, true)
 	delegated := f.token(f.owner, "candidate-agent", "write:repository,via:codex", true)
@@ -256,6 +257,86 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		var approvals int
 		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM approvals`).Scan(&approvals))
 		require.Zero(t, approvals)
+		t.Run("removal revokes sponsored and independent machine credentials", func(t *testing.T) {
+			// The run was minted before transfer. Its lifetime belongs to the
+			// original sponsor, even after another person owns the TODO.
+			_, err := f.pool.Exec(f.ctx, `UPDATE collaborators SET github_id=199,github_login='gate-other' WHERE user_id=$1`, f.other.ID)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(f.ctx, `INSERT INTO oauth_accounts(user_id,provider,provider_user_id,profile_data) VALUES($1,'workos','199','{}')`, f.other.ID)
+			require.NoError(t, err)
+			cookie := "revocation-owner-cookie"
+			sum := sha256.Sum256([]byte(cookie))
+			_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.owner.ID, Username: f.owner.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+			require.NoError(t, err)
+			otherWorkspace, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.owner.ID, Name: "other-subject", TargetBookmark: "lane/2", Kind: "container", Status: "running"})
+			require.NoError(t, err)
+			var otherItem string
+			require.NoError(t, f.pool.QueryRow(f.ctx, `INSERT INTO mythical_items(repository_id,source,state,number,stack_position,title,workspace_id,request_run_id,owner_id,attempt)
+ VALUES($1,'todo','delivering',2,2,'Other subject',$2,'member-run',$3,1) RETURNING id::text`, f.repoID, otherWorkspace.ID, f.owner.ID).Scan(&otherItem))
+			_, err = f.pool.Exec(f.ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES($1,$2,$3,'other')`, otherWorkspace.ID, f.repoID, otherItem)
+			require.NoError(t, err)
+			otherSubject := f.token(f.other, "other-subject", strings.Replace(memberScopes, workspace.ID, otherWorkspace.ID, 1), true)
+			machine := f.token(f.other, "member-machine", "write:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.WorkspaceRestrictionScope(workspace.ID), true)
+			cli := f.token(f.other, "member-cli", "read:repository,via:cli", true)
+			app := f.token(f.other, "member-app", "read:repository,via:smithers,terminal-session:"+liveAppTurnCredentialFixture(t, f.pool, f.other.ID)+"/1", true)
+			memberRequest := func(method, path, body string) *httptest.ResponseRecorder {
+				req := httptest.NewRequest(method, "http://example.com"+path, strings.NewReader(body))
+				req.Header.Set("Origin", "http://example.com")
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-CSRF-Token", "csrf-fixture")
+				req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf-fixture"})
+				req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				return out
+			}
+			read := func(token string, want int) {
+				req := httptest.NewRequest("GET", "http://example.com/api/repos/gate-owner/app/mythical", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				require.Equal(t, want, out.Code, out.Body.String())
+			}
+			read(memberRun, 200)
+			read(cli, 200)
+			read(app, 200)
+			read(otherSubject, 403)
+			_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2,request_run_id='owner-replacement',generation=generation+1 WHERE id=$1`, itemID, f.owner.ID)
+			require.NoError(t, err)
+			read(memberRun, 403)
+			read(machine, 403)
+			started := time.Now()
+			out := memberRequest("DELETE", "/api/members/gate-other", "")
+			require.Equal(t, 204, out.Code, out.Body.String())
+			for _, token := range []string{memberRun, otherSubject, machine, cli, app} {
+				read(token, 401)
+			}
+			var tokens int
+			require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM access_tokens WHERE user_id=$1`, f.other.ID).Scan(&tokens))
+			require.Zero(t, tokens, "physical deletion is part of the removal commit")
+			require.LessOrEqual(t, time.Since(started), 5*time.Second)
+			// Restore through the real GitHub-backed member route. The fixture
+			// serves GitHub only; admission, token loading and storage stay real.
+			github := &rosterGitHub{roles: map[string]string{"gate-other": "write"}}
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				r.URL.Path = strings.Replace(r.URL.Path, "/repos/gate-owner/app", "/repos/owner/app", 1)
+				github.serve(w, r)
+			}))
+			defer provider.Close()
+			t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
+			out = memberRequest("POST", "/api/members", `{"login":"gate-other"}`)
+			require.Equal(t, 204, out.Code, out.Body.String())
+			for _, token := range []string{memberRun, otherSubject, machine, cli, app} {
+				read(token, 401)
+			}
+			freshScopes := strings.Replace(memberScopes, "member-run", "owner-replacement", 1)
+			fresh := f.token(f.owner, "owner-resumed", freshScopes, true)
+			read(fresh, 200)
+			retained, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+			require.NoError(t, err)
+			require.Equal(t, memberSource, retained.CandidateHead, "revocation retains the delivered work")
+		})
+
 	})
 
 }
