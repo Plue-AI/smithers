@@ -1,6 +1,18 @@
 # ADR 0003: Live code co-editing: one live channel, documents addressed by topic, the daemon as disk authority
 
-Status: proposed (2026-10-06). This file holds only the T-COL-01 spike result ([#3441](https://github.com/smithersai/smithers/issues/3441)): **spike result, decision by T-COL-10**. T-COL-10 ([#3508](https://github.com/smithersai/smithers/issues/3508)) writes this record's decision, the `base_digest` rule. Its topology section is decided by T-COL-11 ([#3553](https://github.com/smithersai/smithers/issues/3553)), which smithers-8a accepts.
+Status: proposed (2026-10-07). T-COL-10 ([#3508](https://github.com/smithersai/smithers/issues/3508)) records the write-precondition contract below. Provider security qualification and owner acceptance remain pending; this record does not enable a provider. T-COL-01's spike evidence ([#3441](https://github.com/smithersai/smithers/issues/3441)) is retained below. Topology is decided by T-COL-11 ([#3553](https://github.com/smithersai/smithers/issues/3553)).
+
+## Every write carries `base_digest`; stale is refused
+
+Every app or coding-agent write to branch files supplies the SHA-256 digest of the complete bytes it read, or `"absent"` when creating a missing file. The isolated mutation provider compares this base at the write boundary. A stale base changes nothing. Missing or malformed bases are refused; there is no unconditional-write fallback. Wiki text retains Yjs.
+
+The authenticated file-content GET returns `digest`. PUT requires `base_digest` and returns the written file's digest on success. A mismatch returns HTTP 409 with `{code: "stale", current_digest}`; a missing base returns 400. The caller reloads before retrying. Actor identity comes from the authenticated principal or registered coding run, never from body fields naming an actor, branch, machine or uid.
+
+The coding host attaches one run-scoped ledger to the existing guarded filesystem. Successful model-facing reads record the full-file digest before pagination. Existing files never read by that run are refused with `stale_read`, naming the path and its base/current digests. Tool-internal reads cannot refresh a base. Each invocation captures immutable bases; concurrent reads cannot replace them. Only successful provider settlement advances the caller's ledger, including writes, creation, moves and deletion. Reacquiring the host after a crash starts with an empty ledger and requires re-reading existing files.
+
+A patch validates every affected source and destination, including absent destinations and guarded source removal, under the provider's per-branch exclusion. It settles as one transaction. A stale later hunk leaves earlier files unchanged, creates no destination and removes no source. A replacement racing the exchange is retained; rollback compares displaced digests and preserves outside writes. A refused or uncertain patch cannot advance the ledger or emit successful mutation diagnostics. Ordered single-file RPC calls are not an atomic patch provider.
+
+S1 uses only a qualified guest compare-and-write provider. Credential drop precedes consumption of branch operands and bytes. Fresh and retained-machine security/race receipts are required before enablement. S2 uses the authenticated daemon with a kernel-observed registered coding session; a host principal cannot substitute for an agent run. The interim guest mutation path is deleted at the qualified S2 cutover. Missing launchers, bindings, sessions or qualified providers refuse mutation without host execution or ordinary filesystem fallback. These gates remain closed until their real-machine receipts pass.
 
 ## Topology
 
