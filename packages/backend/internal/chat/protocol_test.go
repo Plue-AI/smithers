@@ -88,7 +88,7 @@ func TestEmbeddedSchemaIsProductMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var conversationSchema string
+	var conversationSchema, derivedSchema string
 	for _, file := range files {
 		body, readErr := os.ReadFile(file)
 		if readErr != nil {
@@ -97,11 +97,14 @@ func TestEmbeddedSchemaIsProductMigrations(t *testing.T) {
 		if strings.Contains(string(body), "ALTER TABLE chat_turns ADD COLUMN conversation_id") {
 			conversationSchema = strings.Split(string(body), "ALTER TABLE collaborators")[0]
 		}
+		if strings.Contains(string(body), "ALTER TABLE chat_turns ADD COLUMN entry_seq") || strings.Contains(string(body), "ALTER TABLE chat_turns ADD COLUMN summary text") {
+			derivedSchema += "\n" + string(body)
+		}
 	}
 	if conversationSchema == "" {
 		t.Fatal("branch conversation migration missing")
 	}
-	if string(embedded) != string(first)+"\n"+string(second)+"\n"+string(third)+"\n"+conversationSchema {
+	if string(embedded) != string(first)+"\n"+string(second)+"\n"+string(third)+"\n"+conversationSchema+derivedSchema {
 		t.Fatal("chat integration schema drifted from product migrations")
 	}
 }
