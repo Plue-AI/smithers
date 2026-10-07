@@ -65,6 +65,11 @@ func agentProfiles(ctx context.Context, q *db.Queries) (map[string]any, error) {
 		runs := []db.AgentModelRun{}
 		if role == "app" {
 			runs = appRuns
+		} else {
+			runs, err = q.RecentFactoryAgentRuns(ctx, role)
+			if err != nil {
+				return nil, err
+			}
 		}
 		profiles = append(profiles, map[string]any{"id": role, "label": label, "purpose": "", "builtin": true, "available": false, "reason": "", "account": "",
 			"model": map[string]string{"id": model.ModelID, "label": modelLabel, "provider": model.Protocol}, "source": source, "binding": binding, "instructions": path, "runs": runs})
