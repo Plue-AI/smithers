@@ -75,3 +75,41 @@ M-29: repository code runs only as an unprivileged user inside a machine. No mem
 4. smithers-8a accepts E-04 and protocol changes; smithers-3f accepts broker/registry/revocation/Go seams and security receipts; smithers-b8 accepts served terminal-contract changes.
 5. Owner pre-review: smithers-3f must answer: Does the socketpair envelope validate every privileged selector before use and defer branch payloads until uid/gid drop? Who installs host-only register_run here and consumes it in T-COL-04 without a cycle? Does cutover preserve fanout/replay while deleting msb-per-terminal ownership? smithers-b8 must answer: Does the adapter preserve the served terminal input, resize, exit and reconnect contract? Record answers here; owner review is post hoc under the parallel-build directive, not a dependency on an unlanded implementation. No UI view or packages/ TypeScript-library change is scoped.
 6. M-29, the root-step inventory and C-COL-04's TestSessionRootInputsValidated cover main/install and branch/member inputs; smithers-3f reviews validation receipts before activation. Branch-built root code is forbidden regardless of test results.
+
+## T-TRM-06 wave-3 probe handoff (unmeasured)
+
+No C-SPK-08 result is accepted. The Linux lane built disposable adapters under
+`scripts/spikes/trm-06`; root/host activation still refuses without the
+installed-main authority and accepted security receipts. No product runtime
+path is changed by this spike.
+
+Built frames are `data`, `eof`, `resize`, `signal`, `exit`, `exit_signal`,
+`window`, `close`: four-byte big-endian length plus strict tagged JSON, numeric
+byte arrays, 65,536-byte envelopes, 8,192-byte data, and 262,144-byte credit per
+direction. The owned cgroup registry, fixed dropped process launcher, PTY mode
+mapping, live pipes, SSH listener/channel adapter and authenticated relay-control
+seam are implemented. Revocation replies after cgroup drain; restart admission
+requires startup drain. Configured bounds are 5 s revocation, 2 s startup and
+30 s disconnect grace. **None is a measured result.**
+
+Unprivileged process/frame fixtures cover binary stdin/EOF, split output, exit
+7, TERM/PIPE, stalled output, exact-offset replay and foreground exit with
+background pipe holders. Real SSH synthetic-peer tests cover Ben authentication,
+channel mapping, rejection and reconnect. They do not exercise installed
+provenance, a microVM, actual fixed identities/cgroups, init or the real relay.
+
+The probe's attach snapshot adds `written` and `input_eof` beside accepted input
+`received`: received-byte offsets alone cannot recover a lost relative WINDOW
+or a possibly delivered stdin EOF. Signals with unknown delivery are not replayed.
+Terminal EOF currently uses canonical VEOF; raw-mode half-close needs the
+reference-host result. The disposable write sandbox additionally requires
+Landlock ABI >=3 and allows fixed kernel sink devices beside workspace/home;
+that prerequisite/device policy needs root-boundary review. These are proposed
+probe choices, not accepted protocol or product decisions.
+
+Measured revocation timings: none. Measured restart timings: none. Real
+identity/cgroup/RSS samples: none. VS Code recording: none. Both root-validation
+subchecks and all nine reference-host steps remain pending; see
+`scripts/spikes/trm-06/reference-host.md`. A person on a second Mac must perform
+the editor recording. smithers-8a accepts the measured protocol result and
+amendments; smithers-3f accepts root boundaries and receipts.
