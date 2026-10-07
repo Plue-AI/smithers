@@ -1,4 +1,5 @@
 import { actorSharedState } from "../ActorBindings"
+import { randomUuid } from "../../runtime/RandomUuid"
 /** Resolve previously configured host model bindings without exposing a model laboratory. */
 import type { ConfiguredModel, ModelBinding, SeatId } from "@smthrs/rpc/ConfiguredModel"
 import { bindingOf, seatAccepts } from "@smthrs/rpc/ConfiguredModel"
@@ -104,7 +105,7 @@ export const createModelsController = (ctx: ControllerContext, deps: { readonly 
   if (!model) { markTest(id, false, "Model unavailable"); return "Model unavailable" }
   const epoch = ctx.accountEpoch
   shared.pending.set(id, epoch)
-  const request = recovered ?? { requestId: crypto.randomUUID(), model: recordOf(model) }
+  const request = recovered ?? { requestId: randomUuid(), model: recordOf(model) }
   try { await markTest(id, true, undefined, request) }
   catch (error) { shared.pending.delete(id); throw error }
   void ctx.withToast(`model.test.${id}`, "Testing model", "Model tested", async () => {
