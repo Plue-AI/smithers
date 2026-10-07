@@ -13,7 +13,7 @@ type machineReturn struct {
 }
 
 func (r machineReturn) RequireReady(branch string) error {
-	if r.registry == nil {
+	if r.pool == nil || r.registry == nil || !r.registry.EventConsumerReady() {
 		return machined.ErrNotReady
 	}
 	link, err := r.registry.Current(branch)
@@ -23,6 +23,9 @@ func (r machineReturn) RequireReady(branch string) error {
 	return link.RequireReady(branch)
 }
 func (r machineReturn) ReturnToItem(ctx context.Context, branch string, login []byte) (machined.RewriteResult, error) {
+	if err := r.RequireReady(branch); err != nil {
+		return machined.RewriteResult{}, err
+	}
 	link, err := r.registry.Current(branch)
 	if err != nil {
 		return machined.RewriteResult{}, err

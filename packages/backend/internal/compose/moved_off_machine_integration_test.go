@@ -126,8 +126,32 @@ func TestMovedOffMachineConsumerThroughInstallHTTP(t *testing.T) {
 	// A new move has a new first-answer owner and a production Return adapter.
 	send(machined.Event{Seq: 3, EventID: [16]byte{43}, Payload: payload(false)}, machined.AckApplied)
 	adapter := machineReturn{registry: registry, pool: pool}
-	service.SetMovedOffReturn(adapter)
 	wait = read()["waits"].([]any)[0].(map[string]any)
+	// Remove real host providers through the served command boundary. A ready
+	// transport alone cannot authorize a rewrite whose event cannot settle the wait.
+	unconsumed := new(machined.Registry)
+	unconsumedLink, _ := presenceTestLink(t, unconsumed, f.row.ID)
+	require.NoError(t, unconsumedLink.Reconciled())
+	for _, missing := range []struct {
+		name     string
+		provider machineReturn
+	}{
+		{"database", machineReturn{registry: registry}},
+		{"registry", machineReturn{pool: pool}},
+		{"event-consumer", machineReturn{registry: unconsumed, pool: pool}},
+	} {
+		t.Run("unavailable-"+missing.name, func(t *testing.T) {
+			service.SetMovedOffReturn(missing.provider)
+			require.Equal(t, 503, post("return-to-item", "missing-"+missing.name))
+			card := read()
+			require.Equal(t, "needs_you", card["state"])
+			require.NotContains(t, card["waits"].([]any)[0].(map[string]any), "answered_by")
+			result, err := missing.provider.ReturnToItem(ctx, f.row.ID, []byte(f.user.Username))
+			require.ErrorIs(t, err, machined.ErrNotReady)
+			require.Empty(t, result.Head)
+		})
+	}
+	service.SetMovedOffReturn(adapter)
 	require.Equal(t, 202, post("return-to-item", "return-machine"))
 	require.Equal(t, 409, post("keep-moved", "late-keep-machine"))
 	returned := make(chan error, 1)
