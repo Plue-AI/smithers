@@ -84,6 +84,11 @@ jobs:
           fi
       - name: UI typecheck
         run: pnpm exec smthrs build '//apps/app:check' --verbose
+      # The unit suite's keyboard and focus support tests launch real Chromium
+      # and WebKit, and the browser end-to-end step needs Chromium; install both
+      # before either runs (canary.yml and release.yml use the same command).
+      - name: Install Playwright browsers
+        run: pnpm --filter smithers-app exec playwright install --with-deps chromium webkit
       - name: UI unit tests
         # Bun writes the JUnit report but does not create its directory.
         run: |
