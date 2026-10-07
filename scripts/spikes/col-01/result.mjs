@@ -21,6 +21,42 @@ if (requested("snapshot")) {
       growth?.growth_budget_passed !== (growth?.projected_14_day_bytes < 2147483648)) {
     failures.push("growth: expected 1000 guest captures, >=100 versions samples and evaluated 2 GiB budget");
   }
+  // Gross growth and one cleanup cannot establish steady retained residue.
+  try {
+    const cycles = JSON.parse(await readFile(join(snapshotDir, "retention-cycles.json"), "utf8"));
+    const total = sizes => {
+      if (!sizes || Object.keys(sizes).sort().join() !== ".git,.jj" ||
+          Object.values(sizes).some(n => !Number.isSafeInteger(n) || n < 0)) throw Error("invalid storage sizes");
+      return sizes[".jj"] + sizes[".git"];
+    };
+    if (cycles.length !== 3) throw Error("three daily cycles required");
+    for (const [i, c] of cycles.entries()) {
+      if (c.captures !== 5760 || !Number.isFinite(c.start_epoch) || !Number.isFinite(c.end_epoch) ||
+          c.end_epoch - c.start_epoch < 28800 || (i && c.start_epoch - cycles[i - 1].start_epoch < 86400))
+        throw Error("invalid daily capture cadence");
+      for (const field of ["before", "after", "after_gc"]) total(c[field]);
+      for (const suffix of ["operations.tsv", "abandon.log", "gc.log"])
+        await readFile(join(snapshotDir, `cycle-${i + 1}-${suffix}`));
+    }
+    const peak = Math.max(...cycles.map(c => total(c.after)));
+    const residue = Math.max(0, ...cycles.slice(1).map((c, i) => total(c.after_gc) - total(cycles[i].after_gc)));
+    const bound = peak + 14 * residue;
+    if (growth?.retention_acceptance !== "measured" || growth?.projected_14_day_bytes !== bound ||
+        growth?.growth_budget_passed !== (bound < 2147483648)) throw Error("retention bound mismatch");
+    const rows = (await readFile(join(snapshotDir, "retention-samples.csv"), "utf8")).trim().split("\n");
+    if (rows.length !== 17281 || rows[0] !== "cycle,capture,epoch,snapshot_ns,jj_bytes,git_bytes")
+      throw Error("17280 retention samples required");
+    for (let i = 0; i < 17280; i++) {
+      const values = rows[i + 1].split(",").map(Number);
+      const [cycle, capture, epoch, elapsed, jj, git] = values;
+      const c = cycles[Math.floor(i / 5760)];
+      if (values.length !== 6 || cycle !== Math.floor(i / 5760) + 1 || capture !== i % 5760 + 1 ||
+          !Number.isFinite(epoch) || epoch < c.start_epoch + (capture - 1) * 5 ||
+          epoch >= c.start_epoch + capture * 5 || epoch > c.end_epoch ||
+          !Number.isSafeInteger(elapsed) || elapsed <= 0 ||
+          [jj, git].some(n => !Number.isSafeInteger(n) || n < 0)) throw Error("invalid retention raw sample");
+    }
+  } catch (error) { failures.push(`growth retention: ${error.message}`); }
   for (const [file, count] of [["growth-samples.csv", 1000], ["versions-samples.csv", 100]]) {
     try {
       const lines = (await readFile(join(snapshotDir, file), "utf8")).trim().split("\n");
@@ -75,7 +111,7 @@ for(const name of ["control","one-exec-control"]) {
 for(const {transport,data:d} of measuredRuns)rows.push(`| ${transport} keystrokes ${d.workload.name}${d.local_assertions!=="passed"?" FAILED":""}, actual ${Object.entries(d.editors).map(([editor,s])=>`${editor} ${s.achieved_hz.value.toFixed(3)}/s`).join(", ")} | ${d.sample_count.value} | ${d.p50_ms.value.toFixed(3)} | ${d.p95_ms.value.toFixed(3)} | ${d.p99_ms.value.toFixed(3)} | Two headless tabs on this Mac via LAN IPv4; second Mac not run |`);
 for(const c of snapshot?.cells??[]) rows.push(`| jj snapshot ${c.load}, ${c.changed_files} files | ${c.stats.n} | ${fmt(c.stats.p50_ns)} | ${fmt(c.stats.p95_ns)} | ${fmt(c.stats.p99_ns)} | Disposable VM; shallow main clone, installed ignored dependencies; 128-byte fixture edits |`);
 if (growth?.versions) rows.push(`| versions commit | ${growth.versions.n} | ${fmt(growth.versions.p50_ns)} | ${fmt(growth.versions.p95_ns)} | ${fmt(growth.versions.p99_ns)} | Guest; synthetic 12-blob flat tree; warm caches |`);
-const followup = growth ? `Capture growth: ${growth.captures} captures; projected 14-day allocated growth ${growth.projected_14_day_bytes} bytes (${growth.growth_budget_passed ? "within" : "FAILED"} 2 GiB budget); GC reclaimed ${growth.reclaimed_bytes} bytes. Retention remains unapproved. Kernel probes: ${JSON.stringify(kernel?.probes ?? {})}.` : "Follow-up capture growth, versions and kernel evidence unavailable.";
+const followup = growth ? `Capture growth: ${growth.captures} captures; ${growth.retention_acceptance === "measured" ? "measured-cycle 14-day bound" : "gross diagnostic projection"} ${growth.projected_14_day_bytes} bytes (${growth.growth_budget_passed ? "within" : "FAILED"} 2 GiB budget); GC reclaimed ${growth.reclaimed_bytes} bytes. Retention remains unapproved. Kernel probes: ${JSON.stringify(kernel?.probes ?? {})}.` : "Follow-up capture growth, versions and kernel evidence unavailable.";
 const text=`${failures.length ? `Incomplete requested measurements:\n${failures.map(f => `- ${f}`).join("\n")}\n\n` : ""}Transport: **${chosen==="undetermined" ? `none qualifies; ${candidate??"no"} candidate requires the lead's scheduling decision` : chosen}**. Host mirror fallback: **${fallback}**.
 
 Disposable T-COL-01 observations on this Mac; C-SPK-03 acceptance requires an isolated reference-host run, and C-SPK-07 is partial because there is no second Mac. Every raw sample, including the first, is retained; no warm-up subset is removed. Guest saves use 200 ms idle / 1 s maximum, fsync and rename.

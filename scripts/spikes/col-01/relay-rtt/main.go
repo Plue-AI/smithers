@@ -69,6 +69,7 @@ type harness struct {
 	id                   string
 	build, root          string
 	rttBridge, docBridge net.Listener
+	dailyCycles          bool
 	environment          map[string]any
 }
 
@@ -170,6 +171,7 @@ func main() {
 	}
 }
 func run() (retErr error) {
+	dailyCycles := flag.Bool("daily-cycles", false, "measure three daily eight-hour retention cycles")
 	mode := flag.String("mode", "all", "all|rtt|control|keystrokes|snapshot|serve")
 	build := flag.String("build", "", "private build directory")
 	evidence := flag.String("evidence-root", "", "checks artifact root")
@@ -214,13 +216,18 @@ func run() (retErr error) {
 		return err
 	}
 	defer os.RemoveAll(state)
-	runtime, err := microsandbox.New(ctx, microsandbox.Config{Binary: filepath.Join(*build, "msb-name"), Root: state, CPUs: cpus, MemoryMiB: memory, DiskMiB: 32768, MaxRunningVMs: 1, CommandTimeout: 3 * time.Hour, HostPorts: []uint16{port(rttListener), port(docListener)}})
+	commandTimeout := 3 * time.Hour
+	if *dailyCycles {
+		commandTimeout = 60 * time.Hour
+	}
+	runtime, err := microsandbox.New(ctx, microsandbox.Config{Binary: filepath.Join(*build, "msb-name"), Root: state, CPUs: cpus, MemoryMiB: memory, DiskMiB: 32768, MaxRunningVMs: 1, CommandTimeout: commandTimeout, HostPorts: []uint16{port(rttListener), port(docListener)}})
 	if err != nil {
 		return err
 	}
 	defer func() { retErr = errors.Join(retErr, runtime.Close()) }()
 	h := &harness{ctx: ctx, runtime: runtime, id: uuid.NewString(), build: *build, root: *evidence, rttBridge: rttListener, docBridge: docListener}
 	before := command(filepath.Join(*build, "msb-real"), "list", "--format", "json")
+	h.dailyCycles = *dailyCycles
 	h.environment = map[string]any{"commit": strings.TrimSpace(command("git", "rev-parse", "HEAD")), "msb_version": command(filepath.Join(*build, "msb-real"), "--version"), "macos": command("sw_vers"), "host_load": command("uptime"), "host_processes": command("ps", "-axo", "pid,pcpu,pmem,comm"), "memory_bytes": memBytes, "performance_cores": command("sysctl", "-n", "hw.perflevel0.physicalcpu"), "physical_cores": command("sysctl", "-n", "hw.physicalcpu"), "host_model": command("sysctl", "-n", "hw.model"), "cpu_brand": command("sysctl", "-n", "machdep.cpu.brand_string"), "hypervisor_available": command("sysctl", "-n", "kern.hv_support"), "free_disk": command("df", "-h", state), "lan_address": *lan, "network": command("ifconfig"), "other_sandboxes_before": json.RawMessage(before), "vm_config": map[string]any{"image": microsandbox.DefaultImage, "vcpus": cpus, "memory_mib": memory, "disk_mib": 32768}, "deviation": deviation, "no_warmup_samples_dropped": true, "percentile_method": "empirical nearest rank"}
 	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
 	dir03 := filepath.Join(h.root, "C-SPK-03", stamp)

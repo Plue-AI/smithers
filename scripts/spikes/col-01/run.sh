@@ -67,4 +67,8 @@ node_modules/.bin/esbuild "$SPIKE_DIR/browser.ts" --bundle --outfile="$SPIKE_BUI
 SPIKE_INTERFACE="${SPIKE_INTERFACE:-$(route -n get default | awk '/interface:/ {print $2}')}"
 SPIKE_LAN="${SPIKE_LAN:-$(ipconfig getifaddr "$SPIKE_INTERFACE")}"
 SPIKE_EVIDENCE_ROOT="${SPIKE_EVIDENCE_ROOT:-$SPIKE_ROOT/.artifacts/checks}"
-exec "$SPIKE_BUILD/spike" --mode "$SPIKE_MODE" --transport "${2:-relay}" --http-port "${SPIKE_HTTP_PORT:-0}" --build "$SPIKE_BUILD" --lan "$SPIKE_LAN" --evidence-root "$SPIKE_EVIDENCE_ROOT"
+SPIKE_EXTRA_ARGS=()
+if [[ "${SPIKE_DAILY_CYCLES:-0}" == 1 ]]; then
+  SPIKE_EXTRA_ARGS+=(--daily-cycles)
+fi
+exec "$SPIKE_BUILD/spike" "${SPIKE_EXTRA_ARGS[@]}" --mode "$SPIKE_MODE" --transport "${2:-relay}" --http-port "${SPIKE_HTTP_PORT:-0}" --build "$SPIKE_BUILD" --lan "$SPIKE_LAN" --evidence-root "$SPIKE_EVIDENCE_ROOT"
