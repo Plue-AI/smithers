@@ -81,3 +81,38 @@ func TestRootEnvelopeRefusalRequiresUnambiguousEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestTruncatedControlRequiresPeerClosure(t *testing.T) {
+	for _, response := range []string{"close", "reply", "timeout"} {
+		t.Run(response, func(t *testing.T) {
+			client, server := net.Pipe()
+			defer client.Close()
+			defer server.Close()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				var payload [5]byte
+				if _, err := io.ReadFull(server, payload[:]); err != nil {
+					return
+				}
+				if payload != [5]byte{0, 0, 0, 40, '{'} {
+					return
+				}
+				switch response {
+				case "close":
+					server.Close()
+				case "reply":
+					server.Write([]byte{1})
+				case "timeout":
+					<-time.After(4100 * time.Millisecond)
+				}
+			}()
+			err := validationTruncated(client, []byte{0, 0, 0, 40, '{'})
+			if (err == nil) != (response == "close") {
+				t.Fatalf("%v", err)
+			}
+			client.Close()
+			<-done
+		})
+	}
+}

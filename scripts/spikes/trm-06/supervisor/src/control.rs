@@ -128,6 +128,35 @@ pub fn read_request(reader: &mut impl Read) -> io::Result<Request> {
     reader.read_exact(&mut bytes)?;
     serde_json::from_slice(&bytes).map_err(|_| refused())
 }
+// Idle authenticated connections may be reserved for revocation. Once the
+// first byte arrives, one absolute deadline bounds the entire envelope; a
+// trickle cannot renew it. Parsing finishes before acquiring session ownership.
+fn read_control(stream: &mut TcpStream) -> io::Result<Request> {
+    stream.set_read_timeout(None)?;
+    let mut first = [0];
+    stream.read_exact(&mut first)?;
+    struct Bounded<'a> {
+        stream: &'a mut TcpStream,
+        deadline: Instant,
+    }
+    impl Read for Bounded<'_> {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            let remaining = self
+                .deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or_else(|| io::Error::from(io::ErrorKind::TimedOut))?;
+            self.stream.set_read_timeout(Some(remaining))?;
+            self.stream.read(bytes)
+        }
+    }
+    let result = read_request(&mut io::Cursor::new(first).chain(Bounded {
+        stream,
+        deadline: Instant::now() + Duration::from_secs(2),
+    }));
+    stream.set_read_timeout(None)?;
+    result
+}
 fn response(writer: &mut impl Write, response: Response) -> io::Result<()> {
     let bytes = serde_json::to_vec(&response).map_err(|_| refused())?;
     writer.write_all(&(bytes.len() as u32).to_be_bytes())?;
@@ -143,7 +172,7 @@ pub fn serve<R: SessionResources>(
     // may reserve this idle control connection for revocation before admission.
     stream.set_read_timeout(None)?;
     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
-    let request = read_request(&mut stream)?;
+    let request = read_control(&mut stream)?;
     let result = (|| -> io::Result<(Option<AttachedSession>, Response)> {
         let mut supervisor = supervisor.lock().map_err(|_| refused())?;
         match request {
@@ -313,6 +342,44 @@ fn pump(stream: &mut TcpStream, live: Arc<Live>, mut received: u64) -> io::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn control_tcp_boundary_bounds_truncated_and_trickled_envelopes() {
+        for payload in [vec![0], vec![0, 0, 0, 40, b'{']] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            let (mut server, _) = listener.accept().unwrap();
+            let worker = std::thread::spawn(move || {
+                let started = Instant::now();
+                assert!(read_control(&mut server).is_err());
+                assert!(started.elapsed() < Duration::from_secs(4));
+            });
+            client.write_all(&payload).unwrap();
+            // A further byte arrives before expiry but cannot reset the budget.
+            std::thread::sleep(Duration::from_millis(1200));
+            client.write_all(b" ").unwrap();
+            worker.join().unwrap();
+        }
+    }
+    #[test]
+    fn idle_reserved_control_can_later_revoke_and_restores_stream_timeout() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        let worker = std::thread::spawn(move || {
+            assert!(matches!(
+                read_control(&mut server).unwrap(),
+                Request::KillSessions {}
+            ));
+            assert_eq!(server.read_timeout().unwrap(), None);
+        });
+        std::thread::sleep(Duration::from_millis(2100));
+        let body = br#"{"type":"kill_sessions"}"#;
+        client
+            .write_all(&(body.len() as u32).to_be_bytes())
+            .unwrap();
+        client.write_all(body).unwrap();
+        worker.join().unwrap();
+    }
     #[test]
     fn framed_tcp_boundary_carries_live_binary_exec_and_exit_seven() {
         // Unprivileged process + loopback frame transport, not the installed

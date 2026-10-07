@@ -283,6 +283,22 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 			return err
 		}
 	}
+	// Leave authenticated partial envelopes open: only supervisor-side expiry
+	// proves bounded handling. A caller timeout or our own close is not evidence.
+	for i, payload := range [][]byte{{0}, {0, 0, 0, 40, '{'}} {
+		stream, err := control.connect(ctx)
+		if err != nil {
+			return err
+		}
+		err = validationTruncated(stream, payload)
+		stream.Close()
+		if err != nil {
+			return fmt.Errorf("truncated control %d: %w", i, err)
+		}
+		if err = os.WriteFile(filepath.Join(evidence, fmt.Sprintf("truncated-%d.json", i)), []byte(`{"transport_closed":true}`), 0600); err != nil {
+			return err
+		}
+	}
 	for _, bad := range []string{`{"type":"signal","name":"STOP"}`, `{"type":"signal","name":"TERM","uid":0}`, `{"type":"window","bytes":0}`, `{"type":"window","bytes":262145}`, `{"type":"data","stream":3,"bytes":[1]}`, `{"type":"data","stream":0,"bytes":[]}`, `{"type":"eof","stream":3}`, `{"type":"resize","cols":0,"rows":24}`, `{"type":"signal","name":"TERM","name":"KILL"}`, `{"type":"exit","code":0}`, `{"type":"data","stream":0,"bytes":[256]}`} {
 		stream, err := control.connect(ctx)
 		if err != nil {
@@ -529,4 +545,21 @@ func validateRefusalFixture(ctx context.Context, control relayControl, observe f
 		return errors.New("cleanup failure lacked an explicit startup refusal")
 	}
 	return compareOutside(before, after)
+}
+
+// The installed supervisor has a two-second absolute envelope deadline after
+// its first byte. Keep the read side open longer to observe its actual refusal.
+func validationTruncated(stream net.Conn, payload []byte) error {
+	if err := stream.SetDeadline(time.Now().Add(4 * time.Second)); err != nil {
+		return err
+	}
+	if err := writeAll(stream, payload); err != nil {
+		return err
+	}
+	var byte [1]byte
+	n, err := stream.Read(byte[:])
+	if n != 0 || err != io.EOF {
+		return fmt.Errorf("partial envelope lacked supervisor EOF: bytes=%d error=%v", n, err)
+	}
+	return nil
 }
