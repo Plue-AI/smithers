@@ -3520,10 +3520,7 @@
       "credentialScope": "read:repository",
       "agent": "never",
       "summary": "external.read",
-      "http": {
-        "method": "GET",
-        "path": "/api/external/sessions"
-      },
+      "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {

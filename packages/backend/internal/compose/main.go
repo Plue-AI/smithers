@@ -38,7 +38,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/database"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/email"
-	"github.com/smithersai/smithers/packages/backend/internal/externalsessions"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
@@ -1961,14 +1960,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 	}
 	var liveHandler *routes.LiveHandler
-	var externalSessionsHandler *routes.ExternalSessionsHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		// M-38: the Codex and Claude Code sessions of the account the install
-		// runs as, from its HOME, CODEX_HOME and CLAUDE_CONFIG_DIR.
-		home, _ := os.UserHomeDir()
-		sessions := &externalsessions.Finder{Home: home, Getenv: os.Getenv, Remember: 10 * time.Second}
-		externalSessionsHandler = &routes.ExternalSessionsHandler{Queries: queries, Sessions: sessions}
-
 		presence.publicOrigin = installAddress.Public
 		var outsideNotes *machined.OutsideChangeNotes
 		if flow != nil {
@@ -1996,7 +1988,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		stopPresence := presence.consumeDaemons(ctx, options.Machined)
 		defer stopPresence()
-		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, external: sessions, install: installSetup, members: authService.Members}
+		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 		topics.sources = repositorySourceFiles{client: repoHostClient}
 		if flow != nil {
 		}
@@ -2105,7 +2097,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			AdminTokens:        &routes.AdminTokenHandler{Service: adminManageService},
 			DeploymentAdmin:    deploymentAdminRoutes,
 			EgressPolicy:       &routes.RepositoryEgressPolicyHandler{Service: egressPolicyService},
-			GitHubSync:         gitHubSyncRoute, Live: liveHandler, ExternalSessions: externalSessionsHandler, LanguageServers: languageServers},
+			GitHubSync:         gitHubSyncRoute, Live: liveHandler, LanguageServers: languageServers},
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{installTransactions: pool, repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,

@@ -1260,23 +1260,6 @@ type BranchFileCardContent struct {
 	Bytes *int64  `json:"bytes,omitempty"`
 }
 
-// ExternalSessionRead is generated from docs/api/openapi.yaml.
-type ExternalSessionRead struct {
-	Agent     string                   `json:"agent"`
-	SessionID string                   `json:"session_id"`
-	Owner     ExternalSessionReadOwner `json:"owner"`
-	Offset    int64                    `json:"offset"`
-	Next      int64                    `json:"next"`
-	Text      string                   `json:"text"`
-	Eof       bool                     `json:"eof"`
-}
-
-// ExternalSessionReadOwner is generated from docs/api/openapi.yaml.
-type ExternalSessionReadOwner struct {
-	Login string `json:"login"`
-	Name  string `json:"name"`
-}
-
 // FastModelInstallIdentity is generated from docs/api/openapi.yaml.
 type FastModelInstallIdentity struct {
 	InstallID string `json:"install_id"`
@@ -2114,13 +2097,6 @@ type GetAPIBranchesBLspIDParams struct {
 type PostAPIConfirmationsIDApproveResponse struct {
 	ID    string `json:"id"`
 	State string `json:"state"`
-}
-
-// GetAPIExternalSessionsParams is the query of GET /api/external/sessions.
-type GetAPIExternalSessionsParams struct {
-	Agent   string
-	Session string
-	Offset  *int64
 }
 
 // GetAPIFastModelSignInParams is the query of GET /api/fast-model/sign-in.
@@ -3392,19 +3368,6 @@ func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, i
 // PostAPIConfirmationsIDDeny calls POST /api/confirmations/{id}/deny.
 func (c *Client) PostAPIConfirmationsIDDeny(ctx context.Context, id string, idempotencyKey string) error {
 	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/deny", nil, nil, nil)
-}
-
-// GetAPIExternalSessions calls GET /api/external/sessions.
-func (c *Client) GetAPIExternalSessions(ctx context.Context, params GetAPIExternalSessionsParams) (ExternalSessionRead, error) {
-	query := url.Values{}
-	query.Set("agent", params.Agent)
-	query.Set("session", params.Session)
-	if params.Offset != nil {
-		query.Set("offset", strconv.FormatInt(*params.Offset, 10))
-	}
-	var out ExternalSessionRead
-	err := c.do(ctx, "GET", "/api/external/sessions", query, nil, &out)
-	return out, err
 }
 
 // PostAPIFastModelInstalls calls POST /api/fast-model/installs.

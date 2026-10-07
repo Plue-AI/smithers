@@ -736,19 +736,6 @@ export type BranchFileCard = {
   editors: Array<Record<string, unknown>>
 }
 
-export type ExternalSessionRead = {
-  agent: "codex" | "claude-code"
-  session_id: string
-  owner: {
-    login: string
-    name: string
-  }
-  offset: number
-  next: number
-  text: string
-  eof: boolean
-}
-
 export type FastModelInstallIdentity = {
   install_id: string
 }
@@ -2010,16 +1997,6 @@ export interface PostApiConfirmationsIdDenyInput {
 /** POST /api/confirmations/{id}/deny: Cancel your confirmation */
 export const postApiConfirmationsIdDeny = (transport: Transport, input: PostApiConfirmationsIdDenyInput): Promise<void> =>
   transport.request("POST", `/api/confirmations/${segment(input.path.id)}/deny`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
-
-export type GetApiExternalSessionsResponse = ExternalSessionRead
-
-export interface GetApiExternalSessionsInput {
-  readonly query: { readonly agent: "codex" | "claude-code"; readonly session: string; readonly offset?: number }
-}
-
-/** GET /api/external/sessions: Read the owner's Codex or Claude Code session as raw JSONL */
-export const getApiExternalSessions = (transport: Transport, input: GetApiExternalSessionsInput): Promise<GetApiExternalSessionsResponse> =>
-  transport.request("GET", `/api/external/sessions${search({ agent: input.query.agent, session: input.query.session, offset: input.query.offset })}`) as Promise<GetApiExternalSessionsResponse>
 
 export type PostApiFastModelInstallsBody = FastModelInstallIdentity
 

@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/externalsessions"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -55,7 +54,6 @@ type liveTopics struct {
 	conversation  func(context.Context, int64, string) (json.RawMessage, error)
 	viewState     func(context.Context, int64, string) (json.RawMessage, error)
 	secrets       *services.SecretService
-	external      *externalsessions.Finder
 	jobs          *jobs.Store
 }
 
@@ -241,7 +239,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 	case "branch":
 		return live.Source{}, live.Unsupported
 	case "external":
-		return t.externalSession(ctx, topic, rest)
+		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
 		return live.Source{}, live.Unsupported
@@ -379,40 +377,6 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 
 	}
 	return live.Source{}, live.UnknownTopic
-}
-
-// externalSession is external:<agent>:<session> (mvp.md M-38): the size of
-// the owner's session file, read every liveRefreshEvery, so the app reads
-// what the agent appended at once instead of at its next poll. Like GET
-// /api/external/sessions, it is the install owner's alone: the socket's own
-// credential is authorized for external.read, a person-only command, so
-// the topic and the route take one decision.
-func (t *liveTopics) externalSession(ctx context.Context, topic, rest string) (live.Source, string) {
-	if t.external == nil {
-		return live.Source{}, live.Unsupported
-	}
-	name, prefix, _ := strings.Cut(rest, ":")
-	agent, ok := externalsessions.ParseAgent(name)
-	if !ok || !externalsessions.IDPattern.MatchString(prefix) {
-		return live.Source{}, live.UnknownTopic
-	}
-	if _, err := services.Authorize(ctx, t.queries, "external.read"); err != nil {
-		return live.Source{}, live.Forbidden
-	}
-	if _, err := t.external.Find(agent, prefix); err != nil {
-		return live.Source{}, live.UnknownTopic
-	}
-	return live.Source{Key: topic, Every: liveRefreshEvery, Build: func(context.Context) (json.RawMessage, error) {
-		session, err := t.external.Find(agent, prefix)
-		if err != nil {
-			return nil, err
-		}
-		size, err := session.Size()
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(map[string]any{"session_id": session.ID, "size": size})
-	}}, ""
 }
 
 // home is the Home card's shared model (HomeCardSchema, spec §14.3): a row

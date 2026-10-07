@@ -119,3 +119,10 @@ test("retained label writes keep their owner-only person HTTP doors", () => {
     })
   }
 })
+
+test("external reads expose no raw transcript HTTP door", () => {
+  const row = generateCatalog().find(row => row.name === "external.read")!
+  expect(row).toMatchObject({ agent: "never", minimumRole: "owner", actors: ["person"] })
+  expect(row.http).toBeNull()
+  expect(httpProjections.some(row => row.http?.path === "/api/external/sessions")).toBe(false)
+})

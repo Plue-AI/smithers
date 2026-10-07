@@ -149,7 +149,6 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/repos/acme/app/secrets", "secrets.set"},
 		{http.MethodPatch, "/api/repos/acme/app/secrets/API_KEY", "secrets.scope"},
 		{http.MethodDelete, "/api/repos/acme/app/secrets/API_KEY", "secrets.delete"},
-		{http.MethodGet, "/api/external/sessions", "external.read"},
 		{http.MethodGet, "/api/repos/acme/app/secrets", "secrets.read"},
 		{http.MethodGet, "/api/repos/acme/app/agent-environment", "secrets.read"},
 		{http.MethodPut, "/api/repos/acme/app/agent-environment", "secrets.set"},
