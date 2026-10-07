@@ -94,7 +94,11 @@ impl Binding {
                 .iter()
                 .any(|(k, v)| !key(k) || v.contains('\0'))
             || b.environment.get("SMITHERS_TOKEN_FILE")
-                != Some(&format!("/run/smithers/sessions/{}/token", b.session))
+                != Some(&if b.uid == 19999 {
+                    format!("/run/smithers/sessions/{}/token", b.session)
+                } else {
+                    format!("/run/smithers/{}/token/sessions/{}/token", b.uid, b.session)
+                })
             || b.environment
                 .get("SMITHERS_URL")
                 .is_none_or(|v| v.is_empty() || v.len() > 4096)
@@ -211,7 +215,7 @@ pub fn run(args: &[String]) -> io::Result<()> {
 mod tests {
     use super::*;
     fn source() -> Vec<u8> {
-        br#"{"login":"ben","uid":20001,"session":"terminal-a","token_sha256":"696e66e7bfa9c8319a19a7dfb18f2db9a151a680ba3c2c87e0dd204ea8ff11dd","environment":{"SMITHERS_TOKEN_FILE":"/run/smithers/sessions/terminal-a/token","SMITHERS_URL":"http://127.0.0.1:4000"}}"#.to_vec()
+        br#"{"login":"ben","uid":20001,"session":"terminal-a","token_sha256":"696e66e7bfa9c8319a19a7dfb18f2db9a151a680ba3c2c87e0dd204ea8ff11dd","environment":{"SMITHERS_TOKEN_FILE":"/run/smithers/20001/token/sessions/terminal-a/token","SMITHERS_URL":"http://127.0.0.1:4000"}}"#.to_vec()
     }
     #[test]
     fn exact_identity_and_session_binding_refuse_forged_or_unbounded_input() {
@@ -227,6 +231,8 @@ mod tests {
             ("ben", "root"),
             ("20001", "0"),
             ("terminal-a/token", "terminal-b/token"),
+            ("/20001/token/", "/20002/token/"),
+            ("/20001/token/", "/"),
             ("terminal-a\"", "../escape\""),
             ("SMITHERS_URL", "OTHER_URL"),
             ("696e66", "FFFF66"),

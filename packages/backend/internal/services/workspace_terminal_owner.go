@@ -9,6 +9,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -50,10 +51,18 @@ func (s *WorkspaceService) AuthorizeTerminalBranch(ctx context.Context, branch s
 }
 
 // OpenOwnerTerminal has no runtime/SSH fallback and writes no terminal-kind
-// workspace_sessions row. All guest effects go through the admitted link.
+// workspace_sessions row. The PTY uses only the admitted broker link.
 func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *machined.Registry, branch, id string, repo, member int64) (workspaceapi.Terminal, error) {
-	if registry == nil || s.runtime == nil || s.runtime.Isolation() != workspaceapi.IsolationSandboxed || s.credentialIssuer == nil || strings.TrimSpace(s.gitBaseURL) == "" {
+	if s.machineAdmission == nil || s.machineAdmission.FreeDisk == nil || registry == nil || s.runtime == nil || s.runtime.Isolation() != workspaceapi.IsolationSandboxed || s.credentialIssuer == nil || strings.TrimSpace(s.gitBaseURL) == "" {
 		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "owner terminal providers unavailable")
+	}
+	runtime, ok := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+		WaitAdmission(context.Context, microsandbox.AdmissionProviders, string, string, string, string) (context.Context, error)
+		SessionCredentialsForMember(context.Context, string, microsandbox.MemberIdentity) (microsandbox.MemberSessionCredentials, error)
+	})
+	if !ok {
+		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "owner session provider unavailable")
 	}
 	row, err := s.AuthorizeTerminalBranch(ctx, branch, repo, member)
 	if err != nil {
@@ -73,6 +82,10 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 	if err = join.Commit(ctx); err != nil {
 		return nil, err
 	}
+	ctx, err = s.admitWorkspaceOperation(personMachineDemand(ctx), row, member)
+	if err != nil {
+		return nil, err
+	}
 	// The person's existing branch entry supplies admission and the shared
 	// lifecycle barrier; a terminal never creates a second branch machine.
 	err = s.withBranchMachineMutation(ctx, row, member, func(ctx context.Context) error {
@@ -81,6 +94,9 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 		return err
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err = runtime.EnsureMachined(ctx, row.ID); err != nil {
 		return nil, err
 	}
 	link, err := registry.Current(row.ID)
@@ -103,19 +119,17 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 	if err = tx.QueryRow(ctx, `SELECT unix_login,unix_uid FROM collaborators WHERE repository_id=$1 AND user_id=$2 AND suspended_at IS NULL AND permission IN ('write','admin')`, repo, member).Scan(&user.Login, &user.UID); err != nil {
 		return nil, err
 	}
-	sessions := machined.NewSessions(link.Connection, row.ID, registry.Sessions(row.ID))
-	writer := machined.NewOwnerSessionCredentials(sessions, user, row.ID)
-	if err = writer.Prepare(ctx, id); err != nil {
+	writer, err := runtime.SessionCredentialsForMember(ctx, row.ID, microsandbox.MemberIdentity{Login: user.Login, UID: int(user.UID), Active: true})
+	if err != nil {
 		return nil, err
 	}
-	defer writer.ClosePrepared()
 	credential := &terminalCredential{registry: s.terminalCredentials, issuer: s.credentialIssuer, tokens: s.q, writer: writer, workspaceID: row.ID, sessionID: id, userID: member, repositoryID: repo, url: strings.TrimRight(s.gitBaseURL, "/"), ownerUID: user.UID}
 	if err = s.installTerminalCredential(ctx, credential); err != nil {
 		return nil, err
 	}
-	// /usr/bin/env runs only after broker uid drop. No bearer is in argv or env;
-	// the shell receives only its exact delegated file and the public address.
-	terminal, err := sessions.OpenTerminal(ctx, user, []string{"/usr/bin/env", "SMITHERS_TOKEN_FILE=" + credential.path, "SMITHERS_URL=" + credential.url, "/bin/bash", "-l"}, &machined.SessionSize{Cols: 80, Rows: 24})
+	// The installed member runtime seals the exact credential binding before
+	// broker spawn. Only its dropped-uid launcher reads the token and environment.
+	terminal, err := writer.OpenTerminal(ctx, row.ID, id, credential.identity, workspaceapi.Command{Args: []string{"/bin/bash", "-l"}, Environment: credential.environment()})
 	if err != nil {
 		credential.Close()
 		return nil, err

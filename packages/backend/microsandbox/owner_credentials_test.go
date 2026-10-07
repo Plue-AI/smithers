@@ -1,4 +1,4 @@
-package machined
+package microsandbox
 
 import (
 	"fmt"
@@ -21,7 +21,12 @@ func TestOwnerCredentialFilesCASAndSymlinks(t *testing.T) {
 	uid := strconv.Itoa(os.Getuid())
 	member := filepath.Join(root, "smithers", uid)
 	require.NoError(t, os.Mkdir(member, 0700))
-	program := strings.Replace(ownerTokenProgram, "assert 20000 <= uid <= 2147483647 and os.getuid() == os.geteuid() == uid", "assert os.getuid() == os.geteuid() == uid", 1)
+	source, err := os.ReadFile("guest/smithers-guest.py")
+	require.NoError(t, err)
+	start := strings.Index(string(source), "def owner_session_token(")
+	end := strings.Index(string(source)[start:], "def session_binding_identity(") + start
+	program := "import os, sys, stat, re, hashlib, secrets, fcntl\nSESSION_TOKEN_LIMIT = 512\n" + string(source)[start:end] + "\nowner_session_token(sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4])\n"
+	program = strings.Replace(program, "assert 20000 <= uid <= 2147483647 and os.getuid() == os.geteuid() == uid", "assert os.getuid() == os.geteuid() == uid", 1)
 	program = strings.Replace(program, "os.open('/run', flags)", fmt.Sprintf("os.open(%q, flags)", root), 1)
 	program = strings.Replace(program, "('smithers', 0)", "('smithers', uid)", 1)
 	run := func(op, id, token, expected string) error {

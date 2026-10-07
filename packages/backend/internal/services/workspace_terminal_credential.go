@@ -64,14 +64,14 @@ func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.W
 	url := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
 	if !ok || s.q == nil || url == "" {
 		if _, installed := s.runtime.(interface {
-			SessionCredentialsForMember(context.Context, string, microsandbox.MemberIdentity) (*microsandbox.MemberCredentials, error)
+			SessionCredentialsForMember(context.Context, string, microsandbox.MemberIdentity) (microsandbox.MemberSessionCredentials, error)
 		}); installed {
 			return nil, errors.New("installed terminal credential providers unavailable")
 		}
 		return nil, nil
 	}
 	if runtime, installed := s.runtime.(interface {
-		SessionCredentialsForMember(context.Context, string, microsandbox.MemberIdentity) (*microsandbox.MemberCredentials, error)
+		SessionCredentialsForMember(context.Context, string, microsandbox.MemberIdentity) (microsandbox.MemberSessionCredentials, error)
 	}); installed {
 		roster, available := s.q.(interface {
 			ListCollaboratorsByRepo(context.Context, int64) ([]db.Collaborator, error)
