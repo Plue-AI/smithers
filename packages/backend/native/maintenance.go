@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/internal/compose"
@@ -14,7 +15,7 @@ import (
 
 // DispatchMaintenance is server-free: refusals cannot bootstrap PostgreSQL,
 // migrate state, acquire a freeze or launch a repository runtime. The install
-// currently has no coordinated capture/drain; the CLI uses the private owner socket.
+// refuses missing coordinated capture/drain; the CLI uses the private owner socket.
 // Those providers must be composed before any destructive command is enabled.
 func DispatchMaintenance(ctx context.Context, args []string) (bool, error) {
 	if len(args) == 0 || args[0] != "host-maintenance" {
@@ -46,26 +47,41 @@ func DispatchMaintenance(ctx context.Context, args []string) (bool, error) {
 			}
 			return true, errors.New("host_maintenance_unavailable: restore requires a versioned release binary and composed recovery providers")
 		}
-		head, err := product.HeadVersion()
-		if err != nil {
-			return true, err
-		}
-		if err := hostbackup.VerifyManifest(filepath.Clean(args[2]), hostbackup.Version{
-			Release: compose.BuildVersion, Schema: head, PostgresMajor: 18,
-		}); err != nil {
-			return true, err
-		}
+
 	default:
 		return true, fmt.Errorf("invalid_command: unknown maintenance operation %q", args[1])
 	}
-	if args[1] != "restore" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return true, err
-		}
-		if err := MaintenancePreflight(ctx, filepath.Join(home, "Library/Application Support/Smithers")); err != nil {
-			return true, err
-		}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return true, err
 	}
-	return true, errors.New("host_maintenance_unavailable: owner authorization, admission/flow drain, verified machine capture, persistence flush and external-write recovery must be composed before host maintenance")
+	state := filepath.Join(home, "Library/Application Support/Smithers")
+	head, err := product.HeadVersion()
+	if err != nil {
+		return true, err
+	}
+	version := hostbackup.Version{Release: compose.BuildVersion, Schema: head, PostgresMajor: 18}
+	authority := &maintenanceAuthority{state: state, version: version}
+	backup := hostbackup.BackupConfig{State: state, Version: version, Authority: authority, Cloner: hostbackup.APFSCloner{}}
+	switch args[1] {
+	case "backup":
+		directory, err := hostbackup.Backup(ctx, backup)
+		if err == nil {
+			fmt.Fprintln(os.Stdout, directory)
+		}
+		return true, err
+	case "upgrade":
+		// Lifecycle, retained-disk isolation and new-binary continuation have not
+		// qualified on the reference Mac. The coordinator refuses before a freeze.
+		_, err := hostbackup.Upgrade(ctx, hostbackup.UpgradeConfig{BackupConfig: backup})
+		return true, err
+	case "restore":
+		at, err := hostbackup.Restore(ctx, hostbackup.RestoreConfig{State: state, Backup: filepath.Clean(args[2]), Version: version, Cloner: hostbackup.APFSCloner{}})
+		if err == nil {
+			fmt.Fprintln(os.Stdout, at.UTC().Format(time.RFC3339))
+		}
+		return true, err
+	}
+	return true, errors.New("invalid_command: maintenance operation required")
 }

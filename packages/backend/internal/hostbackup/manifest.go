@@ -170,6 +170,12 @@ func metadata(m Manifest) error {
 	if filepath.IsAbs(m.QuiesceOp) {
 		return &Error{Code: UnsafePath, Path: "quiesce_op"}
 	}
+	return ValidateSummary(m)
+}
+
+// ValidateSummary shares the manifest's completeness and relative-path guards
+// with the live owner bridge, before a summary is published or copied.
+func ValidateSummary(m Manifest) error {
 	for _, raw := range []json.RawMessage{m.Stack, m.BranchHeads, m.MachineDisks, m.RunJournals} {
 		if len(raw) == 0 {
 			return &Error{Code: WrongVersion, Path: "incomplete summary"}

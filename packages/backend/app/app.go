@@ -31,6 +31,8 @@ import (
 // implementation. A deployment can pass its configuration file using Args.
 type Config struct {
 	InstallMaintenanceDatabase ports.InstallMaintenanceDatabase
+	InstallCaptureSummary      ports.InstallCaptureSummary
+	InstallRunSummary          ports.InstallRunSummary
 	// HostProfile is measured once on the install state volume before startup.
 	HostProfile *microsandbox.HostProfile
 	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
@@ -221,6 +223,8 @@ func Run(ctx context.Context, cfg Config) error {
 func (cfg Config) options() compose.Options {
 	return compose.Options{
 		InstallMaintenanceDatabase: cfg.InstallMaintenanceDatabase,
+		InstallCaptureSummary:      cfg.InstallCaptureSummary,
+		InstallRunSummary:          cfg.InstallRunSummary,
 		HostProfile:                cfg.HostProfile,
 		EnvGitHubAppCredentials:    cfg.EnvGitHubAppCredentials,
 		CanaryRuns:                 cfg.CanaryRuns,

@@ -88,7 +88,7 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 	// Exercise the production socket composition without a browser session.
 	if os.Getuid() != 0 {
 		require.NoError(t, os.Chmod(cfg.Install.StateDir, 0700))
-		closeHandoff, err := startInstallMaintenanceHandoff(ctx, cfg.Install.StateDir, pool, func(context.Context, io.Writer) error { return nil }, nil)
+		closeHandoff, err := startInstallMaintenanceHandoff(ctx, cfg.Install.StateDir, pool, func(context.Context, io.Writer) error { return nil }, nil, nil)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, closeHandoff()) })
 		transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -146,7 +146,7 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 					if tc.wiki != "" {
 						service.Barriers["T-COL-09"] = installMaintenancePreflightFixture{calls: &calls, refusal: errors.New(tc.wiki)}
 					}
-					closeSocket, err := startInstallMaintenanceHandoff(ctx, state, pool, func(context.Context, io.Writer) error { return nil }, nil, service)
+					closeSocket, err := startInstallMaintenanceHandoff(ctx, state, pool, func(context.Context, io.Writer) error { return nil }, nil, nil, service)
 					require.NoError(t, err)
 					t.Cleanup(func() { require.NoError(t, closeSocket()) })
 					transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {

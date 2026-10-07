@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
+	"github.com/smithersai/smithers/packages/backend/internal/hostbackup"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/repository"
@@ -22,6 +23,21 @@ import (
 type InstallMaintenanceDatabase interface {
 	DatabaseSize(context.Context) (uint64, error)
 	Dump(context.Context, io.Writer) error
+}
+
+// Summary readers report authoritative captures and durable finished steps.
+// Check is read-only; an unavailable reader must never report an empty list.
+type InstallCaptureSummary interface {
+	Check(context.Context) error
+	Captured(context.Context) (heads, disks json.RawMessage, err error)
+}
+type InstallRunSummary interface {
+	Check(context.Context) error
+	FinishedSteps(context.Context) (json.RawMessage, error)
+}
+type InstallMaintenanceSummary interface {
+	Check(context.Context) error
+	Summary(context.Context) (hostbackup.Manifest, error)
 }
 
 var ErrModelCredentialMissing = errors.New("model credential is missing")

@@ -37,12 +37,8 @@ func (APFSCloner) CloneAt(sourceDir *os.File, source string, destinationDir *os.
 	// Hold both ancestors through the syscall, including the filesystem check.
 	// A renamed/replaced ancestor cannot redirect the clone to an outside tree.
 	for _, directory := range []*os.File{sourceDir, destinationDir} {
-		var stat unix.Statfs_t
-		if err := unix.Fstatfs(int(directory.Fd()), &stat); err != nil {
+		if err := checkAPFSDirectory(directory); err != nil {
 			return err
-		}
-		if string(bytes.TrimRight(stat.Fstypename[:], "\x00")) != "apfs" {
-			return &Error{Code: CloneUnavailable, Path: directory.Name()}
 		}
 	}
 	var info unix.Stat_t
@@ -54,6 +50,32 @@ func (APFSCloner) CloneAt(sourceDir *os.File, source string, destinationDir *os.
 	}
 	if err := unix.Clonefileat(int(sourceDir.Fd()), filepath.Base(source), int(destinationDir.Fd()), filepath.Base(destination), unix.CLONE_NOFOLLOW); err != nil {
 		return errors.Join(&Error{Code: CloneUnavailable, Path: source}, err)
+	}
+	return nil
+}
+
+// CheckAPFSVolume pins the state directory for the read-only preflight. CloneAt
+// checks its pinned descriptors again when copying; no fallback can copy bytes.
+func CheckAPFSVolume(path string) error {
+	root, err := openSnapshot(path)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	directory, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return checkAPFSDirectory(directory)
+}
+func checkAPFSDirectory(directory *os.File) error {
+	var stat unix.Statfs_t
+	if err := unix.Fstatfs(int(directory.Fd()), &stat); err != nil {
+		return err
+	}
+	if string(bytes.TrimRight(stat.Fstypename[:], "\x00")) != "apfs" {
+		return &Error{Code: CloneUnavailable, Path: directory.Name()}
 	}
 	return nil
 }

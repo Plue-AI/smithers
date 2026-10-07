@@ -16,6 +16,7 @@ type InstallQuiesceHandler struct {
 	Owners   GitHubAppSetupOwners
 	Service  *services.InstallQuiesce
 	Database ports.InstallMaintenanceDatabase
+	Summary  ports.InstallMaintenanceSummary
 }
 
 func (h *InstallQuiesceHandler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +53,57 @@ func (h *InstallQuiesceHandler) HandleInstallingOwner(w http.ResponseWriter, r *
 		h.handleDatabase(w, r, owner.ID)
 		return
 	}
-	if r.URL.Path == "/maintenance/check" && r.Method == http.MethodGet {
+	if r.URL.Path == "/maintenance/backup/check" {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		errs := []error{h.Service.Check(r.Context())}
+		if h.Database == nil {
+			errs = append(errs, errors.New("owned postgres maintenance unavailable"))
+		}
+		if h.Summary == nil {
+			errs = append(errs, errors.New("backup summary authority unavailable"))
+		} else {
+			errs = append(errs, h.Summary.Check(r.Context()))
+		}
+		if err := errors.Join(errs...); err != nil {
+			quiesceResponse(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.URL.Path == "/maintenance/summary" {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if h.Summary == nil {
+			quiesceResponse(w, errors.New("backup summary authority unavailable"))
+			return
+		}
+		if err := h.Service.RequireReady(r.Context(), r.URL.Query().Get("op"), owner.ID); err != nil {
+			quiesceResponse(w, err)
+			return
+		}
+		summary, err := h.Summary.Summary(r.Context())
+		if err == nil {
+			err = h.Service.RequireReady(r.Context(), r.URL.Query().Get("op"), owner.ID)
+		}
+		if err != nil {
+			quiesceResponse(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(summary)
+		return
+	}
+	if r.URL.Path == "/maintenance/check" {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		if err := h.Service.Check(r.Context()); err != nil {
 			quiesceResponse(w, err)
 			return
@@ -81,7 +132,7 @@ func (h *InstallQuiesceHandler) HandleInstallingOwner(w http.ResponseWriter, r *
 		json.NewEncoder(w).Encode(row)
 		return
 	}
-	if err = h.Service.Reopen(r.Context(), ""); err != nil {
+	if err = h.Service.Reopen(r.Context(), r.URL.Query().Get("op")); err != nil {
 		quiesceResponse(w, err)
 		return
 	}
