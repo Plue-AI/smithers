@@ -123,3 +123,22 @@ test("failed Compare keeps the File card and reports a visible failure", async (
   expect(store.collections.cards.get(opened.id)).toEqual(opened)
   expect(requests).toEqual(["/api/branches/main/files/README.md", "/api/branches/main/files/README.md?compare=before-17"])
 })
+
+test("install file commands use the persisted selected branch without injected options", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: string[] = []
+  const branch = "scratch/maya/selected"
+  const app = controller(store, agent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    fetchImpl: async url => {
+      requests.push(String(url))
+      return new Response(JSON.stringify({ ...file, branch }))
+    }
+  })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "maya", open: true, selected_branch: branch, nodes: [] } }).isPersisted.promise
+  requests.length = 0
+  expect((await app.commands.submit({ name: "file", payload: { path: "README.md" }, actor: "user" })).status).toBe("executed")
+  expect(requests).toEqual(["/api/branches/scratch%2Fmaya%2Fselected/files/README.md"])
+  expect([...store.collections.cards.values()].find(card => card.kind === "file")?.payload).toMatchObject({ path: "README.md", file: { branch } })
+})
