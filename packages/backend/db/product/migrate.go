@@ -171,6 +171,7 @@ var migrationRegistry = []migrationSpec{
 	{133, "migrations/0133_retire_app_timelines.sql"},
 	{134, "migrations/0134_transcript_checkpoints.sql"},
 	{135, "migrations/0135_todo_repository_order.sql"},
+	{136, "migrations/0136_github_main_reset_intent.sql"},
 }
 
 type migration struct {
