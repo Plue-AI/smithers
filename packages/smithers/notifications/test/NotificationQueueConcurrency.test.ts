@@ -69,6 +69,30 @@ const admitted = (receipts: ReadonlyArray<NotificationQueue.AdmissionReceipt>) =
   receipts.filter((receipt) => receipt.decision === "admitted")
 
 describe("NotificationQueue capacity across two connections", () => {
+  it("serializes edits against turn-boundary consumption across independent connections", async () => {
+    await Effect.runPromise(withTempFile((filename) =>
+      Effect.scoped(Effect.gen(function*() {
+        yield* Effect.scoped(Effect.provide(Effect.void, migrated(filename)))
+        const left = yield* hostOn(filename, 1)
+        const right = yield* hostOn(filename, 1)
+        yield* left.queue.admit("run", item("first"), 1)
+        const edited = { ...item("first"), payload: { body: "edited" } }
+        const boundary = { runId: "run", targetLineageId: "run/root", boundary: "turn", wouldIdle: false }
+        const [edit, drain] = yield* Effect.all([
+          left.queue.admit("run", edited, 2),
+          right.queue.drain(boundary)
+        ], { concurrency: 2 })
+        expect(drain.notifications).toEqual([edit.consumed ? item("first") : edited])
+        expect(yield* left.queue.pending("run")).toEqual([])
+        expect((yield* left.queue.drain(boundary)).notifications).toEqual(drain.notifications)
+        expect(yield* right.queue.admit("run", { ...edited, payload: { body: "too late" } }, 3)).toMatchObject({
+          consumed: true
+        })
+        expect((yield* right.queue.drain(boundary)).notifications).toEqual(drain.notifications)
+      }))
+    ))
+  }, 60_000)
+
   it("admits at most the capacity however many writers race a full queue", async () => {
     const observed = await Effect.runPromise(
       withTempFile((filename) =>
