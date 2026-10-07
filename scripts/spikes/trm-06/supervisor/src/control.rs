@@ -58,6 +58,7 @@ enum Response {
         code: &'static str,
     },
 }
+type AttachedSession = (String, Arc<Live>, u64);
 pub struct Supervisor {
     registry: Registry<Kernel>,
     live: BTreeMap<String, Arc<Live>>,
@@ -116,8 +117,9 @@ fn response(writer: &mut impl Write, response: Response) -> io::Result<()> {
 /// or attached session stream. No direct TCP fallback exists in the gateway.
 pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
     let request = read_request(&mut stream)?;
-    let result = (|| -> io::Result<Option<(String, Arc<Live>, u64)>> {
+    let result = (|| -> io::Result<(Option<AttachedSession>, Response)> {
         let mut supervisor = supervisor.lock().map_err(|_| refused())?;
         match request {
             Request::OpenSession {
@@ -145,13 +147,10 @@ pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::R
                     term,
                     modes,
                 })?;
-                response(
-                    &mut stream,
-                    Response::Open {
-                        session: id.clone(),
-                    },
-                )?;
-                Ok(Some((id, live, 0)))
+                let reply = Response::Open {
+                    session: id.clone(),
+                };
+                Ok((Some((id, live, 0)), reply))
             }
             Request::AttachSession { id, received } => {
                 let live = supervisor.live.get(&id).ok_or_else(refused)?.clone();
@@ -160,38 +159,32 @@ pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::R
                 live.replay(received)?;
                 supervisor.registry.attach(Owner::Ben, &id, now)?;
                 let (input_received, input_written, input_eof) = live.attach(received, now)?;
-                response(
-                    &mut stream,
-                    Response::Attach {
-                        session: id.clone(),
-                        received: input_received,
-                        written: input_written,
-                        input_eof,
-                    },
-                )?;
-                Ok(Some((id, live, received)))
+                let reply = Response::Attach {
+                    session: id.clone(),
+                    received: input_received,
+                    written: input_written,
+                    input_eof,
+                };
+                Ok((Some((id, live, received)), reply))
             }
             Request::CloseSession { id } => {
                 supervisor.registry.close(Owner::Ben, &id)?;
-                response(&mut stream, Response::Ok { ok: true })?;
-                Ok(None)
+                Ok((None, Response::Ok { ok: true }))
             }
             Request::KillSessions {} => {
                 supervisor.registry.kill(Selector::User(Owner::Ben))?;
                 supervisor.live.clear();
-                response(&mut stream, Response::Ok { ok: true })?;
-                Ok(None)
+                Ok((None, Response::Ok { ok: true }))
             }
             Request::Restart {} => {
                 supervisor.registry.restart()?;
                 supervisor.live.clear();
-                response(&mut stream, Response::Ok { ok: true })?;
-                Ok(None)
+                Ok((None, Response::Ok { ok: true }))
             }
         }
     })();
-    let session = match result {
-        Ok(session) => session,
+    let (session, reply) = match result {
+        Ok(result) => result,
         Err(error) => {
             response(
                 &mut stream,
@@ -204,11 +197,10 @@ pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::R
         }
     };
     if let Some((id, live, received)) = session {
-        stream.set_read_timeout(None)?;
-        let result = pump(&mut stream, live.clone(), received);
-        // A failed/dropped relay keeps its bounded replay for the 30 s grace.
+        // Network writes never hold the supervisor lock. Even a failed open or
+        // attach reply must enter grace, retaining cgroup ownership for revoke.
+        let result = transport_session(&mut stream, live, received, reply);
         let now = Instant::now();
-        live.detach(now)?;
         supervisor
             .lock()
             .map_err(|_| refused())?
@@ -216,8 +208,22 @@ pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::R
             .detach(Owner::Ben, &id, now)?;
         result
     } else {
-        Ok(())
+        response(&mut stream, reply)
     }
+}
+fn transport_session(
+    stream: &mut TcpStream,
+    live: Arc<Live>,
+    received: u64,
+    reply: Response,
+) -> io::Result<()> {
+    let result = (|| {
+        response(stream, reply)?;
+        stream.set_read_timeout(None)?;
+        pump(stream, live.clone(), received)
+    })();
+    live.detach(Instant::now())?;
+    result
 }
 fn pump(stream: &mut TcpStream, live: Arc<Live>, mut received: u64) -> io::Result<()> {
     let mut input = stream.try_clone()?;
@@ -335,6 +341,43 @@ mod tests {
         assert_eq!(err, b"err");
         assert!(eofs[1] && eofs[2]);
         server.join().unwrap().unwrap();
+    }
+    #[test]
+    fn lost_open_and_attach_replies_leave_live_session_reattachable() {
+        let live = Arc::new(crate::live::tests::fixture("cat"));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        server.shutdown(Shutdown::Both).unwrap();
+        assert!(
+            transport_session(
+                &mut server,
+                live.clone(),
+                0,
+                Response::Open {
+                    session: "s-0000000000000001".into()
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(live.attach(0, Instant::now()).unwrap(), (0, 0, false));
+        assert!(
+            transport_session(
+                &mut server,
+                live.clone(),
+                0,
+                Response::Attach {
+                    session: "s-0000000000000001".into(),
+                    received: 0,
+                    written: 0,
+                    input_eof: false,
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(live.attach(0, Instant::now()).unwrap(), (0, 0, false));
+        live.close().unwrap();
+        drop(client);
     }
     #[test]
     fn authenticated_control_refuses_identity_and_path_injection() {
