@@ -62,7 +62,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "never",
-      "summary": "Start a fresh conversation (dev tooling — nothing is kept)",
+      "summary": "Start a fresh conversation (dev tooling \u2014 nothing is kept)",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -225,6 +225,69 @@
           },
           "required": [
             "prompt"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "agent.edit",
+      "slash": "/agent.edit",
+      "cli": [
+        "agent",
+        "edit"
+      ],
+      "journey": [
+        "J11"
+      ],
+      "group": "Advanced",
+      "visibility": "advanced",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "confirm",
+      "summary": "Propose an instruction change",
+      "http": {
+        "method": "POST",
+        "path": "/api/agents/{name}/edit"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "planner",
+                "implementer",
+                "reviewer",
+                "app"
+              ]
+            },
+            "request": {
+              "type": "string",
+              "minLength": 1
+            },
+            "diff": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "request"
           ],
           "additionalProperties": true
         },
@@ -2139,7 +2202,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "run",
-      "summary": "Pin a change card's diff between two revisions (parent|<rev> → <rev>|current)",
+      "summary": "Pin a change card's diff between two revisions (parent|<rev> \u2192 <rev>|current)",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -2328,7 +2391,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "never",
-      "summary": "Start or stop dictation into the chat draft (⌘D)",
+      "summary": "Start or stop dictation into the chat draft (\u2318D)",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -2911,7 +2974,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "run",
-      "summary": "Inspect an answer’s stored context",
+      "summary": "Inspect an answer\u2019s stored context",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
