@@ -13,6 +13,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flows-jj = { path = "../flows-jj" }
 jj-lib = { workspace = true, features = ["git"] }
+gix = { version = "0.85", default-features = false }
 pollster = "1"
 yrs = { version = "=0.27.4", features = ["small-client"] }
 sha2 = "0.10"
