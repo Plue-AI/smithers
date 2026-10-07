@@ -224,6 +224,17 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 	if info == nil || info.User == nil || info.User.ID != actorID {
 		return BranchMachineResponse{}, &BranchError{403, "permission", "permission", "Access denied"}
 	}
+	// Capture is a side effect: revalidate the bound credential first, then
+	// release the stack fence so publication can acquire it.
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	err = guardInstallForkWrite(ctx, tx, repositoryID, actorID, input)
+	_ = tx.Rollback(context.WithoutCancel(ctx))
+	if err != nil {
+		return BranchMachineResponse{}, err
+	}
 	ctx = withBranchCaptureContext(ctx)
 	if input.Request == "" {
 		if err := s.prepareForkCapture(ctx, repositoryID, actorID, input); err != nil {

@@ -67,7 +67,7 @@ func testInstallRunForkAuthorizationPostgres(t *testing.T) map[string]any {
 	// uses only the production native transport and may never move main.
 	git("-C", seed, "push", hostGit, "HEAD:refs/heads/main", "HEAD:"+repohost.MythicalReservedRefNS+"keep/"+head)
 	require.NoError(t, client.ImportRefs(f.ctx, "gate-owner", "app"))
-	source, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.owner.ID, Name: "run-source", Kind: "container", Status: "running", TargetBookmark: "smithers/own"})
+	source, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.owner.ID, Name: "run-source", Kind: "container", Status: "stopped", TargetBookmark: "smithers/own"})
 	require.NoError(t, err)
 	var number int64
 	require.NoError(t, f.pool.QueryRow(f.ctx, `INSERT INTO mythical_items(repository_id,source,state,stack_position,title,workspace_id,request_run_id,owner_id,created_by,attempt,candidate_head,candidate_base,candidate_verified) VALUES($1,'todo','proposed',1,'Own execution',$2,'fork-run',$3,$3,1,$4,$4,true) RETURNING number`, f.repoID, source.ID, f.owner.ID, head).Scan(&number))
