@@ -9,6 +9,8 @@ export const journeySpecs = [
   "keyboard-journeys.spec.ts",
   "setup.spec.ts",
   "wiki-obsidian.spec.ts",
+  "fresh-repository.spec.ts",
+  "wiki-generated-refresh.spec.ts",
   "todo-from-issue.spec.ts",
   "todo-needs-you.spec.ts",
   "todo-evidence.spec.ts",

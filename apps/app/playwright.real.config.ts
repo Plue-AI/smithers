@@ -21,6 +21,13 @@ if (setupSelected && (!process.env.SMITHERS_REAL_BASE_URL || !process.env.SMITHE
   throw new Error("Setup qualification requires a built reference install, its printed setup URL, pinned build SHA and headed operator; no development host is started")
 }
 
+const installConfigSelected = ["fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts"].some(spec =>
+  process.env.SMITHERS_JOURNEY === spec || process.argv.some(arg => arg.endsWith(`/${spec}`) || arg === spec))
+if (installConfigSelected && (process.platform !== "darwin" || !process.env.SMITHERS_REAL_BASE_URL ||
+  !process.env.SMITHERS_REAL_E2E_BUILD_SHA || process.env.SMITHERS_REAL_HEADED !== "1")) {
+  throw new Error("Install config qualification requires a built Mac reference install, pinned build SHA and headed operator; no development host is started")
+}
+
 const obsidianSelected = process.env.SMITHERS_JOURNEY === "wiki-obsidian.spec.ts" ||
   process.argv.some(arg => /(?:^|\/)wiki-obsidian\.spec\.ts$/.test(arg))
 if (obsidianSelected && (process.platform !== "darwin" || !process.env.SMITHERS_REAL_BASE_URL ||

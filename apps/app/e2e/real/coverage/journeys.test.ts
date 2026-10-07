@@ -17,3 +17,11 @@ for (const spec of ["j1.spec.ts", "keyboard-journeys.spec.ts"] as const) test(`$
   expect(ignoredJourneys({ SMITHERS_JOURNEY: spec })).toEqual(journeySpecs.filter(value => value !== spec))
   expect(ignoredJourneys({ SMITHERS_J1_ACTIVATION: "1" })).toContain(spec)
 })
+
+test("install config qualification is exclusive to its reference journey", () => {
+  for (const spec of ["fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts"] as const) {
+    expect(ignoredJourneys({})).toContain(spec)
+    expect(ignoredJourneys({ SMITHERS_JOURNEY: spec })).not.toContain(spec)
+    expect(ignoredJourneys({ SMITHERS_JOURNEY: spec })).toHaveLength(journeySpecs.length - 1)
+  }
+})

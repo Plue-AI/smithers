@@ -23,7 +23,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | partial: mirrored read-only File card during held machine build and reload; question journey pending | T-APP-15 |
 | C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | browser-pass 2026-10-06: private Draft admission/completion, served TODO reviewed-head Merge and reload; fresh macOS install/real execution/GitHub/timing pending | T-APP-02 |
 | C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | browser-pass 2026-10-07: install seam, keyboard, invalid login sends nothing, typed unknown-user refusal, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
-| C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; reference-host qualification separate | T-MCH-10 |
+| C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; [reference observer](../../real/fresh-repository.spec.ts) authored, Mac execution pending | T-MCH-10, T-FLW-02 |
 | C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-07 (no-tools model draft, unopened issue, edit/place/commit; composed router proof separate) | T-STK-09 |
 | C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | fixme-before-implementation | T-STK-01 |
@@ -63,7 +63,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J8-03 | [C-J8-03.spec.ts](C-J8-03.spec.ts) | passing: owner folder PUT, sync status, refusal retained, unavailable control absent; composed PostgreSQL worker and forced mid-pass race proof separate; reference Mac scenario passed at default 60 s interval on 677526019b; receipt .artifacts/checks/C-J8-03/20261007T043654Z/ (seeded native install, loopback GitHub provider) | T-FLW-12 |
 | C-J8-04 | [C-J8-04.spec.ts](C-J8-04.spec.ts) | fixme-before-implementation | T-FLW-10 |
 | C-J8-05 | [C-J8-05.spec.ts](C-J8-05.spec.ts) | fixme-before-implementation | T-FLW-10, T-COL-09 |
-| C-J8-06 | [C-J8-06.spec.ts](C-J8-06.spec.ts) | partial: install Home live projection; merge/Retry/Dismiss reference-host scenario remains fixme | T-FLW-02, T-APP-01, T-REL-02 |
+| C-J8-06 | [C-J8-06.spec.ts](C-J8-06.spec.ts) | partial: install Home live projection; [reference observer](../../real/wiki-generated-refresh.spec.ts) authored, Mac execution and canonical Retry/Dismiss pending; qualification remains fixme | T-FLW-02, T-APP-01, T-REL-02 |
 | C-J11-01 | [C-J11-01.spec.ts](C-J11-01.spec.ts) | fixme-before-implementation | T-FLW-07, T-APP-07, T-REL-02 |
 | C-J11-02 | [C-J11-02.spec.ts](C-J11-02.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05, T-FLW-07 |
 | C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | passing Chromium: owner assignment, reload, model records, read-only instruction File card and actual recent-run models; composed Active-main prompt test passes; merged TODO/ongoing TODO journey pending | T-FLW-08 |
