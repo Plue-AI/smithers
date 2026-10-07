@@ -361,7 +361,7 @@ func TestCachedLayerMarkerFailureClassification(t *testing.T) {
 
 func admissionFixture() (*Runtime, AdmissionProviders) {
 	p := &HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, DiskFreeBytes: 200 << 30}
-	r := &Runtime{config: Config{MaxRunningVMs: 1, HostProfile: p}, workspaces: map[string]*workspace{}}
+	r := &Runtime{admissionStarted: time.Now().Add(-time.Hour), config: Config{MaxRunningVMs: 1, HostProfile: p}, workspaces: map[string]*workspace{}}
 	r.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
 	providers := AdmissionProviders{Ready: func(context.Context, AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 200 << 30, nil }}
 	return r, providers
@@ -965,6 +965,31 @@ func TestAdmissionReleaseObservedWithoutWaitingCaller(t *testing.T) {
 			require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
 		})
 	}
+}
+
+func TestAdmissionCancelledBootHonorsStartupGrace(t *testing.T) {
+	r, p := admissionFixture()
+	now := time.Now()
+	r.admissionStarted = now
+	root := t.TempDir()
+	binary, log := filepath.Join(root, "msb"), filepath.Join(root, "calls")
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> '%s'\ncase \"$1\" in\nlist) echo '[{\"name\":\"vm-a\",\"status\":\"running\"}]';;\nesac\n", log)
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+	r.cli = &cli{binary: binary, home: root}
+	_, err := r.Request("person", "A", "Alice", "terminal")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+	require.True(t, r.CancelAdmission("A", "Alice", now))
+	require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(29999*time.Millisecond)))
+	require.NoFileExists(t, log)
+	require.Equal(t, 1, r.InUse())
+	require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(30*time.Second)))
+	calls, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Contains(t, string(calls), "stop -t 10 -q vm-a")
+	require.Equal(t, 1, r.InUse(), "the stop acknowledgment cannot free capacity")
 }
 
 func TestAdmissionOrdinaryStopRequiresRuntimeObservation(t *testing.T) {

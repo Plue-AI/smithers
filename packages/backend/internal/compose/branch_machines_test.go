@@ -13,6 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -154,6 +155,12 @@ func TestFrTMCH06BranchWaitPositionProductionHTTPPostgres(t *testing.T) {
 	t.Cleanup(pool.Close)
 	require.NoError(t, product.Apply(ctx, pool))
 	q := db.New(pool)
+	bus := revocation.NewBus(pool, q)
+	busCtx, stopBus := context.WithCancel(ctx)
+	require.NoError(t, bus.Start(busCtx))
+	t.Cleanup(stopBus)
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "admissionowner", LowerUsername: "admissionowner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)

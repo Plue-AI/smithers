@@ -375,11 +375,15 @@ func (r *Runtime) AdmissionForceStops(now time.Time) []string {
 	return holders
 }
 
-// ReconcileAdmissionReleases retries overdue stops without relinquishing the
-// slot on a CLI acknowledgment. Only an observed stopped or missing VM frees it.
+// ReconcileAdmissionReleases requests stops and escalates after sixty seconds.
+// Only an observed stopped or missing VM frees the slot.
 func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time) error {
 	var errs []error
 	r.mu.Lock()
+	if r.admissionStarted.IsZero() || now.Sub(r.admissionStarted) < 30*time.Second {
+		r.mu.Unlock()
+		return nil
+	}
 	holders := []string{}
 	for holder, h := range r.admission {
 		if h.held && !h.releasing.IsZero() {
@@ -401,12 +405,13 @@ func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time)
 			errs = append(errs, ErrUnavailable)
 			continue
 		}
-		var stopErr error
+		grace := "10"
 		if overdue {
-			stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			_, stopErr = r.cli.run(stopCtx, nil, "stop", "-t", "0", "-q", machine)
-			cancel()
+			grace = "0"
 		}
+		stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, stopErr := r.cli.run(stopCtx, nil, "stop", "-t", grace, "-q", machine)
+		cancel()
 		status, found, err := r.cli.sandboxStatus(ctx, machine)
 		if err != nil || found && status != "stopped" {
 			if err != nil {
