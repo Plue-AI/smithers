@@ -324,7 +324,7 @@ func TestChangeIntegrationLandsDark(t *testing.T) {
 	moved.Payload = wire.Union(4, wire.Field(1, wire.Union(4)), wire.Field(2, wire.U64(42)), wire.Field(3, []byte(strings.Repeat("a", 20))))
 	_, err = pump.Commit(t.Context(), link.Connection, branch, moved)
 	require.ErrorIs(t, err, ErrNotReady)
-	hint := Event{Payload: wire.Union(1, wire.Field(1, wire.String("a.ts")), wire.Field(2, wire.Union(4)))}
+	hint := Event{Payload: wire.Union(1, wire.Field(1, wire.String("a.ts")), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))))}
 	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, branch, hint), ErrNotReady)
 	require.NoError(t, link.Reconciled())
 	require.ErrorIs(t, pump.Bursts.Hint(t.Context(), link.Connection, foreign, hint), ErrUnauthorized)

@@ -5,6 +5,14 @@ Status: implementation plan from the integration audit at `a80b8b447ab4`,
 This records an unfinished dependency of production machine-event activation;
 it is not an acceptance receipt or a change to product scope.
 
+Implemented foundation: immutable actor-reference storage and commit-before-launch
+helper; principal-reference resolution in the burst/hint transaction, scoped to
+the authenticated machine and using the shared branch actor renderer. Replays of
+these references do not require live sessions or current membership. Session/run
+wire variants still use the existing live adapter; their launch/broker migration
+below remains required. These component checks do not prove installed admission
+or recovery of legacy session-number events.
+
 ## Required behavior
 
 [Engineering spec §9](../spec.md) requires observed edits and external-agent

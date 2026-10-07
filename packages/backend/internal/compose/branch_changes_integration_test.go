@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"io"
 	"os"
 	"path/filepath"
@@ -62,15 +63,21 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 			return "", machined.ErrUnauthorized
 		}
 		return store, nil
-	}}, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
-		return json.RawMessage(`{"id":"member:2","kind":"person","member_id":"2","via":"ssh"}`), nil
-	}}
+	}}}
+	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET vm_id='vm' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	ref, err := machined.CommitActor(t.Context(), f.pool, f.row.ID, "vm", func(context.Context, pgx.Tx) (machined.ActorIdentity, error) {
+		return machined.ActorIdentity{Kind: "person", MemberID: f.user.ID, Via: "ssh"}, nil
+	})
+	require.NoError(t, err)
+	actor := wire.Union(1, wire.Field(1, wire.Bytes(ref)))
+
 	list := wire.U16(12)
 	for i := 0; i < 12; i++ {
 		list = append(list, wire.Struct(wire.Field(1, wire.String(fmt.Sprintf("src/f%d.ts", i))), wire.Field(2, []byte{2}), wire.Field(4, bytesOf(before)), wire.Field(5, bytesOf(after)), wire.Field(6, post[:]))...)
 	}
 	id := [16]byte{2}
-	payload := wire.Union(1, wire.Field(1, id[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
+	payload := wire.Union(1, wire.Field(1, id[:]), wire.Field(2, actor), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
 	event := machined.Event{Seq: 1, EventID: [16]byte{3}, Payload: payload}
 	pump := &machined.Ingestor{Pool: f.pool, Bursts: ingest}
 	// Split the same real versions tree into two transport parts. The
@@ -168,7 +175,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	hintSocket := f.dial(t)
 	sendPresenceFrame(t, hintSocket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:files"}`, f.row.ID))
 	readPresenceFrame(t, hintSocket)
-	hint := machined.Event{Payload: wire.Union(1, wire.Field(1, wire.String("src/f0.ts")), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, post[:]))}
+	hint := machined.Event{Payload: wire.Union(1, wire.Field(1, wire.String("src/f0.ts")), wire.Field(2, actor), wire.Field(3, post[:]))}
 	require.ErrorIs(t, ingest.Hint(t.Context(), c, f.row.ID, hint), machined.ErrNotReady)
 	require.NoError(t, c.Reconciled())
 	require.NoError(t, ingest.Hint(t.Context(), c, f.row.ID, hint))
@@ -202,7 +209,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	next := event
 	next.Seq = 2
 	next.EventID = [16]byte{4}
-	next.Payload = wire.Union(1, wire.Field(1, nextID[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
+	next.Payload = wire.Union(1, wire.Field(1, nextID[:]), wire.Field(2, actor), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
 	_, err = pump.Commit(t.Context(), c, f.row.ID, next)
 	require.NoError(t, err)
 	resumed := f.dial(t)
@@ -226,7 +233,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 		id := [16]byte{8, byte(i)}
 		next.Seq = uint64(i + 2)
 		next.EventID = [16]byte{9, byte(i)}
-		next.Payload = wire.Union(1, wire.Field(1, id[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
+		next.Payload = wire.Union(1, wire.Field(1, id[:]), wire.Field(2, actor), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
 		_, err = pump.Commit(t.Context(), c, f.row.ID, next)
 		require.NoError(t, err)
 	}

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
@@ -35,7 +36,7 @@ import (
 func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	f := presenceInstall(t, true)
 	ctx := t.Context()
-	_, err := f.pool.Exec(ctx, `UPDATE workspaces SET vm_id='event-vm' WHERE id=$1`, f.row.ID)
+	_, err := f.pool.Exec(ctx, `UPDATE workspaces SET vm_id='machine' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid) VALUES($1,$2,'admin','maya',20001) ON CONFLICT(repository_id,user_id) WHERE user_id IS NOT NULL DO UPDATE SET unix_login='maya',unix_uid=20001`, f.row.RepositoryID, f.user.ID)
 	require.NoError(t, err)
@@ -156,6 +157,14 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	require.NoError(t, err)
 	send(event(4, 4, runActor), machined.AckApplied)
 
+	// The installed consumer also resolves a host reference whose original run
+	// and live session are absent. Its sponsor and role come only from admission.
+	ref, err := machined.CommitActor(ctx, pool, f.row.ID, "machine", func(context.Context, pgx.Tx) (machined.ActorIdentity, error) {
+		return machined.ActorIdentity{Kind: "agent", MemberID: f.user.ID, Via: "agent", AgentKind: "coding", Run: "retained-attempt"}, nil
+	})
+	require.NoError(t, err)
+	send(event(5, 7, wire.Union(1, wire.Field(1, wire.Bytes(ref)))), machined.AckApplied)
+
 	socket := f.dial(t)
 	sendPresenceFrame(t, socket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity"}`, f.row.ID))
 	activity := readPresenceFrame(t, socket)
@@ -164,7 +173,10 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 		Files []map[string]any
 	}
 	require.NoError(t, json.Unmarshal(activity.Data, &entries))
-	require.Len(t, entries, 4)
+	require.Len(t, entries, 5)
+	require.Equal(t, "retained-attempt", entries[4].Actor["run_id"])
+	require.Equal(t, "coding", entries[4].Actor["agent"])
+	require.Equal(t, "presence-owner", entries[4].Actor["for_member"].(map[string]any)["login"])
 	require.Equal(t, "presence-owner", entries[0].Actor["login"])
 	require.Equal(t, "ssh", entries[0].Actor["via"])
 	require.Equal(t, "outside", entries[1].Actor["kind"])
@@ -200,21 +212,21 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	var unexpected [1]byte
 	// Unknown host principals cannot fabricate authors or receive a receipt.
 	require.NoError(t, guest.SetDeadline(time.Now().Add(5*time.Second)))
-	require.NoError(t, wire.Write(guest, transcriptEventFrame(event(5, 5, wire.Union(1, wire.Field(1, wire.Bytes([]byte("member:2"))))))))
+	require.NoError(t, wire.Write(guest, transcriptEventFrame(event(6, 5, wire.Union(1, wire.Field(1, wire.Bytes([]byte("member:2"))))))))
 	_, err = guest.Read(unexpected[:])
 	require.ErrorIs(t, err, io.EOF)
 	// A new authenticated connection is consumed too. An unavailable moved-off
 	// provider closes it without acknowledging or swallowing the durable event.
 	_, guest = presenceTestLink(t, registry, f.row.ID)
 	require.NoError(t, guest.SetDeadline(time.Now().Add(5*time.Second)))
-	moved := machined.Event{Seq: 6, EventID: [16]byte{6}, Payload: wire.Union(4, wire.Field(1, wire.Union(4)), wire.Field(2, wire.U64(42)), wire.Field(3, bytesOf(head)))}
+	moved := machined.Event{Seq: 7, EventID: [16]byte{6}, Payload: wire.Union(4, wire.Field(1, wire.Union(4)), wire.Field(2, wire.U64(42)), wire.Field(3, bytesOf(head)))}
 	require.NoError(t, wire.Write(guest, transcriptEventFrame(moved)))
 	_, err = guest.Read(unexpected[:])
 	require.ErrorIs(t, err, io.EOF)
 
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&count))
-	require.Equal(t, 4, count)
+	require.Equal(t, 5, count)
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
 	git("", "gc", "--prune=now")

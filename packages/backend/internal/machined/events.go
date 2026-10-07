@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -38,8 +40,11 @@ type BurstStore interface {
 type BurstIngest struct {
 	Pool    *pgxpool.Pool
 	Objects BurstStore
-	// ResolveActor is a read-only attribution lookup. It may consult the
-	// authenticated session registry; it runs without the registry lock.
+	// ResolveActor is the existing live session/run adapter for legacy actor
+	// variants. It runs before acquiring a transaction or the registry lock.
+	// Principal references never use it: they resolve from immutable storage in
+	// the event transaction. Session/run variants still need the coordinated
+	// admission protocol migration for historical attribution after restart.
 	ResolveActor func(context.Context, string, wire.Actor) (json.RawMessage, error)
 }
 
@@ -52,7 +57,7 @@ func validBurstPath(p string) bool {
 // A failed ack transport is repaired by outbox replay.
 func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope jobs.Scope, event Event) (Acknowledgement, error) {
 	ack := Acknowledgement{Seq: event.Seq}
-	if s == nil || s.Pool == nil || s.Objects == nil || s.ResolveActor == nil || connection == nil {
+	if s == nil || s.Pool == nil || s.Objects == nil || connection == nil {
 		return ack, ErrNotReady
 	}
 	if connection.registry == nil || connection.boot == nil {
@@ -92,23 +97,26 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	// Session attribution consults this same registry. Resolve outside its
 	// lock, then recheck the exact connection before any persistent effect.
 	// A slow lookup must not delay another boot replacing this connection.
-	actor, err := s.ResolveActor(ctx, branch, b.Actor)
+	actor, err := s.resolveLegacyActor(ctx, branch, b.Actor)
 	if err != nil {
 		return ack, err
 	}
-	if !json.Valid(actor) {
-		return ack, ErrUnauthorized
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return ack, err
+	}
+	defer rollbackActorEvent(ctx, tx)
+	if actor == nil {
+		actor, err = resolveStoredEventActor(ctx, tx, branch, connection.boot.machine, b.Actor)
+		if err != nil {
+			return ack, err
+		}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !connection.current() {
 		return ack, ErrUnauthorized
 	}
-	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return ack, err
-	}
-	defer tx.Rollback(ctx)
 	// The stream scope is derived from the host workspace, not the event or
 	// caller. This prevents an authenticated connection crossing repositories.
 	var repository int64
@@ -344,7 +352,7 @@ func stageBurst(ctx context.Context, tx pgx.Tx, branch string, event Event, inco
 // Hint publishes an authenticated file invalidation through the existing
 // LISTEN broker. It creates no activity, version row or durable receipt.
 func (s *BurstIngest) Hint(ctx context.Context, connection *Connection, branch string, event Event) error {
-	if s == nil || s.Pool == nil || s.Objects == nil || s.ResolveActor == nil {
+	if s == nil || s.Pool == nil || s.Objects == nil {
 		return ErrNotReady
 	}
 	if connection == nil || connection.registry == nil || connection.boot == nil {
@@ -365,12 +373,20 @@ func (s *BurstIngest) Hint(ctx context.Context, connection *Connection, branch s
 	}
 	// Attribution can consult the registry. Recheck the same lease after it
 	// resolves, as durable bursts do, before publishing anything.
-	actor, err := s.ResolveActor(ctx, branch, hint.Actor)
+	actor, err := s.resolveLegacyActor(ctx, branch, hint.Actor)
 	if err != nil {
 		return err
 	}
-	if !json.Valid(actor) {
-		return ErrUnauthorized
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollbackActorEvent(ctx, tx)
+	if actor == nil {
+		actor, err = resolveStoredEventActor(ctx, tx, branch, connection.boot.machine, hint.Actor)
+		if err != nil {
+			return err
+		}
 	}
 	r := connection.registry
 	r.mu.Lock()
@@ -388,6 +404,56 @@ func (s *BurstIngest) Hint(ctx context.Context, connection *Connection, branch s
 	if len(data) >= 8000 {
 		return wire.BadValue
 	}
-	_, err = s.Pool.Exec(ctx, `SELECT pg_notify($1,$2)`, "branch_"+strings.ReplaceAll(branch, "-", "")+"_files", string(data))
-	return err
+	_, err = tx.Exec(ctx, `SELECT pg_notify($1,$2)`, "branch_"+strings.ReplaceAll(branch, "-", "")+"_files", string(data))
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Preserve the legacy wire path without exposing host references to its adapter.
+// It may need a pool connection or the live registry, so it precedes both locks.
+func (s *BurstIngest) resolveLegacyActor(ctx context.Context, branch string, actor wire.Actor) (json.RawMessage, error) {
+	if actor.Kind != 2 && actor.Kind != 3 {
+		return nil, nil
+	}
+	if s.ResolveActor == nil {
+		return nil, ErrNotReady
+	}
+	value, err := s.ResolveActor(ctx, branch, actor)
+	if err != nil {
+		return nil, err
+	}
+	if !json.Valid(value) {
+		return nil, ErrUnauthorized
+	}
+	return value, nil
+}
+
+// An authenticated machine can only resolve its own committed references.
+// Unknown references never fall back to a live session, roster or outside actor.
+// Stored data uses the shared branch actor renderer's historical representation.
+func resolveStoredEventActor(ctx context.Context, tx pgx.Tx, branch, machine string, actor wire.Actor) (json.RawMessage, error) {
+	switch actor.Kind {
+	case 1:
+		identity, err := ResolveActorInTx(ctx, tx, branch, machine, actor.Principal)
+		if err != nil {
+			return nil, err
+		}
+		member := strconv.FormatInt(identity.MemberID, 10)
+		if identity.Kind == "person" {
+			return json.Marshal(map[string]any{"kind": "person", "id": "member:" + member, "member_id": member, "via": identity.Via})
+		}
+		return json.Marshal(map[string]any{"kind": "agent", "id": "run:" + identity.Run, "run_id": identity.Run, "agent_kind": identity.AgentKind, "for_member": member})
+	case 4:
+		return json.RawMessage(`{"kind":"outside","color_index":7}`), nil
+	default:
+		return nil, ErrUnauthorized
+	}
+}
+
+func rollbackActorEvent(ctx context.Context, tx pgx.Tx) {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	_ = tx.Rollback(cleanup)
 }
