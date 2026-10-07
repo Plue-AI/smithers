@@ -19,7 +19,7 @@ test("review is a confirmable command and both review doors refuse browser execu
     const review = controller.commands.find("review")!
     expect(modelInvocable(review)).toBe(true)
     expect(review.metadata.confirm).toBe("review the pull request")
-    expect(review.metadata.workflow).toBe("review")
+    expect(review.metadata.hidden).toBe(true)
     expect(controller.commands.find("prs.land")).toBeUndefined()
     expect(controller.commands.find("prs.triage")!.metadata.hidden).toBe(true)
     for (const name of ["review", "prs.triage"]) {

@@ -53,6 +53,8 @@ import {
   LOCAL_SESSION_HEADER,
   LOCAL_SESSION_META
 } from "@smthrs/rpc/LocalSession"
+import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import type { CloudAgent } from "./CloudAgent"
 import { handleBrowserFetch } from "./BrowserFetch"
 import { CLOUD_CHAT_SIGN_IN } from "./CloudAgent"
 import { createCloudAuth } from "./CloudAuth"
@@ -141,6 +143,8 @@ export interface LocalServerOptions {
   readonly port?: number
   /** The built SPA: index.html plus assets/. */
   readonly distDir: string
+  /** Injected model-stream provider for unrecorded answers and test hosts. */
+  readonly agent?: (publish: (frame: AgentTurnFrame) => void) => CloudAgent
   /** Offline has no network egress; hybrid explicitly enables Smithers Cloud. */
   readonly cloudMode?: "offline" | "hybrid"
   /**
