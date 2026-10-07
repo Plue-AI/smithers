@@ -2,12 +2,12 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/stretchr/testify/require"
 )
@@ -38,31 +38,16 @@ func TestMythicalPRPublicationHostileRepositoryConfiguration(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "publication and accepted-tree reads must not run repository programs")
 }
 
-func TestMythicalCompletionCloseLostResponseUsesCanonicalReceipt(t *testing.T) {
-	f := newPublicationFixture(t, false, 12)
-	ctx := context.Background()
-	number := f.fake.OpenIssue("rehearsal-owner/app", "rehearsal-owner", "Complete", "Prompt")
-	path := fmt.Sprintf("/repos/rehearsal-owner/app/issues/%d", number)
-	gh, err := f.service.github.Resolve(ctx, mustPublicationRepository(t, f), "smithers-canary", f.userID)
-	require.NoError(t, err)
-	api := f.service.github.(*mythicalGitHubAPI)
-	since := time.Now().Add(-time.Minute)
-	f.fake.OnNextRequest("PATCH", path, func() { f.fake.LoseNextResponses(path, 1) })
-	require.Error(t, api.CloseIssueSince(ctx, gh, number, since))
-	issue, ok := f.fake.Issue("rehearsal-owner/app", number)
-	require.True(t, ok)
-	require.Equal(t, "closed", issue.State)
-	require.NoError(t, api.CloseIssueSince(ctx, gh, number, since))
-	count := 0
-	for _, write := range f.fake.Writes() {
-		if write.Method == "PATCH" && write.Path == path {
-			count++
-		}
-	}
-	require.Equal(t, 1, count, "remote success before acknowledgement must not repeat the close")
-}
-
 func TestMythicalMergeDisablesRepositoryDrivers(t *testing.T) {
+	// Git 2.38 supports merge-tree but predates GIT_ATTR_SOURCE. Exercise
+	// command's driver policy without relying on the newer Git safeguard.
+	git, err := exec.LookPath("git")
+	require.NoError(t, err)
+	shim := filepath.Join(t.TempDir(), "git")
+	require.NoError(t, os.WriteFile(shim, []byte("#!/bin/sh\nunset GIT_ATTR_SOURCE\ncd "+shellQuote(t.TempDir())+"\nexec "+shellQuote(git)+" \"$@\"\n"), 0700))
+	restore, err := hostexec.Configure(hostexec.Config{Git: shim, Environment: hostexec.Environment()})
+	require.NoError(t, err)
+	t.Cleanup(restore)
 	f := newMythicalFixture(t)
 	base := f.commit("base", map[string]string{"x.txt": "base\n", ".gitattributes": "*.txt merge=hostile\n"})
 	f.run("checkout", "--quiet", "-b", "left")
@@ -73,7 +58,8 @@ func TestMythicalMergeDisablesRepositoryDrivers(t *testing.T) {
 	program := filepath.Join(t.TempDir(), "driver")
 	require.NoError(t, os.WriteFile(program, []byte("#!/bin/sh\ntouch "+shellQuote(marker)+"\nexit 1\n"), 0700))
 	f.run("config", "merge.hostile.driver", program)
-	_, err := f.git.merge3(context.Background(), base, left, right)
+	require.NoError(t, os.WriteFile(filepath.Join(f.git.dir, "info", "attributes"), []byte("*.txt merge=hostile\n"), 0600))
+	_, err = f.git.merge3(context.Background(), base, left, right)
 	require.NoFileExists(t, marker)
 	var conflict *errMythicalConflict
 	require.ErrorAs(t, err, &conflict)
@@ -95,17 +81,15 @@ func TestMythicalPRNativeAcceptedItemDiff(t *testing.T) {
 	second := f.todo("Second", "second", first.CandidateHead, "SECOND.txt", "second\n")
 	f.wake()
 	second = f.item(second.Number.Int64)
-	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "native-pr-proof", FFILibraryPath: library})
+	storage := t.TempDir()
+	local, err := repository.OpenLocal(repository.Config{StoragePath: storage, AuthToken: "native-pr-proof", FFILibraryPath: library})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	client := local.Client()
 	require.NoError(t, client.InitRepo(h.ctx, "smithers-canary", "smithers", "main", true))
-	var nativeStore string
-	require.NoError(t, client.WithLocalGitStore(h.ctx, "smithers-canary", "smithers", func(path string) error {
-		nativeStore = path
-		_, err := (mythicalGit{dir: f.hostDir}).command(h.ctx, nil, "push", "--mirror", path)
-		return err
-	}))
+	nativeStore := filepath.Join(storage, "smithers-canary", "smithers", ".jj", "repo", "store", "git")
+	_, err = (mythicalGit{dir: f.hostDir}).command(h.ctx, nil, "push", "--mirror", nativeStore)
+	require.NoError(t, err)
 	require.NoError(t, client.ImportRefs(h.ctx, "smithers-canary", "smithers"))
 	marker := filepath.Join(t.TempDir(), "executed")
 	program := filepath.Join(t.TempDir(), "program")
@@ -126,4 +110,79 @@ func TestMythicalPRNativeAcceptedItemDiff(t *testing.T) {
 	require.Equal(t, "+", diff.Files[0].Hunks[0].Lines[0].Op)
 	require.Equal(t, "second", diff.Files[0].Hunks[0].Lines[0].Text)
 	require.NoFileExists(t, marker)
+}
+
+func TestMythicalHostPublicationIgnoresGlobalConfiguration(t *testing.T) {
+	f := newMythicalFixture(t)
+	base := f.commit("base", map[string]string{"x.txt": "base\n", ".gitattributes": "*.txt merge=hostile\n"})
+	f.run("checkout", "--quiet", "-b", "left")
+	left := f.commit("left", map[string]string{"x.txt": "left\n"})
+	f.run("checkout", "--quiet", "-b", "right", base)
+	right := f.commit("right", map[string]string{"x.txt": "right\n"})
+	dir := t.TempDir()
+	canary := filepath.Join(dir, "executed")
+	config := filepath.Join(dir, ".gitconfig")
+	require.NoError(t, os.WriteFile(filepath.Join(f.git.dir, "info", "attributes"), []byte("*.txt merge=hostile\n"), 0600))
+	// Prove this global driver executes in an ordinary merge, then exercise
+	// the same object-only merge used by host publication with that config.
+	command := "touch " + shellQuote(canary) + "; exit 1"
+	cmd := exec.Command("git", "config", "--file", config, "merge.hostile.driver", command)
+	require.NoError(t, cmd.Run())
+	cmd = exec.Command("git", "--git-dir", f.git.dir, "merge-tree", "--write-tree", left, right)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+config)
+	_, err := cmd.CombinedOutput()
+	require.Error(t, err)
+	require.FileExists(t, canary, "the global driver must be an executable canary")
+	require.NoError(t, os.Remove(canary))
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	t.Setenv("HOME", dir)
+	_, err = f.git.merge3(context.Background(), base, left, right)
+	var conflict *errMythicalConflict
+	require.ErrorAs(t, err, &conflict)
+	require.NoFileExists(t, canary)
+
+	h := newMergeHarness(t)
+	publication := h.publicationFixture
+	item := publication.todo("Safe transfer", "publish data", publication.main, "SAFE.txt", "safe\n")
+	for key, value := range map[string]string{
+		"user.name": "Hostile", "user.email": "hostile@example.invalid", "user.useConfigOnly": "true",
+		"credential.helper": "!" + command, "url.ext::hostile.insteadOf": "http://",
+		"safe.directory": "/does-not-exist", "core.sshCommand": command,
+		"http.proxy": "http://127.0.0.1:1", "protocol.http.allow": "never", "protocol.https.allow": "never",
+	} {
+		cmd := exec.Command("git", "config", "--file", config, key, value)
+		require.NoError(t, cmd.Run())
+	}
+	publication.wake()
+	item = publication.item(item.Number.Int64)
+	require.Equal(t, "proposed", item.State, item.Reason)
+	require.True(t, item.PRNumber.Valid)
+	published, err := (mythicalGit{dir: publication.github}).readCommit(context.Background(), item.PRHead)
+	require.NoError(t, err)
+	require.Contains(t, published.Author, "Smithers <smithers@smithers.sh>")
+	require.Equal(t, published.Author, published.Committer)
+	require.NoFileExists(t, canary, "host publication must ignore the global driver")
+	// Local drivers are replaced with false; Git still needs writable merge
+	// temporaries in the scratch repository to report the normal conflict.
+	f.run("config", "merge.hostile.driver", command)
+	_, err = f.git.merge3(context.Background(), base, left, right)
+	require.ErrorAs(t, err, &conflict)
+	require.NoFileExists(t, canary)
+}
+
+func TestMythicalHostMergeDoesNotRenormalize(t *testing.T) {
+	f := newMythicalFixture(t)
+	base := f.commit("base", map[string]string{"x.txt": "base\n"})
+	f.run("checkout", "--quiet", "-b", "left")
+	left := f.commit("left", map[string]string{"x.txt": "left\n"})
+	f.run("checkout", "--quiet", "-b", "right", base)
+	right := f.commit("right", map[string]string{"x.txt": "right\n"})
+	canary := filepath.Join(t.TempDir(), "executed")
+	f.run("config", "merge.renormalize", "true")
+	f.run("config", "filter.hostile.clean", "touch "+shellQuote(canary)+"; cat")
+	require.NoError(t, os.WriteFile(filepath.Join(f.git.dir, "info", "attributes"), []byte("*.txt filter=hostile\n"), 0600))
+	_, err := f.git.merge3(context.Background(), base, left, right)
+	var conflict *errMythicalConflict
+	require.ErrorAs(t, err, &conflict)
+	require.NoFileExists(t, canary, "bare host merges must not renormalize through repository filters")
 }

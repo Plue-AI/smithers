@@ -72,12 +72,15 @@ type mythicalGit struct {
 func (g mythicalGit) command(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
 	// Object transport never consumes hooks or credential helpers from the
 	// repository config. It replaces inherited executable configuration.
-	policy := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "credential.helper=", "-c", "core.sshCommand=/usr/bin/ssh", "-c", "protocol.ext.allow=never", "-c", "diff.external=", "-c", "core.fsmonitor=false", "-c", "core.alternateRefsCommand="}
+	// filter.<name>.clean/smudge/process are inert for bare object transport:
+	// no checkout and no renormalize.
+	policy := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "credential.helper=", "-c", "core.sshCommand=/usr/bin/ssh", "-c", "protocol.ext.allow=never", "-c", "diff.external=", "-c", "core.fsmonitor=false", "-c", "core.alternateRefsCommand=", "-c", "merge.renormalize=false"}
 	if len(args) > 0 && args[0] == "merge-tree" {
 		// Attribute-selected custom drivers are executable repository config.
 		// Enumerate names as data, then replace every program with a trusted
 		// fail-closed driver. Git reports a normal conflict instead of running it.
 		inspect := gitHubMainPullCommand(ctx, append(append([]string{}, policy...), "--git-dir", g.dir, "config", "--local", "--includes", "--name-only", "--get-regexp", `^merge\..*\.driver$`)...)
+		inspect.Env = append(inspect.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 		names, err := inspect.Output()
 		var status *exec.ExitError
 		if err != nil && (!errors.As(err, &status) || status.ExitCode() != 1) {
@@ -94,7 +97,11 @@ func (g mythicalGit) command(ctx context.Context, stdin []byte, args ...string) 
 	}
 	policy = append(policy, "--git-dir", g.dir)
 	cmd := gitHubMainPullCommand(ctx, append(policy, args...)...)
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "LC_ALL=C")
+	if len(args) > 0 && args[0] == "merge-tree" {
+		// Even the inert driver needs Git to create merge temporaries.
+		cmd.Dir = g.dir
+	}
+	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "LC_ALL=C", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
