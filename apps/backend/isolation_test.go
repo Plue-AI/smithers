@@ -700,7 +700,7 @@ func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
 			if calls != 1 {
 				t.Fatalf("detector calls = %d", calls)
 			}
-			if config.Bundle != pinned || len(config.BundlePrograms) != 1 || config.BundlePrograms[0] != bundle.codingHost {
+			if config.Bundle != pinned || len(config.BundlePrograms) != 2 || config.BundlePrograms[0] != bundle.codingHost || config.BundlePrograms[1] != filepath.Join(pinned.Root(), "share", "skills", "smithers", "SKILL.md") {
 				t.Fatalf("bundle = %v, programs = %q", config.Bundle, config.BundlePrograms)
 			}
 			if config.Binary != "" {
