@@ -271,14 +271,11 @@ func (s *MythicalService) requestMerge(ctx context.Context, repositoryID, userID
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return MythicalItemView{}, err
 	}
-	if err := requireNoStackAttention(ctx, s.store, item.RepositoryID); err != nil {
-		return MythicalItemView{}, err
-	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
 		return MythicalItemView{}, err
 	}
-	if err := mythicalMergeReady(item, before, head, false); err != nil {
+	if err := s.mergeReady(ctx, s.store, item, before, head, false); err != nil {
 		return MythicalItemView{}, err
 	}
 	pull, err := s.github.Pull(ctx, gh, item.PRNumber.Int64)
@@ -322,14 +319,11 @@ func (s *MythicalService) requestMerge(ctx context.Context, repositoryID, userID
 		if err != nil {
 			return err
 		}
-		if err := requireNoStackAttention(ctx, tx, current.RepositoryID); err != nil {
-			return err
-		}
 		before, err := mythicalMergeAfter(ctx, tx, current)
 		if err != nil {
 			return err
 		}
-		if err := mythicalMergeReady(current, before, head, false); err != nil {
+		if err := s.mergeReady(ctx, tx, current, before, head, false); err != nil {
 			return err
 		}
 		if err := s.mergeDispatchReady(ctx, current); err != nil {
@@ -507,20 +501,14 @@ func (s *MythicalService) todoMerge(ctx context.Context, item db.MythicalItem) (
 		}
 		return block, nil
 	}
-	if err := requireNoStackAttention(ctx, s.store, item.RepositoryID); err != nil {
-		var refusal *TodoControlError
-		if !errors.As(err, &refusal) {
-			return nil, err
-		}
-		block["state"], block["reason"], block["detail"] = "waiting", "attention", refusal.Message
-		return block, nil
-	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
 		return nil, err
 	}
 	var refusal *TodoControlError
-	if err := mythicalMergeReady(item, before, item.PRHead, false); !errors.As(err, &refusal) {
+	if err := s.mergeReady(ctx, s.store, item, before, item.PRHead, false); err != nil && !errors.As(err, &refusal) {
+		return nil, err
+	} else if err == nil {
 		block["state"] = "ready"
 		if land != nil && land.Refused != nil && land.Head == item.PRHead && land.Generation == item.Generation {
 			block["detail"] = land.Refused.Message
@@ -530,6 +518,8 @@ func (s *MythicalService) todoMerge(ctx context.Context, item db.MythicalItem) (
 	block["state"], block["reason"] = "waiting", refusal.Code
 	if refusal.Code == "order" {
 		block["detail"] = strings.TrimPrefix(refusal.Message, "Merges after ")
+	} else if refusal.Code == "attention" {
+		block["detail"] = refusal.Message
 	}
 	return block, nil
 }
@@ -590,14 +580,11 @@ func (s *MythicalService) MergeDecision(ctx context.Context, item db.MythicalIte
 	if op.Kind != "merge" || land == nil || (land.Session == "" && land.StandingUser == 0) || land.Refused != nil || land.Head != op.Desired || land.Generation != item.Generation {
 		return mythicalMergeDecided{}, mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
 	}
-	if err := requireNoStackAttention(ctx, s.store, item.RepositoryID); err != nil {
-		return mythicalMergeDecided{}, err
-	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
 		return mythicalMergeDecided{}, err
 	}
-	if err := mythicalMergeReady(item, before, op.Desired, true); err != nil {
+	if err := s.mergeReady(ctx, s.store, item, before, op.Desired, true); err != nil {
 		return mythicalMergeDecided{}, err
 	}
 	gh, number, err := s.mergeGitHub(ctx, item, op)
@@ -1351,4 +1338,17 @@ func (s *MythicalService) maintainerPerson(ctx context.Context, repositoryID, us
 		return mythicalGitHubRepo{}, gitHubActor{}, pkgerrors.Forbidden("only a maintainer of " + gh.Owner + "/" + gh.Name + " on GitHub may " + act)
 	}
 	return gh, account, nil
+}
+
+// Stack attention is row 3 of MergeReady, after state and stack order.
+func (s *MythicalService) mergeReady(ctx context.Context, q db.DBTX, item db.MythicalItem, before int64, head string, fenced bool) error {
+	err := mythicalMergeReady(item, before, head, fenced)
+	var refusal *TodoControlError
+	if errors.As(err, &refusal) && (refusal.Code == "state" || refusal.Code == "order") {
+		return err
+	}
+	if attention := requireNoStackAttention(ctx, q, item.RepositoryID); attention != nil {
+		return attention
+	}
+	return err
 }

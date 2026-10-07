@@ -532,6 +532,9 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 			var envelope map[string]any
 			require.NoError(t, json.Unmarshal(raw, &envelope))
 			require.Equal(t, tc.code, envelope["code"])
+			if tc.code == "stale_attention" {
+				require.Equal(t, float64(2), envelope["attention"].(map[string]any)["revision"])
+			}
 		}
 		status, envelope := post(numbered(strconv.FormatInt(filed.Number, 10)), browser("owner-browser-session", true, "attention-blocked"))
 		require.Equal(t, 409, status)

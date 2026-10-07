@@ -2135,6 +2135,8 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "order.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.orderRequests = transition.requests })
+          break
+        }
         case "install.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.installRequests = transition.requests })
           break

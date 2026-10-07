@@ -286,6 +286,10 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			evidence[i].Items[j] = captured
 		}
 	}
+	if checks.MergedVia != nil {
+		card["merged_via"] = checks.MergedVia.Number
+		card["note"] = checks.MergedVia.Note
+	}
 	card["evidence"] = evidence
 	return card, nil
 }

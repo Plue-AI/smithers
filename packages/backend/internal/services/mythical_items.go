@@ -4830,7 +4830,15 @@ func (s *MythicalService) complete(ctx context.Context, r *mythicalRun, item db.
 		}
 	}
 	if shape.FixesIssue {
-		if err := s.github.CloseIssue(ctx, gh, item.IssueNumber.Int64); err != nil {
+		close := func() error { return s.github.CloseIssue(ctx, gh, item.IssueNumber.Int64) }
+		if recovery, ok := s.github.(interface {
+			CloseIssueSince(context.Context, mythicalGitHubRepo, int64, time.Time) error
+		}); ok {
+			close = func() error {
+				return recovery.CloseIssueSince(ctx, gh, item.IssueNumber.Int64, checks.Completion.Since)
+			}
+		}
+		if err := close(); err != nil {
 			item = next
 			return later("the issue could not be closed", err)
 		}
@@ -4864,6 +4872,9 @@ func (s *MythicalService) completionBody(item db.MythicalItem, checks mythicalCh
 		results = append(results, receipts)
 	}
 	lines := []string{"Landed on main: " + commit, "Checks: " + strings.Join(results, "; ")}
+	if checks.MergedVia != nil {
+		lines = append([]string{fmt.Sprintf("Merged via #%d (T%d): %s", checks.MergedVia.Pull, checks.MergedVia.Number, checks.MergedVia.URL), checks.MergedVia.Note}, lines...)
+	}
 	if line := s.runLine(item, owner, name); line != "" {
 		lines = append(lines, line)
 	}
@@ -4927,6 +4938,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	MergedVia *mythicalMergedVia `json:"merged_via,omitempty"`
 	PlanReceipt           *todoRequestReceipt   `json:"planReceipt,omitempty"`
 	RouteReceipt          *todoRequestReceipt   `json:"routeReceipt,omitempty"`
 	Watchdog              *todoWatchdog         `json:"watchdog,omitempty"`
@@ -5082,6 +5094,15 @@ func mythicalRebuilding(item db.MythicalItem) bool {
 // commit on GitHub main, and the outcome once settled: the issue closed
 // (mythicalCompletionClosed) or the commit never reached main
 // (mythicalCompletionOffMain).
+type mythicalMergedVia struct {
+	Number int64     `json:"n"`
+	Pull   int64     `json:"pr"`
+	URL    string    `json:"url"`
+	Commit string    `json:"commit"`
+	Note   string    `json:"note"`
+	At     time.Time `json:"at"`
+}
+
 type mythicalCompletion struct {
 	Commit  string    `json:"commit"`
 	Since   time.Time `json:"since"`
