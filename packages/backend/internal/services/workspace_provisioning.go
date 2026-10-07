@@ -880,112 +880,21 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 	return s.toWorkspaceResponse(workspace), nil
 }
 
-// ForkWorkspace forks a workspace into a new derived workspace.
-//
-// Write authority is decided before branch machine providers: a read-only or
-// revoked grantee gets 403 whether or not the install has composed them, and
-// only an authorized requester learns that forking is dark (503).
+// ForkWorkspace retains the hosted door on the stack's revision writer.
+// No missing provider may fall back to resuming or copying the source machine.
 func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
 	if err := s.requireBranchMachineProviders(); err != nil {
 		return WorkspaceResponse{}, err
 	}
 	if s.q == nil {
-		if err := s.requireBranchMachineProviders(); err != nil {
-			return WorkspaceResponse{}, err
-		}
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
-	if s.runtime != nil || s.revisionFork != nil {
-		return s.forkRuntimeWorkspace(ctx, input)
-	}
-	if s.sandbox == nil {
-		if err := s.requireBranchMachineProviders(); err != nil {
-			return WorkspaceResponse{}, err
-		}
-		return WorkspaceResponse{}, pkgerrors.Internal("sandbox provider unavailable")
-	}
-
-	var response WorkspaceResponse
-	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, source db.Workspace) error {
-		if err := s.requireBranchMachineProviders(); err != nil {
-			return err
-		}
-		var err error
-		response, err = s.forkSandboxWorkspace(ctx, input, source)
-		return err
-	})
-	return response, err
-}
-
-func (s *WorkspaceService) forkSandboxWorkspace(ctx context.Context, input ForkWorkspaceInput, source db.Workspace) (WorkspaceResponse, error) {
-	// Hosted disk forks cannot bypass the stack's revision-only history writer.
-	// Keep compatibility only when the store proves this is not a stack repo.
-	stacks, ok := s.q.(workspaceMythicalStackReader)
-	if !ok {
+	if s.revisionFork == nil {
 		return WorkspaceResponse{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision-based fork unavailable")
 	}
-	if _, err := stacks.GetMythicalStack(ctx, source.RepositoryID); err == nil {
-		return WorkspaceResponse{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision-based fork unavailable")
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return WorkspaceResponse{}, pkgerrors.Internal("load mythical stack").WithCause(err)
-	}
-	if strings.TrimSpace(input.Name) == "" {
-		return WorkspaceResponse{}, pkgerrors.BadRequest("scratch branch name is required")
-	}
-	if targetWorkspaceBookmark(input.Name) == source.TargetBookmark {
-		return WorkspaceResponse{}, pkgerrors.Conflict("branch already has a machine")
-	}
-	var err error
-
-	created, err := s.createWorkspaceRow(ctx, db.CreateWorkspaceParams{
-		RepositoryID:           source.RepositoryID,
-		UserID:                 input.UserID,
-		Name:                   strings.TrimSpace(input.Name),
-		IsFork:                 true,
-		ParentWorkspaceID:      stringToUUID(source.ID),
-		SourceSnapshotID:       source.SourceSnapshotID,
-		TargetBookmark:         targetWorkspaceBookmark(input.Name),
-		Kind:                   source.Kind,
-		EnvironmentSource:      source.EnvironmentSource,
-		EnvironmentRevision:    source.EnvironmentRevision,
-		EnvironmentClosureHash: source.EnvironmentClosureHash,
-		Status:                 "starting",
-		VcpuCount:              source.VcpuCount,
-		MemoryMb:               source.MemoryMb,
-		DiskMb:                 source.DiskMb,
-	})
-	if err != nil {
-		return WorkspaceResponse{}, mapWorkspaceCreateError(err, "create fork workspace")
-	}
-
-	// Resume-then-fork: a suspended source VM is resumed before ForkSandbox. When the
-	// source was never provisioned (empty VmID) we skip the resume — there is
-	// nothing to run — and forkWorkspaceVM takes the provision-on-empty branch,
-	// binding a fresh VM to the fork instead of 409ing.
-	if strings.TrimSpace(source.VmID) != "" {
-		source, err = s.ensureExistingWorkspaceRunningFor(ctx, source, input.UserID)
-		if err != nil {
-			return WorkspaceResponse{}, err
-		}
-	}
-
-	err = s.withWorkspaceMutationAuthority(ctx, created, input.UserID, func(authCtx context.Context) error {
-		var forkErr error
-		created, forkErr = s.withWorkspaceProvisionLock(authCtx, created, func(current db.Workspace) (db.Workspace, error) {
-			if current.VmID != "" {
-				return current, nil
-			}
-			return s.forkWorkspaceVM(authCtx, current, source)
-		})
-		return forkErr
-	})
-	if err != nil {
-		return WorkspaceResponse{}, err
-	}
-	return s.toWorkspaceResponse(created), nil
+	return s.forkRuntimeWorkspace(ctx, input)
 }
 
-// CreateWorkspaceSnapshot creates a reusable snapshot from a workspace.
 func (s *WorkspaceService) CreateWorkspaceSnapshot(ctx context.Context, input CreateWorkspaceSnapshotInput) (WorkspaceSnapshotResponse, error) {
 	if s.q == nil {
 		return WorkspaceSnapshotResponse{}, pkgerrors.Internal("workspace store unavailable")
