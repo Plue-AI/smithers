@@ -95,7 +95,7 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
       return Response.json({ branch: "smithers/retry-webhooks", path: "retry.ts", language: "typescript", digest: "captured-digest",
         content: { kind: "text", text: "retained bytes\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
     }
-    if (path === "/api/branches/b-live/add-to-stack" && init?.method === "POST") {
+    if (path === "/api/branches/scratch%2Fben%2Ftry/add-to-stack" && init?.method === "POST") {
       requests.push(["POST", path, JSON.parse(String(init.body))])
       return Response.json({state:"accepted",n:3,rev:1},{status:202})
     }
@@ -156,7 +156,7 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
       (host.querySelector('[data-flow="branch.add-to-stack"]') as HTMLButtonElement).click()
       for(let i=0;i<30 && requests.length<5;i++) await new Promise(resolve=>setTimeout(resolve,5))
     })
-    expect(requests.at(-1)).toEqual(["POST","/api/branches/b-live/add-to-stack",{text:"scratch/ben/try"}])
+    expect(requests.at(-1)).toEqual(["POST","/api/branches/scratch%2Fben%2Ftry/add-to-stack",{text:"scratch/ben/try"}])
     expect(controller.design.enabled).toBe(false)
   } finally { await act(async () => root.unmount()); await controller.dispose(); live.dispose() }
 })
