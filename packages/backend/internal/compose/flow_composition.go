@@ -255,7 +255,7 @@ func flowTargetResolver(agents, repositoryJobs flowhost.TargetResolver, browserT
 				return browserTargets[1].ResolveFlowHostTarget(ctx, target)
 			}
 			return flowhost.Authority{}, errors.New("repository setup Flow target unavailable")
-		case "browser-flow":
+		case "browser-flow", flowdispatch.DraftBindingKind:
 			if len(browserTargets) >= 1 {
 				return browserTargets[0].ResolveFlowHostTarget(ctx, target)
 			}

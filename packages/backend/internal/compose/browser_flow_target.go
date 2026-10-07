@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -27,7 +28,7 @@ type browserFlowTarget struct {
 }
 
 func (resolver browserFlowTarget) ResolveFlowHostTarget(ctx context.Context, target flowruntime.Target) (flowhost.Authority, error) {
-	if target.BindingKind != "browser-flow" || target.WorkspaceID == "" {
+	if (target.BindingKind != "browser-flow" && target.BindingKind != flowdispatch.DraftBindingKind) || target.WorkspaceID == "" {
 		return flowhost.Authority{}, errors.New("browser Flow target is invalid")
 	}
 	owner, name, ok := strings.Cut(target.BindingID, "/")
@@ -72,6 +73,12 @@ func (resolver browserFlowTarget) ResolveFlowHostTarget(ctx context.Context, tar
 	execution, err := services.ResolveTodoWorkspaceExecution(ctx, resolver.queries, repository.ID, workspace.ID)
 	if err != nil {
 		return flowhost.Authority{}, err
+	}
+	if target.BindingKind == flowdispatch.DraftBindingKind {
+		if execution != nil || !strings.HasPrefix(workspace.TargetBookmark, "scratch/") {
+			return flowhost.Authority{}, installFlowTargetRefusal{}
+		}
+		return authority, nil
 	}
 	if execution != nil {
 		authority.ExecutionPin = &execution.Pin

@@ -15,7 +15,7 @@ func TestInstallFlowRunRefusalsPrecedeMachineLookup(t *testing.T) {
 		{"merge", "request", "", "reserved_name", 403},
 		{"stack.propose", "request", "", "reserved_name", 403},
 		{"flow-load", "request", "", "reserved_name", 403},
-		{"todo", "request", "", "todo_requires_stack_admission", 403},
+		{"todo", "request", "", "invalid_flow_run", 400},
 		{"review", "request", "", "review_requires_pr", 403},
 		{"../merge", "request", "", "invalid_flow_run", 400},
 		{"", "request", "", "invalid_flow_run", 400},

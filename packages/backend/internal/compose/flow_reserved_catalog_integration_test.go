@@ -263,6 +263,46 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 			status := call("GET", "/api/flows/runs/"+retried.OperationID, "", "", true)
 			return strings.Contains(status.Body.String(), `"state":"completed"`)
 		}, 5*time.Second, 10*time.Millisecond)
+		// A scratch TODO Run has its own host binding, no attempt pin, and a
+		// durable draft label. The guest here is a contract fixture, not VM evidence.
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET target_bookmark='scratch/flow-owner/test' WHERE id=$1`, machine)
+		require.NoError(t, err)
+		draft := call("POST", "/api/flows", strings.Replace(body, "canary", "todo", 1), "draft", true)
+		require.Equal(t, 202, draft.Code, draft.Body.String())
+		var draftReceipt jobs.RequestReceipt
+		require.NoError(t, json.Unmarshal(draft.Body.Bytes(), &draftReceipt))
+		select {
+		case launch := <-runtime.launches:
+			require.Equal(t, "todo", launch.FlowID)
+			require.Nil(t, launch.Pin)
+		case <-time.After(5 * time.Second):
+			t.Fatal("draft did not launch")
+		}
+		require.Eventually(t, func() bool {
+			status := call("GET", "/api/flows/runs/"+draftReceipt.OperationID, "", "", true)
+			return strings.Contains(status.Body.String(), `"version":"draft version"`) && strings.Contains(status.Body.String(), `"state":"completed"`)
+		}, 5*time.Second, 10*time.Millisecond)
+		operation, err := store.Get(ctx, jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}, draftReceipt.OperationID)
+		require.NoError(t, err)
+		var draftLaunch struct {
+			Target flowruntime.Target `json:"target"`
+		}
+		require.NoError(t, json.Unmarshal(operation.Payload, &draftLaunch))
+		require.Equal(t, flowdispatch.DraftBindingKind, draftLaunch.Target.BindingKind)
+		// Repeated input joins the same durable request.
+		repeated := call("POST", "/api/flows", strings.Replace(body, "canary", "todo", 1), "draft", true)
+		require.Equal(t, 202, repeated.Code, repeated.Body.String())
+		var repeatedReceipt jobs.RequestReceipt
+		require.NoError(t, json.Unmarshal(repeated.Body.Bytes(), &repeatedReceipt))
+		require.Equal(t, draftReceipt.OperationID, repeatedReceipt.OperationID)
+		// A changed workspace cannot keep draft authority after admission.
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET target_bookmark='main' WHERE id=$1`, machine)
+		require.NoError(t, err)
+		_, err = targetResolver.ResolveFlowHostTarget(ctx, draftLaunch.Target)
+		require.Error(t, err)
+		refusedDraft := call("POST", "/api/flows", strings.Replace(body, "canary", "todo", 1), "not-scratch", true)
+		require.Equal(t, 403, refusedDraft.Code, refusedDraft.Body.String())
+		require.Contains(t, refusedDraft.Body.String(), "todo_requires_stack_admission")
 		// Revocation after HTTP admission must win before any guest launch.
 		_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status) VALUES($1,$2,$3,'revoked','revoked','running')`, revokedMachine, repo, owner.ID)
 		require.NoError(t, err)
@@ -308,6 +348,7 @@ type installFlowRuntime struct {
 	launches chan flowruntime.Launch
 	finished atomic.Bool
 	started  atomic.Int64
+	flow     atomic.Value
 }
 
 func (*installFlowRuntime) Identity(context.Context) (flowruntime.Identity, error) {
@@ -315,6 +356,7 @@ func (*installFlowRuntime) Identity(context.Context) (flowruntime.Identity, erro
 }
 func (r *installFlowRuntime) Launch(_ context.Context, input flowruntime.Launch) (flowruntime.LaunchResult, error) {
 	r.started.Add(1)
+	r.flow.Store(input.FlowID)
 	select {
 	case r.launches <- input:
 	default:
@@ -327,5 +369,5 @@ func (r *installFlowRuntime) Observe(context.Context, string, string, int) (flow
 		status = "completed"
 	}
 	output := `"guest output"`
-	return flowruntime.Observation{Run: flowruntime.Run{RunID: "guest-run", FlowID: "canary", Status: status, FinalOutput: &output}, Terminal: r.finished.Load()}, nil
+	return flowruntime.Observation{Run: flowruntime.Run{RunID: "guest-run", FlowID: r.flow.Load().(string), Status: status, FinalOutput: &output}, Terminal: r.finished.Load()}, nil
 }

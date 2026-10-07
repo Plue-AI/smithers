@@ -46,9 +46,7 @@ func (s *InstallFlowRuns) Request(ctx context.Context, repositoryID, userID int6
 	if input.Name == "review" {
 		return empty, flowRunError(403, "review_requires_pr", "permission", "Select a pull request to review")
 	}
-	if flowdispatch.IsTodoFlow(input.Name) {
-		return empty, flowRunError(403, "todo_requires_stack_admission", "permission", "File a TODO")
-	}
+	todoFlow := input.Name == flowdispatch.TodoFlow
 	id, err := uuid.Parse(input.WorkspaceID)
 	if err != nil || id.String() != input.WorkspaceID {
 		return empty, flowRunError(400, "invalid_flow_run", "user", "Select a branch machine")
@@ -63,12 +61,19 @@ func (s *InstallFlowRuns) Request(ctx context.Context, repositoryID, userID int6
 	if machine.Status != "running" {
 		return empty, flowRunError(409, "machine_not_running", "conflict", "Wake the branch machine")
 	}
+	draft := strings.HasPrefix(machine.TargetBookmark, "scratch/")
+	if todoFlow && !draft {
+		return empty, flowRunError(403, "todo_requires_stack_admission", "permission", "Select a scratch branch")
+	}
 	binding, err := s.Queries.ReadInstallRepositoryBinding(ctx)
 	if err != nil {
 		return empty, err
 	}
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repositoryID), PrincipalID: fmt.Sprintf("user:%d", userID)}
 	target := flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, BindingKind: "browser-flow", BindingID: binding.Owner + "/" + binding.Name, WorkspaceID: machine.ID}
+	if draft {
+		target.BindingKind = flowdispatch.DraftBindingKind
+	}
 	plan, _ := json.Marshal(map[string]string{"flowId": input.Name})
 	if err := s.Dispatcher.RefuseRelay(ctx, target, "Plan", plan); err != nil {
 		return empty, flowRunError(403, "engine_only_flow", "permission", "File a TODO")
@@ -93,9 +98,10 @@ func (s *InstallFlowRuns) Request(ctx context.Context, repositoryID, userID int6
 // InstallFlowRunStatus is safe to reconnect to; authority and payloads stay private.
 type InstallFlowRunStatus struct {
 	jobs.RequestReceipt
-	RunID string `json:"runId,omitempty"`
-	Code  string `json:"code,omitempty"`
-	Class string `json:"class,omitempty"`
+	RunID   string `json:"runId,omitempty"`
+	Version string `json:"version,omitempty"`
+	Code    string `json:"code,omitempty"`
+	Class   string `json:"class,omitempty"`
 }
 
 // Status follows the shared dispatcher's real completion or failure receipt.
@@ -119,6 +125,12 @@ func (s *InstallFlowRuns) Status(ctx context.Context, repositoryID, userID int64
 		return empty, err
 	}
 	result.State = op.State
+	var launch struct {
+		Target flowruntime.Target `json:"target"`
+	}
+	if json.Unmarshal(op.Payload, &launch) == nil && launch.Target.BindingKind == flowdispatch.DraftBindingKind {
+		result.Version = "draft version"
+	}
 	if len(op.ExternalReceipt) > 0 {
 		var checkpoint flowdispatch.RuntimeCheckpoint
 		if err := json.Unmarshal(op.ExternalReceipt, &checkpoint); err != nil {

@@ -65,6 +65,9 @@ export const captureStackCandidate = (executionId: string) =>
     const invocation = yield* Action.CurrentInvocationKey
     if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
     const native = yield* NativeCoding
+    if (native.sourcePublication === "local-only") {
+      return yield* new CodingError({ code: "not_a_todo_run", message: "Draft version" })
+    }
     if (native.sourcePublication !== "cloud" || !native.stackCandidate) {
       return yield* refused("Current TODO run and machine authority is unavailable")
     }
@@ -76,6 +79,9 @@ export const proposeStackCandidate = (executionId: string, generation: number) =
     const invocation = yield* Action.CurrentInvocationKey
     if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
     const native = yield* NativeCoding
+    if (native.sourcePublication === "local-only") {
+      return yield* new CodingError({ code: "not_a_todo_run", message: "Draft version" })
+    }
     if (native.sourcePublication !== "cloud" || !native.stackPropose) {
       return yield* refused("Current TODO run and machine authority is unavailable")
     }

@@ -74,6 +74,9 @@ func TestRunCredentialCannotSteerOrCancelRuns(t *testing.T) {
 			api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher}
 			user := &db.User{ID: 17, UserType: "user"}
 			payload := `{"runId":"run-42","marker":"` + procedure + `"}`
+			if procedure == "Approval.Submit" {
+				payload = `{"target":{"_tag":"Run","runId":"run-42"},"decision":"approve"}`
+			}
 			body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"` + procedure + `","payload":` + payload + `}`
 			call := func(systemIssued bool) *httptest.ResponseRecorder {
 				request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(body))
@@ -140,4 +143,18 @@ func TestBrowserFlowRelayRefusesTheTodoComposition(t *testing.T) {
 			require.Empty(t, boxes.resumed, "the box was never woken")
 		})
 	}
+}
+
+func TestBrowserFlowScratchPlansTodoOnDraftHost(t *testing.T) {
+	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running", RepositoryID: 23, UserID: 17, TargetBookmark: "scratch/owner/test"}}
+	dispatcher := &browserFlowRecordingDispatcher{}
+	api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher}
+	request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"Plan","payload":{"flowId":"todo","input":{}}}`))
+	request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &db.User{ID: 17, UserType: "user"}}))
+	writer := httptest.NewRecorder()
+	api.rpc(writer, request)
+	require.Equal(t, http.StatusOK, writer.Code, writer.Body.String())
+	require.Len(t, dispatcher.calls, 1)
+	require.Equal(t, flowdispatch.DraftBindingKind, dispatcher.calls[0].target.BindingKind)
+	require.Equal(t, "Plan", dispatcher.calls[0].procedure)
 }
