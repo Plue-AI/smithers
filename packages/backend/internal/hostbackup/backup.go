@@ -171,6 +171,15 @@ func Backup(ctx context.Context, cfg BackupConfig) (directory string, err error)
 		if err := context.Cause(work); err != nil {
 			return "", err
 		}
+		if entry.Name() == "run" {
+			if !entry.IsDir() {
+				return "", &Error{Code: UnsafePath, Path: "run"}
+			}
+			if err := cloneRunDirectory(cfg.Cloner, root, stage); err != nil {
+				return "", err
+			}
+			continue
+		}
 		if err := cfg.Cloner.CloneAt(source, entry.Name(), target, entry.Name()); err != nil {
 			return "", err
 		}
@@ -231,4 +240,48 @@ func Backup(ctx context.Context, cfg BackupConfig) (directory string, err error)
 		return directory, err
 	}
 	return directory, nil
+}
+
+// A listening Unix socket has no restorable file bytes. Keep the persisted run
+// files while excluding only the authenticated bridge's transient socket.
+func cloneRunDirectory(cloner DirectoryCloner, root, stage *os.Root) error {
+	source, err := root.OpenRoot("run")
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	if err := stage.Mkdir("state/run", 0700); err != nil {
+		return err
+	}
+	target, err := stage.OpenRoot("state/run")
+	if err != nil {
+		return err
+	}
+	defer target.Close()
+	src, err := source.Open(".")
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := target.Open(".")
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	entries, err := src.ReadDir(-1)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() == "host.sock" {
+			if entry.Type()&os.ModeSocket == 0 {
+				return &Error{Code: UnsafePath, Path: "run/host.sock"}
+			}
+			continue
+		}
+		if err := cloner.CloneAt(src, entry.Name(), dst, entry.Name()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
