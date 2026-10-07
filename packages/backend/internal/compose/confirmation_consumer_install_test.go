@@ -69,7 +69,14 @@ func confirmationNativeLibrary(t *testing.T) {
 		} else if runtime.GOOS == "windows" {
 			ext = "dll"
 		}
-		library := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../../target/debug/libsmithers_ffi."+ext))
+		root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+		target := os.Getenv("CARGO_TARGET_DIR")
+		if target == "" {
+			target = filepath.Join(root, "target")
+		} else if !filepath.IsAbs(target) {
+			target = filepath.Join(root, target)
+		}
+		library := filepath.Join(target, "debug", "libsmithers_ffi."+ext)
 		_, err := os.Stat(library)
 		require.NoError(t, err, "build smithers-ffi or set SMITHERS_FFI_LIBRARY_PATH")
 		t.Setenv("SMITHERS_FFI_LIBRARY_PATH", library)
