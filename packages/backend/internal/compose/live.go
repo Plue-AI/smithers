@@ -444,6 +444,18 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (j
 		}
 		model["background_runs"] = runs
 	}
+	if provider, ok := t.todos.(interface {
+		BackgroundRuns(context.Context, int64) ([]map[string]any, error)
+	}); ok {
+		runs, err := provider.BackgroundRuns(ctx, repository)
+		if err != nil {
+			return nil, err
+		}
+		if existing, ok := model["background_runs"].([]map[string]any); ok {
+			runs = append(existing, runs...)
+		}
+		model["background_runs"] = runs
+	}
 	if t.capacity != nil {
 		status, err := t.capacity.Read(ctx)
 		if err != nil {
