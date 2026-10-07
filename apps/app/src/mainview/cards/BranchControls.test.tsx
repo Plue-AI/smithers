@@ -20,9 +20,10 @@ const cases = [
 for (const [operation, flow, state] of cases) for (const ready of [false, true]) test(`mounted ${flow} binds only its ${operation} provider (${ready})`, async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ path: string; method: string; body?: unknown; key?: string }> = []
+  let todoReads = 0
   const profile = signupProfileFetch(async (input, init) => {
     const path = new URL(String(input), "https://install.test").pathname
-    if (path === "/api/todos/2") return Response.json({ branch: { name: "scratch/ben/try" } })
+    if (path === "/api/todos/2") { todoReads++; return Response.json({ branch: { name: "smithers/different-item" } }) }
     if (path === "/api/branches/scratch%2Fben%2Ftry") {
       requests.push({ path, method: init?.method ?? "GET", ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}), key: new Headers(init?.headers).get("Idempotency-Key") ?? undefined })
       return init?.method === "POST" ? Response.json({ state: "accepted" }, { status: 202 }) : Response.json({ name: "scratch/ben/try", machine: { id: "b-contract" } })
@@ -61,6 +62,12 @@ for (const [operation, flow, state] of cases) for (const ready of [false, true])
       expect(writes).toHaveLength(1)
       expect(writes[0]).toMatchObject({ path: "/api/branches/scratch%2Fben%2Ftry", body: operation === "add-to-stack" ? { op: "add-to-stack", text: "scratch/ben/try" } : flow === "branch.rebase" ? { op: "rebase", conflict_change: "retained-conflict-1", onto_revision: "main-revision-1" } : { op: operation } })
       expect(writes[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
+      if (operation === "return-to-item" || operation === "keep-moved") {
+        expect(todoReads).toBe(0)
+        expect(await controller.submitCommand({ name: flow, payload: { n: 2 }, actor: "user" })).toMatchObject({ status: "failed" })
+        expect(todoReads).toBe(0)
+        expect(requests.filter(request => request.method === "POST")).toHaveLength(1)
+      }
       for (const [, other] of cases) if (other !== flow) expect(host.querySelector(`[data-flow="${other}"]`)).toBeNull()
     }
   } finally { await act(async () => root.unmount()); await controller.dispose() }
