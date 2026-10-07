@@ -104,4 +104,3 @@ func prepareMachineCaptureWriter(host *repohost.Client) machined.EventPreparatio
 		}, nil
 	}
 }
-
