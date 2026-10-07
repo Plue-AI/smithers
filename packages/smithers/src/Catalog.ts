@@ -6,7 +6,9 @@
  */
 
 import type { CatalogHttpBinding } from "./CatalogRequest.ts"
-import catalog from "./internal/backend/catalog.mvp.json" with { type: "json" }
+import * as CatalogData from "./internal/backend/catalog.mvp.json" with { type: "json" }
+
+const catalog = CatalogData.default
 
 /**
  * One generated operation, including its payload and actor policy.
