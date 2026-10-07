@@ -259,8 +259,11 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 	}
 	// The former per-repository setter must not remain an owner bypass.
 	require.Equal(t, 404, request("PUT", "/api/repos/quiesceowner/fixture/mythical/config", "quiesceowner-session", `{"maxParallel":8}`).Code)
-	for _, body := range []string{`{"parallel":0}`, `{"parallel":9}`, `{"parallel":2.5}`, `{"parallel":null}`, `{"capacity":null}`, `{"chatgpt":null}`, `{"parallel":"2"}`, `{"parallel":2,"unknown":true}`} {
-		require.Equal(t, 400, request("PUT", "/api/install", "quiesceowner-session", body).Code)
+	for _, body := range []string{`{"parallel":0}`, `{"parallel":9}`, `{"parallel":2.5}`, `{"parallel":null}`, `{"capacity":null}`, `{"chatgpt":null}`, `{"parallel":"2"}`, `{"parallel":8,"unknown":true}`} {
+		require.Equal(t, 400, request("PUT", "/api/install", "quiesceowner-session", body).Code, body)
+		saved, err := q.GetInstallParallel(ctx)
+		require.NoError(t, err)
+		require.JSONEq(t, `2`, string(saved), body)
 	}
 	w := request("PUT", "/api/install", "quiesceowner-session", `{"parallel":8}`)
 	require.Equal(t, 200, w.Code, w.Body.String())
