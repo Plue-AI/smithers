@@ -86,10 +86,13 @@ distinct `SMITHERS_JOURNEY_HOME_F1` and `SMITHERS_JOURNEY_HOME_F2` failed run ID
 an unfiltered Home for each member, and a real stack with Needs you, Starting,
 Working, Queued and two In review items. It records identical shared snapshots
 at one cursor, independent TODO/SQL order and counts, role-specific Merge,
-private filter persistence and failed-run controls after reload. The SQL/API
+private filter persistence and failed-run controls after reload. Ben retries F1;
+the pass requires a distinct running run in every member's live snapshots within
+one second of admission. Alice dismisses F2; every member reloads to verify its
+absence. Live observations and action responses survive partial failures. The SQL/API
 readbacks are separate observations, not an atomic cursor-bound database receipt.
 Merged-since-last-look, answer timing, sync age, capacity provenance and actual
-Retry/Dismiss execution remain separate outstanding J4 requirements. Collection
+toast execution lifetime remain separate outstanding J4 requirements. Collection
 and supplemental Home tests do not execute this reference body or qualify J4.
 Run it on an empty canary with keyboard mode and an explicit light or dark
 theme, separately for each browser/theme. It sends two physical Enter activations

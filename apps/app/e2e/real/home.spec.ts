@@ -12,10 +12,13 @@ test("C-J4-01 Home shared facts, private filter and retained background failures
   test.setTimeout(240_000)
   const failed = [required("SMITHERS_JOURNEY_HOME_F1"), required("SMITHERS_JOURNEY_HOME_F2")]
   expect(failed[0]).not.toBe(failed[1])
+  for (const id of failed) expect(id).toMatch(/^[1-9][0-9]*$/)
   await withReference(browser, info, async f => {
     const actors = ["Will", "Ben", "Alice"] as const
     type Snapshot = { cursor: number; bytes: string; model: HomeCard; at: number }
     const received = new Map<string, Snapshot[]>()
+    const actions: Array<{ op: string; actor: string; id: string; started: number; acknowledged: number; receipt: unknown }> = []
+    try {
     for (const actor of actors) {
       const page = f.members[actor].page, rows: Snapshot[] = []
       received.set(actor, rows)
@@ -84,13 +87,66 @@ test("C-J4-01 Home shared facts, private filter and retained background failures
       for (const actor of actors) {
         const page = f.members[actor].page
         if (actor !== "Will") await page.reload()
-        const row = home(page).locator(".run-row").filter({ hasText: run!.title })
+        const index = model.background_runs.findIndex(row => row.id === id)
+        const row = home(page).locator(".run-row").nth(index)
+        await expect(row).toContainText(run!.title)
         await expect(row).toHaveCount(1)
         await expect(row.getByRole("button", { name: "Retry", exact: true })).toBeVisible()
         await expect(row.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible()
       }
     }
+    // Execute the same typed card doors as the slash and agent actions. An
+    // admission response is not completion: retain the actual new running row.
+    const control = async (actor: "Ben" | "Alice", id: string, op: "retry" | "dismiss") => {
+      const page = f.members[actor].page
+      const title = model.background_runs.find(run => run.id === id)!.title
+      const response = page.waitForResponse(candidate => candidate.request().method() === "POST" &&
+        new URL(candidate.url()).pathname === `/api/runs/${id}` && candidate.request().postDataJSON()?.op === op).then(answer => ({ answer, acknowledged: Date.now() }))
+      void response.catch(() => undefined)
+      const started = Date.now()
+      const index = received.get(actor)!.at(-1)!.model.background_runs.findIndex(run => run.id === id)
+      expect(index).toBeGreaterThanOrEqual(0)
+      const row = home(page).locator(".run-row").nth(index)
+      await expect(row).toContainText(title)
+      await journeyActivate(row.getByRole("button", { name: op === "retry" ? "Retry" : "Dismiss", exact: true }))
+      await expect(page.getByTestId("composer-input")).toBeEnabled()
+      const { answer, acknowledged } = await response
+      expect(answer.ok()).toBe(true)
+      const receipt = await answer.json()
+      actions.push({ op, actor, id, started, acknowledged, receipt })
+      expect(receipt.state).toBe(op === "retry" ? "accepted" : "dismissed")
+      expect(Number.isSafeInteger(receipt.run_id) && receipt.run_id > 0).toBe(true)
+      if (op === "retry") {
+        expect(String(receipt.run_id)).not.toBe(id)
+        for (const member of actors) {
+          await expect.poll(() => received.get(member)!.some(row => row.at >= started &&
+            row.model.background_runs.some(run => run.id === String(receipt.run_id) && run.state === "running")), { timeout: 15_000 }).toBe(true)
+          const running = received.get(member)!.find(row => row.at >= started && row.model.background_runs.some(run => run.id === String(receipt.run_id) && run.state === "running"))!
+          expect(running.at - acknowledged).toBeLessThanOrEqual(1000)
+        }
+      } else {
+        for (const member of actors) {
+          const page = f.members[member].page
+          await expect.poll(() => received.get(member)!.at(-1)?.model.background_runs.some(run => run.id === id)).toBe(false)
+          const reloading = Date.now()
+          await page.reload()
+          await expect(home(page)).toBeVisible()
+          await expect.poll(() => (received.get(member)!.at(-1)?.at ?? 0) >= reloading).toBe(true)
+          await expect.poll(() => received.get(member)!.at(-1)?.model.background_runs.some(run => run.id === id)).toBe(false)
+          const visible = received.get(member)!.at(-1)!.model.background_runs
+          await expect(home(page).locator(".run-row")).toHaveCount(visible.length)
+          for (const [index, run] of visible.entries()) await expect(home(page).locator(".run-row").nth(index)).toContainText(run.title)
+        }
+      }
+      return receipt
+    }
+    await control("Ben", failed[0]!, "retry")
+    await control("Alice", failed[1]!, "dismiss")
     await attachJson(info, "home-shared-facts-and-private-filter", { shared, stored, preferences,
       members: Object.fromEntries(received), failed })
+    } finally {
+      // Preserve partial observations when a dependency or live action fails.
+      await attachJson(info, "home-live-observations", { members: Object.fromEntries(received), actions })
+    }
   })
 })
