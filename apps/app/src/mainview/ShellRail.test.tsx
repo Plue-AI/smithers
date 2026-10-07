@@ -433,3 +433,12 @@ test("a stored model summary leaves the deterministic title and tone intact", ()
  const host=mount(<Timeline lines={rows} on_screen={["turn:prompt","turn:answer"]} onAction={()=>{}} onView={()=>{}} />)
  expect(host.querySelector('[data-summary][aria-label="Summary"]')?.textContent).toBe("Checked retry bounds")
 })
+
+
+test("a card added after the answer was viewed pins by its first committed address", () => {
+ const model={id:"main",entries:[{id:"turn",sequence:1,entry_sequences:{"turn:prompt":1_000_000,"turn:answer":1_000_001,"new-card":1_000_006},author:2,authorLogin:"alice",runId:"run",prompt:"Read files",title:"Read files",tone:"live" as const,state:"running" as const,frames:[{type:"card" as const,runId:"run",card:{id:"new-card",kind:"file" as const,title:"retry.ts",status:"active" as const,payload:{repo:"smithersai/smithers",path:"retry.ts",content:"retry",truncated:false},createdAt:0,ordinal:0}}]}]}
+ const rows=sharedRailLines(model,{role:"member"},1_000_001)
+ expect(rows.map(row=>[row.entry_id,row.fresh])).toEqual([["turn:prompt",false],["turn:answer",false],["new-card",true]])
+ expect(railEdges(rows,["turn:answer","turn:answer"]).below.map(row=>row.entry_id)).toEqual(["new-card"])
+ expect(railEdges(sharedRailLines(model,{role:"member"},1_000_006),["turn:answer","turn:answer"]).below).toEqual([])
+})

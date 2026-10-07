@@ -273,6 +273,8 @@ func TestBranchConversationOrderedReplay(t *testing.T) {
 	require.Len(t, shared.Entries, 2)
 	require.Equal(t, int64(1), shared.Entries[0].Sequence)
 	require.Equal(t, int64(2), shared.Entries[1].Sequence)
+	require.Equal(t, int64(1_000_000), shared.Entries[0].EntrySequences[first+":prompt"])
+	require.Equal(t, int64(1_000_001), shared.Entries[0].EntrySequences[first+":answer"])
 	require.Equal(t, []string{first, second}, []string{shared.Entries[0].ID, shared.Entries[1].ID})
 	for _, entry := range shared.Entries {
 		require.Equal(t, chat.State("completed"), entry.State)

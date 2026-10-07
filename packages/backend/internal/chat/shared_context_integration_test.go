@@ -150,3 +150,35 @@ func TestSharedConversationIndependentToastPreferences(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"global_toasts_hidden":true}`, string(raw))
 }
+
+func TestSharedConversationCardCursorRetainsFirstJournalPosition(t *testing.T) {
+	f := newContextFixture(t)
+	grant := f.admit(t, "card-cursor", "Read files", true, true, false)
+	card := json.RawMessage(`{"runId":"card-cursor","type":"card","card":{"id":"new-card","kind":"file","title":"retry.ts","status":"active","payload":{"repo":"smithersai/smithers","path":"retry.ts","content":"retry","truncated":false},"createdAt":0,"ordinal":0}}`)
+	hidden := json.RawMessage(`{"runId":"card-cursor","type":"card","card":{"id":"private-confirm","kind":"confirmation","title":"Private"}}`)
+	ack, err := f.handler.Store.Commit(t.Context(), CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{frame(grant.RunID, "Answer"), card, hidden}})
+	require.NoError(t, err)
+	read := func() SharedConversation {
+		response, e := f.server.Client().Get(f.server.URL + "/api/conversations/main")
+		require.NoError(t, e)
+		defer response.Body.Close()
+		require.Equal(t, 200, response.StatusCode)
+		var shared SharedConversation
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&shared))
+		return shared
+	}
+	first := read()
+	require.Len(t, first.Entries, 1)
+	require.Equal(t, int64(1_000_004), first.Entries[0].EntrySequences["new-card"])
+	require.NotContains(t, first.Entries[0].EntrySequences, "private-confirm")
+	// An update of the same card is not a new entry. Recovery rereads the
+	// first sealed position, independent of the latest row's source revision.
+	_, err = f.handler.Store.Commit(t.Context(), CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: ack.Cursor, Frames: []json.RawMessage{card, done(grant.RunID, "stop")}})
+	require.NoError(t, err)
+	cold, err := NewStore(f.handler.Store.pool)
+	require.NoError(t, err)
+	f.handler.Store = cold
+	restored := read()
+	require.Equal(t, int64(1_000_004), restored.Entries[0].EntrySequences["new-card"])
+	require.Equal(t, int64(1_000_001), restored.Entries[0].EntrySequences[grant.TurnID+":answer"])
+}

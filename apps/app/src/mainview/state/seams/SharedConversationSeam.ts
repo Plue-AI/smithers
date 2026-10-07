@@ -9,7 +9,7 @@ import type { LiveTopics } from "../useTopic"
 // Imports reuse the durable message decoder and cannot decode as executable turns.
 const SharedTurnSchema = z.object({
   origin: z.literal("smithers").optional(),
-  summary: z.string().optional(), summary_rev: z.number().int().nonnegative().optional(), sequence: z.number().int().positive().optional(), id: z.string(), title: z.string().optional(), tone: ToneSchema.optional(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
+  entry_sequences: z.record(z.string(), z.number().int().positive().safe()).optional(), summary: z.string().optional(), summary_rev: z.number().int().nonnegative().optional(), sequence: z.number().int().positive().optional(), id: z.string(), title: z.string().optional(), tone: ToneSchema.optional(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
   state: z.enum(["accepted", "running", "completed", "failed", "cancelled", "uncertain"]),
   frames: z.array(AgentTurnFrameSchema), context: z.array(ContextItemSchema).optional(), preflight: ContextPreflightResultSchema.optional()
 }).strict()
