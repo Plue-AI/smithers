@@ -41,6 +41,7 @@ func apiBodyLimit(r *http.Request) int64 {
 
 type routerExtras struct {
 	InstallQuiesce *services.InstallQuiesce
+	Background     *services.HomeBackground
 	// Confirmations requires the private browser View and qualified consumers.
 	Confirmations       *services.ApprovalsService
 	Members             *routes.MembersHandler
@@ -1062,6 +1063,8 @@ func buildRouter(
 				proposals, _ = extras.Mythical.Service.(services.FlowProposalReader)
 			}
 			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals})
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/runs/{id}", (&routes.HomeBackgroundHandler{Queries: queries, Service: extras.Background}).Control)
+			r.With(middleware.RequireAuth).Get("/runs/{id}/background-status", (&routes.HomeBackgroundHandler{Queries: queries, Service: extras.Background}).Status)
 			if smithersMetrics != nil && queries != nil {
 				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics}
 				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {

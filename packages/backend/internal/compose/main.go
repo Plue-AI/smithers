@@ -1404,6 +1404,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if err != nil {
 		return err
 	}
+	homeBackground := &services.HomeBackground{Pool: pool, Invoker: invokedFlowService, Billing: billingPolicy, Machine: options.Workspace}
+	mythicalService.SetHomeBackground(homeBackground)
 	var workspaceCommandWorker *criticalWorker
 	if options.topology.workers() && options.Workspace != nil && options.Workspace.Capabilities().Execution {
 		workspaceCommandWorker = newCriticalWorker()
@@ -1870,7 +1872,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		oauth2Handler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{InstallQuiesce: installQuiesce, InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
+		routerExtras{Background: homeBackground, InstallQuiesce: installQuiesce, InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},
