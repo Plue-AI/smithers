@@ -458,9 +458,12 @@ Home reads every displayed queue position from one scheduler snapshot,
 including people waiting ahead of TODOs. TODO reads use the same ordered
 waiting set. Runtime-confirmed reservations and releases wake the existing
 stack worker. Waiting work remains scheduled for setting and capacity changes.
-Committed card/Home fact projection and live refresh for runtime-only demand
-changes still require the live projection contract.
-The runtime rechecks the saved parallel setting at each grant.
+TODO live subscriptions refresh scheduler-only position changes at the existing
+job cursor, including people entering and leaving without an item job event.
+Committed card/Home deltas still require the live projection contract.
+The runtime rechecks the saved parallel setting at each grant. Recovered
+workspace demand waits for authoritative stack registration before a new TODO
+grant; existing holders remain held.
 
 Production safe-idle observation providers and the complete C-STK-02 journey
 remain required. No second queue, root operation or host execution fallback is

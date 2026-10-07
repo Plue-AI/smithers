@@ -151,3 +151,26 @@ func TestTodoOwnershipWakeRequiresGrantOrConfirmedRelease(t *testing.T) {
 		t.Fatal("confirmed release did not wake the engine")
 	}
 }
+
+func TestTodoInstallRecoveredDemandWaitsForStackOrder(t *testing.T) {
+	r, p := admissionFixture()
+	r.SetTodoParallelReader(func(context.Context) (int, error) { return 1, nil })
+	// Recovery can register workspace demand in durable creation order before
+	// the stack engine has supplied its authoritative order and cutoff.
+	for _, holder := range []string{"workspace:2", "workspace:1"} {
+		_, err := r.Request("todo", holder, holder, "machine")
+		require.NoError(t, err)
+	}
+	blocked, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Empty(t, blocked.Holder)
+	require.Zero(t, r.InUse())
+	require.NoError(t, r.SyncTodoAdmission("repo", []string{"workspace:1", "workspace:2"}, 1))
+	granted, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:1", granted.Holder)
+	blocked, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Empty(t, blocked.Holder)
+	require.True(t, r.AdmissionHeld("workspace:1"))
+}
