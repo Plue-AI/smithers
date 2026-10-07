@@ -16,5 +16,5 @@ func (r *Runtime) CompareWriteFiles(ctx context.Context, id string, changes []wo
 	if _, err := r.runningWorkspace(id); err != nil {
 		return nil, err
 	}
-	return (machined.WorkspaceWriter{Client: &r.machined}).CompareWriteFiles(ctx, id, changes)
+	return (machined.WorkspaceWriter{Client: &r.machined, EnsureReady: r.EnsureMachined}).CompareWriteFiles(ctx, id, changes)
 }
