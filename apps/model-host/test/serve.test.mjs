@@ -128,10 +128,12 @@ test("refuses invalid or already abandoned launching-parent bindings before list
     assert.equal(result.stdout, "")
     assert.match(result.stderr, /SMITHERS_CHAT_HOST_PARENT_PID is invalid/)
   }
-  const result = await run(["serve"], hostEnv({ SMITHERS_CHAT_HOST_PARENT_PID: "2" })).exited
-  assert.equal(result.code, 1)
-  assert.equal(result.stdout, "")
-  assert.equal(result.stderr, "")
+  for (const parent of ["2", String(process.pid + 1000000)]) {
+    const result = await run(["serve"], hostEnv({ SMITHERS_CHAT_HOST_PARENT_PID: parent })).exited
+    assert.equal(result.code, 1)
+    assert.equal(result.stdout, "")
+    assert.equal(result.stderr, "")
+  }
 })
 
 test("answers health and refuses unknown routes, wrong methods and bad bearers", async (t) => {
@@ -279,12 +281,4 @@ test("stops cleanly on SIGTERM", async () => {
   host.child.kill("SIGTERM")
   const result = await host.exited
   assert.equal(result.code, 0, result.stderr)
-})
-
-test("refuses a private host whose launcher has already gone", async () => {
-  for (const parent of ["invalid", "0", "1", String(process.pid + 1000000)]) {
-    const result = await run(["serve", "--port", "0"], hostEnv({ SMITHERS_CHAT_PARENT_PID: parent })).exited
-    assert.equal(result.code, 1)
-    assert.equal(result.stdout, "")
-  }
 })
