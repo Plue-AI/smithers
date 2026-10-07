@@ -142,6 +142,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	boxLauncher := newBoxHostLauncher(workspaceHosts, boxes, invoked)
 	if config.IsSingleOwner(cfg.Auth) && options.Repository != nil {
 		boxLauncher.codingProject = installCodingProject(pool, repositorySourceFiles{client: options.Repository})
+		boxLauncher.pinCodingModel = pinCodingHostModel(db.New(pool))
 	}
 	if _, ownerPaid := options.proxyKeys(); ownerPaid {
 		// An install pins no coding model: its hosts run the coding role

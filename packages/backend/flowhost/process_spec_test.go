@@ -136,7 +136,7 @@ func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {
 		RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding,
 		ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest,
 		SourceRevision: authority.SourceRevision, OwnerGeneration: 7, State: "starting"}
-	spec, err := BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "control-credential"},
+	spec, err := BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "control-credential", ProjectConfig: []byte(`{}`)},
 		WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
 	require.NoError(t, err)
 	credential := spec.Environment["AI_GATEWAY_API_KEY"]
@@ -147,6 +147,16 @@ func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {
 	assert.Equal(t, "vercel", spec.Environment[modelproxy.ProvidersEnv])
 	assert.NotContains(t, spec.Identity, credential)
 	assert.NotEqual(t, ModelCredential(binding.ID, "rotated"), credential)
+	for _, role := range []string{"planner", "implementer", "reviewer"} {
+		scoped := spec.Environment["SMITHERS_MODEL_ROLE_"+strings.ToUpper(role)+"_KEY"]
+		assert.Equal(t, RoleModelCredential(binding.ID, "control-credential", role), scoped)
+		assert.NotEqual(t, credential, scoped)
+		assert.NotContains(t, spec.Identity, scoped)
+		assert.NotEqual(t, RoleModelCredential(binding.ID, "rotated", role), scoped)
+	}
+	assert.Empty(t, RoleModelCredential(binding.ID, "control-credential", "app"))
+	assert.Empty(t, RoleModelCredential(binding.ID, "control-credential", "constructor"))
+
 	_, pooled := spec.Environment[AccountPoolURLEnv]
 	assert.False(t, pooled, "no pool unless the deployment offers one")
 
