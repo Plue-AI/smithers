@@ -455,6 +455,8 @@ var installMemberRoutes = []struct {
 	// numbered issue door. Execution credentials have no list-all grant.
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:issue-views|labels(?:/[^/]+)?|issues(?:/state-events(?:/stream)?|/[0-9]+(?:/comments|/labels|/events)?)?)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+(?:/home|/topics)?$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/caches(?:/stats)?$`)},
+	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workflow/runs/[0-9]+/artifacts(?:/[^/]+)?$`)},
 	{http.MethodGet, "run.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:actions/)?runs/[0-9]+/artifacts(?:/[^/]+/download)?$`)},
 	{http.MethodGet, "external.read", regexp.MustCompile(`^/api/external/sessions$`)},
 	{http.MethodGet, "runs.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions$`)},

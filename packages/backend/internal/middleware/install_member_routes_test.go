@@ -12,6 +12,10 @@ import (
 // map to their command; anything else is the owner's alone.
 func TestInstallMemberCommandRoutes(t *testing.T) {
 	for _, tc := range []struct{ method, path, command string }{
+		{http.MethodGet, "/api/repos/local-owner/demo/workflow/runs/12/artifacts", "run.view"},
+		{http.MethodGet, "/api/repos/local-owner/demo/workflow/runs/12/artifacts/report.txt", "run.view"},
+		{http.MethodGet, "/api/repos/local-owner/demo/caches", "repo.read"},
+		{http.MethodGet, "/api/repos/local-owner/demo/caches/stats", "repo.read"},
 		{http.MethodGet, "/api/user", "self"},
 		{http.MethodPost, "/api/workflow/rpc", "flow.relay"},
 		{http.MethodPost, "/api/workflow/provision", "box.resume"},
