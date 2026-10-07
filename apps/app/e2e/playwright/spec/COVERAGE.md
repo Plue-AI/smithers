@@ -164,6 +164,8 @@ Machine-kill recovery and retry version pinning remain fixme.
 | C-MCH-06 | [C-MCH-06.spec.ts](C-MCH-06.spec.ts) | fixme-before-implementation | T-MCH-11 |
 | C-MCH-07 | [C-MCH-07.spec.ts](C-MCH-07.spec.ts) | card phase passed: Add/Replace, scope confirmation/cancellation, Delete confirmation/cancellation, live member rows, held writes, failure, duplicate, reload, roster loss/recovery and refused live-topic actions with usable Chat; machine phase fixme (reference host) | T-APP-13 / T-MCH-12 |
 
+T-APP-13 wave 3: the production controller, dispatcher and `CardRenderers` mount independently omit View, decoder, live, shared authority, catalog, scoped write and separate family bindings, plus a shared `provider-accounts` family. Eight app-boundary cases pass: refusal, no writes or polling, pinned-row preservation, usable Chat and restoration. The C-MCH-07 browser card phase passes with transport doubles; it does not qualify machine delivery.
+
 C-MCH-03 also has a passing mounted projection: reading Files and Activity
 keeps the sleeping branch Asleep across reload. Runtime capture and wake counts remain fixme.
 

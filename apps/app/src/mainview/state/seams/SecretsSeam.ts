@@ -1,5 +1,4 @@
-import { SecretsCardSchema } from "@smthrs/rpc/SecretsCard"
-import type { LiveChannel } from "../../runtime/LiveChannel"
+import { secretsReadAvailable, secretsWriteAvailable, type SecretsProviders } from "./SecretsProviders"
 import { preparedView, type ViewAction } from "../PreparedView"
 /*
  * The secrets seam: a repository's CI secrets (/api/repos/{owner}/{repo}/secrets,
@@ -58,9 +57,7 @@ export interface SecretsSeamOptions {
     remove: (name: string) => unknown
   }
   readonly install?: boolean
-  readonly live?: Pick<LiveChannel, "subscribe" | "getSnapshot">
-  /** Current shared viewer authority; cached roster rows cannot admit a write. */
-  readonly canWrite?: () => boolean
+  readonly providers?: SecretsProviders
   readonly onDispose?: (stop: () => void) => void
 }
 
@@ -136,19 +133,22 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       if (source !== "real" && options.fallback) { source = "seed"; return options.fallback.rows() }
       return rows
     }
-    if (!options.live) return "Secrets unavailable"
+    if (!secretsReadAvailable(options.providers)) return "Secrets unavailable"
+    const live = options.providers!.live!
     liveRepo = repo
     const authorized = captureCloudOwner(ctx, false)
     const decode = (): ReadonlyArray<RepositorySecret> | string | undefined => {
-      const snapshot = options.live!.getSnapshot("secrets")
+      if (!secretsReadAvailable(options.providers)) return "Secrets unavailable"
+      const snapshot = live.getSnapshot("secrets")
       if (snapshot?.error) return "Secrets unavailable"
       if (snapshot?.data === undefined) return undefined
-      const parsed = SecretsCardSchema.safeParse(snapshot.data)
+      const parsed = options.providers!.decoder!.safeParse(snapshot.data)
       if (!parsed.success) return "Secrets unavailable"
       return parsed.data.secrets.map(secret => ({ name: secret.name, mainOnly: secret.scope === "main_only",
         hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null, reconnect: false }))
     }
     const update = () => {
+      if (!secretsReadAvailable(options.providers)) return
       const rows = decode()
       if (!authorized() || !liveRepo || rows === undefined || ctx.isDisposed?.()) return
       if (typeof rows === "string") {
@@ -161,7 +161,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
         ...secretsCard(liveRepo, rows, previous.ordinal), createdAt: previous.createdAt } })
     }
     if (!liveStop) {
-      liveStop = options.live.subscribe("secrets", update)
+      liveStop = live.subscribe("secrets", update)
       options.onDispose?.(() => { liveStop?.(); liveStop = undefined })
     }
     const current = decode()
@@ -169,7 +169,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     return new Promise(resolve => {
       let stop = () => {}
       const receive = () => { const rows = decode(); if (rows !== undefined) { stop(); resolve(rows) } }
-      stop = options.live!.subscribe("secrets", receive)
+      stop = live.subscribe("secrets", receive)
       options.onDispose?.(() => { stop(); resolve("Secrets unavailable") })
       receive()
     })
@@ -178,9 +178,10 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   // incompatible decoder must refuse mutations, including resumed requests.
   const writesUnavailable = () => {
     if (!options.install) return false
-    const snapshot = options.live?.getSnapshot("secrets")
-    return !snapshot || !!snapshot.error || !SecretsCardSchema.safeParse(snapshot.data).success || options.canWrite?.() !== true
+    return !secretsWriteAvailable(options.providers)
   }
+  const write = (url: string, init: RequestInit) => options.install
+    ? options.providers!.scopedWrite!(ctx, url, init) : ctx.http(url, init)
   const secretUrl = (repo: string, name?: string) => options.install
     ? `${ctx.baseUrl}/api/secrets${name === undefined ? "" : `/${encodeURIComponent(name)}`}`
     : repositorySecretsUrl(ctx, repo, name)
@@ -220,7 +221,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       await saveSecretRequest({ ...row, state: "failed" }, current)
       return "Secrets unavailable"
     }
-    const response = await ctx.http(secretUrl(row.repo, options.install ? undefined : row.name), { method: "DELETE", headers: { "Idempotency-Key": row.id, "content-type": "application/json" }, ...(options.install ? { body: JSON.stringify({ name: row.name }) } : {}) })
+    const response = await write(secretUrl(row.repo, options.install ? undefined : row.name), { method: "DELETE", headers: { "Idempotency-Key": row.id, "content-type": "application/json" }, ...(options.install ? { body: JSON.stringify({ name: row.name }) } : {}) })
     if (!current()) return TOAST_SUPERSEDED
     if (response.status !== 204 && response.status !== 404) {
       const message = await readErrorMessage(response, `${row.name} couldn't be deleted (HTTP ${response.status}).`)
@@ -235,7 +236,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       await saveSecretRequest({ ...row, state: "failed" }, current)
       return "Secrets unavailable"
     }
-    const response = await ctx.http(secretUrl(row.repo, row.name), { method: "PATCH",
+    const response = await write(secretUrl(row.repo, row.name), { method: "PATCH",
       headers: { "content-type": "application/json", "Idempotency-Key": row.id }, body: JSON.stringify({ main_only: row.mainOnly }) })
     if (!current()) return TOAST_SUPERSEDED
     await response.body?.cancel()
@@ -290,7 +291,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
           // An omitted binding keeps a replaced secret's stored one.
           const body = JSON.stringify({ name, value: sending, ...(input.scope ? { main_only: input.scope === "main_only" } : {}), ...(hosts.length === 0 ? {} : { hosts, match_headers: headers }) })
           sending = undefined
-          const response = await ctx.http(secretUrl(row.repo), { method: options.install ? "PUT" : "POST", headers: { "content-type": "application/json", "Idempotency-Key": row.id }, body })
+          const response = await write(secretUrl(row.repo), { method: options.install ? "PUT" : "POST", headers: { "content-type": "application/json", "Idempotency-Key": row.id }, body })
           if (!current()) return TOAST_SUPERSEDED
           if (!response.ok) {
             const message = await readErrorMessage(response, `${name} couldn't be saved (HTTP ${response.status}).`)
@@ -390,7 +391,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     }
     let response: Response
     try {
-      response = await ctx.http(
+      response = await write(
         secretUrl(target.repo, name),
         { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ main_only: scope === "main-only" }) }
       )
@@ -418,7 +419,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     if (hosts.length === 0 || headers.length === 0) return "Give both hosts and headers."
     let response: Response
     try {
-      response = await ctx.http(
+      response = await write(
         secretUrl(target.repo, name),
         { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ hosts, match_headers: headers }) }
       )

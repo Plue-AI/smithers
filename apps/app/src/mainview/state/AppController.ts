@@ -141,6 +141,10 @@ import type { PaletteAnswer,SearchSeam } from "./seams/SearchSeam"
 import { createSearchSeam } from "./seams/SearchSeam"
 import type { SecretsSeam } from "./seams/SecretsSeam"
 import { createSecretsSeam } from "./seams/SecretsSeam"
+import { SecretsCardSchema } from "@smthrs/rpc/SecretsCard"
+import { SecretsView } from "../cards/views/SecretsView"
+import { secretsCardFamily } from "../cards/SecretsCard"
+import type { SecretsProviders } from "./seams/SecretsProviders"
 import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
@@ -172,6 +176,7 @@ import type { ContextContainerProps } from "../ContextContainer"
 import { createContextSeam, type ContextProvider } from "./seams/ContextSeam"
 
 export interface AppController extends IssueFlowsController {
+  readonly secretsProviders?: SecretsProviders
   readonly storageRecoveryState: StorageRecoveryAction["state"]
   readonly promptStorageRecovery: () => Promise<void>
   readonly exportStorageRecovery: () => Promise<string | void>
@@ -695,6 +700,8 @@ export interface AppController extends IssueFlowsController {
  * bind honest doubles instead of a network; production uses same-origin fetch.
  */
 export interface AppServices {
+  /** The embedding host can omit an unavailable Secrets contract without replacing its runtime. */
+  readonly secretsProviders?: (defaults: SecretsProviders) => SecretsProviders
   /** Host-owned branch authority and provider receipts; absent keeps S2 files dark. */
   readonly documentOptions?: { channel: LiveChannel; prerequisites: DocumentPrerequisites }
   readonly branchControlOptions?: import("./seams/BranchControlsSeam").BranchControlOptions
@@ -1310,8 +1317,14 @@ export const createAppController = (
     portal: services.bootstrap?.capabilities.includes("billing.portal") ?? false
   }, () => ctx.disposed))
   const repositoryUpdate = actors.pair(seamCtx, context => createRepositoryUpdate(context, () => ctx.disposed))
-  const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast, { install: installHost, live: services.live, onDispose: ctx.onDispose,
-    canWrite: () => { const role = ctx.commands.state().viewerRole; return role === "owner" || role === "maintainer" },
+  const defaultSecretsProviders: SecretsProviders = {
+    View: SecretsView, decoder: SecretsCardSchema, live: services.live,
+    authority: () => ctx.commands.state().viewerRole,
+    catalog: () => ctx.commands.all(),
+    scopedWrite: (context, url, init) => context.http(url, init), family: secretsCardFamily
+  }
+  const secretsProviders = installHost ? services.secretsProviders?.(defaultSecretsProviders) ?? defaultSecretsProviders : undefined
+  const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast, { install: installHost, providers: secretsProviders, onDispose: ctx.onDispose,
     fallback: !installHost && services.bootstrap !== undefined ? {
       rows: () => designSecrets(design).rows().map(secret => ({ name: secret.name, mainOnly: secret.scope === "main only", hosts: [], matchHeaders: [], updatedAt: null, reconnect: false })),
       set: (name, scope) => designSecrets(design).set(name, scope === "main_only" ? "main only" : "all branches"), remove: name => designSecrets(design).remove(name)
@@ -2614,6 +2627,7 @@ export const createAppController = (
     installSnapshots: installSeam.snapshots,
     membersRoster,
     membersRole,
+    secretsProviders,
     flowCatalog: installHost ? flowsSeam.snapshots : undefined,
     homeView,
     sharedConversation,

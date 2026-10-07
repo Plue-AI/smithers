@@ -6,6 +6,7 @@ import { createAppController } from "../AppController"
 import type { AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
+import type { SecretsProviders } from "./SecretsProviders"
 import { signupProfileFetch } from "../TestFixtures"
 
 /*
@@ -38,6 +39,104 @@ const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+const ownerRoster = { members: [{ login: "will", name: "Will", avatar_url: "https://example.test/avatar", color_index: 0,
+  role: "owner", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/will/flows/settings/access" }
+
+const withheldSecretsProviders = [
+  ["T-UI-18", "View"], ["T-APP-22", "decoder"], ["T-COL-02", "live"],
+  ["T-ACC-03", "authority"], ["T-CAT-01", "catalog"], ["T-MCH-12", "scopedWrite"],
+  ["T-APP-03", "family"], ["T-APP-03 shared provider-accounts family", "shared-family"]
+] as const
+
+for (const [ticket, withheld] of withheldSecretsProviders) test(`Secrets production mount and dispatcher refuse missing ${ticket}`, async () => {
+  const { LiveChannel } = await import("../../runtime/LiveChannel")
+  const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+  const { createElement } = await import("react")
+  const { renderToStaticMarkup } = await import("react-dom/server")
+  const { ControllerTestProvider } = await import("../../ControllerContext")
+  const { CARD_RENDERERS } = await import("../../cards/CardRenderers")
+  let socket!: import("../../runtime/LiveChannel").LiveSocket
+  let topicId = 0
+  const live = new LiveChannel({ socket: () => {
+    socket = { readyState: 1, onopen: null, onclose: null, onmessage: null, close() {}, send(raw) {
+      const frame = JSON.parse(String(raw))
+      if (frame.t === "sub" && frame.topic === "secrets") {
+        topicId = frame.id
+        queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({
+          t: "snap", id: frame.id, cursor: 1, data: { secrets: [{ name: "DEPLOY", scope: "main_only", actions: [] }] }
+        }) }))
+      }
+    } }
+    queueMicrotask(() => socket.onopen?.())
+    return socket
+  } })
+  let providers!: { -readonly [Key in keyof SecretsProviders]: SecretsProviders[Key] }
+  const hits: { url: string; method: string; body: BodyInit | null | undefined }[] = []
+  const { store, controller, signupReads } = await heldController({ live,
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+    secretsProviders: defaults => providers = { ...defaults },
+    fetchImpl: async (input, init) => {
+      const url = String(input)
+      if (url.endsWith("/api/members")) return json(200, ownerRoster)
+      if (url.includes("/secrets")) { hits.push({ url, method: init?.method ?? "GET", body: init?.body }); return json(200, {}) }
+      return json(404, {})
+    }
+  })
+  const mount = () => renderToStaticMarkup(createElement(ControllerTestProvider, { controller, children: CARD_RENDERERS.secrets.render(secretsCard(store)!, {
+    onDecideApproval() {}, onConnectGitHub() {}, onRunWorkflow() {}, onStopRun() {}, onRetryRun() {}, onChooseWorkflowRepo() {},
+    worldDocuments: [], onChangeWorldDocument() {}, onRunCommand() {}
+  }) }))
+  try {
+    await heldReady(store, signupReads)
+    expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "executed" })
+    expect(mount()).toContain('data-flow="secrets.set"')
+    const pinned = secretsCard(store)!
+    const key = withheld === "shared-family" ? "family" : withheld
+    const original = providers[key]
+    if (withheld === "shared-family") providers.family = { ...providers.family, "provider-accounts": providers.family!.secrets }
+    else providers[key] = undefined
+    if (withheld !== "scopedWrite") {
+      socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: topicId, cursor: 2,
+        data: { secrets: [{ name: "UNREAD_WHILE_UNAVAILABLE", scope: "all_branches", actions: [] }] } }) })
+      await checkpoint()
+    }
+    const read = await bounded(controller.commands.run("secrets"))
+    expect(read).toMatchObject(withheld === "scopedWrite" ? { status: "executed" } : { status: "failed", error: "Secrets unavailable" })
+    const html = mount()
+    expect(html).not.toContain('data-flow="secrets.set"')
+    expect(html).not.toContain('data-flow="secrets.delete"')
+    expect(html).not.toContain('type="password"')
+    expect(html.includes("DEPLOY")).toBe(withheld === "scopedWrite")
+    const gesture = writeOnlyGesture("secrets.set", { value: "PRIVATE_MATRIX_VALUE" })
+    for (const command of [
+      { name: "secrets.set", payload: { name: "DEPLOY", repo: "will/flows" }, gesture },
+      { name: "secrets.delete", payload: { name: "DEPLOY", repo: "will/flows" } },
+      { name: "secrets.scope", payload: { name: "DEPLOY", scope: "all", repo: "will/flows" } },
+      { name: "secrets.bind", payload: { name: "DEPLOY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
+    ]) expect(await bounded(controller.commands.submit({ ...command, actor: "user" }))).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+    expect(gesture.takeWriteOnly?.("value")).toBeUndefined()
+    expect(hits).toEqual([])
+    expect(store.session().secretRequests ?? []).toEqual([])
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_MATRIX_VALUE")
+    expect(JSON.stringify([...store.collections.messages.values()])).not.toMatch(/DEPLOY (saved|deleted)|reached.*machine/i)
+    // Withholding a mount cannot delete the persisted card or its pinned rows.
+    expect(secretsCard(store)?.payload.secrets).toEqual(pinned.payload.secrets)
+    controller.changeDraft("Chat still works")
+    expect(store.session().draft).toBe("Chat still works")
+    Reflect.set(providers, key, original)
+    expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "executed" })
+    expect(mount()).toContain('data-flow="secrets.set"')
+    expect(await bounded(controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "DEPLOY", repo: "will/flows", scope: "main_only" },
+      gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_RESTORED_VALUE" }) }))).toMatchObject({ status: "executed", value: "Requested" })
+    await bounded(Promise.allSettled([...pending]))
+    for (let i = 0; i < 20 && store.session().secretRequests?.[0]?.state !== "completed"; i++) await checkpoint()
+    expect(store.session().secretRequests?.[0]?.state).toBe("completed")
+    expect(hits).toHaveLength(1)
+    expect(hits[0]).toMatchObject({ url: "/api/secrets", method: "PUT", body: '{"name":"DEPLOY","value":"PRIVATE_RESTORED_VALUE","main_only":true}' })
+    expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_RESTORED_VALUE")
+  } finally { await controller.dispose(); live.dispose() }
+})
 
 type Failure = "empty" | "get-500" | "get-403" | "get-throw" | "malformed"
 

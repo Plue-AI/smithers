@@ -8,6 +8,7 @@ import { SecretsView } from "./views/SecretsView"
 import { useController } from "../ControllerContext"
 import { useSyncExternalStore, type ComponentType } from "react"
 import { writeOnlyGesture } from "../flows/CommandGesture"
+import { secretsReadAvailable, secretsWriteAvailable } from "../state/seams/SecretsProviders"
 
 type StoredSecrets = Extract<Card, { kind: "secrets" }>
 
@@ -50,15 +51,18 @@ export const SecretsCardBody = ({ card, dispatch, role = "member", View = Secret
 const SecretsBody = ({ card }: { card: StoredSecrets }) => {
   const controller = useController()
   useSyncExternalStore(controller.membersRoster.subscribe, controller.membersRoster.get, controller.membersRoster.get)
-  const topic = useTopic(controller.flowCatalog !== undefined && controller.live ? "secrets" : undefined, controller.live)
-  const parsed = SecretsCardSchema.safeParse(topic?.data)
-  const unavailable = controller.flowCatalog !== undefined && (!controller.live || !!topic?.error || !parsed.success)
-  const projected = topic?.error || (topic?.data !== undefined && !parsed.success) ? { ...card, payload: { ...card.payload, secrets: [] } }
-    : parsed.success ? { ...card, payload: { ...card.payload, secrets: parsed.data.secrets.map(secret => ({
+  const install = controller.bootstrap?.capabilities.includes("install") === true
+  const providers = controller.secretsProviders
+  const topic = useTopic(install && secretsReadAvailable(providers) ? "secrets" : undefined, providers?.live ?? controller.live)
+  const parsed = (install ? providers?.decoder : SecretsCardSchema)?.safeParse(topic?.data)
+  if (install && !secretsReadAvailable(providers)) return null
+  const unavailable = install && !secretsWriteAvailable(providers)
+  const projected = topic?.error || (topic?.data !== undefined && !parsed?.success) ? { ...card, payload: { ...card.payload, secrets: [] } }
+    : parsed?.success ? { ...card, payload: { ...card.payload, secrets: parsed.data.secrets.map(secret => ({
       name: secret.name, mainOnly: secret.scope === "main_only", hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null
     })) } } : card
-  const role = controller.flowCatalog === undefined ? controller.membersRole() : controller.commands.state().viewerRole ?? "member"
-  return <SecretsCardBody card={projected} role={unavailable ? "member" : role} dispatch={(name, input) => {
+  const role = install ? providers?.authority?.() ?? "member" : controller.membersRole()
+  return <SecretsCardBody card={projected} View={install ? providers?.View : SecretsView} role={unavailable ? "member" : role} dispatch={(name, input) => {
     const payload: Record<string, unknown> = { ...(input ?? {}), repo: card.payload.repo || undefined }
     if (name === "secrets.scope") payload.scope = payload.scope === "main_only" ? "main-only" : "all"
     const gesture = name === "secrets.set" ? writeOnlyGesture(name, { value: String(payload.value ?? "") }) : undefined
