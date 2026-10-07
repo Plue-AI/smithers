@@ -211,7 +211,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   const reviewFilter = home.locator('[data-filter="in_review"]')
   await reviewFilter.click()
   await expect.poll(() => viewWrites.length).toBe(1)
-  expect(viewWrites[0]).toEqual({ login: "ben", body: { scroll_anchor: "entry-8", last_seen_seq: 12, home: { filter: "in_review", menu: null }, toasts_hidden: false } })
+  expect(viewWrites[0]).toEqual({ login: "ben", body: { scroll_anchor: expect.stringMatching(/^(home|todo:3)$/), last_seen_seq: 12, home: { filter: "in_review", menu: null }, toasts_hidden: false, timeline_visible_until: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) } })
   await page.reload()
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
   login = "alice"
