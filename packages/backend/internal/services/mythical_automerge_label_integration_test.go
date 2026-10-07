@@ -35,6 +35,13 @@ func testMythicalAutomergeLabelAuthenticatedInstallIntake(t *testing.T, pullLabe
 	h.fake.SetCheck("rehearsal-owner/app", head, "unit", "in_progress", "")
 	synced, row := configureInboundPullPolling(t, h.publicationFixture)
 	defer runFetchedFixture(t, synced)()
+	readChecks := func() {
+		require.NoError(t, synced.pollInstallPull(context.Background(), row, pr))
+		require.NoError(t, synced.ReadInstallPullFacts(context.Background(), row, pr, head, "checks"))
+		require.Eventually(t, func() bool {
+			return fetchedCount(t, h.pool.(*pgxpool.Pool), `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id IN ('pulls','checks') AND state<>'completed'`) == 0
+		}, 10*time.Second, 20*time.Millisecond)
+	}
 	gh, err := h.service.stackGitHub(context.Background(), h.repoID)
 	require.NoError(t, err)
 	api := h.service.github.(*mythicalGitHubAPI)
@@ -74,6 +81,7 @@ func testMythicalAutomergeLabelAuthenticatedInstallIntake(t *testing.T, pullLabe
 	require.Equal(t, "github", checks.PreapprovalEvents[len(checks.PreapprovalEvents)-1].Via)
 	read()
 	require.Equal(t, checks.PreapprovalEvents, mythicalChecksOf(h.item(n)).PreapprovalEvents, "replay records no second approval")
+	readChecks()
 	h.pass()
 	require.Empty(t, h.merges(), "checks still gate a label approval")
 	// Even a removal by an ineligible actor blocks dispatch through the live
@@ -100,6 +108,11 @@ func testMythicalAutomergeLabelAuthenticatedInstallIntake(t *testing.T, pullLabe
 	require.Empty(t, h.merges())
 	h.fake.LabelIssue("rehearsal-owner/app", issue, "rehearsal-owner", "automerge")
 	read()
+	readChecks()
+	deliveries := fetchedCount(t, h.pool.(*pgxpool.Pool), `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='checks'`)
+	require.Equal(t, 2, deliveries, "pending and green snapshots each reach durable ingestion")
+	readChecks()
+	require.Equal(t, deliveries, fetchedCount(t, h.pool.(*pgxpool.Pool), `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND principal_id='checks'`), "duplicate green polling creates no second delivery")
 	for i := 0; i < 5; i++ {
 		h.pass()
 	}
