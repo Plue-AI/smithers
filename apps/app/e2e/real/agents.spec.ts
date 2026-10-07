@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import { fillComposer } from "../playwright/composer"
 import { scenario } from "./coverage/types"
 import { closeComposer, command, expect, reloadApp, test } from "./support"
 import { openApp, awaitBoot } from "./support"
@@ -67,7 +68,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
  capabilities: ["install"], coverage: ["host:local", "door:slash", "door:button", "path:success", "dimension:evidence"]
 }), async ({ browser }, info) => {
  const { withReference, required, runSlash, attachJson, createTodo } = await import("./todo/reference")
- test.setTimeout(1_800_000)
+ test.setTimeout(3_600_000)
  await withReference(browser, info, async f => {
   const page = f.members.Will.page
   const modelA = required("SMITHERS_AGENT_MODEL_A")
@@ -83,6 +84,32 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    await expect(row).toContainText(model!)
    await expect(row.locator('[data-flow="files.read"]')).toBeVisible()
   }
+  // Bind the answer and model receipt to this newly admitted turn, rather
+  // than accepting any historical app run with the expected model.
+  const ask = async () => {
+   await fillComposer(page, "What is this repository for? Answer in one sentence.")
+   const admission = page.waitForResponse(response =>
+    new URL(response.url()).pathname === "/api/conversations/main/prompt" &&
+    response.request().method() === "POST" && response.status() === 202)
+   await page.keyboard.press("Enter")
+   const accepted = await (await admission).json()
+   const id = accepted.turnId
+   expect(id).toEqual(expect.any(String))
+   const turn = page.locator(`[data-shared-turn="${id}"]`)
+   await expect(turn).toHaveAttribute("data-state", "completed", { timeout: 180_000 })
+   const answer = turn.locator('[data-kind="answer"]')
+   await expect(answer).not.toBeEmpty()
+   const conversation = await f.read("Will", "/api/conversations/main")
+   const runId = conversation.entries.find((entry: any) => entry.id === id).runId
+   expect(runId).toEqual(expect.any(String))
+   await expect.poll(async () => {
+    const agents = await f.read("Will", "/api/agents")
+    return agents.agents.find((row: any) => row.id === "app").runs.find((run: any) => run.id === runId)?.model
+   }, { timeout: 30_000 }).toBe(modelF)
+   await attachJson(info, `app-turn-${id}`, await f.read("Will", "/api/conversations/main"))
+   return answer.innerText()
+  }
+  expect((await ask()).trim()).not.toMatch(/\bDONE[.!]?$/)
   const install = await f.read("Will", "/api/install")
   expect(install.models.map((row: any) => row.role)).toEqual(["fast", "coding", "jev"])
   await runSlash(page, "/settings")
@@ -90,6 +117,11 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    await expect(page.getByText(label, { exact: true }).last()).toBeVisible()
   await runSlash(page, "/agents")
   const before = await f.read("Will", "/api/todos")
+  const priorAgents = await f.read("Will", "/api/agents")
+  expect(priorAgents.agents.find((row: any) => row.id === "reviewer").runs.every((run: any) => run.model === modelA)).toBe(true)
+  const bindingsBefore = f.sql("SELECT id,binding_id,runtime_artifact_digest FROM flow_runtime_host_bindings WHERE state='running' AND binding_kind='mythical-item' AND repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')")
+  expect(bindingsBefore.length, "TODO X must already be working before the switch").toBeGreaterThan(0)
+  await attachJson(info, "ongoing-todo-bindings-before-switch", bindingsBefore)
   await page.getByTestId("agent-model-reviewer").press("Enter")
   await page.getByLabel("Model", { exact: true }).last().fill(modelB)
   await page.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
@@ -112,12 +144,36 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   })
   expect(delegated.status()).toBe(403)
   expect((await delegated.json()).class).toBe("permission")
+  expect(f.sql("SELECT value FROM install_settings WHERE key='agent:reviewer'")[0].value.modelId).toBe(modelB)
   const switched = await f.read("Will", "/api/agents")
   expect(switched.agents.find((row: any) => row.id === "reviewer").source).toBe("owner")
   await attachJson(info, "agents-after-switch", switched)
   await expect.poll(async () => {
    const agents = await f.read("Will", "/api/agents")
-   return agents.agents.find((row: any) => row.id === "reviewer").runs.some((run: any) => run.model === modelB)
+   return agents.agents.find((row: any) => row.id === "reviewer").runs.some((run: any) =>
+    run.model === modelB && bindingsBefore.some(binding => binding.binding_id === run.id))
+  }, { timeout: 780_000, intervals: [2000, 5000] }).toBe(true)
+  const bindingsAfter = f.sql("SELECT id,binding_id,runtime_artifact_digest FROM flow_runtime_host_bindings WHERE binding_kind='mythical-item'")
+  for (const binding of bindingsBefore) {
+   expect(bindingsAfter.find(row => row.id === binding.id)?.runtime_artifact_digest).toBe(binding.runtime_artifact_digest)
+  }
+  await attachJson(info, "ongoing-todo-bindings-after-switch", bindingsAfter)
+  const beforeY = await f.read("Will", "/api/todos")
+  await createTodo(page, "Add a short repository overview to README.md")
+  let newTodos: any[] = []
+  await expect.poll(async () => {
+   const afterY = await f.read("Will", "/api/todos")
+   newTodos = afterY.filter((row: any) => !beforeY.some((old: any) => old.n === row.n))
+   return newTodos.length
+  }, { timeout: 30_000 }).toBe(1)
+  const numberY = newTodos[0].n
+  expect(Number.isSafeInteger(numberY)).toBe(true)
+  const itemY = f.sql(`SELECT id FROM mythical_items WHERE number=${numberY} AND repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')`)
+  expect(itemY).toHaveLength(1)
+  await expect.poll(async () => {
+   const agents = await f.read("Will", "/api/agents")
+   return agents.agents.find((row: any) => row.id === "reviewer").runs.some((run: any) =>
+    run.model === modelB && run.id === itemY[0].id)
   }, { timeout: 780_000, intervals: [2000, 5000] }).toBe(true)
   const readInstructions = async () => {
    const response = await page.context().request.get("/api/branches/main/files/.smithers/instructions/app.md")
@@ -134,6 +190,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    timeout: 900_000, intervals: [1000, 2000]
   }).toContain("always end answers with the word DONE")
   const activated = await readInstructions()
+  expect((await ask()).trim()).toMatch(/\bDONE[.!]?$/)
   expect(activated.digest).not.toBe(original.digest)
   await attachJson(info, "activated-app-instructions", activated)
   await page.reload()
