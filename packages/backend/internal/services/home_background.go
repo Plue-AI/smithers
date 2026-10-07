@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -153,8 +154,19 @@ func homeBackgroundPin(flow, source string, payload, checkpoint, input []byte) (
 	if !pin.Valid() || pin.Flow != flow || (source != "" && pin.SourceCommit != source) || (observed.ExecutionDigest != "" && observed.ExecutionDigest != pin.ExecutionDigest) {
 		return nil, homeBackgroundError(409, "run_pin_unavailable", "conflict", "Stored flow version unavailable")
 	}
-	var original, admitted any
-	if json.Unmarshal(input, &original) != nil || json.Unmarshal(stored.Input, &admitted) != nil {
+	decodeInput := func(raw []byte) (any, error) {
+		if !json.Valid(raw) {
+			return nil, errors.New("invalid stored input")
+		}
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var value any
+		err := decoder.Decode(&value)
+		return value, err
+	}
+	original, originalErr := decodeInput(input)
+	admitted, admittedErr := decodeInput(stored.Input)
+	if originalErr != nil || admittedErr != nil {
 		return nil, homeBackgroundError(409, "run_input_unavailable", "conflict", "Stored flow input unavailable")
 	}
 	originalBytes, _ := json.Marshal(original)
