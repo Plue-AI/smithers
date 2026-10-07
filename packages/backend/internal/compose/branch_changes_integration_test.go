@@ -22,6 +22,10 @@ import (
 // Composed /api/live consumes verified host-store versions while the branch sleeps.
 // This fixture supplies the remote burst; it does not claim a real watcher run.
 func TestBranchChangesProductionLiveBoundary(t *testing.T) {
+	testBranchChangesProductionLiveBoundary(t, nil)
+}
+
+func testBranchChangesProductionLiveBoundary(t *testing.T, bindNotes func(presenceInstallFixture, *machined.BurstIngest)) {
 	f := presenceInstall(t)
 	require.Equal(t, int64(2), f.user.ID)
 	registry := &machined.Registry{}
@@ -65,6 +69,9 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	}}, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
 		return json.RawMessage(`{"id":"member:2","kind":"person","member_id":"2","via":"ssh"}`), nil
 	}}
+	if bindNotes != nil {
+		bindNotes(f, ingest)
+	}
 	list := wire.U16(12)
 	for i := 0; i < 12; i++ {
 		list = append(list, wire.Struct(wire.Field(1, wire.String(fmt.Sprintf("src/f%d.ts", i))), wire.Field(2, []byte{2}), wire.Field(4, bytesOf(before)), wire.Field(5, bytesOf(after)), wire.Field(6, post[:]))...)

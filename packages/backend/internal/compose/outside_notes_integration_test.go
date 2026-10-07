@@ -1,0 +1,71 @@
+package compose
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/stretchr/testify/require"
+)
+
+type noteHostContractFixture struct{}
+
+func (noteHostContractFixture) CodingNoteParticipant(_ context.Context, _ string, run string, _ flowruntime.Pin) (string, string, error) {
+	return "agent:own", run, nil
+}
+
+// The person-facing install socket observes the same real, verified burst
+// that admits the pinned note. Host capability registration is the only fake;
+// this is not C-J3-03's real-machine/run acceptance.
+func TestOutsideNotesComposedLiveBoundary(t *testing.T) {
+	testBranchChangesProductionLiveBoundary(t, func(f presenceInstallFixture, ingest *machined.BurstIngest) {
+		var item string
+		require.NoError(t, f.pool.QueryRow(t.Context(), `INSERT INTO mythical_items(repository_id,source,state,workspace_id,owner_id,request_run_id,flow_digest,checks) VALUES($1,'todo','running',$2,$3,'pinned-notes-run',$4,$5) RETURNING id`, f.row.RepositoryID, f.row.ID, f.user.ID, strings.Repeat("a", 64), `{"flowSource":"`+strings.Repeat("b", 40)+`"}`).Scan(&item))
+		store, err := jobs.NewStore(f.pool)
+		require.NoError(t, err)
+		dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			t.Error("burst admission must not launch a host")
+			return nil, machined.ErrNotReady
+		})})
+		require.NoError(t, err)
+		notes := &machined.OutsideChangeNotes{Runs: &machined.PinnedCodingNoteRuns{Host: noteHostContractFixture{}}, Dispatcher: dispatcher}
+		ingest.OutsideChanges = notes.Admit
+		t.Cleanup(func() {
+			rows, err := f.pool.Query(context.Background(), `SELECT payload FROM product_job_requests WHERE operation=$1 ORDER BY created_at`, flowdispatch.OperationSignal)
+			require.NoError(t, err)
+			defer rows.Close()
+			count := 0
+			for rows.Next() {
+				var raw []byte
+				require.NoError(t, rows.Scan(&raw))
+				var saved struct {
+					Target  flowruntime.Target `json:"target"`
+					RunID   string             `json:"runId"`
+					Payload struct {
+						Kind  string         `json:"kind"`
+						Actor map[string]any `json:"actor"`
+						Files []string       `json:"files"`
+					} `json:"payload"`
+				}
+				require.NoError(t, json.Unmarshal(raw, &saved))
+				require.Equal(t, "pinned-notes-run", saved.RunID)
+				require.Equal(t, item, saved.Target.BindingID)
+				require.Equal(t, f.row.ID, saved.Target.WorkspaceID)
+				require.Equal(t, "repository:"+fmt.Sprint(f.row.RepositoryID), saved.Target.TenantID)
+				require.Equal(t, "outside_change", saved.Payload.Kind)
+				require.Equal(t, "member:2", saved.Payload.Actor["id"])
+				require.Equal(t, "ssh", saved.Payload.Actor["via"])
+				require.NotEmpty(t, saved.Payload.Files)
+				count++
+			}
+			require.NoError(t, rows.Err())
+			require.Equal(t, 203, count, "each committed burst admits one note; duplicate and split parts add none")
+		})
+	})
+}
