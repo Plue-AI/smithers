@@ -26,20 +26,6 @@ type WebhookHandler struct {
 	Service WebhookRouteService
 }
 
-type createWebhookRequest struct {
-	URL      string   `json:"url"`
-	Secret   string   `json:"secret"`
-	Events   []string `json:"events"`
-	IsActive bool     `json:"is_active"`
-}
-
-type patchWebhookRequest struct {
-	URL      *string   `json:"url,omitempty"`
-	Secret   *string   `json:"secret,omitempty"`
-	Events   *[]string `json:"events,omitempty"`
-	IsActive *bool     `json:"is_active,omitempty"`
-}
-
 func (h *WebhookHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.UserFromContext(r.Context())
 	owner, repo, err := repoOwnerAndName(r)
@@ -89,17 +75,12 @@ func (h *WebhookHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req createWebhookRequest
+	var req services.CreateWebhookInput
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
-	created, err := h.Service.CreateWebhook(r.Context(), actor, owner, repo, services.CreateWebhookInput{
-		URL:      req.URL,
-		Secret:   req.Secret,
-		Events:   req.Events,
-		IsActive: req.IsActive,
-	})
+	created, err := h.Service.CreateWebhook(r.Context(), actor, owner, repo, req)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -124,17 +105,12 @@ func (h *WebhookHandler) UpdateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req patchWebhookRequest
+	var req services.UpdateWebhookInput
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
-	updated, err := h.Service.UpdateWebhook(r.Context(), actor, owner, repo, id, services.UpdateWebhookInput{
-		URL:      req.URL,
-		Secret:   req.Secret,
-		Events:   req.Events,
-		IsActive: req.IsActive,
-	})
+	updated, err := h.Service.UpdateWebhook(r.Context(), actor, owner, repo, id, req)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

@@ -224,3 +224,22 @@ test("repository topics retain the owner-only person write door", async () => {
   for (const input of [{}, { topics: null }, { topics: [] }, { topics: ["go", "api"] }]) expect(decode(input)).toEqual(input)
   expect(() => decode({ topics: [3] })).toThrow()
 })
+
+
+test("retained webhook administration stays owner-only and requires repository write scope", async () => {
+  const { Schema } = await import("effect")
+  for (const [name, method, path] of [
+    ["webhooks.list", "GET", ""], ["webhooks.get", "GET", "/{id}"],
+    ["webhooks.create", "POST", ""], ["webhooks.update", "PATCH", "/{id}"],
+    ["webhooks.delete", "DELETE", "/{id}"], ["webhooks.deliveries", "GET", "/{id}/deliveries"],
+    ["webhooks.redeliver", "POST", "/{id}/deliveries/{delivery_id}/redeliver"]
+  ]) {
+    expect(httpProjections.find(row => row.name === name)).toMatchObject({
+      minimumRole: "owner", agent: "never", actors: ["person"], credentialScope: "write:repository",
+      visibility: "hidden", cli: null, slash: null, http: { method, path: `/api/repos/{owner}/{repo}/hooks${path}` }
+    })
+  }
+  const update = httpProjections.find(row => row.name === "webhooks.update")!
+  expect(Schema.decodeUnknownSync(update.input)({ url: null, secret: null, events: null, is_active: false })).toEqual({ url: null, secret: null, events: null, is_active: false })
+  expect(() => Schema.decodeUnknownSync(update.input)({ events: [3] })).toThrow()
+})

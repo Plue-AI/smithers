@@ -853,6 +853,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	adminOrgService := services.NewAdminOrgService(queries)
 	adminRepoService := services.NewAdminRepoService(queries)
 	webhookService := services.NewWebhookService(queries, webhookSecretCodec, services.WithWebhookOwnershipGuard(repoOwnershipFence))
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithWebhookInstallAuthorization(pool)(webhookService)
+	}
 	if err := configureGitHubSyncWebhooks(cfg.Webhook, gitHubSyncedRepoService, webhookService); err != nil {
 		slog.Error("invalid github-sync webhook configuration", "error", err)
 		return err

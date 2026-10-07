@@ -56,10 +56,12 @@ type WebhookQuerier interface {
 }
 
 type WebhookService struct {
-	queries        WebhookQuerier
-	secretCodec    webhook.SecretCodec
-	httpClient     *http.Client
-	ownershipGuard RepoOwnershipGuard
+	install         *installWebhookStore
+	installAdmitted bool
+	queries         WebhookQuerier
+	secretCodec     webhook.SecretCodec
+	httpClient      *http.Client
+	ownershipGuard  RepoOwnershipGuard
 }
 
 type WebhookServiceOption func(*WebhookService)
@@ -96,6 +98,12 @@ func NewWebhookService(q WebhookQuerier, codec webhook.SecretCodec, opts ...Webh
 }
 
 func (s *WebhookService) ListWebhooks(ctx context.Context, actor *db.User, owner, repo string) ([]db.Webhook, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.list", 0, 0, struct{}{}, func(scoped *WebhookService, ctx context.Context) ([]db.Webhook, error) {
+			return scoped.ListWebhooks(ctx, actor, owner, repo)
+		})
+	}
+
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
 		return nil, err
@@ -120,6 +128,12 @@ func (s *WebhookService) ListWebhooks(ctx context.Context, actor *db.User, owner
 }
 
 func (s *WebhookService) GetWebhook(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) (db.Webhook, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.get", webhookID, 0, struct{}{}, func(scoped *WebhookService, ctx context.Context) (db.Webhook, error) {
+			return scoped.GetWebhook(ctx, actor, owner, repo, webhookID)
+		})
+	}
+
 	if webhookID <= 0 {
 		return db.Webhook{}, pkgerrors.BadRequest("invalid webhook id")
 	}
@@ -147,6 +161,12 @@ func (s *WebhookService) GetWebhook(ctx context.Context, actor *db.User, owner, 
 }
 
 func (s *WebhookService) CreateWebhook(ctx context.Context, actor *db.User, owner, repo string, req CreateWebhookInput) (db.Webhook, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.create", 0, 0, req, func(scoped *WebhookService, ctx context.Context) (db.Webhook, error) {
+			return scoped.CreateWebhook(ctx, actor, owner, repo, req)
+		})
+	}
+
 	if actor == nil {
 		return db.Webhook{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -224,6 +244,12 @@ func (s *WebhookService) CreateWebhook(ctx context.Context, actor *db.User, owne
 }
 
 func (s *WebhookService) UpdateWebhook(ctx context.Context, actor *db.User, owner, repo string, webhookID int64, req UpdateWebhookInput) (db.Webhook, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.update", webhookID, 0, req, func(scoped *WebhookService, ctx context.Context) (db.Webhook, error) {
+			return scoped.UpdateWebhook(ctx, actor, owner, repo, webhookID, req)
+		})
+	}
+
 	if actor == nil {
 		return db.Webhook{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -307,6 +333,13 @@ func (s *WebhookService) UpdateWebhook(ctx context.Context, actor *db.User, owne
 }
 
 func (s *WebhookService) DeleteWebhook(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.delete", webhookID, 0, struct{}{}, func(scoped *WebhookService, ctx context.Context) (struct{}, error) {
+			return struct{}{}, scoped.DeleteWebhook(ctx, actor, owner, repo, webhookID)
+		})
+		return err
+	}
+
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
@@ -338,6 +371,12 @@ func (s *WebhookService) DeleteWebhook(ctx context.Context, actor *db.User, owne
 
 // ListWebhookDeliveries returns up to 30 recent deliveries for a webhook, newest first.
 func (s *WebhookService) ListWebhookDeliveries(ctx context.Context, actor *db.User, owner, repo string, webhookID int64, page, perPage int) ([]db.WebhookDelivery, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.deliveries", webhookID, 0, struct{}{}, func(scoped *WebhookService, ctx context.Context) ([]db.WebhookDelivery, error) {
+			return scoped.ListWebhookDeliveries(ctx, actor, owner, repo, webhookID, page, perPage)
+		})
+	}
+
 	if webhookID <= 0 {
 		return nil, pkgerrors.BadRequest("invalid webhook id")
 	}
@@ -377,6 +416,12 @@ func (s *WebhookService) ListWebhookDeliveries(ctx context.Context, actor *db.Us
 }
 
 func (s *WebhookService) RedeliverWebhookDelivery(ctx context.Context, actor *db.User, owner, repo string, webhookID, deliveryID int64) (db.WebhookDelivery, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallWebhook(s, ctx, actor, owner, repo, "webhooks.redeliver", webhookID, deliveryID, struct{}{}, func(scoped *WebhookService, ctx context.Context) (db.WebhookDelivery, error) {
+			return scoped.RedeliverWebhookDelivery(ctx, actor, owner, repo, webhookID, deliveryID)
+		})
+	}
+
 	if actor == nil {
 		return db.WebhookDelivery{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -636,6 +681,10 @@ func (s *WebhookService) resolveRepoByOwnerAndName(ctx context.Context, owner, r
 }
 
 func (s *WebhookService) requireAdminAccess(ctx context.Context, repository db.Repository, actor *db.User) error {
+	if s.installAdmitted {
+		return nil
+	}
+
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}

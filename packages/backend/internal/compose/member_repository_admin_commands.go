@@ -33,7 +33,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
-	if len(parts) < 5 || len(parts) > 6 {
+	if len(parts) < 5 || (len(parts) > 6 && (!strings.HasPrefix(command, "webhooks.") || len(parts) > 9)) {
 		refuse(pkgerrors.BadRequest("invalid repository configuration request"))
 		return
 	}
@@ -57,12 +57,12 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		return
 	}
 	subject.RepositoryID = repository.ID
-	var id int64
+	var id, delivery int64
 	var selector string
-	if len(parts) == 6 && (strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "deploy-keys.")) {
+	if len(parts) >= 6 && (strings.HasPrefix(command, "webhooks.") || strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "deploy-keys.")) {
 		id, err = strconv.ParseInt(parts[5], 10, 64)
 		if err != nil {
-			refuse(pkgerrors.BadRequest("invalid label id"))
+			refuse(pkgerrors.BadRequest("invalid resource id"))
 			return
 		}
 	}
@@ -86,8 +86,15 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 		selector = strings.TrimSpace(selector)
 	}
+	if command == "webhooks.redeliver" && len(parts) == 9 {
+		delivery, err = strconv.ParseInt(parts[7], 10, 64)
+		if err != nil {
+			refuse(pkgerrors.BadRequest("invalid delivery id"))
+			return
+		}
+	}
 	var input any = struct{}{}
-	if command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
+	if command == "webhooks.create" || command == "webhooks.update" || command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid configuration body"))
@@ -95,10 +102,18 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
 		decoder := json.NewDecoder(bytes.NewReader(raw))
-		if command != "deploy-keys.create" && command != "repo.topics.update" {
+		if !strings.HasPrefix(command, "webhooks.") && command != "deploy-keys.create" && command != "repo.topics.update" {
 			decoder.DisallowUnknownFields()
 		}
 		switch command {
+		case "webhooks.create":
+			var value services.CreateWebhookInput
+			err = decoder.Decode(&value)
+			input = value
+		case "webhooks.update":
+			var value services.UpdateWebhookInput
+			err = decoder.Decode(&value)
+			input = value
 		case "repo.topics.update":
 			var value services.ReplaceRepoTopicsInput
 			err = decoder.Decode(&value)
@@ -138,7 +153,9 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if command == "repo.topics.update" {
+	if strings.HasPrefix(command, "webhooks.") {
+		subject, err = services.InstallWebhookSubject(repository.ID, command, id, delivery, input)
+	} else if command == "repo.topics.update" {
 		value, _ := input.(services.ReplaceRepoTopicsInput)
 		subject, err = services.InstallRepoTopicsSubject(repository.ID, value)
 	} else if strings.HasPrefix(command, "deploy-keys.") {
