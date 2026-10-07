@@ -495,8 +495,16 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var rawInput struct {
-		Capacity json.RawMessage `json:"capacity"`
-		ChatGPT  json.RawMessage `json:"chatgpt"`
+		Obsidian *struct {
+			Path string `json:"path"`
+		} `json:"wiki_sync.obsidian"`
+		Capacity              json.RawMessage `json:"capacity"`
+		Parallel              json.RawMessage `json:"parallel"`
+		TodoDailyAdmissions   json.RawMessage `json:"todo_daily_admissions"`
+		TodoPreapproveDefault json.RawMessage `json:"todo_preapprove_default"`
+		ChatGPT               json.RawMessage `json:"chatgpt"`
+		Bind                  json.RawMessage `json:"bind"`
+		Origins               json.RawMessage `json:"origins"`
 	}
 	if !decodeStrictJSONBody(w, r, &rawInput) {
 		return
@@ -513,20 +521,24 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		Origins               json.RawMessage `json:"origins"`
 		TodoPreapproveDefault *bool           `json:"todo_preapprove_default"`
 	}
-	if len(rawInput.Capacity) > 0 {
-		if json.Unmarshal(rawInput.Capacity, &input.Capacity) != nil || input.Capacity == nil {
-			writeInstallAPIError(w, pkgerrors.BadRequest("capacity must be an integer"))
-			return
+	input.Obsidian, input.Bind, input.Origins = rawInput.Obsidian, rawInput.Bind, rawInput.Origins
+	// Preserve absent settings, but refuse explicit null or a wrong type
+	// before any handler can change another setting in the same request.
+	decodeSetting := func(raw json.RawMessage, target any, message string) bool {
+		if len(raw) == 0 {
+			return true
 		}
-	}
-	if len(rawInput.ChatGPT) > 0 {
-		if json.Unmarshal(rawInput.ChatGPT, &input.ChatGPT) != nil || input.ChatGPT == nil {
-			writeInstallAPIError(w, pkgerrors.BadRequest("chatgpt must be a boolean"))
-			return
+		if strings.TrimSpace(string(raw)) == "null" || json.Unmarshal(raw, target) != nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest(message))
+			return false
 		}
+		return true
 	}
-	if input.Capacity == nil && input.ChatGPT == nil {
-		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
+	if !decodeSetting(rawInput.Capacity, &input.Capacity, "capacity must be an integer") ||
+		!decodeSetting(rawInput.Parallel, &input.Parallel, "parallel must be an integer") ||
+		!decodeSetting(rawInput.TodoDailyAdmissions, &input.TodoDailyAdmissions, "todo_daily_admissions must be an integer") ||
+		!decodeSetting(rawInput.TodoPreapproveDefault, &input.TodoPreapproveDefault, "todo_preapprove_default must be a boolean") ||
+		!decodeSetting(rawInput.ChatGPT, &input.ChatGPT, "chatgpt must be a boolean") {
 		return
 	}
 	if input.TodoPreapproveDefault != nil {

@@ -311,7 +311,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			return live.Source{}, live.Unsupported
 		}
 		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
-			return t.home(ctx, repository, slug, member)
+			return t.home(ctx, repository, slug)
 		}}, ""
 	case topic == "flows":
 		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
@@ -387,7 +387,7 @@ func (t *liveTopics) externalSession(ctx context.Context, topic, rest string) (l
 // every state counted, a machine per TODO branch that is awake or waking,
 // and main's row from the install's GitHub sync. Last look and role filter
 // stay in the browser (§7.2.2).
-func (t *liveTopics) home(ctx context.Context, repository int64, slug string, member int64) (json.RawMessage, error) {
+func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (json.RawMessage, error) {
 	todos, err := t.todos.Todos(ctx, repository)
 	if err != nil {
 		return nil, err
@@ -427,17 +427,14 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string, me
 		machines["capacity"] = status.Machines.Capacity
 	}
 	if t.install != nil && t.install.Capacity != nil {
-		role, err := services.InstallRoleOf(ctx, t.queries, member)
+		// The limit is shared state. The first subscriber must not determine
+		// its visibility or whether an invalid setting is reported. Only the
+		// write command and the browser's controls depend on the viewer's role.
+		parallel, err := t.install.Capacity.Parallel(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if role == services.InstallOwner {
-			parallel, err := t.install.Capacity.Parallel(ctx)
-			if err != nil {
-				return nil, err
-			}
-			model["parallel"] = parallel.Effective
-		}
+		model["parallel"] = parallel.Effective
 	}
 	return json.Marshal(model)
 }

@@ -61,7 +61,14 @@ func TestInstallObsidianSettingsRouteWorkerPostgres(t *testing.T) {
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(sum[:]), UserID: u.ID, Username: u.Username, ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
 	}
-	state, vault, next := t.TempDir(), t.TempDir(), t.TempDir()
+	// The settings service stores canonical folders. macOS temporary paths
+	// may spell /private/var through /var, so compare canonical fixture paths.
+	folder := func() string {
+		path, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+		return path
+	}
+	state, vault, next := folder(), folder(), folder()
 	github := &rosterGitHub{roles: map[string]string{"owner": "admin"}}
 	provider := httptest.NewServer(http.HandlerFunc(github.serve))
 	defer provider.Close()
