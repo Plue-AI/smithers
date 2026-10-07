@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,9 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -54,7 +58,19 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	service := services.NewMythicalService(pool, nil)
 	service.SetInstallParallel(&services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}})
 	service.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime))))
-	router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
+	topics := &liveTopics{queries: q, todos: service}
+	liveContext, stopLive := context.WithCancel(ctx)
+	defer stopLive()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(liveContext))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
+	liveHandler := &routes.LiveHandler{Hub: live.NewHub(liveContext, nil), Queries: q,
+		Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
+	router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q},
+		conformanceServices{pool: pool, mythical: &routes.MythicalHandler{Service: service}, live: liveHandler})
+	server := httptest.NewServer(router)
+	defer server.Close()
 	bearerToken := ""
 	browserCookie := "placement-session"
 	call := func(method, path, body, key string) (int, map[string]any) {
@@ -108,16 +124,57 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	position(3, 4)
 	position(4, 5)
 	position(5, 6)
+	// The mounted live endpoint must publish all changed positions together.
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{
+		Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Cookie": {"smithers_session=placement-session"}, "Origin": {cfg.Server.PublicURL}}, Host: "127.0.0.1:4000"})
+	require.NoError(t, err)
+	defer conn.CloseNow()
+	require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+	readHome := func(kind string, want map[int]int) {
+		t.Helper()
+		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		for {
+			_, raw, err := conn.Read(readCtx)
+			require.NoError(t, err)
+			var frame live.Frame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			require.NotEqual(t, "err", frame.T, string(raw))
+			if frame.T != kind {
+				continue
+			}
+			var home struct {
+				Items []struct {
+					N     int `json:"n"`
+					Queue *struct {
+						Position int `json:"position"`
+					} `json:"queue"`
+				} `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(frame.Data, &home), string(raw))
+			got := map[int]int{}
+			for _, item := range home.Items {
+				if item.Queue != nil {
+					got[item.N] = item.Queue.Position
+				}
+			}
+			require.Equal(t, want, got, string(raw))
+			return
+		}
+	}
+	readHome("snap", map[int]int{1: 2, 2: 3, 3: 4, 4: 5, 5: 6})
 	code, body := call("POST", "/api/todos/2", `{"op":"move","direction":"up"}`, "move-T2")
 	require.Equal(t, 202, code, body)
 	position(2, 2)
 	position(1, 3)
+	readHome("snap", map[int]int{1: 3, 2: 2, 3: 4, 4: 5, 5: 6})
 	require.False(t, runtime.CancelAdmission("workspace:ben", "Ben", time.Now()))
 	position(2, 1)
 	position(1, 2)
 	position(3, 3)
 	position(4, 4)
 	position(5, 5)
+	readHome("snap", map[int]int{1: 2, 2: 1, 3: 3, 4: 4, 5: 5})
 	code, body = call("POST", "/api/todos/3", `{"op":"drop"}`, "drop-T3")
 	require.Equal(t, 202, code, body)
 	position(4, 3)
