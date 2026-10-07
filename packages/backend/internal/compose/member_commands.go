@@ -34,18 +34,16 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 			}
 			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.EscapedPath(), "/api/branches/") && !strings.Contains(strings.TrimPrefix(r.URL.EscapedPath(), "/api/branches/"), "/") {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
-				var body struct {
-					Op       string `json:"op"`
-					ID       string `json:"id"`
-					Revision string `json:"revision"`
-				}
-				decoder := json.NewDecoder(bytes.NewReader(raw))
-				decoder.DisallowUnknownFields()
-				if err != nil || decoder.Decode(&body) != nil || decoder.Decode(new(any)) != io.EOF || body.Op != "bring-in" && body.Op != "discard-foreign" {
+				if err != nil {
 					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid branch answer"})
 					return
 				}
-				command = "branch." + body.Op
+				_, resolved, err := routes.DecodeBranchCommand(bytes.NewReader(raw))
+				if err != nil {
+					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid branch answer"})
+					return
+				}
+				command = resolved
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 

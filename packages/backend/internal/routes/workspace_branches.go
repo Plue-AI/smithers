@@ -41,6 +41,10 @@ type BranchAnswerService interface {
 	AnswerBranch(context.Context, string, services.TodoControlInput) (services.TodoControlReceipt, error)
 }
 
+type BranchRebaseService interface {
+	RebaseBranch(context.Context, int64, int64, string, services.BranchRebaseInput) (services.TodoControlReceipt, error)
+}
+
 // BranchHandler serves the install's branches (spec §6.3 /api/branches):
 // reads of the workspace projection and Fork, which the stack service
 // performs. Authorize decides the command for the request's person and
@@ -53,6 +57,7 @@ type BranchHandler struct {
 	Answers   BranchAnswerService
 	Archives  BranchArchiveService
 	Adds      BranchAddService
+	Rebases   BranchRebaseService
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -72,19 +77,33 @@ func RegisterBranchRoutes(r chi.Router, h *BranchHandler) {
 }
 
 func (h *BranchHandler) Answer(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Op       string `json:"op"`
-		ID       string `json:"id"`
-		Revision string `json:"revision"`
-	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	decoder.DisallowUnknownFields()
-	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
-		writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch answer"))
+	body, command, err := DecodeBranchCommand(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err != nil {
+		writeBranchError(w, r, err)
 		return
 	}
-	if body.Op != "bring-in" && body.Op != "discard-foreign" {
-		writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch answer"))
+	if command == "branch.rebase" || command == "branch.rebase-now" {
+		input := services.BranchRebaseInput{Rebase: body.Rebase || body.Op == "rebase", ConflictChange: body.ConflictChange, OntoRevision: body.OntoRevision, Request: r.Header.Get("Idempotency-Key")}
+		if err := input.Validate(); err != nil {
+			writeBranchError(w, r, err)
+			return
+		}
+		repository, user, err := h.authorize(r, command, h.Rebases != nil)
+		if err != nil {
+			writeBranchError(w, r, err)
+			return
+		}
+		branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+		if err != nil {
+			writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch"))
+			return
+		}
+		receipt, err := h.Rebases.RebaseBranch(r.Context(), repository, user, branch, input)
+		if err != nil {
+			writeBranchError(w, r, err)
+			return
+		}
+		pkgerrors.WriteJSON(w, http.StatusAccepted, receipt)
 		return
 	}
 	repository, user, err := h.authorize(r, "branch."+body.Op, h.Answers != nil)
@@ -106,6 +125,46 @@ func (h *BranchHandler) Answer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusAccepted, receipt)
+}
+
+// BranchCommandInput and DecodeBranchCommand are shared by the install's
+// admission middleware and handler, so body-dependent authority cannot drift.
+type BranchCommandInput struct {
+	Op             string `json:"op"`
+	ID             string `json:"id"`
+	Revision       string `json:"revision"`
+	Rebase         bool   `json:"rebase"`
+	ConflictChange string `json:"conflict_change"`
+	OntoRevision   string `json:"onto_revision"`
+}
+
+func DecodeBranchCommand(reader io.Reader) (BranchCommandInput, string, error) {
+	var body BranchCommandInput
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	invalid := func() (BranchCommandInput, string, error) {
+		return body, "", pkgerrors.BadRequest("Invalid branch answer")
+	}
+	if decodeSingleJSONDocument(decoder, &body) != nil {
+		return invalid()
+	}
+	if body.Rebase || body.ConflictChange != "" || body.OntoRevision != "" || body.Op == "rebase" {
+		input := services.BranchRebaseInput{Rebase: body.Rebase || body.Op == "rebase", ConflictChange: body.ConflictChange, OntoRevision: body.OntoRevision}
+		if (body.Op != "" && body.Op != "rebase") || body.ID != "" || body.Revision != "" {
+			return invalid()
+		}
+		if err := input.Validate(); err != nil {
+			return body, "", err
+		}
+		if input.Rebase {
+			return body, "branch.rebase-now", nil
+		}
+		return body, "branch.rebase", nil
+	}
+	if body.Op != "bring-in" && body.Op != "discard-foreign" {
+		return invalid()
+	}
+	return body, "branch." + body.Op, nil
 }
 
 // authorize decides command once the route's service is composed.
