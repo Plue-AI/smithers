@@ -98,7 +98,10 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
     const rowBindings = cardActions(dispatch, definitions.slice(row.start, row.end))
     return { ...row, actions: rowBindings.actions }
   })
-  const model = HomeCardSchema.parse({ ...parsed, main: { ...parsed.main, health }, attention: bindRows(attention), items: bindRows(items), background_runs: bindRows(runs) })
+  const model = HomeCardSchema.parse({ ...parsed,
+    merged_since_last_look: parsed.merge_history === undefined ? parsed.merged_since_last_look
+      : parsed.merge_history.filter(merge => merge.seq > (view.last_seen_seq ?? 0)).map(merge => merge.n),
+    main: { ...parsed.main, health }, attention: bindRows(attention), items: bindRows(items), background_runs: bindRows(runs) })
   const top = cardActions(dispatch, definitions.slice(0, topCount))
   return <View model={model} actions={top.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }

@@ -750,3 +750,19 @@ test("removing the not-ready Review action keeps a TODO titled Review openable",
   h.props.onAction("todo", { n: String(row.n), door: "title" })
   expect(h.calls).toEqual([{ tag: "todo", input: { n: row.n } }])
 })
+
+test("Home derives each member's merged count from committed sequences and preserves old records", () => {
+  const base = fixtures.fresh.model
+  const model = { ...base, merge_history: [{ n: 90, seq: 8 }, { n: 3, seq: 12 }, { n: 1, seq: 17 }] }
+  let props!: HomeViewProps
+  const read = (last_seen_seq: number) => {
+    renderToStaticMarkup(<HomeContainer model={model} role="member" allowed={allowed} dispatch={() => {}}
+      View={value => { props = value; return <HomeView {...value} /> }} view={{ maximized: false, last_seen_seq }} onView={() => {}} />)
+    return props.model.merged_since_last_look
+  }
+  expect(read(8)).toEqual([3, 1])
+  expect(read(12)).toEqual([1])
+  expect(read(17)).toEqual([])
+  expect(mount({ ...base, merged_since_last_look: [90, 3] }).props.model.merged_since_last_look).toEqual([90, 3])
+  expect(model.merge_history).toEqual([{ n: 90, seq: 8 }, { n: 3, seq: 12 }, { n: 1, seq: 17 }])
+})

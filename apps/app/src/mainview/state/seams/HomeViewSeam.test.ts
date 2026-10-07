@@ -46,7 +46,7 @@ test("Home filters persist through the member API without overwriting conversati
       { scroll_anchor: "entry-8", last_seen_seq: 12, card_view: { todo: "maximized" }, toasts_hidden: true, home: { filter: "working" } },
       { scroll_anchor: "entry-8", last_seen_seq: 12, card_view: { todo: "maximized" }, toasts_hidden: true, home: { filter: null } }
     ])
-    expect(seam.get()).toEqual({ maximized: false, on_screen: true, filter: undefined, menu: undefined })
+    expect(seam.get()).toEqual({ maximized: false, on_screen: true, filter: undefined, menu: undefined, last_seen_seq: 12 })
     expect(errors).toEqual([])
   } finally { stop(); seam.dispose() }
 })
@@ -137,4 +137,36 @@ test("a disposed Home seam remains readable while the old card unmounts", async 
   await seam.read()
   expect(seam.get()).toEqual({ maximized: false })
   expect(requests).toHaveLength(before)
+})
+
+test("last look advances only after two seconds visible, cancels on hide, and preserves newer conversation look", async () => {
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Home")
+  let saved: Record<string, unknown> = { last_seen_seq: 12, home: { filter: "queued" } }
+  const writes: Record<string, unknown>[] = []
+  const seam = createHomeViewSeam({ owner: () => "Ben", subscribeOwner: () => () => {}, report: error => { throw error },
+    live: { subscribe: () => () => {}, getSnapshot: () => ({ topic: "home", data: { ...fixtures.fresh.model, merge_history: [{ n: 8, seq: 19 }] } }) },
+    http: async (_path, init) => {
+      if (init?.method === "PUT") { saved = JSON.parse(init.body as string); writes.push(saved) }
+      return Response.json(saved)
+    } })
+  const stop = seam.subscribe(() => {})
+  try {
+    await waitFor(() => seam.get().last_seen_seq === 12)
+    seam.onView({ on_screen: true })
+    await Bun.sleep(1900)
+    expect(writes).toEqual([])
+    seam.onView({ on_screen: false })
+    await Bun.sleep(150)
+    expect(writes).toEqual([])
+    seam.onView({ on_screen: true })
+    await Bun.sleep(1900)
+    expect(writes).toEqual([])
+    await waitFor(() => writes.length === 1, 1000)
+    expect(writes).toEqual([{ last_seen_seq: 19, home: { filter: "queued" } }])
+    expect(seam.get().last_seen_seq).toBe(19)
+    saved = { ...saved, last_seen_seq: 25 }
+    seam.onView({ last_seen_seq: 20 })
+    await waitFor(() => writes.length === 2)
+    expect(seam.get().last_seen_seq).toBe(25)
+  } finally { stop(); seam.dispose() }
 })
