@@ -10,7 +10,8 @@ import (
 	"time"
 )
 
-func TestInstalledRevocationBoundaryWaitsForDrainAndRejectsMalformedRequests(t *testing.T) {
+func revocationTestRoot(t *testing.T) string {
+	t.Helper()
 	// Keep the Unix address below Darwin's limit even under the macOS TMPDIR.
 	root, err := os.MkdirTemp("", "rev-")
 	if err != nil {
@@ -21,6 +22,11 @@ func TestInstalledRevocationBoundaryWaitsForDrainAndRejectsMalformedRequests(t *
 			t.Error(err)
 		}
 	})
+	return root
+}
+
+func TestInstalledRevocationBoundaryWaitsForDrainAndRejectsMalformedRequests(t *testing.T) {
+	root := revocationTestRoot(t)
 	path := filepath.Join(root, "control.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {

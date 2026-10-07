@@ -12,7 +12,7 @@ import (
 )
 
 func TestOwnerObserverBoundaryRejectsSelectorsBeforeDispatch(t *testing.T) {
-	listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "control.sock"))
+	listener, err := net.Listen("unix", filepath.Join(revocationTestRoot(t), "control.sock"))
 	if err != nil {
 		t.Fatal(err)
 	}

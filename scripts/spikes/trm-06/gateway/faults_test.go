@@ -12,7 +12,7 @@ import (
 
 func TestOwnerControlCutsOwnedTransportAndRefusesReconnect(t *testing.T) {
 	faults := &relayFaults{}
-	listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "control.sock"))
+	listener, err := net.Listen("unix", filepath.Join(revocationTestRoot(t), "control.sock"))
 	if err != nil {
 		t.Fatal(err)
 	}
