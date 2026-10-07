@@ -162,7 +162,15 @@ def observed_drain():
         if raw:
             if len(raw) > 4 * 1024 * 1024:
                 raise ValueError("oversized observer output")
-            return json.loads(raw)
+            result = json.loads(raw)
+            # Each completed observation is preserved by the host campaign.
+            # Consume only this fixed protected inode so restart can arm a new
+            # observer before the subsequent revocation in the same fresh VM.
+            current = OBSERVER.stat(follow_symlinks=False)
+            if current.st_ino != info.st_ino or current.st_dev != info.st_dev:
+                raise ValueError("observer replaced during read")
+            os.unlink(OBSERVER)
+            return result
         time.sleep(.02)
     raise ValueError("independent observer did not finish")
 

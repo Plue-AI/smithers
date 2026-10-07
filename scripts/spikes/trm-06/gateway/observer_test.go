@@ -98,3 +98,44 @@ func TestDrainSummaryRequiresItsLiteralRawKernelSample(t *testing.T) {
 		t.Fatal("direct kernel evidence refused")
 	}
 }
+
+func TestRestartRequiresEveryHeldCgroupBeforeAdmissionWithinTwoSeconds(t *testing.T) {
+	invoked := time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC)
+	groups := map[string]string{"s-0000000000000001": "populated 1\n"}
+	for _, fixture := range []struct {
+		name                     string
+		offset                   time.Duration
+		events                   string
+		surviving, missing, pass bool
+	}{
+		{name: "direct", offset: time.Second, events: "populated 0\n", pass: true},
+		{name: "boundary", offset: 2 * time.Second, events: "populated 0\n", pass: true},
+		{name: "late", offset: 2*time.Second + time.Nanosecond, events: "populated 0\n"},
+		{name: "stale", offset: -time.Nanosecond, events: "populated 0\n"},
+		{name: "removed", offset: time.Second, missing: true},
+		{name: "still-live", offset: time.Second, events: "populated 1\n"},
+		{name: "surviving-process", offset: time.Second, events: "populated 0\n", surviving: true},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			stamp := invoked.Add(fixture.offset).Format(time.RFC3339Nano)
+			zero := map[string]string{}
+			events := map[string]string{}
+			if !fixture.missing {
+				zero["s-0000000000000001"] = stamp
+				events["s-0000000000000001"] = fixture.events
+			}
+			processes := []any{}
+			if fixture.surviving {
+				processes = append(processes, map[string]any{"pid": 11})
+			}
+			raw, _ := json.Marshal(map[string]any{"sample": map[string]any{"processes": processes}, "observation": map[string]any{"zero": zero, "samples": []any{map[string]any{"utc": stamp, "events": events}}}})
+			err := validateRestartDrain(raw, groups, invoked, invoked.Add(3*time.Second))
+			if (err == nil) != fixture.pass {
+				t.Fatalf("restart evidence: %v, want pass=%v", err, fixture.pass)
+			}
+			if fixture.pass && validateRestartDrain(raw, groups, invoked, invoked.Add(500*time.Millisecond)) == nil {
+				t.Fatal("accepted zero after admission")
+			}
+		})
+	}
+}

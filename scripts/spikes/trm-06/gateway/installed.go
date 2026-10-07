@@ -397,13 +397,16 @@ func serveRevocation(ctx context.Context, listener net.Listener, requests chan<-
 			connection.Close()
 			continue
 		}
-		if err == nil && (string(request) == "sample\n" || string(request) == "restart\n" || string(request) == "arm\n") && len(controls) == 1 && controls[0] != nil && controls[0].observe != nil {
+		if err == nil && (string(request) == "sample\n" || string(request) == "restart\n" || string(request) == "arm\n" || string(request) == "drain\n") && len(controls) == 1 && controls[0] != nil && controls[0].observe != nil {
 			mode := "sample"
 			if string(request) == "restart\n" {
 				mode = "restart"
 			}
 			if string(request) == "arm\n" {
 				mode = "arm"
+			}
+			if string(request) == "drain\n" {
+				mode = "drain"
 			}
 			sampling, cancelSample := context.WithTimeout(ctx, 5*time.Second)
 			body, observeErr := controls[0].observe(sampling, mode)

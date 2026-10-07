@@ -146,6 +146,11 @@ func measurementRun(ctx context.Context, a *installedAuthority, root string, con
 	}
 	result["before"] = json.RawMessage(before)
 	if restart {
+		armed, err := ownerObservation(execution, root, "arm")
+		if err != nil {
+			return result, err
+		}
+		result["restart_observer_armed"] = json.RawMessage(armed)
 		invoked := time.Now()
 		killed, err := ownerObservation(execution, root, "restart")
 		result["restart_before"] = json.RawMessage(killed)
@@ -170,6 +175,19 @@ func measurementRun(ctx context.Context, a *installedAuthority, root string, con
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
+		rawDrain, err := ownerObservation(execution, root, "drain")
+		if err != nil {
+			return result, err
+		}
+		result["restart_drain"] = json.RawMessage(rawDrain)
+		var old guestSnapshot
+		if json.Unmarshal(before, &old) != nil {
+			return result, errors.New("invalid pre-restart sample")
+		}
+		if err = validateRestartDrain(rawDrain, old.Cgroups, invoked, time.Now()); err != nil {
+			return result, err
+		}
+		result["restart_zero_observed"] = true
 		probe, err := client.NewSession()
 		if err != nil {
 			return result, err
@@ -280,7 +298,7 @@ func containsPopulatedZero(events string) bool {
 	return false
 }
 func ownerObservation(ctx context.Context, root, operation string) ([]byte, error) {
-	if operation != "sample" && operation != "restart" && operation != "arm" {
+	if operation != "sample" && operation != "restart" && operation != "arm" && operation != "drain" {
 		return nil, errAuthority
 	}
 	connection, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(root, "control.sock"))
@@ -320,4 +338,25 @@ func zeroHasRawSample(name, stamp string, rows []json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+func validateRestartDrain(raw []byte, groups map[string]string, invoked, beforeAdmission time.Time) error {
+	var drain struct {
+		Sample      guestSnapshot `json:"sample"`
+		Observation struct {
+			Zero    map[string]string `json:"zero"`
+			Samples []json.RawMessage `json:"samples"`
+		} `json:"observation"`
+	}
+	if json.Unmarshal(raw, &drain) != nil || len(groups) == 0 || len(drain.Sample.Processes) != 0 {
+		return errors.New("independent restart drain unavailable")
+	}
+	for name := range groups {
+		stamp, ok := drain.Observation.Zero[name]
+		zero, err := time.Parse(time.RFC3339Nano, stamp)
+		if !ok || err != nil || zero.Before(invoked) || zero.After(beforeAdmission) || zero.Sub(invoked) > 2*time.Second || !zeroHasRawSample(name, stamp, drain.Observation.Samples) {
+			return errors.New("old cgroup lacks timed independent populated 0 before restart admission")
+		}
+	}
+	return nil
 }
