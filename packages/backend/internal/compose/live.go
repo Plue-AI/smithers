@@ -319,8 +319,16 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		if t.todos == nil {
 			return live.Source{}, live.Unsupported
 		}
-		source := live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
-			return t.home(ctx, repository, slug)
+		var role services.InstallRole
+		if t.queries != nil {
+			var err error
+			role, err = services.InstallRoleOf(ctx, t.queries, member)
+			if err != nil || role == "" {
+				return live.Source{}, live.Forbidden
+			}
+		}
+		source := live.Source{Key: fmt.Sprintf("home:%d:member:%d:role:%s", repository, member, role), Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			return t.home(ctx, repository, slug, member)
 		}}
 		if t.jobs != nil {
 			source = liveRepositoryTodosSource(source, t.jobs, repository)
@@ -402,7 +410,11 @@ func (t *liveTopics) externalSession(ctx context.Context, topic, rest string) (l
 // every state counted, a machine per TODO branch that is awake or waking,
 // and main's row from the install's GitHub sync. Last look and role filter
 // stay in the browser (§7.2.2).
-func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (json.RawMessage, error) {
+func (t *liveTopics) home(ctx context.Context, repository int64, slug string, members ...int64) (json.RawMessage, error) {
+	var member int64
+	if len(members) > 0 {
+		member = members[0]
+	}
 	todos, err := t.todos.Todos(ctx, repository)
 	if err != nil {
 		return nil, err

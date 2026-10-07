@@ -145,7 +145,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 		require.Equal(t, "open", f.item(second.Number.Int64).PRState)
 	}
 	// Webhook hints and scheduled polling must retain the dropped PR.
-	followed, err := db.New(pool).ListMythicalOpenPullItems(ctx, f.repoID)
+	followed, err := db.New(pool).ListMythicalOpenPullItems(ctx, f.repoID, f.service.now())
 	require.NoError(t, err)
 	found := false
 	for _, item := range followed {
@@ -708,4 +708,151 @@ func TestGitHubInboundMergeRebasesNextPublishedPull(t *testing.T) {
 	require.False(t, pull.Draft, "the remaining first item becomes ready")
 	require.NotContains(t, pull.Body, "Includes [T1]", "accepted body drops the landed prefix")
 	require.Equal(t, "ready", f.card(second.Number.Int64)["merge"].(map[string]any)["state"])
+}
+
+func TestGitHubInboundMultipleContainedProductionPoll(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		t.Run(fmt.Sprint(partial), func(t *testing.T) {
+			h := newMergeHarness(t)
+			ctx := context.Background()
+			n1, _, pr1 := h.first("First")
+			n2, _, pr2 := h.todoInReview("Second", h.item(n1).CandidateHead)
+			n3, _, pr3 := h.todoInReview("Third", h.item(n2).CandidateHead)
+			for range 4 {
+				h.pass()
+			}
+			if partial {
+				item := h.item(n3)
+				checks := mythicalChecksOf(item)
+				for i := range checks.PRManifests {
+					var kept []mythicalManifestItem
+					for _, included := range checks.PRManifests[i].Included {
+						if included.Number != n2 {
+							kept = append(kept, included)
+						}
+					}
+					checks.PRManifests[i].Included = kept
+				}
+				item.Checks = checks.encode()
+				_, err := h.q.SaveMythicalItem(ctx, item)
+				require.NoError(t, err)
+			}
+			synced, row := configureInboundPullPolling(t, h.publicationFixture)
+			stop := runFetchedFixture(t, synced)
+			defer stop()
+			h.fake.UpdatePull("rehearsal-owner/app", pr3, func(p *githubfake.Pull) { p.Draft = false })
+			h.fake.MergeAsPerson("rehearsal-owner/app", pr3)
+			main := NewGitHubMainPullService(h.q, h.host, h.connections, h.connections)
+			qualifyMainPullFixture(main)
+			main.Sweep(ctx)
+			require.NoError(t, main.PollOnce(ctx))
+			require.NoError(t, synced.pollInstallPull(ctx, row, pr3))
+			require.Eventually(t, func() bool { return h.item(n3).State == "landed" }, 10*time.Second, 20*time.Millisecond)
+			rows, err := readStackAttention(ctx, h.pool, h.repoID)
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			require.Len(t, rows[0].Entries, 1)
+			expected := "T3 merged before T1; T1's change is in T3's commit\nT3 merged before T2; T2's change is in T3's commit"
+			if partial {
+				expected = "T3 merged before T1; T1's change is in T3's commit\nT3 merged out of order; containment of T2 is unverified"
+			}
+			require.Equal(t, expected, rows[0].Entries[0].Text)
+			require.Equal(t, "landed", h.item(n1).State)
+			if partial {
+				require.Equal(t, "proposed", h.item(n2).State, "the inbound fold leaves unproven items unchanged")
+			}
+			for range 4 {
+				h.pass()
+			}
+			require.Equal(t, "closed", h.pull(pr1).State)
+			if partial {
+				require.NotEqual(t, "landed", h.item(n2).State, "ordinary rebase work cannot claim containment")
+				require.Equal(t, "open", h.pull(pr2).State)
+			} else {
+				require.Equal(t, "landed", h.item(n2).State)
+				require.Equal(t, "closed", h.pull(pr2).State)
+				require.Equal(t, "T3 merged before T2; T2's change is in T3's commit", h.item(n2).Reason)
+			}
+			require.Empty(t, h.merges())
+		})
+	}
+}
+
+func TestGitHubInboundLaterUndraftedProductionPoll(t *testing.T) {
+	h := newMergeHarness(t)
+	n1, _, _ := h.first("First")
+	n2, _, pr2 := h.todoInReview("Second", h.item(n1).CandidateHead)
+	for range 4 {
+		h.pass()
+	}
+	before := len(h.fake.Writes())
+	synced, row := configureInboundPullPolling(t, h.publicationFixture)
+	stop := runFetchedFixture(t, synced)
+	defer stop()
+	h.fake.UpdatePull("rehearsal-owner/app", pr2, func(p *githubfake.Pull) { p.Draft = false })
+	require.NoError(t, synced.pollInstallPull(context.Background(), row, pr2))
+	require.Eventually(t, func() bool { return !mythicalChecksOf(h.item(n2)).PRDraft }, 10*time.Second, 20*time.Millisecond)
+	for range 3 {
+		h.pass()
+	}
+	require.False(t, h.pull(pr2).Draft)
+	_, block := h.mergeCard(n2)
+	require.Equal(t, "order", block["reason"])
+	require.Empty(t, h.merges())
+	for _, write := range h.fake.Writes()[before:] {
+		require.NotContains(t, string(write.Body), "convertPullRequestToDraft")
+	}
+}
+
+func TestGitHubInboundClaimBeforeFoldProductionPoll(t *testing.T) {
+	h := newMergeHarness(t)
+	ctx := context.Background()
+	n1, head, pr1 := h.first("First")
+	_, _, pr2 := h.todoInReview("Second", h.item(n1).CandidateHead)
+	for range 4 {
+		h.pass()
+	}
+	require.NoError(t, h.press(h.ctx, n1, head))
+	h.fake.DelayNextMerge("rehearsal-owner/app", pr1)
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	require.Equal(t, "unknown", h.operation(n1).State)
+	synced, row := configureInboundPullPolling(t, h.publicationFixture)
+	stop := runFetchedFixture(t, synced)
+	defer stop()
+	h.fake.UpdatePull("rehearsal-owner/app", pr2, func(p *githubfake.Pull) { p.Draft = false })
+	h.fake.MergeAsPerson("rehearsal-owner/app", pr2)
+	main := NewGitHubMainPullService(h.q, h.host, h.connections, h.connections)
+	qualifyMainPullFixture(main)
+	main.Sweep(ctx)
+	require.NoError(t, main.PollOnce(ctx))
+	require.NoError(t, synced.pollInstallPull(ctx, row, pr2))
+	require.Eventually(t, func() bool { return h.item(n1).State == "landed" }, 10*time.Second, 20*time.Millisecond)
+	require.Equal(t, "unknown", h.operation(n1).State)
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	h.fake.CompleteDelayedMerges()
+	require.True(t, h.pull(pr1).Merged)
+	main.Sweep(ctx)
+	require.NoError(t, main.PollOnce(ctx))
+	for range 5 {
+		h.pass()
+	}
+	require.Empty(t, h.item(n1).PendingOp)
+	require.Len(t, h.merges(), 1, "fold and lookup must never issue a second merge")
+	require.Equal(t, "T2 merged before T1; T1's change is in T2's commit", h.item(n1).Reason)
+	require.Equal(t, 1, fetchedCount(t, h.pool.(*pgxpool.Pool), fmt.Sprintf(`SELECT count(*) FROM product_job_events WHERE event_type='todo.github_merged' AND data->>'n'='%d'`, n1)))
+	comments := 0
+	for _, write := range h.fake.Writes() {
+		if write.Method == http.MethodPost && write.Path == fmt.Sprintf("/repos/rehearsal-owner/app/issues/%d/comments", pr1) {
+			var body struct {
+				Body string `json:"body"`
+			}
+			require.NoError(t, json.Unmarshal(write.Body, &body))
+			if strings.Contains(body.Body, "Merged via #") {
+				comments++
+			}
+		}
+	}
+	require.Equal(t, 1, comments, "the fold's keyed PR note is still owed if the earlier merge completes")
 }
