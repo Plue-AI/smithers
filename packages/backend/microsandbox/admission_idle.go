@@ -114,6 +114,9 @@ func (r *Runtime) reconcileConfiguredAdmissionIdle(ctx context.Context, now time
 	if p == nil {
 		return nil
 	}
+	if p.Now != nil {
+		now = p.Now()
+	}
 	return r.ReconcileAdmissionIdle(ctx, now, start, *p)
 }
 
