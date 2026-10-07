@@ -47,6 +47,9 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	if s == nil || s.Pool == nil || s.Objects == nil || s.ResolveActor == nil || connection == nil {
 		return ack, ErrNotReady
 	}
+	if connection.registry == nil || connection.boot == nil {
+		return ack, ErrUnauthorized
+	}
 	if event.Seq == 0 || event.EventID == ([16]byte{}) {
 		return ack, wire.BadValue
 	}
