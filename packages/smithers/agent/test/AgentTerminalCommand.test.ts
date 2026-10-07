@@ -39,6 +39,80 @@ function deferred<T>() {
 }
 
 describe("registered terminal command result contract", () => {
+  it.each([status, { kind: "signal", signal: 15 } as const])("releases the command subscription before reusing the session: %j", async (completion) => {
+    let active = false
+    let releases = 0
+    const commands = new Commands({
+      execute: async function*() {
+        if (active) throw new Error("previous command still subscribed")
+        active = true
+        try {
+          yield output("fixture")
+          yield completion
+        } finally {
+          active = false
+          releases++
+        }
+      },
+      killRun: async () => {}
+    })
+    const first = commands.run(input, controller().signal)
+    const second = commands.run(input, controller().signal)
+    const code = completion.kind === "exit" ? 0 : 143
+    expect(await first).toEqual(expected("fixture", code))
+    expect(await second).toEqual(expected("fixture", code))
+    expect(active).toBe(false)
+    expect(releases).toBe(2)
+  })
+
+  it("ends the run when releasing a completed command fails", async () => {
+    let kills = 0
+    const commands = new Commands({
+      execute: async function*() {
+        try {
+          yield status
+        } finally {
+          throw new Error("subscription cleanup failed")
+        }
+      },
+      killRun: async () => { kills++ }
+    })
+    await expect(commands.run(input, controller().signal)).rejects.toMatchObject({ code: "command_failed" })
+    expect(kills).toBe(1)
+    await expect(commands.run(input, controller().signal)).rejects.toMatchObject({ code: "provider_unavailable" })
+  })
+
+  it("times out and confirms run cleanup when subscription release hangs", async () => {
+    const releasing = deferred<void>()
+    let kills = 0
+    const commands = new Commands({
+      execute: async function*() {
+        try {
+          yield status
+        } finally {
+          releasing.resolve()
+          await new Promise(() => {})
+        }
+      },
+      killRun: async () => { kills++ }
+    })
+    const result = commands.run({ ...input, timeoutMs: 20 }, controller().signal)
+    await releasing.promise
+    await expect(result).rejects.toMatchObject({ code: "timeout" })
+    expect(kills).toBe(1)
+    await commands.end()
+  })
+
+  it("accepts a trusted iterator without an optional return method", async () => {
+    const commands = new Commands({
+      execute: () => ({
+        [Symbol.asyncIterator]: () => ({ next: async () => ({ done: false as const, value: status }) })
+      }),
+      killRun: async () => {}
+    })
+    expect(await commands.run(input, controller().signal)).toEqual(expected(""))
+  })
+
   it.each(
     [
       ["literal", [output("hello\r\n"), status], expected("hello\n")],
