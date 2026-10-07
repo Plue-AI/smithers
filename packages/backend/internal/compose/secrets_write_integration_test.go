@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -79,6 +80,10 @@ func testSecretsComposed(t *testing.T, install bool) {
 	secretService := services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))
 	secrets := &routes.SecretHandler{Service: secretService, AgentEnvironment: services.NewAgentEnvironmentService(q, nil)}
 	topics := &liveTopics{queries: q, secrets: secretService}
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, secrets, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 
