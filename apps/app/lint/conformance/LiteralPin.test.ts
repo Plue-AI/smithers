@@ -328,22 +328,6 @@ const KNOWN_ORPHANS: ReadonlyArray<Excuse> = [
     reason: "e2e/real/issues/cloud.ts: RepoImportSeam retains import records but no live wire repo-import card/renderer exists; the job scenario needs an owner decision."
   },
   {
-    literal: "change.land", file: "e2e/real/portable-product.spec.ts",
-    reason: "e2e/real/portable-product.spec.ts: the old change landing affordance is absent; TODO merging uses prs.land and different IDs/arguments, so this scenario needs a full rewrite."
-  },
-  {
-    literal: "prs.land", file: "e2e/real/pull-requests.spec.ts",
-    reason: "e2e/real/pull-requests.spec.ts: the registered merge door is absent from current runtime declarations; T-STK-04 owns restoring TODO merge, not this lane."
-  },
-  {
-    literal: "data-commit-id", file: "e2e/real/repository-files.spec.ts",
-    reason: "e2e/real/repository-files.spec.ts: no current commit listing emits a commit-ID row; the retained change-stack row uses change IDs with different identity semantics."
-  },
-  {
-    literal: "data-row-open", file: "e2e/real/repository-files.spec.ts",
-    reason: "e2e/real/repository-files.spec.ts: no current commit listing emits a row-opening control; substituting data-open would select disclosure state rather than a command."
-  },
-  {
     literal: "card-connector-setup-github-", file: "e2e/real/run-inspection.spec.ts",
     reason: "e2e/real/run-inspection.spec.ts: the former connector setup card ID is absent; install Setup has a different model and readiness scenario."
   },
@@ -1135,4 +1119,12 @@ test("external spy evidence requires an executable recording call", () => {
     `const calls = []; const action = name => () => { calls.push("unrelated") }; action("key.press")`,
     `const calls = []; const action = name => () => { calls.push(name) }; runFlow("key.press")`
   ]) expect(extractLiterals("example.spec.ts", source).flatMap(literal => violationsOf(literal, vocabularies)).length).toBeGreaterThan(0)
+})
+
+test("retirement records preserve old identities without excusing current product assertions", () => {
+  const file = "/app/e2e/real/coverage/deferrals/history.ts"
+  const check = (source: string) => extractLiterals(file, source).flatMap(literal => [...violationsOf(literal, vocabularies)])
+  expect(check('export const RETIRED_SCENARIOS = [{ id: "retired.scenario", actions: ["retired.action"] }] as const')).toEqual([])
+  expect(check('export const unrelated = ["retired.action"]')).not.toEqual([])
+  expect(check('export const RETIRED_SCENARIOS = [page.getByTestId("card-form-issue.retired-flow")]')).not.toEqual([])
 })

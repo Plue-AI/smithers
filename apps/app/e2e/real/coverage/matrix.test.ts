@@ -14,6 +14,7 @@ import {
   MANDATORY_DETERMINISTIC_BUN_TESTS,
   MANDATORY_DETERMINISTIC_BROWSER_SPECS,
   MATRIX_OBLIGATIONS,
+  RETIRED_SCENARIOS,
   MATRIX_SCENARIO_IDS,
   applicableScenarioIds,
   MODE_DESCRIPTORS,
@@ -100,6 +101,14 @@ describe("deployment mode matrix", () => {
       ["web-selfhost", "local"], ["web-plue", "production"],
       ["local-own", "local"], ["local-plue", "production"],
     ])
+  })
+
+  test("legacy landing retirement retains its evidence and leaves TODO merge in its reference-host journey", () => {
+    expect(RETIRED_SCENARIOS.find(({ id }) => id === "landings.local-change-land")?.reason).toContain("M-39")
+    expect(MATRIX_SCENARIO_IDS).not.toContain("landings.local-change-land")
+    const replacement = readFileSync(resolve(import.meta.dir, "../todo-merge.spec.ts"), "utf8")
+    expect(replacement).toContain('`/api/todos/${n}/merge`')
+    expect(replacement).toContain('"door:button"')
   })
 
   test("every implemented matrix scenario resolves to the canonical real suite", () => {

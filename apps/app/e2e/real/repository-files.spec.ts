@@ -6,7 +6,7 @@ import { awaitBoot, closeComposer, command, expect, productUrl, realApi, reloadA
 import { finishFirstVisit } from "./support/first-visit"
 import { attachJson } from "./issues/local"
 import {
-  newChangeId, pushChangeRevision, pushLocalFixture, pushMainFiles, withOwnedRepository, type OwnedRepository
+  newChangeId, pushChangeRevision, pushMainFiles, withOwnedRepository, type OwnedRepository
 } from "./portable/owned-repository"
 
 authenticatedTest.setTimeout(240_000)
@@ -98,58 +98,6 @@ authenticatedTest("files.list, files.read and search.files read seeded bytes fro
     await expect(fileCard).toContainText(bytes.trim(), { timeout: 30_000 })
     await expect(srcCard).toContainText(`${stem}.ts`)
     await attachJson(testInfo, "files-readback", { repo: repo.fullName, root, path, bytes })
-  })
-})
-
-authenticatedTest("branches.list, commits.list and commits.read follow a pushed branch to its commit from the keyboard", scenario("repository.branches-commits-readback", {
-  capabilities: ["identity"],
-  description: "Push a fixture branch to an owned repository, list its branches, open the branch's commits and the newest commit from the keyboard, and compare the branch heads, commit ids and changed path with the bookmarks and changes APIs before and after reload.",
-  coverage: [
-    "action:branches.list", "action:commits.list", "action:commits.read",
-    "host:local", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
-    "dimension:keyboard", "dimension:reload", "surface:commit-card", "evidence:bookmarks-and-changes-api-readback"
-  ]
-}), async ({ page, request }, testInfo) => {
-  await withOwnedRepository(page, request, async (repo) => {
-    const { commit, marker } = await pushLocalFixture(page, request, repo)
-    type Head = { readonly commit: string; readonly change: string }
-    const bookmarks = async (): Promise<Record<string, Head>> => {
-      const response = await realApi(page, request, "GET", `${repo.path}/bookmarks`)
-      expect(response.status()).toBe(200)
-      const body = await response.json() as { readonly items?: ReadonlyArray<{ readonly name?: string; readonly target_commit_id?: string; readonly target_change_id?: string }> }
-      return Object.fromEntries((body.items ?? []).map((item) => [String(item.name), { commit: String(item.target_commit_id), change: String(item.target_change_id) }]))
-    }
-    await expect.poll(async () => (await bookmarks()).fixture?.commit, { timeout: 30_000 }).toBe(commit)
-    const heads = await bookmarks()
-    expect(Object.keys(heads).sort()).toEqual(["fixture", "main"])
-    const changeId = heads.fixture!.change
-    const change = await realApi(page, request, "GET", `${repo.path}/changes/${changeId}`)
-    expect(change.status()).toBe(200)
-    expect(await change.json()).toMatchObject({ change_id: changeId, commit_id: commit })
-    await openRepository(page, repo)
-
-    await slash(page, `/branches.list ${repo.fullName}`)
-    const branches = card(page, `branches-${repo.fullName}`)
-    await expect(branches).toBeVisible({ timeout: 30_000 })
-    await expect.poll(async () => (await branches.locator(".branches-row-open .world-card-title").allTextContents()).sort()).toEqual(["fixture", "main"])
-    await expect(branches.getByRole("button", { name: /^fixture/ })).toContainText(commit.slice(0, 8))
-
-    await pressKey(branches.getByRole("button", { name: /^fixture/ }))
-    const commits = card(page, `commits-${repo.fullName}-fixture`)
-    await expect(commits).toBeVisible({ timeout: 30_000 })
-    const commitRow = commits.locator(`[data-commit-id="${commit}"]`)
-    await expect(commitRow).toContainText("Add local fixture")
-
-    await pressKey(commitRow.locator("[data-row-open]"))
-    const detail = card(page, `commit-${repo.fullName}-${changeId}`)
-    await expect(detail).toBeVisible({ timeout: 30_000 })
-    await expect(detail).toContainText("Add local fixture")
-    await expect(detail.getByRole("region", { name: "Diff of fixture.txt" })).toContainText(marker)
-
-    await reloadApp(page)
-    await expect(detail.getByRole("region", { name: "Diff of fixture.txt" })).toContainText(marker, { timeout: 30_000 })
-    await expect(commits.locator(`[data-commit-id="${commit}"]`)).toBeVisible()
-    await attachJson(testInfo, "branches-commits-readback", { repo: repo.fullName, heads, changeId, commit })
   })
 })
 

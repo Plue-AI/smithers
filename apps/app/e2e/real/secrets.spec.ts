@@ -11,7 +11,7 @@ import { fixtureInputText, fixtureProtocolId } from "./support/values"
 authenticatedTest("repository secret metadata survives reload and follows actual backend deletion", scenario("secrets.repository-metadata-readback", {
   capabilities: ["identity", "cloud"],
   description: "Create a uniquely owned private repository and synthetic secret through the real API, read only its metadata through the keyboard flow, reload, then delete it and verify the refreshed card and backend agree without revealing the value.",
-  coverage: ["action:secrets.list", "host:local", "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:reload", "dimension:write-only-secret", "evidence:backend-metadata-and-deletion-readback"]
+  coverage: ["action:secrets", "host:local", "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:reload", "dimension:write-only-secret", "evidence:backend-metadata-and-deletion-readback"]
 }), async ({ page, request }, testInfo) => {
   const user = await realApi(page, request, "GET", "/api/user")
   expect(user.status()).toBe(200)
@@ -55,7 +55,7 @@ authenticatedTest("repository secret metadata survives reload and follows actual
     const list = async () => {
       const observed = page.waitForResponse(response => response.request().method() === "GET" && new URL(response.url()).pathname === environmentPath)
       void observed.catch(() => undefined)
-      await command(page, `/secrets.list ${repo}`)
+      await command(page, `/secrets ${repo}`)
       await closeComposer(page)
       const response = await observed
       expect(response.status()).toBe(200)
@@ -107,7 +107,7 @@ authenticatedTest("repository secret metadata survives reload and follows actual
 authenticatedTest("the Secrets card adds, rotates and deletes a secret through the masked form, never reading a value back", scenario("secrets.card-editor", {
   capabilities: ["identity", "cloud"],
   description: "In a uniquely owned private repository, add a bound secret from the card's masked form, rotate it with a blank binding, and delete it, reading the real backend's metadata after each step without the value reaching the page or any response.",
-  coverage: ["action:secrets.set", "action:secrets.delete", "action:secrets.list", "host:local", "host:production", "path:success", "door:button", "dimension:write-only-secret", "evidence:backend-metadata-and-deletion-readback"]
+  coverage: ["action:secrets.set", "action:secrets.delete", "action:secrets", "host:local", "host:production", "path:success", "door:slash", "door:button", "dimension:write-only-secret", "evidence:backend-metadata-and-deletion-readback"]
 }), async ({ page, request }, testInfo) => {
   const user = await realApi(page, request, "GET", "/api/user")
   expect(user.status()).toBe(200)
@@ -140,7 +140,7 @@ authenticatedTest("the Secrets card adds, rotates and deletes a secret through t
     await page.goto(`/${repo}`, { waitUntil: "domcontentloaded" })
     await awaitBoot(page, "navigate", started)
     await finishFirstVisit(page)
-    await command(page, `/secrets.list ${repo}`)
+    await command(page, `/secrets ${repo}`)
     await closeComposer(page)
     const card = page.locator('.smithers-card[data-kind="secrets"]')
     await expect(card).toBeVisible()

@@ -71,6 +71,12 @@ export const MATRIX_SURFACE_DRIVERS: Readonly<Record<ProductSurface, "playwright
 
 }
 
+/** Legacy local-change landing retired with M-05/M-39, not waived TODO merge coverage.
+ * The replacement is owned by the exclusive reference-host todo-merge.spec.ts journey.
+ * Keep the receipt id and retirement evidence in the reviewed history ledger.
+ */
+export { RETIRED_SCENARIOS } from "./deferrals/history"
+
 /** One obligation catalog. Modes inject topology; they do not copy scenario bodies. */
 export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
   { id: "signed-in", scenarios: [{ id: "auth.mode-session-cookie-persistence", capabilities: ["identity"] }], tier: "local-infrastructure" },
@@ -81,7 +87,6 @@ export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
   { id: "terminal", scenarios: [{ id: "workspaces.product-terminal-keyboard-output", capabilities: ["identity", "cloud", "cloud.terminal"] }], tier: "local-infrastructure" },
   { id: "flow", scenarios: [{ id: "flows.product-run", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "issue", scenarios: [{ id: "issues.product-create-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
-  { id: "landing", scenarios: [{ id: "landings.local-change-land", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "reload", scenarios: [{ id: "issues.product-reload-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "approval", scenarios: [
     { id: "approvals.product-approve", capabilities: ["identity", "cloud"] },

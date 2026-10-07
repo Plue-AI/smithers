@@ -794,7 +794,7 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
       const name = ancestor.name.text
       if (normalized.endsWith("/scripts/check-real-e2e.ts") && name === "baseline" ||
         normalized.endsWith("/e2e/real/coverage/deferrals.ts") && name === "UNSCENARIOED_ACTIONS" ||
-        normalized.endsWith("/e2e/real/coverage/deferrals/history.ts") && name === "history") return "scenario-id"
+        normalized.endsWith("/e2e/real/coverage/deferrals/history.ts") && (name === "history" || name === "RETIRED_SCENARIOS")) return "scenario-id"
     }
   }
   // A metadata constructor cannot hide an explicit enclosing flow, affix or

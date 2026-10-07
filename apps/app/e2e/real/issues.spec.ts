@@ -472,7 +472,7 @@ authenticatedTest(
     capabilities: ["identity", "cloud"],
     description: "Create an issue in an owned private import, submit its Add flow form, wait for the real create-flow run, and verify the generated issue flow in both the UI catalog and workspace RPC before cleanup.",
     coverage: [
-      "action:issues.create", "action:issue.add-flow", "action:flow.create",
+      "action:issues.create", "action:issue.add-flow", "action:flow.new",
       "action:flow.list", "host:production", "path:success", "path:persistence", "door:slash", "door:button",
       "dimension:authenticated-private-repository", "dimension:real-workflow", "dimension:issue-flow-artifact",
       "evidence:completed-run-ui-and-workspace-registry-readback"

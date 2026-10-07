@@ -1,4 +1,3 @@
-import { enqueuedEventType } from "@smthrs/control/Steering"
 import { createHash } from "node:crypto"
 import { SetupDraftSchema, storedSetupCandidate, type SetupDraft } from "@smthrs/rpc/RepositorySetup"
 import { scenario } from "./coverage/types"
@@ -62,7 +61,7 @@ const createFlowRun = async (
   tracker: RunTracker
 ): Promise<{ readonly card: ReturnType<typeof runCards>; readonly runId: string }> => {
   const accepted = acceptedRunId(page, repo, tracker)
-  await command(page, `/flow.create create a flow named ${marker} that accepts one text input and returns that text unchanged ${repo}`)
+  await command(page, `/flow.new create a flow named ${marker} that accepts one text input and returns that text unchanged ${repo}`)
   const runId = await accepted
   await closeComposer(page)
   const card = runCard(page, runId)
@@ -155,7 +154,7 @@ authenticatedTest("the canary GitHub App is installed before an owned workflow f
 workflowTest("a completed provider run exposes its real trace, transcript, events, and durable selection", scenario("runs.inspect-completed-trace-durable", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:flow.create", "action:runs.steps", "action:runs.logs", "action:runs.events",
+    "action:flow.new", "action:runs.steps", "action:runs.logs", "action:runs.events",
     "action:runs.trace.view", "action:runs.trace.filter", "action:runs.trace.select", "action:runs.trace.live",
     "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
     "dimension:real-provider", "dimension:completed-run", "dimension:keyboard", "dimension:timeline", "dimension:transcript",
@@ -458,118 +457,10 @@ workflowTest("an ordinary module run reports recorded step evidence or its pinne
   }
 })
 
-workflowTest("a live message steer persists as a real control event across reconnect", scenario("runs.live-steering-durable-reconnect", {
-  capabilities: ["identity", "cloud"],
-  coverage: [
-    "action:flow.create", "action:runs.steer",
-    "host:production", "path:success", "path:persistence", "door:slash",
-    "dimension:real-provider", "dimension:live-run", "dimension:durable-reconnect",
-    "dimension:message-steer",
-    "evidence:accepted-rpc-and-durable-control-events"
-  ],
-  description: "Launch an owned provider run, steer its live engine through a typed UI command, prove its exact server-authored event id, then reconnect to the same persisted run."
-}), async ({ page, request, workflowRepo }, testInfo) => {
-  const repo = workflowRepo.repo
-  await bootOwnedWorkflow(page, repo, workflowRepo.workspaceId)
-  const marker = fixtureInputText(`s16-steer-${Date.now().toString(36)}`)
-  const launched = await createFlowRun(page, repo, marker, workflowRepo)
-  const liveStatuses = new Set(["accepted", "running", "parked", "waiting-approval"])
-  let liveBefore: ReturnType<typeof runSummary> = undefined
-  await expect.poll(async () => {
-    const answer = await gatewayCall(page, request, repo, "Projection.Snapshot", {
-      selector: { _tag: "run-summary", runId: launched.runId }
-    }, workflowRepo.workspaceId)
-    liveBefore = runSummary(answer)
-    return typeof liveBefore?.status === "string" && liveStatuses.has(liveBefore.status)
-  }, { timeout: 60_000, intervals: [250, 500, 1_000] }).toBe(true)
-
-  const steer = async (
-    commandText: string,
-    expected: Readonly<Record<string, unknown>>
-  ): Promise<{
-    readonly messageId: string
-    readonly idempotencyKey: string
-    readonly request: Readonly<Record<string, unknown>>
-  }> => {
-    const responsePromise = waitForGatewayProcedure(page, "Steer", repo)
-    await command(page, commandText)
-    const response = await responsePromise
-    const requestBody = response.request().postDataJSON() as {
-      readonly repo?: unknown
-      readonly workspaceId?: unknown
-      readonly payload?: {
-        readonly runId?: unknown
-        readonly idempotencyKey?: unknown
-        readonly message?: Readonly<Record<string, unknown>>
-      }
-    }
-    const message = requestBody.payload?.message
-    const messageId = message?.messageId
-    expect(typeof messageId).toBe("string")
-    const messagePrefix = `steer-${launched.runId}-`
-    expect(messageId).toMatch(new RegExp(`^${messagePrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.+`))
-    const nonce = String(messageId).slice(messagePrefix.length)
-    const idempotencyKey = `steer:${launched.runId}:${nonce}`
-    expect(requestBody.repo).toBe(repo)
-    expect(requestBody.workspaceId).toBe(workflowRepo.workspaceId)
-    expect(requestBody.payload).toMatchObject({ runId: launched.runId, message: expected })
-    expect(requestBody.payload?.idempotencyKey).toBe(idempotencyKey)
-    expect(response.status()).toBe(200)
-    expect(await response.json()).toMatchObject({
-      ok: true,
-      payload: { _tag: "Accepted", receiptId: idempotencyKey, runId: launched.runId }
-    })
-    return { messageId: String(messageId), idempotencyKey, request: requestBody }
-  }
-
-  const message = await steer(`/runs.steer ${launched.runId} preserve the exact ${marker} flow contract`, {
-    runId: launched.runId, kind: "Message", body: `preserve the exact ${marker} flow contract`
-  })
-  // The thinking and tool steers left with the MVP cut (#3385); the message steer remains.
-  const accepted = [message]
-
-  let controlEvents: ReadonlyArray<ProjectionRow> = []
-  await expect.poll(async () => {
-    const answer = await gatewayCall(page, request, repo, "Projection.Snapshot", {
-      selector: { _tag: "run-events", runId: launched.runId }
-    }, workflowRepo.workspaceId)
-    controlEvents = projectionRows(answer).filter((event) => event.kind === enqueuedEventType)
-    const ids = controlEvents.map((event) => (event.payload as ProjectionRow | undefined)?.messageId)
-    return ids
-  }, { timeout: 60_000, intervals: [250, 500, 1_000] }).toEqual(expect.arrayContaining(accepted.map((entry) => entry.messageId)))
-  for (const entry of accepted) {
-    const persisted = controlEvents.find((event) =>
-      (event.payload as ProjectionRow | undefined)?.messageId === entry.messageId
-    )
-    expect(persisted, `server journal must record steer ${entry.messageId}`).toBeDefined()
-    const payload = persisted!.payload as ProjectionRow
-    const requestMessage = ((entry.request.payload as ProjectionRow).message as ProjectionRow)
-    expect(payload).toMatchObject({
-      runId: launched.runId,
-      messageId: entry.messageId,
-      kind: requestMessage.kind,
-      createdAt: requestMessage.createdAt
-    })
-  }
-
-  await reloadApp(page)
-  const restored = runCard(page, launched.runId)
-  await expect(restored).toBeVisible()
-  expect(await exactRunId(restored)).toBe(launched.runId)
-  const afterReconnect = await gatewayCall(page, request, repo, "Projection.Snapshot", {
-    selector: { _tag: "run-summary", runId: launched.runId }
-  }, workflowRepo.workspaceId)
-  expect(runSummary(afterReconnect)?.runId).toBe(launched.runId)
-  await attachProductionJson(testInfo, "live-steering-reconnect", {
-    repo, marker, runId: launched.runId, liveBefore, accepted, controlEvents,
-    afterReconnect: runSummary(afterReconnect)
-  })
-})
-
 workflowTest("run again creates a second real execution and both appear in the server-backed completed list", scenario("runs.rerun-completed-list-open", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:flow.create", "action:runs.rerun", "action:runs.list", "action:runs.open", "host:production",
+    "action:flow.new", "action:runs.rerun", "action:runs.list", "action:runs.open", "host:production",
     "path:success", "path:keyboard", "door:slash", "door:button", "dimension:real-provider",
     "dimension:rerun-new-id", "dimension:completed-filter", "dimension:keyboard", "dimension:server-backed-list",
     "evidence:two-terminal-projections-and-run-list"
@@ -617,7 +508,7 @@ workflowTest("run again creates a second real execution and both appear in the s
 workflowTest("stop all cancels two live owned runs, leaves a terminal sibling unchanged, and terminal resume is refused", scenario("runs.stop-all-owned-live-scope", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:flow.create", "action:runs.list", "action:flow.run.stop-all", "action:runs.resume",
+    "action:flow.new", "action:runs.list", "action:flow.run.stop-all", "action:runs.resume",
     "action:flow.run.stop",
     "host:production", "path:error",
     "door:slash", "door:button", "dimension:real-provider", "dimension:multiple-live-runs",

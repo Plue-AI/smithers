@@ -12,14 +12,10 @@ import {
   importOwnedPullRequestRepo,
   landingDetail,
   landingList,
-  queueLandingThroughAPI,
-  readBookmarks,
   readChange,
   readChecks,
   readLanding,
   readReviews,
-  trackLandingQueue,
-  waitForLandingState,
   withOwnedPullRequestRepo
 } from "./pull-requests/remote"
 
@@ -163,109 +159,6 @@ test(
         requested,
         rejectedStatus: rejected.status(),
         reviews: afterApproval.map((review) => ({ type: review.type, body: review.body }))
-      })
-    })
-  }
-)
-
-test(
-  "landing queues the exact tip and eventually advances main to the merged revision",
-  scenario("pull-requests.production-land-git-proof", {
-    capabilities: ["identity", "cloud"],
-    description: "Land a disposable private pull request from its UI button, require the queued intermediate truth, then prove the worker merged that exact tip into main.",
-    coverage: [
-      "action:prs.view", "action:prs.land", "host:production", "path:success",
-      "door:slash", "door:button", "dimension:queue", "dimension:merge", "dimension:bookmark-advance",
-      "evidence:ui-platform-git-state-proof"
-    ]
-  }),
-  async ({ page, request, context }, testInfo) => {
-    const session = await readAuthenticatedSession(page)
-    expect(session).toBeDefined()
-    await withOwnedPullRequestRepo(page, request, context, session!.login, testInfo, "land", async (owned) => {
-      await importOwnedPullRequestRepo(page, request, owned)
-      const created = await createPullRequestFixture(page, request, owned, `Real land ${owned.marker}`)
-      const before = await readBookmarks(page, request, owned)
-      const mainBefore = before.find((bookmark) => bookmark.name === "main")
-      const tipBefore = await readChange(page, request, owned)
-      expect(tipBefore.commit_id).toBe(owned.featureCommit)
-      expect(mainBefore?.target_change_id).not.toBe(owned.tipChangeId)
-
-      const landResponse = page.waitForResponse((response) =>
-        response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith(`/landings/${created.number}/land`))
-      trackLandingQueue(owned, created.number)
-      await landingDetail(page, created.number).getByRole("button", { name: /Land \(queue merge\)/ }).click()
-      const queueResponse = await landResponse
-      const queueBody = await queueResponse.json()
-      if (queueResponse.status() === 422 && (await readLanding(page, request, owned, created.number)).state === "open") {
-        // An explicit validation refusal accepted no job; cleanup must not
-        // wait three minutes for an open PR to become a terminal worker job.
-        owned.queuedLandings.splice(owned.queuedLandings.indexOf(created.number), 1)
-      }
-      expect(queueResponse.status(), JSON.stringify(queueBody)).toBe(202)
-      await expectFlowOutcome(page, "prs.land", `${created.number} ${owned.fullName}`, "executed")
-      await expect(landingDetail(page, created.number)).toContainText(/queued/i)
-
-      const merged = await waitForLandingState(page, request, owned, created.number, "merged")
-      const landedTip = await readChange(page, request, owned)
-      const after = await readBookmarks(page, request, owned)
-      const mainAfter = after.find((bookmark) => bookmark.name === "main")
-      expect(mainAfter?.target_change_id).toBe(owned.tipChangeId)
-      expect(landedTip.landed?.landing_request_number).toBe(created.number)
-      expect(mainAfter?.target_commit_id).toBe(landedTip.commit_id)
-      expect(mainAfter?.target_commit_id).not.toBe(mainBefore?.target_commit_id)
-
-      await attachPullRequestEvidence(testInfo, "land-git-proof", {
-        repository: owned.fullName,
-        number: created.number,
-        landingState: merged.state,
-        mainBefore,
-        mainAfter,
-        expectedTipChange: owned.tipChangeId,
-        importedTipCommit: owned.featureCommit,
-        landedTipCommit: landedTip.commit_id,
-        provenance: landedTip.landed
-      })
-    })
-  }
-)
-
-test(
-  "a stale land button cannot queue the same pull request twice",
-  scenario("pull-requests.production-stale-land-action", {
-    capabilities: ["identity", "cloud"],
-    description: "Hold a rendered Land action, queue the PR through the real API, then activate the stale button and require a conflict without a second state change.",
-    coverage: [
-      "action:prs.view", "action:prs.land", "host:production", "path:error",
-      "door:button", "dimension:stale-action", "dimension:idempotency", "evidence:platform-state-before-after-stale-click"
-    ]
-  }),
-  async ({ page, request, context }, testInfo) => {
-    const session = await readAuthenticatedSession(page)
-    expect(session).toBeDefined()
-    await withOwnedPullRequestRepo(page, request, context, session!.login, testInfo, "stale", async (owned) => {
-      await importOwnedPullRequestRepo(page, request, owned)
-      const created = await createPullRequestFixture(page, request, owned, `Real stale ${owned.marker}`)
-      const staleButton = landingDetail(page, created.number).getByRole("button", { name: /Land \(queue merge\)/ })
-      await expect(staleButton).toBeVisible()
-
-      const queued = await queueLandingThroughAPI(page, request, owned, created.number)
-      expect(["queued", "landing", "merged"]).toContain(queued.state)
-      const staleResponse = page.waitForResponse((response) =>
-        response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith(`/landings/${created.number}/land`))
-      await staleButton.click()
-      const rejected = await staleResponse
-      expect(rejected.status()).toBe(409)
-      await expectFlowOutcome(page, "prs.land", `${created.number} ${owned.fullName}`, "failed")
-      const after = await readLanding(page, request, owned, created.number)
-      expect(["queued", "landing", "merged"]).toContain(after.state)
-
-      await attachPullRequestEvidence(testInfo, "stale-land", {
-        repository: owned.fullName,
-        number: created.number,
-        queuedState: queued.state,
-        staleStatus: rejected.status(),
-        finalState: after.state
       })
     })
   }

@@ -41,7 +41,7 @@ test(
     capabilities: ["identity", "cloud"],
     description: "Invoke the three workflow entry points on the real local host while signed out and require the shared identity refusal before provision, RPC, or a run card exists.",
     coverage: [
-      "action:flow.create", "action:flow.list", "action:flow.run",
+      "action:flow.new", "action:flow.list", "action:flow.run",
       "host:local", "path:permission", "door:slash", "dimension:signed-out",
       "dimension:no-remote-side-effect", "evidence:transcript-and-request-observation"
     ]
@@ -54,7 +54,7 @@ test(
     })
 
     await bootLocal(page)
-    await runSignedOutCommand(page, "/flow.create s15 must not start smithersai/smithers", "Sign in with GitHub to continue.")
+    await runSignedOutCommand(page, "/flow.new s15 must not start smithersai/smithers", "Sign in with GitHub to continue.")
     await runSignedOutCommand(page, "/flow.list smithersai/smithers", "Sign in with GitHub to continue.")
     await runSignedOutCommand(page, "/flow.run create-flow smithersai/smithers", "Sign in with GitHub to run create-flow on smithersai/smithers.")
     await closeComposer(page)
@@ -222,7 +222,7 @@ workflowTest(
     capabilities: ["identity", "cloud"],
     description: "Create an exact typed echo flow on an owned private workspace, retain its accepted run across reload, prove registry discovery, then submit the derived UI form and require the second provider run's output.",
     coverage: [
-      "action:flow.create", "action:flow.list", "action:flow.run",
+      "action:flow.new", "action:flow.list", "action:flow.run",
       "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
       "dimension:provider-run", "dimension:reload", "dimension:reconnect", "dimension:declared-input-schema",
       "dimension:exact-run-id", "dimension:created-artifact-readback", "dimension:keyboard",
@@ -238,7 +238,7 @@ workflowTest(
     const marker = `s15-echo-${Date.now().toString(36)}`
     const [createRunId] = await Promise.all([
       acceptedRunId(page, repo, workflowRepo),
-      command(page, `/flow.create create a workflow with the exact id ${marker}; declare one required string input named message and return an object whose message is exactly that input; do not access the network or repository files ${repo}`)
+      command(page, `/flow.new create a workflow with the exact id ${marker}; declare one required string input named message and return an object whose message is exactly that input; do not access the network or repository files ${repo}`)
     ])
     await closeComposer(page)
     const card = page.locator(`.smithers-card[data-kind="run-trace"][data-run-id="${createRunId}"]`)
@@ -292,7 +292,7 @@ workflowTest(
     capabilities: ["identity", "cloud"],
     description: "Run the built-in authoring pipeline until its contractually required post-design gate, approve the exact projected request through its card, and require the gateway to retain the approved decision before cancelling the owned run.",
     coverage: [
-      "action:flow.create", "action:flow.run.stop", "host:production", "path:success", "door:slash", "door:button",
+      "action:flow.new", "action:flow.run.stop", "host:production", "path:success", "door:slash", "door:button",
       "dimension:provider-run", "dimension:approval-decision", "dimension:exact-run-id",
       "dimension:projection-readback", "dimension:approval-conflict-retry",
       "evidence:approval-submit-replay-conflict-and-decided-projection"
@@ -305,7 +305,7 @@ workflowTest(
     const marker = fixtureInputText(`s16-approval-${Date.now().toString(36)}`)
     const [runId] = await Promise.all([
       acceptedRunId(page, repo, workflowRepo),
-      command(page, `/flow.create create a workflow with the exact id ${marker}; it must accept one required string named value and return that exact string; include a deterministic unit test ${repo}`)
+      command(page, `/flow.new create a workflow with the exact id ${marker}; it must accept one required string named value and return that exact string; include a deterministic unit test ${repo}`)
     ])
     await closeComposer(page)
     const runCard = page.locator(`.smithers-card[data-kind="run-trace"][data-run-id="${runId}"]`)
@@ -423,7 +423,7 @@ workflowTest(
     capabilities: ["identity", "cloud"],
     description: "Launch a real provider-backed flow, capture its accepted job id, stop it through the rendered button, and require the server projection for that exact id to become cancelled.",
     coverage: [
-      "action:flow.create", "action:flow.run.stop", "host:production", "path:success", "door:slash", "door:button",
+      "action:flow.new", "action:flow.run.stop", "host:production", "path:success", "door:slash", "door:button",
       "dimension:provider-run", "dimension:cancel", "dimension:exact-run-id",
       "evidence:accepted-id-and-terminal-cancel-projection"
     ]
@@ -434,7 +434,7 @@ workflowTest(
     const marker = `s15-cancel-${Date.now().toString(36)}`
     const [runId] = await Promise.all([
       acceptedRunId(page, repo, workflowRepo),
-      command(page, `/flow.create create a flow named ${marker} with one string input and one string output ${repo}`)
+      command(page, `/flow.new create a flow named ${marker} with one string input and one string output ${repo}`)
     ])
     await closeComposer(page)
     const card = page.locator(`.smithers-card[data-kind="run-trace"][data-run-id="${runId}"]`)
