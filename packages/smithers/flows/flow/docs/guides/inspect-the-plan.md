@@ -51,6 +51,20 @@ or branch arm records, or `failure` for a recovery arm.
 
 ## Read the diagnostics
 
+`Graph.inspect(flow)` exports JSON-safe nodes, edges, steps, diagnostics and,
+for prompt declarations, the renderer's source. It supplies an unresolved
+`Planned` input and uses the same graph builder. It never runs an action or
+renders a prompt. Repository declarations must still be inspected in their
+guest, because building a graph calls their plan-time bodies.
+
+Inspect `diagnostics` before publishing the steps. A body that computes on its
+input can require a real payload; inspection reports `declaration_requires_input`
+without declaring the flow unloadable. Use `Graph.build(flow, payload)` to plan
+that invocation. Symbolic inputs have the same restrictions as planned step
+results: use node combinators for branching, not JavaScript truthiness or
+reference comparisons. Prompt source is code for inspection, not a rendered
+prompt or an executable browser artifact.
+
 `Graph.diagnostics(graph)` holds the recoverable topology issues, such as a
 missing continuation builder or a continuation that produced no node. Fatal
 refusals, including computing on a planned value and a recursive inline `call`,
