@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -323,9 +324,10 @@ func (s *WorkspaceService) ReconstructMachineAdmission(ctx context.Context) erro
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	rows, err := tx.Query(ctx, `
-SELECT holder, class, actor, retain_only FROM (
+SELECT holder, class, actor, retain_only, todo_state, todo_checks, todo_paused_at, todo_pr_state, todo_attempt FROM (
   SELECT 'workspace:' || w.id::text AS holder, 'person'::text AS class,
-         'person:' || s.user_id::text || ':session:' || s.id::text AS actor, s.created_at AS age, s.status='running' AS retain_only
+         'person:' || s.user_id::text || ':session:' || s.id::text AS actor, s.created_at AS age, s.status='running' AS retain_only,
+         ''::text AS todo_state, '{}'::jsonb AS todo_checks, NULL::timestamptz AS todo_paused_at, ''::text AS todo_pr_state, 0::integer AS todo_attempt
     FROM workspace_sessions s JOIN workspaces w ON w.id=s.workspace_id AND w.repository_id=s.repository_id
     JOIN users u ON u.id=s.user_id
    WHERE s.status IN ('pending','starting','running') AND w.deleted_at IS NULL
@@ -334,13 +336,13 @@ SELECT holder, class, actor, retain_only FROM (
        OR EXISTS(SELECT 1 FROM collaborators c WHERE c.repository_id=w.repository_id AND c.user_id=u.id
           AND c.permission IN ('admin','write') AND c.suspended_at IS NULL))
   UNION ALL
-  SELECT 'workspace:' || w.id::text, 'todo', 'workspace:' || w.id::text, i.created_at, (i.paused_at IS NOT NULL OR i.state IN ('proposed','blocked'))
+  SELECT 'workspace:' || w.id::text, 'todo', 'workspace:' || w.id::text, i.created_at, false, i.state, i.checks, i.paused_at, i.pr_state, i.attempt
     FROM mythical_items i JOIN mythical_lanes l ON l.item_id=i.id AND l.workspace_id=i.workspace_id AND l.repository_id=i.repository_id
     JOIN workspaces w ON w.id::text=i.workspace_id AND w.repository_id=i.repository_id
    WHERE i.source='todo' AND i.state IN ('queued','running','delivering','integrating','verifying','proposing','waiting','proposed','retrying','blocked')
      AND w.deleted_at IS NULL AND l.retired_at IS NULL
   UNION ALL
-  SELECT 'workspace:' || w.id::text, 'background', j.id::text, j.created_at, false
+  SELECT 'workspace:' || w.id::text, 'background', j.id::text, j.created_at, false, '', '{}'::jsonb, NULL::timestamptz, '', 0
     FROM product_job_requests j JOIN workspaces w ON w.name='review-' || j.id::text
    WHERE j.operation='install.review' AND j.state IN ('accepted','dispatching','running','waiting')
      AND NOT j.cancellation_requested AND w.deleted_at IS NULL
@@ -353,9 +355,29 @@ SELECT holder, class, actor, retain_only FROM (
 	demand := []microsandbox.AdmissionRequest{}
 	for rows.Next() {
 		row := microsandbox.AdmissionRequest{Reason: workspaceMachineReason}
-		if err := rows.Scan(&row.Holder, &row.Class, &row.Actor, &row.RetainOnly); err != nil {
+		var item db.MythicalItem
+		if err := rows.Scan(&row.Holder, &row.Class, &row.Actor, &row.RetainOnly, &item.State, &item.Checks, &item.PausedAt, &item.PRState, &item.Attempt); err != nil {
 			rows.Close()
 			return err
+		}
+		if row.Class == "todo" {
+			// Malformed durable wait evidence is unknown demand, not permission
+			// to wake. Refuse before passing any partial snapshot to the runtime.
+			var checks mythicalChecks
+			if len(item.Checks) != 0 {
+				if err := json.Unmarshal(item.Checks, &checks); err != nil {
+					rows.Close()
+					return fmt.Errorf("machine admission recovery TODO evidence: %w", err)
+				}
+			}
+			// Reuse the person-facing projection: an open answer/conflict wait
+			// is retain-only even when the engine still records running. A
+			// settled wait may wake again; historical wait evidence must not
+			// suppress a queued Retry.
+			switch todoState(item) {
+			case "paused", "in_review", "needs_you", "failed":
+				row.RetainOnly = true
+			}
 		}
 		if row.Class == "background" {
 			row.Reason = "review"

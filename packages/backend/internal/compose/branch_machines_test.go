@@ -472,6 +472,47 @@ esac
 	require.NoError(t, recoveryService.ReconstructMachineAdmission(ctx))
 	require.Len(t, recorder.rows, 1)
 	require.True(t, recorder.rows[0].RetainOnly)
+	// Reconstruct the real runtime, then read queue positions through the
+	// authenticated install branch route. Waiting for an answer may retain a
+	// running machine but cannot manufacture demand for an absent one.
+	for _, tc := range []struct {
+		name, state, checks, pr string
+		paused                  bool
+		position                int
+	}{
+		{"question", "running", `{"waits":[{"id":"q","kind":"question"}]}`, "", false, 0},
+		{"conflict", "waiting", `{"waits":[{"id":"c","kind":"conflict"}]}`, "", false, 0},
+		{"answered", "running", `{"waits":[{"id":"q","kind":"question","settled_at":"2026-10-07T00:00:00Z"}]}`, "", false, 1},
+		{"paused", "running", `{}`, "", true, 0},
+		{"review", "proposed", `{}`, "open", false, 0},
+		{"open-pr", "queued", `{}`, "open", false, 0},
+		{"retry", "queued", `{"retries":[{"attempt":2}]}`, "open", false, 1},
+		{"failed", "blocked", `{}`, "", false, 0},
+	} {
+		t.Run("restart-"+tc.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3::jsonb,pr_state=$4,
+ paused_at=CASE WHEN $5 THEN now() ELSE NULL END,attempt=1 WHERE id=$1`, item.ID, tc.state, tc.checks, tc.pr, tc.paused)
+			require.NoError(t, err)
+			absentBinary := filepath.Join(t.TempDir(), "msb")
+			require.NoError(t, os.WriteFile(absentBinary, []byte("#!/bin/sh\n[ \"$1\" = list ] || exit 99\necho '[]'\n"), 0700))
+			recovered, err := microsandbox.New(ctx, microsandbox.Config{RecoverAdmission: true, Root: t.TempDir(), Binary: absentBinary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, SkipQualification: true})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, recovered.Close()) }()
+			services.WithWorkspaceRuntime(recovered)(svc)
+			require.NoError(t, svc.ReconstructMachineAdmission(ctx))
+			require.NoError(t, svc.ReconstructMachineAdmission(ctx))
+			read(tc.position)
+			require.Zero(t, recovered.InUse())
+			require.Len(t, recovered.AdmissionSnapshot(), tc.position, "restart replay cannot duplicate demand")
+		})
+	}
+	// Unknown durable safety fails before granting or exposing a queue entry.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running',checks='{"waits":"corrupt"}'::jsonb WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	recorder.rows = nil
+	require.ErrorContains(t, recoveryService.ReconstructMachineAdmission(ctx), "machine admission recovery TODO evidence")
+	require.Empty(t, recorder.rows)
+	services.WithWorkspaceRuntime(runtime)(svc)
 	_, err = pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=now() WHERE workspace_id=$1`, row.ID)
 	require.NoError(t, err)
 	require.NoError(t, recoveryService.ReconstructMachineAdmission(ctx))
