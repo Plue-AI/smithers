@@ -507,4 +507,22 @@ describe("committed outside-change boundary contract", () => {
       drain([systemEvent("bad", "run/root", { kind: "outside_change", id: "bad", actor: "shell", files: [] })])
     ).rejects.toThrow("The durable notification queue failed")
   })
+
+  it.each([
+    {},
+    { kind: "shell", id: "member:1" },
+    { kind: "agent" },
+    { kind: "person", id: "" }
+  ])("refuses invalid participant attribution %j", async (actor) => {
+    await expect(drain([burst("invalid", actor, ["a.ts"])])).rejects.toThrow(
+      "The durable notification queue failed"
+    )
+  })
+
+  it("refuses a committed notification delivered to another lineage", async () => {
+    await expect(drain([{
+      ...burst("other-branch", { kind: "person", id: "member:1" }, ["a.ts"]),
+      targetLineageId: "other-run/root"
+    }])).rejects.toThrow("The durable notification queue failed")
+  })
 })

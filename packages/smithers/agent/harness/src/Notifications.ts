@@ -126,7 +126,10 @@ const drainOf = (receipt: NotificationQueue.DrainReceipt, options: Options): Ste
         undefined
       if (
         notification._tag !== "system-event" || typeof payload.id !== "string" || payload.id.length === 0 ||
+        notification.targetLineageId !== options.lineageId ||
         actor === undefined ||
+        (actor.kind !== "person" && actor.kind !== "agent" && actor.kind !== "outside") ||
+        (actor.kind !== "outside" && (typeof actor.id !== "string" || actor.id.length === 0)) ||
         !Array.isArray(payload.files) || payload.files.length === 0 ||
         !payload.files.every((path) => typeof path === "string" && path.length > 0)
       ) {
