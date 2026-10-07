@@ -774,6 +774,8 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	}
 	scoped := *s
 	scoped.q = q
+	// Head persistence must share the credential and workspace fence. A new
+	// pool transaction would wait forever on our own workspace row lock.
 	scoped.transactions = tx
 	result, err := scoped.reportWorkspaceHead(live, input)
 	if err != nil && !errors.Is(err, errStaleWorkspaceHeadReport) {

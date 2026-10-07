@@ -77,7 +77,9 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 			defer cancel()
 			req = req.WithContext(ctx)
 			var decisions []string
-			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+			requestCtx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+			defer cancel()
+			req = req.WithContext(services.WithAuthorizationObserver(requestCtx, func(command string) { decisions = append(decisions, command) }))
 			out := httptest.NewRecorder()
 			router.ServeHTTP(out, req)
 			require.Equal(t, cell.status, out.Code, out.Body.String())
