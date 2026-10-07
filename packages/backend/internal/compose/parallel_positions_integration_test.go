@@ -56,6 +56,15 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 	cfg.Server.PublicURL = "http://127.0.0.1:4000"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	runtime := new(microsandbox.Runtime)
+	_, err = runtime.Request("todo", "workspace:unregistered", "recovery", "machine")
+	require.NoError(t, err)
+	runtime.SetTodoParallelReader(func(context.Context) (int, error) { return 2, nil })
+	readyCalls := 0
+	unordered, err := runtime.GrantNext(ctx, microsandbox.AdmissionProviders{FreeDisk: func(context.Context) (int64, error) { return 400 << 30, nil }, Ready: func(context.Context, microsandbox.AdmissionRequest) error { readyCalls++; return nil }})
+	require.NoError(t, err)
+	require.Empty(t, unordered.Holder, "install demand waits for authoritative stack registration")
+	require.Zero(t, readyCalls)
+	require.False(t, runtime.CancelAdmission("workspace:unregistered", "recovery", time.Now()))
 	service := services.NewMythicalService(pool, nil)
 	service.SetInstallParallel(&services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}})
 	service.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime))))
@@ -115,12 +124,6 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 		_, err = runtime.Request("todo", holders[n], holders[n], "machine")
 		require.NoError(t, err)
 	}
-	runtime.SetTodoParallelReader(func(context.Context) (int, error) { return 2, nil })
-	readyCalls := 0
-	unordered, err := runtime.GrantNext(ctx, microsandbox.AdmissionProviders{FreeDisk: func(context.Context) (int64, error) { return 400 << 30, nil }, Ready: func(context.Context, microsandbox.AdmissionRequest) error { readyCalls++; return nil }})
-	require.NoError(t, err)
-	require.Empty(t, unordered.Holder, "install demand waits for authoritative stack registration")
-	require.Zero(t, readyCalls)
 	_, err = runtime.Request("person", "workspace:ben", "Ben", "machine")
 	require.NoError(t, err)
 	position := func(n, expected int) {
