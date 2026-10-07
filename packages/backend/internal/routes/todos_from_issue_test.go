@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -17,8 +18,8 @@ import (
 )
 
 // POST /api/todos takes Make TODO's issue fields through the production
-// handler and service with real PostgreSQL. Without GitHub the issue cannot
-// be read, so the commit is refused as unavailable and nothing is written;
+// handler and service with real PostgreSQL. An unrecognized original snapshot
+// is refused before GitHub access and nothing is written;
 // a malformed reference is the person's to fix. The admitted TODO itself is
 // proved in services (TestTodoFromIssueCommitsTheDraftAsTheIssueTodo).
 func TestTodoCreateTakesTheIssueFields(t *testing.T) {
@@ -31,13 +32,20 @@ func TestTodoCreateTakesTheIssueFields(t *testing.T) {
 	require.NoError(t, err)
 	q := db.New(pool)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"issue-owner","repository_name":"issue-repo"}`)}))
+	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value)
+ SELECT 'owner.access',value || jsonb_build_object('last_access_check_at',to_char(now(),'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+ FROM install_settings WHERE key='github.repository'`)
+	require.NoError(t, err)
 	_, err = q.RequestMythicalBootstrap(ctx, repo, owner, 1, false)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo)
 	require.NoError(t, err)
 	router := chi.NewRouter()
 	router.Post("/api/todos", (&TodoHandler{Queries: q, Service: services.NewMythicalService(pool, nil)}).Create)
-	session := &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: "browser-session"}
+	sessionHash := strings.Repeat("cd", 32)
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner, Username: "issue-owner", SessionKey: sessionHash, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	session := &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: sessionHash}
 	post := func(body, key string) (int, map[string]any) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/api/todos", strings.NewReader(body))
@@ -54,8 +62,8 @@ func TestTodoCreateTakesTheIssueFields(t *testing.T) {
 		name, body, code string
 		status           int
 	}{
-		{"issue, digest and fixes", `{"title":"Retry webhooks","prompt":"Retry 5 times","issue":7,"issue_digest":"` + digest + `","fixes":true,"place":{"mode":"append"}}`, "github_unavailable", 503},
-		{"issue and digest, fixes absent", `{"title":"Retry webhooks","prompt":"Retry 5 times","issue":7,"issue_digest":"` + digest + `"}`, "github_unavailable", 503},
+		{"issue, digest and fixes", `{"title":"Retry webhooks","prompt":"Retry 5 times","issue":7,"issue_digest":"` + digest + `","fixes":true,"place":{"mode":"append"}}`, "issue_snapshot_unknown", 409},
+		{"issue and digest, fixes absent", `{"title":"Retry webhooks","prompt":"Retry 5 times","issue":7,"issue_digest":"` + digest + `"}`, "issue_snapshot_unknown", 409},
 		{"digest without issue", `{"title":"Retry webhooks","prompt":"Retry 5 times","issue_digest":"` + digest + `"}`, "invalid_todo", 400},
 		{"issue without digest", `{"title":"Retry webhooks","prompt":"Retry 5 times","issue":7}`, "invalid_todo", 400},
 		{"fixes without issue", `{"title":"Retry webhooks","prompt":"Retry 5 times","fixes":false}`, "invalid_todo", 400},
