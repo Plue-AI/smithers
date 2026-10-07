@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
+import { requiresMacOS } from "./RequiresMacOS"
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -65,7 +66,7 @@ beforeAll(() => {
   expect(Bun.spawnSync(["/usr/bin/cc", "-o", compiledBackend, source]).exitCode).toBe(0)
 }, 84_000)
 afterAll(() => { if (compiledBackend) rmSync(join(compiledBackend, ".."), { recursive: true, force: true }) })
-test.skipIf(process.platform !== "darwin")("signs the backend with the hardened runtime and records it", () => {
+requiresMacOS("signs the backend with the hardened runtime and records it", () => {
   const root = fixture()
   const backend = join(root, "bin", "smithers-backend")
   cpSync(compiledBackend, backend)

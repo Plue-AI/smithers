@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { requiresMacOS } from "./RequiresMacOS"
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -23,7 +24,7 @@ for (const args of [["unknown"], ["host", "stop", "extra"], ["host", "status", "
 
 // Off macOS, host start refuses at the launchd platform check first
 // (packages/smithers/test/HostService.test.ts covers that refusal).
-test.skipIf(process.platform !== "darwin")("compiled bundle CLI refuses invalid bundles before service effects", () => {
+requiresMacOS("compiled bundle CLI refuses invalid bundles before service effects", () => {
   const bundle = join(root, "bundle")
   mkdirSync(bundle)
   writeFileSync(join(bundle, "manifest.json"), "{}")

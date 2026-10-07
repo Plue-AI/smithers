@@ -1,5 +1,6 @@
 import { validateMicrosandboxBinary } from "./bundle-microsandbox"
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { requiresMacOS } from "./RequiresMacOS"
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -57,7 +58,7 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test.skipIf(process.platform !== "darwin")("refuses a Node runtime that loads a library outside macOS", () => {
+requiresMacOS("refuses a Node runtime that loads a library outside macOS", () => {
   const library = join(root, "lib", "libforeign")
   mkdirSync(join(root, "lib"), { recursive: true })
   writeFileSync(join(root, "lib", "foreign.c"), "int foreign(void) { return 0; }\n")
@@ -69,7 +70,7 @@ test.skipIf(process.platform !== "darwin")("refuses a Node runtime that loads a 
   expect(result.stderr).toContain(`loads ${library}`)
 }, BUILD_CHECK_TIMEOUT)
 
-test.skipIf(process.platform !== "darwin")("accepts a Node runtime that loads only macOS system libraries", () => {
+requiresMacOS("accepts a Node runtime that loads only macOS system libraries", () => {
   const result = build(fakeNode("official"))
 
   // The build passes the linkage gate and stops at the next check: the
@@ -86,7 +87,7 @@ for (const sha of ["", "abc123", "g".repeat(40)]) {
     expect(result.stderr).toContain("exact SMITHERS_BUILD_SHA")
   })
 }
-test.skipIf(process.platform !== "darwin")("refuses Node outside the supported release", () => {
+requiresMacOS("refuses Node outside the supported release", () => {
   const bin = join(root, "old-node")
   writeFileSync(bin, "#!/bin/sh\necho v26.3.0\n", { mode: 0o755 })
   const result = build(bin)
@@ -100,7 +101,7 @@ test("refuses msb other than the qualified release", () => {
   expect(() => validateMicrosandboxBinary(bin)).toThrow("Microsandbox must be 0.6.16")
 })
 for (const release of ["17.6", "18.4"]) {
-  test.skipIf(process.platform !== "darwin")(`PostgreSQL ${release} ${release.startsWith("18") ? "passes version gate" : "is refused"}`, () => {
+  requiresMacOS(`PostgreSQL ${release} ${release.startsWith("18") ? "passes version gate" : "is refused"}`, () => {
     const node = fakeNode(`pg-${release}`)
     writeFileSync(resolve(node, "../../LICENSE"), "test Node license")
     const postgres = join(root, `postgres-${release}`)
@@ -114,10 +115,10 @@ for (const release of ["17.6", "18.4"]) {
   })
 }
 
-test.skipIf(process.platform !== "darwin")("accepts qualified msb with system linkage", () => {
+requiresMacOS("accepts qualified msb with system linkage", () => {
   expect(() => validateMicrosandboxBinary(fakeNode("msb-official", undefined, "msb 0.6.16"))).not.toThrow()
 })
-test.skipIf(process.platform !== "darwin")("refuses qualified msb loading a non-system library", () => {
+requiresMacOS("refuses qualified msb loading a non-system library", () => {
   const library = join(root, "lib", "libmsbforeign")
   mkdirSync(join(root, "lib"), { recursive: true })
   writeFileSync(join(root, "lib", "msbforeign.c"), "int foreign(void) { return 0; }\n")
