@@ -27,7 +27,7 @@ test("Make TODO uses one handler for slash, button, agent and recorded cards", a
       expect(await controller.runCommandForResult(name, "7 owner/repo")).toEqual({ status: "failed", error: "Open the issue again to check permission to make a TODO." })
       await controller.commands.submit({ name, payload: { number: 7, repo: "owner/repo" }, actor: "user" })
     }
-    expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: "7 owner/repo" }) })).not.toContain("asked the user to confirm")
+    expect(await controller.commands.runAsAgent("todo.from-issue", "7 owner/repo" ).then(outcome => JSON.stringify(outcome))).not.toContain("asked the user to confirm")
     expect(requests).toEqual([])
     expect([...store.collections.cards.values()].some(card => card.kind === "run-trace" || card.kind === "change")).toBe(false)
   } finally { await controller.dispose() }
@@ -63,7 +63,7 @@ test("Make TODO on a GitHub issue card opens its author's Draft and files nothin
       payload: { ...issue, number: 8, makeTodoAllowed: false } } }).isPersisted.promise
     const count = store.collections.cards.size
     expect(await controller.runCommandForResult("todo.from-issue", "8 owner/repo")).toEqual({ status: "failed", error: "Only a maintainer can make a TODO from this issue." })
-    const delegated = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: "8 owner/repo" }) })
+    const delegated = await controller.commands.runAsAgent("todo.from-issue", "8 owner/repo" ).then(outcome => JSON.stringify(outcome))
     expect(delegated).toContain("Only a maintainer can make a TODO from this issue")
     expect(delegated).not.toContain("asked the user to confirm")
     expect(store.collections.cards.size).toBe(count)
@@ -94,7 +94,7 @@ test("persistence identity changes refuse the agent confirmation and human Draft
       pending = false
       gate = new Promise<void>(resolve => { release = resolve })
       const result = door === "agent"
-        ? controller.commands.executeForAgent({name:"commands",arguments:JSON.stringify({action:"execute",name:"todo.from-issue",args:"7 owner/repo"})})
+        ? controller.commands.runAsAgent("todo.from-issue", "7 owner/repo").then(outcome => JSON.stringify(outcome))
         : controller.runCommandForResult("todo.from-issue","7 owner/repo")
       while (!pending) await new Promise(resolve => setTimeout(resolve,0))
       await store.dispatch({type:"identity.session.loaded",actor:"system",state:"signed-in",login:door,admin:false,scopesPlain:null}).isPersisted.promise

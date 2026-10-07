@@ -2,10 +2,10 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	stdErrors "errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -284,63 +284,18 @@ func (r InstallRole) rank() int {
 	return 0
 }
 
-// installCommand is one person command's policy: the least role it needs,
-// and whether it is person-only (§5.2's delegated `never`).
-type installCommand struct {
-	role InstallRole
-	// personOnly refuses every credential but the person's own browser
-	// session once the role check passes: a delegated credential is
-	// refused with never (no confirmation path), any other with
-	// permission (spec §5.2.1).
-	personOnly bool
-}
-
-// installCommands is the policy of each person command the install serves
-// (mvp.md §6.15, M-05): members read the install and its repository, ask
-// the app agent and work TODOs; maintainers merge, manage people and write
-// the repository's secrets. A command absent here is refused.
-var installCommands = map[string]installCommand{
-	"install.read":     {role: InstallMember},
-	"self.read":        {role: InstallMember},
-	"telemetry.report": {role: InstallMember},
-	"repo.read":        {role: InstallMember},
-	"wiki.read":        {role: InstallMember},
-	"sync.read":        {role: InstallMember},
-	"sync.retry":       {role: InstallMember},
-	"live":             {role: InstallMember},
-	"agent.turn":       {role: InstallMember},
-	"issue.read":       {role: InstallMember},
-	"todo.read":        {role: InstallMember},
-	"todo.new":         {role: InstallMember},
-	"todo.answer":      {role: InstallMember},
-	// todo.control is POST /api/todos/{n}; its handler authorizes the
-	// control itself: steer, stop, resume, retry, drop or move.
-	"todo.control": {role: InstallMember},
-	"todo.steer":   {role: InstallMember},
-	"todo.stop":    {role: InstallMember},
-	"todo.resume":  {role: InstallMember},
-	"todo.retry":   {role: InstallMember},
-	"todo.drop":    {role: InstallMember},
-	"stack.move":   {role: InstallMember},
-	"merge":        {role: InstallMaintainer},
-	"flows.read":   {role: InstallMember},
-	// Branches (spec §6.3): any member reads them and forks a scratch
-	// branch (§15.1.5: fork is run).
-	"branches.read": {role: InstallMember},
-	"branch.fork":   {role: InstallMember},
-	"members.list":  {role: InstallMember},
-	"members.write": {role: InstallMaintainer},
-	// external.read is GET /api/external/sessions and the external:<agent>:<session>
-	// live topic: the Codex and Claude Code sessions of the account the
-	// install runs as, which are its owner's alone (mvp.md M-38). It is
-	// person-only: nothing in a home is readable by an agent (spec §8.7.2),
-	// so the owner's own token, CLI or terminal credential is refused with
-	// never.
-	"external.read": {role: InstallOwner, personOnly: true},
-	// secrets.write is POST /secrets and PATCH and DELETE /secrets/{name}
-	// on a repository: add, replace and delete (§5.2 "Members, roles,
-	// secrets write"). Secret values never pass through an agent.
-	"secrets.write": {role: InstallMaintainer, personOnly: true},
+// installCommandPolicy binds legacy HTTP names to literal catalog operations.
+// No role, actor or delegation policy is declared in the backend.
+func installCommandPolicy(command string) (CatalogPolicy, bool) {
+	switch command {
+	case "members.write":
+		command = "members.add"
+	case "secrets.write":
+		command = "secrets.set"
+	case "branch.join":
+		command = "branch"
+	}
+	return OperationPolicy(command)
 }
 
 // terminalCommands are the commands a stage-1 terminal credential runs for
@@ -349,7 +304,7 @@ var installCommands = map[string]installCommand{
 // todo.control, the steer door, whose handler authorizes the op again; and
 // todo.new, which a delegated credential confirms in the app.
 var terminalCommands = map[string]bool{"self.read": true, "repo.read": true, "todo.read": true, "wiki.read": true,
-	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true}
+	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true, "branch.read": true}
 
 // AccessError is Authorize's refusal (spec §6.2.3 error envelope).
 type AccessError struct {
@@ -371,6 +326,20 @@ type InstallAuthorization struct {
 	Role   InstallRole
 }
 
+type installAuthorizationKey struct{}
+
+type boundInstallAuthorization struct {
+	command    string
+	credential *middleware.AuthInfo
+	decision   InstallAuthorization
+}
+
+// WithInstallAuthorization carries the decision made before dispatch. Binding
+// both command and principal prevents reuse after a dispatcher changes either.
+func WithInstallAuthorization(ctx context.Context, command string, decision InstallAuthorization) context.Context {
+	return context.WithValue(ctx, installAuthorizationKey{}, boundInstallAuthorization{command: command, credential: middleware.AuthInfoFromContext(ctx), decision: decision})
+}
+
 // Authorize is the install's one command authorizer (T-ACC-03): the
 // request's credential, the command and the person's role, read from
 // committed roster state on every call, so a removal or suspension refuses
@@ -382,7 +351,13 @@ type InstallAuthorization struct {
 // eligible delegated caller is told never and an ineligible one permission
 // (§5.2.1).
 func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
-	need, ok := installCommands[command]
+	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok {
+		info := middleware.AuthInfoFromContext(ctx)
+		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command {
+			return bound.decision, nil
+		}
+	}
+	policy, ok := installCommandPolicy(command)
 	if !ok {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not available"}
 	}
@@ -390,9 +365,102 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: middleware.UnauthenticatedMessage(ctx)}
 	}
-	if need.personOnly {
-		return authorizePersonOnly(ctx, q, info, need.role)
+	// The provisioned delivery credential reads the stack before preparing its
+	// candidate. Its whole-repository path binding is not browser authority.
+	// Keep unbound system tokens and narrower path tokens out of this read.
+	paths := middleware.ParseTokenPathRestrictions(info.RawScopes)
+	if command == "repo.read" && info.IsTokenAuth && info.TokenSystemIssued &&
+		info.CredentialKind() == middleware.CredentialAgentRun &&
+		info.Scopes.Has(middleware.ScopeWriteRepository) &&
+		middleware.ParseTokenLandingWorkspace(info.RawScopes) != "" &&
+		len(paths) == 1 && paths[0] == "**" && info.RepositoryRestriction() > 0 {
+		repository, err := InstallRepositoryID(ctx, q)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		role, err := InstallRoleOf(ctx, q, info.User.ID)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if repository == info.RepositoryRestriction() && role == InstallOwner {
+			return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+		}
 	}
+	_, terminalProfile := info.TerminalDelegation()
+	if terminalProfile && !terminalCommands[command] {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
+	}
+	if info.IsTokenAuth && !terminalProfile && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) {
+		scope := middleware.TokenScope(policy.CredentialScope)
+		if scope != middleware.ScopeWriteRepository && scope != middleware.ScopeReadRepository && scope != middleware.ScopeReadUser {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Unknown credential scope"}
+		}
+		if !info.Scopes.Has(scope) {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Insufficient credential scope"}
+		}
+		if len(middleware.ParseTokenPathRestrictions(info.RawScopes)) != 0 {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Insufficient credential scope"}
+		}
+		if restricted := info.RepositoryRestriction(); restricted != 0 {
+			repository, err := InstallRepositoryID(ctx, q)
+			if err != nil {
+				return InstallAuthorization{}, err
+			}
+			if restricted != repository {
+				return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Insufficient credential scope"}
+			}
+		}
+	}
+	if command == "branch.read" && info.IsTokenAuth {
+		refused := func() (InstallAuthorization, error) {
+			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Credential cannot read this branch"}
+		}
+		if !info.Scopes.Has(middleware.ScopeReadRepository) || len(middleware.ParseTokenPathRestrictions(info.RawScopes)) != 0 {
+			return refused()
+		}
+		if restricted := info.RepositoryRestriction(); restricted != 0 {
+			repository, err := InstallRepositoryID(ctx, q)
+			if err != nil {
+				return InstallAuthorization{}, err
+			}
+			if restricted != repository {
+				return refused()
+			}
+		}
+		if restricted := info.WorkspaceRestriction(); restricted != "" {
+			delegation, delegated := info.Delegation()
+			if !delegated || delegation.Branch != restricted {
+				return refused()
+			}
+		}
+	}
+
+	if command == "confirmations.read" && info.IsTokenAuth && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) && info.Scopes.Has(middleware.ScopeReadRepository) && info.RepositoryRestriction() == 0 && info.WorkspaceRestriction() == "" && len(middleware.ParseTokenPathRestrictions(info.RawScopes)) == 0 {
+		role, err := InstallRoleOf(ctx, q, info.User.ID)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if role == "" {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not a member"}
+		}
+		return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+	}
+	delegation, delegated := info.Delegation()
+	actor := ""
+	if delegated {
+		switch delegation.Via {
+		case "smithers":
+			actor = "app_agent"
+		case "cli", "terminal", "claude-code", "codex":
+			actor = "external_agent"
+		default:
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Unknown delegated actor"}
+		}
+	}
+	if policy.Agent == "never" {
+		return authorizePersonOnly(ctx, q, info, InstallRole(policy.MinimumRole))
+	}
+	fullDelegated := delegated && info.CredentialKind() == middleware.CredentialDelegated && !middleware.IsAgentAccount(info.User.UserType) && delegation.Profile == "" && delegation.Branch == "" && actor != ""
 	_, terminal := info.TerminalDelegation()
 	if terminal {
 		// A member's terminal credential acts as that member (spec §8.11.1);
@@ -400,8 +468,13 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		if !terminalCommands[command] {
 			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 		}
-	} else if info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
-		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
+	} else if !fullDelegated && (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") &&
+		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated) {
+		message := "Sign in with a browser session"
+		if command == "merge" {
+			message = mythicalMergeForbidden().Message
+		}
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: message}
 	}
 	role, err := InstallRoleOf(ctx, q, info.User.ID)
 	if err != nil {
@@ -410,13 +483,30 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if role == "" {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not a member"}
 	}
-	if role.rank() < need.role.rank() {
+	if role.rank() < InstallRole(policy.MinimumRole).rank() {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
 	}
-	if terminal && command == "todo.new" {
+	if fullDelegated {
+		if !slices.Contains(policy.Actors, actor) {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available to this agent"}
+		}
+	}
+	// The generated descriptor owns confirmation policy; the existing role,
+	// scope and actor checks above still decide whether it may be requested.
+	if policy, ok := OperationPolicy(command); fullDelegated && ok && policy.Agent == "confirm" {
+		fallback := &AccessError{Status: 503, Class: "infra", Code: "confirmation_unavailable", Message: "Confirmation unavailable"}
+		if command == "todo.new" || command == "branch.bring-in" || command == "branch.discard-foreign" {
+			fallback = &AccessError{Status: 403, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
+		}
+		return InstallAuthorization{}, requireConfirmation(info, command, InstallAuthorization{UserID: info.User.ID, Role: role}, fallback)
+	}
+	if terminal && command == "todo.amend" {
+		return InstallAuthorization{}, &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "confirmation_unavailable", Message: "Amendment confirmation is unavailable"}
+	}
+	if (terminal || fullDelegated) && command == "todo.new" {
 		// A delegated TODO waits for its person's Confirm in the app, which
 		// stage 1 does not serve yet: nothing is filed (T-APP-04).
-		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
+		return InstallAuthorization{}, requireConfirmation(info, command, InstallAuthorization{UserID: info.User.ID, Role: role}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"})
 	}
 	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 }
@@ -445,12 +535,6 @@ func authorizePersonOnly(ctx context.Context, q *db.Queries, info *middleware.Au
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "never", Code: "never", Message: "Only a person can do this"}
 	}
 	return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
-}
-
-// PersonOnlyCommand reports whether command refuses every credential but a
-// person's own browser session, the install owner's included.
-func PersonOnlyCommand(command string) bool {
-	return installCommands[command].personOnly
 }
 
 // AuthorizeTodoBranch admits a stage-1 terminal credential's answer or steer
@@ -487,19 +571,11 @@ func todoBranchRefusal() error {
 // InstallRepositoryID is the install's repository: the GitHub repository the
 // repository step stores (github.repository); a caller never names it.
 func InstallRepositoryID(ctx context.Context, q *db.Queries) (int64, error) {
-	setting, err := q.GetInstallSetting(ctx, "github.repository")
-	if err != nil {
-		return 0, err
-	}
-	var binding struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-	}
-	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
+	id, err := q.InstallRepositoryID(ctx)
+	if stdErrors.Is(err, db.ErrInstallRepositoryUnavailable) {
 		return 0, &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "unavailable", Message: "Repository unavailable"}
 	}
-	row, err := q.GetRepoByOwnerAndName(ctx, db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
-	return row.ID, err
+	return id, err
 }
 
 // InstallRoleOf is userID's current role, or "" for a person who is not an

@@ -1,6 +1,6 @@
 /** Builds the CommonJS half of a package's dual-module distribution. */
 import { build } from "esbuild"
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import ts from "typescript"
 import { copyCommonJsDeclarations } from "../../repo-targets/scripts/build-library.mjs"
@@ -65,6 +65,13 @@ export const compileCommonJs = async (src, cjs, esm) => {
         JSON.stringify(relative(dirname(target), executable))
       }).catch((error) => { console.error(error); process.exitCode = 1 })\n`
     )
+  }
+  // JSON imported by source modules (including the generated command catalog)
+  // must accompany the unbundled CommonJS modules just as it does tsc's ESM.
+  for (const file of sourceFiles.filter((file) => file.endsWith(".json"))) {
+    const target = join(cjs, relative(src, file))
+    mkdirSync(dirname(target), { recursive: true })
+    cpSync(file, target)
   }
   copyCommonJsDeclarations(dirname(src))
   await buildPrivateEffectAdapters(dirname(src))

@@ -28,17 +28,8 @@ jobs:
       - uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
         with:
           "bun-version": "1.4.1"
-      - run: "pnpm install --frozen-lockfile --ignore-scripts"
-      - name: "Install system packages"
-        id: setup
-        run: |
-          if command -v apt-get >/dev/null 2>&1; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
-            if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
-              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-            fi
-          fi
-        shell: "bash"
+      - id: setup
+        run: "pnpm install --frozen-lockfile --ignore-scripts"
       - name: "Formatting"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs lint '//...:fmt' --known-red '.github/ci-known-red.json' --verbose"
@@ -66,3 +57,6 @@ jobs:
       - name: "Generated drift workflow"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose"
+      - name: "Generated CI workflow"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//:ci' --known-red '.github/ci-known-red.json' --verbose"

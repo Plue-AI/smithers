@@ -31,6 +31,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/egressrelay"
 	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -54,7 +55,7 @@ const (
 
 // DefaultImage is the L0 image: node:26.5.0-trixie (Debian 13, glibc 2.41,
 // linux/arm64) pinned by digest. Trixie, not bookworm: the app's build stage
-// (distribution/Dockerfile) uses it, and the Hutch devkit needs glibc 2.38.
+// uses it; the Hutch devkit needs glibc 2.38.
 const DefaultImage = "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d7367a72a9d037c798b"
 
 // Config selects the msb binary, the data root holding adapter metadata, the
@@ -141,6 +142,7 @@ type metadata struct {
 
 type workspace struct {
 	metadata
+	booting   bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
 	directory string
 	commands  map[string]*guestCommand
 	services  map[string]*managedService
@@ -150,6 +152,7 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
+	machined  machined.Registry
 	cli       *cli
 	config    Config
 	root      string
@@ -169,6 +172,19 @@ type Runtime struct {
 	capacityReader    func(context.Context) (int, error)
 	admission         map[string]*admissionHolder
 	admissionSequence uint64
+	admissionChanged  chan struct{}
+	admissionCancel   context.CancelFunc
+	admissionIdleMu   sync.Mutex
+	admissionIdle     *AdmissionIdleProviders
+	admissionStarted  time.Time
+	metrics           *machineMetrics
+}
+
+// MachinedRegistry is the install's single registry. Composition and runtime
+// lifecycle use the same boot leases; callers cannot create a second authority.
+// The empty registry admits nothing until a trusted boot is planted.
+func (r *Runtime) MachinedRegistry() *machined.Registry {
+	return &r.machined
 }
 
 // New qualifies Microsandbox, loads persisted workspaces, reaps this
@@ -248,9 +264,10 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	}
 	runtime := &Runtime{
 		cli: client, config: config, root: root, owner: owner,
-		holder:     fmt.Sprintf("backend-%d-%s", os.Getpid(), hex.EncodeToString(holderToken)),
-		semaphore:  make(chan struct{}, config.MaxConcurrent),
-		workspaces: make(map[string]*workspace),
+		admissionStarted: time.Now(),
+		holder:           fmt.Sprintf("backend-%d-%s", os.Getpid(), hex.EncodeToString(holderToken)),
+		semaphore:        make(chan struct{}, config.MaxConcurrent),
+		workspaces:       make(map[string]*workspace),
 	}
 	if config.Environments != nil {
 		environmentConfig := *config.Environments
@@ -268,6 +285,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if err := runtime.recover(recoverCtx); err != nil {
 		return nil, err
 	}
+	runtime.startAdmissionReconciler(ctx)
 	return runtime, nil
 }
 
@@ -467,10 +485,22 @@ func (r *Runtime) recover(ctx context.Context) error {
 			// A stopped state makes common reconciliation call StartWorkspace,
 			// which restarts the host bridge before anything runs.
 			if err := r.stopMachine(ctx, ws.Machine); err != nil {
+				ws.State = string(workspaceapi.WorkspaceStarting)
 				errs = append(errs, err)
 			}
-		default:
+		case status == "stopped":
 			ws.State = string(workspaceapi.WorkspaceStopped)
+		default:
+			// Provisioning, starting, stopping and unknown runtime states still
+			// own a VM. Reconciliation may not turn them into free capacity
+			// merely because they are not yet running. Settle the old boot
+			// through the same independently observed stop as running guests.
+			ws.State = string(workspaceapi.WorkspaceStarting)
+			if err := r.stopMachine(ctx, ws.Machine); err != nil {
+				errs = append(errs, fmt.Errorf("%w: reconcile microVM %s (%s): %v", ErrUnavailable, ws.Machine, status, err))
+			} else {
+				ws.State = string(workspaceapi.WorkspaceStopped)
+			}
 		}
 		if err := writeMetadata(ws); err != nil {
 			errs = append(errs, err)
@@ -543,6 +573,7 @@ func (r *Runtime) CreateWorkspace(ctx context.Context, spec workspaceapi.Workspa
 	if existing, err := r.InspectWorkspace(ctx, spec.ID); err == nil {
 		return existing, nil
 	}
+	ctx = context.WithValue(ctx, machineWakeStarted{}, time.Now())
 	if r.environments != nil {
 		if err := r.environments.admit(ctx); err != nil {
 			return workspaceapi.Workspace{}, err
@@ -556,7 +587,17 @@ func (r *Runtime) CreateWorkspace(ctx context.Context, spec workspaceapi.Workspa
 	return r.createFrom(ctx, spec, layer)
 }
 
-func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpec, layer Layer) (workspaceapi.Workspace, error) {
+func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpec, layer Layer) (result workspaceapi.Workspace, resultErr error) {
+	started, _ := ctx.Value(machineWakeStarted{}).(time.Time)
+	if started.IsZero() {
+		started = time.Now()
+	}
+	attempted := false
+	defer func() {
+		if attempted {
+			r.observeMachineWake("cold", started, resultErr)
+		}
+	}()
 	id, err := validWorkspaceID(spec.ID)
 	if err != nil {
 		return workspaceapi.Workspace{}, err
@@ -578,6 +619,7 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
+	attempted = true
 	directory := filepath.Join(r.root, "workspaces", digest(id))
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		r.detachAdmissionMachineLocked(r.machineName(id), false)
@@ -588,7 +630,9 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 		State: string(workspaceapi.WorkspaceStarting), Snapshot: layer.Snapshot, LayerKey: layer.Key, Link: layer.Link,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339)}, directory)
 	r.workspaces[id] = ws
+	ws.booting = true
 	r.mu.Unlock()
+	defer r.finishBoot(ws)
 
 	if err := writeMetadata(ws); err != nil {
 		r.forget(ws)
@@ -624,6 +668,13 @@ func (r *Runtime) forget(ws *workspace) {
 		r.detachAdmissionMachineLocked(ws.Machine, true)
 	}
 	_ = os.RemoveAll(ws.directory)
+}
+
+func (r *Runtime) finishBoot(ws *workspace) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ws.booting = false
+	r.notifyAdmissionLocked()
 }
 
 // admitRunningLocked refuses to boot beyond the running-VM cap rather than
@@ -701,12 +752,16 @@ func (r *Runtime) removeMachine(ctx context.Context, name string) error {
 	removeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	_, err := r.cli.run(removeCtx, nil, "remove", "--force", "-q", name)
-	if err == nil {
+	// `msb remove -q` reports a missing machine with a bare exit 1.
+	_, found, statusErr := r.cli.sandboxStatus(ctx, name)
+	if statusErr == nil && !found {
 		return nil
 	}
-	// `msb remove -q` reports a missing machine with a bare exit 1.
-	if _, found, statusErr := r.cli.sandboxStatus(ctx, name); statusErr == nil && !found {
-		return nil
+	if statusErr != nil {
+		return fmt.Errorf("observe removed microVM %s: %w", name, statusErr)
+	}
+	if err == nil {
+		return fmt.Errorf("microVM %s removal is not confirmed", name)
 	}
 	return err
 }
@@ -715,12 +770,15 @@ func (r *Runtime) stopMachine(ctx context.Context, name string) error {
 	stopCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	_, err := r.cli.run(stopCtx, nil, "stop", "-t", "10", "-q", name)
-	if err == nil {
+	status, found, statusErr := r.cli.sandboxStatus(ctx, name)
+	if statusErr == nil && (!found || status == "stopped") {
 		return nil
 	}
-	status, found, statusErr := r.cli.sandboxStatus(ctx, name)
-	if statusErr == nil && (!found || status != "running") {
-		return nil
+	if statusErr != nil {
+		return fmt.Errorf("observe stopped microVM %s: %w", name, statusErr)
+	}
+	if err == nil {
+		return fmt.Errorf("microVM %s stop is not confirmed: %s", name, status)
 	}
 	return fmt.Errorf("stop microVM %s: %w", name, err)
 }
@@ -763,7 +821,15 @@ func (r *Runtime) runningWorkspace(id string) (*workspace, error) {
 }
 
 // StartWorkspace boots a stopped workspace VM on its own disk.
-func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+func (r *Runtime) StartWorkspace(ctx context.Context, id string) (result workspaceapi.Workspace, resultErr error) {
+	started := time.Now()
+	attempted := false
+	kind := "warm"
+	defer func() {
+		if attempted {
+			r.observeMachineWake(kind, started, resultErr)
+		}
+	}()
 	r.mu.Lock()
 	ws, err := r.workspaceLocked(id)
 	if err != nil {
@@ -808,11 +874,15 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
+	attempted = true
 	ws.State = string(workspaceapi.WorkspaceStarting)
+	ws.booting = true
 	r.mu.Unlock()
+	defer r.finishBoot(ws)
 
 	var startErr error
 	if ws.Reclaimed {
+		kind = "cold"
 		startErr = r.recreateMachine(ctx, ws)
 	} else {
 		startErr = r.startMachine(ctx, ws)
@@ -939,6 +1009,11 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 	}
 	previous := ws.State
 	ws.State = string(workspaceapi.WorkspaceStopping)
+	for _, h := range r.admission {
+		if h.held && h.machine == ws.Machine && h.releasing.IsZero() {
+			h.releasing = time.Now()
+		}
+	}
 	commands := r.detachProcessesLocked(ws)
 	r.mu.Unlock()
 
@@ -1020,6 +1095,9 @@ func (r *Runtime) Close() error {
 		return nil
 	}
 	r.closed = true
+	if r.admissionCancel != nil {
+		r.admissionCancel()
+	}
 	var commands []*guestCommand
 	var running []*workspace
 	var auxiliary []string
@@ -1039,6 +1117,7 @@ func (r *Runtime) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	var errs []error
+	errs = append(errs, r.machined.Close())
 	for _, name := range auxiliary {
 		errs = append(errs, r.finishAuxVM(name))
 	}

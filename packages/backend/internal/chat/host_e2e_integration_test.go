@@ -22,7 +22,7 @@ type fixtureHost struct {
 	stop   func()
 }
 
-func startFixtureHost(t *testing.T, callbackURL string) fixtureHost {
+func startFixtureHost(t *testing.T, callbackURL string, modelOrigin ...string) fixtureHost {
 	t.Helper()
 	bun, err := exec.LookPath("bun")
 	if err != nil {
@@ -42,6 +42,9 @@ func startFixtureHost(t *testing.T, callbackURL string) fixtureHost {
 		"SMITHERS_CHAT_CALLBACK_URL="+callbackURL,
 		"SMITHERS_CHAT_HOST_PORT=0",
 	)
+	if len(modelOrigin) > 0 {
+		command.Env = append(command.Env, "SMITHERS_FIXTURE_MODEL_ORIGIN="+modelOrigin[0])
+	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		cancel()

@@ -185,7 +185,6 @@ type RegisterRepositoryJobInput struct {
 
 var repositoryJobNames = map[string]bool{"issues": true, "review": true, "ci": true, "feature": true, "chores": true}
 var repositoryJobFlowName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_./-]{0,199}$`)
-var repositoryJobDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // The five built-in names carry no colon, so the namespaces are disjoint and a
 // registered flow can never take a built-in job's row.

@@ -11,6 +11,7 @@ import { Effect, Layer, Redacted } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import { toModel } from "./ConfiguredModelRoute.ts"
 import type { ModelTurnResolver } from "./HostServer.ts"
+import { readContextStream } from "./internal/ContextStream.ts"
 import { ResolveFailed } from "./ModelHostError.ts"
 
 /**
@@ -21,6 +22,8 @@ import { ResolveFailed } from "./ModelHostError.ts"
  */
 export interface EnvironmentModelResolverOptions {
   readonly binding: unknown
+  /** Owner-resolved fast role; absent bindings reuse the resolved answer model. */
+  readonly preflightBinding?: unknown
   readonly env: ModelCredentialEnv
   readonly fetchImpl?: typeof globalThis.fetch
   readonly maxTokens?: number
@@ -73,14 +76,61 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
   )
   return toModel(planned.plan, Redacted.make(credential)).pipe(
     Effect.provide(RequestExecutor.layer.pipe(Layer.provide(transport))),
-    Effect.map((model) => ({
-      model,
-      options: {
-        modelId: planned.plan.modelId,
-        credential,
-        ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens })
-      }
-    })),
+    Effect.flatMap((model) =>
+      Effect.gen(function*() {
+        const resolved = {
+          model,
+          options: {
+            modelId: planned.plan.modelId,
+            credential,
+            ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens })
+          }
+        }
+        if (grant.request.sharedConversation !== true) return resolved
+        const input = yield* Effect.tryPromise({
+          try: async (signal) => {
+            const response = await refusingRedirects(options.fetchImpl ?? globalThis.fetch)(
+              new URL("/internal/chat/context", grant.producerBaseUrl),
+              {
+                method: "POST",
+                headers: { "content-type": "application/json", authorization: `Bearer ${grant.token}` },
+                body: JSON.stringify({ turnId: grant.turnId, generation: grant.generation }),
+                signal
+              }
+            )
+            if (response.status !== 200) {
+              await response.body?.cancel()
+              throw new Error("context unavailable")
+            }
+            return readContextStream(response)
+          },
+          catch: () => new ResolveFailed({ message: "shared conversation context is unavailable" })
+        })
+        if (options.preflightBinding === undefined) return { ...resolved, preflight: { ...resolved, input } }
+        // This binding is supplied by the host launcher, never by the prompt.
+        // It may spend a different owner key, but keeps that key's own origin.
+        const fast = planModelBinding(options.preflightBinding, credentials, { kind: "generation" })
+        if (!fast.ok) return yield* Effect.fail(new ResolveFailed({ message: "preflight model is unavailable" }))
+        const fastCredential = options.env[modelCredentialEnvName(fast.plan.credential)]?.trim()
+        if (fastCredential === undefined || fastCredential === "") {
+          return yield* Effect.fail(new ResolveFailed({ message: "preflight model credential is unavailable" }))
+        }
+        const fastModel = yield* toModel(fast.plan, Redacted.make(fastCredential)).pipe(
+          Effect.provide(RequestExecutor.layer.pipe(Layer.provide(transport)))
+        )
+        return {
+          ...resolved,
+          preflight: {
+            input,
+            model: fastModel,
+            options: {
+              modelId: fast.plan.modelId,
+              credential: fastCredential
+            }
+          }
+        }
+      })
+    ),
     Effect.mapError(() => new ResolveFailed({ message: "configured model route is unavailable" }))
   )
 }

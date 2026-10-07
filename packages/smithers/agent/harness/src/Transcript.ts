@@ -504,3 +504,10 @@ export const projectResult = (
   entries: ReadonlyArray<JournalEvent.Entry>
 ): Result.Result<ReadonlyArray<ModelRequest.Message>, TranscriptError> =>
   Result.map(projectStateResult(entries), (state) => state.messages.map((item) => item.message))
+
+/**
+ * Pure external-source decoders; never create executable journal identities.
+ * @since 1.0.0-rc.1
+ */
+export { decodeClaude, decodeCodex } from "./ExternalTranscript.ts"
+export type { Entry as ExternalEntry, Decoded as ExternalDecoded } from "./ExternalTranscript.ts"

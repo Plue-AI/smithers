@@ -167,7 +167,7 @@ func rootBoundaryLifecycle(t *testing.T, hostileHome bool) {
 	if os.Getenv("SMITHERS_GUEST_ROOT_BOUNDARY_CHECK") != "1" {
 		t.Skip("PENDING C-SEC-02: requires approved installed bundle and real msb; set SMITHERS_GUEST_ROOT_BOUNDARY_CHECK=1")
 	}
-	runtime := realRuntime(t, t.TempDir())
+	runtime, _ := approvedRootBoundaryRuntime(t)
 	ctx := operation("root-boundary")
 	id := "root-boundary"
 	_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
@@ -222,6 +222,7 @@ func TestWarmHomeInitializationDropsIdentityBeforeReadingOutput(t *testing.T) {
 with tempfile.TemporaryDirectory() as directory:
  home=os.path.realpath(directory)+'/home'; tools=os.path.realpath(directory)+'/tools'
  os.mkdir(home); os.mkdir(tools); open(tools+'/branch-created','w').close()
+ g.PROTECTED_BASE=directory; g.ROOT_UID=os.getuid()
  g.TOOL_HOME=tools; g.ENV_FILE=directory+'/absent-env'
  entry=types.SimpleNamespace(pw_dir=home,pw_uid=19999,pw_gid=19999,pw_shell='/bin/bash')
  state=[0]; calls=[]
@@ -237,8 +238,16 @@ with tempfile.TemporaryDirectory() as directory:
   assert state[0]==19999, 'branch output read as root'
   calls.append('branch-read'); return listdir(fd)
  g.os.listdir=read
- g.main(['setup','agent','19999'])
- assert calls==['root-fixed-setup','drop','branch-read'],calls
+ def admitted(identity, action, *, privileged=False):
+  assert identity.startswith('setup-')
+  calls.append('root-admitted' if privileged else 'admitted')
+  action(None if privileged else g.drop_to('agent'))
+  return 0
+ g.run_managed_child=admitted
+ try:g.main(['setup','agent','19999'])
+ except SystemExit as result:assert result.code==0,result.code
+ else:raise AssertionError('setup did not return child status')
+ assert calls==['root-admitted','root-fixed-setup','admitted','drop','branch-read'],calls
  assert os.readlink(home+'/branch-created')==tools+'/branch-created'
 `)
 }
@@ -277,10 +286,15 @@ with tempfile.TemporaryDirectory() as directory:
   def read(self,*args):
    assert identity[0]==19999, 'root read branch IPC bytes'
    return super().read(*args)
- g.sys.stdin=types.SimpleNamespace(buffer=Branch(b'branch payload'))
+ canary=directory+'/must-not-execute'
+ merged='{"checks":[{"id":"$(touch '+canary+')"}],"wikiOutput":"/root/hostile"}'
+ payload=g.json.dumps({'argv':['/usr/bin/true'],'env':{'SMITHERS_CODING_PROJECT_JSON':merged},'cwd':'/workspace'}).encode()
+ g.sys.stdin=types.SimpleNamespace(buffer=Branch(payload))
  g.main(['put-request','host-id'])
  assert identity==[0],identity
- assert open(directory+'/host-id.json','rb').read()==b'branch payload'
+ assert open(directory+'/host-id.json','rb').read()==payload
+ assert not os.path.exists(canary), 'merged config was executed'
+
  assert os.stat(directory+'/host-id.json').st_mode & 0o777 == 0o600
  g.sys.stdin=types.SimpleNamespace(buffer=Branch(b'x'*1048577))
  try: g.main(['put-request','oversized'])
@@ -301,6 +315,7 @@ with tempfile.TemporaryDirectory() as directory:
  for name in ('sudo','su','sshd','tool'):
   with open(usr+'/bin/'+name,'wb') as f: f.write(b'image fixture')
   os.chmod(usr+'/bin/'+name,0o6755)
+ plain=usr+'/bin/plain'; open(plain,'wb').write(b'lower layer fixture'); os.chmod(plain,0o755)
  outside=root+'/outside'; os.mkdir(outside)
  sentinel=outside+'/sentinel'; open(sentinel,'w').write('outside bytes'); os.chmod(sentinel,0o6755)
  os.symlink(outside,usr+'/symlink')
@@ -313,13 +328,21 @@ with tempfile.TemporaryDirectory() as directory:
   info=real_fstat(fd)
   return types.SimpleNamespace(st_uid=0,st_mode=info.st_mode)
  g.os.fstat=owned
- g.os.listxattr=lambda fd:['security.capability']
+ real_chmod=os.fchmod
+ chmods=[]
+ def changed(fd,mode):
+  chmods.append((os.readlink('/proc/self/fd/'+str(fd)) if os.path.exists('/proc/self/fd') else os.fstat(fd).st_mode,mode))
+  real_chmod(fd,mode)
+ g.os.fchmod=changed
+ g.os.listxattr=lambda fd:['security.capability'] if real_fstat(fd).st_mode & 0o111 and os.read(fd,64)==b'image fixture' else []
  removed=[];g.os.removexattr=lambda fd,name: removed.append(name)
  g.sanitize_system_image()
  assert not any(os.path.exists(usr+'/bin/'+name) for name in ('sudo','su','sshd'))
  assert os.stat(usr+'/bin/tool').st_mode & 0o7777 == 0o755
  assert os.stat(usr+'/shared').st_mode & 0o7777 == 0o2755
  assert removed==['security.capability']
+ assert len(chmods)==1, 'ordinary image files must not be copied up by chmod'
+ assert os.stat(plain).st_mode & 0o7777 == 0o755
  assert open(sentinel).read()=='outside bytes'
  assert os.stat(sentinel).st_mode & 0o7777 == 0o6755
  os.chmod(usr+'/bin',0o777)

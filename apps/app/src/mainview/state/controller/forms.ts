@@ -36,6 +36,7 @@ type FlowFormCard = Extract<Card, { kind: "flow-form" }>
 
 export interface FormRenderRequest {
   /** Edit this property of the registered flow's payload using its declared schema. */
+  readonly payload?: Readonly<Record<string, unknown>>
   readonly payloadField?: string
   readonly cardId?: string
   readonly title?: string
@@ -185,14 +186,9 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       case "cloud-repos":
         return [...collections.repositories.values()].map((repo) => ({ value: repo.id, label: repo.id }))
       case "bookmarks": {
-        const seen = new Map<string, FieldOption>()
-        for (const card of collections.cards.values()) {
-          if (card.kind !== "branches") continue
-          for (const bookmark of card.payload.bookmarks) {
-            if (!seen.has(bookmark.name)) seen.set(bookmark.name, { value: bookmark.name, label: `${bookmark.name} · ${card.payload.repo}` })
-          }
-        }
-        return [...seen.values()]
+        const flatten = (nodes: NonNullable<ReturnType<typeof ctx.store.session>["branchNavigation"]>["nodes"]): FieldOption[] =>
+          nodes.flatMap(node => node.kind === "earlier" ? [] : [{ value: node.name, label: node.name }, ...flatten(node.children)])
+        return flatten(ctx.store.session().branchNavigation?.nodes ?? [])
       }
       case "workspaces":
         return [...collections.cloudWorkspaces.values()].map(workspaceOption)
@@ -352,7 +348,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     if (fields.length === 0) return undefined
     /* A line the grammar parses whole prefills exactly; a line it refuses prefills what it can. */
     const grammar = (entry ?? ctx.commands.find(request.name))?.metadata.grammar
-    const parsed = payloadFor(request.name, request.args, grammar, knownRepositories(ctx.store))
+    const parsed = request.payload === undefined ? payloadFor(request.name, request.args, grammar, knownRepositories(ctx.store)) : { payload: request.payload }
     const read = "payload" in parsed
       ? { payload: parsed.payload, skipped: [] as ReadonlyArray<string> }
       : positionalRead(fields, hints, request.args)

@@ -10,7 +10,6 @@ import { join, resolve } from "node:path"
 import test from "node:test"
 import { pathToFileURL } from "node:url"
 import ts from "typescript"
-import { sites } from "../../docs/shared/manifest.mjs"
 
 const root = resolve(import.meta.dirname, "../../..")
 const appEntries = ["bug-worker"].map((name) => join(root, "apps", name, "alchemy.run.ts"))
@@ -21,7 +20,6 @@ const SMITHERS_ZONE_ID = "8ebd98d2f0dc7d8db2e61f31ebc19c14"
 test("all deployment entry points import as Alchemy 2 stack effects", async () => {
   const entryPoints = [
     ...appEntries,
-    ...sites.map((site) => join(site.siteDir, "alchemy.run.ts"))
   ]
   for (const path of entryPoints) {
     const module = await import(pathToFileURL(path).href)
@@ -33,8 +31,6 @@ test("stack properties and shared implementation typecheck against the declared 
   const program = ts.createProgram({
     rootNames: [
       ...appEntries,
-      join(root, "apps/docs/shared/alchemy-site.mjs"),
-      ...sites.map((site) => join(site.siteDir, "alchemy.run.ts"))
     ],
     options: {
       noEmit: true,
@@ -117,8 +113,6 @@ test("every hostname has one owning Worker, in this repository or in the canary 
       }
     }
   }
-  const { docsSiteProps } = await import("../../docs/shared/alchemy-site.mjs")
-  for (const site of sites) claim(site.domain, docsSiteProps(site.slug).name)
   // Deployed from another repository and probed by the canary.
   const { BACKING_WORKERS, RETIRED_WORKERS } = await import("../../server/scripts/canary/workers-manifest.ts")
   for (const worker of [...BACKING_WORKERS, ...RETIRED_WORKERS]) {
@@ -130,29 +124,6 @@ test("every hostname has one owning Worker, in this repository or in the canary 
   assert.deepEqual(contested, [])
 })
 
-test("docs sites derive the live Alchemy 1 Worker name and hostname from the slug alone", async (t) => {
-  const { docsSiteProps } = await import("../../docs/shared/alchemy-site.mjs")
-  // A leftover override from an operator shell must not rename a live Worker.
-  const previous = new Map(["CORE_WORKER_NAME", "CORE_SITE_DOMAIN", "CLOUDFLARE_SMITHERS_ZONE_ID"].map((name) => [name, process.env[name]]))
-  t.after(() => {
-    for (const [name, value] of previous) {
-      if (value === undefined) delete process.env[name]
-      else process.env[name] = value
-    }
-  })
-  Object.assign(process.env, { CORE_WORKER_NAME: "other", CORE_SITE_DOMAIN: "other.example", CLOUDFLARE_SMITHERS_ZONE_ID: "other-zone" })
-  // Two Workers observed on Cloudflare 2026-09-23, verbatim.
-  assert.equal(docsSiteProps("core").name, "smithers-docs-core-smithers-docs-core-williamcory")
-  assert.equal(docsSiteProps("platform-node").name, "smithers-docs-platform-node-smithers-docs-platform-node-williamcory")
-  for (const site of sites) {
-    const props = docsSiteProps(site.slug)
-    assert.equal(props.name, `smithers-docs-${site.slug}-smithers-docs-${site.slug}-williamcory`)
-    assert.deepEqual(props.domain, { name: site.domain, zoneId: SMITHERS_ZONE_ID })
-    assert.equal(props.workersDev, false)
-    assert.equal(props.command, "pnpm run build")
-    assert.equal(props.outdir, "dist")
-  }
-})
 
 test("every shared-state stack plans against one record under stage prod", () => {
   const read = (path) => readFileSync(join(root, path), "utf8")
@@ -161,7 +132,6 @@ test("every shared-state stack plans against one record under stage prod", () =>
   // machine its own view of production.
   const stacks = [
     { stack: "apps/bug-worker/alchemy.run.ts", pkg: "apps/bug-worker/package.json", qualifiedOnly: true },
-    ...sites.map((site) => ({ stack: "apps/docs/shared/alchemy-site.mjs", pkg: `apps/docs/${site.slug}/package.json`, qualifiedOnly: false }))
   ]
   for (const { stack, pkg, qualifiedOnly } of stacks) {
     const source = read(stack)
@@ -182,9 +152,6 @@ test("every shared-state stack plans against one record under stage prod", () =>
         if (name !== "plan") assert.doesNotMatch(script, /\balchemy\s+deploy\b/, `${pkg}:${name}: only the qualified Cloud host may deploy`)
       }
     }
-  }
-  for (const site of sites) {
-    assert.match(read(`apps/docs/${site.slug}/alchemy.run.ts`), new RegExp(`makeDocsSiteStack\\(\\{ slug: "${site.slug}" \\}\\)`))
   }
 })
 
@@ -208,8 +175,6 @@ test("documented deploy commands hand Alchemy its flags directly", () => {
   const docs = [
     "apps/bug-worker/README.md",
     "apps/bug-worker/alchemy.run.ts",
-    "apps/docs/README.md",
-    ...sites.map((site) => `apps/docs/${site.slug}/alchemy.run.ts`)
   ]
   for (const path of docs) {
     assert.doesNotMatch(readFileSync(join(root, path), "utf8"), /(run (plan|deploy|destroy)|docs:deploy) -- /, path)

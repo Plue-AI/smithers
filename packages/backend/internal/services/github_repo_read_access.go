@@ -27,6 +27,8 @@ func (s *GitHubUserReposService) GitHubRepoReadAuthorized(ctx context.Context, u
 	if err != nil && isGitHubTokenExpired(err) {
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			_, err = s.requestGitHubRepoObject(ctx, newToken, owner, repo)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {

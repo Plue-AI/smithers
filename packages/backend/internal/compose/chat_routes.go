@@ -79,22 +79,43 @@ func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *
 		}
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.GlobalAPIRateLimit(queries))
-		r.Use(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser))
+		r.Use(middleware.RequireAuth)
 		if config.IsSingleOwner(cfg.Auth) {
-			r.Use(installModelOwner(queries))
+			r.Use(memberCommands(queries))
 		}
 		r.Get("/api/model/catalog", models.Catalog)
-		r.Post("/api/model/credential", models.Credential)
 		r.Get("/api/model/credential/receipt", models.CredentialReceipt)
 		r.Get("/api/model/default", models.Default)
-		r.Put("/api/model/default", models.SetDefault)
-		r.Post("/api/model/test", models.Test)
+		if config.IsSingleOwner(cfg.Auth) {
+			r.Get("/api/agents", serveAgents(queries))
+		}
+		r.Group(func(writes chi.Router) {
+			writes.Use(middleware.RequireScope(middleware.ScopeWriteUser))
+			if config.IsSingleOwner(cfg.Auth) {
+				writes.Use(installModelOwner(queries))
+			}
+			writes.Post("/api/model/credential", models.Credential)
+			writes.Put("/api/model/default", models.SetDefault)
+			writes.Post("/api/model/test", models.Test)
+			if config.IsSingleOwner(cfg.Auth) {
+				writes.Put("/api/agents/{role}/model", assignAgentModel(queries))
+			}
+		})
 	})
 }
 
-func chatCallbackHandler(runtime *chat.Runtime) http.Handler {
+func chatCallbackHandler(runtime *chat.Runtime, api ...http.Handler) http.Handler {
 	router := chi.NewRouter()
 	runtime.MountProducerCallbacks(router)
+	if len(api) == 1 && api[0] != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				api[0].ServeHTTP(w, r)
+				return
+			}
+			router.ServeHTTP(w, r)
+		})
+	}
 	return router
 }
 
@@ -120,7 +141,7 @@ func installModelOwner(owners interface {
 				return
 			}
 			info := middleware.AuthInfoFromContext(r.Context())
-			if info == nil || info.User == nil || info.User.ID != owner.ID || info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
+			if !middleware.IsOwnerBrowserSession(info, owner.ID) {
 				routes.WriteInstallSetupError(w, r, pkgerrors.Forbidden("install owner session required"))
 				return
 			}

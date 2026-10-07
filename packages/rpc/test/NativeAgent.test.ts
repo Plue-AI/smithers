@@ -21,6 +21,7 @@ describe("AgentTurnFrame — proxy family", () => {
   const accepted: ReadonlyArray<readonly [string, unknown]> = [
     ["delta", { runId: "r1", type: "delta", kind: "text", text: "hi" }],
     ["done", { runId: "r1", type: "done", reason: "stop" }],
+    ["author revoked", { runId: "r1", type: "done", reason: "cancelled", code: "author_revoked" }],
     ["done, cancelled with an error", {
       runId: "r1",
       type: "done",
@@ -53,6 +54,7 @@ describe("AgentTurnFrame — proxy family", () => {
 
   const rejected: ReadonlyArray<readonly [string, unknown]> = [
     ["a frame without runId", { type: "delta", kind: "text", text: "hi" }],
+    ["done with an unknown code", { runId: "r1", type: "done", reason: "cancelled", code: "unknown" }],
     ["done with an unknown reason", { runId: "r1", type: "done", reason: "abandoned" }],
     ["done with negative usage", { runId: "r1", type: "done", usage: { inputTokens: -1 } }],
     ["done with fractional usage", { runId: "r1", type: "done", usage: { outputTokens: 1.5 } }],
@@ -191,4 +193,11 @@ describe("RPC sources stay runtime-free", () => {
       expect(source).not.toMatch(/(from\s+|import\()\s*["']effect(["']|\/)/)
     }
   })
+})
+
+
+test("host UI instructions retain explicit theme data and refuse arbitrary browser actions", () => {
+  const frame = { runId: "run", type: "call.settled", link: 0, ordinal: 0, name: "theme", verdict: "run", ui: { command: "theme", mode: "dark" } }
+  expect(AgentTurnFrameSchema.parse(frame)).toEqual(frame)
+  for (const ui of [null, { command: "todo.drop", mode: "dark" }, { command: "theme", mode: null }, { command: "theme", mode: "dark", extra: "authority" }]) expect(parses({ ...frame, ui })).toBe(false)
 })

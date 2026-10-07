@@ -738,8 +738,12 @@ func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx, authorization co
 				continue
 			}
 			switch msg.Type {
+			case "close":
+				sess.destroy("terminal closed")
+				_ = ws.Close(websocket.StatusNormalClosure, "terminal closed")
+				return
 			case "resize":
-				if msg.Cols > 0 && msg.Rows > 0 {
+				if msg.Cols > 0 && msg.Rows > 0 && msg.Cols <= 65535 && msg.Rows <= 65535 {
 					if err := sess.resize(msg.Rows, msg.Cols); err != nil {
 						slog.Debug("ssh window change failed", "error", err, "session_id", sessionID)
 					}

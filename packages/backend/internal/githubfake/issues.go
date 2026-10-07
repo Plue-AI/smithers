@@ -17,6 +17,7 @@ import (
 // (Server.labels); every App write still passes the token boundary and the
 // permanent write log.
 type issue struct {
+	ID                          int64
 	Number                      int64
 	Title, Body                 string
 	Author                      string
@@ -46,6 +47,7 @@ type IssueComment struct {
 	ViaApp    bool      `json:"via_app"`
 	Author    string    `json:"author"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // IssueView is an issue as GitHub holds it now.
@@ -71,7 +73,8 @@ func (s *Server) OpenIssue(repo, login, title, body string) int64 {
 	}
 	number := s.nextNumber(repo)
 	now := time.Now().UTC()
-	s.opened[issueKey(repo, number)] = &issue{Number: number, Title: title, Body: body, Author: login, State: "open", CreatedAt: now, UpdatedAt: now}
+	s.issueIDs++
+	s.opened[issueKey(repo, number)] = &issue{ID: s.issueIDs, Number: number, Title: title, Body: body, Author: login, State: "open", CreatedAt: now, UpdatedAt: now}
 	return number
 }
 
@@ -89,6 +92,7 @@ func (s *Server) EditIssue(repo string, number int64, login, title, body string)
 		issue.Title = title
 		issue.TitleEditor = login
 		issue.TitleEditedAt = now
+		s.event(issueKey(repo, number), "renamed", login, false, "")
 	}
 	if issue.Body != body {
 		issue.Body = body
@@ -113,6 +117,18 @@ func (s *Server) LabelIssue(repo string, number int64, login, label string) int6
 		s.labels[key] = append(s.labels[key], label)
 	}
 	return s.event(key, "labeled", login, false, label)
+}
+
+// UnlabelIssue removes a person's label while retaining its timeline identity.
+func (s *Server) UnlabelIssue(repo string, number int64, login, label string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := issueKey(repo, number)
+	if s.opened[key] == nil || !slices.Contains(s.labels[key], label) {
+		return 0
+	}
+	s.labels[key] = slices.DeleteFunc(s.labels[key], func(value string) bool { return value == label })
+	return s.event(key, "unlabeled", login, false, label)
 }
 
 // CommentIssue posts body on repo#number as the person login, as on
@@ -172,6 +188,9 @@ func (s *Server) event(key, kind, actor string, viaApp bool, label string) int64
 	s.events[key] = append(s.events[key], IssueEvent{ID: s.eventIDs, Event: kind, Actor: actor, ViaApp: viaApp, Label: label, CreatedAt: time.Now().UTC()})
 	if opened := s.opened[key]; opened != nil {
 		opened.UpdatedAt = time.Now().UTC()
+	} else if pull, ok := s.pulls[key]; ok {
+		pull.UpdatedAt = time.Now().UTC()
+		s.pulls[key] = pull
 	}
 	return s.eventIDs
 }
@@ -200,7 +219,7 @@ func (s *Server) issueJSON(repo string, i *issue) map[string]any {
 		reason = i.StateReason
 	}
 	key := issueKey(repo, i.Number)
-	return map[string]any{"number": i.Number, "title": i.Title, "body": i.Body, "state": i.State, "state_reason": reason,
+	return map[string]any{"id": i.ID, "number": i.Number, "title": i.Title, "body": i.Body, "state": i.State, "state_reason": reason,
 		"html_url": fmt.Sprintf("https://github.com/%s/issues/%d", repo, i.Number), "user": s.actor(i.Author, false),
 		"labels": labelsOf(s.labels[key]), "comments": len(s.comments[key]), "performed_via_github_app": nil,
 		"created_at": i.CreatedAt, "updated_at": i.UpdatedAt}
@@ -215,30 +234,56 @@ func (s *Server) issueList(r *http.Request, repo string) []any {
 	if state == "" {
 		state = "open"
 	}
+	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
 	type row struct {
-		number int64
-		value  map[string]any
+		number  int64
+		updated time.Time
+		value   map[string]any
 	}
 	var rows []row
 	for _, opened := range s.opened {
-		if s.opened[issueKey(repo, opened.Number)] == opened && (state == "all" || state == opened.State) {
-			rows = append(rows, row{opened.Number, s.issueJSON(repo, opened)})
+		if s.opened[issueKey(repo, opened.Number)] == opened && (state == "all" || state == opened.State) && (since.IsZero() || opened.UpdatedAt.After(since)) {
+			rows = append(rows, row{opened.Number, opened.UpdatedAt, s.issueJSON(repo, opened)})
 		}
 	}
 	for _, p := range s.pulls {
-		if p.Repository == repo && (state == "all" || state == p.State) {
-			rows = append(rows, row{p.Number, map[string]any{"number": p.Number, "title": p.Title, "body": p.Body, "state": p.State,
-				"html_url": p.HTMLURL, "user": s.actor(s.appLogin(), true), "labels": labelsOf(s.labels[issueKey(repo, p.Number)]),
-				"pull_request": map[string]string{"html_url": p.HTMLURL}}})
+		if p.Repository == repo && (state == "all" || state == p.State) && (since.IsZero() || p.UpdatedAt.After(since)) {
+			rows = append(rows, row{p.Number, p.UpdatedAt, s.pullIssueJSON(p)})
 		}
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].number > rows[j].number })
+	sort.Slice(rows, func(i, j int) bool {
+		if r.URL.Query().Get("sort") == "updated" && !rows[i].updated.Equal(rows[j].updated) {
+			if r.URL.Query().Get("direction") == "asc" {
+				return rows[i].updated.Before(rows[j].updated)
+			}
+			return rows[i].updated.After(rows[j].updated)
+		}
+		if r.URL.Query().Get("direction") == "asc" {
+			return rows[i].number < rows[j].number
+		}
+		return rows[i].number > rows[j].number
+	})
 	start, end := pageBounds(r, len(rows))
 	out := []any{}
 	for _, entry := range rows[start:end] {
 		out = append(out, entry.value)
 	}
 	return out
+}
+
+func (s *Server) pullIssueJSON(p Pull) map[string]any {
+	return map[string]any{"id": p.ID, "number": p.Number, "title": p.Title, "body": p.Body, "state": p.State,
+		"created_at": p.CreatedAt, "updated_at": p.UpdatedAt, "html_url": p.HTMLURL, "user": s.actor(s.appLogin(), true),
+		"labels": labelsOf(s.labels[issueKey(p.Repository, p.Number)]), "pull_request": map[string]string{"html_url": p.HTMLURL}}
+}
+
+// SetIssueUpdatedAt fixes the source timestamp for deterministic cursor fixtures.
+func (s *Server) SetIssueUpdatedAt(repo string, number int64, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if opened := s.opened[issueKey(repo, number)]; opened != nil {
+		opened.UpdatedAt = at.UTC()
+	}
 }
 
 // issueRequest serves the issue reads and writes beyond labels and new
@@ -266,6 +311,7 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 			for i := range comments {
 				if comments[i].ID == id && comments[i].ViaApp {
 					comments[i].Body = input.Body
+					comments[i].UpdatedAt = time.Now().UTC()
 					s.comments[key] = comments
 					return 200, map[string]any{"id": id, "body": input.Body}, true
 				}
@@ -273,6 +319,14 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		}
 		status, response := failure(404, "comment not found")
 		return status, response, true
+	}
+	if len(path) == 2 && path[1] == "comments" && r.Method == http.MethodGet {
+		if status, response, ok := s.accessible(r, "issues", "read"); !ok {
+			if _, _, canPull := s.accessible(r, "pull_requests", "read"); !canPull {
+				return status, response, true
+			}
+		}
+		return 200, s.repositoryIssueComments(r, repo), true
 	}
 	if len(path) == 2 && path[1] == "events" && r.Method == http.MethodGet {
 		return 200, s.repositoryIssueEvents(r, repo), true
@@ -320,7 +374,7 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		events := []any{}
 		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page <= 1 {
 			for _, event := range s.events[key] {
-				entry := map[string]any{"id": event.ID, "event": event.Event, "actor": s.actor(event.Actor, event.ViaApp),
+				entry := map[string]any{"id": event.ID, "event": event.Event, "actor": s.fetchedActor(event.Actor, event.ViaApp),
 					"performed_via_github_app": s.viaApp(event.ViaApp), "created_at": event.CreatedAt}
 				if event.Label != "" {
 					entry["label"] = map[string]string{"name": event.Label}
@@ -331,11 +385,15 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		return 200, events, true
 	case len(path) == 3 && path[2] == "comments" && r.Method == http.MethodGet:
 		comments := []any{}
-		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page <= 1 {
-			for _, comment := range s.comments[key] {
-				comments = append(comments, map[string]any{"id": comment.ID, "body": comment.Body, "user": s.actor(comment.Author, comment.ViaApp),
-					"performed_via_github_app": s.viaApp(comment.ViaApp), "created_at": comment.CreatedAt})
+		start, end := pageBounds(r, len(s.comments[key]))
+		for _, comment := range s.comments[key][start:end] {
+			updated := comment.UpdatedAt
+			if updated.IsZero() {
+				updated = comment.CreatedAt
 			}
+			comments = append(comments, map[string]any{"id": comment.ID, "body": comment.Body, "user": s.fetchedActor(comment.Author, comment.ViaApp),
+				"performed_via_github_app": s.viaApp(comment.ViaApp), "created_at": comment.CreatedAt, "updated_at": updated,
+				"issue_url": s.URL + "/repos/" + repo + "/issues/" + strconv.FormatInt(number, 10)})
 		}
 		return 200, comments, true
 	}
@@ -375,8 +433,10 @@ func (s *Server) repositoryIssueEvents(r *http.Request, repo string) []any {
 		issue := map[string]any{"number": at.number, "pull_request": map[string]any{}}
 		if opened := s.opened[issueKey(repo, at.number)]; opened != nil {
 			issue = s.issueJSON(repo, opened)
+		} else if p, ok := s.pulls[issueKey(repo, at.number)]; ok {
+			issue = s.pullIssueJSON(p)
 		}
-		entry := map[string]any{"id": at.event.ID, "event": at.event.Event, "actor": s.actor(at.event.Actor, at.event.ViaApp),
+		entry := map[string]any{"id": at.event.ID, "event": at.event.Event, "actor": s.fetchedActor(at.event.Actor, at.event.ViaApp),
 			"performed_via_github_app": s.viaApp(at.event.ViaApp), "created_at": at.event.CreatedAt, "issue": issue}
 		if at.event.Label != "" {
 			entry["label"] = map[string]string{"name": at.event.Label}
@@ -435,3 +495,96 @@ func (s *Server) issueText(installationID int64, body []byte) (int, any) {
 
 // isIssueTextQuery reports a GraphQL body that reads an issue's text writers.
 func isIssueTextQuery(body []byte) bool { return strings.Contains(string(body), "issueOrPullRequest") }
+
+// UpdateComment changes a fixture comment as a person would, with an explicit
+// timestamp for equal-second edits and cursor boundaries.
+func (s *Server) UpdateComment(repo string, id int64, body string, at time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, comments := range s.comments {
+		if !strings.HasPrefix(key, repo+"/") {
+			continue
+		}
+		for i := range comments {
+			if comments[i].ID == id {
+				comments[i].Body, comments[i].UpdatedAt = body, at.UTC()
+				s.comments[key] = comments
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Repository comment reads share GitHub's updated/created sort, direction,
+// exclusive since boundary, paging and the server's conditional-read wrapper.
+func (s *Server) repositoryIssueComments(r *http.Request, repo string) []any {
+	type located struct {
+		number  int64
+		comment IssueComment
+		updated time.Time
+	}
+	var all []located
+	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	for key, comments := range s.comments {
+		if !strings.HasPrefix(key, repo+"/") {
+			continue
+		}
+		number, err := strconv.ParseInt(strings.TrimPrefix(key, repo+"/"), 10, 64)
+		if err != nil {
+			continue
+		}
+		for _, c := range comments {
+			updated := c.UpdatedAt
+			if updated.IsZero() {
+				updated = c.CreatedAt
+			}
+			if since.IsZero() || updated.After(since) {
+				all = append(all, located{number, c, updated})
+			}
+		}
+	}
+	sort.Slice(all, func(i, j int) bool {
+		a, b := all[i].comment.CreatedAt, all[j].comment.CreatedAt
+		if r.URL.Query().Get("sort") == "updated" {
+			a, b = all[i].updated, all[j].updated
+		}
+		less := a.Before(b)
+		if a.Equal(b) {
+			less = all[i].comment.ID < all[j].comment.ID
+		}
+		if r.URL.Query().Get("sort") != "" && r.URL.Query().Get("direction") == "desc" {
+			return b.Before(a) || a.Equal(b) && all[i].comment.ID > all[j].comment.ID
+		}
+		return less
+	})
+	start, end := pageBounds(r, len(all))
+	out := []any{}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	for _, e := range all[start:end] {
+		c := e.comment
+		out = append(out, map[string]any{"id": c.ID, "body": c.Body, "user": s.fetchedActor(c.Author, c.ViaApp), "performed_via_github_app": s.viaApp(c.ViaApp), "created_at": c.CreatedAt, "updated_at": e.updated, "issue_url": scheme + "://" + r.Host + "/repos/" + repo + "/issues/" + strconv.FormatInt(e.number, 10)})
+	}
+	return out
+}
+
+// DeleteComment removes a fixture comment as a person would on GitHub.
+func (s *Server) DeleteComment(repo string, id int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, comments := range s.comments {
+		if !strings.HasPrefix(key, repo+"/") {
+			continue
+		}
+		for i, comment := range comments {
+			if comment.ID == id {
+				s.comments[key] = append(comments[:i], comments[i+1:]...)
+				return true
+			}
+		}
+	}
+	return false
+}

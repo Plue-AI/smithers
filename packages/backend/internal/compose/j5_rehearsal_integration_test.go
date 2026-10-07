@@ -3,6 +3,7 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -20,8 +21,9 @@ import (
 // ([FLOWEDIT]): its PR changes exactly flows/todo/flow.ts, the built-in
 // composition plus a changelog step. Ben merges B; flow-load runs on every
 // main move (spec §11.3.1) and makes B's flow Active; a broken flow merged on
-// GitHub leaves it Active. Pinning the flow waits on its lane and is listed
-// as pending.
+// GitHub leaves it Active. A resumes its original D1 while new C executes
+// the changelog requirement from D2. A failed TODO retries on D1, then
+// explicitly retries with the current flow on D2, retaining earlier evidence.
 func TestJ5Rehearsal(t *testing.T) {
 	// The install loads its flows after every main move.
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
@@ -145,9 +147,91 @@ func TestJ5Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("200 %v; todo built in, system false, Active D1 %s… with %d steps and the merge wait", names, active[0][:12], len(steps)-1)
 		return nil
 	})
-	r.pending("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", "flow-agent-edit")
-	r.pending("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", "flow-agent-edit")
-	r.pending("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "'Merge flow is built in'", "T-FLW-05", "flow-agent-edit")
+	var retryTodo int64
+	var failedRetry rehearsalTodo
+	if !r.step("4b A failed TODO predates activation", "POST /api/todos [FAIL]; GET /api/todos/{R}", "R fails repository checks on D1 before B merges", "T-FLW-11", func() error {
+		var err error
+		retryTodo, err = r.file("R retries across activation", "[FAIL] [FILE retry.md] Add a greeting to retry.md")
+		if err != nil {
+			return err
+		}
+		failedRetry, err = r.waitTodoWithin(retryTodo, 8*time.Minute, "failed")
+		if err != nil {
+			return err
+		}
+		if failedRetry.Run == nil || failedRetry.FlowVersion == nil || failedRetry.FlowVersion.Digest != d1 || failedRetry.FlowVersion.SourceCommit != r.mainCommit {
+			return fmt.Errorf("R failed with run %+v and pin %+v, want D1 at original main", failedRetry.Run, failedRetry.FlowVersion)
+		}
+		var reason string
+		if err := r.pool.QueryRow(r.ctx, `SELECT reason FROM mythical_items WHERE number=$1`, retryTodo).Scan(&reason); err != nil {
+			return err
+		}
+		if !strings.Contains(reason, "failed: coding/Error/fast_gate") {
+			return fmt.Errorf("R failed for %q, want its repository check gate", reason)
+		}
+		return nil
+	}) {
+		return
+	}
+	r.step("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", func() error {
+		_, frames, terminal, err := r.ask("", "Run /flow todo")
+		if err != nil {
+			return err
+		}
+		if !terminal {
+			return fmt.Errorf("flow show did not settle")
+		}
+		for _, frame := range frames {
+			if frame.Type == "card" && frame.Card.Kind == "flow" && frame.Card.ID == "flow:todo" {
+				return nil
+			}
+		}
+		return fmt.Errorf("flow show delivered no TODO flow card")
+	})
+	r.step("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", func() error {
+		var before, after int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&before); err != nil {
+			return err
+		}
+		_, frames, terminal, err := r.ask("", `Run /flow.edit {"name":"todo","request":"Run tests","diff":"+pnpm test"}`)
+		if err != nil {
+			return err
+		}
+		if !terminal {
+			return fmt.Errorf("flow edit did not settle")
+		}
+		proposals := 0
+		for _, frame := range frames {
+			if frame.Type == "card" && frame.Card.Kind == "draft" {
+				if frame.Card.Audience == nil || *frame.Card.Audience != "rehearsal-owner" || frame.Card.Payload.Prompt != "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +pnpm test" {
+					return fmt.Errorf("flow edit did not retain its private literal proposal")
+				}
+				proposals++
+			}
+		}
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&after); err != nil {
+			return err
+		}
+		if proposals != 1 || before != after {
+			return fmt.Errorf("flow edit showed %d proposals and changed TODO count %d to %d", proposals, before, after)
+		}
+		return nil
+	})
+	r.step("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "Merge flow is built in", "T-FLW-05", func() error {
+		answer, frames, terminal, err := r.ask("", "Run /flow.edit merge Add a step")
+		if err != nil {
+			return err
+		}
+		if !terminal || !strings.Contains(answer, "Merge flow is built in") {
+			return fmt.Errorf("system edit did not refuse: %s", answer)
+		}
+		for _, frame := range frames {
+			if frame.Type == "card" {
+				return fmt.Errorf("system edit created a card")
+			}
+		}
+		return nil
+	})
 	r.pending("8 Repository copy resolves", "coding host module resolver", "a repository flows/todo/flow.ts loads and has a digest", "T-FLW-04", "coding-steps-package")
 	var squash string
 	r.step("9 Merge B", "POST /api/todos/{B}/merge as maintainer Ben", "202 while A waits; merged after GitHub's squash", "T-STK-04, T-ACC-02", func() error {
@@ -195,6 +279,15 @@ func TestJ5Rehearsal(t *testing.T) {
 				return err
 			}
 			if id := card.version("merged-syncing"); id != "" && syncing == "" {
+				// Pending metadata measures the entry file. Only the guest load
+				// can measure its complete execution closure; correlate by main.
+				var commit string
+				if err := r.pool.QueryRow(r.ctx, `SELECT commit_id FROM flow_loads`).Scan(&commit); err != nil {
+					return err
+				}
+				if commit != squash || card.version("active") != d1 {
+					return fmt.Errorf("pending flow at %s with Active %s, want squash %s and D1 %s", commit, card.version("active"), squash, d1)
+				}
 				syncing = id
 			}
 			if active := card.version("active"); active != "" && active != d1 {
@@ -210,7 +303,7 @@ func TestJ5Rehearsal(t *testing.T) {
 				if status != "loaded" || source != squash || !isActive {
 					return fmt.Errorf("todo@%s is %s at %s (active %t), want loaded at %s and Active", active, status, source, isActive, squash)
 				}
-				if card.Source.Path != "flows/todo/flow.ts" || card.version("previous") != d1 || syncing != active {
+				if card.Source.Path != "flows/todo/flow.ts" || card.version("previous") != d1 {
 					return fmt.Errorf("todo's card: source %+v, previous %q, merged-syncing %q, Active %q", card.Source, card.version("previous"), syncing, active)
 				}
 				d2 = active
@@ -283,10 +376,210 @@ func TestJ5Rehearsal(t *testing.T) {
 			}
 		}
 	})
-	r.pending("13 TODO A pinned D1", "GET /api/todos/{A}", "A's evidence pins D1", "T-FLW-11", "pinned-todo-flow")
-	r.pending("14 TODO C pins D2", "POST /api/todos; GET /api/todos/{C}", "C pins D2 at Starting; its evidence shows the changelog step", "T-FLW-11", "pinned-todo-flow")
-	r.pending("15 TODO A keeps D1", "answer A; GET /api/todos/{A}", "A continues on D1 with no changelog step", "T-FLW-11", "pinned-todo-flow")
-	r.pending("16 Retry keeps the pin", "POST /api/todos/{A} {op: retry}", "the retry attempt pins D1", "T-FLW-11, T-STK-05", "pinned-todo-flow")
+	checkPin := func(number int64, digest, source string) error {
+		v, err := r.todo(number)
+		if err != nil {
+			return err
+		}
+		if v.FlowVersion == nil || v.FlowVersion.Digest != digest || v.FlowVersion.SourceCommit != source {
+			return fmt.Errorf("T%d pin %+v, want %s at %s", number, v.FlowVersion, digest, source)
+		}
+		if v.Run == nil {
+			return fmt.Errorf("T%d has no admitted run", number)
+		}
+		current := 0
+		for _, evidence := range v.Evidence {
+			if int(evidence.Attempt) != v.Run.Attempt {
+				continue
+			}
+			current++
+			if evidence.FlowDigest != digest || evidence.SourceCommit != source {
+				return fmt.Errorf("T%d attempt %d evidence pin %+v, want %s at %s", number, v.Run.Attempt, evidence, digest, source)
+			}
+		}
+		if current != 1 {
+			return fmt.Errorf("T%d has %d evidence entries for current attempt %d", number, current, v.Run.Attempt)
+		}
+		return nil
+	}
+	r.step("13 TODO A pinned D1", "GET /api/todos/{A}", "A's card and evidence keep D1 at original main", "T-FLW-11", func() error {
+		return checkPin(a, d1, r.mainCommit)
+	})
+	var c int64
+	r.step("14 TODO C pins D2", "POST /api/todos; GET /api/todos/{C}", "C starts on Active D2 at the flow-edit merge, despite the later broken main", "T-FLW-11", func() error {
+		if d2 == "" {
+			return fmt.Errorf("blocked by Active after load: no D2")
+		}
+		var err error
+		c, err = r.file("C uses the new flow", "[FILE c.md] Add a greeting to c.md")
+		if err != nil {
+			return err
+		}
+		if _, err = r.waitTodoWithin(c, 2*time.Minute, "working", "in_review"); err != nil {
+			return err
+		}
+		return checkPin(c, d2, squash)
+	})
+	r.step("15 TODO A keeps D1", "answer A; GET /api/todos/{A}; PR files", "A resumes D1 and adds only a.md, without the new changelog requirement", "T-FLW-11", func() error {
+		v, err := r.todo(a)
+		if err != nil {
+			return err
+		}
+		if len(v.Waits) != 1 {
+			return fmt.Errorf("A has %d waits", len(v.Waits))
+		}
+		code, data, err := r.answer(a, v.Waits[0].ID, "Add a greeting to a.md")
+		if err != nil || code != 202 {
+			return fmt.Errorf("answer A: HTTP %d %s: %v", code, data, err)
+		}
+		v, err = r.waitTodoWithin(a, 3*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		if err = checkPin(a, d1, r.mainCommit); err != nil {
+			return err
+		}
+		pr, err := r.checkPull(v.PR.Number, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(pr)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(files, []string{"a.md"}) {
+			return fmt.Errorf("A changes %v, want only a.md", files)
+		}
+		return nil
+	})
+	r.step("15b TODO C applies D2", "GET /api/todos/{C}; PR files and changelog", "C's new flow adds c.md and a changelog entry", "T-FLW-11", func() error {
+		v, err := r.waitTodoWithin(c, 3*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		if err = checkPin(c, d2, squash); err != nil {
+			return err
+		}
+		pr, err := r.checkPull(v.PR.Number, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(pr)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(files, "c.md") || !slices.Contains(files, "CHANGELOG.md") {
+			return fmt.Errorf("C changes %v, missing c.md or CHANGELOG.md", files)
+		}
+		content, err := r.githubGit("show", v.PR.Head+":CHANGELOG.md")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(content) == "" {
+			return fmt.Errorf("C produced an empty changelog")
+		}
+		return nil
+	})
+	// Compare the public evidence, including each attempt's source and digest.
+	// Model-access availability is a live card projection, not recorded evidence.
+	checkEarlier := func(before, after rehearsalTodo) error {
+		if len(before.Evidence) == 0 {
+			return fmt.Errorf("R has no earlier evidence to retain")
+		}
+		for _, old := range before.Evidence {
+			found := false
+			for _, kept := range after.Evidence {
+				if kept.Attempt != old.Attempt {
+					continue
+				}
+				found = true
+				if kept.FlowDigest != old.FlowDigest || kept.SourceCommit != old.SourceCommit || !reflect.DeepEqual(recordedEvidence(kept.Items), recordedEvidence(old.Items)) {
+					return fmt.Errorf("R attempt %d evidence changed: before %+v, after %+v", old.Attempt, old, kept)
+				}
+			}
+			if !found {
+				return fmt.Errorf("R lost attempt %d evidence", old.Attempt)
+			}
+		}
+		return nil
+	}
+	var ordinaryRetry rehearsalTodo
+	if !r.step("16 Retry keeps the pin", "POST /api/todos/{R} {op: retry}; GET /api/todos/{R}", "a new attempt executes D1 after D2 activation; the failure and earlier evidence remain readable", "T-FLW-11, T-STK-05", func() error {
+		if failedRetry.Run == nil || d2 == "" {
+			return fmt.Errorf("blocked by failed D1 attempt or D2 activation")
+		}
+		code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", retryTodo), `{"op":"retry"}`, r.keyPrefix+"retry-original")
+		if err != nil || code != 202 {
+			return fmt.Errorf("ordinary retry: HTTP %d %s: %v", code, data, err)
+		}
+		var accepted struct {
+			Attempt int `json:"attempt"`
+		}
+		if err := json.Unmarshal(data, &accepted); err != nil || accepted.Attempt != failedRetry.Run.Attempt+1 {
+			return fmt.Errorf("ordinary retry receipt %s, want attempt %d", data, failedRetry.Run.Attempt+1)
+		}
+		// The repository still fails. Its bounded automatic replans may spend
+		// more than one attempt, and every one must retain D1.
+		ordinaryRetry, err = r.waitTodoWithin(retryTodo, 8*time.Minute, "failed")
+		if err != nil {
+			return err
+		}
+		if ordinaryRetry.Run == nil || ordinaryRetry.Run.Attempt < accepted.Attempt {
+			return fmt.Errorf("ordinary retry run %+v, want attempt at least %d", ordinaryRetry.Run, accepted.Attempt)
+		}
+		for _, evidence := range ordinaryRetry.Evidence {
+			if evidence.FlowDigest != d1 || evidence.SourceCommit != r.mainCommit {
+				return fmt.Errorf("ordinary retry changed an attempt's original pin: %+v", evidence)
+			}
+		}
+		if err = checkPin(retryTodo, d1, r.mainCommit); err != nil {
+			return err
+		}
+		return checkEarlier(failedRetry, ordinaryRetry)
+	}) {
+		return
+	}
+	r.step("17 Retry current flow adopts D2", "POST /api/todos/{R} {op: retry-current-flow, steer: '[FIXED] …'}; PR diff against A", "a new D2 attempt adds retry.md and CHANGELOG.md over its unmerged predecessor; earlier D1 attempts stay readable", "T-FLW-11, T-STK-05", func() error {
+		body := `{"op":"retry-current-flow","steer":"[FIXED] Keep JOURNEY.md as it is and add the greeting to retry.md"}`
+		code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", retryTodo), body, r.keyPrefix+"retry-current")
+		if err != nil || code != 202 {
+			return fmt.Errorf("retry current flow: HTTP %d %s: %v", code, data, err)
+		}
+		v, err := r.waitTodoWithin(retryTodo, 3*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		if v.Run == nil || v.Run.Attempt != ordinaryRetry.Run.Attempt+1 {
+			return fmt.Errorf("current flow retry run %+v, want new run after %+v", v.Run, ordinaryRetry.Run)
+		}
+		if err = checkPin(retryTodo, d2, squash); err != nil {
+			return err
+		}
+		if err = checkEarlier(ordinaryRetry, v); err != nil {
+			return err
+		}
+		if _, err := r.checkPull(v.PR.Number, v.PR.Head); err != nil {
+			return err
+		}
+		// A precedes R and has not merged: GitHub's diff against main
+		// includes A too. Measure R's own contribution against that prefix.
+		predecessor, err := r.todo(a)
+		if err != nil {
+			return err
+		}
+		if len(predecessor.PR.Head) != 40 {
+			return fmt.Errorf("A has no reviewed predecessor head")
+		}
+		diff, err := r.githubGit("diff", "--name-only", predecessor.PR.Head, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		files := strings.Fields(diff)
+		if !slices.Equal(files, []string{"CHANGELOG.md", "retry.md"}) {
+			return fmt.Errorf("R changes %v, want exactly CHANGELOG.md and retry.md", files)
+		}
+		return nil
+	})
 }
 
 // rehearsalFlowCard is what the flow rows read of one GET /api/flows card.

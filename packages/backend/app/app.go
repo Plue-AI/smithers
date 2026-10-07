@@ -99,7 +99,6 @@ type Config struct {
 	// the selected model host. It is required for hosted workers.
 	ChatProducerBaseURL string
 	Recommender         ports.Recommender
-	RecommendationLog   ports.RecommendationLog
 	ModelStreamHost     ports.ModelStreamHost
 	// MetricsCollectors are deployment-owned Prometheus collectors exported
 	// with the product metrics, so private workers need no second registry or
@@ -238,7 +237,6 @@ func (cfg Config) options() compose.Options {
 		ChatCallbackListener:   cfg.ChatCallbackListener,
 		ChatProducerBaseURL:    cfg.ChatProducerBaseURL,
 		Recommender:            cfg.Recommender,
-		RecommendationLog:      cfg.RecommendationLog,
 		ModelStreamHost:        cfg.ModelStreamHost,
 		MetricsCollectors:      append([]prometheus.Collector(nil), cfg.MetricsCollectors...),
 		PlatformModelKeys:      cfg.PlatformModelKeys,

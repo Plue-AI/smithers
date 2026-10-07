@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -15,6 +16,11 @@ import (
 type MembersHandler struct{ Service *services.Members }
 
 func memberRouteError(w http.ResponseWriter, err error) {
+	var upstream *pkgerrors.APIError
+	if errors.As(err, &upstream) && upstream.Class == pkgerrors.ClassGitHub {
+		writeInstallAPIError(w, upstream)
+		return
+	}
 	failure := &services.AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "unavailable", Message: "Members unavailable"}
 	var typed *services.AccessError
 	if errors.As(err, &typed) {
@@ -26,7 +32,7 @@ func memberRouteError(w http.ResponseWriter, err error) {
 }
 
 func (h *MembersHandler) List(w http.ResponseWriter, r *http.Request) {
-	if h == nil || h.Service == nil {
+	if h == nil || h.Service == nil || h.Service.Pool == nil || h.Service.Credentials == nil || h.Service.Minter == nil {
 		memberRouteError(w, nil)
 		return
 	}
@@ -41,7 +47,7 @@ func (h *MembersHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MembersHandler) Mutate(w http.ResponseWriter, r *http.Request) {
-	if h == nil || h.Service == nil {
+	if h == nil || h.Service == nil || h.Service.Pool == nil || h.Service.Credentials == nil || h.Service.Minter == nil {
 		memberRouteError(w, nil)
 		return
 	}

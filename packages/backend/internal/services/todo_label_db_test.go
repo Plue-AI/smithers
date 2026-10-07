@@ -44,8 +44,12 @@ func TestJourneyTodoLabelFrozenSnapshot(t *testing.T) {
 			{"number": 6, "title": "Issue six", "body": body6, "state": "open", "user": map[string]any{"login": "Ben"}, "labels": []map[string]string{{"name": "todo"}}},
 		})(w)
 	}
+	github.routes["GET /repos/o/r/issues/events?per_page=100&page=1"] = answer(200, []map[string]any{
+		{"id": 107, "issue": map[string]int{"number": 6}, "event": "labeled", "actor": map[string]string{"login": "Ben", "type": "User"}, "label": map[string]string{"name": "todo"}},
+		{"id": 106, "issue": map[string]int{"number": 5}, "event": "labeled", "actor": map[string]string{"login": "Ben", "type": "User"}, "label": map[string]string{"name": "todo"}},
+	})
 	for _, number := range []int{5, 6} {
-		github.routes[fmt.Sprintf("GET /repos/o/r/issues/%d/events?per_page=100&page=1", number)] = answer(200, []map[string]any{{"id": 101 + number, "event": "labeled", "actor": map[string]any{"login": "Ben", "type": "User"}, "label": map[string]string{"name": "todo"}}})
+
 		github.routes[fmt.Sprintf("GET /repos/o/r/issues/%d", number)] = answer(200, map[string]any{"labels": []map[string]string{{"name": "todo"}}})
 		github.routes[fmt.Sprintf("GET /repos/o/r/collaborators/%s/permission", "Ben")] = answer(200, map[string]string{"permission": "write"})
 	}

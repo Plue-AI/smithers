@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 // Landing-only helper. SQL/CSV and generators run with the caller's unprivileged identity.
+import { engineeringGateEnvironment, requireEngineeringGateHome } from './engineering-gate-environment.mjs'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync } from 'node:fs'
 import { resolve, relative, basename, dirname, join } from 'node:path'
 
 const run = (bin, args, cwd = process.cwd()) => {
-  const result = spawnSync(bin, args, { cwd, encoding: 'utf8' })
+  const result = spawnSync(bin, args, { cwd, encoding: 'utf8', env: engineeringGateEnvironment(process.env) })
   if (result.error || result.status !== 0) throw new Error(`${bin} ${args.join(' ')}: ${result.error?.message ?? (result.stdout + result.stderr)}`)
   return result.stdout.trim()
 }
 try {
   if (process.getuid?.() === 0) throw new Error('Refusing repository generator execution as root')
+  requireEngineeringGateHome(process.env)
   if (process.argv.length !== 3) throw new Error('Usage: renumber-migration.mjs <file>')
   const root = run('git', ['rev-parse', '--show-toplevel'])
   const file = resolve(process.argv[2])

@@ -93,6 +93,59 @@ func loadBase(t *testing.T, request flowdispatch.LaunchRequest) (string, string)
 	return payload.Base.CommitID, payload.Base.Ref
 }
 
+func TestFlowLoadWaitsForInitialStackBookmark(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	f.commit("initial main", "README.md", "hello\n")
+	main := f.publish()
+	launcher, lanes := &fakeMythicalLauncher{}, &fakeMythicalLanes{}
+	lanes.provision = func(string) {
+		require.NotEmpty(t, f.hostRef("refs/heads/mythical"), "a lane cannot clone mythical before bootstrap creates it")
+	}
+	f.service.SetOrchestration(nil, launcher, lanes)
+	f.service.SetFlowLoad(true)
+	ctx := context.Background()
+	_, err := f.service.RequestBootstrap(ctx, f.repoID, f.userID, 100, false)
+	require.NoError(t, err)
+	stack := f.poll()
+	require.Equal(t, "active", stack.State, stack.LastError)
+	// PollOnce may consume the bootstrap's immediate wake in the same call;
+	// ordering at provisioning, not the number of polls, is the contract.
+	f.service.MainMoved(ctx, f.repoID)
+	f.poll()
+	loads := launcher.byFlow(flowLoadFlow)
+	require.Len(t, loads, 1)
+	require.Len(t, lanes.created, 1, "initial loading allocates exactly one machine")
+	commit, ref := loadBase(t, loads[0])
+	require.Equal(t, main, commit)
+	require.Equal(t, main, f.hostRef(ref))
+	f.service.MainMoved(ctx, f.repoID)
+	f.poll()
+	require.Len(t, launcher.byFlow(flowLoadFlow), 1, "the first load is not duplicated")
+}
+
+func TestPinnedMainRetentionFetchesOriginalAfterScratchLoss(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	f.commit("pinned source", "README.md", "original\n")
+	pinned := f.publish()
+	f.commit("new main", "README.md", "new\n")
+	main := f.publish()
+	ctx := context.Background()
+	bridge, err := startMythicalBridge(ctx, f.host, "smithers-canary", "smithers", RepositoryStillAt(db.New(f.pool), f.repoID, "smithers-canary", "smithers"))
+	require.NoError(t, err)
+	defer bridge.Close()
+	g := mythicalGit{dir: filepath.Join(t.TempDir(), "empty-scratch.git")}
+	require.NoError(t, g.init(ctx))
+	require.NoError(t, g.fetch(ctx, bridge.URL(), 1, 0, "refs/heads/main"))
+	require.True(t, g.has(ctx, main))
+	require.False(t, g.has(ctx, pinned), "a shallow current-main fetch does not contain the old pin")
+	r := &mythicalRun{g: g, bridge: bridge, branch: "main", mainTip: main, row: db.MythicalStack{RepositoryID: f.repoID}}
+	ref, err := f.service.retainMainFor(ctx, r, "11111111-1111-4111-a111-111111111111", pinned)
+	require.NoError(t, err)
+	require.True(t, g.has(ctx, pinned))
+	require.Equal(t, pinned, f.hostRef(ref))
+	require.Equal(t, main, f.hostRef("refs/heads/main"), "retaining the pin never moves main")
+}
+
 // C-J5-02 at the stack's boundary: every main move admits one flow-load at
 // main's commit; loads coalesce; a loaded version becomes Active, a failed
 // one leaves Active in place and shows its error, and a load whose digests
@@ -237,7 +290,7 @@ func TestFlowLoadLoadsEveryMainMoveAndKeepsThePreviousVersionWhenALoadFails(t *t
 	assert.NotEmpty(t, row.Error)
 	active, err = ActiveFlowDigest(ctx, q, o.repoID, "todo")
 	require.NoError(t, err)
-	assert.Equal(t, strings.Repeat("5", 64), active)
+	assert.Equal(t, d2, active, "an older main result must not activate")
 	_, err = o.pool.Exec(ctx, `UPDATE flow_loads SET next_attempt_at = NOW() WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
 	o.wake()
@@ -296,4 +349,128 @@ func TestFlowEntryNameIsTheFlowsDirectory(t *testing.T) {
 		assert.Equal(t, want, name, path)
 		assert.Equal(t, want != "", ok, path)
 	}
+}
+
+// Repository code cannot provide an answer command, including an Active row
+// accepted by an older install. Refresh retires it without deleting history;
+// unrelated similarly named repository flows still load normally.
+func TestFlowLoadKeepsForeignAnswersInstallOwned(t *testing.T) {
+	ctx := t.Context()
+	pool := getAgentTestPool(t)
+	q := db.New(pool)
+	repoID := createWorkflowRunIntegrationRepo(t, pool)
+	commit := strings.Repeat("a", 40)
+	oldDigest, newDigest := strings.Repeat("b", 64), strings.Repeat("c", 64)
+	names := []string{"branch.bring-in", "branch.discard-foreign"}
+	versions := []FlowLoadVersion{}
+	for _, name := range names {
+		path := "flows/" + name + "/flow.ts"
+		_, err := q.InsertFlowVersion(ctx, repoID, name, path, commit, oldDigest, "loaded", "", json.RawMessage(`{}`))
+		require.NoError(t, err)
+		activated, err := q.ActivateFlowVersion(ctx, repoID, name, oldDigest)
+		require.NoError(t, err)
+		require.True(t, activated)
+		digest, err := ActiveFlowDigest(ctx, q, repoID, name)
+		require.ErrorContains(t, err, "install-owned")
+		require.Empty(t, digest)
+		versions = append(versions, FlowLoadVersion{Name: name, Path: path, Digest: newDigest, Status: "loaded"})
+		for _, near := range []string{name + "/custom", name + ".custom", strings.ToUpper(name)} {
+			versions = append(versions, FlowLoadVersion{Name: near, Path: "flows/" + near + "/flow.ts", Digest: newDigest, Status: "loaded"})
+		}
+	}
+	cards, err := RepositoryFlowCatalog(ctx, q, repoID)
+	require.NoError(t, err)
+	for _, card := range cards {
+		require.NotContains(t, names, card.Name, "historical system overrides are never editable catalog entries")
+	}
+	moved, err := persistFlowVersions(ctx, q, repoID, commit, versions)
+	require.NoError(t, err)
+	require.Len(t, moved, 8, "six custom flows activated and two historical system overrides retired")
+	rows, err := q.ListFlowVersions(ctx, repoID)
+	require.NoError(t, err)
+	require.Len(t, rows, 8, "no replacement system version was persisted")
+	for _, row := range rows {
+		if row.Name == "branch.bring-in" || row.Name == "branch.discard-foreign" {
+			require.False(t, row.IsActive)
+			require.Equal(t, oldDigest, row.Digest.String, "historical version remains readable")
+		} else {
+			require.True(t, row.IsActive)
+			digest, err := ActiveFlowDigest(ctx, q, repoID, row.Name)
+			require.NoError(t, err)
+			require.Equal(t, newDigest, digest)
+		}
+	}
+	moved, err = persistFlowVersions(ctx, q, repoID, commit, versions)
+	require.NoError(t, err)
+	require.Empty(t, moved, "refresh replay cannot reactivate a repository answer command")
+	cards, err = RepositoryFlowCatalog(ctx, q, repoID)
+	require.NoError(t, err)
+	require.Len(t, cards, 7, "the built-in TODO and six custom flows remain visible")
+	for _, card := range cards {
+		require.NotContains(t, names, card.Name)
+	}
+}
+
+// A repeated guest result cannot turn a failed digest into an Active version
+// or clear the existing Active pointer. The original row is immutable.
+func TestFlowLoadFailedDigestCannotClearActiveOnReplay(t *testing.T) {
+	pool := getAgentTestPool(t)
+	q := db.New(pool)
+	repo := createWorkflowRunIntegrationRepo(t, pool)
+	ctx := t.Context()
+	commit := strings.Repeat("a", 40)
+	loaded, failed := strings.Repeat("b", 64), strings.Repeat("c", 64)
+	_, err := persistFlowVersions(ctx, q, repo, commit, []FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: loaded, Status: "loaded"}})
+	require.NoError(t, err)
+	_, err = persistFlowVersions(ctx, q, repo, commit, []FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: failed, Status: "failed", Error: "invalid type"}})
+	require.NoError(t, err)
+	moved, err := persistFlowVersions(ctx, q, repo, commit, []FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: failed, Status: "loaded"}})
+	require.NoError(t, err)
+	require.Empty(t, moved)
+	active, err := ActiveFlowDigest(ctx, q, repo, "todo")
+	require.NoError(t, err)
+	require.Equal(t, loaded, active)
+	rows, err := q.ListFlowVersions(ctx, repo)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, "failed", rows[1].Status.String)
+}
+
+func TestFlowLoadSyncingTracksImportedHelpersAndLockfiles(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := t.Context()
+	o.lanes.provision = func(id string) {
+		_, err := o.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,status) VALUES($1,$2,$3,$4,'running')`, id, o.repoID, o.userID, id)
+		require.NoError(t, err)
+	}
+	o.commitFile("helper", "lib/todo-steps.ts", "export const step = 1\n")
+	m1 := o.commitFile("flow", "flows/todo/flow.ts", "import {step} from '../../lib/todo-steps.ts'\nexport default step\n")
+	o.service.SetFlowLoad(true)
+	o.wake()
+	require.Len(t, o.flowLoads(), 1)
+	d1 := strings.Repeat("1", 64)
+	o.projectLoad(o.flowLoads()[0], jobs.StateCompleted, "initial", flowLoadOutput(m1, FlowLoadVersion{Name: "todo", Path: "flows/todo/flow.ts", Digest: d1, Status: "loaded", Dependencies: []string{"lib/todo-steps.ts"}}))
+	o.wake()
+	m2 := o.commitFile("helper changes", "lib/todo-steps.ts", "export const step = 2\n")
+	o.wake()
+	card := o.flowCard("todo")
+	require.Len(t, card.Versions, 3)
+	require.Equal(t, "merged-syncing", card.Versions[1].State)
+	o.projectLoad(o.flowLoads()[1], jobs.StateCompleted, "helper", flowLoadOutput(m2, FlowLoadVersion{Name: "todo", Path: "flows/todo/flow.ts", Digest: strings.Repeat("2", 64), Status: "loaded", Dependencies: []string{"lib/todo-steps.ts"}}))
+	o.wake()
+	o.commitFile("lock changes", "pnpm-lock.yaml", "lockfileVersion: 9\n")
+	o.wake()
+	card = o.flowCard("todo")
+	require.Equal(t, "merged-syncing", card.Versions[1].State)
+}
+
+// Version metadata must not borrow the steps of a newer built-in or another
+// digest. An explicit empty guest graph is different from an old receipt.
+func TestFlowVersionConfigKeepsGuestSteps(t *testing.T) {
+	custom := []FlowStep{{ID: "changelog", Label: "Changelog"}, {ID: "merge", Wait: true, Signals: []FlowSignal{{On: "steer", To: "changelog"}}}}
+	for _, steps := range [][]FlowStep{custom, {}} {
+		config := flowVersionConfig(FlowLoadVersion{Name: "todo", Steps: steps})
+		require.Equal(t, steps, storedFlowSteps(config, builtinFlowSteps["todo"]))
+	}
+	require.Equal(t, builtinFlowSteps["todo"], storedFlowSteps(flowVersionConfig(FlowLoadVersion{Name: "todo"}), nil))
 }

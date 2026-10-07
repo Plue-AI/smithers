@@ -34,7 +34,7 @@ type flowComposition struct {
 	stopper    flowhost.RetirementStopper
 }
 
-func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService, setupServices ...*services.RepositorySetupService) (*flowComposition, error) {
+func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService, presence ...*branchPresence) (*flowComposition, error) {
 	if options.FlowHostRegistry == nil {
 		return nil, nil
 	}
@@ -111,9 +111,10 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	}
 	additionalTargets := []flowhost.TargetResolver{browserFlowTarget{queries: db.New(pool)}}
 	projectors := []flowdispatch.Projector{agents, repositoryJobs}
-	if len(setupServices) == 1 {
-		additionalTargets = append(additionalTargets, setupServices[0])
-		projectors = append(projectors, setupServices[0])
+	maxObservationDelay := time.Duration(0)
+	if len(presence) > 0 && presence[0] != nil {
+		projectors = append(projectors, presence[0])
+		maxObservationDelay = 10 * time.Second
 	}
 	targets := flowTargetResolver(agentTargets, repositoryJobTargets, additionalTargets...)
 	if invoked != nil {
@@ -126,13 +127,16 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// flow-load runs on its own short-lived workspace after every main move.
 		flowLoad := services.NewFlowLoadRuntime(mythical)
 		targets = withMythicalTargets(targets, services.NewMythicalFlowHostTargetResolver(mythical), flowLoad)
-		projectors = append(projectors, mythical, flowLoad)
+		projectors = append(projectors, mythical, flowLoad, mythical.LearningRuntime())
 	}
 	workspaceHosts, ok := launcher.(boxHostBase)
 	if !ok {
 		return nil, errors.New("Flow workspace launcher cannot resolve sources or stop hosts")
 	}
 	boxLauncher := newBoxHostLauncher(workspaceHosts, boxes, invoked)
+	if config.IsSingleOwner(cfg.Auth) && options.Repository != nil {
+		boxLauncher.codingProject = installCodingProject(pool, repositorySourceFiles{client: options.Repository})
+	}
 	if _, ownerPaid := options.proxyKeys(); ownerPaid {
 		// An install pins no coding model: its hosts run the coding role
 		// Model access wrote, on the owner's key through the proxy.
@@ -174,7 +178,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), RelayPlans: relayPlanStore{db.New(pool)}})
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), MaxObservationDelay: maxObservationDelay, SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
@@ -221,7 +225,7 @@ func codingHostAccountPoolURL(cfg *config.Config, productAPIURL string) string {
 
 func (flow *flowComposition) recover(ctx context.Context) error {
 	if _, err := flow.jobs.RecoverExpiredForOperations(ctx,
-		[]string{flowdispatch.OperationLaunch, flowdispatch.OperationApprove, flowdispatch.OperationSignal}, 100); err != nil {
+		[]string{flowdispatch.OperationLaunch, flowdispatch.OperationApprove, flowdispatch.OperationSignal, flowdispatch.OperationSteer}, 100); err != nil {
 		return fmt.Errorf("recover Flow operations: %w", err)
 	}
 	if err := flow.bindings.ReconcileRetired(ctx, flow.stopper, 100); err != nil {

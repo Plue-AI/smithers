@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,8 +12,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
-// MemberRecheckInterval is how often the install rechecks every member's
-// write access on GitHub (M-05: re-checked at sign-in and every hour).
 const MemberRecheckInterval = time.Hour
 
 // MemberRecheckFailures counts skipped member reads, without member labels.
@@ -62,6 +59,21 @@ func (m *Members) Recheck(ctx context.Context) (result error) {
 	})
 	if err != nil {
 		return err
+	}
+	if poll != nil {
+		active := make(map[int64]bool, len(members))
+		for _, member := range members {
+			active[member.id] = true
+		}
+		poll.mu.Lock()
+		if poll.binding == binding {
+			for id := range poll.validators {
+				if !active[id] {
+					delete(poll.validators, id)
+				}
+			}
+		}
+		poll.mu.Unlock()
 	}
 	var failed []error
 	// Stage all reads: an installation refusal must change no member, even

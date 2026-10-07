@@ -4,6 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
+import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -22,7 +23,7 @@ export const debugVerboseFlows = (actions: CommandActions): ReadonlyArray<FlowEn
    * switch unreachable exactly where the maintainer runs the app.
    */
   const VERBOSE = {
-    name: "debug.verbose",
+    name: "debug.verbose", visibility: "hidden" as const,
     summary: "Show everything Smithers is doing",
     input: NoPayload,
     handler: () => actions.toggleVerbose()
@@ -30,7 +31,7 @@ export const debugVerboseFlows = (actions: CommandActions): ReadonlyArray<FlowEn
   return [
   flow(VERBOSE),
   flow({
-    name: "debug.errors",
+    name: "debug.errors", visibility: "hidden" as const,
     summary: "Read recent app errors and toast history, including dismissed notifications; no repository or sign-in needed",
     args: "[text] [--source toast|network|event|tool] [--since ISO-timestamp] [--limit 1..100] [--all]",
     input: Schema.Struct({ query: Schema.optional(Schema.String) }),
@@ -47,35 +48,35 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
      * is one backend, and an argument asking for another is answered rather
      * than ignored. user-only: the agent must never reason about its engine.
      */
-    name: "debug.backend",
+    name: "debug.backend", visibility: "hidden" as const,
     summary: "Report the agent backend",
-    userOnly: true,
-    userOnlyReason: "admin diagnostics; the agent must never reason about its engine",
+    agent: "never" as const,
+    agentReason: "admin diagnostics; the agent must never reason about its engine",
     input: Schema.Struct({ backend: Schema.String }),
     handler: ({ backend }) => actions.describeAgentBackend(backend)
   }),
   flow({
     /* The debug reads — one typed surface the panel AND the agent share. */
-    name: "debug.snapshot",
+    name: "debug.snapshot", visibility: "hidden" as const,
     summary: "Read the app state snapshot",
     input: NoPayload,
     handler: () => actions.debugSnapshot()
   }),
   flow({
-    name: "debug.events",
+    name: "debug.events", visibility: "hidden" as const,
     summary: "Read the transition journal tail",
     input: NoPayload,
     handler: () => actions.debugEvents()
   }),
   flow({
     /* Debug mode's wire tap (§14): the controller's fetch ring. */
-    name: "debug.net",
+    name: "debug.net", visibility: "hidden" as const,
     summary: "Read the network tap",
     input: NoPayload,
     handler: () => actions.debugNet()
   }),
   flow({
-    name: "debug.seams",
+    name: "debug.seams", visibility: "hidden" as const,
     summary: "Probe seam and upstream health",
     input: NoPayload,
     handler: () => actions.debugSeams()
@@ -84,13 +85,13 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
 
 /** T-APP-21: one playground flow, with the product's slash spelling as a hidden alias. */
 export const debugApiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
-  const input = Schema.Struct({ operationId: Schema.optional(Schema.String),
-    intent: Schema.optional(Schema.Literals(["open", "send", "confirm"])),
-    values: Schema.optional(Schema.Record(Schema.String, Schema.String)), confirmation: Schema.optional(Schema.String) })
-  return ["debug.api", "debug-api"].map(name => flow({ name,
-    summary: "Call the documented API", args: "[operationId]", input,
-    hidden: name === "debug.api" || !actions.debugApi?.available?.(),
-    userOnly: true, userOnlyReason: "raw API bypasses flow typing and approvals; agents use flows",
+  const available = typeof actions.debugApi?.available === "function" && actions.debugApi.available()
+  return ["debug.api", "debug-api"].map(name => flow({ ...debugApiOperation, name,
+    slash: name === "debug-api" ? "/debug-api" : null, cli: name === "debug.api" ? ["debug", "api"] : null, http: null, journey: [], group: "Advanced",
+    visibility: name === "debug-api" && available ? "advanced" : "hidden", actors: ["person"], minimumRole: "member",
+    summary: "Call the documented API", args: "[operationId]",
+    hidden: name === "debug.api" || !available,
+    agent: "never" as const, agentReason: "raw API bypasses flow typing and approvals; agents use flows",
     handler: payload => actions.debugApiCommand(payload)
   }))
 }

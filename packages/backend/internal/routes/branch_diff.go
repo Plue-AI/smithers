@@ -31,7 +31,7 @@ func (h *BranchDiffHandler) Diff(w http.ResponseWriter, r *http.Request) {
 			writeBranchDiffUnavailable(w)
 			return
 		}
-		writeRouteError(w, r, err)
+		writeBranchError(w, r, err)
 		return
 	}
 	if result.Files == nil {

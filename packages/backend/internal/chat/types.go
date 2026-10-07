@@ -27,6 +27,7 @@ type State string
 
 const (
 	StateAccepted  State = "accepted"
+	StateQueued    State = "queued"
 	StateRunning   State = "running"
 	StateCompleted State = "completed"
 	StateFailed    State = "failed"

@@ -23,6 +23,9 @@ type WorkspaceAccess struct {
 	SandboxID string
 	User      string
 	Token     string
+	// Branch logins bind the roster identity and stable branch machine id.
+	MemberID int64
+	UID      uint32
 }
 
 // WorkspaceBridge validates an access grant and proxies an authenticated

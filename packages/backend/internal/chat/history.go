@@ -200,6 +200,7 @@ func (s *Store) History(ctx context.Context, scope Scope, after string, limit in
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE user_id=$1 AND state<>'retired'
 		AND COALESCE(request_payload->>'purpose','conversation')='conversation'
+		AND request_payload->>'sharedConversation' IS DISTINCT FROM 'true'
 		AND (created_at,id)>($2,$3) ORDER BY created_at,id LIMIT $4`, scope.UserID, boundary.CreatedAt, boundary.ID, limit+1)
 	if err != nil {
 		return HistoryPage{}, err
@@ -274,6 +275,13 @@ func (s *Store) ReplayAccount(ctx context.Context, input AccountReplayInput) (Ac
 	}
 	if err = authorizeAccount(turn, ownerHash); err != nil {
 		return AccountReplayResult{}, err
+	}
+	var request map[string]any
+	if json.Unmarshal(turn.Request, &request) != nil {
+		return AccountReplayResult{}, ErrCorrupt
+	}
+	if request["sharedConversation"] == true {
+		return AccountReplayResult{}, ErrForbidden
 	}
 	id, text, err := conversationMetadata(turn)
 	if err != nil {

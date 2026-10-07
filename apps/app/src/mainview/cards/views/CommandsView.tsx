@@ -1,21 +1,25 @@
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import type { Action } from "@smthrs/rpc/CardAction"
 import type { CommandsViewProps } from "@smthrs/rpc/CommandsCard"
 
 function CommandRows({ commands }: { commands: CommandsViewProps["model"]["groups"][number]["commands"] }) {
-  return <dl>{commands.map((command, index) => <div key={index} className="mvp-command">
+  return <dl>{commands.map((command, index) => <div key={index} className="command">
     <dt>{command.synopsis === "⌘K (no slash)" ? <><kbd>⌘K</kbd> (no slash)</> : <code>{command.synopsis}</code>}</dt>
     <dd>{command.description}</dd>
-    {command.agent !== "run" && <dd className="mvp-command-policy">{command.agent === "confirm" ? "Asks first" : "Only you"}</dd>}
+    {command.agent !== "run" && <dd className="command-policy">{command.agent === "confirm" ? "Asks first" : "Only you"}</dd>}
   </div>)}</dl>
 }
 
 export function CommandsView({ model, actions, onAction }: CommandsViewProps) {
-  const controls = []
-  for (const [index, action] of actions.entries()) controls.push(<CommandActionView key={`${index}:${JSON.stringify(action)}`} action={action} onAction={onAction} />)
-  return <article className="mvp-commands-card" aria-label="Commands">
-    <div className="mvp-commands">{model.groups.map((group, index) => group.advanced
-      ? <details key={index} className="mvp-commands-advanced"><summary>{group.label}</summary><CommandRows commands={group.commands} /></details>
+  const controls: ReactNode[] = [], advancedControls: ReactNode[] = []
+  for (const [index, action] of actions.entries()) {
+    const control = <CommandActionView key={`${index}:${JSON.stringify(action)}`} action={action} onAction={onAction} />
+    const target = action.tag === "debug.api" ? advancedControls : controls
+    target.push(control)
+  }
+  return <article className="commands-card" aria-label="Commands">
+    <div className="commands">{model.groups.map((group, index) => group.advanced
+      ? <details key={index} className="commands-advanced"><summary>{group.label}</summary><CommandRows commands={group.commands} />{advancedControls}</details>
       : <section key={index}><h3>{group.label}</h3><CommandRows commands={group.commands} /></section>)}</div>
     {controls}
   </article>

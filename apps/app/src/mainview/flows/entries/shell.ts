@@ -8,7 +8,7 @@ import { Schema } from "effect"
 import { flow, type CommandActions } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
-import { goToBranch } from "../../state/seams/DesignWorld/shell"
+import { goToBranch, shellViewsOf } from "../../state/seams/DesignWorld/shell"
 import { presentDesignBranch } from "./branch"
 import { branchSeedAvailable } from "../../state/seams/BranchSeam"
 
@@ -24,16 +24,18 @@ const name: Grammar = args => {
 export const shellFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     name: "branch",
-    summary: "Open a branch",
+     slash: "/branch", cli: ["branch","show"], journey: ["J3"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/branches/{name}"}, summary: "Open a branch's card",
     args: "<name|T12>",
     hidden: true,
     discloseToAgent: true,
     grammar: name,
-    input: Schema.Struct({ name: Schema.String }),
+    agent: "run", input: Schema.Struct({ name: Schema.String }),
     handler: async ({ name: target }) => {
+      if (actions.openBranch) return actions.openBranch(target)
       if (!branchSeedAvailable(actions)) return "Branch unavailable"
       const result = goToBranch(actions.design, actions.design.viewer(), target)
       if (!result.ok) return result.refusal
+      await actions.selectConversationBranch(shellViewsOf(actions.design).get(actions.design.viewer())?.at ?? "main")
       await presentDesignBranch(actions, target)
       return { value: result.ack }
     }

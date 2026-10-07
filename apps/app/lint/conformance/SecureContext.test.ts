@@ -17,12 +17,14 @@ const TREES = ["apps/app/src/mainview", "packages/smithers/ui/src"] as const
 const BANNED: ReadonlyMap<string, { readonly receiver: RegExp; readonly use: string }> = new Map([
   ["randomUUID", { receiver: /(?:^|\.)crypto$/, use: "randomUuid() from apps/app/src/mainview/runtime/RandomUuid" }],
   ["subtle", { receiver: /(?:^|\.)crypto$/, use: "digestSync from @smthrs/crypto" }],
+  ["clipboard", { receiver: /(?:^|\.)navigator$/, use: "copyText from @smthrs/ui" }],
   ["serviceWorker", { receiver: /(?:^|\.)navigator$/, use: "nothing: the app registers no service worker" }]
 ])
 /** Tests run under Bun, a secure context; only shipped sources are held to the ban. */
 const shipped = (path: string) => /\.[cm]?tsx?$/.test(path) && !/\.(test|spec|fixture|test-support)\.[cm]?tsx?$/.test(path) && !path.endsWith(".d.ts")
 
 const secureContextViolations = (file: string, source: string): string[] => {
+  if (file.endsWith("/internal/copyToClipboard.ts")) return []
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
   const found: string[] = []
   const visit = (node: ts.Node): void => {
@@ -54,10 +56,11 @@ describe("secure-context APIs", () => {
       "const b = globalThis.crypto?.randomUUID?.()",
       "const c = await crypto.subtle.digest(\"SHA-256\", bytes)",
       "void window.navigator.serviceWorker.register(\"/sw.js\")",
+      "navigator.clipboard.writeText(\"copy\")",
       "// crypto.randomUUID() in a comment is documentation",
       "const d = \"crypto.subtle\""
     ].join("\n")
-    expect(secureContextViolations("planted.ts", planted).map(line => line.split(" ")[0])).toEqual(["planted.ts:1", "planted.ts:2", "planted.ts:3", "planted.ts:4"])
+    expect(secureContextViolations("planted.ts", planted).map(line => line.split(" ")[0])).toEqual(["planted.ts:1", "planted.ts:2", "planted.ts:3", "planted.ts:4", "planted.ts:5"])
   })
 
   test("the scan reaches the trees it guards", () => {

@@ -13,6 +13,14 @@ import (
 func RejectTenantProvisioning(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimSuffix(r.URL.Path, "/")
+		// Account erasure is also an install operation; hosted user creation
+		// and administration remain absent. Its route enforces an owner browser
+		// session before reaching the erasure service.
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if r.Method == http.MethodPost && len(parts) == 5 && parts[0] == "api" && parts[1] == "admin" && parts[2] == "users" && parts[3] != "" && parts[4] == "erase" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if path == "/api/orgs" || strings.HasPrefix(path, "/api/orgs/") ||
 			path == "/api/admin/orgs" || strings.HasPrefix(path, "/api/admin/orgs/") ||
 			path == "/api/admin/users" || strings.HasPrefix(path, "/api/admin/users/") {
@@ -50,6 +58,19 @@ func RejectDeferredCommerce(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimSuffix(r.URL.Path, "/")
 		if path == "/api/billing" || strings.HasPrefix(path, "/api/billing/") {
+			pkgerrors.WriteError(w, pkgerrors.NotFound("not found"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RejectLocalAuth keeps the removed password door absent before credential
+// lookup, including when the browser holds a provisional owner session.
+func RejectLocalAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSuffix(r.URL.Path, "/")
+		if path == "/api/auth/local" || strings.HasPrefix(path, "/api/auth/local/") {
 			pkgerrors.WriteError(w, pkgerrors.NotFound("not found"))
 			return
 		}

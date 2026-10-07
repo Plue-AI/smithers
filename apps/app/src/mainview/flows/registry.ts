@@ -30,7 +30,6 @@ import * as approvals from "./entries/approvals"
 import * as auth from "./entries/auth"
 import * as billing from "./entries/billing"
 import * as branches from "./entries/branches"
-import * as commits from "./entries/commits"
 import * as browser from "./entries/browser"
 import * as card from "./entries/card"
 import * as change from "./entries/change"
@@ -71,9 +70,17 @@ import type { OperationMetadata } from "@smthrs/ui/app-operations"
  * decision: capabilities and effect tiers live on the declaration, and the
  * user-only axis is the descriptor's `modelInvocable` flag. Requirement ids
  * come from `flowRequirements`; flows/agent-parity.test.ts enumerates every
- * `userOnlyReason`; `workflow` names the flow a run card belongs to.
+ * `agentReason`; `workflow` names the flow a run card belongs to.
  */
 export interface FlowMetadata extends OperationMetadata<RuntimeCapability, AppBootstrap["host"]> {
+  /** Authoritative catalog fields supplied by the operation provider (T-CAT-01). */
+  readonly visibility?: "core" | "advanced" | "in-card" | "hidden"
+  readonly group?: string
+  readonly actors?: ReadonlyArray<"person" | "app_agent" | "external_agent">
+  readonly minimumRole?: "member" | "maintainer" | "owner"
+  readonly agent?: "run" | "confirm" | "never"
+  /** Require a person to press the confirmation too. */
+  readonly confirmPerson?: boolean
   /**
    * The slash grammar of a flow declared at RUNTIME (a repository's flow
    * leaf, entries/flow.ts `repositoryFlowLeaves`). SlashPayload's table names
@@ -86,7 +93,9 @@ export interface FlowMetadata extends OperationMetadata<RuntimeCapability, AppBo
 
 /** The confirmation label an agent invocation of this flow needs, or undefined when it needs none. */
 export const confirmLabel = (metadata: FlowMetadata, payload: Record<string, unknown>): string | undefined =>
-  typeof metadata.confirm === "function" ? metadata.confirm(payload) : metadata.confirm
+  metadata.agent === "run" || metadata.agent === "never" ? undefined :
+  typeof metadata.confirm === "function" ? metadata.confirm(payload) :
+  metadata.confirm ?? (metadata.agent === "confirm" ? metadata.summary : undefined)
 
 /**
  * One registered flow as the catalog sees it: its name beside its UI metadata.
@@ -111,7 +120,7 @@ export interface CatalogItem extends FlowMetadata {
  */
 export interface FlowEntry<R = never> {
   /** Permission refusal before a delegated confirmation is published. */
-  readonly preflight?: (payload: Record<string, unknown>) => string | undefined | Promise<string | undefined>
+  readonly preflight?: (payload: Record<string, unknown>, invoker?: "user" | "agent" | "system") => string | undefined | Promise<string | undefined>
   /** Data preparation only; never executes the flow or publishes a view. */
   readonly prepare?: (payload: Record<string, unknown>) => Promise<void>
   /** Copied from the same declaration; avoids projecting schemas for a name lookup. */
@@ -201,7 +210,9 @@ export const absentDoor = (metadata: FlowMetadata, bootstrap: AppBootstrap): Mis
  * declare `modelInvocable: false`, so they never reach the agent's catalog and
  * the model can neither invoke them nor promise them.
  */
-export const modelInvocable = (entry: FlowEntry): boolean => entry.binding.descriptor.modelInvocable
+export const modelInvocable = (entry: FlowEntry): boolean =>
+  entry.metadata.agent === undefined ? entry.binding.descriptor.modelInvocable : entry.metadata.agent !== "never" && entry.metadata.visibility !== "hidden" &&
+    (entry.metadata.actors === undefined || entry.metadata.actors.includes("app_agent"))
 
 /**
  * A prerequisite a flow can declare via `requires`. The registry resolves
@@ -252,6 +263,7 @@ export const unmetRequirements = (
 
 /** The app state the recommendation rule reads, sampled from the store. */
 export interface CommandState {
+  readonly viewerRole?: "member" | "maintainer" | "owner"
   readonly surface: "chat" | "world" | "connectors" | "flows" | "plugins" | "subagents"
   readonly typing: boolean
   readonly hasConnectors: boolean
@@ -330,8 +342,6 @@ export const recommendedNames = (state: CommandState): ReadonlyArray<string> => 
 
 
 
-/** Built-in top-level leaves, distinct from repository-owned flows. */
-export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "docs", "settings", "todo", "help", "members", "stack", "theme", "stop", "search", "sign-in", "sign-out", "flow", "flows", "runs", "run", "issue", "issues", "file", "files", "diff", "pr"]
 
 export interface Namespace {
   readonly id: string
@@ -364,7 +374,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   palette.namespace,
   sync.namespace,
   branches.namespace,
-  commits.namespace,
   env.namespace,
   secrets.namespace,
   history.namespace,
@@ -467,12 +476,9 @@ export const slashTree = <C extends CatalogItem>(
      */
     const recommended = slashItems(state, "", commands).filter((item) => item.recommended)
     const named = new Set(recommended.map((item) => item.flow.name))
-    /* The surface switches lead, in SURFACE_FLOWS order; every other bare leaf keeps registry order. */
-    const surfaceRank = (name: string): number => { const at = SURFACE_FLOWS.indexOf(name); return at < 0 ? SURFACE_FLOWS.length : at }
     const bare = visible(offerable(state, commands))
       .filter((command) => namespaceOf(command.name) === undefined && !named.has(command.name))
       .map((flow, index): { flow: C; index: number } => ({ flow, index }))
-      .sort((left, right) => surfaceRank(left.flow.name) - surfaceRank(right.flow.name) || left.index - right.index)
       .map(({ flow }): SlashItem<C> => ({ flow, recommended: false }))
     return [...recommended.map(asFlow), ...bare.map(asFlow), ...namespaces.map(asNamespace)]
   }
@@ -512,11 +518,27 @@ const offerable = <C extends CatalogItem>(state: CommandState, commands: Readonl
 /** The flows listed to the user: hidden id-scoped actions never show. */
 export const visible = <C extends CatalogItem>(
   commands: ReadonlyArray<C>
-): Array<C> => commands.filter((command) => command.hidden !== true)
+): Array<C> => commands.filter((command) => command.visibility === undefined ? command.hidden !== true : command.visibility === "core" || command.visibility === "advanced")
+
+/** The shared human listing admission; absent authority never becomes a row. */
+export const viewerAdmitted = (state: CommandState, commands: ReadonlyArray<CatalogItem>): Array<CatalogItem> => {
+  const roles = { member: 0, maintainer: 1, owner: 2 }
+  const role = state.viewerRole
+  if (role === undefined) return []
+  return commands.filter(command =>
+    (command.visibility === "core" || command.visibility === "advanced") &&
+    command.actors?.includes("person") === true &&
+    command.minimumRole !== undefined && roles[command.minimumRole] !== undefined &&
+    roles[role] >= roles[command.minimumRole] &&
+    (command.agent === "run" || command.agent === "confirm" || command.agent === "never") &&
+    typeof command.group === "string" && command.group.length > 0 &&
+    unmetRequirements(command, state).length === 0)
+}
 
 /** Model discovery is explicit for internal controls; invocation authority is unchanged. */
 export const disclosedToAgent = (metadata: FlowMetadata): boolean =>
-  metadata.hidden !== true || metadata.discloseToAgent === true
+  metadata.agent !== "never" && (metadata.actors === undefined || metadata.actors.includes("app_agent")) &&
+  (metadata.visibility === undefined ? metadata.hidden !== true || metadata.discloseToAgent === true : metadata.visibility !== "hidden")
 
 /** A needle matches a flow by name or summary, case-insensitively. */
 export const matches = (command: CatalogItem, needle: string): boolean => {

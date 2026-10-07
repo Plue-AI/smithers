@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/sdk/trace"
 
@@ -27,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/cleanup"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/configsync"
@@ -37,10 +40,13 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -159,7 +165,11 @@ func composeBranchMachines(options Options, hosted bool, members identity.Member
 
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
-	HostProfile *microsandbox.HostProfile
+	// Machined is the shared host link registry, owned by the install runtime.
+	Machined *machined.Registry
+	// DocumentRelay is the authenticated document seam; nil refuses document subscriptions.
+	DocumentRelay *live.DocRelay
+	HostProfile   *microsandbox.HostProfile
 	// GitHubImportGitRunner reuses the importer transport seam for integration fixtures.
 	GitHubImportGitRunner func(context.Context, []string, ...string) (string, error)
 	// MachineImages builds main's first machine image (setup step 6) for a
@@ -205,8 +215,8 @@ type Options struct {
 	ChatCallbackListener  net.Listener
 	ChatProducerBaseURL   string
 	Recommender           ports.Recommender
-	RecommendationLog     ports.RecommendationLog
-	ModelStreamHost       ports.ModelStreamHost
+
+	ModelStreamHost ports.ModelStreamHost
 	// MetricsCollectors are deployment collectors exported with the product
 	// registry on this process's /metrics endpoint.
 	MetricsCollectors []prometheus.Collector
@@ -287,6 +297,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	fs := flag.NewFlagSet("smithers-server", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "Path to config file")
+	initialBind := fs.String("bind", "", "Initial network bind beside loopback")
+	var initialOrigins originFlags
+	fs.Var(&initialOrigins, "origin", "Initial public origin (repeatable)")
 	setupHandoff := fs.String("setup-handoff", "terminal", "Setup URL output: terminal or socket")
 	if err := fs.Parse(args); err != nil {
 		return &flagParseError{err}
@@ -408,8 +421,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	defer pool.Close()
 	slog.Info("connected to database")
 
-	provisioningEnforced := options.topology.hosted()
-
 	// Start background DB pool stats collector (reports every 15s).
 	poolStatsCtx, poolStatsCancel := context.WithCancel(ctx)
 	defer poolStatsCancel()
@@ -418,7 +429,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	queries := db.New(pool)
 	var installCapacity *services.InstallCapacityService
 	if options.HostProfile != nil {
-		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile}
+		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile, AuthorizeParallel: func(ctx context.Context) error {
+			_, err := services.Authorize(ctx, queries, "settings.parallel")
+			return err
+		}}
+		if disk, ok := options.Workspace.(interface {
+			FreeDisk(context.Context) (int64, error)
+		}); ok {
+			capacity.FreeDisk = disk.FreeDisk
+		}
 		if counter, ok := options.Workspace.(interface{ InUse() int }); ok {
 			capacity.InUse = counter.InUse
 		}
@@ -477,10 +496,32 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	stopRevocationBus := func() {
 		stopRevocationListener(cancelRevocationBus, revocationBus, revocationBusStopTimeout)
 	}
-	defer stopRevocationBus()
+	defer func() {
+		stopRevocationBus()
+		// A stopped install must not leave its database's revoked identities
+		// attached to the next composition in this process.
+		routes.SetRevocationSource(nil)
+		revocationChecker = nil
+	}()
 	revocationPublisher := revocation.NewDBPublisher(queries, revocationBus)
 	routes.SetRevocationSource(revocationBus)
 	revocationChecker = revocationBus
+	// The install runtime owns the registry used by all guest links. Resolve
+	// it from that runtime rather than creating an isolated second registry.
+	if options.Machined == nil {
+		if host, ok := options.Workspace.(interface{ MachinedRegistry() *machined.Registry }); ok {
+			options.Machined = host.MachinedRegistry()
+		}
+	}
+	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
+		roster := &machineRoster{pool: pool, client: options.Machined, branches: options.Machined.ConnectedBranches}
+		options.Machined.BindRosterSync(roster.syncBranch)
+		stopRoster := roster.start(ctx, revocationBus)
+		defer func() {
+			stopRoster()
+			options.Machined.BindRosterSync(func(context.Context, string) error { return machined.ErrNotReady })
+		}()
+	}
 
 	activeStorageSetID := strings.TrimSpace(os.Getenv("ACTIVE_STORAGE_SET"))
 	if activeStorageSetID == "" {
@@ -508,6 +549,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// Startup validation permits this only for the single trusted owner.
 		billingPolicy = services.NewUnlimitedBillingPolicy()
 	}
+	if options.InstallBranchMachines {
+		billingPolicy = installMachineAdmissionPolicy{Policy: billingPolicy, start: services.NewMachineAdmissionPolicy(billingPolicy)}
+	}
 	// Every attributed push is capped at, and recorded in, its owner's
 	// storage quota (smithersai/plue#593).
 	repoHostClient.SetPushMeter(services.NewGitStorageMeter(billingPolicy, queries))
@@ -517,12 +561,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.Error("failed to initialize webhook secret codec", "error", err)
 		return err
 	}
-	gitHubAppStore := services.NewGitHubAppCredentialStore(pool, webhookSecretCodec)
+	gitHubBudgetTracker := newGitHubBudget(options.topology)
+	gitHubAppStore := services.NewGitHubAppCredentialStore(pool, webhookSecretCodec, services.WithGitHubAppCredentialBudget(gitHubBudgetTracker))
 	gitHubAppCredentials, err := selectGitHubAppCredentials(config.IsSingleOwner(cfg.Auth), options.EnvGitHubAppCredentials, gitHubAppStore)
 	if err != nil {
 		return err
 	}
-	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth, gitHubAppCredentials)
+	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth, gitHubAppCredentials, gitHubBudgetTracker)
 	if err != nil {
 		slog.Error("invalid auth provider configuration", "error", err)
 		return err
@@ -600,11 +645,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.topology.hosted() {
 		repoOptions = append(repoOptions, services.WithRepoPlacementResolver(options.RepositoryPlacement), services.WithRepoProvisioningStore(options.RepositoryProvisioning))
 		repoService = services.NewRepoServiceWithPool(queries, repoHostClient, activeStorageSetID, pool, repoOptions...)
+		repoService.EnableDurableProvisioning()
 	} else {
 		repoService = services.NewProductRepoServiceWithPool(queries, repoHostClient, pool, repoOptions...)
-	}
-	if provisioningEnforced {
-		repoService.EnableDurableProvisioning()
 	}
 	repositoryStorageReconciler := services.NewRepositoryStorageOperationReconciler(pool, repoHostClient)
 	repositoryProvisioningReconciler := services.NewRepositoryProvisioningReconciler(options.RepositoryProvisioning, repoHostClient)
@@ -618,37 +661,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	mentionService := services.NewMentionService(queries, notificationService, services.WithMentionEmailSender(emailService))
 	commitStatusService := services.NewCommitStatusService(queries, services.WithCommitStatusWebhookDispatcher(webhookDispatcher))
-	gitHubBudgetTracker := services.NewBudgetTracker()
-	repoConnectionService := services.NewRepoConnectionService(pool, gitHubAppCredentials)
-	repoConnectionService.SetGitHubBudgetTracker(gitHubBudgetTracker)
-	gitHubRepoListService := services.NewGitHubRepoListService(pool, repoConnectionService,
-		services.WithGitHubRepoListHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))))
-	// The continuously-synced GitHub mirror: registry + issue/PR/comment store.
-	// The metadata proxy serves from it (live GitHub is the fallback), the App
-	// webhooks keep it fresh, and github-sync reads its registry feed instead of
-	// a static mapping. Its ref mirrorer is attached once the import service —
-	// which owns the clone → repo-host → ImportRefs path — has been built.
-	gitHubSyncedRepoService := services.NewGitHubSyncedRepoService(queries,
-		// R5: sync draws from the same per-installation budget as the proxy.
-		services.WithGitHubSyncedRepoBudget(gitHubBudgetTracker),
-	)
-	gitHubUserReposService := services.NewGitHubUserReposService(queries, authService,
-		services.WithGitHubUserReposTokenRefresher(authService),
-		services.WithGitHubUserReposHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))),
-		services.WithGitHubUserReposCredentialStore(gitHubAppCredentials),
-		services.WithGitHubUserReposSyncedStore(gitHubSyncedRepoService),
-	)
-	repoConnectionService.SetGitHubRepoAccessVerifier(gitHubUserReposService)
-	// github-sync writes to GitHub with the platform token; a mirror is bound
-	// and advertised only while its binding user can push with their own
-	// GitHub credential.
-	gitHubSyncedRepoService.SetPushAccess(gitHubUserReposService)
+	githubServices, err := composeGitHubSync(pool, gitHubAppCredentials, authService, options.topology, gitHubBudgetTracker)
+	if err != nil {
+		return err
+	}
+	repoConnectionService := githubServices.connections
+	gitHubRepoListService := githubServices.repositories
+	gitHubSyncedRepoService := githubServices.synced
+	gitHubUserReposService := githubServices.userRepositories
 	gitHubSyncedRepoService.SetMirrorFailureObserver(smithersMetrics)
-	// R2: backfills and the reconciliation sweep fetch with cached App
-	// installation tokens whenever the registry row has an installation;
-	// request-bound user tokens remain only the fallback for rows without one.
-	gitHubSyncedRepoService.SetFetcherFactory(
-		gitHubUserReposService.SyncedRepoInstallationFetcherFactory(repoConnectionService))
 	gitHubCheckRunService := services.NewGitHubCheckRunService(repoConnectionService)
 	agentEnvironmentService := services.NewAgentEnvironmentService(
 		queries,
@@ -707,7 +728,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.Error("invalid github-sync webhook configuration", "error", err)
 		return err
 	}
-	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
+	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretInstallAuthorization(config.IsSingleOwner(cfg.Auth), pool), services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	variableService := services.NewVariableService(queries, services.WithVariableOwnershipGuard(repoOwnershipFence), services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 
 	blobConfig := cfg.Blob
@@ -887,6 +908,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return fmt.Errorf("workspace commands: %w", err)
 	}
 	workspaceService := services.NewWorkspaceService(runtimeStores.Workspaces,
+		services.WithWorkspaceCredentialIssuer(func() *services.AuthService {
+			if config.IsSingleOwner(cfg.Auth) {
+				return authService
+			}
+			return nil
+		}()),
 		services.WithWorkspaceCommandJobs(commandJobs, webhookSecretCodec),
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceTransactions(pool),
@@ -895,6 +922,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceSandboxClient(sandboxClient),
 		services.WithWorkspaceEgressAllowDomains(egressPolicyService),
 		services.WithWorkspaceSourceReader(repoHostClient),
+		services.WithWorkspaceBurstVersions(pool, repoHostClient),
 		services.WithWorkspaceRefDeleter(repoHostClient),
 		services.WithWorkspaceUserRefs(repoHostClient),
 		services.WithBranchHeads(repoHostClient),
@@ -928,6 +956,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if branchMachines != nil {
 		services.WithBranchMachineProviders(*branchMachines)(workspaceService)
+		if options.InstallBranchMachines {
+			disk, ok := options.Workspace.(interface {
+				FreeDisk(context.Context) (int64, error)
+			})
+			if !ok {
+				return errors.New("install admission free-disk reader unavailable")
+			}
+			workspaceService.EnableMachineAdmission(disk.FreeDisk)
+		}
 	}
 	adminUserService := services.NewAdminUserService(queries,
 		services.WithTokenCreator(authService),
@@ -989,9 +1026,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// start per branch, and Machine ready is setup step 6 (spec §8.6.3).
 		services.WithGitHubImportProductProvisioning(pool)(gitHubImportService)
 	}
-	if !options.topology.hosted() || provisioningEnforced {
-		gitHubImportService.EnableDurableWorker()
-	}
+	gitHubImportService.EnableDurableWorker()
 
 	landingWorker := services.NewLandingWorker(queries, repoHostClient,
 		services.WithLandingWorkerMetrics(smithersMetrics),
@@ -1067,6 +1102,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// The mythical stack folds every main the pull brings in, admits every
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
+	mythicalService.SetTodoLogStore(blobStore)
+	if config.IsSingleOwner(cfg.Auth) {
+		mythicalService.SetInstallParallel(installCapacity)
+	}
+	composeGitHubTodoPolling(mythicalService, gitHubMainPullService, gitHubSyncedRepoService, options.topology)
+	gitHubSyncedRepoService.SetIssueEventsEvery(options.GitHubIssueEventsEvery)
+	if installSync {
+		composeGitHubInstallAuthority(gitHubSyncedRepoService, gitHubAppCredentials, os.Geteuid() != 0)
+	}
 	mythicalService.SetPublicURL(publicBaseURL)
 	// Every main move loads the repository's flows (spec §11.3.1).
 	mythicalService.SetFlowLoad(cfg.FeatureFlags.FlowLoad)
@@ -1082,14 +1126,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				slog.WarnContext(ctx, "github.main_pull.request_failed", "repository_id", repositoryID, "error", err)
 			}
 		})
-		// No webhook reaches an install (M-03): the sync reads each
-		// repository's issue events, so a member's todo label on GitHub
-		// commits a TODO (J2 step 2).
-		gitHubMainPullService.SetIssueEvents(mythicalService.ReadIssueEvents, options.GitHubIssueEventsEvery)
+		// Issue events are fetched and delivered by GitHubSyncedRepoService.
+		// Direct poll-to-TODO admission bypasses its qualification and atomic
+		// cursor/effect receipts, so it is not registered on the main-ref loop.
 	}
 	gitHubMainPullService.SetSynced(services.NewLandingGitHubMergeService(queries, repoHostClient, repoConnectionService, webhookDispatcher).Reconcile)
 	gitHubWebhookEventWorker.SetMythical(mythicalService)
 	mythicalService.SetWiki(wikiService)
+	mythicalService.SetLearningWiki(wikiService)
 	mythicalService.SetOrchestration(services.NewMythicalGitHub(queries, repoConnectionService, gitHubUserReposService, repoConnectionService),
 		nil, services.NewWorkspaceMythicalLanes(workspaceService))
 	if config.IsSingleOwner(cfg.Auth) {
@@ -1165,7 +1209,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	buildCacheHandler := &routes.BuildCacheHandler{Service: buildCacheService}
 	buildCacheCleaner := cleanup.NewPeriodic("build_cache", time.Minute, time.Minute)
 	// The roster's hourly GitHub recheck (M-05): losing write access suspends a member.
-	memberRecheck := cleanup.NewPeriodic("members", services.MemberRecheckInterval, services.MemberRecheckInterval)
+	memberRecheck := cleanup.NewPeriodic("members", services.MemberRecheckTick, services.MemberRecheckTick)
 	stackHandler := &routes.StackHandler{
 		Service: stackService,
 	}
@@ -1255,7 +1299,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		FindingsService:    changeService,
 		ConflictResolver:   changeService,
 		ChangeReverter:     changeRevertService,
-		ChangeSplitter:     changeService,
 		ChangeOperations:   changeOperationService,
 		WalkthroughService: changeService,
 		Broker:             sseBroker,
@@ -1279,7 +1322,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// handler returns 404 without calling into the service.
 	// Ticket 0134: wire the AuditService into ApprovalsService so every
 	// create/decide transition emits an immutable audit row.
-	approvalsService := services.NewApprovalsServiceWithAudit(queries, auditService)
+	approvalsService := services.NewApprovalsServiceWithAudit(queries, auditService, services.WithConfirmationTodos(pool, mythicalService))
 	approvalsHandler := &routes.ApprovalsHandler{
 		Service: approvalsService,
 		Enabled: cfg.FeatureFlags.ApprovalsFlowEnabled,
@@ -1290,6 +1333,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Metrics: smithersMetrics,
 	}
 	workspaceHandler := &routes.WorkspaceHandler{
+		CodingFiles: services.NewCodingFileCredentials(authService, services.NewFlowHostCallbacks(pool, queries), workspaceService),
 		Service:     workspaceService,
 		EgressAudit: egressAuditService,
 		Broker:      sseBroker,
@@ -1317,7 +1361,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repositoryJobService.SetOutsiderEgress(workspaceService)
 	repositoryJobService.SetRepositoryPolicyReader(repoHostClient)
 	mythicalService.SetPolicyReader(repoHostClient)
-	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
 	// InvokeWorkflow runs a file flow through the same Flow dispatcher.
 	invokedFlowService := services.NewInvokedFlowService(pool, repositoryJobService, workspaceService)
 	invokedFlowService.SetSecretInjector(secretInjector)
@@ -1330,7 +1373,16 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	} else {
 		return errors.New("workflow run service cannot cancel invoked Flow runs")
 	}
-	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, repositorySetupService)
+	options.Repository = repoHostClient
+	var presence *branchPresence
+	if config.IsSingleOwner(cfg.Auth) {
+		visits := &presenceVisits{audit: auditService, now: time.Now}
+		go visits.run(ctx)
+		presence = &branchPresence{startedAt: time.Now(), visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
+		// #3532: rebase presence activation waits for TODO sponsor authority and
+		// retired review machines; unknown presence must not be called empty.
+	}
+	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, presence)
 	if err != nil {
 		return err
 	}
@@ -1346,9 +1398,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if flow != nil {
 		agentService.SetFlowDispatcher(flow.dispatcher)
 		repositoryJobService.SetFlowDispatcher(flow.dispatcher)
-		repositorySetupService.SetFlowDispatcher(flow.dispatcher)
 		invokedFlowService.SetFlowDispatcher(flow.dispatcher)
 		mythicalService.SetLauncher(flow.dispatcher)
+		if config.IsSingleOwner(cfg.Auth) {
+			mythicalService.SetTodoFlow(func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error) {
+				return services.ActiveFlowDigest(ctx, queries, repositoryID, "todo")
+			})
+			mythicalService.EnableTodoSteering()
+		}
 		if options.topology.workers() {
 			flowWorker = newCriticalWorker()
 		}
@@ -1358,14 +1415,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return fmt.Errorf("initialize chat runtime: %w", err)
 	}
 	if config.IsSingleOwner(cfg.Auth) {
-		// Questions read the install's mirrored main once Source is ready, and
-		// their commands read the install's TODO and flow routes, as the
-		// credential that asked, behind the same member boundary.
+		// Context and file tools share the install's source/member boundary.
+		// Command calls use the author's generation-bound public API bearer.
 		members := identity.NewMemberBoundary(queries)
-		chatSizing.Sources = services.InstallSource{Pool: pool, Repos: repoService, Members: members}
-		chatSizing.API = services.InstallAPI{Pool: pool, Members: members, Routes: installReadRoutes(queries, mythicalService)}
+		source := services.InstallSource{Pool: pool, Repos: repoService, Members: members}
+		chatSizing.Sources = source
+		chatSizing.ContextRepository = services.InstallContext{Source: source, Wiki: wikiService, Branches: workspaceService}.Read
+		chatSizing.API = services.InstallAPI{Auth: authService}
 	}
-	chatService, err := newChatComposition(options, pool, chatSizing)
+	chatService, err := newChatComposition(options, pool, chatSizing, presence)
 	if err != nil {
 		return fmt.Errorf("initialize chat runtime: %w", err)
 	}
@@ -1531,18 +1589,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			recommender = jev
 		}
 	}
-	recommendationLog := options.RecommendationLog
-	if recommender != nil && recommendationLog == nil {
-		recommendationLog = routes.NewPostgresRecommendationLog(pool)
-	}
-	if recommender != nil && recommendationLog != nil {
+	if recommender != nil {
 		// A multitenant deployment pays for Jev and meters it; a single-owner
 		// installation runs it on its owner's key.
 		var recommendationMeter *modelproxy.Meter
 		if options.topology.hosted() || options.PlatformModelKeys != nil {
 			recommendationMeter = modelMeter
 		}
-		recommendationHandler = routes.NewRecommendationHandler(recommender, recommendationLog, recommendationMeter)
+		recommendationHandler = routes.NewRecommendationHandler(recommender, recommendationMeter)
 	}
 	var modelStreamHandler *routes.ModelStreamHandler
 	modelStreamHost := options.ModelStreamHost
@@ -1562,11 +1616,42 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if err := installAddress.Load(ctx, queries); err != nil {
 			return fmt.Errorf("load install address: %w", err)
 		}
+		if *initialBind != "" || len(initialOrigins) > 0 {
+			bind := *initialBind
+			if bind == "" {
+				bind = "127.0.0.1:4000"
+			}
+			if net.ParseIP(bind) != nil || strings.EqualFold(bind, "localhost") {
+				bind = net.JoinHostPort(bind, "4000")
+			}
+			origins := []string(initialOrigins)
+			if len(origins) == 0 {
+				origins = []string{"http://localhost:4000"}
+				fmt.Fprintln(stderr, "LAN browsers need --origin")
+			}
+			raw, _ := json.Marshal(map[string]any{"bind": bind, "origins": origins})
+			input, err := services.ValidateInitialInstallAddress(raw)
+			if err != nil {
+				return err
+			}
+			if _, err := queries.GetSelfHostOwner(ctx); errors.Is(err, pgx.ErrNoRows) {
+				if _, savedErr := queries.GetInstallSetting(ctx, "bind"); errors.Is(savedErr, pgx.ErrNoRows) {
+					if err = installAddress.Initialize(ctx, pool, input); err != nil {
+						return err
+					}
+				} else if savedErr != nil {
+					return savedErr
+				}
+			} else if err != nil {
+				return err
+			}
+		}
 		// A TODO's pull request and issue comments link to the Address
 		// teammates open, read at each use so a saved change applies.
 		mythicalService.SetPublicOrigin(installAddress.Public)
 		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
 		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials, Minter: repoConnectionService, Budget: gitHubBudgetTracker}
+		composeGitHubPermissionPolling(authService.Members, gitHubSyncedRepoService, gitHubMainPullService, memberRecheck.Trigger)
 		authHandler.InstallSetup = authService.InstallSetup
 		setupOutput := stdout
 		if *setupHandoff == "socket" {
@@ -1585,13 +1670,35 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var gitHubAppSetup *routes.GitHubAppSetupHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs}
+		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs, SyncHealth: gitHubMainPullService.SyncHealth, GitHubBudget: gitHubBudgetTracker}
+		installSetup.CodingDefaults = func(ctx context.Context, slug string) error {
+			owner, name, err := splitRepositorySlug(slug)
+			if err != nil {
+				return err
+			}
+			sources := repositorySourceFiles{client: repoHostClient}
+			revision, err := sources.ResolveSourceRevision(ctx, slug, "main")
+			if err != nil {
+				return err
+			}
+			files, err := repoHostClient.ListFilesAtChange(ctx, owner, name, revision, "")
+			if err != nil {
+				return err
+			}
+			paths := []string{}
+			for _, file := range files {
+				paths = append(paths, file.Path)
+			}
+			return services.PersistInstallCodingProject(ctx, pool, sources, workspace.WorkspaceSource{Repository: slug, Revision: revision}, paths)
+		}
 		installSetup.RepositoryAccess = gitHubUserReposService
 		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, repoConnectionService, gitHubImportService, authService.Members, mythicalService)
 		if machineImages != nil {
 			installSetup.BindMachineProvider(repositorySourceFiles{client: repoHostClient}, machineImages)
 		}
 		installSetup.Capacity = installCapacity
+		installSetup.Obsidian = &services.InstallObsidianSettings{Queries: queries, StateDirectory: cfg.Install.StateDir, CheckOwner: authService.Members.VerifyOwner}
+		options.InstallWikiSync = installSetup.Obsidian
 		// Model access tests each key on the host POST /api/model/test uses.
 		if tester, ok := options.ChatHost.(services.InstallModelTester); ok {
 			installSetup.Models = tester
@@ -1601,9 +1708,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			return fmt.Errorf("initialize install setup: %w", err)
 		}
 		gitHubAppSetup = &routes.GitHubAppSetupHandler{
-			Setup:   installSetup,
-			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins),
-			Store:   gitHubAppStore, Owners: queries, Roster: queries,
+			SetTodoPreapprovalDefault: mythicalService.SetTodoPreapprovalDefault,
+			Setup:                     installSetup,
+			Service:                   services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins, services.WithGitHubAppManifestBudget(gitHubBudgetTracker)),
+			Store:                     gitHubAppStore, Owners: queries, Roster: queries,
 			Origins:  installAddress.Origins,
 			Sessions: authService.InstallSetup,
 			// GitHub returns the owner here after an install or a repository
@@ -1619,8 +1727,57 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		home, _ := os.UserHomeDir()
 		sessions := &externalsessions.Finder{Home: home, Getenv: os.Getenv, Remember: 10 * time.Second}
 		externalSessionsHandler = &routes.ExternalSessionsHandler{Queries: queries, Sessions: sessions}
-		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute, external: sessions}
-		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
+
+		presence.publicOrigin = installAddress.Public
+		if flow != nil {
+			presence.dispatcher = flow.dispatcher
+		}
+		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, external: sessions, install: installSetup, members: authService.Members}
+
+		if chatService != nil {
+			resolveBranch := conversationBranchResolver(workspaceService)
+			topics.conversation = func(ctx context.Context, member int64, branch string) (json.RawMessage, error) {
+				repository, _, err := installRepository(ctx, queries)
+				if err != nil {
+					return nil, err
+				}
+				scope := chat.Scope{RepositoryID: repository, UserID: member}
+				canonical, err := resolveBranch(ctx, scope, branch)
+				if err != nil {
+					return nil, err
+				}
+				entries, err := chatService.runtime.Handler.Store.SharedEntries(ctx, scope, canonical)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(entries)
+			}
+			topics.viewState = func(ctx context.Context, member int64, branch string) (json.RawMessage, error) {
+				repository, _, err := installRepository(ctx, queries)
+				if err != nil {
+					return nil, err
+				}
+				canonical, err := resolveBranch(ctx, chat.Scope{RepositoryID: repository, UserID: member}, branch)
+				if err != nil {
+					return nil, err
+				}
+				return chatService.runtime.Handler.Store.ReadMemberViewState(ctx, member, canonical)
+			}
+		}
+
+		topics.documents = options.DocumentRelay
+		ffiPath, ffiErr := repohostserver.FFILibraryPath()
+		if ffiErr != nil {
+			return fmt.Errorf("wiki native library configuration: %w", ffiErr)
+		}
+		wikiLibrary, ffiErr := livedocument.Load(ffiPath)
+		if ffiErr != nil {
+			return ffiErr
+		}
+		defer wikiLibrary.Close()
+		topics.wikiDocuments = composeWikiHost(ctx, wikiLibrary, queries, wikiService)
+		defer topics.wikiDocuments.Close()
+		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}
 	}
 	router := buildRouter(
 		cfg,
@@ -1683,7 +1840,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		oauth2Handler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
+		routerExtras{InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},
@@ -1700,8 +1857,16 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		mountBrowserFlow(router, cfg, queries, browser)
 	}
 	if chatService != nil && options.topology.servesHTTP() {
+		if config.IsSingleOwner(cfg.Auth) {
+			chatService.runtime.Handler.ResolveBranch = conversationBranchResolver(workspaceService)
+		}
 		mountChatPublic(router, chatService.runtime, queries, cfg)
 		mountChatProducerOnSharedListener(router, chatService)
+		if config.IsSingleOwner(cfg.Auth) && chatService.server != nil {
+			// The same public router receives the host's bearer over loopback.
+			// Authentication, command policy and rate limiting are unchanged.
+			chatService.server.Handler = chatCallbackHandler(chatService.runtime, router)
+		}
 		ownerModels := modelhost.OwnerModels{Pool: pool, Codec: webhookSecretCodec}
 		if tester, ok := options.ChatHost.(modelhost.ModelTester); ok {
 			ownerModels.Tester = tester
@@ -1722,6 +1887,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var r http.Handler = withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{
 		role: options.topology, identity: authHandler != nil, install: gitHubAppSetup != nil,
+		debugAPI:     config.IsSingleOwner(cfg.Auth) && queries != nil && options.topology.servesHTTP(),
 		agent:        options.ChatHost != nil && chatService != nil && options.topology.servesHTTP(),
 		redirectAuth: githubClient != nil || strings.TrimSpace(cfg.Auth.Auth0ClientID) != "",
 		github:       gitHubImportHandler != nil && githubClient != nil,
@@ -1757,7 +1923,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if installAddress != nil && !options.externalHTTP && options.topology.servesHTTP() {
 		// This process owns its listener, so the Address step serves its bind
 		// here beside loopback; a host that owns the listener keeps it.
-		installAddress.Listen = (&networkListener{serve: srv.Serve, listen: netListen}).Listen
+		sshGateway, sshPort, stopSSH, sshErr := startInstallSSH(ctx, cfg, pool, repoHostClient, options.Admission, nil, config.PublicOrigin(cfg))
+		if sshErr != nil {
+			return fmt.Errorf("start SSH gateway: %w", sshErr)
+		}
+		defer stopSSH()
+		network := &networkListener{serve: srv.Serve, listen: netListen, sshServe: sshGateway.Serve, sshPort: sshPort}
+		defer func() { _ = network.Listen("") }()
+		installAddress.Listen = network.Listen
 	}
 
 	if options.ReadyBindings != nil {
@@ -1904,12 +2077,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		})
 	}
 	var gitHubImportWorker *joinedBackgroundWorker
-	if options.topology.workers() && (!options.topology.hosted() || provisioningEnforced) {
+	if options.topology.workers() {
 		gitHubImportWorker = startJoinedBackgroundWorker(func() {
 			gitHubImportService.Start(workerCtx)
 		})
-	} else if options.topology.hosted() && options.topology.workers() {
-		slog.Error("durable GitHub import worker is disabled until repository provisioning enforcement is enabled")
 	}
 	if options.topology.workers() {
 		// The poll catches missed webhooks even where workflows are off.
@@ -1942,7 +2113,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		authCleaner.Start(workerCtx)
 		buildCacheCleaner.Start(workerCtx, buildCacheService.Cleanup)
 		if authService.Members != nil {
-			memberRecheck.Start(workerCtx, authService.Members.Recheck)
+			memberRecheck.Start(workerCtx, authService.Members.PollPermissions)
 		}
 		workflowCacheCleaner.Start(workerCtx)
 		workflowArtifactCleaner.Start(workerCtx)
@@ -2220,4 +2391,20 @@ func selectGitHubAppCredentials(singleOwner, useEnv bool, store *services.GitHub
 		return &services.EnvGitHubAppCredentials{}, nil
 	}
 	return store, nil
+}
+
+type originFlags []string
+
+func (o *originFlags) String() string         { return strings.Join(*o, ",") }
+func (o *originFlags) Set(value string) error { *o = append(*o, value); return nil }
+
+// Preserve the host policy's complete accounting contract while the install
+// workspace lifecycle supplies its typed machine-start intent.
+type installMachineAdmissionPolicy struct {
+	admission.Policy
+	start services.BillingPolicy
+}
+
+func (p installMachineAdmissionPolicy) AuthorizeSandboxStart(ctx context.Context, actorID int64) error {
+	return p.start.AuthorizeSandboxStart(ctx, actorID)
 }

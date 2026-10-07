@@ -13,10 +13,9 @@ import { parseWorkflow } from "../../../scripts/release-rehearsal.mjs"
 
 const root = resolve(import.meta.dirname, "../../..")
 const read = (path) => readFileSync(resolve(root, path), "utf8")
-const route = "/docs/reference/support-matrix/"
 
 test("the support reference states every released Node engine range and current CI pins", () => {
-  const page = read("apps/site/src/content/docs/docs/reference/support-matrix.mdx")
+  const page = read("apps/site/docs/reference/support-matrix.md")
   const manifests = readWorkspaceManifests(root)
   const inventory = page.slice(page.indexOf("## Published Node engine ranges"))
   const rows = new Map([...inventory.matchAll(/^\| `([^`]+)`\s+\| `([^`]+)`\s+\| (.+) \|$/gm)]
@@ -67,20 +66,13 @@ test("the release smoke row names the exact runtimes that certify the candidate 
     assert.ok(assertion, `${step.name}: exact runtime assertion`)
     return assertion[1]
   })
-  const page = read("apps/site/src/content/docs/docs/reference/support-matrix.mdx")
+  const page = read("apps/site/docs/reference/support-matrix.md")
   const row = page.match(/^\| Node\.js release smoke\s+\| (.+) \|$/m)
   assert.ok(row, "the support matrix has a release smoke row")
   const documentedPins = [...row[1].matchAll(/`(\d+\.\d+\.\d+)`/g)].map(([, pin]) => pin)
   assert.deepEqual(documentedPins, pins, "release smoke versions must match the actual workflow checks")
 })
 
-test("changelog and API overview lead to the one support reference", () => {
-  for (const path of ["changelogs/1.0.0-rc.0.mdx", "docs/reference/api/index.mdx"]) {
-    const page = read(`apps/site/src/content/docs/${path}`)
-    assert.ok(page.includes(route), `${path}: support link`)
-    assert.doesNotMatch(page, /1\.3\.14|ci\/BUILD\.ts|whichever runtime you provide/)
-  }
-})
 
 test("Bun installation claims match its declared engine floor", () => {
   const directory = "packages/smithers/flows/platform-bun"
@@ -119,12 +111,12 @@ test("generation repairs output drift and check mode refuses it", () => {
         encoding: "utf8"
       })
     assert.equal(run().status, 0)
-    const page = join(directory, "src/content/docs/docs/reference/support-matrix.mdx")
+    const page = join(directory, "src/content/docs/docs/installation.mdx")
     const generated = readFileSync(page, "utf8")
     writeFileSync(page, "stale support claim\n")
     const drift = run("--check")
     assert.equal(drift.status, 1)
-    assert.match(drift.stderr, /support docs drift: docs\/reference\/support-matrix.mdx/)
+    assert.match(drift.stderr, /support docs drift: docs\/installation.mdx/)
     assert.equal(readFileSync(page, "utf8"), "stale support claim\n", "checking must not rewrite output")
     assert.equal(run().status, 0)
     assert.equal(readFileSync(page, "utf8"), generated)

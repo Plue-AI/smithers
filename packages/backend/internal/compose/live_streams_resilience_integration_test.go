@@ -208,9 +208,7 @@ type replayStream struct {
 
 func (r *resilienceRig) path(s replayStream) string {
 	path := liveStreamPath(r.f, s.pattern)
-	if strings.HasSuffix(s.pattern, "/wiki/{slug}/stream") {
-		path += "?visibility=private&page_id=" + strconv.FormatInt(r.f.alice.wiki.ID, 10)
-	}
+
 	return path
 }
 
@@ -240,17 +238,7 @@ func replayStreams() []replayStream {
 			require.NoError(t, r.pool.QueryRow(context.Background(), `SELECT head FROM issue_state_journals WHERE repository_id = $1`, r.f.alice.repo.ID).Scan(&head))
 			return head
 		}},
-		{name: "wiki page revisions", pattern: "/api/repos/{owner}/{repo}/wiki/{slug}/stream", write: func(t *testing.T, r *resilienceRig, marker string) int64 {
-			var revision int64
-			require.NoError(t, r.silentPool.QueryRow(context.Background(), `
-INSERT INTO wiki_page_revisions(repository_id, page_id, revision, slug, title, body, visibility, path, content_digest, author_id, author_username, update_id, update_bytes, deleted, sequence)
-SELECT p.repository_id, p.id, COALESCE((SELECT MAX(revision) FROM wiki_page_revisions WHERE page_id = p.id), 0) + 1, p.slug, $2, $2, p.visibility, p.path, $2, p.author_id, 'alice', gen_random_uuid(), ''::bytea, false, COALESCE((SELECT MAX(sequence) FROM wiki_page_revisions WHERE repository_id = p.repository_id AND visibility = p.visibility), 0) + 1
-FROM wiki_pages p WHERE p.id = $1 RETURNING revision`, r.f.alice.wiki.ID, marker).Scan(&revision))
-			return revision
-		}, expire: func(t *testing.T, r *resilienceRig, id int64) {
-			_, err := r.pool.Exec(context.Background(), `DELETE FROM wiki_page_revisions WHERE page_id = $1 AND revision = $2`, r.f.alice.wiki.ID, id)
-			require.NoError(t, err)
-		}},
+
 		logs("/api/repos/{owner}/{repo}/runs/{id}/logs"),
 		logs("/api/repos/{owner}/{repo}/runs/{id}/events"),
 		logs("/api/repos/{owner}/{repo}/workflows/runs/{id}/events"),

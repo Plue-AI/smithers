@@ -692,8 +692,14 @@ func WithLandingInstallMainMirror(install bool) LandingServiceOption {
 
 // requireInstallMainOff refuses a landing onto main or the default bookmark
 // on an install. Landing carries no sync authority for any credential.
-func (s *LandingService) requireInstallMainOff(repository db.Repository, target string) error {
-	return repohost.RequireInstallMainMirror(s.installMainMirror, "", "refs/heads/"+strings.TrimSpace(target), repository.DefaultBookmark)
+func (s *LandingService) requireInstallMainOff(ctx context.Context, repository db.Repository, target string) error {
+	if err := repohost.RequireInstallMainMirror(s.installMainMirror, "", "refs/heads/"+strings.TrimSpace(target), repository.DefaultBookmark); err != nil {
+		return err
+	}
+	if !s.installMainMirror {
+		return nil
+	}
+	return RequireInstallBookmarkNotProtected(ctx, s.queries, repository.ID, target)
 }
 
 func WithLandingAgentTurnDispatcher(dispatcher LandingAgentTurnDispatcher) LandingServiceOption {
@@ -1121,7 +1127,7 @@ func (s *LandingService) SetLandingRequestAutoLand(ctx context.Context, actor *d
 	if err != nil {
 		return LandingRequestResponse{}, err
 	}
-	if err := s.requireInstallMainOff(repository, current.TargetBookmark); err != nil {
+	if err := s.requireInstallMainOff(ctx, repository, current.TargetBookmark); err != nil {
 		return LandingRequestResponse{}, err
 	}
 	if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
@@ -1376,7 +1382,7 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 	if err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
-	if err := s.requireInstallMainOff(repository, landingRow.TargetBookmark); err != nil {
+	if err := s.requireInstallMainOff(ctx, repository, landingRow.TargetBookmark); err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
 	if err := requireOwnLandingOrPerson(ctx, actor, landingRow.AuthorID); err != nil {
@@ -1637,7 +1643,7 @@ func (s *LandingService) ProcessNextAutoLand(ctx context.Context) error {
 		changeIDs[i] = change.ChangeID
 	}
 	row := landingRecordWithChangeIDs(candidate, changeIDs)
-	if s.requireInstallMainOff(repository, row.TargetBookmark) != nil {
+	if s.requireInstallMainOff(ctx, repository, row.TargetBookmark) != nil {
 		// An intent set before the install refused it never lands main.
 		return nil
 	}

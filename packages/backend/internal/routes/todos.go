@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 type TodoRouteService interface {
@@ -19,6 +22,7 @@ type TodoRouteService interface {
 	MergeTodo(context.Context, int64, int64, int64, services.MythicalMergeInput) (services.MythicalItemView, error)
 	AnswerTodo(context.Context, int64, int64, int64, services.TodoAnswerInput) error
 	ControlTodo(context.Context, int64, services.TodoControlInput) (services.TodoControlReceipt, error)
+	AmendTodo(context.Context, int64, services.TodoAmendInput) (services.TodoControlReceipt, error)
 }
 
 // TodoHandler resolves the install's persisted GitHub repository, never a
@@ -50,6 +54,20 @@ func todoRouteError(w http.ResponseWriter, err error) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(access.Status)
 		_ = json.NewEncoder(w).Encode(access)
+		return
+	}
+	var transition *services.TodoTransitionRefusedError
+	if errors.As(err, &transition) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(transition.Status)
+		_ = json.NewEncoder(w).Encode(transition)
+		return
+	}
+	var github *services.TodoGitHubRefusal
+	if errors.As(err, &github) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(github.Status)
+		_ = json.NewEncoder(w).Encode(github)
 		return
 	}
 	var typed *services.TodoControlError
@@ -86,31 +104,14 @@ func authorizeInstallRepository(w http.ResponseWriter, r *http.Request, queries 
 		todoRouteError(w, err)
 		return 0, 0, false
 	}
-	setting, err := queries.GetInstallSetting(r.Context(), "github.repository")
+	repositoryID, err := services.InstallRepositoryID(r.Context(), queries)
 	if err != nil {
 		todoRouteError(w, err)
 		return 0, 0, false
 	}
-	var binding struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-	}
-	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
-		todoRouteError(w, err)
-		return 0, 0, false
-	}
-	repo, err := queries.GetRepoByOwnerAndName(r.Context(), db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
-	if err != nil {
-		todoRouteError(w, err)
-		return 0, 0, false
-	}
-	return repo.ID, decision.UserID, true
+	return repositoryID, decision.UserID, true
 }
 func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
-	repo, user, ok := h.authorize(w, r, "todo.new")
-	if !ok {
-		return
-	}
 	var input services.MythicalTodoInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	decoder.DisallowUnknownFields()
@@ -120,6 +121,14 @@ func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
 			refusal = &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO request"}
 		}
 		todoRouteError(w, refusal)
+		return
+	}
+	command := "todo.new"
+	if input.Issue != nil {
+		command = "todo.from-issue"
+	}
+	repo, user, ok := h.authorize(w, r, command)
+	if !ok {
 		return
 	}
 	input.Request = r.Header.Get("Idempotency-Key")
@@ -206,6 +215,16 @@ func (h *TodoHandler) Answer(w http.ResponseWriter, r *http.Request) {
 // the same Idempotency-Key's earlier request again; the TODO is Merged only
 // once GitHub reports the merge and main contains it.
 func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
+	// A full delegated credential asks its member for confirmation; it never
+	// enters the browser-only merge implementation. The shared authorizer
+	// checks current role/scope and refuses an unavailable consumer first.
+	if info := middleware.AuthInfoFromContext(r.Context()); info != nil && info.CredentialKind() == middleware.CredentialDelegated {
+		if _, terminal := info.TerminalDelegation(); !terminal {
+			if _, _, ok := h.authorize(w, r, "merge"); !ok {
+				return
+			}
+		}
+	}
 	if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
 		todoRouteError(w, err)
 		return
@@ -237,10 +256,6 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"state": "accepted"})
 }
 
-// todoControlCommands is each TODO control's command (§6.15: members steer,
-// stop, resume, retry, drop and move TODOs). A steer has no op.
-var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop", "resume": "todo.resume", "retry": "todo.retry", "retry-current-flow": "todo.retry", "drop": "todo.drop", "move": "stack.move"}
-
 // Control is POST /api/todos/{n}: steer the coding agent, or stop, resume,
 // retry (with an optional steer), drop or move (with a direction, up or down)
 // the TODO. The app sends a steer as {"op":"steer","text":...}; the service's
@@ -255,30 +270,9 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
 		return
 	}
-	var body struct {
-		Op        string  `json:"op"`
-		Steer     *string `json:"steer,omitempty"`
-		Text      *string `json:"text,omitempty"`
-		Direction string  `json:"direction,omitempty"`
-	}
-	invalid := &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Invalid TODO control"}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	decoder.DisallowUnknownFields()
-	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
-		todoRouteError(w, invalid)
-		return
-	}
-	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer, Direction: body.Direction}
-	switch {
-	case body.Op == "steer" && body.Steer == nil:
-		input = services.TodoControlInput{Steer: body.Text, Direction: body.Direction}
-	case body.Text != nil || body.Op == "steer":
-		todoRouteError(w, invalid)
-		return
-	}
-	command, known := todoControlCommands[input.Op]
-	if !known {
-		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Unknown TODO control"})
+	input, command, err := DecodeTodoControl(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err != nil {
+		todoRouteError(w, err)
 		return
 	}
 	if r.Header.Get("Idempotency-Key") == "" {
@@ -302,4 +296,196 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(receipt)
+}
+
+// Amend appends a prompt revision to the same TODO. Authorize refuses a
+// delegated request before subject reads until shared confirmation is wired.
+// The service commits the revision and its steer in one transaction.
+func (h *TodoHandler) Amend(w http.ResponseWriter, r *http.Request) {
+	repo, user, ok := h.authorize(w, r, "todo.amend")
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
+		return
+	}
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" || len(key) > 256 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_idempotency_key", Class: "user", Message: "Idempotency-Key must contain 1 to 256 bytes"})
+		return
+	}
+	if err := services.AuthorizeTodoBranch(r.Context(), h.Queries, repo, n); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	var input services.TodoAmendInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_amendment", Class: "user", Message: "Invalid amendment"})
+		return
+	}
+	input.Repository, input.Actor, input.Request = repo, user, key
+	receipt, err := h.Service.AmendTodo(r.Context(), n, input)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(receipt)
+}
+
+// Events authorizes the repository and branch before selecting the shared item stream.
+func (h *TodoHandler) Events(w http.ResponseWriter, r *http.Request) {
+	repo, _, ok := h.authorize(w, r, "todo.read")
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	cursor := int64(0)
+	if value := r.URL.Query().Get("cursor"); value != "" && err == nil {
+		cursor, err = strconv.ParseInt(value, 10, 64)
+	}
+	if err != nil || n <= 0 || cursor < 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_cursor", Class: "user", Message: "Invalid TODO number or cursor"})
+		return
+	}
+	if err := services.AuthorizeTodoBranch(r.Context(), h.Queries, repo, n); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	service, ok := h.Service.(interface {
+		TodoEvents(context.Context, int64, int64, int64) (jobs.ReplayPage, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	page, err := service.TodoEvents(r.Context(), repo, n, cursor)
+	if err != nil {
+		var expired *jobs.CursorExpiredError
+		switch {
+		case errors.As(err, &expired):
+			todoRouteError(w, &services.TodoControlError{Status: 409, Code: "cursor_expired", Class: "conflict", Message: "Reload the TODO"})
+		case errors.Is(err, jobs.ErrCursorAhead):
+			todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_cursor", Class: "user", Message: "Invalid cursor"})
+		default:
+			todoRouteError(w, err)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(page)
+}
+
+func (h *TodoHandler) Log(w http.ResponseWriter, r *http.Request) {
+	repo, _, ok := h.authorize(w, r, "todo.read")
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
+		return
+	}
+	attempt, err := strconv.ParseInt(chi.URLParam(r, "a"), 10, 32)
+	if err != nil || attempt <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_attempt", Class: "user", Message: "Invalid attempt"})
+		return
+	}
+	if err := services.AuthorizeTodoBranch(r.Context(), h.Queries, repo, n); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	service, ok := h.Service.(interface {
+		TodoLog(context.Context, int64, int64, int32, string) ([]byte, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	payload, err := service.TodoLog(r.Context(), repo, n, int32(attempt), chi.URLParam(r, "digest"))
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(payload)
+}
+
+// DecodeTodoControl is the common body resolver for delegated dispatch and the
+// ordinary TODO handler. It grants no authority; callers authorize its command.
+func DecodeTodoControl(reader io.Reader) (services.TodoControlInput, string, error) {
+	var body struct {
+		Op        string  `json:"op"`
+		Steer     *string `json:"steer,omitempty"`
+		Text      *string `json:"text,omitempty"`
+		Direction string  `json:"direction,omitempty"`
+	}
+	invalid := &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Invalid TODO control"}
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
+		return services.TodoControlInput{}, "", invalid
+	}
+	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer, Direction: body.Direction}
+	switch {
+	case body.Op == "steer" && body.Steer == nil:
+		input = services.TodoControlInput{Steer: body.Text, Direction: body.Direction}
+	case body.Text != nil || body.Op == "steer":
+		return services.TodoControlInput{}, "", invalid
+	}
+	command, known := services.TodoControlCommand(input.Op)
+	if !known {
+		return services.TodoControlInput{}, "", &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Unknown TODO control"}
+	}
+	return input, command, nil
+}
+
+// Preapprove accepts only the maintainer's own browser session.
+func (h *TodoHandler) Preapprove(w http.ResponseWriter, r *http.Request) { h.preapproval(w, r, true) }
+func (h *TodoHandler) Unapprove(w http.ResponseWriter, r *http.Request)  { h.preapproval(w, r, false) }
+func (h *TodoHandler) preapproval(w http.ResponseWriter, r *http.Request, approved bool) {
+	if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
+		var refusal *services.TodoControlError
+		if errors.As(err, &refusal) && refusal.Status == http.StatusForbidden {
+			err = &services.TodoControlError{Status: 403, Code: "permission", Class: "permission", Message: "Pre-approval requires an owner or maintainer browser session"}
+		}
+		todoRouteError(w, err)
+		return
+	}
+	command := "todo.unapprove"
+	if approved {
+		command = "todo.preapprove"
+	}
+	repo, user, ok := h.authorize(w, r, command)
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_todo", Message: "Invalid TODO number"})
+		return
+	}
+	service, ok := h.Service.(interface {
+		PreapproveTodo(context.Context, int64, int64, int64, bool) (services.MythicalItemView, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	_, err = service.PreapproveTodo(r.Context(), repo, user, n, approved)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]string{"state": "accepted"})
 }

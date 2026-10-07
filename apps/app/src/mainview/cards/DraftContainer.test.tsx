@@ -1,3 +1,5 @@
+import { createRoot } from "./views/testDom"
+import { act } from "react"
 import { expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
@@ -5,9 +7,11 @@ import type { DraftCard } from "@smthrs/rpc/DraftCard"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Draft"
 import { DraftContainer, draftCardFamily, type DraftViewProps } from "./DraftCard"
 import { ControllerTestProvider } from "../ControllerContext"
-import type { AppController } from "../state/AppController"
+import { createAppController, type AppController } from "../state/AppController"
+import type { AgentPort } from "../runtime/AgentPort"
+import { DraftView } from "./views/DraftView"
 import { createAppStore } from "../state/AppStore"
-import { memoryStorage } from "../state/TestFixtures"
+import { memoryStorage, signupProfileFetch, waitFor } from "../state/TestFixtures"
 import { BEN, MAYA, createDesignWorld } from "../state/seams/DesignWorld"
 import { designAudience } from "../state/seams/DesignWorld/todo"
 import type { DraftEntry } from "../state/seams/TodoSeam"
@@ -96,4 +100,62 @@ test("the Draft card shows a seeded Draft to its design viewer and a provider Dr
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   expect(render("ben")).toContain("Add a health endpoint")
   expect(render(designAudience(MAYA))).toContain("Add a health endpoint")
+})
+
+// User boundary proof: rendered Draft -> typed flow dispatcher -> provider seam -> HTTP.
+// The HTTP transport is a fake install; the card, registry, persistence and seam are real.
+test("on an install, rendered Draft edits and Commit reach the provider once; Discard never drops a TODO", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const posts: { path: string; body: unknown; key: string | null }[] = []
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://install.test").pathname
+    if (path.startsWith("/api/todos") && init?.method && init.method !== "GET") {
+      posts.push({ path, body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") })
+    }
+    if (path === "/api/todos" && init?.method === "POST") return Response.json({ state: "accepted", n: 1 }, { status: 202 })
+    if (path === "/api/todos") return Response.json([])
+    return new Response("{}", { status: 404 })
+  })
+  const unavailable: AgentPort = { available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {} }
+  const controller = createAppController(store, unavailable, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  const pending: Promise<unknown>[] = []
+  const mountCard = (card: DraftEntry) => act(() => root.render(<DraftContainer card={card} memberId="ben" View={DraftView}
+    view={{ maximized: false }} onView={() => {}} dispatch={(tag, input) => {
+      const result = controller.commands.submit({ name: tag, payload: input as Record<string, unknown>, actor: "user", originCardId: card.id })
+      pending.push(result)
+      return result
+    }} />))
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await controller.submitCommand({ name: "todo.new", payload: { text: "Add a greeting", title: "Greeting" }, actor: "user" })
+    const draft = [...store.collections.cards.values()].find(card => card.kind === "draft") as DraftEntry
+    mountCard(draft)
+    expect(host.querySelector(".draft-private")?.textContent).toBe("Only you")
+    expect(posts).toEqual([])
+    const prompt = host.querySelector("textarea")!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(prompt, "Keep greeting edits")
+      prompt.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    act(() => prompt.dispatchEvent(new FocusEvent("focusout", { bubbles: true })))
+    await Promise.all(pending.splice(0))
+    expect((store.collections.cards.get(draft.id) as DraftEntry).payload.prompt).toBe("Keep greeting edits")
+    mountCard(store.collections.cards.get(draft.id) as DraftEntry)
+    act(() => { host.querySelector<HTMLButtonElement>('[data-flow="todo.new"]')!.click(); host.querySelector<HTMLButtonElement>('[data-flow="todo.new"]')!.click() })
+    await Promise.all(pending.splice(0))
+    await waitFor(() => posts.length === 1)
+    expect(posts).toEqual([{ path: "/api/todos", body: { title: "Greeting", prompt: "Keep greeting edits", acceptance: [], place: { mode: "append" } }, key: draft.payload.idempotencyKey }])
+    expect(posts[0]!.key).toBeTruthy()
+    await controller.submitCommand({ name: "todo.new", payload: { text: "Discard me", title: "Discard" }, actor: "user" })
+    const discard = [...store.collections.cards.values()].find(card => card.kind === "draft" && card.id !== draft.id) as DraftEntry
+    mountCard(discard)
+    act(() => host.querySelector<HTMLButtonElement>('[data-flow="draft.discard"]')!.click())
+    await Promise.all(pending.splice(0))
+    expect(store.collections.cards.has(discard.id)).toBe(false)
+    expect(posts).toHaveLength(1)
+  } finally { act(() => root.unmount()); host.remove(); await controller.dispose() }
 })

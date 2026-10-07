@@ -5,6 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -19,6 +24,12 @@ type MythicalOutboundOp struct {
 	Precondition string `json:"precondition"`
 	State        string `json:"state"`
 }
+
+// An attempted write keeps its unknown slot. Wake for reconciliation promptly;
+// the next pass still looks up before it can authorize any repeat.
+type mythicalOutboundUncertainError struct{ error }
+
+func (e *mythicalOutboundUncertainError) Unwrap() error { return e.error }
 
 // MythicalOutboundProviders are current, effect-free guards supplied by the
 // owning dependencies. None may mint tokens. Missing wiring fails closed.
@@ -74,7 +85,7 @@ func decodeMythicalOutbound(raw json.RawMessage) (MythicalOutboundOp, error) {
 		}
 	}
 	switch op.Kind {
-	case "push", "open", "body", "merge", "close":
+	case "push", "open", "body", "draft", "merge", "close":
 	default:
 		return op, errors.New("invalid pending GitHub operation kind")
 	}
@@ -108,13 +119,13 @@ func outboundResult(op MythicalOutboundOp, observed string, appliedClose bool) s
 // recoverOutbound runs within the existing claimed stack worker. Every repeat
 // is preceded by lookup, then current authority, then a committed unknown slot.
 // An uncertain slot survives errors, cancellation, Drop and missing providers.
-// A merge is decided after its lookup by recoverMerge, which never repeats one.
+// A merge is decided after lookup by recoverMerge; applied merges never repeat.
 func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
 	op, err := decodeMythicalOutbound(item.PendingOp)
 	if err != nil {
 		return nil, err
 	}
-	if op.State == "conflict" {
+	if op.State == "conflict" && !mythicalNoPRPushLease(item, op) {
 		if mythicalPublishes(op.Kind) {
 			// Held for a person: nothing moves but the hold's notice, said once.
 			held := st.s.deliverNotice(ctx, st.r, item)
@@ -122,7 +133,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		}
 		return nil, errors.New("pending GitHub operation conflicts with a foreign change")
 	}
-	if op.State == "done" {
+	if op.State == "done" && !mythicalNoPRPushLease(item, op) {
 		return st.settleOutbound(ctx, item, op)
 	}
 	p := st.s.outbound
@@ -136,11 +147,18 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	if err != nil {
 		return nil, err
 	}
+	if mythicalNoPRPushLease(item, op) && observed != item.PRHead && observed != op.Desired {
+		return nil, errors.New("the pre-PR branch moved after its recorded observation; waiting for fetched refs")
+	}
 	op.State = outboundResult(op, observed, appliedClose)
 	if op.Kind == "body" && op.State == "conflict" {
+		st.s.logger.Info("mythical.review_body_conflict", "item", uuidString(item.ID), "expected", op.Precondition, "observed", observed, "desired", op.Desired)
 		// A person edited the body or the pull request closed: nothing is
 		// written, and the verdict stays on the card.
 		return st.yieldBody(ctx, item)
+	}
+	if op.State == "conflict" && mythicalNoPRPushLease(item, op) && observed == item.PRHead {
+		return st.finishNoPRPushConflict(ctx, item, op, observed)
 	}
 	if op.State == "conflict" && mythicalPublishes(op.Kind) {
 		// The branch holds a head Smithers neither recorded nor published: a
@@ -152,7 +170,9 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	if op.State == "intended" {
 		// Drop retains uncertain effects for lookup, but never authorizes another
 		// proposal. Its owner must settle the terminal close obligation first.
-		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body") {
+		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body" || op.Kind == "draft") {
+			// An in-flight request may still apply after this read. Retain
+			// the uncertain slot; Drop never authorizes a proposal repeat.
 			return nil, errors.New("dropped proposal cannot be repeated")
 		}
 		if err := st.s.outboundReady(ctx, item, op.Kind); err != nil {
@@ -171,13 +191,13 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 			return nil, err
 		}
 		if err := p.Send(st, ctx, item, op); err != nil {
-			if errors.Is(err, errMythicalBodyStale) {
+			if errors.Is(err, errMythicalBodyStale) || errors.Is(err, errMythicalPlacementStale) {
 				// Nothing was sent: the gate prepares the body again.
 				item.PendingOp = nil
 				saved, saveErr := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
 				return &saved, saveErr
 			}
-			return nil, err
+			return nil, &mythicalOutboundUncertainError{err}
 		}
 		// A successful response still needs lookup before settlement. This retains
 		// the obligation if the process dies after the remote effect.
@@ -189,6 +209,57 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	item.PendingOp, _ = json.Marshal(op)
 	saved, err := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
 	return &saved, err
+}
+
+// A queued/starting ref observation may record a newer pre-PR lease without
+// replacing the outstanding push. Only a fresh lookup matching that recorded
+// lease resolves the old push as a conflict; it never repeats that intent.
+func mythicalNoPRPushLease(item db.MythicalItem, op MythicalOutboundOp) bool {
+	checks := mythicalChecksOf(item)
+	if op.Kind != "push" || item.PRNumber.Valid || item.PRState != "" ||
+		item.State == "cancelled" || item.State == "dropped" || mythicalSettledStates[item.State] ||
+		!checks.Todo || !mythicalTodoBranchValid(checks.Branch) || op.Target != checks.Branch ||
+		!mythicalSHA.MatchString(item.PRHead) || strings.Trim(item.PRHead, "0") == "" ||
+		item.PRHead == op.Desired || item.PRHead == op.Precondition || checks.ForeignHead != "" {
+		return false
+	}
+	for _, wait := range todoOpenWaits(item) {
+		if wait.Kind == "foreign_push" {
+			return false
+		}
+	}
+	return true
+}
+
+func (st *mythicalItemStep) finishNoPRPushConflict(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp, observed string) (*db.MythicalItem, error) {
+	// The receipt and slot release share the same live stack lease and item CAS.
+	// Rollback retains the unresolved intent; replay cannot discard a newer one.
+	var saved db.MythicalItem
+	err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+		next := item
+		next.PendingOp = nil
+		var err error
+		saved, err = db.New(tx).SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+		if err != nil {
+			return err
+		}
+		data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "operation": op, "observed": observed, "outcome": "conflict"})
+		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), uuid.NewString(), "todo.github_operation_conflict", todoState(saved), data); err != nil {
+			return err
+		}
+		var live bool
+		if err = tx.QueryRow(ctx, `SELECT running AND claim=$2 AND lease_expires_at>clock_timestamp() FROM mythical_stacks WHERE repository_id=$1`, item.RepositoryID, st.r.row.Claim).Scan(&live); err != nil {
+			return err
+		}
+		if !live {
+			return db.ErrMythicalLeaseLost
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &saved, nil
 }
 
 func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (*db.MythicalItem, error) {
@@ -216,6 +287,9 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 		}
 	}
 	next.PendingOp = nil
+	if op.Kind != "close" {
+		next = mythicalDropObligation(next)
+	}
 	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 	return &saved, err
 }
@@ -226,10 +300,23 @@ func (st *mythicalItemStep) yieldBody(ctx context.Context, item db.MythicalItem)
 	next := item
 	next.PendingOp = nil
 	checks := mythicalChecksOf(next)
+	if op, err := decodeMythicalOutbound(item.PendingOp); err == nil {
+		checks.PRBodyDeclined = op.Desired
+	}
 	if checks.Review != nil && checks.Review.Head == next.PRHead {
 		checks.Review.Posted = true
 	}
 	next.Checks = checks.encode()
+	next = mythicalDropObligation(next)
 	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 	return &saved, err
+}
+
+// Queue Drop's close only after the previous slot is settled; a late-opened
+// PR is bound before this runs. No operation is ever overwritten.
+func mythicalDropObligation(item db.MythicalItem) db.MythicalItem {
+	if len(item.PendingOp) == 0 && (item.State == "cancelled" || item.State == "dropped") && mythicalChecksOf(item).Dropped != nil && item.PRNumber.Valid && item.PRState == "open" {
+		item.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: fmt.Sprint(item.PRNumber.Int64), Desired: "closed", Precondition: "open", State: "intended"})
+	}
+	return item
 }

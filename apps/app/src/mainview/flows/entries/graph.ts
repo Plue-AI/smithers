@@ -27,7 +27,7 @@ const Tab = Schema.Literals(GRAPH_DRAWER_TABS)
 /** `runs.graph.select`, `runs.graph.tab`, `flow.plan.select` and `flow.plan.tab`. */
 export const graphFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "runs.graph.select",
+    name: "runs.graph.select", visibility: "in-card",
     summary: "Open one node of a run's graph, or close the one that is open",
     runtimeAny: ["cloud"],
     hidden: true,
@@ -40,7 +40,7 @@ export const graphFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     handler: ({ runId, nodeId, sourceCard }) => actions.selectGraphNode(runId, nodeId, sourceCard)
   }),
   flow({
-    name: "runs.graph.tab",
+    name: "runs.graph.tab", visibility: "in-card",
     summary: "Show one tab of the node a run's graph has open",
     runtimeAny: ["cloud"],
     hidden: true,
@@ -49,7 +49,7 @@ export const graphFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     handler: ({ runId, tab, sourceCard }) => actions.graphNodeTab(runId, tab, sourceCard)
   }),
   flow({
-    name: "flow.plan.select",
+    name: "flow.plan.select", visibility: "in-card",
     summary: "Open one node of a plan's graph, or close the one that is open",
     runtimeAny: ["cloud"],
     hidden: true,
@@ -58,7 +58,7 @@ export const graphFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     handler: ({ cardId, nodeId }) => actions.selectPlanNode(cardId, nodeId)
   }),
   flow({
-    name: "flow.plan.tab",
+    name: "flow.plan.tab", visibility: "in-card",
     summary: "Show one tab of the node a plan's graph has open",
     runtimeAny: ["cloud"],
     hidden: true,

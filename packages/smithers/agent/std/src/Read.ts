@@ -23,9 +23,12 @@ import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { capability, envelope } from "./internal/Declaration.ts"
+import * as FileMutation from "./internal/FileMutation.ts"
 import * as FsFailure from "./internal/FsFailure.ts"
 import { DEFAULT_READ_LIMIT, MAX_LINE_CHARS, MAX_OUTPUT_BYTES, notice, slice, truncateBytes } from "./internal/Text.ts"
 import * as StdError from "./StdError.ts"
+
+export { Preconditions, ReadSession, type VersionedFileSystem } from "./internal/FileMutation.ts"
 
 /**
  * Registry name for the read flow.
@@ -337,12 +340,14 @@ export const run = Effect.fn("Read.run")(function*(
   const whole = rendered.truncated
     ? rendered.text.slice(0, Math.max(0, rendered.text.lastIndexOf("\n")))
     : rendered.text
-  const shown = rendered.truncated ? (whole === "" ? 0 : whole.split("\n").length) : lines.length
+  // Each clipped line fits the byte budget, so a truncated page retains at least one whole line.
+  const shown = rendered.truncated ? whole.split("\n").length : lines.length
   const endLine = page.startLine + shown - 1
   const truncated = longLinesTruncated || rendered.truncated || page.endLine < page.totalLines
   const clipped = longLinesTruncated
     ? ` Lines longer than ${MAX_LINE_CHARS} Unicode scalar values are clipped, so such a line is not an edit anchor.`
     : ""
+  yield* FileMutation.recordRead(fileSystem, input.path, bytes)
   return {
     content: whole,
     startLine: page.startLine,

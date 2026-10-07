@@ -60,22 +60,22 @@ describe("wave 13 §F — the capability section is generated from the live cata
   test("the section lists the disclosed commands it is handed, counts the rest, and states the can't-yet rule", () => {
     const catalog = [
       { name: "world", summary: "See what Smithers understands" },
-      { name: "flow.create", summary: "Create a Smithers workflow", args: "<description>" }
+      { name: "flow.new", summary: "Create a Smithers workflow", args: "<description>" }
     ]
     const honesty = {
       github: { connected: false, login: null, repositories: null },
       localRepositories: [],
       localRepositoriesAvailable: false
     }
-    const prompt = smithersInstructions(catalog, honesty, { disclosed: ["world", "flow.create"] })
+    const prompt = smithersInstructions(catalog, honesty, { disclosed: ["world", "flow.new"] })
     expect(prompt).toContain("Commands for this conversation (2 exist;")
     expect(prompt).toContain("- /world — See what Smithers understands")
-    expect(prompt).toContain("- /flow.create <description> — Create a Smithers workflow")
+    expect(prompt).toContain("- /flow.new <description> — Create a Smithers workflow")
     // Undisclosed, the catalog is counted, never listed: the list action's query finds it.
     const quiet = smithersInstructions(catalog, honesty)
     expect(quiet).toContain("Commands for this conversation (2 exist;")
     expect(quiet).not.toContain("- /world")
-    expect(quiet).not.toContain("- /flow.create")
+    expect(quiet).not.toContain("- /flow.new")
     expect(prompt).toContain("GitHub is NOT connected")
     expect(prompt).toContain("this web client cannot connect any")
     // The five §F asks, named as can't-yets: email, Slack, local files, push/PR.
@@ -97,7 +97,7 @@ describe("wave 13 §F — the capability section is generated from the live cata
    * actually used, and must never present approval as granting a capability.
    */
   test("the laundering rule names the live shape, the 'we can' form, and refuses approval-as-capability", () => {
-    const prompt = smithersInstructions([{ name: "flow.create", summary: "Create a Smithers workflow" }], {
+    const prompt = smithersInstructions([{ name: "flow.new", summary: "Create a Smithers workflow" }], {
       github: { connected: true, login: "codeplanesmithers", repositories: 1 },
       localRepositories: [],
       localRepositoriesAvailable: false
@@ -184,9 +184,9 @@ describe("wave 13 §F — the capability section is generated from the live cata
     expect(instructions).toMatch(/Commands for this conversation \(\d+ exist;/)
     const catalog = JSON.parse(await executeAgentToolCall(controller.commands, { name: "commands", arguments: JSON.stringify({ action: "list" }) }))
     const names = catalog.commands.map((command: { name: string }) => command.name)
-    expect(names).toContain("flow.create")
-    // flow.create is named by the standing instructions, so it is pinned and listed in full.
-    expect(instructions).toMatch(/^- \/flow\.create\b.* — /m)
+    expect(names).toContain("flow.new")
+    // flow.new is named by the standing instructions, so it is pinned and listed in full.
+    expect(instructions).toMatch(/^- \/flow\.new\b.* — /m)
     for (const name of ["chat.send", "chat.open", "chat.dictate", "sign-in"]) expect(names).not.toContain(name)
     expect(instructions).toContain("GitHub is connected as codeplanesmithers, 1 repositories loaded")
     expect(instructions).toContain("Everything the catalog lacks is a can't-yet")
@@ -261,11 +261,11 @@ describe("wave 13 §F — capability theater in a launch turn is caught determin
     "%s: the theater answer is caught and the honest can't-yet passes through untouched",
     (_id, theater, honest) => {
       expect(offersImpossibleCapability(theater)).toBe(true)
-      expect(renderedRunTurnText("flow.create", theater)).toBe(
+      expect(renderedRunTurnText("flow.new", theater)).toBe(
         "Run requested."
       )
       expect(offersImpossibleCapability(honest)).toBe(false)
-      expect(renderedRunTurnText("flow.create", honest)).toBe(honest)
+      expect(renderedRunTurnText("flow.new", honest)).toBe(honest)
     }
   )
 
@@ -301,7 +301,7 @@ describe("wave 13 §F — capability theater in a launch turn is caught determin
           type: "tool_call" as const,
           call_id: "call_1",
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "flow.create", args: "email my team" })
+          arguments: JSON.stringify({ action: "execute", name: "flow.new", args: "email my team" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ],
@@ -354,7 +354,8 @@ describe("wave 13 §F — capability theater in a launch turn is caught determin
     const rendered = transcript(store)
     expect(rendered).not.toContain("emails")
     expect(rendered).not.toContain("Shall I create the workflow")
-    expect(rendered).toContain("Run requested.")
+    expect(rendered).toContain("It runs when you confirm.")
+    expect(rendered).not.toContain("Run requested.")
   })
 
   test("a launch turn's honest can't-yet renders untouched", () => {

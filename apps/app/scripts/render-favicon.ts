@@ -5,7 +5,6 @@
  * Writes the SVG to apps/site/public and apps/app/src/mainview/public, then
  * rasterizes every desktop, website, and documentation icon with rsvg-convert.
  */
-import { sites } from "../../docs/shared/manifest.mjs"
 import { WORDMARK } from "../src/mainview/Wordmark.ts"
 
 const S = WORDMARK.map((row) => [...row].slice(0, 8))
@@ -99,12 +98,6 @@ export const rasterIcons: ReadonlyArray<readonly [number, URL]> = [
     [256, "public/apple-touch-icon.png"], [256, "src/docs-assets/logo.png"],
     [32, "src/docs-assets/favicon.png"]] as const).map(([size, path]) =>
     [size, new URL(`../../site/${path}`, import.meta.url)] as const),
-  [256, new URL("../../docs/shared/assets/logo.png", import.meta.url)],
-  [32, new URL("../../docs/shared/assets/favicon.png", import.meta.url)],
-  ...sites.flatMap((site) => [
-    [256, new URL(`../../docs/${site.slug}/src/docs-assets/logo.png`, import.meta.url)] as const,
-    [32, new URL(`../../docs/${site.slug}/public/favicon.png`, import.meta.url)] as const,
-  ]),
   ...[16, 32, 128, 256, 512].flatMap((size) => [1, 2].map((scale) =>
     [size * scale, new URL(`../icon.iconset/icon_${size}x${size}${scale === 2 ? "@2x" : ""}.png`, import.meta.url)] as const)),
 ]

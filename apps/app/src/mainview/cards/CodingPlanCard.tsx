@@ -5,7 +5,6 @@ import { codingEvidenceOf } from "./CodingPlan"
 import { traceFromJournal, type TraceModel } from "./RunTrace"
 import { traceGoals } from "./RunTraceStatus"
 import { RunTraceGoals, GOAL_STATE_WORDS } from "./RunTraceGoals"
-import { codingVibeAvailable, codingVibeRequestOf, type WorkflowCatalog } from "./CodingVibe"
 import { flowArgs } from "../flows/FlowArgs"
 import type { RunCommand } from "./CardFamily"
 import { describedFailure, FailureNotice } from "../FailureNotice"
@@ -21,17 +20,14 @@ const CODING_BLOCKED: UserFailureCopy = { fault: "infra", sentence: "Smithers st
  * through their persisted selection. Predicted ownership is visible before
  * execution; recorded receipts arrive through the run journal.
  */
-export const CodingPlanBody = ({ card, onRunCommand: sendRunCommand, workflowCatalogs = [], model }: {
+export const CodingPlanBody = ({ card, onRunCommand: sendRunCommand, model }: {
   readonly card: RunCard
   readonly model?: TraceModel
   readonly onRunCommand: RunCommand
-  readonly workflowCatalogs?: ReadonlyArray<WorkflowCatalog>
 }) => {
   const onRunCommand = runSourceCommand(card.id, sendRunCommand)
   const { plan, outcome, blockedSpanId, reviewFeedback } = codingEvidenceOf(card)
   if (plan === undefined) return null
-  const vibeRequest = codingVibeRequestOf(card)
-  const canVibe = vibeRequest !== undefined && codingVibeAvailable(card, workflowCatalogs)
   const selected = plan.changes.find((change) => change.id === card.payload.codingChangeId)
   const reviewSummary = reviewFeedback?.result.findings[0]?.message ?? ""
   const detailsId = `${card.id}-coding-details`
@@ -60,18 +56,6 @@ export const CodingPlanBody = ({ card, onRunCommand: sendRunCommand, workflowCat
           {outcome.blocked === null ? null : (
             <FailureNotice data-testid="coding-plan-blocked" data-execution={outcome.blocked.executionId}
               failure={describedFailure("CodingBlocked", CODING_BLOCKED, outcome.blocked.message)} />
-          )}
-          {vibeRequest === undefined ? null : canVibe ? (
-            <button type="button" className="run-trace-filter" 
-              {...flowAction(onRunCommand, "flow.run", flowArgs("flow.run", {
-                name: "coding/vibe", input: { requestExecutionId: vibeRequest.requestExecutionId }
-              }))}>Vibe this change</button>
-          ) : (
-            <div>
-              <p>Vibe is not available in this workspace's recorded flows.</p>
-              <button type="button" className="run-trace-filter" 
-                {...flowAction(onRunCommand, "flow.list")}>Check available flows</button>
-            </div>
           )}
           {blockedSpanId === undefined ? null : (
             <button

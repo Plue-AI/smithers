@@ -2011,7 +2011,7 @@ describe("workspace-bound run cards", () => {
     await settle()
     expect(gatewayRunContextFor(store, "legacy")).toEqual({ repo: REPO })
     const callsBefore = double.calls.filter(call => !(call.method === "GET" && call.path.split("?")[0] === "/api/repository-setup/state")).length
-    for (const [flow, args] of [["runs.resume", "legacy"], ["runs.signal", "legacy go"], ["runs.steer", "legacy hello"], ["approvals.open", "legacy"]] as const) {
+    for (const [flow, args] of [["runs.resume", "legacy"], ["runs.signal", "legacy go"], ["approvals.open", "legacy"]] as const) {
       const outcome = await controller.commands.run(flow, args)
       expect(outcome.status).toBe("failed")
       expect(said(outcome)).toBe("This run's box is gone.")
@@ -2110,8 +2110,6 @@ describe("workspace-bound run cards", () => {
     for (const [card, double, seat] of [[cardA, a, "workspace A"], [cardB, b, "workspace B"]] as const) {
       const source = `sourceCard=${card.id} run-1`
       expect((await controller.commands.run("runs.resume", source)).status).toBe("executed")
-      expect((await controller.commands.run("runs.steer", `${source} keep sourceCard=literal`)).status).toBe("executed")
-      expect(double.state.steered.at(-1)?.message.body).toBe("keep sourceCard=literal")
       expect((await controller.commands.run("runs.signal", `${source} go {"text":"a  b sourceCard=literal"}`)).status).toBe("executed")
       expect(double.state.signaled.at(-1)?.signal).toEqual({ name: "go", payload: { text: "a  b sourceCard=literal" } })
       expect((await controller.commands.run("runs.logs", source)).status).toBe("executed")

@@ -74,6 +74,8 @@ export interface NoteRow {
   readonly provenance_json: string
   readonly status: NoteStatus
   readonly created_at_ms: number
+  readonly status_at_ms: number | null
+  readonly accepted_todo: string | null
 }
 
 /**
@@ -303,6 +305,8 @@ export const decodeNote = (row: NoteRow): Effect.Effect<Note, MemoryError> =>
       tags,
       provenance,
       status: row.status,
+      ...(row.status_at_ms == null ? {} : { statusAtMs: Number(row.status_at_ms) }),
+      ...(row.accepted_todo == null ? {} : { acceptedTodo: row.accepted_todo }),
       createdAtMs: Number(row.created_at_ms)
     }))
   )

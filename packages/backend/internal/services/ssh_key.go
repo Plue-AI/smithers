@@ -40,6 +40,7 @@ type CreateSSHKeyRequest struct {
 }
 
 type SSHKeyResponse struct {
+	Source      string    `json:"source"`
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Fingerprint string    `json:"fingerprint"`
@@ -242,6 +243,7 @@ func normalizeKeyType(pub ssh.PublicKey) string {
 func mapSSHKeyResponse(key db.SshKey) SSHKeyResponse {
 	return SSHKeyResponse{
 		ID:          key.ID,
+		Source:      key.Source,
 		Name:        key.Name,
 		Fingerprint: key.Fingerprint,
 		KeyType:     key.KeyType,

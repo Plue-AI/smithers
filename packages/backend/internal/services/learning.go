@@ -27,6 +27,7 @@ type LearningProposal struct {
 	Evidence  []string `json:"evidence"`
 	Todos     []int64  `json:"todos"`
 	Prompt    string   `json:"prompt"`
+	Diff      string   `json:"diff,omitempty"`
 }
 
 // LearningBinding comes from the stored run, not the success payload.
@@ -44,8 +45,8 @@ var ErrLearningBinding = errors.New("learning output does not match merged TODO 
 // to ONE database transaction. Receipt locks the stored run/TODO and returns
 // true on committed replay. RecordReceipt stores lessons and durable topic
 // deltas in that transaction; it never writes a TODO state event.
-// There is deliberately no implementation until the shared transaction-aware
-// memory adapter lands. A nil adapter refuses before any effect.
+// The production receipt adapter binds every writer to the dispatcher launch.
+// A nil adapter refuses before any effect.
 type LearningTransaction interface {
 	Receipt(context.Context, LearningBinding) (bool, error)
 	Page(context.Context, LearningBinding, LearningPage) error
@@ -66,7 +67,7 @@ func LearningSuppressed(status string, dismissedAt *time.Time, now time.Time) bo
 }
 
 // CommitLearning is the missing handoff from typed machine output to the host's
-// transaction. It remains unmounted; no run credential receives a write route.
+// transaction. No run credential receives a write route.
 func CommitLearning(ctx context.Context, store LearningStore, binding LearningBinding, output LearningOutput, now time.Time) error {
 	if binding.State != "merged" || binding.Repository == "" || binding.Run == "" || binding.Todo <= 0 ||
 		output.Repository != binding.Repository || output.Run != binding.Run || output.Todo != binding.Todo {

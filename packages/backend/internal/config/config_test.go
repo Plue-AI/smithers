@@ -201,7 +201,6 @@ var allEnvKeys = []string{
 	"SMITHERS_RATE_LIMIT_TERMINAL_OPEN_PER_MIN",
 	"SMITHERS_RATE_LIMIT_TERMINAL_ACTIVE_MAX",
 	"SMITHERS_RATE_LIMIT_APPROVAL_DECIDE_PER_MIN",
-	"SMITHERS_RATE_LIMIT_APP_TIMELINE_WRITE_PER_MIN",
 	"SMITHERS_RATE_LIMIT_BUILD_CACHE_PER_MIN",
 	"SMITHERS_CHAT_CONCURRENCY",
 	"SMITHERS_CHAT_QUEUE_SIZE",
@@ -783,6 +782,7 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			RateLimitPerRecipientPerHr: 20,
 		},
 		FeatureFlags: FeatureFlagsConfig{
+			FlowLoad:             true,
 			ReadoutDashboard:     false,
 			LandingQueue:         false,
 			ToolSkills:           false,
@@ -803,11 +803,10 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			Secrets:              true,
 		},
 		RateLimit: RateLimitConfig{
-			TerminalOpenPerMin:     20,
-			TerminalActiveMax:      5,
-			ApprovalDecidePerMin:   30,
-			AppTimelineWritePerMin: 240,
-			BuildCachePerMinute:    1200,
+			TerminalOpenPerMin:   20,
+			TerminalActiveMax:    5,
+			ApprovalDecidePerMin: 30,
+			BuildCachePerMinute:  1200,
 		},
 	}
 	assert.Equal(t, expected, cfg)
@@ -1862,4 +1861,15 @@ func TestLoad_WorkspaceResourceLimits(t *testing.T) {
 	require.Equal(t, int32(16), cfg.Sandbox.WorkspaceMaxVCPUCount)
 	require.Equal(t, int32(32768), cfg.Sandbox.WorkspaceMaxMemoryMB)
 	require.Equal(t, int32(65536), cfg.Sandbox.WorkspaceMaxDiskMB)
+}
+
+func TestLoadFlowLoadDefaultAndExplicitDisable(t *testing.T) {
+	clearConfigEnv(t)
+	cfg, err := Load("")
+	require.NoError(t, err)
+	require.True(t, cfg.FeatureFlags.FlowLoad)
+	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "false")
+	cfg, err = Load("")
+	require.NoError(t, err)
+	require.False(t, cfg.FeatureFlags.FlowLoad)
 }

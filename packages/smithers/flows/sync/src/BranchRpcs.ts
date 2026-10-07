@@ -154,5 +154,10 @@ export const BranchRpcs = RpcGroup.make(
     success: Schema.Array(Participant),
     error: SyncError
   }),
+  Rpc.make("Branch.PresenceOn", {
+    payload: RosterRequest,
+    success: Schema.Literals(["unknown", "present", "empty"]),
+    error: SyncError
+  }),
   Rpc.make("Branch.WatchRoster", { payload: RosterRequest, success: RosterFrame, error: SyncError, stream: true })
 ).middleware(SyncAuth)

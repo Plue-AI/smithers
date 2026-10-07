@@ -314,10 +314,30 @@ test("jobs that install the workspace restore the pnpm store", () => {
 
 test("the root TypeScript project owns declarations, not package source or fixtures", () => {
   const { include } = JSON.parse(readFileSync(join(root, "tsconfig.json"), "utf8"))
-  for (const entry of ["scripts/*/PACKAGE.ts", "flows/PACKAGE.ts", "examples/PACKAGE.ts", "apps/docs/*/PACKAGE.ts",
+  for (const entry of ["scripts/*/PACKAGE.ts", "flows/PACKAGE.ts", "examples/PACKAGE.ts",
     "packages/*/PACKAGE.ts", "packages/*/*/PACKAGE.ts", "packages/*/*/*/PACKAGE.ts"])
     assert.ok(include.includes(entry), `tsconfig.json include omits ${entry}`)
   assert.ok(include.every((entry) => !entry.includes("/src/") && !entry.includes("/test/") && !entry.includes("/examples/")),
     "package source, test fixtures, and examples must use their owning TypeScript projects")
 })
 
+
+test("CI discovery preserves a generated results path and rejects repeated flags", () => {
+  const run = `pnpm exec smthrs test '//scripts:packageDocs' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose`
+  assert.deepEqual(targetInvocation(run), { verb: "test", pattern: "//scripts:packageDocs", jobs: undefined, verbose: true, resultsFile: "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" })
+  assert.throws(() => targetInvocation(`${run} --results-file "other"`), /Unrecognized CI target option/)
+})
+
+test("the published documentation gate resolves through the public CLI with matching metadata", async () => {
+  const index = await openPackageIndex({ workspace: root })
+  const metadata = await PackageExec.plan({ index, verb: "test", patterns: ["//scripts:packageDocs"], cacheDirectory: index.workspace.cache.directory })
+  const cli = planned("test", "//scripts:packageDocs")
+  const target = cli.targets.find(({ label }) => label === "//scripts:packageDocs")
+  const node = metadata.nodes.get("//scripts:packageDocs")
+  assert.ok(target)
+  assert.ok(node)
+  assert.equal(target.key ?? target.keyPreview, node.key ?? node.keyPreview)
+  const runner = runnerFor(node, index.workspace)
+  assert.deepEqual(runner.slice(1), ["--test", "scripts/package-docs.test.mjs", "scripts/package-docs-redirect.test.mjs"])
+  assert.equal(node.attrs.cache, false)
+})

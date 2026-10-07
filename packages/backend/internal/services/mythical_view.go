@@ -1,9 +1,11 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -134,6 +136,7 @@ type MythicalChecksView struct {
 // MythicalReceiptView is one check's receipt on the candidate's commit: the
 // run that recorded it and how long the check ran, when the receipt names them.
 type MythicalReceiptView struct {
+	LogDigest  string `json:"log_digest,omitempty"`
 	Check      string `json:"check"`
 	Tier       string `json:"tier"`
 	Status     string `json:"status"`
@@ -172,7 +175,7 @@ func mythicalReceiptsView(item db.MythicalItem) []MythicalReceiptView {
 	views := make([]MythicalReceiptView, 0, len(stored.Checks))
 	for _, receipt := range stored.Checks {
 		views = append(views, MythicalReceiptView{Check: receipt.Check, Tier: receipt.Tier, Status: receipt.Status,
-			Fault: receipt.Fault, Commit: receipt.Commit, RunID: stored.Run, DurationMs: receipt.DurationMs})
+			Fault: receipt.Fault, Commit: receipt.Commit, RunID: stored.Run, DurationMs: receipt.DurationMs, LogDigest: receipt.LogDigest})
 	}
 	return views
 }
@@ -339,6 +342,7 @@ func (s *MythicalService) Snapshot(ctx context.Context, repositoryID int64, slug
 	var workspaces []string
 	for _, item := range items {
 		row := mythicalItemView(item)
+		row.DependsOn = mythicalDependsOn(item, items)
 		row.CostNanos = costs[item.ID.Bytes]
 		view.Items = append(view.Items, row)
 		if row.Lane != nil && !mythicalSettled(item.State) {
@@ -484,4 +488,33 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 		row.CreatedAt = item.CreatedAt.Time.UTC().Format(time.RFC3339)
 	}
 	return row
+}
+
+// mythicalDependsOn lists earlier unmerged TODOs in stack order.
+func mythicalDependsOn(item db.MythicalItem, items []db.MythicalItem) []string {
+	dependencies := []string{}
+	if mythicalOffStack(item.State) || !item.StackPosition.Valid {
+		return dependencies
+	}
+	predecessors := []int{}
+	for index, earlier := range items {
+		if !mythicalOffStack(earlier.State) && earlier.StackPosition.Valid && earlier.StackPosition.Int64 < item.StackPosition.Int64 {
+			predecessors = append(predecessors, index)
+		}
+	}
+	// Legacy snapshots put failed items after moving ones. Dependencies
+	// follow stack positions regardless of that display grouping.
+	slices.SortFunc(predecessors, func(a, b int) int { return cmp.Compare(items[a].StackPosition.Int64, items[b].StackPosition.Int64) })
+	for _, index := range predecessors {
+		dependencies = append(dependencies, uuidString(items[index].ID))
+	}
+	return dependencies
+}
+
+func mythicalOffStack(state string) bool {
+	switch state {
+	case "landed", "cancelled", "rejected", "declined":
+		return true
+	}
+	return false
 }

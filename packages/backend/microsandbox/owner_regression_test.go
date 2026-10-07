@@ -26,14 +26,26 @@ func TestOwnerFSIdentityEnvelope(t *testing.T) {
 import importlib.util,os,sys
 spec=importlib.util.spec_from_file_location('guest',%s)
 g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
+# Substitute privileged ownership, credential drop, cgroup files and cleanup.
+# The real managed-child fork, filesystem operation and returned status remain.
+g.PROTECTED_BASE=os.path.dirname(%s);g.ROOT_UID=os.getuid()
+g.CGROUP_ROOT=os.path.join(g.PROTECTED_BASE,'groups');os.mkdir(g.CGROUP_ROOT)
+def group(path,**kwargs):
+ assert os.path.dirname(path)==g.CGROUP_ROOT
+ os.mkdir(path)
+ open(os.path.join(path,'cgroup.procs'),'w').close()
+ return os.open(path,os.O_RDONLY|os.O_DIRECTORY)
+g.safe_directory=group
+g.cgroup_kill=lambda path:None
 with open(%s,'w') as f: f.write('\n'.join(sys.argv[1:])+'\n')
 g.os.geteuid=lambda: 0
 def drop(user):
  assert user=='agent',user
  with open(%s,'w') as f: f.write(user)
+ g.os.geteuid=os.getuid
 g.drop_to=drop
 g.main(sys.argv[sys.argv.index('run')+1:])
-`, python, strconv.Quote(helper), strconv.Quote(log), strconv.Quote(filepath.Join(dir, "identity")))
+`, python, strconv.Quote(helper), strconv.Quote(log), strconv.Quote(log), strconv.Quote(filepath.Join(dir, "identity")))
 	require.NoError(t, os.WriteFile(binary, []byte(harness), 0700))
 	r := &Runtime{cli: &cli{binary: binary, home: dir}, workspaces: map[string]*workspace{"fixture": newWorkspace(metadata{ID: "fixture", Machine: "machine", State: "running"}, "")}}
 	_, err = r.fileOperation(t.Context(), "fixture", dir, []byte("bytes"), "write", "file", "600")
@@ -50,9 +62,16 @@ g.main(sys.argv[sys.argv.index('run')+1:])
 	boundaryPython(t, `
 g.os.geteuid=lambda: 0
 calls=[]
-g.drop_to=lambda user: calls.append(user)
+# Dispatch-envelope assertion; real fork/drop ordering is covered separately.
+def managed(exec_id,action):
+ assert exec_id.startswith('fs-')
+ calls.append('agent')
+ action(None)
+ return 0
+g.run_managed_child=managed
 g.fs_write=lambda root,path,mode: calls.append((root,path,mode))
-g.main(['fs','agent','write','/workspace','file','600'])
+try:g.main(['fs','agent','write','/workspace','file','600'])
+except SystemExit as error:assert error.code==0,error.code
 assert calls==['agent',('/workspace','file',0o600)],calls
 for user in ('root','other','1500'):
  try: g.main(['fs',user,'write','/workspace','file','600'])
@@ -88,6 +107,8 @@ func TestOwnerRootRecipeGuestPins(t *testing.T) {
 	kind := "sync"
 	boundaryPython(t, fmt.Sprintf(`
 import subprocess
+protected=tempfile.TemporaryDirectory()
+g.PROTECTED_BASE=protected.name; g.ROOT_UID=os.getuid()
 script=%s
 digest=%s
 scope={}
@@ -106,6 +127,12 @@ def run(argv,**kwargs):
  calls.append(argv)
  return types.SimpleNamespace(returncode=0)
 subprocess.run=run
+# Envelope validation only; the root process lifecycle has separate tests.
+def managed(identity,action,*,privileged=False):
+ assert privileged and identity.startswith('recipe-')
+ try:action(None)
+ except SystemExit as result:return result.code
+g.run_managed_child=managed
 request={'script':script}
 assert g.run_root_recipe(digest,request)==0
 assert len(calls)==2
@@ -178,6 +205,8 @@ func TestOwnerToolchainRootRecipeValidatedData(t *testing.T) {
 	require.NoError(t, err)
 	boundaryPython(t, fmt.Sprintf(`
 import copy, json, subprocess
+protected=tempfile.TemporaryDirectory()
+g.PROTECTED_BASE=protected.name; g.ROOT_UID=os.getuid()
 exec(%s,globals())
 g.ROOT_RECIPE_DIGESTS=ROOT_RECIPE_DIGESTS
 g.os.geteuid=lambda: 0
@@ -195,6 +224,12 @@ def run(argv,**kwargs):
  calls.append(argv)
  return types.SimpleNamespace(returncode=0)
 subprocess.run=run
+# Envelope validation only; the root process lifecycle has separate tests.
+def managed(identity,action,*,privileged=False):
+ assert privileged and identity.startswith('recipe-')
+ try:action(None)
+ except SystemExit as result:return result.code
+g.run_managed_child=managed
 assert g.run_root_recipe(digest,request)==0
 assert len(calls)==1
 bad=[]

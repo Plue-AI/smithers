@@ -11,9 +11,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -27,13 +25,12 @@ const (
 	// RequireEnv set to "1" turns a missing or unusable server into a failure
 	// instead of a skip.
 	RequireEnv = "SMITHERS_REQUIRE_DATABASE_TESTS"
+	// NamespaceEnv restricts names to one integration lane.
+	NamespaceEnv = "SMITHERS_TEST_DATABASE_NAMESPACE"
 
 	namePrefix     = "smithers_test_"
 	connectBudget  = 30 * time.Second
 	connectAttempt = 5 * time.Second
-	// staleAge is when a database is an orphan: a panic or a killed test
-	// process skipped its drop. Names carry their creation time.
-	staleAge = 6 * time.Hour
 )
 
 // ServerURL returns the configured server URL, or "" when none is set.
@@ -91,7 +88,6 @@ func CreateFromTemplate(ctx context.Context, serverURL, template string) (*Datab
 		return nil, err
 	}
 	defer admin.Close(context.WithoutCancel(ctx))
-	sweepOnce.Do(func() { sweepStale(ctx, admin, time.Now()) })
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()+" TEMPLATE "+pgx.Identifier{template}.Sanitize()+" ENCODING 'UTF8'"); err != nil {
 		return nil, fmt.Errorf("create test database: %w", err)
 	}
@@ -146,49 +142,42 @@ func NewFromTemplate(t testing.TB, template string) *Database {
 	return database
 }
 
+func databasePrefix() (string, error) {
+	namespace := os.Getenv(NamespaceEnv)
+	if namespace == "" {
+		return namePrefix, nil
+	}
+	if len(namespace) > 15 || strings.IndexFunc(namespace, func(r rune) bool { return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') }) >= 0 {
+		return "", fmt.Errorf("invalid %s", NamespaceEnv)
+	}
+	return namePrefix + namespace + "_", nil
+}
+
 func databaseName(now time.Time) (string, error) {
+	prefix, err := databasePrefix()
+	if err != nil {
+		return "", err
+	}
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s%d_%s", namePrefix, now.Unix(), hex.EncodeToString(suffix[:])), nil
-}
-
-func databaseCreated(name string) (time.Time, bool) {
-	rest, ok := strings.CutPrefix(name, namePrefix)
-	if !ok {
-		return time.Time{}, false
-	}
-	stamp, _, ok := strings.Cut(rest, "_")
-	if !ok {
-		return time.Time{}, false
-	}
-	seconds, err := strconv.ParseInt(stamp, 10, 64)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return time.Unix(seconds, 0), true
-}
-
-var sweepOnce sync.Once
-
-// sweepStale drops orphaned test databases. Only names older than staleAge
-// are touched, so concurrent runs keep theirs. Failures are ignored: the
-// next run retries.
-func sweepStale(ctx context.Context, admin *pgx.Conn, now time.Time) {
-	rows, err := admin.Query(ctx, `SELECT datname FROM pg_database WHERE starts_with(datname, $1)`, namePrefix)
-	if err != nil {
-		return
-	}
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return
-	}
-	for _, name := range names {
-		if created, ok := databaseCreated(name); ok && now.Sub(created) > staleAge {
-			_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
+	lane := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
 		}
+		return '_'
+	}, os.Getenv("LANE"))
+	if len(lane) > 20 {
+		lane = lane[:20]
 	}
+	if os.Getenv(NamespaceEnv) != "" {
+		lane = ""
+	}
+	if lane != "" {
+		lane += "_"
+	}
+	return fmt.Sprintf("%s%d_%s%s", prefix, now.Unix(), lane, hex.EncodeToString(suffix[:])), nil
 }
 
 // connect retries briefly so a server that is still starting, or a port

@@ -81,7 +81,6 @@ func TestProductRoutesAnswerAHeldRepositoryWith503(t *testing.T) {
 		ChangeService:     jjVCSTestChangeService{client: client},
 		RepoResolver:      jjVCSLegacyResolver{},
 		WebhookDispatcher: jjVCSNoopDispatcher{},
-		ChangeSplitter:    services.NewChangeService(heldChangeQueries{}, client, nil),
 		ChangeReverter:    services.NewChangeRevertService(heldChangeQueries{}, client, nil, nil, heldChangeRecorder{}),
 	}
 	landings := &LandingHandler{Service: heldLanding{client: client}}
@@ -98,7 +97,6 @@ func TestProductRoutesAnswerAHeldRepositoryWith503(t *testing.T) {
 		params  map[string]string
 	}{
 		{"bookmark create", jj.CreateBookmark, `{"name":"release","target_change_id":"chg"}`, nil},
-		{"split", jj.SplitChange, `{"paths":["a.txt"]}`, map[string]string{"change_id": "chg"}},
 		{"revert", jj.RevertChange, ``, map[string]string{"change_id": "chg"}},
 		{"land", landings.PrepareLandingAppend, `{"target_bookmark":"main","expected_commit_id":"` + commit + `","source_commit_id":"` + commit + `","source_base_commit_id":"` + commit + `"}`, nil},
 		{"import", importRefs, ``, nil},

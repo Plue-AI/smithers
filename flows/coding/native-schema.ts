@@ -256,3 +256,17 @@ Fault.register(
     request_conflict: "bug"
   } satisfies Fault.Rows<NativeCode>
 )
+
+/** Reserved stack operations resolve the TODO/attempt/run/machine from the
+ * installed host binding. None of that authority is supplied by a flow body. */
+export const StackCandidate = Schema.Struct({
+  generation: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+  base: CommitId,
+  head: CommitId
+})
+export type StackCandidate = typeof StackCandidate.Type
+export const StackProposal = Schema.Struct({
+  generation: StackCandidate.fields.generation,
+  head: CommitId
+})
+export type StackProposal = typeof StackProposal.Type

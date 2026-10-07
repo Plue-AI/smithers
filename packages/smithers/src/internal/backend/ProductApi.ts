@@ -472,6 +472,7 @@ export type Error = {
 }
 
 export type SSHKey = {
+  source: "manual" | "github"
   id: number
   name: string
   fingerprint: string
@@ -518,6 +519,22 @@ export type SecretMetadata = {
   main_only: boolean
   hosts: Array<string>
   match_headers: Array<string>
+}
+
+export type AuthorizationRefusal = {
+  class: "permission"
+  code: string
+  message: string
+  fix?: string
+} | {
+  class: "never"
+  code: "never"
+  message: "Only a person can do this"
+}
+
+export type ConfirmationReceipt = {
+  confirmation: string
+  state: "pending" | "approved" | "rejected" | "expired"
 }
 
 export type AdminCreditGrantRequest = {
@@ -627,7 +644,10 @@ export type Branch = {
     base: string
     item?: number
   }
-  machine: Record<string, unknown>
+  machine: {
+    wait_position?: number
+    [key: string]: unknown
+  }
 }
 
 export type TODOBranchDiff = {
@@ -655,6 +675,22 @@ export type TODOBranchDiffModel = {
       text: string
     }>
   }>
+}
+
+export type BranchFileCard = {
+  path: string
+  branch: string
+  language: string
+  digest: string
+  mode: "read_only"
+  content: {
+    kind: "text" | "too_large" | "binary"
+    text?: string
+    bytes?: number
+  }
+  diagnostics: Array<Record<string, unknown>>
+  authors: Array<Record<string, unknown>>
+  editors: Array<Record<string, unknown>>
 }
 
 export type ExternalSessionRead = {
@@ -694,7 +730,7 @@ export type FlowCard = {
   }>
 }
 
-/** Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero. */
+/** Owner browser session setting, unavailable to agents. Settings retains the request; Home reports min(parallel, capacity), including zero. */
 export type InstallParallelSetting = {
   parallel: number
 }
@@ -745,10 +781,20 @@ export type GitHubAppManifest = {
   public: false
   hook_attributes?: {
     url: string
-    active: true
+    active: false
   }
   default_permissions: Record<string, "read" | "write">
   default_events?: Array<string>
+}
+
+export type GitHubAppManualRequest = {
+  app_id: number
+  slug: string
+  pem: string
+  client_id: string
+  client_secret: string
+  webhook_secret: string
+  callbacks_confirmed: Array<string>
 }
 
 export type GitHubAppSetupRequest = {
@@ -760,6 +806,7 @@ export type InstallSetupError = {
   class: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"
   message: string
   fix?: string
+  retry_at?: string
 }
 
 export type InstallSetupAddress = {
@@ -774,6 +821,12 @@ export type InstallSetupRepository = {
 export type InstallSetupEmpty = Record<string, never>
 
 export type InstallSetupStatus = {
+  ssh_host?: string
+  ssh_line?: string
+  callback_fixes?: Array<{
+    add_url?: string
+    settings_url?: string
+  }>
   address: {
     listen: "mac" | "network"
     bind: string
@@ -810,12 +863,21 @@ export type InstallSetupStatus = {
     name: string
   }
   repositories?: Array<string>
+  can_assign_models?: boolean
   models: Array<{
     role: "fast" | "coding" | "jev"
     provider: string
+    model?: string
     key: "none" | "validating" | "saved" | "failed"
     error?: string
   }>
+  wiki_sync?: {
+    obsidian?: {
+      path: string
+      last_sync_at?: string
+      error?: string
+    }
+  }
   chatgpt: boolean
   capacity: number
   parallel?: number
@@ -857,6 +919,36 @@ export type InstallIssueThread = {
   }>
 }
 
+export type LiveSubscription = {
+  t: "sub"
+  id: number
+  topic: string
+  cursor?: number
+}
+
+export type LiveUnsubscribe = {
+  t: "unsub"
+  id: number
+}
+
+export type LiveProjection = {
+  t: "snap" | "delta"
+  id: number
+  cursor: number
+  data: unknown
+}
+
+export type LiveGap = {
+  t: "gap"
+  id: number
+}
+
+export type LiveError = {
+  t: "err"
+  id: number
+  code: "unknown_topic" | "forbidden" | "unsupported"
+}
+
 /** An authorization or roster refusal (spec §6.2.3). */
 export type AccessError = {
   class: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"
@@ -879,6 +971,35 @@ export type MembersCard = {
   access_url: string
 }
 
+export type LearningProposalCard = {
+  id: string
+  title: string
+  evidence: Array<string>
+  refs: Array<{
+    label: string
+    url: string
+  }>
+  state: "open" | "accepted" | "dismissed"
+  todo?: {
+    n: number
+    title: string
+  }
+}
+
+/** HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved. */
+export type HomeCard = {
+  repository: string
+  main: Record<string, unknown>
+  attention: Array<Record<string, unknown>>
+  items: Array<Record<string, unknown>>
+  counts: Record<string, number>
+  merged_since_last_look: Array<number>
+  machines: Record<string, unknown>
+  background_runs: Array<Record<string, unknown>>
+  parallel?: number
+  [key: string]: unknown
+}
+
 /** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
 export type TodoCard = {
   n: number
@@ -888,6 +1009,11 @@ export type TodoCard = {
     login: string
     name: string
     avatar_url: string
+  }
+  flow_version?: {
+    flow_name: string
+    source_commit: string
+    digest: string
   }
   place?: number
   prompt_revisions: Array<{
@@ -925,6 +1051,10 @@ export type TodoCard = {
   waits: Array<Record<string, unknown>>
   steers: Array<Record<string, unknown>>
   evidence: Array<Record<string, unknown>>
+  preapproval?: {
+    by: string
+    at: string
+  }
   merge: {
     state: "ready" | "waiting" | "blocked" | "merging" | "done"
     reason?: string
@@ -1148,18 +1278,6 @@ export interface PostApiAgentTurnInput {
 export const postApiAgentTurn = (transport: Transport, input: PostApiAgentTurnInput): Promise<PostApiAgentTurnResponse> =>
   transport.request("POST", `/api/agent/turn`, input.body) as Promise<PostApiAgentTurnResponse>
 
-export type PostApiAgentTurnCancelBody = AnyJSON
-
-export type PostApiAgentTurnCancelResponse = AnyJSON
-
-export interface PostApiAgentTurnCancelInput {
-  readonly body?: PostApiAgentTurnCancelBody
-}
-
-/** POST /api/agent/turn/cancel */
-export const postApiAgentTurnCancel = (transport: Transport, input?: PostApiAgentTurnCancelInput): Promise<PostApiAgentTurnCancelResponse> =>
-  transport.request("POST", `/api/agent/turn/cancel`, input?.body) as Promise<PostApiAgentTurnCancelResponse>
-
 export type PostApiAgentTurnEraseBody = AnyJSON
 
 export type PostApiAgentTurnEraseResponse = AnyJSON
@@ -1184,18 +1302,6 @@ export interface PostApiAgentTurnReplayInput {
 export const postApiAgentTurnReplay = (transport: Transport, input?: PostApiAgentTurnReplayInput): Promise<PostApiAgentTurnReplayResponse> =>
   transport.request("POST", `/api/agent/turn/replay`, input?.body) as Promise<PostApiAgentTurnReplayResponse>
 
-export type PostApiAgentTurnRetireBody = AnyJSON
-
-export type PostApiAgentTurnRetireResponse = AnyJSON
-
-export interface PostApiAgentTurnRetireInput {
-  readonly body?: PostApiAgentTurnRetireBody
-}
-
-/** POST /api/agent/turn/retire */
-export const postApiAgentTurnRetire = (transport: Transport, input?: PostApiAgentTurnRetireInput): Promise<PostApiAgentTurnRetireResponse> =>
-  transport.request("POST", `/api/agent/turn/retire`, input?.body) as Promise<PostApiAgentTurnRetireResponse>
-
 export type GetApiAgentConversationsResponse = SavedConversationPage
 
 export interface GetApiAgentConversationsInput {
@@ -1218,99 +1324,127 @@ export interface PostApiAgentConversationsReplayInput {
 export const postApiAgentConversationsReplay = (transport: Transport, input: PostApiAgentConversationsReplayInput): Promise<PostApiAgentConversationsReplayResponse> =>
   transport.request("POST", `/api/agent/conversations/replay`, input.body) as Promise<PostApiAgentConversationsReplayResponse>
 
-export type DeleteApiAppTimelinesIdMembersUserDResponse = AnyJSON
-
-export interface DeleteApiAppTimelinesIdMembersUserDInput {
-  readonly path: { readonly id: string; readonly userId: string }
+export type GetApiConversationResponse = {
+  id: string
+  entries: Array<{
+    id: string
+    author: number
+    runId: string
+    prompt: string
+    state: string
+    frames: Array<AnyJSON>
+  }>
 }
 
-/** DELETE /api/app-timelines/{id}/members/{userId} */
-export const deleteApiAppTimelinesIdMembersUserD = (transport: Transport, input: DeleteApiAppTimelinesIdMembersUserDInput): Promise<DeleteApiAppTimelinesIdMembersUserDResponse> =>
-  transport.request("DELETE", `/api/app-timelines/${segment(input.path.id)}/members/${segment(input.path.userId)}`) as Promise<DeleteApiAppTimelinesIdMembersUserDResponse>
-
-export type GetApiAppTimelinesIdResponse = AnyJSON
-
-export interface GetApiAppTimelinesIdInput {
-  readonly path: { readonly id: string }
+export interface GetApiConversationInput {
+  readonly path: { readonly b: string }
 }
 
-/** GET /api/app-timelines/{id} */
-export const getApiAppTimelinesId = (transport: Transport, input: GetApiAppTimelinesIdInput): Promise<GetApiAppTimelinesIdResponse> =>
-  transport.request("GET", `/api/app-timelines/${segment(input.path.id)}`) as Promise<GetApiAppTimelinesIdResponse>
+/** GET /api/conversations/{b}: Read shared branch entries */
+export const getApiConversation = (transport: Transport, input: GetApiConversationInput): Promise<GetApiConversationResponse> =>
+  transport.request("GET", `/api/conversations/${segment(input.path.b)}`) as Promise<GetApiConversationResponse>
 
-export type GetApiAppTimelinesIdMembersResponse = AnyJSON
-
-export interface GetApiAppTimelinesIdMembersInput {
-  readonly path: { readonly id: string }
+export type PostApiConversationPromptBody = {
+  prompt: string
+  idempotencyKey: string
 }
 
-/** GET /api/app-timelines/{id}/members */
-export const getApiAppTimelinesIdMembers = (transport: Transport, input: GetApiAppTimelinesIdMembersInput): Promise<GetApiAppTimelinesIdMembersResponse> =>
-  transport.request("GET", `/api/app-timelines/${segment(input.path.id)}/members`) as Promise<GetApiAppTimelinesIdMembersResponse>
+export type PostApiConversationPromptResponse = AnyJSON
 
-export type PostApiAppTimelinesIdMembersBody = AnyJSON
-
-export type PostApiAppTimelinesIdMembersResponse = AnyJSON
-
-export interface PostApiAppTimelinesIdMembersInput {
-  readonly path: { readonly id: string }
-  readonly body?: PostApiAppTimelinesIdMembersBody
+export interface PostApiConversationPromptInput {
+  readonly path: { readonly b: string }
+  readonly body: PostApiConversationPromptBody
 }
 
-/** POST /api/app-timelines/{id}/members */
-export const postApiAppTimelinesIdMembers = (transport: Transport, input: PostApiAppTimelinesIdMembersInput): Promise<PostApiAppTimelinesIdMembersResponse> =>
-  transport.request("POST", `/api/app-timelines/${segment(input.path.id)}/members`, input.body) as Promise<PostApiAppTimelinesIdMembersResponse>
+/** POST /api/conversations/{b}/prompt: Queue my branch prompt */
+export const postApiConversationPrompt = (transport: Transport, input: PostApiConversationPromptInput): Promise<PostApiConversationPromptResponse> =>
+  transport.request("POST", `/api/conversations/${segment(input.path.b)}/prompt`, input.body) as Promise<PostApiConversationPromptResponse>
 
-export type PostApiAppTimelinesBody = AnyJSON
+export type DeleteApiConversationTurnResponse = AnyJSON
 
-export type PostApiAppTimelinesResponse = AnyJSON
-
-export interface PostApiAppTimelinesInput {
-  readonly body?: PostApiAppTimelinesBody
+export interface DeleteApiConversationTurnInput {
+  readonly path: { readonly b: string; readonly id: string }
 }
 
-/** POST /api/app-timelines */
-export const postApiAppTimelines = (transport: Transport, input?: PostApiAppTimelinesInput): Promise<PostApiAppTimelinesResponse> =>
-  transport.request("POST", `/api/app-timelines`, input?.body) as Promise<PostApiAppTimelinesResponse>
+/** DELETE /api/conversations/{b}/turns/{id}: Remove my queued prompt */
+export const deleteApiConversationTurn = (transport: Transport, input: DeleteApiConversationTurnInput): Promise<DeleteApiConversationTurnResponse> =>
+  transport.request("DELETE", `/api/conversations/${segment(input.path.b)}/turns/${segment(input.path.id)}`) as Promise<DeleteApiConversationTurnResponse>
 
-export type PostApiAppTimelinesIdEventsBody = AnyJSON
-
-export type PostApiAppTimelinesIdEventsResponse = AnyJSON
-
-export interface PostApiAppTimelinesIdEventsInput {
-  readonly path: { readonly id: string }
-  readonly body?: PostApiAppTimelinesIdEventsBody
+export type PatchApiConversationTurnBody = {
+  prompt: string
 }
 
-/** POST /api/app-timelines/{id}/events */
-export const postApiAppTimelinesIdEvents = (transport: Transport, input: PostApiAppTimelinesIdEventsInput): Promise<PostApiAppTimelinesIdEventsResponse> =>
-  transport.request("POST", `/api/app-timelines/${segment(input.path.id)}/events`, input.body) as Promise<PostApiAppTimelinesIdEventsResponse>
+export type PatchApiConversationTurnResponse = AnyJSON
 
-export type PutApiAppTimelinesIdSnapshotsBody = AnyJSON
-
-export type PutApiAppTimelinesIdSnapshotsResponse = AnyJSON
-
-export interface PutApiAppTimelinesIdSnapshotsInput {
-  readonly path: { readonly id: string }
-  readonly body?: PutApiAppTimelinesIdSnapshotsBody
+export interface PatchApiConversationTurnInput {
+  readonly path: { readonly b: string; readonly id: string }
+  readonly body: PatchApiConversationTurnBody
 }
 
-/** PUT /api/app-timelines/{id}/snapshots */
-export const putApiAppTimelinesIdSnapshots = (transport: Transport, input: PutApiAppTimelinesIdSnapshotsInput): Promise<PutApiAppTimelinesIdSnapshotsResponse> =>
-  transport.request("PUT", `/api/app-timelines/${segment(input.path.id)}/snapshots`, input.body) as Promise<PutApiAppTimelinesIdSnapshotsResponse>
+/** PATCH /api/conversations/{b}/turns/{id}: Edit my queued prompt */
+export const patchApiConversationTurn = (transport: Transport, input: PatchApiConversationTurnInput): Promise<PatchApiConversationTurnResponse> =>
+  transport.request("PATCH", `/api/conversations/${segment(input.path.b)}/turns/${segment(input.path.id)}`, input.body) as Promise<PatchApiConversationTurnResponse>
 
-export type PutApiAppTimelinesIdStateBody = AnyJSON
+export type PostApiConversationTurnStopResponse = AnyJSON
 
-export type PutApiAppTimelinesIdStateResponse = AnyJSON
-
-export interface PutApiAppTimelinesIdStateInput {
-  readonly path: { readonly id: string }
-  readonly body?: PutApiAppTimelinesIdStateBody
+export interface PostApiConversationTurnStopInput {
+  readonly path: { readonly b: string; readonly id: string }
 }
 
-/** PUT /api/app-timelines/{id}/state */
-export const putApiAppTimelinesIdState = (transport: Transport, input: PutApiAppTimelinesIdStateInput): Promise<PutApiAppTimelinesIdStateResponse> =>
-  transport.request("PUT", `/api/app-timelines/${segment(input.path.id)}/state`, input.body) as Promise<PutApiAppTimelinesIdStateResponse>
+/** POST /api/conversations/{b}/turns/{id}/stop: Stop my answer */
+export const postApiConversationTurnStop = (transport: Transport, input: PostApiConversationTurnStopInput): Promise<PostApiConversationTurnStopResponse> =>
+  transport.request("POST", `/api/conversations/${segment(input.path.b)}/turns/${segment(input.path.id)}/stop`) as Promise<PostApiConversationTurnStopResponse>
+
+export type GetApiConversationViewStateResponse = {
+  toasts_hidden: boolean
+  [key: string]: unknown
+}
+
+export interface GetApiConversationViewStateInput {
+  readonly path: { readonly b: string }
+}
+
+/** GET /api/conversations/{b}/view-state: Read my conversation view state */
+export const getApiConversationViewState = (transport: Transport, input: GetApiConversationViewStateInput): Promise<GetApiConversationViewStateResponse> =>
+  transport.request("GET", `/api/conversations/${segment(input.path.b)}/view-state`) as Promise<GetApiConversationViewStateResponse>
+
+export type PutApiConversationViewStateBody = {
+  toasts_hidden?: boolean
+  [key: string]: unknown
+}
+
+export type PutApiConversationViewStateResponse = {
+  toasts_hidden: boolean
+  [key: string]: unknown
+}
+
+export interface PutApiConversationViewStateInput {
+  readonly path: { readonly b: string }
+  readonly body: PutApiConversationViewStateBody
+}
+
+/** PUT /api/conversations/{b}/view-state: Save my conversation view state */
+export const putApiConversationViewState = (transport: Transport, input: PutApiConversationViewStateInput): Promise<PutApiConversationViewStateResponse> =>
+  transport.request("PUT", `/api/conversations/${segment(input.path.b)}/view-state`, input.body) as Promise<PutApiConversationViewStateResponse>
+
+export type GetApiAgentsResponse = AnyJSON
+
+/** GET /api/agents: Read factory agents */
+export const getApiAgents = (transport: Transport): Promise<GetApiAgentsResponse> =>
+  transport.request("GET", `/api/agents`) as Promise<GetApiAgentsResponse>
+
+export type PutApiAgentsRoleModelBody = AnyJSON
+
+export type PutApiAgentsRoleModelResponse = AnyJSON
+
+export interface PutApiAgentsRoleModelInput {
+  readonly path: { readonly role: "planner" | "implementer" | "reviewer" | "app" | "fast" | "coding" | "jev" }
+  readonly body: PutApiAgentsRoleModelBody
+}
+
+/** PUT /api/agents/{role}/model: Assign a factory agent model */
+export const putApiAgentsRoleModel = (transport: Transport, input: PutApiAgentsRoleModelInput): Promise<PutApiAgentsRoleModelResponse> =>
+  transport.request("PUT", `/api/agents/${segment(input.path.role)}/model`, input.body) as Promise<PutApiAgentsRoleModelResponse>
 
 export type GetApiAuthAuth0AuthorizeResponse = AnyJSON
 
@@ -1337,12 +1471,12 @@ export const getApiAuthGithubCallback = (transport: Transport): Promise<GetApiAu
   transport.request("GET", `/api/auth/github/callback`) as Promise<GetApiAuthGithubCallbackResponse>
 
 export interface GetApiAuthGithubCliInput {
-  readonly query: { readonly callback_port: number; readonly callback_state?: string; readonly scopes?: string; readonly admin?: "1"; readonly ttl?: string }
+  readonly query: { readonly agent?: string; readonly callback_port: number; readonly callback_state?: string; readonly scopes?: string; readonly admin?: "1"; readonly ttl?: string }
 }
 
 /** GET /api/auth/github/cli */
 export const getApiAuthGithubCli = (transport: Transport, input: GetApiAuthGithubCliInput): Promise<void> =>
-  transport.request("GET", `/api/auth/github/cli${search({ callback_port: input.query.callback_port, callback_state: input.query.callback_state, scopes: input.query.scopes, admin: input.query.admin, ttl: input.query.ttl })}`).then(() => undefined)
+  transport.request("GET", `/api/auth/github/cli${search({ agent: input.query.agent, callback_port: input.query.callback_port, callback_state: input.query.callback_state, scopes: input.query.scopes, admin: input.query.admin, ttl: input.query.ttl })}`).then(() => undefined)
 
 /** GET /api/auth/github/cli/consent: Deny pending administrator CLI login */
 export const getApiAuthGithubCliConsent = (transport: Transport): Promise<Response> =>
@@ -1476,6 +1610,27 @@ export interface GetApiBranchesBInput {
 export const getApiBranchesB = (transport: Transport, input: GetApiBranchesBInput): Promise<GetApiBranchesBResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}`) as Promise<GetApiBranchesBResponse>
 
+export type PostApiBranchesBBody = {
+  op: "bring-in" | "discard-foreign"
+  id: string
+  revision: string
+}
+
+export type PostApiBranchesBResponse = {
+  state?: "accepted"
+  n?: number
+} | ConfirmationReceipt
+
+export interface PostApiBranchesBInput {
+  readonly path: { readonly b: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiBranchesBBody
+}
+
+/** POST /api/branches/{b}: Answer an outside push to a TODO branch */
+export const postApiBranchesB = (transport: Transport, input: PostApiBranchesBInput): Promise<PostApiBranchesBResponse> =>
+  transport.request("POST", `/api/branches/${segment(input.path.b)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiBranchesBResponse>
+
 export type GetApiBranchesBDiffResponse = TODOBranchDiff
 
 export interface GetApiBranchesBDiffInput {
@@ -1485,6 +1640,50 @@ export interface GetApiBranchesBDiffInput {
 /** GET /api/branches/{b}/diff: Read an accepted TODO item diff */
 export const getApiBranchesBDiff = (transport: Transport, input: GetApiBranchesBDiffInput): Promise<GetApiBranchesBDiffResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/diff`) as Promise<GetApiBranchesBDiffResponse>
+
+export type GetApiBranchFileResponse = BranchFileCard
+
+export interface GetApiBranchFileInput {
+  readonly path: { readonly b: string; readonly path: string }
+  readonly query?: { readonly at?: string }
+}
+
+/** GET /api/branches/{b}/files/{path}: Read a file from the branch mirror */
+export const getApiBranchFile = (transport: Transport, input: GetApiBranchFileInput): Promise<GetApiBranchFileResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/files/${segment(input.path.path)}${search({ at: input.query?.at })}`) as Promise<GetApiBranchFileResponse>
+
+export type PostApiBranchFileBody = {
+  action: "restore" | "restore-deleted"
+  version: string
+  base_digest: string
+}
+
+export type PostApiBranchFileResponse = AnyJSON
+
+export interface PostApiBranchFileInput {
+  readonly path: { readonly b: string; readonly path: string }
+  readonly body: PostApiBranchFileBody
+}
+
+/** POST /api/branches/{b}/files/{path}: Restore a saved file version on a branch */
+export const postApiBranchFile = (transport: Transport, input: PostApiBranchFileInput): Promise<PostApiBranchFileResponse> =>
+  transport.request("POST", `/api/branches/${segment(input.path.b)}/files/${segment(input.path.path)}`, input.body) as Promise<PostApiBranchFileResponse>
+
+export type GetApiBranchesBFilesResponse = Array<{
+  name: string
+  path: string
+  type: string
+  size?: number
+}>
+
+export interface GetApiBranchesBFilesInput {
+  readonly path: { readonly b: string }
+  readonly query?: { readonly path?: string }
+}
+
+/** GET /api/branches/{b}/files: List branch files */
+export const getApiBranchesBFiles = (transport: Transport, input: GetApiBranchesBFilesInput): Promise<GetApiBranchesBFilesResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/files${search({ path: input.query?.path })}`) as Promise<GetApiBranchesBFilesResponse>
 
 export type GetApiBuildCacheHealthzResponse = AnyJSON
 
@@ -1508,6 +1707,46 @@ export interface PostApiCommandsSelectInput {
 export const postApiCommandsSelect = (transport: Transport, input?: PostApiCommandsSelectInput): Promise<PostApiCommandsSelectResponse> =>
   transport.request("POST", `/api/commands/select`, input?.body) as Promise<PostApiCommandsSelectResponse>
 
+/** GET /api/confirmations: List your confirmations */
+export const getApiConfirmations = (transport: Transport): Promise<void> =>
+  transport.request("GET", `/api/confirmations`).then(() => undefined)
+
+export type PostApiConfirmationsResponse = ConfirmationReceipt
+
+export interface PostApiConfirmationsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations: Request a confirmation through delegated command dispatch */
+export const postApiConfirmations = (transport: Transport, input: PostApiConfirmationsInput): Promise<PostApiConfirmationsResponse> =>
+  transport.request("POST", `/api/confirmations`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiConfirmationsResponse>
+
+export type PostApiConfirmationsIdApproveResponse = {
+  id: string
+  state: "approved"
+} | {
+  id: string
+  state: "pending"
+}
+
+export interface PostApiConfirmationsIdApproveInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations/{id}/approve: Approve your bound confirmation */
+export const postApiConfirmationsIdApprove = (transport: Transport, input: PostApiConfirmationsIdApproveInput): Promise<PostApiConfirmationsIdApproveResponse> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/approve`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiConfirmationsIdApproveResponse>
+
+export interface PostApiConfirmationsIdDenyInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations/{id}/deny: Cancel your confirmation */
+export const postApiConfirmationsIdDeny = (transport: Transport, input: PostApiConfirmationsIdDenyInput): Promise<void> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/deny`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+
 export type GetApiExternalSessionsResponse = ExternalSessionRead
 
 export interface GetApiExternalSessionsInput {
@@ -1529,6 +1768,48 @@ export type GetApiFlowsResponse = Array<FlowCard>
 /** GET /api/flows: Read the install's flow catalog */
 export const getApiFlows = (transport: Transport): Promise<GetApiFlowsResponse> =>
   transport.request("GET", `/api/flows`) as Promise<GetApiFlowsResponse>
+
+export type GetApiFlowsNameResponse = FlowCard
+
+export interface GetApiFlowsNameInput {
+  readonly path: { readonly name: string }
+}
+
+/** GET /api/flows/{name}: Read one flow */
+export const getApiFlowsName = (transport: Transport, input: GetApiFlowsNameInput): Promise<GetApiFlowsNameResponse> =>
+  transport.request("GET", `/api/flows/${segment(input.path.name)}`) as Promise<GetApiFlowsNameResponse>
+
+export type PostApiGatewaysHostFileWriteGrantsBody = {
+  run_id: string
+  batch_digest: string
+}
+
+export type PostApiGatewaysHostFileWriteGrantsResponse = {
+  token_id: number
+  token: string
+  run_id: string
+  workspace_id: string
+  repository_slug: string
+  expires_at: number
+  batch_digest: string
+}
+
+export interface PostApiGatewaysHostFileWriteGrantsInput {
+  readonly path: { readonly hostID: string }
+  readonly body: PostApiGatewaysHostFileWriteGrantsBody
+}
+
+/** POST /api/gateways/{hostID}/file-write-grants: Issue an exact-batch coding file credential */
+export const postApiGatewaysHostFileWriteGrants = (transport: Transport, input: PostApiGatewaysHostFileWriteGrantsInput): Promise<PostApiGatewaysHostFileWriteGrantsResponse> =>
+  transport.request("POST", `/api/gateways/${segment(input.path.hostID)}/file-write-grants`, input.body) as Promise<PostApiGatewaysHostFileWriteGrantsResponse>
+
+export interface DeleteApiGatewaysHostFileWriteGrantsTokenInput {
+  readonly path: { readonly hostID: string; readonly tokenID: number }
+}
+
+/** DELETE /api/gateways/{hostID}/file-write-grants/{tokenID}: Revoke a coding file credential */
+export const deleteApiGatewaysHostFileWriteGrantsToken = (transport: Transport, input: DeleteApiGatewaysHostFileWriteGrantsTokenInput): Promise<void> =>
+  transport.request("DELETE", `/api/gateways/${segment(input.path.hostID)}/file-write-grants/${segment(input.path.tokenID)}`).then(() => undefined)
 
 export type PutApiGatewaysHostRepositoryJobsCiCheckReceiptsRequestBody = AnyJSON
 
@@ -1687,6 +1968,18 @@ export type PostWebhooksGithubResponse = AnyJSON
 export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGithubResponse> =>
   transport.request("POST", `/webhooks/github`) as Promise<PostWebhooksGithubResponse>
 
+export type GetApiInstallMetricsResponse = {
+  collected_at: string
+  clock: string
+  metrics: Array<Record<string, unknown>>
+  live_connections?: number
+  host?: Record<string, unknown>
+}
+
+/** GET /api/install/metrics: Read in-process install metrics */
+export const getApiInstallMetrics = (transport: Transport): Promise<GetApiInstallMetricsResponse> =>
+  transport.request("GET", `/api/install/metrics`) as Promise<GetApiInstallMetricsResponse>
+
 export type GetApiInstallScorecardResponse = InstallScorecard
 
 export interface GetApiInstallScorecardInput {
@@ -1703,10 +1996,7 @@ export type GetApiInstallResponse = InstallSetupStatus
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
 
-export type PutApiInstallBody = {
-  chatgpt?: boolean
-  capacity?: number
-}
+export type PutApiInstallBody = (unknown | unknown | unknown) | (unknown | unknown) | unknown
 
 export type PutApiInstallResponse = InstallSetupStatus
 
@@ -1729,9 +2019,11 @@ export interface PostApiInstallSetupAddressInput {
 export const postApiInstallSetupAddress = (transport: Transport, input: PostApiInstallSetupAddressInput): Promise<void> =>
   transport.request("POST", `/api/install/setup/address`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
-export type PostApiInstallSetupAppBody = GitHubAppSetupRequest
+export type PostApiInstallSetupAppBody = GitHubAppSetupRequest | GitHubAppManualRequest
 
-export type PostApiInstallSetupAppResponse = GitHubAppManifestStart
+export type PostApiInstallSetupAppResponse = GitHubAppManifestStart | {
+  install_url: string
+}
 
 export interface PostApiInstallSetupAppInput {
   readonly body: PostApiInstallSetupAppBody
@@ -2422,35 +2714,37 @@ export interface PostApiOrgsOrgBillingRefreshInput {
 export const postApiOrgsOrgBillingRefresh = (transport: Transport, input: PostApiOrgsOrgBillingRefreshInput): Promise<PostApiOrgsOrgBillingRefreshResponse> =>
   transport.request("POST", `/api/orgs/${segment(input.path.org)}/billing/refresh`) as Promise<PostApiOrgsOrgBillingRefreshResponse>
 
+export type GetApiProposalsResponse = Array<LearningProposalCard>
+
+/** GET /api/proposals: Read learning proposals */
+export const getApiProposals = (transport: Transport): Promise<GetApiProposalsResponse> =>
+  transport.request("GET", `/api/proposals`) as Promise<GetApiProposalsResponse>
+
+export type PostApiProposalsIdAcceptResponse = LearningProposalCard | ConfirmationReceipt
+
+export interface PostApiProposalsIdAcceptInput {
+  readonly path: { readonly id: string }
+}
+
+/** POST /api/proposals/{id}/accept: Make a TODO from a learning proposal */
+export const postApiProposalsIdAccept = (transport: Transport, input: PostApiProposalsIdAcceptInput): Promise<PostApiProposalsIdAcceptResponse> =>
+  transport.request("POST", `/api/proposals/${segment(input.path.id)}/accept`) as Promise<PostApiProposalsIdAcceptResponse>
+
+export type PostApiProposalsIdDismissResponse = LearningProposalCard | ConfirmationReceipt
+
+export interface PostApiProposalsIdDismissInput {
+  readonly path: { readonly id: string }
+}
+
+/** POST /api/proposals/{id}/dismiss: Dismiss a learning proposal */
+export const postApiProposalsIdDismiss = (transport: Transport, input: PostApiProposalsIdDismissInput): Promise<PostApiProposalsIdDismissResponse> =>
+  transport.request("POST", `/api/proposals/${segment(input.path.id)}/dismiss`) as Promise<PostApiProposalsIdDismissResponse>
+
 export type GetApiPublicReposResponse = AnyJSON
 
 /** GET /api/public/repos */
 export const getApiPublicRepos = (transport: Transport): Promise<GetApiPublicReposResponse> =>
   transport.request("GET", `/api/public/repos`) as Promise<GetApiPublicReposResponse>
-
-export type PostApiRecommendBody = AnyJSON
-
-export type PostApiRecommendResponse = AnyJSON
-
-export interface PostApiRecommendInput {
-  readonly body?: PostApiRecommendBody
-}
-
-/** POST /api/recommend */
-export const postApiRecommend = (transport: Transport, input?: PostApiRecommendInput): Promise<PostApiRecommendResponse> =>
-  transport.request("POST", `/api/recommend`, input?.body) as Promise<PostApiRecommendResponse>
-
-export type PostApiRecommendOutcomeBody = AnyJSON
-
-export type PostApiRecommendOutcomeResponse = AnyJSON
-
-export interface PostApiRecommendOutcomeInput {
-  readonly body?: PostApiRecommendOutcomeBody
-}
-
-/** POST /api/recommend/outcome */
-export const postApiRecommendOutcome = (transport: Transport, input?: PostApiRecommendOutcomeInput): Promise<PostApiRecommendOutcomeResponse> =>
-  transport.request("POST", `/api/recommend/outcome`, input?.body) as Promise<PostApiRecommendOutcomeResponse>
 
 export type GetApiReposOwnerRepoChangesCountResponse = AnyJSON
 
@@ -3883,34 +4177,6 @@ export interface GetApiReposOwnerRepoWikiSlugRevisionsInput {
 export const getApiReposOwnerRepoWikiSlugRevisions = (transport: Transport, input: GetApiReposOwnerRepoWikiSlugRevisionsInput): Promise<GetApiReposOwnerRepoWikiSlugRevisionsResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/revisions`) as Promise<GetApiReposOwnerRepoWikiSlugRevisionsResponse>
 
-export interface GetApiReposOwnerRepoWikiSlugStreamInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly slug: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/wiki/{slug}/stream */
-export const getApiReposOwnerRepoWikiSlugStream = (transport: Transport, input: GetApiReposOwnerRepoWikiSlugStreamInput): Promise<Response> =>
-  transport.response("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/stream`)
-
-export type GetApiReposOwnerRepoWikiSlugUpdatesResponse = AnyJSON
-
-export interface GetApiReposOwnerRepoWikiSlugUpdatesInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly slug: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/wiki/{slug}/updates */
-export const getApiReposOwnerRepoWikiSlugUpdates = (transport: Transport, input: GetApiReposOwnerRepoWikiSlugUpdatesInput): Promise<GetApiReposOwnerRepoWikiSlugUpdatesResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/updates`) as Promise<GetApiReposOwnerRepoWikiSlugUpdatesResponse>
-
-export type PostApiReposOwnerRepoWikiSlugUpdatesResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoWikiSlugUpdatesInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly slug: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/wiki/{slug}/updates */
-export const postApiReposOwnerRepoWikiSlugUpdates = (transport: Transport, input: PostApiReposOwnerRepoWikiSlugUpdatesInput): Promise<PostApiReposOwnerRepoWikiSlugUpdatesResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/updates`) as Promise<PostApiReposOwnerRepoWikiSlugUpdatesResponse>
-
 export type GetApiReposOwnerRepoWikiSearchResponse = AnyJSON
 
 export interface GetApiReposOwnerRepoWikiSearchInput {
@@ -4138,25 +4404,61 @@ export interface GetApiReposOwnerRepoWorkspacesIdFilesInput {
 export const getApiReposOwnerRepoWorkspacesIdFiles = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdFilesInput): Promise<GetApiReposOwnerRepoWorkspacesIdFilesResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files`) as Promise<GetApiReposOwnerRepoWorkspacesIdFilesResponse>
 
-export type GetApiReposOwnerRepoWorkspacesIdFilesContentResponse = AnyJSON
+export type GetApiReposOwnerRepoWorkspacesIdFilesContentResponse = {
+  name: string
+  path: string
+  type: "file"
+  encoding: "utf-8" | "base64"
+  content: string
+  size: number
+  digest: string
+}
 
 export interface GetApiReposOwnerRepoWorkspacesIdFilesContentInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+  readonly query: { readonly path: string }
 }
 
 /** GET /api/repos/{owner}/{repo}/workspaces/{id}/files/content */
 export const getApiReposOwnerRepoWorkspacesIdFilesContent = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdFilesContentInput): Promise<GetApiReposOwnerRepoWorkspacesIdFilesContentResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content`) as Promise<GetApiReposOwnerRepoWorkspacesIdFilesContentResponse>
+  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content${search({ path: input.query.path })}`) as Promise<GetApiReposOwnerRepoWorkspacesIdFilesContentResponse>
 
-export type PutApiReposOwnerRepoWorkspacesIdFilesContentResponse = AnyJSON
+export type PutApiReposOwnerRepoWorkspacesIdFilesContentBody = {
+  content: string
+  base_digest: string
+} | {
+  changes: Array<{
+    path: string
+    content: string
+    encoding?: "utf-8" | "base64"
+    base_digest: string
+  } | {
+    path: string
+    content: null
+    base_digest: string
+  }>
+}
+
+export type PutApiReposOwnerRepoWorkspacesIdFilesContentResponse = {
+  paths: Array<{
+    path: string
+    post_digest: string
+  }>
+  raced: Array<{
+    path: string
+    version: string
+  }>
+}
 
 export interface PutApiReposOwnerRepoWorkspacesIdFilesContentInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+  readonly query?: { readonly path?: string }
+  readonly body: PutApiReposOwnerRepoWorkspacesIdFilesContentBody
 }
 
 /** PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content */
 export const putApiReposOwnerRepoWorkspacesIdFilesContent = (transport: Transport, input: PutApiReposOwnerRepoWorkspacesIdFilesContentInput): Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse> =>
-  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content`) as Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse>
+  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/files/content${search({ path: input.query?.path })}`, input.body) as Promise<PutApiReposOwnerRepoWorkspacesIdFilesContentResponse>
 
 export type GetApiReposOwnerRepoWorkspacesIdOperationsOpIdUndoPreviewResponse = AnyJSON
 
@@ -4312,16 +4614,6 @@ export interface PostApiReposOwnerRepoChangesChangeIdRevertInput {
 export const postApiReposOwnerRepoChangesChangeIdRevert = (transport: Transport, input: PostApiReposOwnerRepoChangesChangeIdRevertInput): Promise<PostApiReposOwnerRepoChangesChangeIdRevertResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/changes/${segment(input.path.change_id)}/revert`) as Promise<PostApiReposOwnerRepoChangesChangeIdRevertResponse>
 
-export type PostApiReposOwnerRepoChangesChangeIdSplitResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoChangesChangeIdSplitInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly change_id: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/changes/{change_id}/split */
-export const postApiReposOwnerRepoChangesChangeIdSplit = (transport: Transport, input: PostApiReposOwnerRepoChangesChangeIdSplitInput): Promise<PostApiReposOwnerRepoChangesChangeIdSplitResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/changes/${segment(input.path.change_id)}/split`) as Promise<PostApiReposOwnerRepoChangesChangeIdSplitResponse>
-
 export type PostApiReposOwnerRepoGithubProxyResponse = AnyJSON
 
 export interface PostApiReposOwnerRepoGithubProxyInput {
@@ -4372,15 +4664,28 @@ export interface PostApiReposOwnerRepoHooksIdTestsInput {
 export const postApiReposOwnerRepoHooksIdTests = (transport: Transport, input: PostApiReposOwnerRepoHooksIdTestsInput): Promise<PostApiReposOwnerRepoHooksIdTestsResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/hooks/${segment(input.path.id)}/tests`) as Promise<PostApiReposOwnerRepoHooksIdTestsResponse>
 
-export type PostApiReposOwnerRepoInvokeResponse = AnyJSON
+export type PostApiReposOwnerRepoInvokeBody = {
+  flow: string
+  input?: Record<string, unknown>
+}
+
+export type PostApiReposOwnerRepoInvokeResponse = {
+  id: number
+  run_id: number
+  workflow_definition_id: number
+  flow: string
+  path: string
+  status: string
+}
 
 export interface PostApiReposOwnerRepoInvokeInput {
   readonly path: { readonly owner: string; readonly repo: string }
+  readonly body: PostApiReposOwnerRepoInvokeBody
 }
 
 /** POST /api/repos/{owner}/{repo}/invoke */
 export const postApiReposOwnerRepoInvoke = (transport: Transport, input: PostApiReposOwnerRepoInvokeInput): Promise<PostApiReposOwnerRepoInvokeResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/invoke`) as Promise<PostApiReposOwnerRepoInvokeResponse>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/invoke`, input.body) as Promise<PostApiReposOwnerRepoInvokeResponse>
 
 export type PostApiReposOwnerRepoLandingsNumberReviewRequestsResponse = AnyJSON
 
@@ -5245,6 +5550,24 @@ export const postApiRepoConnection = (transport: Transport): Promise<PostApiRepo
 export const deleteApiRepoConnection = (transport: Transport): Promise<void> =>
   transport.request("DELETE", `/api/repo-connection`).then(() => undefined)
 
+export interface PostApiReviewsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/reviews: Request review of a GitHub pull request */
+export const postApiReviews = (transport: Transport, input: PostApiReviewsInput): Promise<void> =>
+  transport.request("POST", `/api/reviews`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+
+export type GetApiReviewsIdResponse = AnyJSON
+
+export interface GetApiReviewsIdInput {
+  readonly path: { readonly id: string }
+}
+
+/** GET /api/reviews/{id}: Read a review request and its result */
+export const getApiReviewsId = (transport: Transport, input: GetApiReviewsIdInput): Promise<GetApiReviewsIdResponse> =>
+  transport.request("GET", `/api/reviews/${segment(input.path.id)}`) as Promise<GetApiReviewsIdResponse>
+
 export type GetApiSearchCodeResponse = AnyJSON
 
 /** GET /api/search/code */
@@ -5269,11 +5592,80 @@ export type GetApiSearchUsersResponse = AnyJSON
 export const getApiSearchUsers = (transport: Transport): Promise<GetApiSearchUsersResponse> =>
   transport.request("GET", `/api/search/users`) as Promise<GetApiSearchUsersResponse>
 
+export type GetApiSecretsResponse = Array<SecretMetadata>
+
+/** GET /api/secrets */
+export const getApiSecrets = (transport: Transport): Promise<GetApiSecretsResponse> =>
+  transport.request("GET", `/api/secrets`) as Promise<GetApiSecretsResponse>
+
+export type PutApiSecretsBody = SetRepositorySecretRequest
+
+export type PutApiSecretsResponse = SecretMetadata
+
+export interface PutApiSecretsInput {
+  readonly body: PutApiSecretsBody
+}
+
+/** PUT /api/secrets */
+export const putApiSecrets = (transport: Transport, input: PutApiSecretsInput): Promise<PutApiSecretsResponse> =>
+  transport.request("PUT", `/api/secrets`, input.body) as Promise<PutApiSecretsResponse>
+
+export type DeleteApiSecretsBody = {
+  name: string
+}
+
+export interface DeleteApiSecretsInput {
+  readonly body: DeleteApiSecretsBody
+}
+
+/** DELETE /api/secrets */
+export const deleteApiSecrets = (transport: Transport, input: DeleteApiSecretsInput): Promise<void> =>
+  transport.request("DELETE", `/api/secrets`, input.body).then(() => undefined)
+
+export interface DeleteApiSecretsNameInput {
+  readonly path: { readonly name: string }
+}
+
+/** DELETE /api/secrets/{name} */
+export const deleteApiSecretsName = (transport: Transport, input: DeleteApiSecretsNameInput): Promise<void> =>
+  transport.request("DELETE", `/api/secrets/${segment(input.path.name)}`).then(() => undefined)
+
+export type PatchApiSecretsNameBody = UpdateRepositorySecretRequest
+
+export type PatchApiSecretsNameResponse = SecretMetadata
+
+export interface PatchApiSecretsNameInput {
+  readonly path: { readonly name: string }
+  readonly body: PatchApiSecretsNameBody
+}
+
+/** PATCH /api/secrets/{name} */
+export const patchApiSecretsName = (transport: Transport, input: PatchApiSecretsNameInput): Promise<PatchApiSecretsNameResponse> =>
+  transport.request("PATCH", `/api/secrets/${segment(input.path.name)}`, input.body) as Promise<PatchApiSecretsNameResponse>
+
 export type PostApiTelemetryErrorsResponse = AnyJSON
 
 /** POST /api/telemetry/errors */
 export const postApiTelemetryErrors = (transport: Transport): Promise<PostApiTelemetryErrorsResponse> =>
   transport.request("POST", `/api/telemetry/errors`) as Promise<PostApiTelemetryErrorsResponse>
+
+export type PostApiTerminalsBody = {
+  branch: string
+}
+
+export interface PostApiTerminalsInput {
+  readonly body: PostApiTerminalsBody
+}
+
+/** POST /api/terminals: Open a branch terminal */
+export const postApiTerminals = (transport: Transport, input: PostApiTerminalsInput): Promise<void> =>
+  transport.request("POST", `/api/terminals`, input.body).then(() => undefined)
+
+export type GetApiStackResponse = HomeCard
+
+/** GET /api/stack: Read the install Home snapshot */
+export const getApiStack = (transport: Transport): Promise<GetApiStackResponse> =>
+  transport.request("GET", `/api/stack`) as Promise<GetApiStackResponse>
 
 export type GetApiTodosResponse = Array<TodoCard>
 
@@ -5298,7 +5690,7 @@ export type PostApiTodosResponse = {
   state: "accepted"
   n: number
   rev: number
-}
+} | ConfirmationReceipt
 
 export interface PostApiTodosInput {
   readonly headers: { readonly "Idempotency-Key": string }
@@ -5308,6 +5700,30 @@ export interface PostApiTodosInput {
 /** POST /api/todos: Put a TODO on the install repository stack */
 export const postApiTodos = (transport: Transport, input: PostApiTodosInput): Promise<PostApiTodosResponse> =>
   transport.request("POST", `/api/todos`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosResponse>
+
+export interface GetApiTodosNAttemptsALogsDigestInput {
+  readonly path: { readonly n: number; readonly a: number; readonly digest: string }
+}
+
+/** GET /api/todos/{n}/attempts/{a}/logs/{digest}: Read a retained TODO attempt log */
+export const getApiTodosNAttemptsALogsDigest = (transport: Transport, input: GetApiTodosNAttemptsALogsDigestInput): Promise<Response> =>
+  transport.response("GET", `/api/todos/${segment(input.path.n)}/attempts/${segment(input.path.a)}/logs/${segment(input.path.digest)}`)
+
+export type GetApiTodosNEventsResponse = {
+  Events: Array<Record<string, unknown>> | null
+  Cursor: number
+  Head: number
+  More: boolean
+}
+
+export interface GetApiTodosNEventsInput {
+  readonly path: { readonly n: number }
+  readonly query?: { readonly cursor?: number }
+}
+
+/** GET /api/todos/{n}/events: Replay a TODO's shared lifecycle events */
+export const getApiTodosNEvents = (transport: Transport, input: GetApiTodosNEventsInput): Promise<GetApiTodosNEventsResponse> =>
+  transport.request("GET", `/api/todos/${segment(input.path.n)}/events${search({ cursor: input.query?.cursor })}`) as Promise<GetApiTodosNEventsResponse>
 
 export type GetApiTodosNResponse = TodoCard
 
@@ -5329,8 +5745,8 @@ export type PostApiTodosNBody = {
 export type PostApiTodosNResponse = {
   state: "accepted"
   attempt?: number
-  place?: number
-}
+  lessons?: number
+} | ConfirmationReceipt
 
 export interface PostApiTodosNInput {
   readonly path: { readonly n: number }
@@ -5342,9 +5758,35 @@ export interface PostApiTodosNInput {
 export const postApiTodosN = (transport: Transport, input: PostApiTodosNInput): Promise<PostApiTodosNResponse> =>
   transport.request("POST", `/api/todos/${segment(input.path.n)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosNResponse>
 
+export type PatchApiTodosNBody = {
+  prompt: string
+  acceptance?: Array<string>
+}
+
+export type PatchApiTodosNResponse = {
+  state: "accepted"
+  n: number
+  rev: number
+  attempt?: number
+} | ConfirmationReceipt
+
+export interface PatchApiTodosNInput {
+  readonly path: { readonly n: number }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PatchApiTodosNBody
+}
+
+/** PATCH /api/todos/{n}: Amend a TODO prompt and acceptance criteria */
+export const patchApiTodosN = (transport: Transport, input: PatchApiTodosNInput): Promise<PatchApiTodosNResponse> =>
+  transport.request("PATCH", `/api/todos/${segment(input.path.n)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PatchApiTodosNResponse>
+
 export type PostApiTodosNMergeBody = {
   reviewed_head_sha: string
 }
+
+export type PostApiTodosNMergeResponse = {
+  state: "accepted"
+} | ConfirmationReceipt
 
 export interface PostApiTodosNMergeInput {
   readonly path: { readonly n: number }
@@ -5353,8 +5795,8 @@ export interface PostApiTodosNMergeInput {
 }
 
 /** POST /api/todos/{n}/merge: Request a session-approved squash merge at the reviewed head */
-export const postApiTodosNMerge = (transport: Transport, input: PostApiTodosNMergeInput): Promise<void> =>
-  transport.request("POST", `/api/todos/${segment(input.path.n)}/merge`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+export const postApiTodosNMerge = (transport: Transport, input: PostApiTodosNMergeInput): Promise<PostApiTodosNMergeResponse> =>
+  transport.request("POST", `/api/todos/${segment(input.path.n)}/merge`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosNMergeResponse>
 
 export type PostApiTodosNAnswerBody = {
   wait: string
@@ -5373,6 +5815,22 @@ export interface PostApiTodosNAnswerInput {
 /** POST /api/todos/{n}/answer: Answer the coding agent's open question; the first answer settles it and resumes the run */
 export const postApiTodosNAnswer = (transport: Transport, input: PostApiTodosNAnswerInput): Promise<PostApiTodosNAnswerResponse> =>
   transport.request("POST", `/api/todos/${segment(input.path.n)}/answer`, input.body) as Promise<PostApiTodosNAnswerResponse>
+
+export interface PostApiTodosNPreapprovalInput {
+  readonly path: { readonly n: number }
+}
+
+/** POST /api/todos/{n}/preapproval: Pre-approve a TODO */
+export const postApiTodosNPreapproval = (transport: Transport, input: PostApiTodosNPreapprovalInput): Promise<void> =>
+  transport.request("POST", `/api/todos/${segment(input.path.n)}/preapproval`).then(() => undefined)
+
+export interface DeleteApiTodosNPreapprovalInput {
+  readonly path: { readonly n: number }
+}
+
+/** DELETE /api/todos/{n}/preapproval: Remove a TODO pre-approval */
+export const deleteApiTodosNPreapproval = (transport: Transport, input: DeleteApiTodosNPreapprovalInput): Promise<void> =>
+  transport.request("DELETE", `/api/todos/${segment(input.path.n)}/preapproval`).then(() => undefined)
 
 export interface DeleteApiUserConnectionsIdInput {
   readonly path: { readonly id: string }

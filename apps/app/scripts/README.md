@@ -193,3 +193,16 @@ mtimes are normalized, including the OCI archive. Web build stamps use the
 source commit timestamp, and jj uses a fixed Cargo output directory. Unpack to relocate, then
 verify the payload manifest again. The [Stage-1 service](#stage-1-service)
 section is copied into the bundle README at assembly.
+
+Qualify C-INS-05 assembly and relocation through the public build target:
+
+```sh
+SMITHERS_SERVER_BUNDLE_INTEGRATION=1 \
+SMITHERS_SERVER_BUNDLE_RECEIPT=/tmp/C-INS-05.json \
+bun test --isolate apps/app/scripts/server-bundle.integration.test.ts --test-name-pattern 'production target assembles'
+```
+
+This bypasses the target cache, builds twice, compares archive digests, unpacks to a temporary directory,
+hashes every relocated file independently, and runs the packaged tool version
+checks. A passing run writes the receipt; the release job retains it alongside
+the bundle. Launcher readiness is qualified separately by T-INS-02.

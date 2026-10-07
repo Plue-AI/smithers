@@ -37,3 +37,23 @@ test("CJS output preserves import.meta paths and delegates top-level-await execu
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+
+test("CJS output includes nested JSON required by the public catalog export", async () => {
+  const root = mkdtempSync(join(tmpdir(), "smithers-catalog-commonjs-"))
+  try {
+    const src = join(root, "src"), esm = join(root, "dist/esm"), cjs = join(root, "dist/cjs")
+    mkdirSync(join(src, "internal"), { recursive: true })
+    mkdirSync(esm, { recursive: true })
+    writeFileSync(join(root, "package.json"), '{"type":"module"}')
+    writeFileSync(join(src, "internal/catalog.json"), '{"operations":[{"name":"todo.stop","agent":"run"}]}')
+    writeFileSync(join(src, "Catalog.ts"), `import catalog from "./internal/catalog.json" with { type: "json" }; export const descriptors = catalog.operations`)
+    await compileCommonJs(src, cjs, esm)
+    const loaded = spawnSync(process.execPath, ["-e", `console.log(JSON.stringify(require(${JSON.stringify(join(cjs, "Catalog.js"))}).descriptors))`], { encoding: "utf8" })
+    assert.equal(loaded.status, 0, loaded.stderr)
+    assert.deepEqual(JSON.parse(loaded.stdout), [{name:"todo.stop",agent:"run"}])
+    assert.equal(readFileSync(join(cjs,"internal/catalog.json"),"utf8"),readFileSync(join(src,"internal/catalog.json"),"utf8"))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

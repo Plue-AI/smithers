@@ -12,6 +12,7 @@ import (
 // They exercise the journal's admission boundary without a store or SQL fake.
 func TestChatFrameUnitOptionalFieldsAndEnumeratedValues(t *testing.T) {
 	frames := []string{
+		`{"runId":"run","type":"call.settled","link":0,"ordinal":0,"name":"theme","verdict":"run","ui":{"command":"theme","mode":"dark"}}`,
 		`{"runId":"run","type":"delta","kind":"reasoning","text":""}`,
 		`{"runId":"run","type":"tool_call","call_id":"call","name":"tool","arguments":"{}"}`,
 		`{"runId":"run","type":"call.settled","link":0,"ordinal":1,"name":"tool","verdict":"hit","resultDigest":"digest"}`,
@@ -57,6 +58,11 @@ func TestChatFrameUnitMalformedFieldsFailClosed(t *testing.T) {
 		`{"runId":"run","type":"call.started","link":0,"ordinal":0,"name":false}`,
 		`{"runId":"run","type":"call.settled","link":0,"ordinal":0,"name":"tool","verdict":"cache"}`,
 		`{"runId":"run","type":"call.settled","link":0,"ordinal":0,"name":"tool","verdict":"run","resultDigest":null}`,
+		`{"runId":"run","type":"call.settled","link":0,"ordinal":0,"name":"theme","verdict":"run","ui":null}`,
+		`{"runId":"run","type":"call.settled","link":0,"ordinal":0,"name":"todo.drop","verdict":"run","ui":{"command":"theme","mode":"dark"}}`,
+		`{"runId":"run","type":"call.settled","link":0,"ordinal":0,"name":"theme","verdict":"run","ui":{"command":"todo.drop","mode":"dark"}}`,
+		`{"runId":"run","type":"call.settled","link":0,"ordinal":0,"name":"theme","verdict":"run","ui":{"command":"theme","mode":"pink"}}`,
+		`{"runId":"run","type":"call.settled","link":0,"ordinal":0,"name":"theme","verdict":"run","ui":{"command":"theme","mode":"dark","extra":"authority"}}`,
 		`{"runId":"run","type":"gate.rejected","link":0,"kind":"unknown"}`,
 		`{"runId":"run","type":"gate.rejected","link":0,"kind":"denied","message":1}`,
 		`{"runId":"run","type":"link.ended","link":0,"outcome":"failed"}`,

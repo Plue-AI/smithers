@@ -1,12 +1,10 @@
-smthrs search — Search repositories, issues, code and users
+smthrs search — Search code, wiki and runs
 
-Usage: smthrs search <command>
+Usage: smthrs search [options]
 
-Commands:
-  code    Search code
-  issues  Search issues
-  repos   Search repositories
-  users   Search users
+Options:
+  --query <value>
+  --kinds <value>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -929,6 +929,7 @@ func (v Error) MarshalJSON() ([]byte, error) {
 
 // SSHKey is generated from docs/api/openapi.yaml.
 type SSHKey struct {
+	Source      string    `json:"source"`
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Fingerprint string    `json:"fingerprint"`
@@ -975,6 +976,15 @@ type SecretMetadata struct {
 	MainOnly          bool     `json:"main_only"`
 	Hosts             []string `json:"hosts"`
 	MatchHeaders      []string `json:"match_headers"`
+}
+
+// AuthorizationRefusal is generated from docs/api/openapi.yaml.
+type AuthorizationRefusal = json.RawMessage
+
+// ConfirmationReceipt is generated from docs/api/openapi.yaml.
+type ConfirmationReceipt struct {
+	Confirmation string `json:"confirmation"`
+	State        string `json:"state"`
 }
 
 // AdminCreditGrantRequest is generated from docs/api/openapi.yaml.
@@ -1101,12 +1111,12 @@ type SavedConversationProblem struct {
 
 // Branch is generated from docs/api/openapi.yaml.
 type Branch struct {
-	Name       string                     `json:"name"`
-	Kind       string                     `json:"kind"`
-	State      string                     `json:"state"`
-	Head       *string                    `json:"head,omitempty"`
-	ForkedFrom *BranchForkedFrom          `json:"forked_from,omitempty"`
-	Machine    map[string]json.RawMessage `json:"machine"`
+	Name       string            `json:"name"`
+	Kind       string            `json:"kind"`
+	State      string            `json:"state"`
+	Head       *string           `json:"head,omitempty"`
+	ForkedFrom *BranchForkedFrom `json:"forked_from,omitempty"`
+	Machine    BranchMachine     `json:"machine"`
 }
 
 // BranchForkedFrom is generated from docs/api/openapi.yaml.
@@ -1116,6 +1126,27 @@ type BranchForkedFrom struct {
 	Commit string `json:"commit"`
 	Base   string `json:"base"`
 	Item   *int64 `json:"item,omitempty"`
+}
+
+// BranchMachine is generated from docs/api/openapi.yaml.
+type BranchMachine struct {
+	WaitPosition         *int64                     `json:"wait_position,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members BranchMachine does not declare in AdditionalProperties.
+func (v *BranchMachine) UnmarshalJSON(data []byte) error {
+	type plain BranchMachine
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "wait_position")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of BranchMachine.
+func (v BranchMachine) MarshalJSON() ([]byte, error) {
+	type plain BranchMachine
+	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
 // TODOBranchDiff is generated from docs/api/openapi.yaml.
@@ -1157,6 +1188,26 @@ type TODOBranchDiffModelHunksItem struct {
 type TODOBranchDiffModelHunksItemLinesItem struct {
 	Op   string `json:"op"`
 	Text string `json:"text"`
+}
+
+// BranchFileCard is generated from docs/api/openapi.yaml.
+type BranchFileCard struct {
+	Path        string                       `json:"path"`
+	Branch      string                       `json:"branch"`
+	Language    string                       `json:"language"`
+	Digest      string                       `json:"digest"`
+	Mode        string                       `json:"mode"`
+	Content     BranchFileCardContent        `json:"content"`
+	Diagnostics []map[string]json.RawMessage `json:"diagnostics"`
+	Authors     []map[string]json.RawMessage `json:"authors"`
+	Editors     []map[string]json.RawMessage `json:"editors"`
+}
+
+// BranchFileCardContent is generated from docs/api/openapi.yaml.
+type BranchFileCardContent struct {
+	Kind  string  `json:"kind"`
+	Text  *string `json:"text,omitempty"`
+	Bytes *int64  `json:"bytes,omitempty"`
 }
 
 // ExternalSessionRead is generated from docs/api/openapi.yaml.
@@ -1213,7 +1264,7 @@ type FlowCardVersionsItemStepsItemSignalsItem struct {
 	To string `json:"to"`
 }
 
-// InstallParallelSetting — Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero.
+// InstallParallelSetting — Owner browser session setting, unavailable to agents. Settings retains the request; Home reports min(parallel, capacity), including zero.
 type InstallParallelSetting struct {
 	Parallel int64 `json:"parallel"`
 }
@@ -1282,6 +1333,17 @@ type GitHubAppManifestHookAttributes struct {
 	Active bool   `json:"active"`
 }
 
+// GitHubAppManualRequest is generated from docs/api/openapi.yaml.
+type GitHubAppManualRequest struct {
+	AppID              int64    `json:"app_id"`
+	Slug               string   `json:"slug"`
+	Pem                string   `json:"pem"`
+	ClientID           string   `json:"client_id"`
+	ClientSecret       string   `json:"client_secret"`
+	WebhookSecret      string   `json:"webhook_secret"`
+	CallbacksConfirmed []string `json:"callbacks_confirmed"`
+}
+
 // GitHubAppSetupRequest is generated from docs/api/openapi.yaml.
 type GitHubAppSetupRequest struct {
 	Owner string `json:"owner"`
@@ -1289,10 +1351,11 @@ type GitHubAppSetupRequest struct {
 
 // InstallSetupError is generated from docs/api/openapi.yaml.
 type InstallSetupError struct {
-	Code    string  `json:"code"`
-	Class   string  `json:"class"`
-	Message string  `json:"message"`
-	Fix     *string `json:"fix,omitempty"`
+	Code    string     `json:"code"`
+	Class   string     `json:"class"`
+	Message string     `json:"message"`
+	Fix     *string    `json:"fix,omitempty"`
+	RetryAt *time.Time `json:"retry_at,omitempty"`
 }
 
 // InstallSetupAddress is generated from docs/api/openapi.yaml.
@@ -1311,16 +1374,27 @@ type InstallSetupEmpty = map[string]json.RawMessage
 
 // InstallSetupStatus is generated from docs/api/openapi.yaml.
 type InstallSetupStatus struct {
-	Address      InstallSetupStatusAddress      `json:"address"`
-	Steps        []InstallSetupStatusStepsItem  `json:"steps"`
-	ThisMac      InstallSetupStatusThisMac      `json:"this_mac"`
-	Github       InstallSetupStatusGithub       `json:"github"`
-	Repository   *InstallSetupStatusRepository  `json:"repository,omitempty"`
-	Repositories []string                       `json:"repositories,omitempty"`
-	Models       []InstallSetupStatusModelsItem `json:"models"`
-	Chatgpt      bool                           `json:"chatgpt"`
-	Capacity     int64                          `json:"capacity"`
-	Parallel     *int64                         `json:"parallel,omitempty"`
+	SSHHost         *string                               `json:"ssh_host,omitempty"`
+	SSHLine         *string                               `json:"ssh_line,omitempty"`
+	CallbackFixes   []InstallSetupStatusCallbackFixesItem `json:"callback_fixes,omitempty"`
+	Address         InstallSetupStatusAddress             `json:"address"`
+	Steps           []InstallSetupStatusStepsItem         `json:"steps"`
+	ThisMac         InstallSetupStatusThisMac             `json:"this_mac"`
+	Github          InstallSetupStatusGithub              `json:"github"`
+	Repository      *InstallSetupStatusRepository         `json:"repository,omitempty"`
+	Repositories    []string                              `json:"repositories,omitempty"`
+	CanAssignModels *bool                                 `json:"can_assign_models,omitempty"`
+	Models          []InstallSetupStatusModelsItem        `json:"models"`
+	WikiSync        *InstallSetupStatusWikiSync           `json:"wiki_sync,omitempty"`
+	Chatgpt         bool                                  `json:"chatgpt"`
+	Capacity        int64                                 `json:"capacity"`
+	Parallel        *int64                                `json:"parallel,omitempty"`
+}
+
+// InstallSetupStatusCallbackFixesItem is generated from docs/api/openapi.yaml.
+type InstallSetupStatusCallbackFixesItem struct {
+	AddURL      *string `json:"add_url,omitempty"`
+	SettingsURL *string `json:"settings_url,omitempty"`
 }
 
 // InstallSetupStatusAddress is generated from docs/api/openapi.yaml.
@@ -1378,8 +1452,21 @@ type InstallSetupStatusRepository struct {
 type InstallSetupStatusModelsItem struct {
 	Role     string  `json:"role"`
 	Provider string  `json:"provider"`
+	Model    *string `json:"model,omitempty"`
 	Key      string  `json:"key"`
 	Error    *string `json:"error,omitempty"`
+}
+
+// InstallSetupStatusWikiSync is generated from docs/api/openapi.yaml.
+type InstallSetupStatusWikiSync struct {
+	Obsidian *InstallSetupStatusWikiSyncObsidian `json:"obsidian,omitempty"`
+}
+
+// InstallSetupStatusWikiSyncObsidian is generated from docs/api/openapi.yaml.
+type InstallSetupStatusWikiSyncObsidian struct {
+	Path       string     `json:"path"`
+	LastSyncAt *time.Time `json:"last_sync_at,omitempty"`
+	Error      *string    `json:"error,omitempty"`
 }
 
 // InstallIssuePerson — A GitHub account.
@@ -1425,6 +1512,41 @@ type InstallIssueThreadCommentsItem struct {
 	CreatedAt *time.Time      `json:"created_at,omitempty"`
 }
 
+// LiveSubscription is generated from docs/api/openapi.yaml.
+type LiveSubscription struct {
+	T      string `json:"t"`
+	ID     int64  `json:"id"`
+	Topic  string `json:"topic"`
+	Cursor *int64 `json:"cursor,omitempty"`
+}
+
+// LiveUnsubscribe is generated from docs/api/openapi.yaml.
+type LiveUnsubscribe struct {
+	T  string `json:"t"`
+	ID int64  `json:"id"`
+}
+
+// LiveProjection is generated from docs/api/openapi.yaml.
+type LiveProjection struct {
+	T      string          `json:"t"`
+	ID     int64           `json:"id"`
+	Cursor int64           `json:"cursor"`
+	Data   json.RawMessage `json:"data"`
+}
+
+// LiveGap is generated from docs/api/openapi.yaml.
+type LiveGap struct {
+	T  string `json:"t"`
+	ID int64  `json:"id"`
+}
+
+// LiveError is generated from docs/api/openapi.yaml.
+type LiveError struct {
+	T    string `json:"t"`
+	ID   int64  `json:"id"`
+	Code string `json:"code"`
+}
+
 // AccessError — An authorization or roster refusal (spec §6.2.3).
 type AccessError struct {
 	Class   string  `json:"class"`
@@ -1451,12 +1573,64 @@ type MembersCardMembersItem struct {
 	Actions     []map[string]json.RawMessage `json:"actions"`
 }
 
+// LearningProposalCard is generated from docs/api/openapi.yaml.
+type LearningProposalCard struct {
+	ID       string                         `json:"id"`
+	Title    string                         `json:"title"`
+	Evidence []string                       `json:"evidence"`
+	Refs     []LearningProposalCardRefsItem `json:"refs"`
+	State    string                         `json:"state"`
+	Todo     *LearningProposalCardTodo      `json:"todo,omitempty"`
+}
+
+// LearningProposalCardRefsItem is generated from docs/api/openapi.yaml.
+type LearningProposalCardRefsItem struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+// LearningProposalCardTodo is generated from docs/api/openapi.yaml.
+type LearningProposalCardTodo struct {
+	N     int64  `json:"n"`
+	Title string `json:"title"`
+}
+
+// HomeCard — HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
+type HomeCard struct {
+	Repository           string                       `json:"repository"`
+	Main                 map[string]json.RawMessage   `json:"main"`
+	Attention            []map[string]json.RawMessage `json:"attention"`
+	Items                []map[string]json.RawMessage `json:"items"`
+	Counts               map[string]int64             `json:"counts"`
+	MergedSinceLastLook  []int64                      `json:"merged_since_last_look"`
+	Machines             map[string]json.RawMessage   `json:"machines"`
+	BackgroundRuns       []map[string]json.RawMessage `json:"background_runs"`
+	Parallel             *int64                       `json:"parallel,omitempty"`
+	AdditionalProperties map[string]json.RawMessage   `json:"-"`
+}
+
+// UnmarshalJSON keeps the members HomeCard does not declare in AdditionalProperties.
+func (v *HomeCard) UnmarshalJSON(data []byte) error {
+	type plain HomeCard
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "repository", "main", "attention", "items", "counts", "merged_since_last_look", "machines", "background_runs", "parallel")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of HomeCard.
+func (v HomeCard) MarshalJSON() ([]byte, error) {
+	type plain HomeCard
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
 // TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
 type TodoCard struct {
 	N                    int64                         `json:"n"`
 	Title                string                        `json:"title"`
 	State                string                        `json:"state"`
 	Owner                TodoCardOwner                 `json:"owner"`
+	FlowVersion          *TodoCardFlowVersion          `json:"flow_version,omitempty"`
 	Place                *int64                        `json:"place,omitempty"`
 	PromptRevisions      []TodoCardPromptRevisionsItem `json:"prompt_revisions"`
 	Issue                *TodoCardIssue                `json:"issue,omitempty"`
@@ -1467,6 +1641,7 @@ type TodoCard struct {
 	Waits                []map[string]json.RawMessage  `json:"waits"`
 	Steers               []map[string]json.RawMessage  `json:"steers"`
 	Evidence             []map[string]json.RawMessage  `json:"evidence"`
+	Preapproval          *TodoCardPreapproval          `json:"preapproval,omitempty"`
 	Merge                TodoCardMerge                 `json:"merge"`
 	Present              []map[string]json.RawMessage  `json:"present"`
 	AdditionalProperties map[string]json.RawMessage    `json:"-"`
@@ -1478,7 +1653,7 @@ func (v *TodoCard) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
 		return err
 	}
-	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
+	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "flow_version", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "preapproval", "merge", "present")
 }
 
 // MarshalJSON writes AdditionalProperties beside the declared members of TodoCard.
@@ -1492,6 +1667,13 @@ type TodoCardOwner struct {
 	Login     string `json:"login"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url"`
+}
+
+// TodoCardFlowVersion is generated from docs/api/openapi.yaml.
+type TodoCardFlowVersion struct {
+	FlowName     string `json:"flow_name"`
+	SourceCommit string `json:"source_commit"`
+	Digest       string `json:"digest"`
 }
 
 // TodoCardPromptRevisionsItem is generated from docs/api/openapi.yaml.
@@ -1535,6 +1717,12 @@ type TodoCardPr struct {
 	IncludedItems []int64 `json:"included_items"`
 }
 
+// TodoCardPreapproval is generated from docs/api/openapi.yaml.
+type TodoCardPreapproval struct {
+	By string    `json:"by"`
+	At time.Time `json:"at"`
+}
+
 // TodoCardMerge is generated from docs/api/openapi.yaml.
 type TodoCardMerge struct {
 	State    string  `json:"state"`
@@ -1565,8 +1753,99 @@ type GetAPIAgentConversationsParams struct {
 	Limit *int64
 }
 
+// GetAPIConversationResponse is generated from docs/api/openapi.yaml.
+type GetAPIConversationResponse struct {
+	ID      string                                  `json:"id"`
+	Entries []GetAPIConversationResponseEntriesItem `json:"entries"`
+}
+
+// GetAPIConversationResponseEntriesItem is generated from docs/api/openapi.yaml.
+type GetAPIConversationResponseEntriesItem struct {
+	ID     string    `json:"id"`
+	Author int64     `json:"author"`
+	RunID  string    `json:"runId"`
+	Prompt string    `json:"prompt"`
+	State  string    `json:"state"`
+	Frames []AnyJSON `json:"frames"`
+}
+
+// PostAPIConversationPromptBody is generated from docs/api/openapi.yaml.
+type PostAPIConversationPromptBody struct {
+	Prompt         string `json:"prompt"`
+	IdempotencyKey string `json:"idempotencyKey"`
+}
+
+// PatchAPIConversationTurnBody is generated from docs/api/openapi.yaml.
+type PatchAPIConversationTurnBody struct {
+	Prompt string `json:"prompt"`
+}
+
+// GetAPIConversationViewStateResponse is generated from docs/api/openapi.yaml.
+type GetAPIConversationViewStateResponse struct {
+	ToastsHidden         bool                       `json:"toasts_hidden"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members GetAPIConversationViewStateResponse does not declare in AdditionalProperties.
+func (v *GetAPIConversationViewStateResponse) UnmarshalJSON(data []byte) error {
+	type plain GetAPIConversationViewStateResponse
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "toasts_hidden")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of GetAPIConversationViewStateResponse.
+func (v GetAPIConversationViewStateResponse) MarshalJSON() ([]byte, error) {
+	type plain GetAPIConversationViewStateResponse
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
+// PutAPIConversationViewStateBody is generated from docs/api/openapi.yaml.
+type PutAPIConversationViewStateBody struct {
+	ToastsHidden         *bool                      `json:"toasts_hidden,omitempty"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members PutAPIConversationViewStateBody does not declare in AdditionalProperties.
+func (v *PutAPIConversationViewStateBody) UnmarshalJSON(data []byte) error {
+	type plain PutAPIConversationViewStateBody
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "toasts_hidden")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of PutAPIConversationViewStateBody.
+func (v PutAPIConversationViewStateBody) MarshalJSON() ([]byte, error) {
+	type plain PutAPIConversationViewStateBody
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
+// PutAPIConversationViewStateResponse is generated from docs/api/openapi.yaml.
+type PutAPIConversationViewStateResponse struct {
+	ToastsHidden         bool                       `json:"toasts_hidden"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members PutAPIConversationViewStateResponse does not declare in AdditionalProperties.
+func (v *PutAPIConversationViewStateResponse) UnmarshalJSON(data []byte) error {
+	type plain PutAPIConversationViewStateResponse
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "toasts_hidden")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of PutAPIConversationViewStateResponse.
+func (v PutAPIConversationViewStateResponse) MarshalJSON() ([]byte, error) {
+	type plain PutAPIConversationViewStateResponse
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
 // GetAPIAuthGithubCliParams is the query of GET /api/auth/github/cli.
 type GetAPIAuthGithubCliParams struct {
+	Agent         *string
 	CallbackPort  int64
 	CallbackState *string
 	Scopes        *string
@@ -1586,11 +1865,60 @@ type PostAPIBranchesBody struct {
 	Name *string `json:"name,omitempty"`
 }
 
+// PostAPIBranchesBBody is generated from docs/api/openapi.yaml.
+type PostAPIBranchesBBody struct {
+	Op       string `json:"op"`
+	ID       string `json:"id"`
+	Revision string `json:"revision"`
+}
+
+// GetAPIBranchFileParams is the query of GET /api/branches/{b}/files/{path}.
+type GetAPIBranchFileParams struct {
+	At *string
+}
+
+// PostAPIBranchFileBody is generated from docs/api/openapi.yaml.
+type PostAPIBranchFileBody struct {
+	Action     string `json:"action"`
+	Version    string `json:"version"`
+	BaseDigest string `json:"base_digest"`
+}
+
+// GetAPIBranchesBFilesParams is the query of GET /api/branches/{b}/files.
+type GetAPIBranchesBFilesParams struct {
+	Path *string
+}
+
+// GetAPIBranchesBFilesResponseItem is generated from docs/api/openapi.yaml.
+type GetAPIBranchesBFilesResponseItem struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Type string `json:"type"`
+	Size *int64 `json:"size,omitempty"`
+}
+
 // GetAPIExternalSessionsParams is the query of GET /api/external/sessions.
 type GetAPIExternalSessionsParams struct {
 	Agent   string
 	Session string
 	Offset  *int64
+}
+
+// PostAPIGatewaysHostFileWriteGrantsBody is generated from docs/api/openapi.yaml.
+type PostAPIGatewaysHostFileWriteGrantsBody struct {
+	RunID       string `json:"run_id"`
+	BatchDigest string `json:"batch_digest"`
+}
+
+// PostAPIGatewaysHostFileWriteGrantsResponse is generated from docs/api/openapi.yaml.
+type PostAPIGatewaysHostFileWriteGrantsResponse struct {
+	TokenID        int64  `json:"token_id"`
+	Token          string `json:"token"`
+	RunID          string `json:"run_id"`
+	WorkspaceID    string `json:"workspace_id"`
+	RepositorySlug string `json:"repository_slug"`
+	ExpiresAt      int64  `json:"expires_at"`
+	BatchDigest    string `json:"batch_digest"`
 }
 
 // GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
@@ -1624,16 +1952,19 @@ type GetAPIStatusResponseComponentsCanary struct {
 	Detail string `json:"detail"`
 }
 
+// GetAPIInstallMetricsResponse is generated from docs/api/openapi.yaml.
+type GetAPIInstallMetricsResponse struct {
+	CollectedAt     time.Time                    `json:"collected_at"`
+	Clock           string                       `json:"clock"`
+	Metrics         []map[string]json.RawMessage `json:"metrics"`
+	LiveConnections *int64                       `json:"live_connections,omitempty"`
+	Host            map[string]json.RawMessage   `json:"host,omitempty"`
+}
+
 // GetAPIInstallScorecardParams is the query of GET /api/install/scorecard.
 type GetAPIInstallScorecardParams struct {
 	From time.Time
 	To   time.Time
-}
-
-// PutAPIInstallBody is generated from docs/api/openapi.yaml.
-type PutAPIInstallBody struct {
-	Chatgpt  *bool  `json:"chatgpt,omitempty"`
-	Capacity *int64 `json:"capacity,omitempty"`
 }
 
 // PostAPIInstallQuiesceBody is generated from docs/api/openapi.yaml.
@@ -1736,6 +2067,61 @@ type GetAPIReposOwnerRepoWorkspacesIDEgressParams struct {
 	Limit  *int64
 }
 
+// GetAPIReposOwnerRepoWorkspacesIDFilesContentParams is the query of GET /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
+type GetAPIReposOwnerRepoWorkspacesIDFilesContentParams struct {
+	Path string
+}
+
+// GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse is generated from docs/api/openapi.yaml.
+type GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Type     string `json:"type"`
+	Encoding string `json:"encoding"`
+	Content  string `json:"content"`
+	Size     int64  `json:"size"`
+	Digest   string `json:"digest"`
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentParams is the query of PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentParams struct {
+	Path *string
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse struct {
+	Paths []PutAPIReposOwnerRepoWorkspacesIDFilesContentResponsePathsItem `json:"paths"`
+	Raced []PutAPIReposOwnerRepoWorkspacesIDFilesContentResponseRacedItem `json:"raced"`
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentResponsePathsItem is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponsePathsItem struct {
+	Path       string `json:"path"`
+	PostDigest string `json:"post_digest"`
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentResponseRacedItem is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponseRacedItem struct {
+	Path    string `json:"path"`
+	Version string `json:"version"`
+}
+
+// PostAPIReposOwnerRepoInvokeBody is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoInvokeBody struct {
+	Flow  string                     `json:"flow"`
+	Input map[string]json.RawMessage `json:"input,omitempty"`
+}
+
+// PostAPIReposOwnerRepoInvokeResponse is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoInvokeResponse struct {
+	ID                   int64  `json:"id"`
+	RunID                int64  `json:"run_id"`
+	WorkflowDefinitionID int64  `json:"workflow_definition_id"`
+	Flow                 string `json:"flow"`
+	Path                 string `json:"path"`
+	Status               string `json:"status"`
+}
+
 // PostAPIReposOwnerRepoMythicalItemsIDMergeBody is generated from docs/api/openapi.yaml.
 type PostAPIReposOwnerRepoMythicalItemsIDMergeBody struct {
 	ReviewedHeadSHA string `json:"reviewed_head_sha"`
@@ -1831,6 +2217,16 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 	ExpiresAt      time.Time  `json:"expires_at"`
 }
 
+// DeleteAPISecretsBody is generated from docs/api/openapi.yaml.
+type DeleteAPISecretsBody struct {
+	Name string `json:"name"`
+}
+
+// PostAPITerminalsBody is generated from docs/api/openapi.yaml.
+type PostAPITerminalsBody struct {
+	Branch string `json:"branch"`
+}
+
 // PostAPITodosBody is generated from docs/api/openapi.yaml.
 type PostAPITodosBody struct {
 	Title       string                 `json:"title"`
@@ -1848,11 +2244,17 @@ type PostAPITodosBodyPlace struct {
 	N    *int64 `json:"n,omitempty"`
 }
 
-// PostAPITodosResponse is generated from docs/api/openapi.yaml.
-type PostAPITodosResponse struct {
-	State string `json:"state"`
-	N     int64  `json:"n"`
-	Rev   int64  `json:"rev"`
+// GetAPITodosNEventsParams is the query of GET /api/todos/{n}/events.
+type GetAPITodosNEventsParams struct {
+	Cursor *int64
+}
+
+// GetAPITodosNEventsResponse is generated from docs/api/openapi.yaml.
+type GetAPITodosNEventsResponse struct {
+	Events json.RawMessage `json:"Events"`
+	Cursor int64           `json:"Cursor"`
+	Head   int64           `json:"Head"`
+	More   bool            `json:"More"`
 }
 
 // PostAPITodosNBody is generated from docs/api/openapi.yaml.
@@ -1863,11 +2265,10 @@ type PostAPITodosNBody struct {
 	Direction *string `json:"direction,omitempty"`
 }
 
-// PostAPITodosNResponse is generated from docs/api/openapi.yaml.
-type PostAPITodosNResponse struct {
-	State   string `json:"state"`
-	Attempt *int64 `json:"attempt,omitempty"`
-	Place   *int64 `json:"place,omitempty"`
+// PatchAPITodosNBody is generated from docs/api/openapi.yaml.
+type PatchAPITodosNBody struct {
+	Prompt     string   `json:"prompt"`
+	Acceptance []string `json:"acceptance,omitempty"`
 }
 
 // PostAPITodosNMergeBody is generated from docs/api/openapi.yaml.
@@ -2229,13 +2630,6 @@ func (c *Client) PostAPIAgentTurn(ctx context.Context, body any) (AnyJSON, error
 	return out, err
 }
 
-// PostAPIAgentTurnCancel calls POST /api/agent/turn/cancel.
-func (c *Client) PostAPIAgentTurnCancel(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/agent/turn/cancel", nil, body, &out)
-	return out, err
-}
-
 // PostAPIAgentTurnErase calls POST /api/agent/turn/erase.
 func (c *Client) PostAPIAgentTurnErase(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
@@ -2247,13 +2641,6 @@ func (c *Client) PostAPIAgentTurnErase(ctx context.Context, body any) (AnyJSON, 
 func (c *Client) PostAPIAgentTurnReplay(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/agent/turn/replay", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAgentTurnRetire calls POST /api/agent/turn/retire.
-func (c *Client) PostAPIAgentTurnRetire(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/agent/turn/retire", nil, body, &out)
 	return out, err
 }
 
@@ -2278,59 +2665,66 @@ func (c *Client) PostAPIAgentConversationsReplay(ctx context.Context, body Saved
 	return out, err
 }
 
-// DeleteAPIAppTimelinesIDMembersUserD calls DELETE /api/app-timelines/{id}/members/{userId}.
-func (c *Client) DeleteAPIAppTimelinesIDMembersUserD(ctx context.Context, id string, userID string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "DELETE", "/api/app-timelines/"+url.PathEscape(id)+"/members/"+url.PathEscape(userID), nil, nil, &out)
+// GetAPIConversation calls GET /api/conversations/{b}.
+func (c *Client) GetAPIConversation(ctx context.Context, b string) (GetAPIConversationResponse, error) {
+	var out GetAPIConversationResponse
+	err := c.do(ctx, "GET", "/api/conversations/"+url.PathEscape(b), nil, nil, &out)
 	return out, err
 }
 
-// GetAPIAppTimelinesID calls GET /api/app-timelines/{id}.
-func (c *Client) GetAPIAppTimelinesID(ctx context.Context, id string) (AnyJSON, error) {
+// PostAPIConversationPrompt calls POST /api/conversations/{b}/prompt.
+func (c *Client) PostAPIConversationPrompt(ctx context.Context, b string, body PostAPIConversationPromptBody) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/app-timelines/"+url.PathEscape(id), nil, nil, &out)
+	err := c.do(ctx, "POST", "/api/conversations/"+url.PathEscape(b)+"/prompt", nil, body, &out)
 	return out, err
 }
 
-// GetAPIAppTimelinesIDMembers calls GET /api/app-timelines/{id}/members.
-func (c *Client) GetAPIAppTimelinesIDMembers(ctx context.Context, id string) (AnyJSON, error) {
+// DeleteAPIConversationTurn calls DELETE /api/conversations/{b}/turns/{id}.
+func (c *Client) DeleteAPIConversationTurn(ctx context.Context, b string, id string) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/app-timelines/"+url.PathEscape(id)+"/members", nil, nil, &out)
+	err := c.do(ctx, "DELETE", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id), nil, nil, &out)
 	return out, err
 }
 
-// PostAPIAppTimelinesIDMembers calls POST /api/app-timelines/{id}/members.
-func (c *Client) PostAPIAppTimelinesIDMembers(ctx context.Context, id string, body any) (AnyJSON, error) {
+// PatchAPIConversationTurn calls PATCH /api/conversations/{b}/turns/{id}.
+func (c *Client) PatchAPIConversationTurn(ctx context.Context, b string, id string, body PatchAPIConversationTurnBody) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/app-timelines/"+url.PathEscape(id)+"/members", nil, body, &out)
+	err := c.do(ctx, "PATCH", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id), nil, body, &out)
 	return out, err
 }
 
-// PostAPIAppTimelines calls POST /api/app-timelines.
-func (c *Client) PostAPIAppTimelines(ctx context.Context, body any) (AnyJSON, error) {
+// PostAPIConversationTurnStop calls POST /api/conversations/{b}/turns/{id}/stop.
+func (c *Client) PostAPIConversationTurnStop(ctx context.Context, b string, id string) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/app-timelines", nil, body, &out)
+	err := c.do(ctx, "POST", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id)+"/stop", nil, nil, &out)
 	return out, err
 }
 
-// PostAPIAppTimelinesIDEvents calls POST /api/app-timelines/{id}/events.
-func (c *Client) PostAPIAppTimelinesIDEvents(ctx context.Context, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/app-timelines/"+url.PathEscape(id)+"/events", nil, body, &out)
+// GetAPIConversationViewState calls GET /api/conversations/{b}/view-state.
+func (c *Client) GetAPIConversationViewState(ctx context.Context, b string) (GetAPIConversationViewStateResponse, error) {
+	var out GetAPIConversationViewStateResponse
+	err := c.do(ctx, "GET", "/api/conversations/"+url.PathEscape(b)+"/view-state", nil, nil, &out)
 	return out, err
 }
 
-// PutAPIAppTimelinesIDSnapshots calls PUT /api/app-timelines/{id}/snapshots.
-func (c *Client) PutAPIAppTimelinesIDSnapshots(ctx context.Context, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/app-timelines/"+url.PathEscape(id)+"/snapshots", nil, body, &out)
+// PutAPIConversationViewState calls PUT /api/conversations/{b}/view-state.
+func (c *Client) PutAPIConversationViewState(ctx context.Context, b string, body PutAPIConversationViewStateBody) (PutAPIConversationViewStateResponse, error) {
+	var out PutAPIConversationViewStateResponse
+	err := c.do(ctx, "PUT", "/api/conversations/"+url.PathEscape(b)+"/view-state", nil, body, &out)
 	return out, err
 }
 
-// PutAPIAppTimelinesIDState calls PUT /api/app-timelines/{id}/state.
-func (c *Client) PutAPIAppTimelinesIDState(ctx context.Context, id string, body any) (AnyJSON, error) {
+// GetAPIAgents calls GET /api/agents.
+func (c *Client) GetAPIAgents(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/app-timelines/"+url.PathEscape(id)+"/state", nil, body, &out)
+	err := c.do(ctx, "GET", "/api/agents", nil, nil, &out)
+	return out, err
+}
+
+// PutAPIAgentsRoleModel calls PUT /api/agents/{role}/model.
+func (c *Client) PutAPIAgentsRoleModel(ctx context.Context, role string, body any) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "PUT", "/api/agents/"+url.PathEscape(role)+"/model", nil, body, &out)
 	return out, err
 }
 
@@ -2365,6 +2759,9 @@ func (c *Client) GetAPIAuthGithubCallback(ctx context.Context) (AnyJSON, error) 
 // GetAPIAuthGithubCli calls GET /api/auth/github/cli.
 func (c *Client) GetAPIAuthGithubCli(ctx context.Context, params GetAPIAuthGithubCliParams) error {
 	query := url.Values{}
+	if params.Agent != nil {
+		query.Set("agent", *params.Agent)
+	}
 	query.Set("callback_port", strconv.FormatInt(params.CallbackPort, 10))
 	if params.CallbackState != nil {
 		query.Set("callback_state", *params.CallbackState)
@@ -2510,10 +2907,46 @@ func (c *Client) GetAPIBranchesB(ctx context.Context, b string) (Branch, error) 
 	return out, err
 }
 
+// PostAPIBranchesB calls POST /api/branches/{b}.
+func (c *Client) PostAPIBranchesB(ctx context.Context, b string, idempotencyKey string, body PostAPIBranchesBBody) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/branches/"+url.PathEscape(b), nil, body, &out)
+	return out, err
+}
+
 // GetAPIBranchesBDiff calls GET /api/branches/{b}/diff.
 func (c *Client) GetAPIBranchesBDiff(ctx context.Context, b string) (TODOBranchDiff, error) {
 	var out TODOBranchDiff
 	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/diff", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIBranchFile calls GET /api/branches/{b}/files/{path}.
+func (c *Client) GetAPIBranchFile(ctx context.Context, b string, pathParam string, params GetAPIBranchFileParams) (BranchFileCard, error) {
+	query := url.Values{}
+	if params.At != nil {
+		query.Set("at", *params.At)
+	}
+	var out BranchFileCard
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files/"+url.PathEscape(pathParam), query, nil, &out)
+	return out, err
+}
+
+// PostAPIBranchFile calls POST /api/branches/{b}/files/{path}.
+func (c *Client) PostAPIBranchFile(ctx context.Context, b string, pathParam string, body PostAPIBranchFileBody) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "POST", "/api/branches/"+url.PathEscape(b)+"/files/"+url.PathEscape(pathParam), nil, body, &out)
+	return out, err
+}
+
+// GetAPIBranchesBFiles calls GET /api/branches/{b}/files.
+func (c *Client) GetAPIBranchesBFiles(ctx context.Context, b string, params GetAPIBranchesBFilesParams) ([]GetAPIBranchesBFilesResponseItem, error) {
+	query := url.Values{}
+	if params.Path != nil {
+		query.Set("path", *params.Path)
+	}
+	var out []GetAPIBranchesBFilesResponseItem
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files", query, nil, &out)
 	return out, err
 }
 
@@ -2534,6 +2967,30 @@ func (c *Client) PostAPICommandsSelect(ctx context.Context, body any) (AnyJSON, 
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/commands/select", nil, body, &out)
 	return out, err
+}
+
+// GetAPIConfirmations calls GET /api/confirmations.
+func (c *Client) GetAPIConfirmations(ctx context.Context) error {
+	return c.do(ctx, "GET", "/api/confirmations", nil, nil, nil)
+}
+
+// PostAPIConfirmations calls POST /api/confirmations.
+func (c *Client) PostAPIConfirmations(ctx context.Context, idempotencyKey string) (ConfirmationReceipt, error) {
+	var out ConfirmationReceipt
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIConfirmationsIDApprove calls POST /api/confirmations/{id}/approve.
+func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/approve", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIConfirmationsIDDeny calls POST /api/confirmations/{id}/deny.
+func (c *Client) PostAPIConfirmationsIDDeny(ctx context.Context, id string, idempotencyKey string) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/deny", nil, nil, nil)
 }
 
 // GetAPIExternalSessions calls GET /api/external/sessions.
@@ -2561,6 +3018,25 @@ func (c *Client) GetAPIFlows(ctx context.Context) ([]FlowCard, error) {
 	var out []FlowCard
 	err := c.do(ctx, "GET", "/api/flows", nil, nil, &out)
 	return out, err
+}
+
+// GetAPIFlowsName calls GET /api/flows/{name}.
+func (c *Client) GetAPIFlowsName(ctx context.Context, name string) (FlowCard, error) {
+	var out FlowCard
+	err := c.do(ctx, "GET", "/api/flows/"+url.PathEscape(name), nil, nil, &out)
+	return out, err
+}
+
+// PostAPIGatewaysHostFileWriteGrants calls POST /api/gateways/{hostID}/file-write-grants.
+func (c *Client) PostAPIGatewaysHostFileWriteGrants(ctx context.Context, hostID string, body PostAPIGatewaysHostFileWriteGrantsBody) (PostAPIGatewaysHostFileWriteGrantsResponse, error) {
+	var out PostAPIGatewaysHostFileWriteGrantsResponse
+	err := c.do(ctx, "POST", "/api/gateways/"+url.PathEscape(hostID)+"/file-write-grants", nil, body, &out)
+	return out, err
+}
+
+// DeleteAPIGatewaysHostFileWriteGrantsToken calls DELETE /api/gateways/{hostID}/file-write-grants/{tokenID}.
+func (c *Client) DeleteAPIGatewaysHostFileWriteGrantsToken(ctx context.Context, hostID string, tokenID int64) error {
+	return c.do(ctx, "DELETE", "/api/gateways/"+url.PathEscape(hostID)+"/file-write-grants/"+url.PathEscape(strconv.FormatInt(tokenID, 10)), nil, nil, nil)
 }
 
 // PutAPIGatewaysHostRepositoryJobsCICheckReceiptsRequest calls PUT /api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}.
@@ -2668,6 +3144,13 @@ func (c *Client) PostWebhooksGithub(ctx context.Context) (AnyJSON, error) {
 	return out, err
 }
 
+// GetAPIInstallMetrics calls GET /api/install/metrics.
+func (c *Client) GetAPIInstallMetrics(ctx context.Context) (GetAPIInstallMetricsResponse, error) {
+	var out GetAPIInstallMetricsResponse
+	err := c.do(ctx, "GET", "/api/install/metrics", nil, nil, &out)
+	return out, err
+}
+
 // GetAPIInstallScorecard calls GET /api/install/scorecard.
 func (c *Client) GetAPIInstallScorecard(ctx context.Context, params GetAPIInstallScorecardParams) (InstallScorecard, error) {
 	query := url.Values{}
@@ -2686,7 +3169,7 @@ func (c *Client) GetAPIInstall(ctx context.Context) (InstallSetupStatus, error) 
 }
 
 // PutAPIInstall calls PUT /api/install.
-func (c *Client) PutAPIInstall(ctx context.Context, body PutAPIInstallBody) (InstallSetupStatus, error) {
+func (c *Client) PutAPIInstall(ctx context.Context, body any) (InstallSetupStatus, error) {
 	var out InstallSetupStatus
 	err := c.do(ctx, "PUT", "/api/install", nil, body, &out)
 	return out, err
@@ -2698,8 +3181,8 @@ func (c *Client) PostAPIInstallSetupAddress(ctx context.Context, idempotencyKey 
 }
 
 // PostAPIInstallSetupApp calls POST /api/install/setup/app.
-func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body GitHubAppSetupRequest) (GitHubAppManifestStart, error) {
-	var out GitHubAppManifestStart
+func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body any) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.do(ctx, "POST", "/api/install/setup/app", nil, body, &out)
 	return out, err
 }
@@ -3202,24 +3685,31 @@ func (c *Client) PostAPIOrgsOrgBillingRefresh(ctx context.Context, org string) (
 	return out, err
 }
 
+// GetAPIProposals calls GET /api/proposals.
+func (c *Client) GetAPIProposals(ctx context.Context) ([]LearningProposalCard, error) {
+	var out []LearningProposalCard
+	err := c.do(ctx, "GET", "/api/proposals", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIProposalsIDAccept calls POST /api/proposals/{id}/accept.
+func (c *Client) PostAPIProposalsIDAccept(ctx context.Context, id string) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.do(ctx, "POST", "/api/proposals/"+url.PathEscape(id)+"/accept", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIProposalsIDDismiss calls POST /api/proposals/{id}/dismiss.
+func (c *Client) PostAPIProposalsIDDismiss(ctx context.Context, id string) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.do(ctx, "POST", "/api/proposals/"+url.PathEscape(id)+"/dismiss", nil, nil, &out)
+	return out, err
+}
+
 // GetAPIPublicRepos calls GET /api/public/repos.
 func (c *Client) GetAPIPublicRepos(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/public/repos", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIRecommend calls POST /api/recommend.
-func (c *Client) PostAPIRecommend(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/recommend", nil, body, &out)
-	return out, err
-}
-
-// PostAPIRecommendOutcome calls POST /api/recommend/outcome.
-func (c *Client) PostAPIRecommendOutcome(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/recommend/outcome", nil, body, &out)
 	return out, err
 }
 
@@ -4246,25 +4736,6 @@ func (c *Client) GetAPIReposOwnerRepoWikiSlugRevisions(ctx context.Context, owne
 	return out, err
 }
 
-// GetAPIReposOwnerRepoWikiSlugStream calls GET /api/repos/{owner}/{repo}/wiki/{slug}/stream. The caller closes the response body.
-func (c *Client) GetAPIReposOwnerRepoWikiSlugStream(ctx context.Context, owner string, repo string, slug string) (*http.Response, error) {
-	return c.raw(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/"+url.PathEscape(slug)+"/stream", nil, nil, "text/event-stream")
-}
-
-// GetAPIReposOwnerRepoWikiSlugUpdates calls GET /api/repos/{owner}/{repo}/wiki/{slug}/updates.
-func (c *Client) GetAPIReposOwnerRepoWikiSlugUpdates(ctx context.Context, owner string, repo string, slug string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/"+url.PathEscape(slug)+"/updates", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoWikiSlugUpdates calls POST /api/repos/{owner}/{repo}/wiki/{slug}/updates.
-func (c *Client) PostAPIReposOwnerRepoWikiSlugUpdates(ctx context.Context, owner string, repo string, slug string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/"+url.PathEscape(slug)+"/updates", nil, nil, &out)
-	return out, err
-}
-
 // GetAPIReposOwnerRepoWikiSearch calls GET /api/repos/{owner}/{repo}/wiki/search.
 func (c *Client) GetAPIReposOwnerRepoWikiSearch(ctx context.Context, owner string, repo string) (AnyJSON, error) {
 	var out AnyJSON
@@ -4430,16 +4901,22 @@ func (c *Client) GetAPIReposOwnerRepoWorkspacesIDFiles(ctx context.Context, owne
 }
 
 // GetAPIReposOwnerRepoWorkspacesIDFilesContent calls GET /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
-func (c *Client) GetAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", nil, nil, &out)
+func (c *Client) GetAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string, params GetAPIReposOwnerRepoWorkspacesIDFilesContentParams) (GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse, error) {
+	query := url.Values{}
+	query.Set("path", params.Path)
+	var out GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse
+	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", query, nil, &out)
 	return out, err
 }
 
 // PutAPIReposOwnerRepoWorkspacesIDFilesContent calls PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
-func (c *Client) PutAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", nil, nil, &out)
+func (c *Client) PutAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string, params PutAPIReposOwnerRepoWorkspacesIDFilesContentParams, body any) (PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse, error) {
+	query := url.Values{}
+	if params.Path != nil {
+		query.Set("path", *params.Path)
+	}
+	var out PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse
+	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", query, body, &out)
 	return out, err
 }
 
@@ -4546,13 +5023,6 @@ func (c *Client) PostAPIReposOwnerRepoChangesChangeIDRevert(ctx context.Context,
 	return out, err
 }
 
-// PostAPIReposOwnerRepoChangesChangeIDSplit calls POST /api/repos/{owner}/{repo}/changes/{change_id}/split.
-func (c *Client) PostAPIReposOwnerRepoChangesChangeIDSplit(ctx context.Context, owner string, repo string, changeID string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/changes/"+url.PathEscape(changeID)+"/split", nil, nil, &out)
-	return out, err
-}
-
 // PostAPIReposOwnerRepoGithubProxy calls POST /api/repos/{owner}/{repo}/github-proxy.
 func (c *Client) PostAPIReposOwnerRepoGithubProxy(ctx context.Context, owner string, repo string) (AnyJSON, error) {
 	var out AnyJSON
@@ -4589,9 +5059,9 @@ func (c *Client) PostAPIReposOwnerRepoHooksIDTests(ctx context.Context, owner st
 }
 
 // PostAPIReposOwnerRepoInvoke calls POST /api/repos/{owner}/{repo}/invoke.
-func (c *Client) PostAPIReposOwnerRepoInvoke(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/invoke", nil, nil, &out)
+func (c *Client) PostAPIReposOwnerRepoInvoke(ctx context.Context, owner string, repo string, body PostAPIReposOwnerRepoInvokeBody) (PostAPIReposOwnerRepoInvokeResponse, error) {
+	var out PostAPIReposOwnerRepoInvokeResponse
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/invoke", nil, body, &out)
 	return out, err
 }
 
@@ -5126,6 +5596,18 @@ func (c *Client) DeleteAPIRepoConnection(ctx context.Context) error {
 	return c.do(ctx, "DELETE", "/api/repo-connection", nil, nil, nil)
 }
 
+// PostAPIReviews calls POST /api/reviews.
+func (c *Client) PostAPIReviews(ctx context.Context, idempotencyKey string) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/reviews", nil, nil, nil)
+}
+
+// GetAPIReviewsID calls GET /api/reviews/{id}.
+func (c *Client) GetAPIReviewsID(ctx context.Context, id string) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/reviews/"+url.PathEscape(id), nil, nil, &out)
+	return out, err
+}
+
 // GetAPISearchCode calls GET /api/search/code.
 func (c *Client) GetAPISearchCode(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
@@ -5154,10 +5636,53 @@ func (c *Client) GetAPISearchUsers(ctx context.Context) (AnyJSON, error) {
 	return out, err
 }
 
+// GetAPISecrets calls GET /api/secrets.
+func (c *Client) GetAPISecrets(ctx context.Context) ([]SecretMetadata, error) {
+	var out []SecretMetadata
+	err := c.do(ctx, "GET", "/api/secrets", nil, nil, &out)
+	return out, err
+}
+
+// PutAPISecrets calls PUT /api/secrets.
+func (c *Client) PutAPISecrets(ctx context.Context, body SetRepositorySecretRequest) (SecretMetadata, error) {
+	var out SecretMetadata
+	err := c.do(ctx, "PUT", "/api/secrets", nil, body, &out)
+	return out, err
+}
+
+// DeleteAPISecrets calls DELETE /api/secrets.
+func (c *Client) DeleteAPISecrets(ctx context.Context, body DeleteAPISecretsBody) error {
+	return c.do(ctx, "DELETE", "/api/secrets", nil, body, nil)
+}
+
+// DeleteAPISecretsName calls DELETE /api/secrets/{name}.
+func (c *Client) DeleteAPISecretsName(ctx context.Context, name string) error {
+	return c.do(ctx, "DELETE", "/api/secrets/"+url.PathEscape(name), nil, nil, nil)
+}
+
+// PatchAPISecretsName calls PATCH /api/secrets/{name}.
+func (c *Client) PatchAPISecretsName(ctx context.Context, name string, body UpdateRepositorySecretRequest) (SecretMetadata, error) {
+	var out SecretMetadata
+	err := c.do(ctx, "PATCH", "/api/secrets/"+url.PathEscape(name), nil, body, &out)
+	return out, err
+}
+
 // PostAPITelemetryErrors calls POST /api/telemetry/errors.
 func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/telemetry/errors", nil, nil, &out)
+	return out, err
+}
+
+// PostAPITerminals calls POST /api/terminals.
+func (c *Client) PostAPITerminals(ctx context.Context, body PostAPITerminalsBody) error {
+	return c.do(ctx, "POST", "/api/terminals", nil, body, nil)
+}
+
+// GetAPIStack calls GET /api/stack.
+func (c *Client) GetAPIStack(ctx context.Context) (HomeCard, error) {
+	var out HomeCard
+	err := c.do(ctx, "GET", "/api/stack", nil, nil, &out)
 	return out, err
 }
 
@@ -5169,9 +5694,25 @@ func (c *Client) GetAPITodos(ctx context.Context) ([]TodoCard, error) {
 }
 
 // PostAPITodos calls POST /api/todos.
-func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body PostAPITodosBody) (PostAPITodosResponse, error) {
-	var out PostAPITodosResponse
+func (c *Client) PostAPITodos(ctx context.Context, idempotencyKey string, body PostAPITodosBody) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos", nil, body, &out)
+	return out, err
+}
+
+// GetAPITodosNAttemptsALogsDigest calls GET /api/todos/{n}/attempts/{a}/logs/{digest}. The caller closes the response body.
+func (c *Client) GetAPITodosNAttemptsALogsDigest(ctx context.Context, n int64, a int64, digest string) (*http.Response, error) {
+	return c.raw(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/attempts/"+url.PathEscape(strconv.FormatInt(a, 10))+"/logs/"+url.PathEscape(digest), nil, nil, "text/plain")
+}
+
+// GetAPITodosNEvents calls GET /api/todos/{n}/events.
+func (c *Client) GetAPITodosNEvents(ctx context.Context, n int64, params GetAPITodosNEventsParams) (GetAPITodosNEventsResponse, error) {
+	query := url.Values{}
+	if params.Cursor != nil {
+		query.Set("cursor", strconv.FormatInt(*params.Cursor, 10))
+	}
+	var out GetAPITodosNEventsResponse
+	err := c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/events", query, nil, &out)
 	return out, err
 }
 
@@ -5183,15 +5724,24 @@ func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
 }
 
 // PostAPITodosN calls POST /api/todos/{n}.
-func (c *Client) PostAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNBody) (PostAPITodosNResponse, error) {
-	var out PostAPITodosNResponse
+func (c *Client) PostAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNBody) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, body, &out)
 	return out, err
 }
 
+// PatchAPITodosN calls PATCH /api/todos/{n}.
+func (c *Client) PatchAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PatchAPITodosNBody) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "PATCH", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, body, &out)
+	return out, err
+}
+
 // PostAPITodosNMerge calls POST /api/todos/{n}/merge.
-func (c *Client) PostAPITodosNMerge(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNMergeBody) error {
-	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/merge", nil, body, nil)
+func (c *Client) PostAPITodosNMerge(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNMergeBody) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/merge", nil, body, &out)
+	return out, err
 }
 
 // PostAPITodosNAnswer calls POST /api/todos/{n}/answer.
@@ -5199,6 +5749,16 @@ func (c *Client) PostAPITodosNAnswer(ctx context.Context, n int64, body PostAPIT
 	var out PostAPITodosNAnswerResponse
 	err := c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/answer", nil, body, &out)
 	return out, err
+}
+
+// PostAPITodosNPreapproval calls POST /api/todos/{n}/preapproval.
+func (c *Client) PostAPITodosNPreapproval(ctx context.Context, n int64) error {
+	return c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/preapproval", nil, nil, nil)
+}
+
+// DeleteAPITodosNPreapproval calls DELETE /api/todos/{n}/preapproval.
+func (c *Client) DeleteAPITodosNPreapproval(ctx context.Context, n int64) error {
+	return c.do(ctx, "DELETE", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/preapproval", nil, nil, nil)
 }
 
 // DeleteAPIUserConnectionsID calls DELETE /api/user/connections/{id}.

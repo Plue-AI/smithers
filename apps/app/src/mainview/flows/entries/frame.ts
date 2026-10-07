@@ -13,20 +13,20 @@ export const namespace: Namespace = { id: "frame", label: "Frames", summary: "Na
 /** The `frame` flows registered as one aggregator block. */
 export const frameFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "frame.back",
+    name: "frame.back", visibility: "in-card",
     summary: "Go to the previous frame",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: "frame navigation is the human's browser gesture",
+    agent: "never" as const,
+    agentReason: "frame navigation is the human's browser gesture",
     input: NoPayload,
     handler: () => actions.frameBack()
   }),
   flow({
-    name: "frame.forward",
+    name: "frame.forward", visibility: "in-card",
     summary: "Go to the next frame",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: "frame navigation is the human's browser gesture",
+    agent: "never" as const,
+    agentReason: "frame navigation is the human's browser gesture",
     input: NoPayload,
     handler: () => actions.frameForward()
   })

@@ -105,8 +105,11 @@ func validateBilling(cfg *Config, dependencies StartupDependencies, errs *[]stri
 }
 
 func validateOptionalProviders(cfg *Config, errs *[]string) {
-	// GitHub OAuth becomes available when the install creates its App. Validate
-	// the callback at startup without consulting provider secrets or App state.
+	// Install callbacks are derived from each request's configured effective origin.
+	if IsSingleOwner(cfg.Auth) {
+		return
+	}
+	// Hosted OAuth uses one configured callback, validated at startup.
 	callback, err := url.Parse(strings.TrimSpace(cfg.Auth.GitHubRedirectURL))
 	if err != nil || callback.Host == "" || callback.User != nil || callback.RawQuery != "" || callback.Fragment != "" ||
 		(callback.Scheme != "http" && callback.Scheme != "https") || callback.Path != "/api/auth/github/callback" {

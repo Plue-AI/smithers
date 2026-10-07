@@ -139,7 +139,15 @@
         "cloud-wiki",
         "coding-host",
         "build-graph"
-      ]
+      ],
+      "excerpts": {
+        "factory/wiki/README.md": [
+          {
+            "start": 1,
+            "end": 70
+          }
+        ]
+      }
     },
     {
       "id": "coding-direction",
@@ -174,7 +182,15 @@
         "coding-checks",
         "runtime",
         "wiki-generation"
-      ]
+      ],
+      "excerpts": {
+        "flows/coding/host.md": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ]
+      }
     },
     {
       "id": "coding-request",
@@ -295,7 +311,21 @@
         "coding-correction",
         "coding-host",
         "build-graph"
-      ]
+      ],
+      "excerpts": {
+        "flows/coding/checks.ts": [
+          {
+            "start": 60,
+            "end": 180
+          }
+        ],
+        "flows/coding/checks.md": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ]
+      }
     },
     {
       "id": "coding-finalization",
@@ -311,7 +341,15 @@
         "coding-progression",
         "coding-checks",
         "coding-ui"
-      ]
+      ],
+      "excerpts": {
+        "flows/coding/finalization.md": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ]
+      }
     },
     {
       "id": "coding-ui",
@@ -320,6 +358,7 @@
       "kind": "current",
       "document": "factory/wiki/pages/coding-ui.md",
       "inputs": [
+        "flows/coding/planning.md",
         "apps/app/src/mainview/cards/CodingPlanCard.tsx"
       ],
       "related": [
@@ -421,7 +460,15 @@
         "coding-ui",
         "storage",
         "product-ui"
-      ]
+      ],
+      "excerpts": {
+        "packages/smithers/ENGINE-JOURNAL-PROJECTION.md": [
+          {
+            "start": 1,
+            "end": 80
+          }
+        ]
+      }
     },
     {
       "id": "packages",

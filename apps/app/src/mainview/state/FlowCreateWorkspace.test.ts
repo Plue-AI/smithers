@@ -1,5 +1,5 @@
 /*
- * Walk run 3, defect D3-N1: `/flow.create` provisions the wrong box.
+ * Walk run 3, defect D3-N1: `/flow.new` provisions the wrong box.
  *
  * The register door names the repository's job workspace (L89,
  * `TriggersSeam.jobWorkspace`); the flow-authoring door named none, so its
@@ -19,7 +19,7 @@ const createAppController = scopedControllers()
 
 const REPO = "codeplanesmithers/canary-sandbox"
 
-/** The durable card `flow.create` mints: where a background refusal is stated and retried. */
+/** The durable card `flow.new` mints: where a background refusal is stated and retried. */
 const authoringCard = (store: Awaited<ReturnType<typeof createAppStore>>) => {
   const card = [...store.collections.cards.values()].find((entry) => entry.kind === "run-trace" && entry.payload.authoring !== undefined)
   return card?.kind === "run-trace" ? card : undefined
@@ -86,7 +86,7 @@ test("the flow-authoring door provisions the box the repository's jobs run on", 
   const double = relay()
   const controller = createAppController(store, silentAgent, double.services)
   try {
-    await controller.commands.run("flow.create", `summarise my issues ${REPO}`)
+    await controller.commands.run("flow.new", `summarise my issues ${REPO}`)
     /* The door answers first and provisions in the background (AGENTS.md instant chat). */
     await waitFor(() => double.calls.some(call => call.path === "/api/workflow/rpc"))
     const provisions = double.calls.filter(call => call.path === "/api/workflow/provision")
@@ -101,7 +101,7 @@ test("a refused provision reaches the person as its registered refusal, with its
   const double = relay({ provisionStatus: 502, provision: () => UPSTREAM_500 })
   const controller = createAppController(store, silentAgent, double.services)
   try {
-    expect(said(await controller.commands.run("flow.create", `summarise my issues ${REPO}`))).toBe(`flow-requested repo=${REPO}`)
+    expect(said(await controller.commands.run("flow.new", `summarise my issues ${REPO}`))).toBe(`flow-requested repo=${REPO}`)
     /* The refusal stays where the person is looking after the toast goes: the durable card. */
     await waitFor(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
     const launchError = authoringCard(store)?.payload.authoring?.launchError
@@ -115,7 +115,7 @@ test("a refused provision reaches the person as its registered refusal, with its
 /*
  * Walk W1, item 7 — the "dropped submission", read from its own receipt.
  *
- * With a setup card and a form card both open, one `/flow.create …` added
+ * With a setup card and a form card both open, one `/flow.new …` added
  * nothing to the transcript over 100 s, and the identical line answered in
  * ~25 s in the next script (W1-c-doors.json vs W1-d-doors.json). The network
  * says what happened: EIGHT `POST /api/workflow/provision 200` at a steady
@@ -140,7 +140,7 @@ test("a cold workspace keeps the flow-authoring door polling: no rpc, no transcr
       id: "card-form-triggers.pause", kind: "status", title: "Pause a schedule",
       status: "active", createdAt: 1, ordinal: store.nextOrdinal(), payload: { progress: 0.5 }
     } }).isPersisted.promise
-    const pending = controller.commands.run("flow.create", `print the repository name and the current date ${REPO}`)
+    const pending = controller.commands.run("flow.new", `print the repository name and the current date ${REPO}`)
     await settle(4)
     /* Mid-flight, exactly what the walk read: nothing said, and nothing planned. */
     expect(double.calls.filter(call => call.path === "/api/workflow/rpc")).toEqual([])
@@ -162,7 +162,7 @@ test("a Mac workflow provision plan limit keeps its typed failure and stops with
   const controller = createAppController(store, silentAgent, { ...double.services,
     bootstrap: { apiVersion: 1, version: "test", buildSha: "test", host: "cloud", authFlow: "credentials", sandbox: null,
       capabilities: ["identity", "agent", "cloud"] } })
-  expect((await controller.commands.run("flow.create", `summarize my issues ${REPO}`)).status).toBe("executed")
+  expect((await controller.commands.run("flow.new", `summarize my issues ${REPO}`)).status).toBe("executed")
   await waitFor(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
   expect(authoringCard(store)?.payload.authoring?.launchError).toContain("Your plan is at its sandbox limit.")
   expect(authoringCard(store)?.status).toBe("error")

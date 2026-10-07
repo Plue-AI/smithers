@@ -157,8 +157,8 @@ describe("partial and older trace records", () => {
     ])
     expect(turnNarratives(calls)[0]?.text).toBe("The agent called a, b, c and 1 other flows.")
     const fork = { ...waiting.root, kind: "fork" as const }
-    expect(spanMatches(fork, "forks")).toBe(true)
-    expect(spanMatches(waiting.root, "forks")).toBe(false)
+    expect(spanMatches(fork, "all")).toBe(true)
+    expect(spanMatches(fork, "flow")).toBe(false)
   })
 })
 

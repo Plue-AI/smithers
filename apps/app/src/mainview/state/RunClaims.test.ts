@@ -9,7 +9,7 @@ test("a requested launch arms claim suppression without claiming a run has start
   expect(toolResultLaunchedRun("failed: run-requested")).toBe(false)
   expect(renderedRunTurnText("flow.run", "The run has completed.")).toBe("Run requested.")
   expect(renderedRunTurnText("flow.run", "The run is now running.")).toBe("Run requested.")
-  expect(renderedRunTurnText("flow.create", "The flow has been created.")).toBe("Run requested.")
+  expect(renderedRunTurnText("flow.new", "The flow has been created.")).toBe("Run requested.")
 })
 
 /*
@@ -20,7 +20,7 @@ test("a requested launch arms claim suppression without claiming a run has start
  */
 describe("runLaunchCommandOf classifies every spelling execution accepts", () => {
   test("bare, slash-prefixed, and whitespace-padded launches all classify", () => {
-    for (const command of ["flow.run", "flow.create"]) {
+    for (const command of ["flow.run", "flow.new"]) {
       for (const spelling of [command, `/${command}`, ` ${command} `, `  //${command}`]) {
         expect(runLaunchCommandOf("commands", call(spelling))).toBe(command)
         expect(canonicalCommandName(spelling)).toBe(command)

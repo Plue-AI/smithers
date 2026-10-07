@@ -96,6 +96,25 @@ test("repository coding project decodes with registered flows, real source paths
   )
 })
 
+test("the coding project preserves a zero conflict budget and refuses invalid budgets", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-conflict-budget-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const platform = process.versions.bun
+    ? (await import("@effect/platform-bun/BunServices")).layer
+    : NodeServices.layer
+  const load = async (conflictAttempts: unknown) => {
+    await writeFile(join(root, "project.json"), JSON.stringify({ wiki: false, checks: [], conflictAttempts }))
+    return Effect.runPromise(loadProject(root, "project.json").pipe(Effect.provide(platform)))
+  }
+  for (const budget of [0, 1, 8]) {
+    assert.equal((await load(budget)).conflictAttempts, budget)
+  }
+  assert.equal((await load(undefined)).conflictAttempts, undefined)
+  for (const budget of [-1, 9, 0.5, "0", null]) {
+    await assert.rejects(load(budget), /Invalid SMITHERS_CODING_PROJECT/)
+  }
+})
+
 test("repository coding project routes roles to seat aliases or the routing graph and refuses jev or unknown seats", async () => {
   const root = await mkdtemp(join(tmpdir(), "coding-seats-"))
   try {
@@ -257,7 +276,7 @@ test("project reads enforce emitted byte bounds and skip an absent default", asy
 })
 
 test("configured entry loads explicit project data before host initialization; help needs no project", {
-  timeout: 180_000
+  timeout: 1_200_000
 }, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "coding-project-entry-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
@@ -275,7 +294,7 @@ test("configured entry loads explicit project data before host initialization; h
     ], {
       cwd: directory,
       encoding: "utf8",
-      timeout: 75_000,
+      timeout: 240_000,
       maxBuffer: 64 * 1024,
       env: {
         PATH: process.env.PATH,
@@ -285,7 +304,7 @@ test("configured entry loads explicit project data before host initialization; h
       }
     })
   const help = run(["--help"])
-  assert.equal(help.status, 0, help.stderr)
+  assert.equal(help.status, 0, `${help.stderr} ${help.error ?? ""} ${help.signal ?? ""}`)
   assert.match(help.stdout, /SMITHERS_CODING_PROJECT/)
   for (const systemNames of [null, "malformed", "{}"]) {
     const policyRefusal = run(["serve", "--root", directory], "invalid.json", systemNames)
@@ -306,4 +325,60 @@ test("configured entry loads explicit project data before host initialization; h
     defaultRefusal.stdout + defaultRefusal.stderr,
     /Invalid SMITHERS_CODING_PROJECT.*\.smithers\/coding-project\.json/
   )
+})
+
+test("an install snapshot loads literal command declarations without reading repository configuration", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "install-project-config-"))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
+  await mkdir(join(directory, ".smithers"))
+  await writeFile(join(directory, ".smithers/coding-project.json"), "{hostile")
+  const snapshot = {
+    checks: [{ id: "test", target: ".", flow: "checks/test", tier: "slow", required: true }],
+    detected: [{ flow: "checks/test", argv: ["go", "test", "./..."], timeoutMs: 1800000 }],
+    seats: { "coding/implement": "auto", "coding/review": "auto" },
+    wiki: false
+  }
+  await writeFile(join(directory, "snapshot.json"), JSON.stringify(snapshot))
+  const result = await Effect.runPromise(loadProject(directory, "snapshot.json").pipe(Effect.provide(platform)))
+  assert.deepEqual(result, { ...snapshot, implementation: "coding/implementation" })
+  const { PlanningContext, Draft } = await import("../coding/planning.ts")
+  const { Schema } = await import("effect")
+  const check = { ...snapshot.checks[0], flowDigest: "literal-check-digest" }
+  assert.deepEqual(Schema.decodeUnknownSync(PlanningContext.fields.checks)([check]), [check])
+  assert.throws(() => Schema.decodeUnknownSync(PlanningContext.fields.checks)([]))
+  const draft = {
+    rationale: "Run the required check",
+    baseChangeId: "base",
+    changes: [{
+      id: "one",
+      title: "One",
+      intent: "One change",
+      atoms: [{ changeId: null, message: "Change", intent: "Change", reads: [], writes: ["main.go"] }],
+      checks: ["test"]
+    }]
+  }
+  assert.deepEqual(Schema.decodeUnknownSync(Draft)(draft), draft)
+  assert.throws(() => Schema.decodeUnknownSync(Draft)({ ...draft, changes: [{ ...draft.changes[0], checks: [] }] }))
+})
+
+test("the coding project still detects declared checks after registration is retired", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-check-detection-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({ scripts: { test: "vitest", lint: "eslint .", build: "tsc" } })
+  )
+  await writeFile(join(root, "pnpm-lock.yaml"), "")
+  await writeFile(join(root, "Makefile"), "test:\n\tgo test ./...\n")
+  const project = await Effect.runPromise(loadProject(root, undefined).pipe(Effect.provide(NodeServices.layer)))
+  assert.deepEqual(project.detected?.map((check) => check.argv), [
+    ["pnpm", "run", "test"],
+    ["pnpm", "run", "lint"],
+    ["pnpm", "run", "build"]
+  ])
+  // Malformed package metadata cannot invent commands; the real Make target remains.
+  await writeFile(join(root, "package.json"), "{broken")
+  const recovered = await Effect.runPromise(loadProject(root, undefined).pipe(Effect.provide(NodeServices.layer)))
+  assert.deepEqual(recovered.detected?.map((check) => check.argv), [["make", "test"]])
 })

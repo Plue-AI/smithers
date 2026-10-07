@@ -22,9 +22,13 @@ go test -run 'TestMigrationGate|TestMigrationRegistry' ./packages/backend/db/pro
 `node scripts/commit.mjs --push --test '<required check>'` runs that mandatory
 gate, sqlc drift, and the mandatory five-target drift set before either Git or jj publication. Missing or
 failed gates refuse publication, including with `--no-test`. The bootstrap
-helper publishes main after the same checks.
+helper publishes main; this authorized wave uses the lane's explicit Git
+fetch/rebase/push workflow to frontrun after the same checks.
 
 Execute repository tests and generators as unprivileged machine users, without
-live database or publication credentials. Machine dispatch remains blocked until
+live database or publication credentials. Both helpers refuse a home containing
+`~/.config/issue-claim`; generator and gate children receive the same filtered
+environment, including removal of PostgreSQL connection and credential variables.
+Machine dispatch remains blocked until
 the approved T-SEC-01 R1–R3, T-MCH-10 R4 and applicable T-FLW-01 R5 receipts
 and installed main-pinned runtime are available. Branch bytes never run at root.

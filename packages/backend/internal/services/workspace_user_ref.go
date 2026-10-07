@@ -109,6 +109,7 @@ type ScratchFork struct {
 	ActorID      int64
 	Branch       string
 	Commit, Base string
+	Recover      bool
 	Item         pgtype.UUID
 	Parent       string
 	Retain       func(ctx context.Context, workspaceID string) error
@@ -129,6 +130,35 @@ func (s *WorkspaceService) forkScratchWorkspace(ctx context.Context, fork Scratc
 	}
 	if err := s.preflightBranchMachine(ctx, fork.RepositoryID, fork.ActorID, fork.Branch, ""); err != nil {
 		return db.Workspace{}, err
+	}
+	if fork.Recover {
+		tx, err := s.transactions.Begin(ctx)
+		if err != nil {
+			return db.Workspace{}, err
+		}
+		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+		row, err := db.New(tx).GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: fork.RepositoryID, TargetBookmark: fork.Branch})
+		if err == nil {
+			owner, err := db.New(tx).GetBranchMachineOwner(ctx)
+			if err != nil {
+				return db.Workspace{}, err
+			}
+			if row.UserID != owner {
+				return db.Workspace{}, pkgerrors.Conflict("branch machine owner requires migration")
+			}
+			if !row.IsFork || row.SourceCommit != fork.Commit || row.ForkedFromBase != fork.Base || row.ForkedFromItem != fork.Item || row.ParentWorkspaceID != pgUUIDFromString(fork.Parent) {
+				return db.Workspace{}, pkgerrors.Conflict("branch already has a different machine source")
+			}
+			// Replaying creation does not wake or repair a retained machine;
+			// its actual state remains visible in the response.
+			if err := fork.Publish(ctx); err != nil {
+				return db.Workspace{}, err
+			}
+			return row, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return db.Workspace{}, err
+		}
 	}
 	id := uuid.New()
 	if err := fork.Retain(ctx, id.String()); err != nil {

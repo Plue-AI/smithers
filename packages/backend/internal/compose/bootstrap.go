@@ -37,6 +37,7 @@ type appBootstrap struct {
 
 type bootstrapFeatures struct {
 	install          bool
+	debugAPI         bool
 	role             topology
 	identity         bool
 	redirectAuth     bool
@@ -61,6 +62,9 @@ func newAppBootstrap(features bootstrapFeatures) appBootstrap {
 		Capabilities: make([]string, 0, 4), AuthFlow: "none"}
 	if features.install && !features.role.hosted() {
 		result.Capabilities = append(result.Capabilities, "install")
+	}
+	if features.debugAPI && features.identity && !features.role.hosted() {
+		result.Capabilities = append(result.Capabilities, "debug.api")
 	}
 	if features.identity {
 		result.Capabilities = append(result.Capabilities, "identity")

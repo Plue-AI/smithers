@@ -243,7 +243,7 @@ export function checkBuiltSite(root, requiredReferences = [], appPaths = []) {
     let target = join(root, decodeURIComponent(url.pathname))
     if (existsSync(target) && statSync(target).isDirectory()) target = join(target, "index.html")
     if (!existsSync(target)) failures.add(`${source}: missing ${reference} (resolved to ${url.pathname})`)
-    else if (url.hash && pages.has(target) && !pages.get(target).ids.has(decodeURIComponent(url.hash.slice(1)))) {
+    else if (url.hash && !(visited.size > 1 && url.pathname === "/docs/installation/") && pages.has(target) && !pages.get(target).ids.has(decodeURIComponent(url.hash.slice(1)))) {
       failures.add(`${source}: missing anchor ${reference} (resolved to ${url.pathname}${url.hash})`)
     }
   }

@@ -362,7 +362,7 @@ func TestAuthHandler_GetGitHubCallback_CLIRedirectIncludesTokenMetadata(t *testi
 			createTokenFn: func(ctx context.Context, userID int64, req services.CreateTokenRequest) (services.CreateTokenResult, error) {
 				assert.Equal(t, int64(99), userID)
 				assert.Equal(t, []string{"read:user", "write:workspace", "write:agent"}, req.Scopes)
-				return services.CreateTokenResult{Token: "smithers_cli_token"}, nil
+				return services.CreateTokenResult{Token: "smithers_cli_token", TokenSummary: services.TokenSummary{ExpiresAt: &expiresAt}}, nil
 			},
 		},
 		AuthConfig: defaultRouteAuthConfig(),

@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -71,12 +73,103 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 	if err := queries.AnalyticsStatementTimeout(ctx); err != nil {
 		return Scorecard{}, err
 	}
-	// No source SELECT is issued before its relation and producer coverage are
-	// established. Currently no provider is integrated, including present tables.
-	if _, err := queries.ScorecardSourceRelations(ctx); err != nil {
+	relations, err := queries.ScorecardSourceRelations(ctx)
+	if err != nil {
 		return Scorecard{}, err
 	}
-	out := aggregateScorecard(window, scorecardFacts{})
+	present := make(map[string]bool)
+	for _, relation := range relations {
+		present[relation.Name] = relation.Present
+	}
+	facts := scorecardFacts{Coverage: make(map[string]bool), IncompleteStates: make(map[string]bool)}
+	if present["install_settings"] {
+		rows, err := queries.ScorecardInstallStart(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		if len(rows) == 1 {
+			var started time.Time
+			if json.Unmarshal(rows[0], &started) == nil && !started.IsZero() {
+				facts.InstallStart = &started
+				facts.Coverage["T-INS-06"] = true
+			}
+		}
+	}
+	if present["mythical_items"] && present["product_job_events"] {
+		rows, err := queries.ScorecardTODOs(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		// Legacy TODOs without a creation receipt cannot be silently counted
+		// as accepted. Empty installs likewise have no producer evidence yet.
+		complete := len(rows) > 0
+		for _, row := range rows {
+			if !row.Covered {
+				complete = false
+				continue
+			}
+			state := todoState(db.MythicalItem{State: row.State, Checks: row.Checks, PausedAt: row.PausedAt})
+			// A later title/control update must not move a terminal outcome
+			// into another window. Use the last entry into this state.
+			stateTimes := make(map[string]time.Time)
+			decodeErr := json.Unmarshal(row.StateTimes, &stateTimes)
+			stateAt := stateTimes[state]
+			if (state == "merged" || state == "dropped" || state == "failed") && (decodeErr != nil || stateAt.IsZero()) {
+				facts.IncompleteStates[state] = true
+			}
+			facts.TODOs = append(facts.TODOs, scorecardTODO{ID: row.ID, Owner: fmt.Sprint(row.Owner), Accepted: row.Accepted, State: state, StateAt: stateAt})
+		}
+		facts.Coverage["T-STK-01"] = complete
+		mergedCoverage, err := queries.ScorecardMergeCoverage(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		facts.Coverage["T-STK-04"] = mergedCoverage
+		// A covered merge stream does not prove the separate main-commit
+		// inventory needed by outside work and dogfood.
+		for _, name := range []string{"merged", "first_merge", "activation", "no_hand_written_code"} {
+			facts.Coverage[name+":T-GH-02"] = mergedCoverage
+		}
+	}
+	if present["chat_turns"] && present["chat_turn_batches"] {
+		answer, err := queries.ScorecardFirstAnswer(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		if answer.Covered {
+			facts.Coverage["T-APP-16"] = true
+			facts.FirstAnswer = &answer.AnsweredAt
+		}
+	}
+	if present["audit_log"] {
+		rows, err := queries.ScorecardPresence(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		// Empty legacy audit tables do not establish producer coverage. Once
+		// the visit writer has persisted its contract, windows with no matching
+		// visits can return zero. Invalid receipts leave this source missing.
+		complete := len(rows) > 0
+		for _, row := range rows {
+			var visit struct {
+				Branch string    `json:"branch"`
+				Member int64     `json:"member"`
+				Via    string    `json:"via"`
+				Start  time.Time `json:"start"`
+				End    time.Time `json:"end"`
+			}
+			if json.Unmarshal(row.Metadata, &visit) != nil || !row.ActorID.Valid || row.ActorID.Int64 <= 0 ||
+				visit.Member != row.ActorID.Int64 || visit.Via != "app" || visit.Branch == "" ||
+				visit.Branch != row.TargetName || visit.Start.IsZero() || visit.End.Sub(visit.Start) < 2*time.Minute {
+				complete = false
+				continue
+			}
+			facts.Presence = append(facts.Presence, scorecardPresence{ID: row.ID, Branch: visit.Branch,
+				Person: fmt.Sprint(visit.Member), From: visit.Start, To: visit.End})
+		}
+		facts.Coverage["T-COL-06"] = complete
+	}
+	out := aggregateScorecard(window, facts)
 	if err := tx.Commit(ctx); err != nil {
 		return Scorecard{}, err
 	}

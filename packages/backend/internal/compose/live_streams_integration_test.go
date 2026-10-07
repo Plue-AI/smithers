@@ -219,7 +219,7 @@ func handlerKey(handler http.Handler) string {
 // lists a route that is not served or does not stream.
 func TestLiveStreamInventoryMatchesTheRouter(t *testing.T) {
 	streaming := streamingHandlers(t)
-	require.Contains(t, streaming, "routes.WikiCollaborationHandler.Stream", "the source scan found no known stream")
+	require.Contains(t, streaming, "routes.LiveHandler.ServeHTTP", "the source scan found no known stream")
 	served := map[string]bool{}
 	selfHosted := testConfigAllFlagsOn()
 	selfHosted.Auth.Mode = config.AuthModeSelfHosted
@@ -303,9 +303,7 @@ func liveStreamPath(f liveStreamFixture, pattern string) string {
 func liveStreamGet(pattern string) func(liveStreamFixture) liveStreamRequest {
 	return func(f liveStreamFixture) liveStreamRequest {
 		path := liveStreamPath(f, pattern)
-		if strings.HasSuffix(pattern, "/wiki/{slug}/stream") {
-			path += "?visibility=private&page_id=" + strconv.FormatInt(f.alice.wiki.ID, 10)
-		}
+
 		return liveStreamRequest{path: path, headers: http.Header{"Accept": {"text/event-stream"}}}
 	}
 }
@@ -318,7 +316,6 @@ var liveStreamRecipes = map[string]liveStreamRecipe{
 	"get /api/repos/{owner}/{repo}/changes/events":                   {request: liveStreamGet("/api/repos/{owner}/{repo}/changes/events")},
 	"get /api/repos/{owner}/{repo}/mythical/events":                  {request: liveStreamGet("/api/repos/{owner}/{repo}/mythical/events")},
 	"get /api/repos/{owner}/{repo}/issues/state-events/stream":       {ownerSees: true, request: liveStreamGet("/api/repos/{owner}/{repo}/issues/state-events/stream")},
-	"get /api/repos/{owner}/{repo}/wiki/{slug}/stream":               {request: liveStreamGet("/api/repos/{owner}/{repo}/wiki/{slug}/stream")},
 	"get /api/repos/{owner}/{repo}/runs/{id}/logs":                   {request: liveStreamGet("/api/repos/{owner}/{repo}/runs/{id}/logs")},
 	"get /api/repos/{owner}/{repo}/runs/{id}/events":                 {request: liveStreamGet("/api/repos/{owner}/{repo}/runs/{id}/events")},
 	"get /api/repos/{owner}/{repo}/workflows/runs/{id}/events":       {request: liveStreamGet("/api/repos/{owner}/{repo}/workflows/runs/{id}/events")},

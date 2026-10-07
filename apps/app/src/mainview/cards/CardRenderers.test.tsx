@@ -12,7 +12,10 @@ import { defaultPill, type CardOf } from "./CardFamily"
 import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, cardRenderer, pillStatus } from "./CardRenderers"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
+import { createAppStore } from "../state/AppStore"
+import { memoryStorage } from "../state/TestFixtures"
 import { createDesignWorld } from "../state/seams/DesignWorld"
+import { cardAvailable } from "../state/CardAvailability"
 import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorld/settings"
 
@@ -126,17 +129,6 @@ describe("CardRenderers", () => {
     expect(pillStatus({ ...halfway, payload: { progress: 1 } })).toBe("done")
   })
 
-  test("a kind without a family rule is done once acted on and pending until then", () => {
-    const chooser: Card = {
-      ...base,
-      kind: "workflow-repo",
-      status: "active",
-      payload: { intent: "create", description: "Which repository?", repos: ["o/r"], chosen: null }
-    }
-    expect(pillStatus(chooser)).toBe("pending")
-    expect(pillStatus({ ...chooser, status: "acted" })).toBe("done")
-  })
-
   /*
    * The fallback is the one pill rule no family chose, so a kind reaching it
    * by omission wears Pending forever (§28.3: a settled read badged PENDING is
@@ -149,7 +141,7 @@ describe("CardRenderers", () => {
       .filter(([, entry]) => entry.pill === defaultPill)
       .map(([kind]) => kind)
       .sort()
-    expect(onDefault).toEqual(["workflow-repo"])
+    expect(onDefault).toEqual([])
   })
 
   test("a settled environment-images listing is done, not pending", () => {
@@ -261,25 +253,14 @@ describe("wiki history card (#1922)", () => {
   })
 })
 
-test("repository chooser exposes one keyboard stop and the highlighted repository", async () => {
-  GlobalRegistrator.register()
-  const host = document.createElement("div"); document.body.append(host)
-  const root = createRoot(host)
-  const selected: string[] = []
-  const card: Card = { ...base, kind: "workflow-repo", status: "active", payload: { intent: "create", repos: ["a/one", "b/two"], chosen: null, description: "Choose a repository" } }
-  try {
-    await act(async () => root.render(<CardView card={card} {...handlers} onChooseWorkflowRepo={repo => selected.push(repo)} />))
-    const list = host.querySelector<HTMLElement>('[role="listbox"]')!
-    const options = [...host.querySelectorAll<HTMLElement>('[role="option"]')]
-    expect(options.map(option => option.tabIndex)).toEqual([-1, -1])
-    list.focus()
-    expect(list.getAttribute("aria-activedescendant")).toBe(options[0]!.id)
-    await act(async () => { list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })) })
-    expect(document.activeElement).toBe(list)
-    expect(list.getAttribute("aria-activedescendant")).toBe(options[1]!.id)
-    await act(async () => { list.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })) })
-    expect(selected).toEqual(["b/two"])
-  } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+test("retained repository choices render their title without a live chooser", () => {
+  const card = CardSchema.parse({ ...base, kind: "workflow-repo", status: "active",
+    payload: { intent: "create", repos: ["a/one", "b/two"], chosen: null, description: "Choose a repository" } })
+  const markup = renderToStaticMarkup(<CardView card={card} {...handlers} />)
+  expect(card.kind).toBe("retired")
+  expect(markup).toContain("Card")
+  expect(markup).not.toContain('role="listbox"')
+  expect(markup).not.toContain('data-flow="flow.repo.choose"')
 })
 
 /*
@@ -289,28 +270,29 @@ test("repository chooser exposes one keyboard stop and the highlighted repositor
  */
 describe("subject card bodies", () => {
   const unanswered = { get: () => ({}), subscribe: () => () => {} }
-  const controller = (viewer: string, find: (name: string) => unknown) => {
+  const controller = async (viewer: string, find: (name: string) => unknown) => {
     const design = createDesignWorld({ viewer })
-    return { design, installSnapshots: unanswered, membersRoster: designMembersRoster(design), membersRole: () => designViewerRole(design),
-      commands: { find, submit: async () => ({ status: "done" }) } } as unknown as AppController
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    return { store, design, installSnapshots: unanswered, membersRoster: designMembersRoster(design), membersRole: () => designViewerRole(design),
+      commands: { find, viewerCatalog: () => ["help", "members"].flatMap(name => find(name) === undefined ? [] : [{ name, summary: `Live ${name}`, visibility: "core", group: "chat", agent: name === "help" ? "run" : "never" }]), submit: async () => ({ status: "done" }) } } as unknown as AppController
   }
-  const body = <K extends "settings" | "members" | "commands">(kind: K, viewer: string, find: (name: string) => unknown = () => undefined) =>
-    renderToStaticMarkup(<ControllerTestProvider controller={controller(viewer, find)}>
+  const body = async <K extends "settings" | "members" | "commands">(kind: K, viewer: string, find: (name: string) => unknown = () => undefined) =>
+    renderToStaticMarkup(<ControllerTestProvider controller={await controller(viewer, find)}>
       {cardRenderer(kind).render(CardSchema.parse({ ...base, kind, status: "active", payload: {} }) as CardOf<K>, handlers)}</ControllerTestProvider>)
 
-  test("settings renders the seeded install for the owner and nothing for a maintainer", () => {
-    expect(body("settings", MAYA)).toContain("Machines")
-    expect(body("settings", BEN)).toBe("")
+  test("settings renders the seeded install for the owner and nothing for a maintainer", async () => {
+    expect(await body("settings", MAYA)).toContain("Machines")
+    expect(await body("settings", BEN)).toBe("")
   })
-  test("members lists the seeded roster off an install", () => {
-    const markup = body("members", MAYA)
+  test("members lists the seeded roster off an install", async () => {
+    const markup = await body("members", MAYA)
     expect(markup).toContain('data-login="mayachen"')
     expect(markup).toContain('data-login="benortiz"')
   })
-  test("commands lists only the flows the registry holds", () => {
+  test("commands lists only the flows the registry holds", async () => {
     const find = (name: string) => name === "help" || name === "members"
       ? { binding: { descriptor: { modelInvocable: name === "help" } }, metadata: {} } : undefined
-    const markup = body("commands", MAYA, find)
+    const markup = await body("commands", MAYA, find)
     expect(markup).toContain("/help")
     expect(markup).toContain("/members")
     expect(markup).not.toContain("/settings")
@@ -335,7 +317,7 @@ test("legacy File and Diff render with live controls dark", async () => {
         expect(host.querySelector(".cm-content")).not.toBeNull()
         expect(host.querySelector(".cm-content")?.getAttribute("aria-readonly")).toBe("true")
       }
-      expect(host.querySelector(".code-file-notice")).toBeNull()
+      expect(host.querySelector(".code-file-notice, .code-compare")).toBeNull()
       expect(host.querySelector('button[data-flow^="file."]')).toBeNull()
       const region = host.querySelector(".cm-content") ?? host
       await act(async () => {
@@ -346,4 +328,17 @@ test("legacy File and Diff render with live controls dark", async () => {
       expect(calls).toEqual([])
     }
   } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+})
+
+
+test("deferred repository choices retain their payload without a member renderer", () => {
+  const payload: CardOf<"repository-choice">["payload"] = { cutoff: "2026-10-06T00:00:00Z", partial: false, error: null,
+    selected: "owner/repo", created: null, repositories: [{ fullName: "owner/repo",
+      count: 1, latest: null, coverage: "default-branch", error: null }] }
+  const card = CardSchema.parse({ ...base, kind: "repository-choice", status: "active", payload })
+  expect(card.kind).toBe("repository-choice")
+  expect(card.payload).toEqual(payload)
+  expect(cardAvailable(card.kind)).toBe(false)
+  expect(Object.keys(CARD_RENDERERS)).not.toContain(card.kind)
+  expect(renderToStaticMarkup(<CardView card={card} {...handlers} />)).not.toContain("owner/repo")
 })

@@ -312,49 +312,6 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     ctx.dispatch({ type: "github.app-status.loaded", actor: "system", status: row })
   }
 
-  const renderCard = (
-    repo: string,
-    answer: { readonly status: StatusAnswer } | { readonly refusal: GitHubRefusal },
-    error?: GitHubRefusal
-  ): void => {
-    const id = `connector-setup-github-${repo}`
-    const existing = ctx.store.collections.cards.get(id)
-    const rateLimit = error?.rateLimit ?? ("status" in answer
-      ? answer.status.rateLimit !== null && lowRateLimit(answer.status.rateLimit)
-        ? answer.status.rateLimit
-        : null
-      : answer.refusal.rateLimit ?? null)
-    const message = error?.line ?? ("status" in answer ? undefined : answer.refusal.line)
-    const card: Card = {
-      id,
-      kind: "connector-setup",
-      title: `GitHub · ${repo}`,
-      status: message !== undefined
-        ? "error"
-        : "status" in answer && answer.status.installed && answer.status.configured
-        ? "acted"
-        : "active",
-      createdAt: existing?.createdAt ?? Date.now(),
-      ordinal: existing?.ordinal ?? ctx.nextOrdinal(),
-      payload: {
-        connector: "github",
-        repo,
-        phase: "status" in answer && answer.status.installed && answer.status.configured ? "connected" : "setup",
-        steps: [],
-        ...("status" in answer
-          ? {
-              installationId: answer.status.installationId,
-              configured: answer.status.configured,
-              ...(answer.status.installUrl !== null ? { installUrl: answer.status.installUrl } : {})
-            }
-          : {}),
-        ...(message !== undefined ? { error: message } : {}),
-        ...(rateLimit !== null ? { rateLimit } : {})
-      }
-    }
-    ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card })
-  }
-
   const app: GitHubSeam["app"] = async (explicit) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
@@ -364,12 +321,11 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     const answer = await readStatus(target.repo)
     if (!current()) return SIGN_OUT_REFUSAL
     if ("status" in answer) dispatchStatus(target.repo, answer.status)
-    renderCard(target.repo, answer)
     if ("refusal" in answer) return answer.refusal.line
     return {
       value: answer.status.installed && answer.status.configured
-        ? `The Smithers GitHub App is installed on ${target.repo} — the card tracks it.`
-        : `The Smithers GitHub App is not installed on ${target.repo} — the card has the install link.`
+        ? `The Smithers GitHub App is installed on ${target.repo} — see Settings.`
+        : `The Smithers GitHub App is not installed on ${target.repo} — see Setup.`
     }
   }
 
@@ -536,8 +492,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     const target = resolveTargetRepo(ctx.store, explicit)
     if ("error" in target) return target.error
     const row = ctx.store.collections.githubAppStatuses.get(target.repo)
-    const card = ctx.store.collections.cards.get(`connector-setup-github-${target.repo}`)
-    const installUrl = (card?.kind === "connector-setup" ? card.payload.installUrl : undefined) ?? row?.installUrl ?? null
+    const installUrl = row?.installUrl ?? null
     const trusted = installUrl !== null ? trustedInstallUrl(installUrl) : null
     if (trusted === null) return `No install link for ${target.repo} yet — /github.app reads the status first.`
     if (deps.openExternal !== undefined) void deps.openExternal(trusted)
@@ -566,7 +521,6 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       const answer = await readStatus(target.repo)
       if (!current()) return SIGN_OUT_REFUSAL
       if ("status" in answer) dispatchStatus(target.repo, answer.status)
-      renderCard(target.repo, answer, refusal2)
       return refusal2.line
     }
     const body = await response.json().catch(() => null)
@@ -575,7 +529,6 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     const answer = await readStatus(target.repo)
     if (!current()) return SIGN_OUT_REFUSAL
     if ("status" in answer) dispatchStatus(target.repo, answer.status)
-    renderCard(target.repo, answer)
     /*
      * The run plue started is tracked whatever the status re-read did: a
      * refused GET on a different route is not a reason to drop the run the

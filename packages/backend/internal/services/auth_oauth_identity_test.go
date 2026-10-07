@@ -193,5 +193,20 @@ func TestAuthService_ExchangeGitHubToken_GitHubOutageKeepsCause(t *testing.T) {
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, 500, apiErr.Status)
-	assert.Contains(t, apiErr.Message, "status 502", "the logged 500 must say what GitHub answered")
+	require.NotNil(t, apiErr.Cause())
+	assert.Contains(t, apiErr.Cause().Error(), "status 502")
+	assert.NotContains(t, apiErr.Message, "status 502", "raw upstream details stay private")
+}
+
+func TestOAuthEmailPermissionFailureNamesAppFix(t *testing.T) {
+	t.Parallel()
+	permission := pkgerrors.New(pkgerrors.CodeGitHubPermission, "GitHub access denied")
+	var failure *pkgerrors.APIError
+	require.ErrorAs(t, oauthFetchError("emails", permission, true), &failure)
+	assert.Equal(t, pkgerrors.CodeGitHubPermission, failure.Code)
+	assert.Equal(t, "GitHub App needs Email addresses read access", failure.Message)
+	assert.Same(t, permission, oauthFetchError("profile", permission, true))
+	assert.Same(t, permission, oauthFetchError("emails", permission, false), "hosted OAuth retains its existing error")
+	unavailable := pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub request failed")
+	assert.Same(t, unavailable, oauthFetchError("emails", unavailable, true))
 }

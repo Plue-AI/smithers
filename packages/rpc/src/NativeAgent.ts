@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod"
+import { ContextPreflightFrameSchema } from "./ContextPreflight.ts"
 import type { AgentRuntimeContext } from "./AgentContext.ts"
 import type { AgentRoleId, CloudRoleId } from "./AgentRoles.ts"
 import { CardPatchSchema, CardSchema } from "./Cards.ts"
@@ -68,6 +69,8 @@ export interface StartAgentTurnRequest {
   readonly runId: string
   /** Existing durable conversation branch; older hosts/turns remain per-run. */
   readonly conversationId?: string
+  /** Host prompt admission requires authorized SharedEntries preflight. Browser admission refuses this marker. */
+  readonly sharedConversation?: boolean
   /** Stable per-leg identity and private replay capability, written locally before the POST. */
   readonly journal?: import("./AgentTurnJournal.ts").AgentTurnJournalRequest
   readonly messages: ReadonlyArray<AgentChatMessage>
@@ -80,6 +83,8 @@ export interface StartAgentTurnRequest {
    * upstream instructions — it is never persisted into the visible transcript.
    */
   readonly context?: AgentRuntimeContext
+  /** Host-selected repository data; never accepted from the browser. */
+  readonly selectedContext?: ReadonlyArray<import("./ContextPreflight.ts").ContextCandidate>
   /**
    * The model tier this turn asks for. A side turn that only has to pick the
    * next click (the recommender) asks for `cheap`; the conversation's own turns
@@ -232,6 +237,7 @@ export type AgentTurnUsage = z.infer<typeof AgentTurnUsageSchema>
  * @category schemas
  */
 export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
+  ContextPreflightFrameSchema,
   z.object({
     runId: z.string(),
     type: z.literal("delta"),
@@ -242,7 +248,7 @@ export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
     runId: z.string(),
     type: z.literal("done"),
     reason: AgentTurnDoneReasonSchema.optional(),
-    code: z.literal("credential_missing").optional(),
+    code: z.enum(["credential_missing", "author_revoked"]).optional(),
     error: z.string().optional(),
     usage: AgentTurnUsageSchema.optional()
   }),
@@ -285,7 +291,8 @@ export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
     ordinal: z.number().int().nonnegative(),
     name: z.string(),
     verdict: ChainCallVerdictSchema,
-    resultDigest: z.string().optional()
+    resultDigest: z.string().optional(),
+    ui: z.object({ command: z.literal("theme"), mode: z.enum(["light", "dark"]) }).strict().optional()
   }),
   z.object({
     runId: z.string(),

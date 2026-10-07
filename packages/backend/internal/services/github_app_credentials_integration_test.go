@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -281,15 +282,11 @@ func TestGitHubAppManifestFailedAttemptCannotBindSuccessfulAppPostgres(t *testin
 	_, err = service.Convert(ctx, "manifest-code", failed.State, failed.State)
 	require.Error(t, err, "failed code exchange permanently consumes state")
 	require.Len(t, server.Writes(), 1)
-	successful, err := service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
-	require.NoError(t, err)
-	_, err = service.Convert(ctx, "manifest-code", successful.State, successful.State)
-	require.NoError(t, err)
-	writes := len(server.Writes())
-	require.Error(t, service.ValidateCallbackOrigin(ctx, failed.State, "http://localhost:4000"), "failed attempt cannot choose the successful App repository")
-	require.Equal(t, writes, len(server.Writes()))
-	require.NoError(t, service.ResumeInstallation(ctx), "untrusted redirect cannot override server-derived repository installation")
-	require.NoError(t, service.ResumeInstallation(ctx), "installation fallback must find selected repository")
+	_, err = service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
+	require.ErrorContains(t, err, "Recover the existing GitHub App credentials")
+	require.Len(t, server.Writes(), 1, "consumed exchange cannot create a replacement App")
+	_, err = db.New(pool).GetInstallSetting(ctx, "github.repository")
+	require.ErrorIs(t, err, pgx.ErrNoRows, "failed attempt must not bind any repository")
 }
 
 func TestGitHubAppCredentialOperatorKeyRotationPostgres(t *testing.T) {
@@ -380,6 +377,7 @@ func TestGitHubAppManifestHTTPFailuresNeverLeakCredentialsOrFollowRedirects(t *t
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Empty(t, r.Header.Get("Authorization"), "manifest conversion is unauthenticated")
 				w.Header().Set("Location", target.URL)
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.body))
@@ -387,7 +385,7 @@ func TestGitHubAppManifestHTTPFailuresNeverLeakCredentialsOrFollowRedirects(t *t
 			defer server.Close()
 			service := NewGitHubAppManifestService(nil, nil, server.URL, nil)
 			var output map[string]any
-			err := service.request(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), http.MethodPost, "/app-manifests/code/conversions", "", &output)
+			err := requestGitHubApp(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), service.client, service.apiBaseURL, "", http.MethodPost, "/app-manifests/code/conversions", &output)
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), "raw-sensitive-upstream-value")
 		})
@@ -397,7 +395,7 @@ func TestGitHubAppManifestHTTPFailuresNeverLeakCredentialsOrFollowRedirects(t *t
 	cancel()
 	service := NewGitHubAppManifestService(nil, nil, target.URL, nil)
 	var output any
-	require.Error(t, service.request(canceled, http.MethodGet, "/app", "", &output))
+	require.Error(t, requestGitHubApp(canceled, service.client, service.apiBaseURL, "", http.MethodGet, "/app", &output))
 }
 
 func TestGitHubAppManifestHTTPBodyLimitAndInterruptedResponse(t *testing.T) {
@@ -421,7 +419,7 @@ func TestGitHubAppManifestHTTPBodyLimitAndInterruptedResponse(t *testing.T) {
 			defer server.Close()
 			service := NewGitHubAppManifestService(nil, nil, server.URL, nil)
 			var output any
-			err := service.request(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), http.MethodGet, "/app", "", &output)
+			err := requestGitHubApp(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), service.client, service.apiBaseURL, "", http.MethodGet, "/app", &output)
 			if tc.accepted {
 				require.NoError(t, err)
 			} else {
@@ -475,12 +473,17 @@ func TestGitHubAppManifestCanceledExchangeConsumesStateAndReleasesLockPostgres(t
 	_, err = service.Convert(ctx, "manifest-code", start.State, start.State)
 	require.Error(t, err)
 	require.Empty(t, fake.Writes())
-	fresh, err := service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
+	_, err = service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
+	require.ErrorContains(t, err, "Recover the existing GitHub App credentials")
+	require.Empty(t, fake.Writes(), "cancellation leaves an uncertain effect, never a safe retry")
+	conn, err := pool.Acquire(ctx)
 	require.NoError(t, err)
-	bounded, stop := context.WithTimeout(ctx, 5*time.Second)
-	defer stop()
-	_, err = service.Convert(bounded, "manifest-code", fresh.State, fresh.State)
-	require.NoError(t, err, "cancellation must release the database advisory lock")
+	defer conn.Release()
+	var acquired bool
+	require.NoError(t, conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", gitHubAppConversionLock).Scan(&acquired))
+	require.True(t, acquired, "cancellation must release the database advisory lock")
+	_, err = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", gitHubAppConversionLock)
+	require.NoError(t, err)
 }
 
 func TestGitHubAppManifestUnknownOwnerTypeIsRefusedPostgres(t *testing.T) {
@@ -542,7 +545,7 @@ func TestGitHubAppManifestHooklessConversionSealsGeneratedWebhookSecretPostgres(
 func TestGitHubAppManifestMalformedAPIURLDoesNotLeakConversionCode(t *testing.T) {
 	service := NewGitHubAppManifestService(nil, nil, "%malformed-url", nil)
 	var output any
-	err := service.request(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), http.MethodPost, "/app-manifests/secret-conversion-code/conversions", "", &output)
+	err := requestGitHubApp(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"), service.client, service.apiBaseURL, "", http.MethodPost, "/app-manifests/secret-conversion-code/conversions", &output)
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "secret-conversion-code")
 	var failure *pkgerrors.APIError
@@ -766,6 +769,15 @@ func TestGitHubAppManifestCallbackSnapshotIsCreationTimeAndAtomicPostgres(t *tes
 	var sealed bool
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT sealed FROM install_settings WHERE key='github.callback_urls'`).Scan(&sealed))
 	require.False(t, sealed)
+	legacy := `["http://plain.example:80/api/auth/github/callback","https://secure.example:443/api/auth/github/callback","http://localhost:4000/api/auth/github/callback"]`
+	_, err = f.pool.Exec(ctx, "UPDATE install_settings SET value=$1::jsonb WHERE key='github.callback_urls'", legacy)
+	require.NoError(t, err)
+	fixes, err := f.store.CallbackFixes(ctx, []string{"http://plain.example", "https://secure.example"})
+	require.NoError(t, err)
+	require.Empty(t, fixes, "equivalent default ports do not need another callback")
+	var saved string
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT value::text FROM install_settings WHERE key='github.callback_urls'").Scan(&saved))
+	require.JSONEq(t, legacy, saved, "reading an old snapshot never rewrites it")
 }
 
 func TestGitHubAppManifestCorruptCallbackSnapshotNeverExchangesPostgres(t *testing.T) {

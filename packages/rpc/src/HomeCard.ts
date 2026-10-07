@@ -95,12 +95,13 @@ export const HomeCardSchema = z.object({
 export type HomeCard = z.infer<typeof HomeCardSchema>
 
 /**
- * Home's own view state: whether the card is on screen.
+ * Home's private view state: visibility and the disclosed TODO menu.
  * @since 1.0.0
  * @category models
  */
 export interface HomeViewState {
   readonly on_screen?: boolean
+  readonly menu?: number | undefined
 }
 
 /**

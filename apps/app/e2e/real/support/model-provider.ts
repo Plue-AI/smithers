@@ -175,7 +175,17 @@ const composed = (protocol: ProviderProtocol, body: Record<string, unknown> | nu
   const system = typeof body.system === "string" ? body.system.length > 0 : Array.isArray(body.system) ? body.system.length > 0
     : messages.some((message) => isRecord(message) && (message.role === "system" || message.role === "developer"))
   const maxTokens = typeof body.max_tokens === "number" ? body.max_tokens : typeof body.max_completion_tokens === "number" ? body.max_completion_tokens : undefined
-  return { system, ...(maxTokens === undefined ? {} : { maxTokens }), ...(typeof body.temperature === "number" ? { temperature: body.temperature } : {}) }
+  const promptText = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value)
+    ? value.flatMap(block => isRecord(block) && typeof block.text === "string" ? [block.text] : []).join("\n") : ""
+  const systemContent = body.system !== undefined ? promptText(body.system)
+    : messages.flatMap(message => isRecord(message) && (message.role === "system" || message.role === "developer") ? [promptText(message.content)] : []).join("\n")
+  const disclosedCommands = [...systemContent.matchAll(/^- \/([a-z][a-z0-9.-]*)[ \n]/gm)].map(match => match[1]!)
+  const toolNames = Array.isArray(body.tools) ? body.tools.flatMap(tool => {
+    if (!isRecord(tool)) return []
+    const definition = isRecord(tool.function) ? tool.function : tool
+    return typeof definition.name === "string" ? [definition.name] : []
+  }) : []
+  return { system, disclosedCommands, toolNames, ...(maxTokens === undefined ? {} : { maxTokens }), ...(typeof body.temperature === "number" ? { temperature: body.temperature } : {}) }
 }
 
 const bearer = (request: Request): string | null => /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1] ?? null

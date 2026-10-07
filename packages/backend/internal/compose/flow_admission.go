@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/admission"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
@@ -53,6 +54,13 @@ func newAdmittedFlowLauncher(launcher flowhost.Launcher, queries *db.Queries, po
 		return nil, errors.New("Flow launch requires admission, workspace queries, source and retirement authority")
 	}
 	return &admittedFlowLauncher{Launcher: launcher, SourceResolver: source, RetirementStopper: stopper, queries: queries, policy: policy}, nil
+}
+
+func (l *admittedFlowLauncher) ConfigureFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.HostLaunch, error) {
+	if configured, ok := l.Launcher.(flowhost.LaunchConfigurer); ok {
+		return configured.ConfigureFlowHost(ctx, launch)
+	}
+	return launch, nil
 }
 
 func (l *admittedFlowLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
@@ -111,13 +119,21 @@ type boxHostLauncher struct {
 	targets flowHostEnvironment
 	// codingModel is the install's coding seat (ownerCodingSeat), used when
 	// the catalog pins no implementation model; nil keeps the catalog's.
-	codingModel func(context.Context) (string, error)
+	codingModel   func(context.Context) (string, error)
+	codingProject func(context.Context, flowhost.HostLaunch) ([]byte, error)
 }
 
 // withCodingModel gives a catalog that pins no implementation model the
 // install's own. Start and Inspect both apply it, so the host's service
 // identity follows the seat and a changed coding model starts a new host.
-func (l *boxHostLauncher) withCodingModel(ctx context.Context, launch flowhost.HostLaunch) (flowhost.HostLaunch, error) {
+func (l *boxHostLauncher) ConfigureFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.HostLaunch, error) {
+	if l.codingProject != nil {
+		config, err := l.codingProject(ctx, launch)
+		if err != nil {
+			return launch, err
+		}
+		launch.ProjectConfig = config
+	}
 	if l.codingModel == nil || launch.Catalog.ImplementationModel != "" {
 		return launch, nil
 	}
@@ -182,13 +198,17 @@ func newBoxHostLauncher(launcher boxHostBase, boxes boxHostPreparer, targets flo
 // A box the runtime lost outright is replaced the same way when its journals
 // live outside it (#1868).
 func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
-	launch, err := l.withCodingModel(ctx, launch)
+	launch, err := l.ConfigureFlowHost(ctx, launch)
 	if err != nil {
 		return flowhost.Connection{}, err
 	}
 	connection, err := l.Launcher.InspectFlowHost(ctx, launch)
 	if err == nil {
 		l.boxes.KeepBoxAwake(ctx, launch.Binding.WorkspaceID)
+	}
+	// A retained TODO wakes only in StartFlowHost, never during a read.
+	if errors.Is(err, workspaceapi.ErrWorkspaceStopped) && launch.Authority.Target.BindingKind == flowdispatch.StackBindingKind {
+		return flowhost.Connection{}, flowhost.ErrHostNotRunning
 	}
 	if (errors.Is(err, workspaceapi.ErrWorkspaceStopped) || errors.Is(err, workspaceapi.ErrWorkspaceNotFound)) &&
 		l.boxes.RestartLostBox(ctx, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID) == nil {
@@ -208,6 +228,18 @@ func (staleRoleSource) FlowRuntimeCode() string    { return "runtime_source_revi
 func (staleRoleSource) FlowRuntimeRetryable() bool { return false }
 
 func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	if launch.Authority.Target.BindingKind == flowdispatch.StackBindingKind {
+		waker, ok := l.boxes.(interface {
+			WakeTodoWorkspace(context.Context, string, string, int64, int64) error
+		})
+		if !ok {
+			return flowhost.Connection{}, errors.New("TODO workspace wake authority unavailable")
+		}
+		if err := waker.WakeTodoWorkspace(ctx, launch.Authority.Target.BindingID, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID); err != nil {
+			return flowhost.Connection{}, err
+		}
+	}
+
 	if launch.Authority.Target.BindingKind == "repository-job-dispatch" {
 		revision, err := l.SourceResolver.ResolveFlowHostSource(ctx, launch.Authority)
 		if err != nil {
@@ -217,7 +249,7 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 			return flowhost.Connection{}, staleRoleSource{}
 		}
 	}
-	launch, err := l.withCodingModel(ctx, launch)
+	launch, err := l.ConfigureFlowHost(ctx, launch)
 	if err != nil {
 		return flowhost.Connection{}, err
 	}

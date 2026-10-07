@@ -9,6 +9,12 @@ service fixtures. No product code or repository metadata receipts are changed.
 
 Two independent series retain 100 sequential writes of a 400-line file:
 
+The service series starts with `base_digest = absent` and advances its base
+only from a successful write receipt. Its historical provider adapter does not
+implement the qualified atomic mutation capability required by T-COL-10;
+the service therefore refuses this series until a qualified provider is wired.
+Compilation and local fixture tests do not qualify this measurement path.
+
 - `control.csv` calls the actual `WorkspaceService.WriteWorkspaceFile`, including
   authorization, SQL, VM inspection, the canonical-path guard, and the write.
 - `one-exec-control.csv` calls the actual `microsandbox.Runtime.WriteFile` once

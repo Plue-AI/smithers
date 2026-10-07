@@ -300,12 +300,10 @@ mod tests {
         let store = fixture.open().unwrap();
         assert_eq!(store.sequences().collect::<Vec<_>>(), [1]);
         assert_eq!(store.next_sequence().unwrap(), 2);
-        assert!(
-            !fixture
-                .state
-                .join("outbox/00000000000000000002.ev.tmp")
-                .exists()
-        );
+        assert!(!fixture
+            .state
+            .join("outbox/00000000000000000002.ev.tmp")
+            .exists());
     }
 
     #[test]
@@ -394,7 +392,13 @@ mod tests {
             for ack in [false, true] {
                 let mut child = std::process::Command::new(std::env::current_exe().unwrap());
                 child
-                    .args(["--exact", "tests::crash_child"])
+                    .args([
+                        "--exact",
+                        &format!(
+                            "{}::crash_child",
+                            module_path!().split_once("::").unwrap().1
+                        ),
+                    ])
                     .env("MACHINED_STORE_CRASH_FIXTURE", &fixture.state)
                     .env_remove("MACHINED_STORE_CRASH_ACK")
                     .stdout(std::process::Stdio::null());

@@ -52,7 +52,6 @@ type isolationTenant struct {
 	definition    db.WorkflowDefinition
 	workspace     db.Workspace
 	agentSession  db.AgentSession
-	timeline      db.AppTimeline
 	notification  db.Notification
 	sshKey        db.SshKey
 	tokenRow      db.AccessToken
@@ -212,8 +211,6 @@ func seedIsolationTenant(t *testing.T, pool *pgxpool.Pool, name string, transfer
 	require.NoError(t, err)
 	tenant.agentSession, err = q.CreateAgentSession(ctx, db.CreateAgentSessionParams{ID: uuid.NewString(), RepositoryID: tenant.repo.ID, UserID: tenant.user.ID, Title: mark("agent-session"), Status: "active", Metadata: []byte(`{}`)})
 	require.NoError(t, err)
-	tenant.timeline, err = q.CreateAppTimeline(ctx, db.CreateAppTimelineParams{OwnerUserID: tenant.user.ID, ClientKey: mark("timeline")})
-	require.NoError(t, err)
 	tenant.notification, err = q.CreateNotification(ctx, db.CreateNotificationParams{SourceType: "issue", SourceID: pgtype.Int8{Int64: tenant.issue.ID, Valid: true}, Subject: mark("notification"), Body: mark("notification-body"), UserID: tenant.user.ID})
 	require.NoError(t, err)
 	tenant.sshKey, err = q.CreateSSHKey(ctx, db.CreateSSHKeyParams{UserID: tenant.user.ID, Name: mark("ssh-key"), PublicKey: "ssh-ed25519 AAAA" + name, Fingerprint: "SHA256:" + name, KeyType: "ssh-ed25519"})
@@ -348,8 +345,6 @@ func isolationValues(tenant isolationTenant, owner, repo string, missing bool) f
 				return pick(fmt.Sprint(tenant.run.ID), "987654")
 			case "agent-sessions":
 				return pick(tenant.agentSession.ID, uuid.Nil.String())
-			case "app-timelines":
-				return pick(tenant.timeline.ID, uuid.Nil.String())
 			case "hooks":
 				return pick(fmt.Sprint(tenant.webhook.ID), "987654")
 			case "labels":

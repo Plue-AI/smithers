@@ -1,6 +1,8 @@
 /** Shared private immutable-source boundary for command and semantic checks. */
-import { Effect, type FileSystem, Path, Schema, Stream } from "effect"
+import * as Digest from "@smthrs/core/Digest"
+import { Effect, type FileSystem, Option, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { NativeCoding, requestIdFor, SourceImport } from "./native.ts"
 import { CodingError, type Revision } from "./schema.ts"
 
 export const ExportedTree = Schema.Struct({
@@ -16,6 +18,8 @@ export interface ImmutableSourceOptions {
   /** Existing trusted host filesystem, captured before action workspace guards. */
   readonly fs: FileSystem.FileSystem
   readonly exporterPath?: string | undefined
+  /** Install-selected storage outside the editable checkout, for a host-lifetime source export. */
+  readonly sourceDirectory?: string | undefined
   /** Host-selected build environment. No operator/provider credentials by default. */
   readonly environment?: Readonly<Record<string, string>> | undefined
 }
@@ -135,6 +139,61 @@ export const contained = (root: string, candidate: string, path: Path.Path) => {
   const relative = path.relative(root, candidate)
   return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
 }
+/** Original exported entries only: build outputs are allowed, tracked edits are not. */
+export const sourceFileIdentities = (fs: FileSystem.FileSystem, root: string) =>
+  Effect.gen(function*() {
+    const path = yield* Path.Path
+    const identities = new Map<string, string>()
+    const pending = [root]
+    while (pending.length > 0) {
+      const directory = pending.pop()!
+      for (const name of yield* fs.readDirectory(directory)) {
+        const entry = path.join(directory, name)
+        const link = yield* fs.readLink(entry).pipe(Effect.option)
+        if (Option.isSome(link)) {
+          identities.set(path.relative(root, entry), `link:${link.value}`)
+          continue
+        }
+        const info = yield* fs.stat(entry)
+        if (info.type === "Directory") pending.push(entry)
+        else if (info.type === "File") {
+          identities.set(path.relative(root, entry), `${info.mode & 0o111}:${Digest.digest(yield* fs.readFile(entry))}`)
+        } else return yield* invalid("Exported source contains an unsupported file")
+      }
+    }
+    return identities
+  })
+
+/** List changed tracked paths without following check-created directory links. */
+export const changedSourceFiles = (fs: FileSystem.FileSystem, root: string, before: ReadonlyMap<string, string>) =>
+  Effect.gen(function*() {
+    const path = yield* Path.Path
+    const changed: string[] = []
+    for (const [relative, identity] of before) {
+      const entry = path.join(root, relative)
+      const current = yield* Effect.gen(function*() {
+        // Git stores a replaced directory as a symlink, even when following
+        // that link would read the original bytes. Check every ancestor before
+        // resolving or reading the leaf; never follow a check-created alias.
+        let parent = root
+        for (const component of ["", ...path.relative(root, path.dirname(entry)).split(path.sep)]) {
+          if (component !== "" && component !== ".") parent = path.join(parent, component)
+          if (Option.isSome(yield* fs.readLink(parent).pipe(Effect.option))) return "replaced"
+          if ((yield* fs.stat(parent)).type !== "Directory") return "replaced"
+        }
+        const link = yield* fs.readLink(entry).pipe(Effect.option)
+        if (Option.isSome(link)) return `link:${link.value}`
+        const resolved = yield* fs.realPath(entry)
+        if (!contained(root, resolved, path)) return "outside"
+        const info = yield* fs.stat(entry)
+        if (info.type !== "File") return "replaced"
+        return `${info.mode & 0o111}:${Digest.digest(yield* fs.readFile(entry))}`
+      }).pipe(Effect.orElseSucceed(() => "missing"))
+      if (current !== identity) changed.push(relative)
+    }
+    return changed.sort()
+  })
+
 export const runSourceProcess = (
   options: ImmutableSourceOptions,
   argv: ReadonlyArray<string>,
@@ -195,6 +254,37 @@ export const withImmutableCommit = <A, E, R>(
     ? Effect.fail(invalid("Checks require a full immutable native commit ID"))
     : exportTree(options, { commitId }, use)
 
+/** Startup imports only the admitted pin's retained object. It does not move
+ * the editable branch, and no repository code loads before import and export
+ * have both acknowledged the exact commit. */
+export const withPinnedSource = <A, E, R>(
+  options: ImmutableSourceOptions,
+  workspaceId: string,
+  commitId: string,
+  use: (tree: typeof ExportedTree.Type, root: string) => Effect.Effect<A, E, R>
+) =>
+  Effect.gen(function*() {
+    if (!/^[0-9a-f]{40}$/.test(commitId) || /^0+$/.test(commitId)) {
+      return yield* invalid("Pinned source requires a full immutable commit ID")
+    }
+    yield* Schema.decodeUnknownEffect(SourceImport.fields.workspaceId)(workspaceId).pipe(
+      Effect.mapError(() => invalid("Pinned flow workspace identity is invalid"))
+    )
+    const native = yield* NativeCoding
+    if (native.importSource === undefined) return yield* invalid("Pinned source import is unavailable")
+    const imported = yield* native.importSource({
+      requestId: requestIdFor(workspaceId, `pinned-source/${commitId}`),
+      commits: [{ commitId, ref: `refs/smithers/workspaces/${workspaceId}/sources/${commitId}` }]
+    })
+    if (
+      imported.workspaceId !== workspaceId ||
+      !imported.revisions.some((revision) => revision.commitId === commitId && revision.kind === "resolved")
+    ) {
+      return yield* invalid("Pinned source import did not acknowledge its workspace and commit")
+    }
+    return yield* withImmutableCommit(options, commitId, use)
+  })
+
 const exportTree = <A, E, R>(
   options: ImmutableSourceOptions,
   revision: Pick<Revision, "commitId"> & Partial<Pick<Revision, "treeId" | "changeId">>,
@@ -206,7 +296,7 @@ const exportTree = <A, E, R>(
     // small tmpfs and copying the monorepo dependencies there exhausts it. A
     // confined check reads and writes only inside the workspace root, so the
     // tree is exported under the root's .jj directory, which jj never snapshots.
-    const checkCache = path.join(options.repositoryPath, ".jj", "smithers-checks")
+    const checkCache = options.sourceDirectory ?? path.join(options.repositoryPath, ".jj", "smithers-checks")
     yield* fs.makeDirectory(checkCache, { recursive: true })
     const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-check-", directory: checkCache })
     const temporaryRoot = yield* fs.realPath(temporary)
@@ -262,3 +352,27 @@ const exportTree = <A, E, R>(
 
     return yield* use(tree, root)
   }).pipe(Effect.scoped)
+
+/** Resolve dependencies in the pinned export, as the machine's agent user. */
+export const prepareFlowDependencies = (options: ImmutableSourceOptions, root: string) =>
+  Effect.gen(function*() {
+    const path = yield* Path.Path
+    const managers = [
+      ["pnpm-lock.yaml", ["pnpm", "install", "--frozen-lockfile"]],
+      ["package-lock.json", ["npm", "ci"]],
+      ["yarn.lock", ["yarn", "install", "--immutable"]],
+      ["bun.lock", ["bun", "install", "--frozen-lockfile"]],
+      ["bun.lockb", ["bun", "install", "--frozen-lockfile"]]
+    ] as const
+    for (const [lockfile, argv] of managers) {
+      const filename = path.join(root, lockfile)
+      if (!(yield* options.fs.exists(filename))) continue
+      const approved = Digest.digest(yield* options.fs.readFile(filename))
+      const installed = yield* runSourceProcess(options, argv, root, 120_000)
+      if (installed.exitCode !== 0) return yield* invalid("Pinned flow dependencies could not be resolved")
+      if (Digest.digest(yield* options.fs.readFile(filename)) !== approved) {
+        return yield* invalid("Pinned flow dependency installation changed its lockfile")
+      }
+      return
+    }
+  })

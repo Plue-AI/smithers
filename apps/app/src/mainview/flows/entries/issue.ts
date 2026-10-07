@@ -18,7 +18,7 @@ export const issueFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   flow({ name: "issue.implement", hidden: true, summary: "Make TODO", input: NumberedTarget,
     preflight: ({ number, repo }) => actions.issueTodoRefusal(number, repo),
     confirm: "make a TODO from the issue", handler: ({ number, repo }) => actions.runIssueImplementation(number, repo, true) }),
-  flow({ name: "todo.from-issue", summary: "Make TODO", args: "#n", input: NumberedTarget, grammar: numbered(),
+  flow({ name: "todo.from-issue",   slash: "/todo.from-issue", cli: ["todo","from-issue"], journey: ["J2"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Draft a TODO from an issue", args: "#n", agent: "confirm", input: NumberedTarget, grammar: numbered("repo"),
     form: { fields: { number: { label: "Issue", placeholder: "#212" } } },
     preflight: ({ number, repo }) => actions.issueTodoRefusal(number, repo),
     confirm: "make a TODO from the issue", handler: ({ number, repo }) => actions.runIssueImplementation(number, repo, true) }),

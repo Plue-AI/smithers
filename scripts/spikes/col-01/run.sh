@@ -6,6 +6,11 @@ cd "$SPIKE_ROOT"
 export GIT_CEILING_DIRECTORIES="$HOME"
 SPIKE_BUILD="$SPIKE_ROOT/.artifacts/spikes/col01-build"
 SPIKE_MODE="${1:-all}"
+if [[ "$SPIKE_MODE" != remote ]]; then
+  # The runtime embeds a root bootstrap, helper and recipes. Branch bytes
+  # must never reach their installation step, even with a matching digest.
+  python3 "$SPIKE_DIR/preflight.py" "$SPIKE_ROOT"
+fi
 SPIKE_FREE_KIB="$(df -k "$SPIKE_ROOT" | awk 'NR==2 {print $4}')"
 df -h "$SPIKE_ROOT"
 if (( SPIKE_FREE_KIB < 8 * 1024 * 1024 )); then

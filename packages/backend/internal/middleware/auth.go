@@ -66,7 +66,14 @@ var (
 // the children credential to the children routes. Git smart HTTP lives
 // outside /api and applies its own ref policy. It writes the 403 itself and
 // returns false when refused.
-func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info *AuthInfo) bool {
+func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info *AuthInfo, install ...bool) bool {
+	refuse := func(message string) {
+		verdict := errors.Forbidden(message)
+		if len(install) > 0 && install[0] {
+			verdict = errors.New(errors.CodePermission, message)
+		}
+		errors.WriteError(w, verdict)
+	}
 	workspaceID := info.WorkspaceRestriction()
 	if workspaceID == "" || !strings.HasPrefix(r.URL.Path, "/api/") {
 		return true
@@ -80,13 +87,13 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 			(r.Method == http.MethodPost && own(workspaceChildStopPath)) {
 			return true
 		}
-		errors.WriteError(w, errors.Forbidden("workspace children credentials may only manage their own workspace's children"))
+		refuse("workspace children credentials may only manage their own workspace's children")
 		return false
 	}
 	if r.Method == http.MethodPost && own(workspaceHeadReportPath) {
 		return true
 	}
-	errors.WriteError(w, errors.Forbidden("workspace credentials may only report their own workspace head"))
+	refuse("workspace credentials may only report their own workspace head")
 	return false
 }
 
@@ -94,19 +101,27 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 // (TerminalProfileS1, spec §8.11.1) may call: its person's identity, the
 // eligible reads, wiki reads, and the TODO doors whose handlers authorize
 // the rest (services.Authorize): answer and steer on its own branch's TODO
-// only, and todo.new, which a delegated credential confirms in the app.
+// only, and new/amend requests, which require confirmation in the app.
 // Every other route refuses it with 403 permission before any handler runs.
 var terminalProfileRoutes = []struct {
 	method string
 	path   *regexp.Regexp
 }{
+	// The person-only scorecard policy supplies the typed never/permission refusal.
+	{http.MethodGet, regexp.MustCompile(`^/api/install/scorecard$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/user/repos$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+)?$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/stack$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+(/events|/attempts/[0-9]+/logs/[0-9a-f]{64})?)?$`)},
 	{http.MethodPost, regexp.MustCompile(`^/api/todos(/[0-9]+(/answer)?)?$`)},
+	{http.MethodPatch, regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, wikiReadPath},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/files(/.*)?$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 }
 
 // wikiReadPath is every wiki read: the page list, search, navigation, a
@@ -216,7 +231,6 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 		sessionRefreshWindow = 168 * time.Hour
 	}
 
-	cookieSecure := cfg.CookieSecure
 	var ownerBoundary identity.MemberAuthorizer
 	if config.IsSingleOwner(cfg) {
 		if len(boundaries) > 0 {
@@ -234,6 +248,10 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				next.ServeHTTP(w, r)
 				return
 			}
+			cookieSecure := cfg.CookieSecure
+			if origin, ok := EffectiveOriginFromContext(r.Context()); ok {
+				cookieSecure = strings.HasPrefix(origin, "https://")
+			}
 			ctx := r.Context()
 			now := time.Now().UTC()
 
@@ -246,6 +264,10 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				authInfo, err := loadTokenAuth(ctx, queries, token)
 				switch {
 				case stdErrors.Is(err, errAccountSuspended):
+					if config.IsSingleOwner(cfg) {
+						writeDeadCredential(w)
+						return
+					}
 					errors.WriteError(w, errors.Forbidden("account is suspended"))
 					return
 				case err != nil:
@@ -258,19 +280,27 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					writeDeadCredential(w)
 					return
 				}
+				if config.IsSingleOwner(cfg) && !BindInstallCredential(authInfo) {
+					writeDeadCredential(w)
+					return
+				}
 				if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
 					return
 				}
-				if !allowWorkspaceRestrictedToken(w, r, authInfo) {
+				if !allowWorkspaceRestrictedToken(w, r, authInfo, config.IsSingleOwner(cfg)) {
 					return
 				}
 				if !allowTerminalProfileToken(w, r, authInfo) {
 					return
 				}
+				if !allowCodingFileCredential(w, r, authInfo) {
+					return
+				}
 				if _, delegated := authInfo.Delegation(); delegated {
 					authInfo.ViaHint = r.Header.Get("Smithers-Via")
 				}
-				if authInfo.TokenSource == TokenSourcePersonalAccessToken {
+				// Scorecard is person-session only; rejected reads mutate no token row.
+				if authInfo.TokenSource == TokenSourcePersonalAccessToken && InstallMemberCommand(r.Method, r.URL.EscapedPath()) != "install.scorecard" {
 					if err := queries.UpdateAccessTokenLastUsed(ctx, authInfo.TokenID); err != nil {
 						recordAuthLoaderFailure(r, "token_last_used", err)
 					}
@@ -289,7 +319,13 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
 						return
 					}
-					refreshedSession, sessionExpiresAt, refreshErr := refreshLoadedSession(ctx, queries, session, now, sessionDuration, sessionRefreshWindow)
+					// Scorecard reads (including policy refusals) never renew a session.
+					var refreshedSession *db.AuthSession
+					sessionExpiresAt := session.ExpiresAt
+					var refreshErr error
+					if InstallMemberCommand(r.Method, r.URL.EscapedPath()) != "install.scorecard" {
+						refreshedSession, sessionExpiresAt, refreshErr = refreshLoadedSession(ctx, queries, session, now, sessionDuration, sessionRefreshWindow)
+					}
 					if refreshErr != nil {
 						recordAuthLoaderFailure(r, "session_refresh", refreshErr)
 					}
@@ -313,7 +349,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 						// cookie's lifetime, otherwise it silently expires first and
 						// blocks every mutation for a still-logged-in user (#207).
 						if token, err := NewCSRFToken(); err == nil {
-							SetCSRFCookie(w, token, cookieSecure, refreshedSession.ExpiresAt)
+							SetCSRFCookie(w, token, cookieSecure, refreshedSession.ExpiresAt, csrfSameSite(r))
 						} else {
 							slog.Error("failed to mint refreshed csrf token", "error", err)
 						}
@@ -323,7 +359,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 						// session-scoped CSRF cookie set before this fix — mints one
 						// so the client can resume making mutating requests.
 						if token, err := NewCSRFToken(); err == nil {
-							SetCSRFCookie(w, token, cookieSecure, sessionExpiresAt)
+							SetCSRFCookie(w, token, cookieSecure, sessionExpiresAt, csrfSameSite(r))
 						} else {
 							slog.Error("failed to mint csrf token", "error", err)
 						}
@@ -387,37 +423,73 @@ var installMemberRoutes = []struct {
 	path            *regexp.Regexp
 }{
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
+	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
+	{http.MethodPost, "self", regexp.MustCompile(`^/api/confirmations(?:/[^/]+/(?:approve|deny))?$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/auth/logout$`)},
+	{http.MethodPost, "self", regexp.MustCompile(`^/api/user/tokens$`)},
+	{http.MethodPost, "self.read", regexp.MustCompile(`^/api/(auth/sse-ticket|v1/sse/ticket)$`)},
 	// The app's reads on an install, as a member's browser makes them on
 	// J1 8, J2 and J4: setup state, the person's own organizations and
 	// workspaces, the repository and its stack, the GitHub sync, the live
 	// channel and the app's error reports.
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install$`)},
+	{http.MethodGet, "install.scorecard", regexp.MustCompile(`^/api/install/scorecard$`)},
+	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/agents$`)},
+	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/model/(catalog|default)$`)},
+	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(orgs|workspaces)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, "wiki.read", wikiReadPath},
+	// Existing persisted coding-run messages remain readable by repository members.
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions/[^/]+/stream$`)},
 	{http.MethodGet, "sync.read", regexp.MustCompile(`^/api/github/sync$`)},
 	{http.MethodPost, "sync.retry", regexp.MustCompile(`^/api/github/sync$`)},
 	{http.MethodGet, "live", regexp.MustCompile(`^/api/live$`)},
 	{http.MethodPost, "telemetry.report", regexp.MustCompile(`^/api/telemetry/errors$`)},
 	// The app agent answers a member as that member, in their own
 	// conversations.
-	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn(/cancel|/replay|/retire)?$`)},
+	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn(/replay)?$`)},
 	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/agent/conversations$`)},
+	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+$`)},
+	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/prompt$`)},
+	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/turns/[^/]+/stop$`)},
+	{http.MethodPatch, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/turns/[^/]+$`)},
+	{http.MethodDelete, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/turns/[^/]+$`)},
+	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/view-state$`)},
+	{http.MethodPut, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/view-state$`)},
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/conversations/replay$`)},
 	// The issue list card and the issue card (J2 1 and 2).
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues$`)},
+	{http.MethodPost, "review", regexp.MustCompile(`^/api/reviews$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/reviews/[^/]+$`)},
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues/[0-9]+$`)},
-	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos$`)},
-	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
+	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/(todos|stack)$`)},
+	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos/[0-9]+(/events|/attempts/[0-9]+/logs/[0-9a-f]{64})?$`)},
 	{http.MethodPost, "todo.new", regexp.MustCompile(`^/api/todos$`)},
 	{http.MethodPost, "todo.control", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
+	{http.MethodPatch, "todo.amend", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
+	{http.MethodPost, "todo.preapprove", regexp.MustCompile(`^/api/todos/[0-9]+/preapproval$`)},
+	{http.MethodDelete, "todo.unapprove", regexp.MustCompile(`^/api/todos/[0-9]+/preapproval$`)},
 	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
-	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows$`)},
-	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches(/[^/]+)?$`)},
+	{http.MethodGet, "proposals.read", regexp.MustCompile(`^/api/proposals$`)},
+	{http.MethodPost, "learning.accept", regexp.MustCompile(`^/api/proposals/[^/]+/accept$`)},
+	{http.MethodPost, "learning.dismiss", regexp.MustCompile(`^/api/proposals/[^/]+/dismiss$`)},
+	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows(/[^/]+)?$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
+	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/diff$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
+	// File edits enter the same branch mutation admission as joining. The
+	// workspace service holds current roster and write-grant locks through
+	// the write; this route marker grants no workspace authority by itself.
+	{http.MethodPut, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
+	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
@@ -426,6 +498,14 @@ var installMemberRoutes = []struct {
 	// (mvp.md §6.15, M-05; spec §5.2): a person-only command, so the
 	// owner's delegated credentials are refused here too. Org secrets stay
 	// the owner's.
+	{http.MethodGet, "secrets.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(secrets|agent-environment)$`)},
+	{http.MethodPut, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment(?:/secrets/[^/]+)?$`)},
+	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment/secrets/[^/]+$`)},
+	{http.MethodGet, "secrets.read", regexp.MustCompile(`^/api/secrets$`)},
+	{http.MethodPut, "secrets.write", regexp.MustCompile(`^/api/secrets$`)},
+	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/secrets$`)},
+	{http.MethodPatch, "secrets.write", regexp.MustCompile(`^/api/secrets/[^/]+$`)},
+	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/secrets/[^/]+$`)},
 	{http.MethodPost, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets$`)},
 	{http.MethodPatch, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
 	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
@@ -446,20 +526,25 @@ func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo
 	if boundary == nil || authInfo == nil || authInfo.User == nil {
 		return true
 	}
+	if err := boundary.AuthorizeMember(installationAuthorizationContext(r), authInfo.User.ID); err != nil {
+		errors.WriteError(w, err)
+		return false
+	}
+	return true
+}
+
+// installationAuthorizationContext applies the same route admission to cookies and SSE tickets.
+func installationAuthorizationContext(r *http.Request) context.Context {
 	ctx := r.Context()
 	// GitHub returns the browser to /setup/github/* before the repository step
 	// verifies the owner, so those returns are setup routes too.
 	if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") || r.URL.Path == "/api/auth/github" || r.URL.Path == "/api/auth/github/callback" || r.URL.Path == "/api/auth/logout" || r.URL.Path == "/setup/github/callback" || r.URL.Path == "/setup/github/installed" {
 		ctx = identity.WithSetupScope(ctx)
 	}
-	if InstallMemberCommand(r.Method, r.URL.Path) != "" {
+	if InstallMemberCommand(r.Method, r.URL.EscapedPath()) != "" {
 		ctx = identity.WithMemberRoute(ctx)
 	}
-	if err := boundary.AuthorizeMember(ctx, authInfo.User.ID); err != nil {
-		errors.WriteError(w, err)
-		return false
-	}
-	return true
+	return ctx
 }
 
 // loadSessionAuth resolves a session cookie. It returns (nil, nil, nil) when
@@ -723,4 +808,11 @@ func authRowToUser(authRow db.GetAuthInfoByTokenHashRow) db.User {
 		CreatedAt:     authRow.CreatedAt,
 		UpdatedAt:     authRow.UpdatedAt,
 	}
+}
+
+func csrfSameSite(r *http.Request) http.SameSite {
+	if _, ok := EffectiveOriginFromContext(r.Context()); ok {
+		return http.SameSiteLaxMode
+	}
+	return http.SameSiteStrictMode
 }

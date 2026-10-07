@@ -65,7 +65,7 @@ export const Package = S.Package({ targets: {
  writeFileSync(join(product, 'sqlc.yaml'), 'version: "2"\nsql:\n - engine: postgresql\n   schema: migrations/\n   queries: queries/\n   gen:\n    go:\n     package: db\n     out: ../../internal/db\n')
  writeFileSync(join(product, 'queries/things.sql'), '-- name: GetThings :many\nSELECT id FROM things;\n')
  copyFileSync(join(root, 'packages/backend/internal/db/sqlc_regeneration_test.go'), join(dir, 'packages/backend/internal/db/sqlc_regeneration_test.go'))
- for (const name of ['commit.mjs', 'check-tracked-hygiene.mjs', 'check-sqlc-drift.sh', 'renumber-migration.mjs']) copyFileSync(join(root, 'scripts', name), join(dir, 'scripts', name))
+ for (const name of ['engineering-gate-environment.mjs', 'commit.mjs', 'check-tracked-hygiene.mjs', 'check-sqlc-drift.sh', 'renumber-migration.mjs']) copyFileSync(join(root, 'scripts', name), join(dir, 'scripts', name))
  assert.ok(sqlc, 'pinned sqlc must be installed')
  ok(dir, sqlc, ['generate', '-f', 'packages/backend/db/product/sqlc.yaml'])
 }

@@ -41,8 +41,10 @@
       7,
       0
     ],
-    " {\"t\":\"saved\",\"id\":7,\"sv\":\"ASoB\",\"at\":\"2026-10-03T12:00:00Z\"}",
+    "{\"t\":\"saved\",\"id\":7,\"sv\":\"ASoB\",\"seq\":1}",
     "{\"t\":\"gap\",\"id\":7}",
-    "{\"t\":\"err\",\"id\":7,\"code\":\"unsupported\"}"
+    "{\"t\":\"err\",\"id\":7,\"code\":\"unsupported\"}",
+    "{\"t\":\"gone\",\"id\":7,\"data\":{\"kind\":\"deleted\",\"by\":{\"id\":\"ben\",\"kind\":\"person\",\"member_id\":\"ben\",\"via\":\"app\"}}}",
+    "{\"t\":\"err\",\"id\":7,\"code\":\"forbidden\"}"
   ]
 }

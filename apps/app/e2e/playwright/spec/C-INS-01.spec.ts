@@ -24,3 +24,29 @@ test("C-INS-01: All supported origins expose usable repository controls", async 
   await expect(page.getByText("retries.txt", { exact: true }).last()).toBeVisible()
   expect(errors).toEqual([])
 })
+
+for (const native of ["absent", "refused"] as const) {
+  test(`C-INS-01: Chat Copy falls back with the native clipboard ${native}`, async ({ page }) => {
+    test.setTimeout(180000)
+    await owner(page)
+    await page.addInitScript(({ native }) => {
+      const copied: string[] = []
+      Object.defineProperty(window, "__originCopyReceipt", { value: copied })
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: native === "absent" ? undefined : {
+        writeText: async () => { throw new DOMException("Refused", "NotAllowedError") },
+        write: async () => { throw new DOMException("Refused", "NotAllowedError") }
+      } })
+      document.execCommand = (command: string) => {
+        if (command !== "copy") return false
+        copied.push((document.activeElement as HTMLTextAreaElement).value)
+        return true
+      }
+    }, { native })
+    await page.goto("/")
+    await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible({ timeout: 120000 })
+    await say(page, "/chat.copy-message plain HTTP message")
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __originCopyReceipt: string[] }).__originCopyReceipt)).toEqual(["plain HTTP message"])
+    await say(page, "/chat.copy-message second message")
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __originCopyReceipt: string[] }).__originCopyReceipt)).toEqual(["plain HTTP message", "second message"])
+  })
+}

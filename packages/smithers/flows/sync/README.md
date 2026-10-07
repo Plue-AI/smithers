@@ -107,8 +107,11 @@ admitted through a client-minted idempotency key; every branch operation after
 `Branch.CreateBranch` authorizes through a signed, expiring, branch-scoped
 share capability.
 
-Branch collaboration ships unserved at 1.0.0-rc.0: the gateway mounts
-`SyncRpcs`, and nothing mounts `BranchRpcs` yet. See
+The native gateway mounts the existing branch presence RPCs at `POST /branch`
+when its authenticated runtime bridge is configured. The Go install resolves
+membership, branch and socket session before forwarding; this host adapter uses
+the same `BranchPresence` lease roster. Branch commands and share-link bootstrap
+remain unserved on that mount. See
 [Branch collaboration](https://smithers-sync.smithers.sh/concepts/branches/).
 
 ## Bounds

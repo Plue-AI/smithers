@@ -22,10 +22,11 @@ const (
 
 // InstallReadinessError retains the failure's class and actionable recipe fix.
 type InstallReadinessError struct {
-	Code    string `json:"code"`
-	Class   string `json:"class"`
-	Message string `json:"message"`
-	Fix     string `json:"fix,omitempty"`
+	Code    string     `json:"code"`
+	Class   string     `json:"class"`
+	Message string     `json:"message"`
+	Fix     string     `json:"fix,omitempty"`
+	RetryAt *time.Time `json:"retry_at,omitempty"`
 	cause   error
 }
 

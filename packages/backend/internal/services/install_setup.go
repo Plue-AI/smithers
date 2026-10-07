@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -53,6 +55,16 @@ type InstallSetupInput struct {
 // ValidateInstallSetupBody precedes both step and job writes. Every transport
 // has exactly one literal body contract; null is refused.
 func ValidateInstallSetupBody(step string, raw []byte) (InstallSetupInput, error) {
+	return validateInstallSetupBody(step, raw, true)
+}
+
+// ValidateInitialInstallAddress permits a bind without a public origin; local
+// host start prints the required LAN-origin instruction.
+func ValidateInitialInstallAddress(raw []byte) (InstallSetupInput, error) {
+	return validateInstallSetupBody("address", raw, false)
+}
+
+func validateInstallSetupBody(step string, raw []byte, requireNetworkOrigin bool) (InstallSetupInput, error) {
 	var fields map[string]json.RawMessage
 	var input InstallSetupInput
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
@@ -77,7 +89,7 @@ func ValidateInstallSetupBody(step string, raw []byte) (InstallSetupInput, error
 	switch step {
 	case "address":
 		host, port, err := net.SplitHostPort(input.Bind)
-		if err != nil || port != "4000" || !(host == "localhost" || net.ParseIP(host) != nil) {
+		if input.Bind != "" && (err != nil || port != "4000" || !(host == "localhost" || net.ParseIP(host) != nil)) {
 			return input, pkgerrors.BadRequest("invalid bind address")
 		}
 		if len(input.Origins) == 0 || len(input.Origins) > 10 {
@@ -87,18 +99,30 @@ func ValidateInstallSetupBody(step string, raw []byte) (InstallSetupInput, error
 		teammates := false
 		for i, origin := range input.Origins {
 			u, err := url.Parse(origin)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || seen[strings.ToLower(u.Host)] {
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(origin, "#") {
 				return input, pkgerrors.BadRequest("invalid public origin")
 			}
-			seen[strings.ToLower(u.Host)] = true
+			canonical := middleware.CanonicalOrigin(origin)
+			parsed, _ := url.Parse(canonical)
+			if seen[strings.ToLower(parsed.Host)] {
+				return input, pkgerrors.BadRequest("invalid public origin")
+			}
+			// These control hosts always serve plain HTTP beside network binds.
+			switch strings.ToLower(u.Host) {
+			case "localhost:4000", "127.0.0.1:4000", "[::1]:4000":
+				if u.Scheme != "http" {
+					return input, pkgerrors.BadRequest("loopback control origin must use HTTP")
+				}
+			}
+			seen[strings.ToLower(parsed.Host)] = true
 			// Saved as the browser sends it: macOS names the host
 			// Williams-Mac-mini.local, the browser's Origin is lower case.
-			input.Origins[i] = middleware.CanonicalOrigin(origin)
+			input.Origins[i] = canonical
 			teammates = teammates || !loopbackOrigin(origin)
 		}
 		// A network bind serves teammates only at an origin they can open;
 		// loopback origins alone would answer them 421 unknown_origin.
-		if NetworkBind(input.Bind) != "" && !teammates {
+		if requireNetworkOrigin && NetworkBind(input.Bind) != "" && !teammates {
 			return input, pkgerrors.BadRequest("network needs the address teammates use")
 		}
 	case "app_manifest":
@@ -132,6 +156,10 @@ func installStepCanStart(step InstallStep, now time.Time) bool {
 }
 
 type InstallSetupService struct {
+	Obsidian         *InstallObsidianSettings
+	SyncHealth       func(context.Context) (GitHubSyncHealth, error)
+	GitHubBudget     *BudgetTracker
+	CodingDefaults   func(context.Context, string) error
 	Now              func() time.Time
 	Pool             *pgxpool.Pool
 	Jobs             *jobs.Store
@@ -159,6 +187,18 @@ func (s *InstallSetupService) Initialize(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Only a fresh setup has a known start. Never backfill a legacy install
+	// from restart time or from mutable step/settings update timestamps.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(345506)`); err != nil {
+		return err
+	}
+	started, _ := json.Marshal(setupNow(s.Now).UTC())
+	if _, err = tx.Exec(ctx, `INSERT INTO install_settings(key,value)
+ SELECT 'setup.started_at',$1::jsonb WHERE NOT EXISTS
+ (SELECT 1 FROM install_settings WHERE key LIKE 'setup.step.%')
+ ON CONFLICT DO NOTHING`, started); err != nil {
+		return err
+	}
 	for _, id := range InstallStepIDs {
 		value, _ := json.Marshal(InstallStep{ID: id, Status: InstallPending})
 		if _, err = tx.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES($1,$2) ON CONFLICT DO NOTHING`, "setup.step."+id, value); err != nil {
@@ -225,6 +265,26 @@ func (s *InstallSetupService) readStep(ctx context.Context, q *db.Queries, id st
 		return step, err
 	}
 	step.ID = id
+	// A consumed manifest code may have created an App remotely. Expiring its
+	// browser lease cannot make that irreversible exchange safe to repeat.
+	if id == "app_manifest" && step.Status != InstallReady {
+		var attempt struct {
+			Digest string `json:"digest"`
+		}
+		if err := json.Unmarshal(row.Value, &attempt); err != nil {
+			return step, err
+		}
+		if attempt.Digest != "" {
+			state, err := q.GetGithubAppManifestState(ctx, attempt.Digest)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return step, err
+			}
+			if err == nil && state.UsedAt.Valid {
+				step.Status = InstallFailed
+				step.Error = &InstallReadinessError{Code: "outcome_unknown", Class: "user", Message: "Recover the existing GitHub App credentials"}
+			}
+		}
+	}
 	// A claimed owner is signed in, whatever an earlier refused attempt recorded.
 	if id == "sign_in" && step.Status != InstallReady {
 		if _, ownerErr := q.GetSelfHostOwner(ctx); ownerErr == nil {
@@ -433,8 +493,11 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 		state = InstallFailed
 		failure = &InstallReadinessError{Code: "install_setup_failed", Class: "infra", Message: "Setup failed"}
 		var typed *InstallReadinessError
+		var upstream *pkgerrors.APIError
 		if errors.As(err, &typed) {
 			failure = typed
+		} else if errors.As(err, &upstream) && upstream.Class == pkgerrors.ClassGitHub {
+			failure = &InstallReadinessError{Code: string(upstream.Code), Class: "github", Message: upstream.Message, RetryAt: upstream.RetryAt}
 		}
 	}
 	step, writeErr := s.readStep(ctx, db.New(tx), id)
@@ -477,7 +540,15 @@ func (s *InstallSetupService) writeAddress(ctx context.Context, tx pgx.Tx, input
 			return err
 		}
 	}
-	return nil
+	fact, err := json.Marshal(map[string]any{"bind": input.Bind, "origins": input.Origins})
+	if err != nil {
+		return err
+	}
+	if _, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: "install", PrincipalID: "owner"}, uuid.NewString(), "install.address", "completed", fact); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, "SELECT pg_notify('install', 'address')")
+	return err
 }
 
 // InstallFastModel is the fast role on a Cerebras key (mvp.md §6.5). The
@@ -501,8 +572,9 @@ type installModelFailure struct {
 }
 
 type installModelCheck struct {
-	roles  map[string]json.RawMessage
-	failed map[string]installModelFailure
+	fastSource string
+	roles      map[string]json.RawMessage
+	failed     map[string]installModelFailure
 }
 
 func modelCredentialOf(binding json.RawMessage) string {
@@ -536,12 +608,26 @@ func (s *InstallSetupService) checkModels(ctx context.Context) (*installModelChe
 			return nil, &InstallReadinessError{Code: "model_key_missing", Class: "user", Message: "Save coding and Gateway keys"}
 		}
 	}
-	check := &installModelCheck{failed: map[string]installModelFailure{},
+	check := &installModelCheck{fastSource: "coding", failed: map[string]installModelFailure{},
 		roles: map[string]json.RawMessage{"coding": coding, "fast": coding, "jev": json.RawMessage(installDecisionModel)}}
 	tested := []string{"coding", "jev"}
 	// Without a fast key the app agent uses the coding model (mvp.md §6.5).
-	if digests["CEREBRAS_API_KEY"] != "" {
-		check.roles["fast"] = json.RawMessage(InstallFastModel)
+	q := db.New(s.Pool)
+	source, sourceErr := q.GetInstallSetting(ctx, "agent:fast.source")
+	if sourceErr != nil && !errors.Is(sourceErr, pgx.ErrNoRows) {
+		return nil, sourceErr
+	}
+	if sourceErr == nil && string(source.Value) == `"owner"` {
+		fast, fastErr := q.GetInstallSetting(ctx, "agent:fast")
+		if fastErr != nil {
+			return nil, fastErr
+		}
+		check.roles["fast"], check.fastSource = fast.Value, "owner"
+		if digests[modelCredentialOf(fast.Value)] != "" {
+			tested = append(tested, "fast")
+		}
+	} else if digests["CEREBRAS_API_KEY"] != "" {
+		check.roles["fast"], check.fastSource = json.RawMessage(InstallFastModel), "owner"
 		tested = append(tested, "fast")
 	}
 	if s.Models == nil {
@@ -658,6 +744,17 @@ func installModelTestReason(result json.RawMessage, err error) string {
 func (c *installModelCheck) save(ctx context.Context, tx pgx.Tx, passed bool) error {
 	q := db.New(tx)
 	if passed {
+		source := c.fastSource
+		if source == "" {
+			source = "owner"
+			if bytes.Equal(c.roles["fast"], c.roles["coding"]) {
+				source = "coding"
+			}
+		}
+		rawSource, _ := json.Marshal(source)
+		if err := q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:fast.source", Value: rawSource}); err != nil {
+			return err
+		}
 		for role, value := range c.roles {
 			if err := q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:" + role, Value: value}); err != nil {
 				return err
@@ -772,11 +869,19 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		row, err := q.GetInstallSetting(ctx, "agent:"+role)
 		if err == nil {
 			binding = row.Value
+			if role == "fast" {
+				if effective, resolveErr := q.EffectiveInstallAgentModel(ctx, role); resolveErr == nil {
+					binding = effective
+				} else if !errors.Is(resolveErr, pgx.ErrNoRows) {
+					return nil, resolveErr
+				}
+			}
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
 		if len(binding) > 0 {
 			var model struct {
+				ModelID    string `json:"modelId"`
 				Protocol   string `json:"protocol"`
 				Credential string `json:"credential"`
 			}
@@ -788,6 +893,9 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 				provider = model.Protocol
 			}
 			value["provider"] = provider
+			if model.ModelID != "" {
+				value["model"] = model.ModelID
+			}
 			if keys[model.Credential] != "" {
 				value["key"] = "saved"
 			}
@@ -803,7 +911,47 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]any{"address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": chatgpt, "capacity": capacity}
+	sshHost := "localhost"
+	if len(origins) > 0 {
+		if origin, err := url.Parse(origins[0]); err == nil {
+			sshHost = origin.Hostname()
+		}
+	}
+	result := map[string]any{"ssh_host": sshHost, "ssh_line": "ssh -p 2222 <branch>@" + sshHost, "address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": chatgpt, "capacity": capacity}
+	result["todo_preapprove_default"] = false
+	if setting, err := q.GetInstallSetting(ctx, todoPreapprovalDefaultKey); err == nil {
+		var approval *mythicalLand
+		if err := json.Unmarshal(setting.Value, &approval); err != nil {
+			return nil, err
+		}
+		result["todo_preapprove_default"] = approval != nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	dailyAdmissions, err := todoDailyAdmissionLimit(ctx, s.Pool)
+	if err != nil {
+		return nil, err
+	}
+	result["todo_daily_admissions"] = dailyAdmissions
+	if s.Capacity != nil {
+		parallel, err := s.Capacity.Parallel(ctx)
+		if err != nil {
+			return nil, err
+		}
+		result["parallel"] = parallel.Requested
+	}
+	if s.Obsidian != nil {
+		snapshot, err := s.Obsidian.Snapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		result["wiki_sync"] = snapshot
+	}
+	health, err := s.SettingsHealth(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result["health"] = health
 	repository, err := q.GetInstallSetting(ctx, "repository")
 	if err == nil {
 		var slug string

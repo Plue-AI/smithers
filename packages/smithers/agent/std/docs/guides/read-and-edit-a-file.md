@@ -136,7 +136,7 @@ A mis-indented edit costs one glance at `hunk` instead of an investigation.
 
 ## Concurrent changes
 
-`edit`, `write`, and `apply_patch` hold exclusive sibling directory locks from
+On ordinary filesystem hosts, `edit`, `write`, and `apply_patch` hold exclusive sibling directory locks from
 before reading until their mutation finishes. Existing symlink aliases share
 the resolved file's lock. Case and Unicode normalization variants conservatively
 share a lock, even on a case-sensitive filesystem. Separate hosts and processes using these handlers
@@ -159,6 +159,22 @@ not use this protocol are outside that guarantee. Whole-file `write` and patch
 add operations intentionally replace contents; use an anchored edit when a
 previously read version must still match.
 
+On versioned hosts, the existing `Read.Preconditions` policy must provide
+`prepare(paths, session)`. It captures immutable read bases for that invocation
+and returns `read(path)` and `commit(changes)` operations. `read` must return
+bytes matching the captured base, or refuse; edits compute only from those bytes. Each handler submits one complete
+batch of writes and removals; a move includes both its destination write and
+source removal. The provider must recompare the captured bases, apply the whole
+batch atomically, and advance its ledger only after settlement. Tool-internal
+reads never refresh the model's read base.
+
+A host semaphore keeps preparation and diagnostics ordered. It does not exclude
+outside writers; that is the provider's responsibility. Versioned handlers create
+no parent or lock directories before commit and never fall back to ordinary
+filesystem writes. Missing providers fail with `provider_unavailable`. Diagnostics
+are updated only after the complete batch succeeds. The production coding host
+currently refuses mutations until its guest provider qualifies.
+
 ## Write a whole file
 
 `write` replaces a file, creating parent directories:
@@ -174,7 +190,7 @@ It preserves the file's mode, and it refuses to write over a directory with
 `command_failed`. Prefer `edit` for a targeted change: a whole-file write of a
 file you only partly know is how an unrelated region disappears.
 
-`write`, `edit`, and `apply_patch` updates stage replacement bytes in a unique
+On ordinary filesystem hosts, `write`, `edit`, and `apply_patch` updates stage replacement bytes in a unique
 sibling file, preserve existing permission bits and ownership, then rename it
 over the destination. A failure before rename leaves the original bytes intact.
 Existing symlinks continue to target the same file. Hard links to the old inode

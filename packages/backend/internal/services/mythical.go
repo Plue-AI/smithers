@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -58,24 +59,32 @@ type mythicalRepoHost interface {
 }
 
 type MythicalService struct {
-	store       MythicalStore
-	host        mythicalRepoHost
-	scratchRoot string
-	logger      *slog.Logger
-	now         func() time.Time
+	rebasePresence          func(context.Context, int64, string) (RebasePresence, error)
+	installParallel         *InstallCapacityService
+	installParallelRequired bool
+	todoLogs                blob.Store
+	store                   MythicalStore
+	host                    mythicalRepoHost
+	scratchRoot             string
+	logger                  *slog.Logger
+	now                     func() time.Time
 
 	// The item machinery (SetOrchestration); absent, the stack only
 	// bootstraps and folds.
 	outbound MythicalOutboundProviders
 	// Accepted publication facts and the install's App publication
 	// (EnableTodoPublication); absent, every TODO-branch write is held.
-	prFacts          func(context.Context, db.MythicalItem) (mythicalPRShape, error)
-	publication      *mythicalPublication
-	github           mythicalGitHub
-	launcher         mythicalLauncher
-	lanes            mythicalLanes
-	wikiStore        mythicalWikiStore
-	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
+	prFacts              func(context.Context, db.MythicalItem) (mythicalPRShape, error)
+	publication          *mythicalPublication
+	github               mythicalGitHub
+	installGitHubPolling bool
+	installGitHubSync    *GitHubSyncedRepoService
+	installPullHints     *mythicalPullHints
+	launcher             mythicalLauncher
+	lanes                mythicalLanes
+	wikiStore            mythicalWikiStore
+	learningWiki         *WikiService
+	reconcileFactory     func(context.Context, int64, string, FactoryProjection) error
 	// policy reads the default bookmark's committed factory policy
 	// (maintainers, todoSince, dailyTokens); stackPolicy.
 	policy repositoryPolicyHost
@@ -94,6 +103,9 @@ type MythicalService struct {
 	// (EnableTodoAdmission): a fresh attempt launches coding/request on a new
 	// lane. Only the install's composition sets it; hosted leaves it off.
 	todoAdmission bool
+	// todoSteering selects the install feedback protocol. Admission still
+	// requires the pinned composition, and delivery revalidates current authority.
+	todoSteering bool
 	// followMain asks the GitHub sync to read GitHub's main now
 	// (SetMainFollower): a merge the stack sent moved it. Unset, the sync's
 	// own poll finds the move.
@@ -103,6 +115,7 @@ type MythicalService struct {
 	sweepEvery time.Duration
 	// flowLoad runs flow-load after every main move (SetFlowLoad, flow_load.go).
 	flowLoad bool
+	reviews  *ReviewBackground
 }
 
 // SetMainFollower registers the GitHub sync's request for an immediate read
@@ -111,9 +124,25 @@ func (s *MythicalService) SetMainFollower(follow func(ctx context.Context, repos
 	s.followMain = follow
 }
 
-func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
-	return &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
+// MythicalServiceOption configures dependencies of the existing stack worker.
+type MythicalServiceOption func(*MythicalService)
+
+// WithMythicalNow shares a deterministic clock with composed polling providers.
+func WithMythicalNow(now func() time.Time) MythicalServiceOption {
+	return func(s *MythicalService) {
+		if now != nil {
+			s.now = now
+		}
+	}
+}
+
+func NewMythicalService(store MythicalStore, host mythicalRepoHost, options ...MythicalServiceOption) *MythicalService {
+	s := &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
 		logger: slog.Default(), now: time.Now, sweepEvery: mythicalSweepInterval}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 // SetPolicyReader wires the repo host the stack reads the owner's
@@ -189,6 +218,10 @@ func (s *MythicalService) Start(ctx context.Context) {
 	if sweepEvery <= 0 {
 		sweepEvery = mythicalSweepInterval
 	}
+	var pullWake <-chan struct{}
+	if s.installPullHints != nil {
+		pullWake = s.installPullHints.wake
+	}
 	lastSweep := time.Time{}
 	for {
 		if s.now().Sub(lastSweep) >= sweepEvery {
@@ -203,6 +236,7 @@ func (s *MythicalService) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-pullWake:
 		case <-time.After(mythicalPollInterval):
 		}
 	}
@@ -457,6 +491,18 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 		return mythicalFailed("the repository has no %s bookmark", branch)
 	}
 
+	// Loading follows the mirrored main observed by the poll listener, even
+	// when the stack cannot fold it (frozen or awaiting a prepared write).
+	loadRun := *r
+	loadRun.row.LandedMain = r.mainTip
+	// The initial lane clones mythical. Bootstrap must publish that bookmark
+	// before flow-load allocates a machine; otherwise the first load burns an
+	// attempt on a branch that does not exist. Once present, loading remains
+	// independent of folding, including a frozen stack.
+	if r.tip != "" {
+		s.advanceFlowLoad(ctx, &loadRun)
+	}
+
 	// A prepared write from an earlier claim is settled before anything else.
 	if len(row.PendingOp) > 0 {
 		var op mythicalOp
@@ -493,10 +539,9 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 		if s.reconcileFactory != nil {
 			outcome.factoryState, outcome.factoryError = s.localFactoryOutcome(ctx, r)
 		}
-		// This claim moves the items, the wiki and the flow-load.
+		// This claim moves the items and the wiki.
 		s.advanceItems(ctx, r)
 		s.advanceWiki(ctx, r)
-		s.advanceFlowLoad(ctx, r)
 		outcome.due = r.due
 		return outcome
 	}
@@ -1062,4 +1107,10 @@ func (s *MythicalService) refreshMerged(ctx context.Context, r *mythicalRun) {
 			s.notify(ctx, q, r.row.RepositoryID, r.row.Generation, "item", uuidString(saved.ID))
 		}
 	}
+}
+
+// SetInstallParallel binds the install owner setting to TODO admission.
+func (s *MythicalService) SetInstallParallel(capacity *InstallCapacityService) {
+	s.installParallel = capacity
+	s.installParallelRequired = true
 }

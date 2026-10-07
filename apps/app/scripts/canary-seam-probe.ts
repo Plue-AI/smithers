@@ -1,10 +1,9 @@
+import { probeHostTurn } from "./host-turn-probe"
 /** Probe the canonical HTTP contracts used by every application mode. */
 import { readFileSync } from "node:fs"
 import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import { AUTHENTICATED_USER_PATH, ApplicationUserSchema } from "@smthrs/rpc/ApplicationAuth"
-import { TURN_PATH } from "@smthrs/rpc/AgentApiRoutes"
-import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
-import { csrfHeaders, turnRequestBody } from "../../server/scripts/canary/uptime-checks"
+import { csrfHeaders } from "../../server/scripts/canary/uptime-checks"
 
 export async function probeCanonicalSeams(origin: string, cookie?: string): Promise<readonly string[]> {
   const failures: string[] = []
@@ -34,18 +33,8 @@ export async function probeCanonicalSeams(origin: string, cookie?: string): Prom
     check("scoped identity", permitted)
     if (!permitted) return failures
   }
-  const turn = await request(TURN_PATH, {
-    method: "POST", headers: { "content-type": "application/json", ...(cookie ? { cookie, ...csrfHeaders(cookie) } : {}) },
-    body: turnRequestBody(runId)
-  })
-  if (!cookie) {
-    check("anonymous turn", turn.status === 401)
-    await turn.body?.cancel()
-  } else {
-    const lines = (await turn.text()).split("\n").filter(line => line.trim())
-    const frames = lines.map(line => { try { return AgentTurnFrameSchema.safeParse(JSON.parse(line)) } catch { return undefined } })
-    check("completed turn", turn.status === 200 && frames.length > 0 && frames.every(frame => frame?.success && frame.data.runId === runId) && frames.some(frame => frame?.success && frame.data.type === "done") && !frames.some(frame => frame?.success && frame.data.type === "done" && (frame.data.error !== undefined || frame.data.code !== undefined || frame.data.reason === "cancelled" || frame.data.reason === "tool_limit")))
-  }
+  const turn = await probeHostTurn(origin, fetch, cookie ? { cookie, ...csrfHeaders(cookie) } : {}, runId)
+  check(cookie ? "completed host turn" : "anonymous prompt", cookie ? turn.completed : turn.status === 401)
   const spa = await request("/")
   check("SPA", spa.status === 200 && (spa.headers.get("content-type") ?? "").includes("text/html"))
   await spa.body?.cancel()

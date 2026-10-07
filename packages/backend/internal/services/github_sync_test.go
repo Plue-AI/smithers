@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -71,7 +73,7 @@ func (f *syncStreamFixture) RetryStreams(context.Context) error { f.retries++; r
 func TestInstallGitHubSyncFollowsMainAndServesItsHealth(t *testing.T) {
 	const pullNext = "3333333333333333333333333333333333333333"
 	h := newPullHarness(t)
-	h.service.UseInstallPolicy()
+	qualifyMainPullFixture(h.service)
 	ctx := t.Context()
 	var unavailable *GitHubSyncUnavailable
 	_, err := h.service.SyncHealth(ctx)
@@ -91,8 +93,8 @@ func TestInstallGitHubSyncFollowsMainAndServesItsHealth(t *testing.T) {
 
 	// The network drops: Retry reads at once and fails; the last success stands.
 	h.github = pullNext
-	h.service.lsRemote = func(context.Context, string, string) (string, error) {
-		return "", errors.New("git ls-remote failed: Could not resolve host: github.com")
+	h.service.lsRemote = func(context.Context, string, ...string) (map[string]string, error) {
+		return nil, errors.New("git ls-remote failed: Could not resolve host: github.com")
 	}
 	require.NoError(t, h.service.RetrySync(ctx))
 	require.NoError(t, h.service.PollOnce(ctx))
@@ -111,7 +113,9 @@ func TestInstallGitHubSyncFollowsMainAndServesItsHealth(t *testing.T) {
 
 	// The network is back: Retry overrides the failure's backoff.
 	h.service.now = time.Now
-	h.service.lsRemote = func(context.Context, string, string) (string, error) { return h.github, nil }
+	h.service.lsRemote = func(context.Context, string, ...string) (map[string]string, error) {
+		return map[string]string{"refs/heads/main": h.github}, nil
+	}
 	require.True(t, h.row(t).NextAttemptAt.Time.After(time.Now()), "a failure backs off")
 	require.NoError(t, h.service.RetrySync(ctx))
 	require.NoError(t, h.service.PollOnce(ctx))
@@ -131,7 +135,7 @@ func TestInstallGitHubSyncFollowsMainAndServesItsHealth(t *testing.T) {
 // reconciled is not read again; a failed reconciliation retries.
 func TestInstallGitHubSyncReconcilesEachCommitOnce(t *testing.T) {
 	h := newPullHarness(t)
-	h.service.UseInstallPolicy()
+	qualifyMainPullFixture(h.service)
 	h.github = pullOld
 	reads, fail := 0, true
 	h.service.readFactory = func(context.Context, string, string, string, string) ([]byte, error) {
@@ -285,7 +289,7 @@ func TestInstallSyncReadsIssueEventsOnItsCadence(t *testing.T) {
 
 	service.readIssueEvents(context.Background())
 	require.Empty(t, read, "off an install nothing is read")
-	service.UseInstallPolicy()
+	qualifyMainPullFixture(service)
 	service.readIssueEvents(context.Background())
 	require.ElementsMatch(t, []int64{1, 2}, read, "a failed read holds up no other; a repository not yet read is skipped")
 	read = nil
@@ -302,4 +306,147 @@ func TestInstallSyncReadsIssueEventsOnItsCadence(t *testing.T) {
 	now = now.Add(2 * time.Second)
 	service.readIssueEvents(context.Background())
 	require.Len(t, read, 4, "a configured cadence")
+}
+
+// These component tests qualify only their recording main-pull fixture. They
+// do not claim that a main receipt qualifies production's other stream owners.
+func qualifyMainPullFixture(s *GitHubMainPullService) {
+	s.UseInstallPolicy()
+	s.refReadAdmission = allowRefFixture{}
+	s.syncStreams = gitHubMainPullStreams{receipts: s.store.(gitHubMainPullReceipts), wake: s.wakePull, observe: s.refHealthStream}
+}
+
+type allowRefFixture struct{}
+
+func (allowRefFixture) prepareRefRead(context.Context, db.GithubMainPull) (gitHubRefReadCommit, error) {
+	return func(context.Context, string, string, string, map[string]string) error { return nil }, nil
+}
+
+func TestRequiredGitHubStreamsRetryConfiguredOwners(t *testing.T) {
+	for missing := 0; missing < 5; missing++ {
+		t.Run(fmt.Sprint(missing), func(t *testing.T) {
+			owners := make([]*syncStreamFixture, 5)
+			providers := make([]GitHubSyncStreams, 5)
+			for i := range owners {
+				owners[i] = &syncStreamFixture{}
+				providers[i] = owners[i]
+			}
+			providers[missing] = nil
+			aggregate := requiredGitHubSyncStreams{providers[0], providers[1], providers[2], providers[3], providers[4]}
+			streams, err := aggregate.RequiredStreams(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, "stale", aggregateGitHubSyncHealth(streams, time.Now()).State)
+			require.NoError(t, aggregate.RetryStreams(t.Context()))
+			for i, owner := range owners {
+				expected := 1
+				if i == missing {
+					expected = 0
+				}
+				require.Equal(t, expected, owner.retries)
+			}
+		})
+	}
+	owners := []*syncStreamFixture{{}, {}, {}, {}, {err: errors.New("permission provider is not ready")}}
+	aggregate := requiredGitHubSyncStreams{owners[0], owners[1], owners[2], owners[3], owners[4]}
+	require.ErrorContains(t, aggregate.RetryStreams(t.Context()), "not ready")
+	for _, owner := range owners[:4] {
+		require.Equal(t, 1, owner.retries)
+	}
+	require.Zero(t, owners[4].retries)
+}
+
+func TestInstallMainSyncRemainsDarkWithoutAllStreamOwners(t *testing.T) {
+	h := newPullHarness(t)
+	h.service.UseInstallPolicy()
+	_, err := h.service.Request(t.Context(), 19)
+	require.NoError(t, err)
+	before := h.row(t)
+	require.Error(t, h.service.RetrySync(t.Context()))
+	require.Error(t, h.service.PollOnce(t.Context()))
+	_, err = h.service.SyncHealth(t.Context())
+	require.Error(t, err)
+	out := h.service.pull(t.Context(), before)
+	require.Equal(t, "failed", out.state)
+	require.Equal(t, before, h.row(t))
+	require.Zero(t, h.service.tokens.(*fakeMainPullTokens).calls)
+	require.Zero(t, h.git.fetches)
+	require.Zero(t, h.git.pushes)
+	require.Equal(t, pullOld, h.host.bookmarkSnapshot("main"))
+}
+
+type refusedMainPullTokens struct {
+	token string
+	err   error
+	calls int
+}
+
+func (f *refusedMainPullTokens) CreateGitHubInstallationTokenForRepositoryOwner(context.Context, int64, int64, string, string, map[string]string) (GitHubInstallationToken, error) {
+	f.calls++
+	return GitHubInstallationToken{Token: f.token}, f.err
+}
+
+func TestInstallMainPullDoesNotFallBackToAnonymousAfterTokenRefusal(t *testing.T) {
+	for _, kind := range []string{"missing", "empty", "rate", "permission"} {
+		t.Run(kind, func(t *testing.T) {
+			h := newPullHarness(t)
+			qualifyMainPullFixture(h.service)
+			now := h.service.now()
+			tokens := &refusedMainPullTokens{}
+			h.service.tokens = tokens
+			switch kind {
+			case "missing":
+				h.service.tokens = nil
+			case "rate":
+				tokens.err = GitHubRateLimitError(429, http.Header{"Retry-After": {"3600"}}, now)
+			case "permission":
+				tokens.err = GitHubResponseFailure(403, http.Header{}, now)
+			}
+			reads := 0
+			h.service.lsRemote = func(context.Context, string, ...string) (map[string]string, error) {
+				reads++
+				return map[string]string{"refs/heads/main": pullNew}, nil
+			}
+			_, err := h.service.Request(t.Context(), 19)
+			require.NoError(t, err)
+			require.NoError(t, h.service.PollOnce(t.Context()))
+			row := h.row(t)
+			require.Equal(t, "failed", row.State)
+			require.Zero(t, reads)
+			require.Zero(t, h.git.pushes)
+			if kind == "rate" {
+				require.False(t, row.NextAttemptAt.Time.Before(now.Add(time.Hour-time.Second)))
+			}
+		})
+	}
+}
+
+func TestSyncFreshnessDoesNotExpireHourlyPermissions(t *testing.T) {
+	now := time.Now()
+	recent, old := now.Add(-time.Second), now.Add(-30*time.Minute)
+	core := &syncStreamFixture{streams: []GitHubSyncStream{{LastSuccessAt: &recent}}}
+	permissions := &syncStreamFixture{streams: []GitHubSyncStream{{LastSuccessAt: &old}}}
+	required := requiredGitHubSyncStreams{core, core, core, core, permissions}
+	observations, err := required.RequiredStreams(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "fresh", aggregateGitHubSyncHealth(observations, now).State)
+	permissions.streams[0].Cause = "permission"
+	observations, err = required.RequiredStreams(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "refused", aggregateGitHubSyncHealth(observations, now).State)
+	permissions.streams = []GitHubSyncStream{{}}
+	observations, err = required.RequiredStreams(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "stale", aggregateGitHubSyncHealth(observations, now).State)
+}
+
+func TestGitHubSyncHealthUsesFastStreamFreshness(t *testing.T) {
+	now := time.Now().UTC()
+	old := now.Add(-time.Hour)
+	streams := []GitHubSyncStream{{LastSuccessAt: &now}, {LastSuccessAt: &old, Background: true}, {Background: true}}
+	health := aggregateGitHubSyncHealth(streams, now)
+	require.Equal(t, "fresh", health.State)
+	require.Equal(t, &now, health.LastSuccessAt)
+	require.Equal(t, "stale", aggregateGitHubSyncHealth(streams[1:], now).State)
+	streams[1].Cause = "permission"
+	require.Equal(t, "refused", aggregateGitHubSyncHealth(streams, now).State)
 }

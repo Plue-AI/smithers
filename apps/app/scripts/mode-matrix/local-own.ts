@@ -5,7 +5,7 @@ import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import type { ExecutionReceipt, ModeConfig } from "../../e2e/real/coverage/matrix"
-import { executeCommand } from "./docker-web-selfhost"
+import { executeCommand } from "./command-execution"
 
 export interface LocalOwnSession {
   readonly modeConfig: ModeConfig
@@ -73,8 +73,10 @@ const waitFor = async (url: string, child: ReturnType<typeof Bun.spawn>): Promis
   throw new Error(`local process did not serve ${url}`)
 }
 
-const request = async (origin: string, path: string, init?: RequestInit): Promise<Record<string, unknown>> => {
-  const response = await fetch(new URL(path, origin), init)
+export const localOwnRequest = async (origin: string, publicOrigin: string, path: string, init?: RequestInit): Promise<Record<string, unknown>> => {
+  const headers = new Headers(init?.headers)
+  headers.set("X-Forwarded-Host", new URL(publicOrigin).host)
+  const response = await fetch(new URL(path, origin), { ...init, headers })
   const body = await response.text()
   if (!response.ok) throw new Error(`${path} returned ${response.status}: ${body}`)
   return JSON.parse(body) as Record<string, unknown>
@@ -136,9 +138,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const webPort = await availablePort()
     const backendOrigin = `http://127.0.0.1:${backendPort}`
     const origin = `http://127.0.0.1:${webPort}`
-    const bootstrapToken = randomUUID()
     const username = `matrix${randomUUID().replaceAll("-", "").slice(0, 12)}`
-    const password = `${randomUUID()}-Aa1!`
     const gatewayApiKey = fixtureProtocolId(`matrix-flow-${randomUUID()}`)
     const backendEnv = {
       ...process.env,
@@ -188,7 +188,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
         COMMIT;`)
     })
     if (seed.exitCode !== 0) throw new Error(`local-own owner seed failed: ${new TextDecoder().decode(seed.stderr)}`)
-    await request(backendOrigin, "/api/user/repos", {
+    await localOwnRequest(backendOrigin, origin, "/api/user/repos", {
       method: "POST", headers: { "content-type": "application/json", authorization: `token ${token}` },
       body: JSON.stringify({ name: repository, private: true, auto_init: true })
     })
@@ -197,7 +197,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     await stop(backend)
     backend = undefined
     await startBackend()
-    const restored = await request(backendOrigin, `/api/repos/${username}/${repository}`, { headers: { authorization: `token ${token}` } })
+    const restored = await localOwnRequest(backendOrigin, origin, `/api/repos/${username}/${repository}`, { headers: { authorization: `token ${token}` } })
     if (restored.full_name !== `${username}/${repository}`) throw new Error("local-own restart lost its repository")
     const afterVolume = createHash("sha256").update(readFileSync(secrets)).digest("hex")
     if (beforeVolume !== afterVolume) throw new Error("local-own restart changed owner secrets")
@@ -219,7 +219,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const authEnvironment = "SMITHERS_LOCAL_OWNER_SESSION"
     return {
       modeConfig: { mode: "local-own", origin, endpoint: origin, auth: { kind: "owner-session", environment: authEnvironment }, executionReceipt: receiptPath },
-      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username, password, bootstrapToken, sessionCookie }), SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
+      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username, sessionCookie }), SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
     }
   } catch (error) {
     await close()

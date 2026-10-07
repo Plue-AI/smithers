@@ -4,7 +4,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import type { AgentPort } from "../../runtime/AgentPort"
 import { createAppController } from "../AppController"
 import type { AppServices } from "../AppController"
-import type { Card } from "../AppState"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
 import { REPO_IMPORT_LOST_STREAM_DETAIL, repoImportPolling } from "./RepoImportSeam"
@@ -141,16 +140,13 @@ const readyStore = async (services: AppServices) => {
 
 const CARD_ID = "repo-import-will/flows"
 
-const importCard = (store: AppStore) =>
-  store.collections.cards.get(CARD_ID) as Extract<Card, { kind: "repo-import" }> | undefined
+const importCard = (store: AppStore) => store.collections.sessions.get("main")?.repositoryImports?.find(row => row.id === CARD_ID)
 
-/** Every journaled card.upsert of the import card, in dispatch order. */
-const importUpserts = (store: AppStore): ReadonlyArray<Extract<Card, { kind: "repo-import" }>> =>
+const importUpserts = (store: AppStore): ReadonlyArray<import("@smthrs/rpc/Cards").RepositoryImportRequest> =>
   [...store.collections.transitions.values()]
-    .filter((record) => record.type === "card.upsert")
+    .filter(record => record.type === "repository.imports.changed")
     .sort((a, b) => a.revision - b.revision)
-    .map((record) => (JSON.parse(record.payload) as { card: Card }).card)
-    .filter((card): card is Extract<Card, { kind: "repo-import" }> => card.kind === "repo-import")
+    .flatMap(record => (JSON.parse(record.payload) as { requests: import("@smthrs/rpc/Cards").RepositoryImportRequest[] }).requests.filter(row => row.id === CARD_ID))
 
 beforeAll(() => {
   // The loop is setTimeout-driven; a 1ms cadence keeps the suite honest AND fast.
@@ -175,7 +171,7 @@ describe("repo import — the happy path", () => {
     const outcome = await controller.commands.run("repos.import", "will/flows")
     // Success = the job STARTED and the card tracks it — not finished yet.
     expect(outcome.status).toBe("executed")
-    expect(importCard(store)?.payload.phase).toBe("running")
+    await until(() => importCard(store)?.payload.phase === "running", "the admitted import")
     expect(importCard(store)?.payload.jobId).toBe("job-1")
 
     await until(() => importCard(store)?.payload.phase === "done", "the done phase")
@@ -268,7 +264,7 @@ describe("repo import — already imported", () => {
     )
     const outcome = await controller.commands.run("repos.import", "will/flows")
     expect(outcome.status).toBe("executed")
-    expect(importCard(store)?.payload.phase).toBe("done")
+    await until(() => importCard(store)?.payload.phase === "done", "the completed import")
     expect(importCard(store)?.payload.detail).toBe("already imported")
   })
 })
@@ -408,6 +404,7 @@ describe("repo import — lane sync", () => {
     )
     await controller.commands.run("repos.import", "will/flows")
 
+    await until(() => importCard(store)?.payload.counts !== undefined, "the import counts")
     /* The start answer's counts render while the job runs. */
     expect(importCard(store)?.payload.counts).toEqual({
       refs: { done: 214, total: 214 },
@@ -459,7 +456,7 @@ describe("repo import — lane sync", () => {
 
     const retry = await controller.commands.run("repos.import.retry", "job-1")
     expect(retry.status).toBe("executed")
-    expect(importCard(store)?.payload.phase).toBe("running")
+    await until(() => importCard(store)?.payload.phase === "running", "the admitted import")
     expect(importCard(store)?.ordinal).toBe(ordinalBefore)
 
     await until(() => importCard(store)?.payload.phase === "done", "the retried done phase")
@@ -472,7 +469,7 @@ describe("repo import — lane sync", () => {
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(
-        "No import card tracks job job-nope — the retry button lives on the failed import's card."
+        "No import request tracks job job-nope."
       )
     }
   })
@@ -510,18 +507,18 @@ describe("repo import — instant background lifecycle", () => {
     expect(store.collections.toasts.get("toast-repos.import.will/flows")?.status).toBe("running")
     releasePoll(json(200, jobBody("ready", "provisioning_workspace")))
     await until(() => store.collections.toasts.get("toast-repos.import.will/flows")?.status === "ok", "the completed toast")
-    expect(importCard(store)?.payload.phase).toBe("done")
+    await until(() => importCard(store)?.payload.phase === "done", "the completed import")
   })
 
   test("reload reconnects a persisted running job without launching another import", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await signedIn(store)
     await reposLoaded(store)
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: CARD_ID, kind: "repo-import", title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{
+      id: CARD_ID, title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
       payload: { repo: "will/flows", jobId: "job-1", phase: "running", detail: null,
         requestId: "persisted-request", requestKind: "start", accountOwner: "will" }
-    } }).isPersisted.promise
+    }] }).isPersisted.promise
     let starts = 0
     let polls = 0
     createAppController(store, unavailableAgent, {
@@ -542,11 +539,11 @@ describe("repo import — instant background lifecycle", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await signedIn(store)
     await reposLoaded(store)
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: CARD_ID, kind: "repo-import", title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{
+      id: CARD_ID, title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
       payload: { repo: "will/flows", jobId: "job-1", phase: "starting", detail: null,
         requestId: "persisted-retry", requestKind: "retry", accountOwner: "will" }
-    } }).isPersisted.promise
+    }] }).isPersisted.promise
     let retries = 0
     createAppController(store, unavailableAgent, {
       fetchImpl: async (input, init) => {
@@ -564,11 +561,11 @@ describe("repo import — instant background lifecycle", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await signedIn(store)
     await reposLoaded(store)
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: CARD_ID, kind: "repo-import", title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{
+      id: CARD_ID, title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
       payload: { repo: "will/flows", jobId: "job-1", phase: "starting", detail: null,
         requestId: "persisted-retry", requestKind: "retry", accountOwner: "will" }
-    } }).isPersisted.promise
+    }] }).isPersisted.promise
     let releaseObservation: (response: Response) => void = () => {}
     const observation = new Promise<Response>(resolve => { releaseObservation = resolve })
     let retries = 0
@@ -589,11 +586,11 @@ describe("repo import — instant background lifecycle", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await signedIn(store)
     await reposLoaded(store)
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: CARD_ID, kind: "repo-import", title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{
+      id: CARD_ID, title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
       payload: { repo: "will/flows", jobId: "job-1", phase: "starting", detail: null,
         requestId: "persisted-retry", requestKind: "retry", accountOwner: "will" }
-    } }).isPersisted.promise
+    }] }).isPersisted.promise
     let retries = 0
     createAppController(store, unavailableAgent, { fetchImpl: async (input, init) => {
       const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://app.test").pathname
@@ -635,7 +632,7 @@ describe("repo import — instant background lifecycle", () => {
     let rejectReceipt = true
     Object.assign(store, { dispatch: ((transition: Parameters<AppStore["dispatch"]>[0]) => {
       const receipt = dispatch(transition)
-      if (!rejectReceipt || transition.type !== "card.upsert" || transition.card.kind !== "repo-import") return receipt
+      if (!rejectReceipt || transition.type !== "repository.imports.changed") return receipt
       rejectReceipt = false
       return { ...receipt, isPersisted: { ...receipt.isPersisted, promise: Promise.reject(new Error("disk full")) } }
     }) as AppStore["dispatch"] })
@@ -658,7 +655,7 @@ describe("repo import — instant background lifecycle", () => {
       let holdReceipt = true
       Object.assign(store, { dispatch: ((transition: Parameters<AppStore["dispatch"]>[0]) => {
         const receipt = dispatch(transition)
-        if (!holdReceipt || transition.type !== "card.upsert" || transition.card.kind !== "repo-import") return receipt
+        if (!holdReceipt || transition.type !== "repository.imports.changed") return receipt
         holdReceipt = false
         return { ...receipt, isPersisted: { ...receipt.isPersisted, promise: receipt.isPersisted.promise.then(() => held) } }
       }) as AppStore["dispatch"] })
@@ -684,18 +681,18 @@ describe("repo import — instant background lifecycle", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await signedIn(store)
     await reposLoaded(store)
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: CARD_ID, kind: "repo-import", title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{
+      id: CARD_ID, title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
       payload: { repo: "will/flows", jobId: "legacy-job", phase: "running", detail: null }
-    } }).isPersisted.promise
+    }] }).isPersisted.promise
     let releasePersistence: () => void = () => {}
     const held = new Promise<void>(resolve => { releasePersistence = resolve })
     const dispatch = store.dispatch
     let holdAdoption = true
     Object.assign(store, { dispatch: ((transition: Parameters<AppStore["dispatch"]>[0]) => {
       const receipt = dispatch(transition)
-      if (!holdAdoption || transition.type !== "card.upsert" || transition.card.kind !== "repo-import" ||
-        transition.card.payload.requestId === undefined) return receipt
+      if (!holdAdoption || transition.type !== "repository.imports.changed" ||
+        transition.requests[0]!.payload.requestId === undefined) return receipt
       holdAdoption = false
       return { ...receipt, isPersisted: { ...receipt.isPersisted, promise: receipt.isPersisted.promise.then(() => held) } }
     }) as AppStore["dispatch"] })
@@ -717,11 +714,11 @@ describe("repo import — instant background lifecycle", () => {
 
   test("retry refuses a job explicitly owned by another account", async () => {
     const { store, controller } = await readyStore(importBackend(() => json(202, jobBody("ready"))))
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: CARD_ID, kind: "repo-import", title: "Import · will/flows", status: "error", createdAt: 1, ordinal: 1,
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{
+      id: CARD_ID, title: "Import · will/flows", status: "error", createdAt: 1, ordinal: 1,
       payload: { repo: "will/flows", jobId: "other-job", phase: "failed", detail: "failed",
         requestId: "other-request", requestKind: "retry", accountOwner: "other" }
-    } }).isPersisted.promise
+    }] }).isPersisted.promise
     const outcome = await controller.commands.run("repos.import.retry", "other-job")
     expect(outcome).toMatchObject({ status: "failed", error: "This import belongs to another account. Start a new import for the current account." })
   })
@@ -736,7 +733,7 @@ describe("repo import — instant background lifecycle", () => {
     let holdReceipt = true
     Object.assign(store, { dispatch: ((transition: Parameters<AppStore["dispatch"]>[0]) => {
       const receipt = dispatch(transition)
-      if (!holdReceipt || transition.type !== "card.upsert" || transition.card.kind !== "repo-import") return receipt
+      if (!holdReceipt || transition.type !== "repository.imports.changed") return receipt
       holdReceipt = false
       return { ...receipt, isPersisted: { ...receipt.isPersisted, promise: held } }
     }) as AppStore["dispatch"] })
@@ -744,8 +741,8 @@ describe("repo import — instant background lifecycle", () => {
     const admission = controller.commands.run("repos.import", "will/flows")
     await until(() => importCard(store) !== undefined, "the persisted intent")
     const old = importCard(store)!
-    await store.dispatch({ type: "card.upsert", actor: "system", card: { ...old,
-      payload: { ...old.payload, requestId: "new-owner-request", accountOwner: "other", phase: "starting", detail: null } } }).isPersisted.promise
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{ ...old,
+      payload: { ...old.payload, requestId: "new-owner-request", accountOwner: "other", phase: "starting", detail: null } }] }).isPersisted.promise
     rejectPersistence(new Error("old receipt failed"))
     await admission
     await new Promise(resolve => setTimeout(resolve, 20))
@@ -757,11 +754,11 @@ describe("repo import — instant background lifecycle", () => {
   test("an explicit import under a new owner starts fresh without the prior owner's job", async () => {
     let postedBody: unknown
     const { store } = await readyStore(importBackend(async () => json(202, jobBody("ready"))))
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
-      id: CARD_ID, kind: "repo-import", title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{
+      id: CARD_ID, title: "Import · will/flows", status: "active", createdAt: 1, ordinal: 1,
       payload: { repo: "will/flows", jobId: "owner-a-job", phase: "starting", detail: null,
         requestId: "owner-a-request", requestKind: "start", accountOwner: "owner-a" }
-    } }).isPersisted.promise
+    }] }).isPersisted.promise
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner-b",
       admin: false, scopesPlain: null }).isPersisted.promise
     const services: AppServices = { fetchImpl: async (input, init) => {
@@ -798,9 +795,9 @@ describe("repo import — instant background lifecycle", () => {
     await controller.commands.run("repos.import", "will/flows")
     const first = importCard(store)
     expect(first?.payload.phase).toBe("starting")
-    await store.dispatch({ type: "card.upsert", actor: "system", card: {
+    await store.dispatch({ type: "repository.imports.changed", actor: "system", requests: [{
       ...first!, payload: { ...first!.payload, requestId: "newer-attempt", phase: "starting", detail: null }
-    } }).isPersisted.promise
+    }] }).isPersisted.promise
     releaseLaunch(json(500, { message: "old launch failed" }))
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(importCard(store)?.payload.requestId).toBe("newer-attempt")
@@ -823,7 +820,7 @@ test("a GitHub-signed-in import opens issues without requesting a separate cloud
   } })
   expect(store.collections.cloudSessions.get("cloud")?.state).not.toBe("signed-in")
   expect((await controller.commands.run("repos.import", "will/flows")).status).toBe("executed")
-  expect(importCard(store)?.payload.phase).toBe("done")
+  await until(() => importCard(store)?.payload.phase === "done", "the completed import")
   expect((await controller.commands.run("issues.list", "will/flows")).status).toBe("executed")
   const issues = [...store.collections.cards.values()].find(card => card.kind === "issue-list")
   expect(issues).toMatchObject({ kind: "issue-list", payload: { repo: "will/flows" } })
@@ -866,7 +863,7 @@ describe("repo import account fences", () => {
       expect(importCard(store)?.payload.accountOwner).toBe("other")
       release(json(202, jobBody("failed", null, "old account failure")))
       await settled()
-      expect(importCard(store)?.payload.phase).toBe("done")
+      await until(() => importCard(store)?.payload.phase === "done", "the completed import")
       expect(importCard(store)?.payload.accountOwner).toBe("other")
     } finally { controller.dispose() }
   })
@@ -964,7 +961,7 @@ test("the import toast waits for the terminal completion receipt to persist", as
   const dispatch = store.dispatch
   Object.assign(store, { dispatch: ((transition: Parameters<AppStore["dispatch"]>[0]) => {
     const receipt = dispatch(transition)
-    if (transition.type !== "card.upsert" || transition.card.kind !== "repo-import" || transition.card.payload.phase !== "done") return receipt
+    if (transition.type !== "repository.imports.changed" || transition.requests[0]!.payload.phase !== "done") return receipt
     return { ...receipt, isPersisted: { ...receipt.isPersisted, promise: receipt.isPersisted.promise.then(() => held) } }
   }) as AppStore["dispatch"] })
   const controller = createAppController(store, unavailableAgent, {

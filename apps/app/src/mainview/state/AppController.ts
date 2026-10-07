@@ -1,4 +1,17 @@
-import type { TerminalCardSource } from "./seams/TerminalSeam"
+import { createSharedPrompts } from "./controller/sharedPrompts"
+import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
+import { createEarlierHistoryController } from "./controller/earlierHistory"
+import { accountOwnerOf } from "./AccountOwner"
+import { createHomeViewSeam, type HomeViewSeam } from "./seams/HomeViewSeam"
+import { contextMonitor } from "./ContextMonitor"
+import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
+import { designProposalCard } from "./seams/DesignWorld/proposal"
+import { createProposalSeam, type ProposalSeam } from "./seams/ProposalSeam"
+import { FileDocuments } from "../runtime/FileDocuments"
+import type { DocumentPrerequisites } from "../runtime/LiveDocProvider"
+import type { LiveChannel } from "../runtime/LiveChannel"
+import { createTerminalSource, type TerminalCardSource } from "./seams/TerminalSeam"
+import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { bundledOpenApi } from "../../debugApi/bundled"
 import { createDebugApiSeam, debugApiFailureCopy, presentDebugApiFailure, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
@@ -26,7 +39,7 @@ import { bindFlowPreloading } from "../flows/FlowAction"
 import type { CommandActions } from "../flows/Flows"
 import type { RepositoryFlowCatalog } from "../flows/entries/flow"
 import type { SlashItem,SlashRow } from "../flows/registry"
-import { flowRequirements } from "../flows/registry"
+import { parseSubmit, flowRequirements } from "../flows/registry"
 
 import type { AgentPort } from "../runtime/AgentPort"
 import type { ApplicationIdentityClient } from "../runtime/ApplicationClient"
@@ -42,13 +55,13 @@ import { createCloudTerminalClient,pageCloudSocketUrl } from "./CloudTerminalCli
 import { selectFirstRunRepository } from "./BootRepositoryTarget"
 import type { InputMode } from "./InputMode"
 import { cardAvailable } from "./CardAvailability"
-import { disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
+import { type ViewAction, disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
 import type { KnownRepositories } from "./RepoContext"
+import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { activeCatalogRepositoryId,activeRepositoryId,knownRepositories,resolveTargetRepo } from "./RepoContext"
 import type { StorageRecoveryAction,StorageRecoveryHost } from "./StorageRecoveryAction"
-import type { AccountController } from "./controller/account"
-import { createAccountController } from "./controller/account"
 import type { AgentsController } from "./controller/agents"
+import { createModelsController } from "./controller/models"
 import { createAgentsController } from "./controller/agents"
 import { createAuthBillingController } from "./controller/auth-billing"
 import { createCloudWikiController } from "./controller/cloud-wiki"
@@ -63,7 +76,7 @@ import { createControllerContext, UNRECORDED_NET, type UnrecordedInit } from "./
 import type { ControlFocusController } from "./controller/controlFocus"
 import { createControlFocus } from "./controller/controlFocus"
 import { createDictation } from "./controller/dictation"
-import { createFailureController,humanCommandText } from "./controller/failures"
+import { TOAST_SUPERSEDED, createFailureController,humanCommandText } from "./controller/failures"
 import type { FormFocusHandoff, FormsController } from "./controller/forms"
 import { createFormsController } from "./controller/forms"
 import { createFramesController } from "./controller/frames"
@@ -82,9 +95,9 @@ import { createStorageRecoveryController } from "./controller/storage-recovery"
 import type { TabsController } from "./controller/tabs"
 import { createTabsController } from "./controller/tabs"
 import { observeBackgroundWork } from "./controller/backgroundWork"
+import { createGitHubSyncRetry } from "./controller/githubSync"
 import { createPromptQueueController } from "./controller/promptQueue"
 import { createTurnController, type TurnController } from "./controller/turns"
-import { createTutorialRepositoryController,type TutorialRepositoryActions } from "./controller/repositoryChoice"
 import { createFlowDurationsReader } from "./controller/flowDurations"
 import { createWorkflowPumpController } from "./controller/workflow-pump"
 import { createWorkflowController,type WorkflowController } from "./controller/workflows"
@@ -95,21 +108,16 @@ import { createBillingSeam, showHostedBalance } from "./seams/HostedBilling"
 import { createDocsController } from "./controller/docs"
 import type { Docs } from "../../docs/Docs"
 import { bundledDocs } from "../../docs/bundled"
-import type { BookmarksSeam } from "./seams/BookmarksSeam"
-import { createBookmarksSeam } from "./seams/BookmarksSeam"
+import { createBranchNavigationSeam } from "./seams/BranchNavigationSeam"
 import type { ChangeSeam } from "./seams/ChangeSeam"
 import { createChangeSeam } from "./seams/ChangeSeam"
 import type { CloudSeam } from "./seams/CloudSeam"
 import { createCloudSeam } from "./seams/CloudSeam"
 import type { CodeIntelSeam } from "./seams/CodeIntelSeam"
 import { createCodeIntelSeam } from "./seams/CodeIntelSeam"
-import type { CommitsSeam } from "./seams/CommitsSeam"
-import { createCommitsSeam } from "./seams/CommitsSeam"
-import { createDiffFilesSeam } from "./seams/DiffFilesSeam"
+import { createDiffFilesSeam, createBranchDiffReader } from "./seams/DiffFilesSeam"
 import type { EgressSeam } from "./seams/EgressSeam"
 import { createEgressSeam } from "./seams/EgressSeam"
-import type { EnvironmentSeam } from "./seams/EnvironmentSeam"
-import { createEnvironmentSeam } from "./seams/EnvironmentSeam"
 import type { BranchFileOptions, FilesSeam } from "./seams/FilesSeam"
 import { createFilesSeam, resolveFileTarget } from "./seams/FilesSeam"
 import type { GitHubSeam } from "./seams/GitHubSeam"
@@ -136,11 +144,14 @@ import { createExternalSessionSeam, type ExternalSessionSeam } from "./seams/Ext
 import { createTimelineTitleSeam, modelStreamTitles, type TimelineTitleSeam } from "./seams/TimelineTitleSeam"
 import { createAgentLaunch, type StartAgent } from "./controller/agentLaunch"
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
+import { createRunMonitorSeam, type RunMonitorSnapshots } from "./seams/RunMonitorSeam"
+import { traceNamed } from "./seams/DesignWorld/run"
 import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
+import { createConfirmationSeam } from "./seams/ConfirmationSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
-import { designMembers, designMembersRoster, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
+import { designMembers, designMembersRoster, designSecrets, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
 import { shellViewsOf } from "./seams/DesignWorld/shell"
 import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
 import { flowCardOf, flowNames } from "./seams/DesignWorld/run"
@@ -202,7 +213,6 @@ export interface AppController extends IssueFlowsController {
   readonly enqueuePrompt: (text: string, draftCurrent?: () => boolean) => void
   readonly removeQueuedPrompt: (id: string, edit?: boolean) => void
   readonly restoreQueuedPrompts: () => void
-  readonly resumePromptQueue: () => void
   readonly showChat: () => void
   readonly showWorld: () => void
   /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
@@ -219,7 +229,8 @@ export interface AppController extends IssueFlowsController {
   readonly removeConnector: (id: string) => string | void
   readonly selectWorldDocument: (id: string) => string | void
   readonly changeWorldDocument: (id: string, body: string) => Promise<string | void>
-  readonly listCloudWiki: (repo: string, page?: number, space?: WikiSpace) => Promise<string | { value: string }>
+  readonly openWikiPage: (name: string, revision?: number) => Promise<string | void | { value: string }>
+  readonly listCloudWiki: (repo?: string, page?: number, space?: WikiSpace) => Promise<string | { value: string }>
   readonly openCloudWiki: (repo: string, slug: string, expectedPageId?: number, space?: WikiSpace) => Promise<string | { value: string }>
   readonly retryCloudWiki: (id: string) => Promise<string | void | { value: string }>
   /** The Wiki spaces (#1922): the switch, the space's navigation index, a page's history, and the writes the pane offers. */
@@ -227,7 +238,8 @@ export interface AppController extends IssueFlowsController {
   readonly setWikiPageView: (view: string) => Promise<string | void>
   readonly loadWikiIndex: (repo?: string, space?: WikiSpace, quiet?: boolean) => Promise<string | { value: string }>
   readonly showWikiHistory: (slug: string, repo?: string, page?: number, space?: WikiSpace) => Promise<string | void | { value: string }>
-  readonly createCloudWikiPage: (title: string, repo?: string) => Promise<string | void | { value: string }>
+  readonly saveWikiAnswer: (name: string, text?: string) => Promise<string | void | { value: string }>
+  readonly createCloudWikiPage: (title: string, repo?: string, body?: string) => Promise<string | void | { value: string }>
   readonly renameCloudWikiPage: (slug: string, path: string, repo?: string) => Promise<string | void>
   readonly deleteCloudWikiPage: (slug: string, repo?: string) => Promise<string | void>
   readonly attachCloudWiki: (path: string, repo: string | undefined, gesture?: CommandGesture) => Promise<string | void | { value: string }>
@@ -310,7 +322,6 @@ export interface AppController extends IssueFlowsController {
   readonly continueRun: RunsController["continueRun"]
   readonly rerunRun: RunsController["rerunRun"]
   readonly signalRun: RunsController["signalRun"]
-  readonly steerRun: RunsController["steerRun"]
   readonly showRunLogs: RunsController["showRunLogs"]
   readonly showRunSteps: RunsController["showRunSteps"]
   readonly showRunEvents: RunsController["showRunEvents"]
@@ -335,12 +346,17 @@ export interface AppController extends IssueFlowsController {
   readonly frameBack: () => void
   readonly frameForward: () => void
   /* Tutorial stage 2: the ranked chooser and the local Skip. */
-  readonly chooseTutorialRepository: TutorialRepositoryActions["chooseTutorialRepository"]
-  readonly createTutorialRepository: TutorialRepositoryActions["createTutorialRepository"]
   readonly selectRepo: TabsController["selectRepo"]
   /* The sidebar's file tree and workspace heading; see controller/sidebar.ts. */
   readonly toggleRepoTree: SidebarController["toggleRepoTree"]
   /* Agents as data; see controller/agents.ts. */
+  readonly showModel: ReturnType<typeof createModelsController>["showModel"]
+  readonly newModel: ReturnType<typeof createModelsController>["newModel"]
+  readonly editModel: ReturnType<typeof createModelsController>["editModel"]
+  readonly saveModel: ReturnType<typeof createModelsController>["saveModel"]
+  readonly removeModel: ReturnType<typeof createModelsController>["removeModel"]
+  readonly testModel: ReturnType<typeof createModelsController>["testModel"]
+  readonly assignAgentModel: AgentsController["assignAgentModel"]
   readonly listAgents: AgentsController["listAgents"]
   /* THE FORM LAW (apps/app/AGENTS.md): the flow-form card's render, field commits, submit, and dismiss; see controller/forms.ts. */
   readonly renderFlowForm: FormsController["renderFlowForm"]
@@ -456,8 +472,6 @@ export interface AppController extends IssueFlowsController {
   readonly promptCloudSignIn: () => void
   /** Reload the app window — the /reload affordance (dev loop, stuck states). */
   readonly reloadApp: () => void
-  /** Render the account card, or the sign-in step signed out (account.show). */
-  readonly showAccount: AccountController["showAccount"]
   /*
    * The multi-parity domain seams (MULTI-ACTIONS-GAP.md Tier 1/2): issues,
    * PRs/landings, billing checkout, notifications, the agent
@@ -476,19 +490,13 @@ export interface AppController extends IssueFlowsController {
   readonly listLandings: LandingsSeam["listLandings"]
   readonly viewLanding: LandingsSeam["viewLanding"]
   readonly setLandingTab: LandingsSeam["setTab"]
-  readonly landLanding: LandingsSeam["landLanding"]
   readonly reviewLanding: LandingsSeam["reviewLanding"]
   readonly showBillingPlans: BillingSeam["showBillingPlans"]
   readonly startCheckout: BillingSeam["startCheckout"]
   readonly openBillingPortal: BillingSeam["openBillingPortal"]
-  readonly viewEnvironment: EnvironmentSeam["viewEnvironment"]
-  readonly setEnvironmentVar: EnvironmentSeam["setEnvironmentVar"]
-  readonly removeSubscriptionToken: EnvironmentSeam["removeSubscriptionToken"]
-  readonly connectCodingProvider: SecretsSeam["connectCodingProvider"]
-  readonly listCodingProviders: SecretsSeam["listCodingProviders"]
-  readonly revokeCodingProvider: SecretsSeam["revokeCodingProvider"]
-  readonly connectCodex: SecretsSeam["connectCodex"]
-  readonly moveCodingProvider: SecretsSeam["moveCodingProvider"]
+  readonly viewEnvironment: ViewAction<[repo?: string]>
+  readonly setEnvironmentVar: (assignment: string, repo?: string) => ReturnType<ViewAction<[repo?: string]>>
+  readonly removeSubscriptionToken: ViewAction<[repo?: string]>
   readonly listSecrets: SecretsSeam["listSecrets"]
   readonly scopeSecret: SecretsSeam["scopeSecret"]
   readonly bindSecret: SecretsSeam["bindSecret"]
@@ -500,17 +508,25 @@ export interface AppController extends IssueFlowsController {
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly newTodo: TodoSeam["newTodo"]
+  readonly preapproveTodo: TodoSeam["preapproveTodo"]
+  readonly newFlowSourceTodo: TodoSeam["newFlowSourceTodo"]
   readonly mergeTodo: TodoSeam["mergeTodo"]
   /** Review & merge for this host's TODO Tn: the person's private Confirm card bound to the PR head (T-APP-04). */
   readonly reviewTodoMerge: TodoSeam["reviewMerge"]
   /** MOCK SEAM: run a Tn flow on the seed or on this host's /api/todos, never waiting for the answer (DesignWorld/todo.ts). */
   readonly todoRoute: TodoRoute
   readonly showTodo: TodoSeam["showTodo"]
+  readonly readFlowSource: (n: number, path: string) => ReturnType<FilesSeam["readFile"]>
   readonly dismissTodoDraft: TodoSeam["dismissTodoDraft"]
   readonly answerTodo: TodoSeam["answerTodo"]
   readonly steerTodo: TodoSeam["steerTodo"]
   readonly amendTodo: TodoSeam["amendTodo"]
+  readonly draftImagePackage: TodoSeam["draftImagePackage"]
+  readonly bringIn: TodoSeam["bringIn"]
+  readonly discardForeign: TodoSeam["discardForeign"]
   readonly controlTodo: TodoSeam["controlTodo"]
+  readonly openProposal: ProposalSeam["openProposal"]
+  readonly resolveProposal: ProposalSeam["resolveProposal"]
   /** Move up or Move down on Tn: the seed's, or this host's POST /api/todos/{n} {op: move}. */
   readonly moveTodo: TodoSeam["moveTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
@@ -524,12 +540,18 @@ export interface AppController extends IssueFlowsController {
   /** The flow catalog the Flow card reads on an install (GET /api/flows); undefined elsewhere, where the seeded flows answer. */
   readonly flowCatalog: FlowsSnapshots | undefined
   /** The flows /flow, /flows and /flow.edit read: GET /api/flows on an install (undefined when it is not served); elsewhere the seeded flows (MOCK SEAM, DesignWorld/run.ts). */
-  readonly flowCards: () => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
+  readonly flowCards: (name?: string) => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
   /** branch.fork on an install: POST /api/branches {from, name?} (spec §8.5); its value is the new scratch branch. A string is the refusal. Absent off an install, where the flow acts on the seeded world. */
+  readonly selectConversationBranch: (name: string) => Promise<void>
+  readonly setBranchNavigationView: (patch: { selected_branch?: string; selected_archive?: string; previous_branch?: string; open?: boolean }) => Promise<void>
+  readonly setCardTab: (id: string, tab: string) => void
+  readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
   /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
+  readonly sharedConversation?: SharedConversationSeam
+  readonly homeView?: HomeViewSeam
   readonly todoList: TodoSeam["list"]
   /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
   readonly githubSyncSnapshots: GitHubSyncSeam["snapshots"]
@@ -545,8 +567,13 @@ export interface AppController extends IssueFlowsController {
   readonly live?: LiveTopics
   /** Opens a subject-only card (card-kinds.md L5) once per conversation; its card file reads the data. */
   /** With a `subject` (Branch, Terminal: card-kinds.md L5) the card is `${kind}:${subject}` with payload `{ id: subject }`. */
-  readonly presentCard: (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
+  readonly presentCard: (kind: "setup" | "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
   /** Opens (or reveals) the Run card for run `id`; `maximize` is Inspect. */
+  readonly runMonitors: RunMonitorSnapshots | undefined
+  readonly openRunMonitor: (id: string, maximize: boolean) => Promise<string | { readonly value: string } | void>
+  readonly listRunMonitors: () => Promise<string | { readonly value: string } | void>
+  readonly setRunView: (cardId: string, patch: { selected?: string; at?: number; tab?: "run" | "journal" | "custom" }) => Promise<string | void>
+  readonly contextRun: (id: string) => MonitorCard | undefined
   readonly presentRun: (id: string, title: string, maximize: boolean) => Promise<string>
   /** Opens (or reveals) the Flow card for flow `name`, at `version` when given. */
   readonly presentFlow: (name: string, title: string, version?: string) => Promise<string>
@@ -560,17 +587,19 @@ export interface AppController extends IssueFlowsController {
   readonly setInstallAddress: InstallSeam["setInstallAddress"]
   readonly setInstallCapacity: InstallSeam["setInstallCapacity"]
   readonly setInstallObsidian: InstallSeam["setInstallObsidian"]
+  readonly setInstallPreapproveDefault: InstallSeam["setInstallPreapproveDefault"]
+  readonly setInstallDailyAdmissions: InstallSeam["setInstallDailyAdmissions"]
   readonly setInstallParallel: InstallSeam["setInstallParallel"]
   readonly saveInstallModelKey: InstallSeam["saveInstallModelKey"]
   readonly stackSnapshots: StackSeam["snapshots"]
   readonly importRepository: RepoImportSeam["importRepository"]
   readonly retryImport: RepoImportSeam["retryImport"]
-  readonly listBookmarks: BookmarksSeam["listBookmarks"]
-  /** A branch's commits and one commit (seams/CommitsSeam.ts). */
-  readonly listCommits: CommitsSeam["listCommits"]
-  readonly readCommit: CommitsSeam["readCommit"]
+  readonly listBookmarks: ReturnType<typeof createBranchNavigationSeam>["listBookmarks"]
+  readonly fileDocuments: FileDocuments | undefined
+  readonly recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string, branch?: string) => Promise<string | { value: string } | undefined>
   readonly branchFiles: FilesSeam["branchFiles"]
   readonly listFiles: FilesSeam["listFiles"]
+  readonly branchDiff: ReturnType<typeof createDiffFilesSeam>["branchDiff"]
   readonly openDiffFile: ReturnType<typeof createDiffFilesSeam>["openDiffFile"]
   readonly readFile: FilesSeam["readFile"]
   /* Code intelligence (docs/code-intel/PLAN.md §4): the three code.* reads against the local language server (seams/CodeIntelSeam.ts). */
@@ -627,7 +656,6 @@ export interface AppController extends IssueFlowsController {
    */
   readonly viewChange: ChangeSeam["viewChange"]
   readonly diffChange: ChangeSeam["diffChange"]
-  readonly landChange: ChangeSeam["landChange"]
   readonly resolveChangeConflict: ChangeSeam["resolveConflict"]
   readonly setChangeFacet: ChangeSeam["setFacet"]
   /* Lane L1: the live plue routes — pins, checks per revision, threads, findings, the snapshot fork. */
@@ -661,6 +689,7 @@ export interface AppController extends IssueFlowsController {
  */
 export interface AppServices {
   /** Host-owned branch authority and provider receipts; absent keeps S2 files dark. */
+  readonly documentOptions?: { channel: LiveChannel; prerequisites: DocumentPrerequisites }
   readonly branchOptions?: BranchFileOptions
   /** The page's `/api/live` channel; production supplies the tab's one channel, and a controller without it subscribes to no topic. */
   readonly live?: LiveTopics
@@ -759,7 +788,7 @@ export interface AppServices {
   readonly contextProvider?: ContextProvider
   /** Stored answer projection, supplied only with the authenticated conversation and action-capable View. */
   readonly contextLine?: (answerId: string) => Omit<ContextContainerProps, "dispatch" | "available"> | undefined
-  /** T-CAT-01 composition gate. No production provider exists yet. */
+  /** Optional host override; bundled docs are available without a backend provider. */
   readonly docsCatalogAvailable?: () => boolean
   readonly debugApiGates?: () => DebugApiGates
   readonly openApi?: () => Promise<OpenApiDocument>
@@ -877,7 +906,18 @@ export const createAppController = (
     report: (subject, error) => ctx.failures.report("seam.failure", error, subject),
     checkout: services.bootstrap?.capabilities.includes("billing.checkout") ?? false
   }
-  const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic, present: async kind => {
+  const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic ?? (services.live ? {
+    subscribe: (topic, receive, refuse) => {
+      const notify = () => {
+        const snapshot = services.live!.getSnapshot(topic)
+        if (snapshot?.error) refuse({ code: snapshot.error, class: snapshot.error === "permission" || snapshot.error === "forbidden" || snapshot.error === "unauthenticated" ? "permission" : "infra", message: "Install updates unavailable" })
+        else if (snapshot?.data !== undefined) receive(snapshot.data)
+      }
+      const stop = services.live!.subscribe(topic, notify)
+      notify()
+      return stop
+    }
+  } : undefined), present: async kind => {
       if (kind === "settings") await presentCard("settings", "Settings")
       services.presentInstallCard?.(kind)
     },
@@ -886,11 +926,35 @@ export const createAppController = (
     quietWithoutInstall: true }))
   ctx.onDispose(installSeam.dispose)
   const installHost = services.bootstrap?.capabilities.includes("install") === true
+  const setupEntry = typeof window !== "undefined" && window.location.pathname === "/setup"
   if (installHost) void installSeam.showSetup()
+  const sharedConversation = installHost ? createSharedConversationSeam(ctx, services.live) : undefined
+  const runMonitorSeam = createRunMonitorSeam({ owner: () => `${ctx.accountOwner()}:${ctx.accountEpoch}`, view: id => {
+    const card = store.collections.cards.get(`run:${id}`)
+    if (card?.kind !== "run") return undefined
+    const member = design.enabled ? design.viewer() : store.collections.identitySessions.get("identity")?.login
+    return member ? card.payload.memberViews?.[member] ?? (card.payload.memberViews === undefined ? card.payload.view : undefined) : card.payload.view
+  }, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
+  ctx.onDispose(runMonitorSeam.dispose)
+  const runMonitors = installHost || services.live ? runMonitorSeam.snapshots : undefined
   const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
+  const gitHubSyncRetry = createGitHubSyncRetry(ctx, gitHubSyncSeam)
   ctx.onDispose(gitHubSyncSeam.dispose)
+  const homeView = installHost ? createHomeViewSeam({
+    http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
+    owner: () => {
+      const identity = store.collections.identitySessions.get("identity")
+      return identity?.state === "signed-in" ? `${identity.login}:${identity.ownerRevision ?? identity.revision}` : undefined
+    },
+    subscribeOwner: notify => {
+      const subscription = store.collections.identitySessions.subscribeChanges(notify)
+      return () => subscription.unsubscribe()
+    },
+    report: error => seamCtx.report?.("Home view", error)
+  }) : undefined
+  if (homeView) ctx.onDispose(homeView.dispose)
   const externalSessionSeam = createExternalSessionSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
   ctx.onDispose(externalSessionSeam.dispose)
   /* The fast model titles the timeline's folded lines (#3732), only on a host that serves POST /api/model/stream. */
@@ -902,6 +966,13 @@ export const createAppController = (
   const membersSeam = createMembersSeam({ ready: installHost, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
   ctx.onDispose(membersSeam.dispose)
+  if (installHost) {
+    membersSeam.start()
+    // Catalog authority must load without requiring a visit to Members or
+    // Commands, and refresh when sign-in changes the authenticated viewer.
+    const membershipIdentity = store.collections.identitySessions.subscribeChanges(() => { void membersSeam.read() })
+    ctx.onDispose(() => membershipIdentity.unsubscribe())
+  }
   const membersRoster = installHost ? membersSeam.snapshots : designMembersRoster(design)
   const membersRole = (): "owner" | "maintainer" | "member" => {
     if (!installHost) return designViewerRole(design)
@@ -912,6 +983,46 @@ export const createAppController = (
   /* Flows (T-APP-05): an install reads its catalog from GET /api/flows; the seeded flows stand in only off an install. */
   const flowsSeam = createFlowsSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
   ctx.onDispose(flowsSeam.dispose)
+  const setBranchNavigationView: AppController["setBranchNavigationView"] = async patch => {
+    const current = store.session().branchNavigation
+    if (!current || current.owner !== (ctx.accountOwner() ?? null)) return
+    await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { ...current, ...patch } }).isPersisted.promise
+  }
+  const setCardTab: AppController["setCardTab"] = (id, tab) => {
+    const current = store.collections.cards.get(id)
+    if (current?.kind === "branch" && ["activity", "files", "terminals"].includes(tab)) {
+      store.dispatch({ type: "card.upsert", actor: "user", card: { ...current, payload: { ...current.payload, tab: tab as "activity" | "files" | "terminals" } } })
+    } else if (current?.kind === "flow") {
+      const member = design.enabled ? design.viewer() : store.collections.identitySessions.get("identity")?.login
+      if (!member || current.payload.memberVersions?.[member] === tab) return
+      store.dispatch({ type: "card.upsert", actor: "user", card: { ...current, payload: { ...current.payload, memberVersions: { ...current.payload.memberVersions, [member]: tab } } } })
+    }
+  }
+  const selectConversationBranch = async (name: string) => {
+    const owner = accountOwnerOf(store.collections.identitySessions.get("identity")) ?? null
+    const previous = store.session().branchNavigation
+    await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: {
+      owner, open: true, selected_branch: name, nodes: previous && previous.owner === owner ? previous.nodes : []
+    } }).isPersisted.promise
+  }
+  const openBranch: AppController["openBranch"] = installHost ? async target => {
+    if (target === "main") { await selectConversationBranch("main"); return { value: "Opened main" } }
+    try {
+      let name = target
+      if (/^T[1-9][0-9]*$/.test(target)) {
+        const todo = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/todos/${target.slice(1)}`, { credentials: "same-origin" })
+        const body = await todo.json() as { branch?: { name?: unknown }; message?: unknown }
+        if (!todo.ok || typeof body.branch?.name !== "string" || !body.branch.name) return typeof body.message === "string" ? body.message : "Branch unavailable"
+        name = body.branch.name
+      }
+      const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(name)}`, { credentials: "same-origin" })
+      const body = await response.json() as { name?: unknown; machine?: { id?: unknown }; message?: unknown }
+      if (!response.ok || typeof body.name !== "string" || typeof body.machine?.id !== "string") return typeof body.message === "string" ? body.message : "Branch unavailable"
+      await selectConversationBranch(body.name)
+      await presentCard("branch", body.name, body.machine.id)
+      return { value: `Opened ${body.name}` }
+    } catch { return "Branch unavailable" }
+  } : undefined
   const forkBranch: AppController["forkBranch"] = installHost ? async input => {
     try {
       const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches`, { credentials: "same-origin", method: "POST",
@@ -921,7 +1032,7 @@ export const createAppController = (
       return typeof body?.message === "string" ? body.message : "Branch unavailable"
     } catch { return "Branch unavailable" }
   } : undefined
-  const flowCards: AppController["flowCards"] = async () => installHost ? flowsSeam.read()
+  const flowCards: AppController["flowCards"] = async (name) => installHost ? flowsSeam.read(name)
     : flowNames(design.world()).flatMap(name => flowCardOf(design.world(), name) ?? [])
   const changeMembers: AppController["changeMembers"] = async (tag, { login, role }) => {
     if (!installHost) {
@@ -932,7 +1043,9 @@ export const createAppController = (
     const refused = await membersSeam.mutate(tag, tag === "members.remove" ? { login } : { login, role: role ?? "member" })
     return refused ? refused.message : { value: tag === "members.add" ? `Added ${login}` : tag === "members.role" ? `${login}: ${role ?? "member"}` : `Removed ${login}` }
   }
-  const presentCard = async (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
+  const presentCard = async (kind: "setup" | "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
+    if (kind === "commands" && installHost) { membersSeam.start(); await membersSeam.read() }
+    if (kind === "commands" && commands.viewerCatalog() === undefined) return "Commands unavailable"
     const id = subject === undefined ? kind : `${kind}:${subject}`
     const existing = store.collections.cards.get(id)
     const base = { id, title, status: "active" as const, createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal() }
@@ -940,18 +1053,83 @@ export const createAppController = (
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
     return `Opened ${title}`
   }
+  const { setRunView } = actors.pair(ctx, context => ({ setRunView: async (cardId: string, patch: { selected?: string; at?: number; tab?: "run" | "journal" | "custom" }): Promise<string | void> => {
+    const card = store.collections.cards.get(cardId)
+    if (card?.kind !== "run") return "This run is no longer available."
+    const member = design.enabled ? design.viewer() : store.collections.identitySessions.get("identity")?.login
+    const previous = member ? card.payload.memberViews?.[member] ?? (card.payload.memberViews === undefined ? card.payload.view : undefined) : card.payload.view
+    const view = { ...previous, ...patch }
+    await store.dispatch({ type: "card.updated", actor: context.commandActor, id: cardId,
+      patch: { kind: "run", payload: { ...card.payload, view: member ? undefined : view,
+        ...(member ? { memberViews: { ...card.payload.memberViews, [member]: view } } : {}) } }
+    }).isPersisted.promise
+    if (installHost && (patch.tab === "journal" || patch.at !== undefined)) {
+      const epoch = ctx.accountEpoch
+      void withToast(`monitor.trace:${card.payload.id}`, "Loading journal", "", async () => {
+        const error = await runMonitorSeam.trace(card.payload.id, patch.at ?? previous?.at)
+        return epoch !== ctx.accountEpoch ? TOAST_SUPERSEDED : error ?? true
+      }).catch(error => ctx.failures.report("toast.work", error, "monitor.trace"))
+    }
+  } }))
+  const contextRun = (id: string): MonitorCard | undefined => {
+    const owner = ctx.accountOwner()
+    const turn = [...store.collections.httpTurns.values()].find(row => row.turnId === id && row.owner === owner)
+    return turn === undefined ? undefined : contextMonitor(turn)
+  }
   /* THE EMBED LAW: only a person's press maximizes; the agent's binding (ActorBindings) opens the Run card embedded. */
   const { presentRun } = actors.pair(ctx, context => ({ presentRun: async (runId: string, title: string, maximize: boolean): Promise<string> => {
     const id = `run:${runId}`
     const existing = store.collections.cards.get(id)
     await store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
       id, kind: "run", title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
-      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: runId }
+      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: runId, ...(existing?.kind === "run" ? { view: existing.payload.view, memberViews: existing.payload.memberViews } : {}) }
     } }).isPersisted.promise
     const inspect = maximize && context.commandActor === "user"
     if (inspect) maximizeCard(id)
     return inspect ? `Inspecting ${title}` : `Opened ${title}`
   } }))
+  const monitorLists = new Map<number, Promise<unknown>>()
+  const { openRunMonitor, listRunMonitors } = actors.pair(ctx, (context, select) => ({
+    openRunMonitor: async (id: string, maximize: boolean): Promise<string | { readonly value: string } | void> => {
+      const stored = contextRun(id)
+      if (stored) return { value: await select(presentRun)(stored.id, stored.title, maximize) }
+      if (installHost) return { value: await select(presentRun)(id, id, maximize) }
+      const trace = traceNamed(design.world(), id)
+      if (trace) return { value: await select(presentRun)(trace.id, trace.title, maximize) }
+      return runMonitors ? { value: await select(presentRun)(id, id, maximize) } : `No run ${id}`
+    },
+    listRunMonitors: async (): Promise<string | { readonly value: string } | void> => {
+      if (!installHost && !services.live) {
+        for (const trace of design.world().traces) await select(presentRun)(trace.id, trace.title, false)
+        return
+      }
+      const epoch = ctx.accountEpoch
+      const owner = ctx.accountOwner()
+      if (monitorLists.has(epoch)) return { value: "Requested" }
+      const work = withToast("monitor.list", "Loading runs", "", async () => {
+        const runs = await runMonitorSeam.list()
+        if (ctx.disposed || epoch !== ctx.accountEpoch || owner !== ctx.accountOwner()) return TOAST_SUPERSEDED
+        if (!runs && !installHost) {
+          for (const trace of design.world().traces) await select(presentRun)(trace.id, trace.title, false)
+          return true
+        }
+        if (!runs) return "Runs unavailable"
+        for (const run of runs) {
+          const existing = store.collections.cards.get(`run:${run.id}`)
+          if (ctx.disposed || epoch !== ctx.accountEpoch || owner !== ctx.accountOwner()) return TOAST_SUPERSEDED
+          await store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
+            id: `run:${run.id}`, kind: "run", title: run.title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
+            ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: run.id, view: existing?.kind === "run" ? existing.payload.view : undefined, memberViews: existing?.kind === "run" ? existing.payload.memberViews : undefined }
+          } }).isPersisted.promise
+        }
+        return true
+      })
+      monitorLists.set(epoch, work)
+      void work.finally(() => { if (monitorLists.get(epoch) === work) monitorLists.delete(epoch) })
+        .catch(error => ctx.failures.report("toast.work", error, "monitor.list"))
+      return { value: "Requested" }
+    }
+  }))
   const presentBranchCard = async (kind: "branch" | "terminal", subject: string, title: string): Promise<string> => {
     const id = `${kind}:${subject}`
     const existing = store.collections.cards.get(id)
@@ -964,7 +1142,7 @@ export const createAppController = (
   const presentSubject = async (card: Pick<Card, "id" | "kind" | "title" | "payload">): Promise<string> => {
     const existing = store.collections.cards.get(card.id)
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
-      ...card, status: "active", createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal()
+      ...card, ...(card.kind === "flow" && existing?.kind === "flow" ? { payload: { ...card.payload, memberVersions: existing.payload.memberVersions } } : {}), status: "active", createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal()
     } as Card }).isPersisted.promise
     return `Opened ${card.title}`
   }
@@ -973,16 +1151,65 @@ export const createAppController = (
     const existing = store.collections.cards.get(id)
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
       id, kind: "flow", title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
-      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: version === undefined ? { name } : { name, version }
+      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { name, ...(version === undefined ? {} : { version }), ...(existing?.kind === "flow" ? { memberVersions: existing.payload.memberVersions } : {}) }
     } }).isPersisted.promise
     return `Opened ${title}`
   }
   /* MOCK SEAM: the seed answers TODO and Draft flows until this host serves /api/todos (todoSourceProbe). */
   const todoSource = installHost ? { known: () => "real" as const, ask: () => Promise.resolve("real" as const) } : todoSourceProbe(seamCtx, services.bootstrap !== undefined)
-  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
+  const flowSourceBranch = async (context: SeamContext, n: number) => {
+    const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/todos/${n}`, { credentials: "include" })
+    if (!response.ok) return { error: "Could not open the TODO." } as const
+    const model = TodoCardSchema.safeParse(await response.json())
+    return !model.success || model.data.n !== n || !model.data.branch
+      ? { error: "Branch files are unavailable." } as const : { branch: model.data.branch.id } as const
+  }
+  const proposalSource = installHost ? todoSource : todoSourceProbe(seamCtx, services.bootstrap !== undefined, "/api/proposals")
+  const proposalSeam = actors.pair(seamCtx, context => {
+    const real = createProposalSeam(context)
+    return { ...real, openProposal: async (id: string) => {
+      const seed = design.enabled && proposalSource.known() !== "real" ? design.world().proposals.find(row => row.id === id) : undefined
+      if (seed) return { value: await presentSubject({ id: `proposal:${id}`, kind: "proposal", title: seed.title,
+        payload: { id, model: designProposalCard(design.world(), seed) } }) }
+      return real.openProposal(id)
+    }, resolveProposal: async (id: string, action: "accept" | "dismiss") => {
+      if (design.enabled && await proposalSource.ask() === "seed") {
+        const before = design.world(), seed = before.proposals.find(row => row.id === id)
+        const result = action === "accept" ? design.proposalTodo(id, design.viewer()) : design.dismissProposal(id)
+        const card = store.collections.cards.get(`proposal:${id}`)
+        if (result.ok && seed && card?.kind === "proposal") {
+          const after = design.world(), current = after.proposals.find(row => row.id === id)
+          const model = action === "dismiss" ? { ...designProposalCard(before, seed), state: "dismissed" as const }
+            : designProposalCard(after, current ?? seed)
+          await context.dispatch({ type: "card.upsert", actor: context.actor(), card: { ...card, payload: { ...card.payload, model } } }).isPersisted.promise
+        }
+        return result.ok ? { value: result.ack } : result.refusal
+      }
+      return real.resolveProposal(id, action)
+    } }
+  })
+  const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { sourceAvailable: async path => {
+    try {
+      const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/branches/main/files/${path.split("/").map(encodeURIComponent).join("/")}`, { credentials: "include" })
+      // A built-in has no override file yet; a missing file is a served read, not missing infrastructure.
+      return response.ok || response.status === 404
+    } catch { return false }
+  }, openSource: async (n, path, live) => {
+    const source = await flowSourceBranch(context, n)
+    if (!live() || source.branch === undefined) return false
+    // Wait for derivation on the machine. The host only reads the produced file.
+    const file = await context.http(`${baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(source.branch)}/files/${path.split("/").map(encodeURIComponent).join("/")}`, { credentials: "include" })
+    if (!live() || !file.ok) return false
+    const opened = await filesSeam.readFile(path, undefined, undefined, source.branch)
+    return opened !== undefined && typeof opened !== "string"
+  }, topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
     const snapshot = services.live!.getSnapshot(topic)
     if (snapshot?.data !== undefined) receive(snapshot.data)
   }) } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
+  if (installHost) ctx.onDispose(todoSeam.list.subscribe(() => {}))
+  const confirmations = createConfirmationSeam(seamCtx, { ready: installHost && services.applicationTarget?.auth.kind !== "bearer",
+    live: services.live, observe: todoSeam.observeConfirmation, debounceMs: ctx.toastDebounceMs })
+  ctx.onDispose(confirmations.dispose)
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
@@ -1003,18 +1230,6 @@ export const createAppController = (
   /* The services that sync with conversations, issues and the wiki (smithers-ui-DESIGN.md §3.6). */
   const landingsSeam = actors.pair(seamCtx, (context, select) => createLandingsSeam(context, request => select(renderFlowForm)(request)))
   const repositoriesSeam = actors.pair(seamCtx, (context) => createRepositoriesSeam(context))
-  const tutorialRepository = actors.pair(ctx, (context) => createTutorialRepositoryController(context, {
-    createRepository: repositoriesSeam.createRepository,
-    publish: async (payload) => {
-      const id = "repository-choice"
-      const existing = context.store.collections.cards.get(id)
-      await context.store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
-        id, kind: "repository-choice", title: "Repository", status: "active",
-        createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal(),
-        payload: { ...payload, repositories: [...payload.repositories] }
-      } }).isPersisted.promise
-    }
-  }))
   const billingSeam = actors.pair(seamCtx, context => createBillingSeam(context, {
     overview: services.bootstrap?.capabilities.includes("billing.overview") ?? false,
     plans: services.bootstrap?.capabilities.includes("billing.plans") ?? false,
@@ -1022,8 +1237,11 @@ export const createAppController = (
     portal: services.bootstrap?.capabilities.includes("billing.portal") ?? false
   }, () => ctx.disposed))
   const repositoryUpdate = actors.pair(seamCtx, context => createRepositoryUpdate(context, () => ctx.disposed))
-  const environmentSeam = actors.pair(seamCtx, (context) => createEnvironmentSeam(context))
-  const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast))
+  const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast, { install: installHost, live: services.live, onDispose: ctx.onDispose,
+    fallback: !installHost && services.bootstrap !== undefined ? {
+      rows: () => designSecrets(design).rows().map(secret => ({ name: secret.name, mainOnly: secret.scope === "main only", hosts: [], matchHeaders: [], updatedAt: null, reconnect: false })),
+      set: (name, scope) => designSecrets(design).set(name, scope === "main_only" ? "main only" : "all branches"), remove: name => designSecrets(design).remove(name)
+    } : undefined }))
   /* A registration is a launched flow run: it rides the app's own run watch and the shared toast stack. */
   const triggersSeam = actors.pair(seamCtx, (context, select) => createTriggersSeam(context, {
     requestRun: (repo, slug, operation) => select(workflowController).requestTriggerRun(repo, slug, operation),
@@ -1032,10 +1250,41 @@ export const createAppController = (
     withToast
   }))
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))
-  const bookmarksSeam = actors.pair(seamCtx, (context) => createBookmarksSeam(context))
-  const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
-  const diffFilesSeam = actors.pair(seamCtx, createDiffFilesSeam)
-  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions))
+  const bookmarksSeam = actors.pair(seamCtx, (context) => createBranchNavigationSeam(context, design, { live: services.live, onDispose: ctx.onDispose }))
+  const branchFileOptions = services.branchOptions ?? (installHost ? {
+    ready: () => true,
+    scope: (branch = "main") => {
+      const identity = store.collections.identitySessions.get("identity")
+      if (identity?.state !== "signed-in" || !identity.login) return null
+      // The server authorizes each operation; this fences in-flight answers on sign-out.
+      return { branch, member: identity.login, revision: 1, sleeping: false }
+    }
+  } : undefined)
+  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
+  const readFlowSource: AppController["readFlowSource"] = actors.pair(seamCtx, (context, select) => ({
+    read: async (n: number, path: string) => {
+      const read = select(filesSeam.readFile)
+      try {
+        const source = await flowSourceBranch(context, n)
+        return source.branch === undefined ? source.error : read(path, undefined, undefined, source.branch)
+      } catch { return "Branch files are unavailable." }
+    }
+  })).read
+  const installDiffReader = installHost ? createBranchDiffReader(ctx).readBranchDiff : undefined
+  const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles, installDiffReader))
+  const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles, { storage: store.documentRecoveryStorage, member: () => store.collections.identitySessions.get("identity")?.login?.toLowerCase() }) : undefined
+  ctx.onDispose(() => fileDocuments?.dispose())
+  const { recoverFile } = actors.pair(seamCtx, context => ({
+    recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string, branch?: string) => fileDocuments?.has(path, branch) ? fileDocuments.recover(tag, path, async (file, from) => {
+      const old = [...store.collections.cards.values()].find(card => card.kind === "file" && (card.payload.file?.branch ?? card.payload.ref ?? card.payload.repo) === file.branch && card.payload.path === from)
+      if (old?.kind !== "file") return
+      await context.dispatch({ type: "card.navigated", actor: context.actor(), card: { ...old, title: `${file.path} · ${old.payload.repo}`, payload: {
+        ...old.payload, file, path: file.path, ref: file.branch, digest: file.digest,
+        content: file.content.kind === "binary" ? "" : file.content.text, binary: file.content.kind === "binary", truncated: false,
+        readAt: undefined, line: undefined, column: undefined, hover: undefined, diagnostics: undefined, diagnosticsTotal: undefined, intel: undefined
+      } } }).isPersisted.promise
+    }, branch) : Promise.resolve(undefined)
+  }))
   const repoTreeSeam = actors.pair(seamCtx, (context) => createRepoTreeSeam(context))
 
   const gitHubSeam = actors.pair(seamCtx, (context) => createGitHubSeam(context, {
@@ -1116,6 +1365,9 @@ export const createAppController = (
   let installStepsDone: readonly string[] | undefined
   ctx.onDispose(installSeam.snapshots.subscribe(() => {
     const model = installSeam.snapshots.get().model
+    if (model && (model.steps.some(step => step.state !== "done") || setupEntry) && !store.collections.cards.has("setup")) {
+      void presentCard("setup", "Setup").catch(cause => ctx.failures.report("seam.failure", cause, "setup"))
+    }
     if (!installHost || model === undefined || !model.github.signed_in) return
     const done = model.steps.flatMap(step => step.state === "done" ? [step.id] : [])
     if (done.join() === installStepsDone?.join()) return
@@ -1145,6 +1397,7 @@ export const createAppController = (
   } = actors.pair(ctx, createPresentationController)
 
   const conversationHistory = createConversationHistoryController(ctx)
+  const earlierHistory = createEarlierHistoryController(ctx)
   const {
     maximizeCard,
     minimizeCard,
@@ -1162,7 +1415,9 @@ export const createAppController = (
   }))
   const {
     listAgents,
-  } = actors.pair(ctx, (context) => createAgentsController(context, { nextOrdinal: store.nextOrdinal }))
+    assignAgentModel,
+  } = actors.pair(ctx, (context, select) => createAgentsController(context, { nextOrdinal: store.nextOrdinal, install: installHost, live: services.live, refreshSettings: select(installSeam).readInstall }))
+  const { newModel, editModel, saveModel, removeModel, testModel, showModel } = actors.pair(ctx, (context, select) => createModelsController(context, { renderFlowForm: select(renderFlowForm), listAgents: select(listAgents) }))
   const { toggleRepoTree,} = actors.pair(ctx, (context, select) => createSidebarController(context, select(repoTreeSeam)))
   const socketProtocols = services.socketProtocols ?? localSocketProtocols
   createHealthStatusController(ctx)
@@ -1177,6 +1432,22 @@ export const createAppController = (
       : { authorizeSocket: services.authorizeSocket })
   })
   ctx.onDispose(cloudTerminal.dispose)
+  const terminalProvider = installHost && services.live ? createTerminalSource({
+    live: services.live,
+    knownBranches: () => [...store.collections.cards.values()].flatMap(card => card.kind === "branch" ? [card.payload.id] : []),
+    subscribeViewer: listener => {
+      const subscription = store.collections.identitySessions.subscribeChanges(listener)
+      return () => subscription.unsubscribe()
+    },
+    repo: () => store.session().repositoryEntry?.repo ?? "",
+    viewer: () => {
+      const identity = store.collections.identitySessions.get("identity")
+      return identity?.state === "signed-in" ? identity.login ?? undefined : undefined
+    },
+    http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init)
+  }) : undefined
+  if (terminalProvider) ctx.onDispose(terminalProvider.dispose)
+
   /*
    * Lane L6: the workspace language-server transport (plue #505), one socket
    * per (workspace, language) through the same tunnel the cloud terminal
@@ -1239,7 +1510,7 @@ export const createAppController = (
     send,
     reset,
     stop,
-    decideApproval,
+    decideApproval: decideRunApproval,
     retryLastTurn
   } = createTurnController(ctx, {
     settleTurnBilling,
@@ -1248,11 +1519,19 @@ export const createAppController = (
     forwardApprovalDecision,
     forwardInboxApprovalDecision
   })
+  const sharedPrompts = sharedConversation ? createSharedPrompts(ctx, sharedConversation) : undefined
   const promptQueue = createPromptQueueController(ctx, send)
-  const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
+  const decideApproval: typeof decideRunApproval = (id, decision, answer, question) => {
+    if (id.startsWith("confirmation:")) {
+      if (answer === undefined) confirmations.decide(id.slice("confirmation:".length), decision)
+      return
+    }
+    decideRunApproval(id, decision, answer, question)
+  }
+  const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts } = promptQueue
   const cloudWiki = actors.pair(ctx, (context) => createCloudWikiController(context, store.nextOrdinal))
   const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor,
-    setWikiSpace, setWikiPageView, loadWikiIndex, readWikiForPane, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
+    setWikiSpace, setWikiPageView, loadWikiIndex, readWikiForPane, openWikiPage, showWikiHistory, createCloudWikiPage, saveWikiAnswer, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
   const selectRepo: TabsController["selectRepo"] = async (key) => {
     const result = await selectRepoOnly(key)
     if (result === undefined && store.session().surface === "world") void readWikiForPane()
@@ -1277,7 +1556,7 @@ export const createAppController = (
   const debugApi = createDebugApiSeam({
     document: services.openApi ?? bundledOpenApi, fetch: (url, init) => ctx.boundedFetch(url, { ...init, [UNRECORDED_NET]: true } as UnrecordedInit),
     origin: services.debugApiOrigin ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin),
-    gates: services.debugApiGates ?? (() => ({ view: true, catalog: false, authorizer: false }))
+    gates: services.debugApiGates ?? (() => ({ view: true, catalog: debugApiOperation.name === "debug.api", authorizer: services.bootstrap?.capabilities.includes("debug.api") === true }))
   })
   ctx.onDispose(debugApi.dispose)
   ctx.onDispose(ctx.onAccountChange(debugApi.endAccount))
@@ -1312,7 +1591,7 @@ export const createAppController = (
       return () => !context.disposed && context.accountEpoch === epoch
     }, () => context.commandActor))
   const { docsTargetAvailable, docsAvailable, openDocsPage, readDocsPage } = actors.pair(ctx, (context) =>
-    createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => false) }))
+    createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => true) }))
 
   const { askWorldDelete } = actors.pair(ctx, (_context, select) => ({
     askWorldDelete: (id: string): string | void => {
@@ -1456,6 +1735,7 @@ export const createAppController = (
     await store.dispatch({ type: "message.response.completed", actor: "smithers", turnId, ...context }).isPersisted.promise
   }
   const designSend: TurnController["send"] = (text, admission, capturedDraft) => {
+    if (sharedPrompts && parseSubmit(text, ctx.commands.all()).kind === "prompt") return sharedPrompts.submit(text, capturedDraft)
     const viewer = design.viewer()
     const turn = admission === undefined && !text.trimStart().startsWith("/") && store.session().phase === "idle"
       ? (() => {
@@ -1592,17 +1872,6 @@ export const createAppController = (
   }
   // A registration still importing or launching reconnects with the runs, after boot and sign-in.
 
-  /*
-   * The account card (mock 21): seam facts about the signed-in person, or the
-   * sign-in step when no one is, through auth.prompt's renderer.
-   */
-  const account = actors.pair(ctx, (context) =>
-    createAccountController(context, {
-      nextOrdinal: store.nextOrdinal, promptSignIn,
-      provider: identityProviderFor(services),
-      readsScopes: services.applicationIdentity === undefined
-    }))
-
   const reloadApp = (): void => {
     if (typeof window !== "undefined") window.location.reload()
   }
@@ -1720,10 +1989,16 @@ export const createAppController = (
    * embedded cards and record via:"agent", never user chrome.
    */
   const commandActions: CommandActions = {
+    recoverFile,
     live: services.live,
     startAgent,
     design,
     presentCard,
+    runMonitors,
+    openRunMonitor,
+    listRunMonitors,
+    setRunView,
+    contextRun,
     presentRun,
     presentFlow,
     presentSubject,
@@ -1734,11 +2009,17 @@ export const createAppController = (
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
     setInstallCapacity: capacity => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
     setInstallObsidian: installSeam.setInstallObsidian,
+    setInstallPreapproveDefault: value => installSeam.setInstallPreapproveDefault(value),
+    setInstallDailyAdmissions: value => installSeam.setInstallDailyAdmissions(value),
     setInstallParallel: parallel => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
     saveInstallModelKey: installSeam.saveInstallModelKey,
     showMembers,
     changeMembers,
     flowCards,
+    selectConversationBranch,
+    setBranchNavigationView,
+    setCardTab,
+    ...(openBranch ? { openBranch } : {}),
     ...(forkBranch ? { forkBranch } : {}),
     promptStorageRecovery,
     exportStorageRecovery,
@@ -1753,9 +2034,11 @@ export const createAppController = (
     debugReset,
     askReset,
     cancelReset,
-    stop,
+    stop: sharedPrompts?.stop ?? stop,
     send: designSend,
-    enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue,
+    enqueuePrompt: sharedPrompts ? (text, draftCurrent) => { void designSend(text, undefined, draftCurrent) } : enqueuePrompt,
+    removeQueuedPrompt: sharedPrompts ? (id, edit) => { void sharedPrompts.remove(id, edit) } : removeQueuedPrompt,
+    restoreQueuedPrompts: sharedPrompts?.restore ?? restoreQueuedPrompts,
     showChat,
     showWorld,
     showWikiPane: () => {
@@ -1796,7 +2079,9 @@ export const createAppController = (
     setWikiPageView,
     loadWikiIndex,
     showWikiHistory,
+    openWikiPage,
     createCloudWikiPage,
+    saveWikiAnswer,
     renameCloudWikiPage,
     deleteCloudWikiPage,
     attachCloudWiki,
@@ -1804,7 +2089,7 @@ export const createAppController = (
     setWikiCardView,
     decideApproval,
     answerApproval: (id: string, answer: unknown, question?: string) => decideApproval(id, "approved", answer, question),
-    retryLastTurn,
+    retryLastTurn: sharedPrompts?.retry ?? retryLastTurn,
     openBrowser,
     ...issueFlows,
     createWorkflow,
@@ -1823,7 +2108,6 @@ export const createAppController = (
     continueRun: runs.continueRun,
     rerunRun: runs.rerunRun,
     signalRun: runs.signalRun,
-    steerRun: runs.steerRun,
     showRunLogs: runs.showRunLogs,
     showRunSteps: runs.showRunSteps,
     showRunEvents: runs.showRunEvents,
@@ -1841,19 +2125,31 @@ export const createAppController = (
     stopAllRuns: runs.stopAllRuns,
     listApprovals: runs.listApprovals,
     openApproval: runs.openApproval,
-    maximizeCard,
-    minimizeCard,
+    maximizeCard: id => {
+      const shared = sharedConversation?.get()
+      if (shared?.conversation?.entries.some(turn => "frames" in turn && turn.frames.some(frame => frame.type === "card" && frame.card.id === id))) {
+        void sharedConversation!.saveView({ card_view: { [id]: "maximized" } })
+        return
+      }
+      return maximizeCard(id)
+    },
+    minimizeCard: () => {
+      if (sharedConversation?.get().view?.card_view) void sharedConversation.saveView({ card_view: {} })
+      minimizeCard()
+    },
     frameBack,
     frameForward,
-    ...tutorialRepository,
     selectRepo,
     toggleRepoTree,
+    newModel, editModel, saveModel, removeModel, testModel, showModel,
     listAgents,
+    assignAgentModel,
     renderFlowForm,
     setFormField: todoForms.setFormField,
     submitForm,
     dismissCard,
     cloudTerminal,
+    terminalCards: terminalProvider?.source,
     toggleDevtools,
     moveCardHistory: (id, delta) => { store.dispatch({ type: "card.history.moved", actor: ctx.commandActor, id, delta }) },
     toggleDictation,
@@ -1899,7 +2195,6 @@ export const createAppController = (
       if (ctx.disposed || privacyActions.refuse(ctx.commandActor) !== undefined) return
       store.dispatch({ type: "hint.dismissed", actor: ctx.commandActor, id })
     },
-    showAccount: account.showAccount,
     listIssues: issuesSeam.listIssues,
     viewIssue: issuesSeam.viewIssue,
     issueWriteTarget: issuesSeam.issueWriteTarget,
@@ -1912,20 +2207,14 @@ export const createAppController = (
     listLandings: landingsSeam.listLandings,
     viewLanding: landingsSeam.viewLanding,
     setLandingTab: landingsSeam.setTab,
-    landLanding: landingsSeam.landLanding,
     reviewLanding: landingsSeam.reviewLanding,
     showBillingPlans: billingSeam.showBillingPlans,
     startCheckout: billingSeam.startCheckout,
     openBillingPortal: billingSeam.openBillingPortal,
     ...repositoryUpdate,
-    viewEnvironment: environmentSeam.viewEnvironment,
-    setEnvironmentVar: environmentSeam.setEnvironmentVar,
-    removeSubscriptionToken: environmentSeam.removeSubscriptionToken,
-    connectCodingProvider: secretsSeam.connectCodingProvider,
-    listCodingProviders: secretsSeam.listCodingProviders,
-    revokeCodingProvider: secretsSeam.revokeCodingProvider,
-    connectCodex: secretsSeam.connectCodex,
-    moveCodingProvider: secretsSeam.moveCodingProvider,
+    viewEnvironment: async () => installSeam.showSettings(),
+    setEnvironmentVar: async () => installSeam.showSettings(),
+    removeSubscriptionToken: async () => installSeam.showSettings(),
     listSecrets: secretsSeam.listSecrets,
     scopeSecret: secretsSeam.scopeSecret,
     bindSecret: secretsSeam.bindSecret,
@@ -1936,7 +2225,10 @@ export const createAppController = (
     setStackParallel: stackSeam.setStackParallel,
     retryStackItem: stackSeam.retryStackItem,
     newTodo: todoSeam.newTodo,
+    newFlowSourceTodo: todoSeam.newFlowSourceTodo,
     showTodo: todoSeam.showTodo,
+    readFlowSource,
+    preapproveTodo: todoSeam.preapproveTodo,
     mergeTodo: todoSeam.mergeTodo,
     reviewTodoMerge: todoSeam.reviewMerge,
     todoRoute: todoSeam.todoRoute,
@@ -1944,19 +2236,24 @@ export const createAppController = (
     answerTodo: todoSeam.answerTodo,
     steerTodo: todoSeam.steerTodo,
     amendTodo: todoSeam.amendTodo,
+    draftImagePackage: todoSeam.draftImagePackage,
+    bringIn: todoSeam.bringIn,
+    discardForeign: todoSeam.discardForeign,
     controlTodo: todoSeam.controlTodo,
+    openProposal: proposalSeam.openProposal,
+    resolveProposal: proposalSeam.resolveProposal,
     moveTodo: todoSeam.moveTodo,
     refreshWiki: stackSeam.refreshWiki,
     registerTrigger,
     importRepository: repoImportSeam.importRepository,
     retryImport: repoImportSeam.retryImport,
-    listBookmarks: bookmarksSeam.listBookmarks,
-    listCommits: commitsSeam.listCommits,
-    readCommit: commitsSeam.readCommit,
+    listBookmarks: async () => { earlierHistory.load(); return bookmarksSeam.listBookmarks() },
     branchFiles: filesSeam.branchFiles,
     listFiles: filesSeam.listFiles,
     ...diffFilesSeam,
-    readFile: filesSeam.readFile,
+    // Before branch providers are composed, read from the authenticated mirror.
+    // An absent live-branch scope must not disable Source-ready file cards.
+    readFile: installHost && branchFileOptions !== undefined ? (path, branch, anchor, ref) => ref === undefined && filesSeam.branchFiles.available() ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
     codeHover,
     codeDefinition,
     codeDiagnostics,
@@ -1969,7 +2266,7 @@ export const createAppController = (
     githubChooseInstallation: gitHubSeam.chooseInstallation,
     githubOpenInstall: gitHubSeam.openInstall,
     githubReconcile: gitHubSeam.reconcile,
-    retryGitHubSync: gitHubSyncSeam.retry,
+    retryGitHubSync: gitHubSyncRetry.retry,
     retryMirrorRef: gitHubSeam.retryMirrorRef,
     githubMirrorSync: gitHubSeam.mirrorSync,
     loadCloudSession,
@@ -1995,8 +2292,7 @@ export const createAppController = (
     listSessionEgress: egressSeam.listSessionEgress,
     allowEgressHost: egressSeam.allowEgressHost,
     viewChange: changeSeam.viewChange,
-    diffChange: changeSeam.diffChange,
-    landChange: changeSeam.landChange,
+    diffChange: installHost ? branch => diffFilesSeam.branchDiff(branch) : changeSeam.diffChange,
     resolveChangeConflict: changeSeam.resolveConflict,
     setChangeFacet: changeSeam.setFacet,
     setChangePins: changeSeam.setPins,
@@ -2038,8 +2334,11 @@ export const createAppController = (
       const catalogRefused = entry?.phase === "failed" && entry.failureKind === "not-public" && (
         requestedRepo === undefined || requestedRepo.toLowerCase() === entry.repo.toLowerCase()
       )
+      const roster = membersSeam.snapshots.get()
+      const viewer = roster.model?.members.find(member => member.login.toLowerCase() === identity?.login?.toLowerCase())
       return {
         repositoryReadiness,
+        viewerRole: installHost ? identity?.state === "signed-in" && roster.error === undefined && viewer?.suspended === false && viewer.needs_access === false ? viewer.role : undefined : membersRole(),
         surface: store.session().surface,
         typing: store.session().phase === "responding",
         // Sign-in IS the GitHub connector (§2a′): a valid session means
@@ -2075,7 +2374,11 @@ export const createAppController = (
     }
   }
   const registry = createCommandRegistry(commandActions, actors.select(commandActions), createCommandIntentLifecycle(ctx, () => {
-  }, inputMode.setInputMode, prepareWorldDocument))
+  }, inputMode.setInputMode, prepareWorldDocument), (id, revision) => {
+    const message = store.collections.messages.get(id)
+    if (!message?.action || message.answeredAction || message.action.revision !== revision) return undefined
+    return { name: message.action.flow, ...(message.action.args === undefined ? {} : { args: message.action.args }) }
+  })
   /*
    * The user's one door (slash, button, pill, form submit) also answers the
    * standing recommendation: the recommender reports the dispatched flow as
@@ -2114,12 +2417,13 @@ export const createAppController = (
     if (card.loading) store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, loading: false, status: "error", body: "Loading was interrupted. Open this view again to retry." } })
   }
 
+  gitHubSyncRetry.resume()
   triggersSeam.resumePauses()
   triggersSeam.resumePreparations()
   repoImportSeam.resume()
-  secretsSeam.resumeCodingProviders()
   secretsSeam.resumeSecretRequests()
   egressSeam.resumeEgressRequests()
+  proposalSeam.resumeProposals()
   todoSeam.resumeTodos()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
@@ -2130,10 +2434,10 @@ export const createAppController = (
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
     workflowController.resumeWorkflowRequests()
+    gitHubSyncRetry.resume()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
-    queueMicrotask(() => { if (!ctx.disposed) { account.resumeAccount() } })
     repositoryReadiness.resume()
     repoImportSeam.resume()
     runs.resumeApprovalRequests()
@@ -2145,12 +2449,12 @@ export const createAppController = (
   ctx.onDispose(() => setupIdentitySubscription.unsubscribe())
   const importCloudSubscription = store.collections.cloudSessions.subscribeChanges(() => {
     repoImportSeam.resume()
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
-  subscribeToAgent()
+  if (!sharedPrompts) subscribeToAgent()
   conversationHistory.resume()
-  promptQueue.subscribe()
+  if (!sharedPrompts) promptQueue.subscribe()
   observeBackgroundWork(ctx)
   // Material transitions regenerate the next-step pills through the `recommend` flow.
   // The active repository's flow catalog, read now and on every change of target, so its leaves are in the registry.
@@ -2204,6 +2508,7 @@ export const createAppController = (
   const { snapshot: _snapshot, ...sharedActions } = commandActions
   return {
     ...sharedActions,
+    fileDocuments,
     store,
     privacyNotices: privacyActions.notices,
     controlFocus,
@@ -2216,6 +2521,8 @@ export const createAppController = (
     membersRoster,
     membersRole,
     flowCatalog: installHost ? flowsSeam.snapshots : undefined,
+    homeView,
+    sharedConversation,
     todoList: todoSeam.list,
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
     externalSession: externalSessionSeam.session,
@@ -2224,6 +2531,11 @@ export const createAppController = (
     design,
     live: services.live,
     presentCard,
+    runMonitors,
+    openRunMonitor,
+    listRunMonitors,
+    setRunView,
+    contextRun,
     presentRun,
     presentFlow,
     presentBranchCard,

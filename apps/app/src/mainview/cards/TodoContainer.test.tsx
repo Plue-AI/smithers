@@ -14,7 +14,7 @@ import type { AppController } from "../state/AppController"
 import { BEN, createDesignWorld } from "../state/seams/DesignWorld"
 import { createRoot } from "./views/testDom"
 
-const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maintainer", answerDraft?: string) => {
+const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maintainer", answerDraft?: string, availableActions?: readonly CatalogTag[]) => {
   let props!: TodoViewProps
   const dispatches: { tag: CatalogTag; input: unknown }[] = []
   const patches: unknown[] = []
@@ -22,20 +22,23 @@ const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maint
     payload: { n: model.n, model, requests: [], answerDraft, answeredBy: answerDraft ? "maya" : undefined } }
   const View = (value: TodoViewProps) => { props = value; return null }
   renderToStaticMarkup(<TodoContainer card={card} role={role} View={View} view={{ maximized: true, tab: "evidence" }}
-    onView={patch => patches.push(patch)} dispatch={(tag, input) => { dispatches.push({ tag, input }) }} />)
+    onView={patch => patches.push(patch)} availableActions={availableActions} dispatch={(tag, input) => { dispatches.push({ tag, input }) }} />)
   return { props, dispatches, patches }
 }
 describe("TODO Container", () => {
   test("a queued TODO without an admitted branch renders and has no Open branch action", () => {
     const model = TodoCardSchema.parse({ ...fixtures.queued.model, branch: undefined })
     const h = mount(model)
-    expect(h.props.actions.some(action => action.tag === "branch")).toBe(false)
+    expect(h.props.actions.some(action => action.tag === "branch" || action.tag === "branch.fork")).toBe(false)
     expect(renderToStaticMarkup(<TodoView {...h.props} />)).toContain(model.title)
   })
   test("maps every schema fixture, including past attempts and repairs, without owning presentation", () => {
     for (const model of Object.values(fixtures).map(story => story.model)) {
       const h = mount(model)
-      expect(h.props.model).toEqual(TodoCardSchema.parse(model))
+      const expected = TodoCardSchema.parse(model)
+      expect({ ...h.props.model, waits: [] }).toEqual({ ...expected, waits: [] })
+      expect(h.props.model.waits.map(({ actions: _, ...wait }) => wait)).toEqual(expected.waits.map(({ actions: _, ...wait }) => wait))
+      for (const wait of h.props.model.waits) for (const action of wait.actions) expect(action.args?.wait).toBe(wait.id)
       expect(h.props.view).toEqual({ maximized: true, tab: "evidence" })
       h.props.onView({ tab: "prompt", maximized: false })
       expect(h.patches).toEqual([{ tab: "prompt", maximized: false }])
@@ -151,10 +154,57 @@ test("independent answer waits dispatch their own IDs even after another answer"
   for (const action of actions) late.props.onAction(action.tag, { ...action.args, answer: "Yes" })
   expect(late.dispatches.map(each => each.tag)).toEqual(["todo.answer", "todo.answer"])
 })
-test("one actions row: Open branch, Inspect, Steer and Amend as plain buttons, Drop; the only form is the wait's Answer", () => {
+test("unavailable card and wait actions are absent and cannot dispatch", () => {
+  const model: TodoCard = { ...fixtures.foreign_push.model, waits: [...fixtures.foreign_push.model.waits, ...fixtures.needs_you.model.waits] }
+  const h = mount(model, "member", undefined, ["todo.answer", "todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.actions.map(action => action.tag)).toEqual(["todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.model.waits[0]!.actions).toEqual([])
+  expect(h.props.model.waits[1]!.actions[0]!.args?.wait).toBe("wait-question-1")
+  for (const tag of ["branch", "branch.bring-in", "branch.discard-foreign", "todo.stop", "todo.resume"] as const) h.props.onAction(tag)
+  expect(h.dispatches).toEqual([])
+  const markup = renderToStaticMarkup(<TodoView {...h.props} />)
+  expect(markup).not.toMatch(/>Bring in<|>Discard<|>Open branch<|>Stop<|>Resume</)
+  expect(markup).toContain("Answer")
+})
+test("REST waits with no action args gain independent bindings at the actual View boundary", async () => {
+  const first = { ...fixtures.needs_you.model.waits[0]!, id: "first", actions: [{ tag: "todo.answer" as const, label: "Answer", input: [{ name: "answer", label: "Answer", kind: "text" as const, required: true, multiline: true }] }] }
+  const second = { ...first, id: "second", prompt: "Second question" }
+  const model = { ...fixtures.needs_you.model, waits: [first, second] }
+  const h = mount(model)
+  const host = document.body.appendChild(document.createElement("div")), root = createRoot(host)
+  try {
+    await act(async () => root.render(<TodoView {...h.props} />))
+    for (const [index, field] of [...host.querySelectorAll<HTMLTextAreaElement>("textarea")].entries()) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, index === 0 ? "First answer" : "Second answer")
+        field.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      await act(async () => field.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+    }
+    expect(h.dispatches).toEqual([
+      { tag: "todo.answer", input: { n: 12, wait: "first", answer: "First answer" } },
+      { tag: "todo.answer", input: { n: 12, wait: "second", answer: "Second answer" } },
+    ])
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+test("a supplied conflict terminal and Done retain their wait through the Container and View", async () => {
+  const model = { ...fixtures.conflict.model, waits: [{ ...fixtures.conflict.model.waits[0]!, actions: [
+    { tag: "todo.answer" as const, label: "Done", args: { answer: "done" } },
+  ] }] }
+  const card: TodoEntry = { id: "todo:12", kind: "todo", title: "Repair", status: "active", createdAt: 1, ordinal: 1, payload: { n: 12, model, requests: [] } }
+  const host = document.body.appendChild(document.createElement("div")), root = createRoot(host), calls: unknown[] = []
+  try {
+    await act(async () => root.render(<TodoContainer card={card} role="member" dispatch={(tag, input) => calls.push([tag, input])}
+      View={TodoView} view={{ maximized: false }} onView={() => {}} conflictTerminal={<textarea aria-label="Supplied terminal" />} />))
+    expect(host.querySelectorAll('[aria-label="Supplied terminal"]')).toHaveLength(1)
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-flow="todo.answer"]')!.click())
+    expect(calls).toEqual([["todo.answer", { n: 12, wait: "wait-conflict-1", answer: "done" }]])
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+test("one actions row: Open branch, Fork, Inspect, Steer and Amend as plain buttons, Drop; the only form is the wait's Answer", () => {
   const model = { ...fixtures.needs_you.model, first_answer: undefined }
   const h = mount(model)
-  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "run.inspect", "todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "branch.fork", "run.inspect", "todo.steer", "todo.amend", "todo.drop", "todo.preapprove"])
   expect(h.props.actions.every(action => action.input === undefined)).toBe(true)
   h.props.onAction("todo.steer")
   h.props.onAction("todo.amend")
@@ -170,6 +220,7 @@ test("on a mounted TODO card, Steer and Amend open Chat on the flow's line inste
   const emptyInstall = {}
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const stub = { design, store, installSnapshots: { get: () => emptyInstall, subscribe: () => () => {} },
+    requestFlowConfirmation: (name: string) => calls.push(`confirm ${name}`),
     changeDraft: (draft: string) => { calls.push(`draft ${draft}`) },
     runCommand: (name: string) => { calls.push(`run ${name}`); return true },
     commands: { submit: (submission: { name: string }) => { calls.push(`submit ${submission.name}`); return Promise.resolve({ status: "executed" }) } } }
@@ -180,7 +231,7 @@ test("on a mounted TODO card, Steer and Amend open Chat on the flow's line inste
     await act(async () => root.render(<ControllerTestProvider controller={stub as unknown as AppController}>{todoCardFamily.todo.render(card, { presentation: "embedded" } as never)}</ControllerTestProvider>))
     expect(host.querySelectorAll("form textarea, form input")).toHaveLength(1)
     for (const flow of ["todo.steer", "todo.amend", "todo.drop"]) await act(async () => host.querySelector<HTMLElement>(`.todo-actions > button[data-flow="${flow}"]`)!.click())
-    expect(calls).toEqual(["draft /todo.steer T9 ", "run chat.open", "draft /todo.amend T9 ", "run chat.open", "submit todo.drop"])
+    expect(calls).toEqual(["draft /todo.steer T9 ", "run chat.open", "draft /todo.amend T9 ", "run chat.open", "confirm todo.drop"])
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 test("an install's TODO in review: the served ready enables Merge though evidence names the candidate, and the press sends the PR head", () => {
@@ -226,4 +277,131 @@ test("a row the seed opened (no projection, no request) renders the seeded TODO;
   expect(seeded).toContain(seededTitle)
   const requested = render({ n: 9, requests: [{ key: "k", owner: "ben", operation: "steer", n: 9, body: { text: "x" }, state: "failed", error: "Stack unavailable" }] })
   expect(requested).not.toContain(seededTitle)
+})
+
+ test("Queued Edit is prefilled from revision 2 and saves acceptance through the amendment flow", () => {
+  const model = { ...fixtures.queued.model, prompt_revisions: [fixtures.queued.model.prompt_revisions[0]!,
+    { ...fixtures.queued.model.prompt_revisions[0]!, text: "PROMPT-B", acceptance: ["Keep the regression"] }] }
+  const h = mount(model)
+  const edit = h.props.actions.find(action => action.tag === "todo.amend")!
+  expect(edit.input?.map(field => field.value)).toEqual(["PROMPT-B", "Keep the regression"])
+  const html = renderToStaticMarkup(<TodoView {...h.props} />)
+  expect(html).toContain("<summary>Edit</summary>")
+  expect(html).toContain("PROMPT-B")
+  const amendments = html.slice(html.indexOf("<summary>+1</summary>"), html.indexOf("</details>"))
+  expect(amendments).toContain("PROMPT-B")
+  expect(amendments).not.toContain(fixtures.queued.model.prompt_revisions[0]!.text)
+  h.props.onAction("todo.amend", { text: "PROMPT-C", acceptance: "First check\nSecond check" })
+  expect(h.dispatches).toEqual([{ tag: "todo.amend", input: { n: model.n, text: "PROMPT-C", acceptance: ["First check", "Second check"] } }])
+  expect(renderToStaticMarkup(<TodoView {...mount(fixtures.working.model).props} />)).not.toContain("<summary>Edit</summary>")
+ })
+
+test("only a maintainer or owner can Take over a removed owner's live TODO", () => {
+ for (const role of ["owner", "maintainer", "member"] as const) for (const removed of [true, false]) {
+  const h = mount({ ...fixtures.queued.model, owner_removed: removed }, role)
+  expect(h.props.actions.some(action => action.tag === "todo.takeover")).toBe(removed && role !== "member")
+  if (removed && role !== "member") {
+   h.props.onAction("todo.takeover")
+   expect(h.dispatches).toEqual([{ tag: "todo.takeover", input: { n: fixtures.queued.model.n } }])
+  }
+ }
+ expect(mount({ ...fixtures.merged.model, owner_removed: true }).props.actions.some(action => action.tag === "todo.takeover")).toBe(false)
+})
+test("only a verified missing-tool failure offers the shared machine-image Draft flow", () => {
+ const failure = { ...fixtures.failed.model.failure!, missing_tool: { name: "figlet", file: ".smithers/machine.json" } }
+ const h = mount({ ...fixtures.failed.model, failure })
+ h.props.onAction("image.add")
+ expect(h.dispatches).toEqual([{ tag: "image.add", input: { name: "figlet" } }])
+ expect(mount({ ...fixtures.failed.model, failure: { ...failure, missing_tool: undefined } }).props.actions.some(action => action.tag === "image.add")).toBe(false)
+})
+
+
+test("served TODO cards retain composed takeover and image controls, and withhold unavailable run controls", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  const snapshot = { model: { github: { signed_in: true, owner: "ben" } } }
+  const controller = { store, design: createDesignWorld({ enabled: false }), installSnapshots: { get: () => snapshot, subscribe: () => () => {} }, commands: { submit: () => {} } } as unknown as AppController
+  const render = (model: TodoCard) => renderToStaticMarkup(<ControllerTestProvider controller={controller}>{todoCardFamily.todo.render(
+    { id: `todo:${model.n}`, kind: "todo", title: model.title, status: "active", createdAt: 1, ordinal: 1, payload: { n: model.n, model, requests: [] } }, { presentation: "embedded" } as never)}</ControllerTestProvider>)
+  expect(render({ ...fixtures.queued.model, owner_removed: true })).toContain('data-flow="todo.takeover"')
+  expect(render({ ...fixtures.failed.model, failure: { ...fixtures.failed.model.failure!, missing_tool: { name: "figlet", file: ".smithers/machine.json" } } })).toContain('data-flow="image.add"')
+  expect(render(fixtures.working.model)).not.toContain('data-flow="todo.stop"')
+  expect(render(fixtures.paused.model)).not.toContain('data-flow="todo.resume"')
+  expect(render(fixtures.failed.model)).toContain('data-flow="todo.retry-current-flow"')
+  expect(render(fixtures.working.model)).not.toContain('data-flow="branch"')
+  Object.assign(controller, { openBranch: async () => undefined })
+  expect(render(fixtures.working.model)).toContain('data-flow="branch"')
+})
+
+test("served TODO evidence opens each captured wiki revision after the page changes", () => {
+  const model = TodoCardSchema.parse({ ...fixtures.queued.model, evidence: [
+    { attempt: 1, revision: "first", items: [{ kind: "wiki", slug: "retry-policy", pageID: "42", revision: 3,
+      digest: "0590d40eefc0d1d5a9a5c8d407e4acfcb1cae6de15729033c56dc64ddb9abe47",
+      url: "/api/repos/owner/repo/wiki/history/42/3/content?visibility=public" }] },
+    { attempt: 2, revision: "second", items: [{ kind: "wiki", slug: "retry-policy", pageID: "42", revision: 7,
+      digest: "0b2889240d13d49add99a1daef222ddce288814a94826dbce1fbf456f03adc6b",
+      url: "/api/repos/owner/repo/wiki/history/42/7/content?visibility=public" }] }
+  ] })
+  const h = mount(model)
+  const markup = renderToStaticMarkup(<TodoView {...h.props} />)
+  expect(markup).toContain('href="/api/repos/owner/repo/wiki/history/42/3/content?visibility=public"')
+  expect(markup).toContain('href="/api/repos/owner/repo/wiki/history/42/7/content?visibility=public"')
+  expect(markup).toContain('retry-policy · r3')
+  expect(markup).toContain('retry-policy · r7')
+  expect(TodoCardSchema.safeParse({ ...model, evidence: [{ attempt: 1, revision: "x", items: [
+    { ...model.evidence[0]!.items[0], digest: "bad" }
+  ] }] }).success).toBe(false)
+})
+
+
+test("Working names its current step and queued daily limits explain when work starts", () => {
+  const working = renderToStaticMarkup(<TodoView {...mount(fixtures.working.model).props} />)
+  expect(working).toContain('Working · Implement')
+  const queued = renderToStaticMarkup(<TodoView {...mount({ ...fixtures.queued.model, queue: { reason: "daily_limit", position: 2 } }).props} />)
+  expect(queued).toContain('Daily limit reached · starts tomorrow')
+  expect(queued).not.toContain('data-flow="todo.retry"')
+  const machine = renderToStaticMarkup(<TodoView {...mount({ ...fixtures.queued.model, queue: { reason: "machine", position: 2 } }).props} />)
+  expect(machine).toContain('Waiting for a machine')
+  expect(machine).not.toContain('starts tomorrow')
+})
+
+
+test("a daily token pause names the owner without exposing a raw resume timestamp", () => {
+  const props = mount(fixtures.paused_by_budget.model).props
+  const markup = renderToStaticMarkup(<TodoView {...props} />)
+  expect(markup).toContain('Paused · daily token budget')
+  expect(markup).toContain(` · ${props.model.pause!.owner!.name}`)
+  expect(markup).not.toContain(props.model.pause!.resume_at!)
+})
+ test("failed TODO current-flow Retry dispatches the same typed control with its steer", () => {
+ const h = mount(fixtures.failed.model)
+ h.props.onAction("todo.retry-current-flow", { text: "use the new helper" })
+ expect(h.dispatches).toEqual([{ tag: "todo.retry-current-flow", input: { n: fixtures.failed.model.n, text: "use the new helper" } }])
+ expect(mount(fixtures.working.model).props.actions.some(action => action.tag === "todo.retry-current-flow")).toBe(false)
+ })
+
+test("merged TODO mounts the design lessons receipt with wiki and Proposal doors", async () => {
+  const model = TodoCardSchema.parse({ ...fixtures.queued.model, n: 7, state: "merged", lessons: 2,
+    lessons_receipt: { todo: 7, lessons: [{ title: "Retry helper", ref: "wiki:retry-helper" }, { title: "Run lint", ref: "proposal:lint" }] } })
+  const card: TodoEntry = { id: "todo:7", kind: "todo", title: model.title, status: "active", createdAt: 1, ordinal: 1,
+    payload: { n: 7, model, requests: [] } }
+  const { createRoot } = await import("react-dom/client")
+  const host = document.createElement("div"), root = createRoot(host)
+  const calls: unknown[] = []
+  try {
+    await act(async () => root.render(<TodoContainer card={card} role="member" dispatch={(tag, input) => { calls.push({ tag, input }) }} View={TodoView} view={{ maximized: false }} onView={() => {}} />))
+    expect(host.textContent?.match(/2 lessons/g)).toHaveLength(1)
+    const receipt = host.querySelector('[aria-label="Lessons from T7"]')!
+    await act(async () => { for (const button of receipt.querySelectorAll<HTMLButtonElement>("button[data-flow]")) button.click() })
+    expect(calls).toEqual([{ tag: "wiki.page", input: { name: "retry-helper" } }, { tag: "proposal", input: { id: "lint" } }])
+  } finally { await act(async () => root.unmount()) }
+})
+
+test("a branch wait preserves Resume for a paused run and a question refuses Stop", () => {
+  const paused = mount({ ...fixtures.foreign_push.model, pause: fixtures.paused.model.pause })
+  expect(paused.props.actions.some(action => action.tag === "todo.resume")).toBe(true)
+  expect(paused.props.actions.some(action => action.tag === "todo.stop")).toBe(false)
+  const mixed = mount({ ...fixtures.foreign_push.model, waits: [...fixtures.foreign_push.model.waits, ...fixtures.needs_you.model.waits] })
+  expect(mixed.props.actions.some(action => action.tag === "todo.stop")).toBe(false)
+  expect(mixed.props.model.waits).toHaveLength(2)
 })

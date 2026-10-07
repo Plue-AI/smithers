@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,8 @@ func (service *Service) Handle(ctx context.Context, lease *jobs.Lease) error {
 		return service.handleApproval(ctx, lease)
 	case OperationSignal:
 		return service.handleSignal(ctx, lease)
+	case OperationSteer:
+		return service.handleSteer(ctx, lease)
 	default:
 		return errors.New("flow dispatch: unsupported product operation")
 	}
@@ -55,10 +58,38 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if checkpoint.FlowID != payload.FlowID || checkpoint.Target != payload.Target {
 		return service.fail(lease, "checkpoint_request_mismatch", checkpoint)
 	}
+	// PostgreSQL may reorder JSON keys. Compare decoded correlation data,
+	// not bytes, before a retained receipt can select an attempt to project.
+	var savedProjection, admittedProjection any
+	if len(checkpoint.Projection) > 0 {
+		if err := json.Unmarshal(checkpoint.Projection, &savedProjection); err != nil {
+			return service.fail(lease, "invalid_checkpoint", RuntimeCheckpoint{Projection: payload.Projection})
+		}
+	}
+	if len(payload.Projection) > 0 {
+		if err := json.Unmarshal(payload.Projection, &admittedProjection); err != nil {
+			return service.fail(lease, "invalid_product_request", RuntimeCheckpoint{})
+		}
+	}
+	if savedProjection != nil && !reflect.DeepEqual(savedProjection, admittedProjection) {
+		return service.fail(lease, "checkpoint_projection_mismatch", RuntimeCheckpoint{Projection: payload.Projection})
+	}
+	// Older receipts omitted correlation metadata. Restore it from admission,
+	// which is also the authoritative source for every later projection.
+	checkpoint.Projection = payload.Projection
 	// The todo composition runs only from a pinned stack launch. Refuse any
 	// other before a machine wakes, a host starts or a token is minted.
 	if (payload.Pin != nil && !payload.Pin.Valid()) || !todoLaunchAllowed(payload.FlowID, payload.Target, payload.Pin) {
 		return service.fail(lease, "todo_requires_stack_admission", checkpoint)
+	}
+	if payload.Pin != nil && payload.FlowID == payload.Pin.Flow {
+		if (checkpoint.RunID != "" || checkpoint.ExecutionDigest != "") && checkpoint.ExecutionDigest != payload.Pin.ExecutionDigest {
+			return service.fail(lease, "checkpoint_pin_mismatch", checkpoint)
+		}
+		// Validate reconnects before resolving a machine too: a checkpoint
+		// outside this pin must not wake a host or act on its named run.
+		// Persist the admitted identity before asking the host to load source.
+		checkpoint.ExecutionDigest = payload.Pin.ExecutionDigest
 	}
 	// No external checkpoint means Control has never seen this launch. A
 	// cancellation already present on the claim can therefore settle locally;
@@ -66,13 +97,20 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if claim.CancellationRequested && len(claim.ExternalReceipt) == 0 {
 		return service.settleBeforeLaunchCancellation(ctx, lease, checkpoint)
 	}
+	// Retained refusal checkpoints used only FailureCode. Keep that fact
+	// separately from transport errors and the immutable admitted digest.
+	checkpoint.PinRefused = checkpoint.PinRefused || checkpoint.FailureCode == pinMismatch
 	runtime, identity, err := service.resolve(ctx, checkpoint.Target, checkpoint.Identity)
 	if err != nil {
 		return service.runtimeError(lease, err, checkpoint)
 	}
-	checkpoint.FailureCode = ""
-	checkpoint.FailureClass = ""
-	checkpoint.FailureObservedAt = 0
+	// A pin rejection remains authoritative across a worker restart until
+	// its cancelled run settles. The admitted digest is not host evidence.
+	if checkpoint.FailureCode != pinMismatch {
+		checkpoint.FailureCode = ""
+		checkpoint.FailureClass = ""
+		checkpoint.FailureObservedAt = 0
+	}
 	checkpoint.Identity = identity
 	marker, err := json.Marshal(checkpoint)
 	if err != nil {
@@ -88,7 +126,7 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	// A durable run id means launch acceptance already happened. Reconnect only
 	// through Observe; never infer progress from product rows or host readiness.
 	if checkpoint.RunID != "" {
-		if !payload.Pin.Admits(payload.FlowID, checkpoint.ExecutionDigest) {
+		if checkpoint.PinRefused || !payload.Pin.Admits(payload.FlowID, checkpoint.ExecutionDigest) {
 			return service.refusePin(ctx, runtime, lease, checkpoint)
 		}
 		if claim.CancellationRequested {
@@ -114,7 +152,9 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	}
 	checkpoint.PlanID = result.PlanID
 	checkpoint.PlanDigest = result.PlanDigest
-	checkpoint.ExecutionDigest = result.ExecutionDigest
+	if payload.Pin == nil || payload.FlowID != payload.Pin.Flow {
+		checkpoint.ExecutionDigest = result.ExecutionDigest
+	}
 	checkpoint.Envelope = result.Envelope
 	checkpoint.Approval = result.Approval
 	checkpoint.Receipt = &result.Receipt
@@ -173,7 +213,12 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 		checkpoint.Run = &flowruntime.FlowRuntimeRun{
 			RunID: result.Receipt.RunID, FlowID: payload.FlowID, Status: result.Receipt.Status, PlanID: result.PlanID,
 		}
-		return service.settle(ctx, lease, checkpoint)
+		// A terminal launch receipt names a finished execution, not a drained
+		// journal. Observe its output and all retained pages before settling.
+		if err := service.checkpoint(ctx, lease, checkpoint, jobs.StateWaiting); err != nil {
+			return err
+		}
+		return service.observe(ctx, runtime, lease, checkpoint)
 	case "Conflict":
 		return service.fail(lease, "runtime_conflict", checkpoint)
 	default:
@@ -232,6 +277,7 @@ func (service *Service) refusePin(
 	lease *jobs.Lease,
 	checkpoint RuntimeCheckpoint,
 ) error {
+	checkpoint.PinRefused = true
 	checkpoint.FailureCode = pinMismatch
 	switch {
 	case checkpoint.RunID != "":
@@ -321,6 +367,71 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	if err := json.Unmarshal(claim.Payload, &payload); err != nil || payload.RunID == "" || payload.Name == "" {
 		return service.fail(lease, "invalid_signal_request", RuntimeCheckpoint{})
 	}
+	return service.handleRunMutation(ctx, lease, runMutationPayload{
+		Target: payload.Target, FlowID: payload.FlowID, RunID: payload.RunID, Projection: payload.Projection,
+	}, "signal", func(ctx context.Context, runtime flowruntime.Runtime, generation int64) (flowruntime.MutationResult, error) {
+		return runtime.Signal(ctx, flowruntime.Signal{
+			ApplicationRequestID: claim.OperationID, OwnerGeneration: generation,
+			RunID: payload.RunID, Name: payload.Name, Payload: payload.Payload,
+		})
+	})
+}
+
+func (service *Service) handleSteer(ctx context.Context, lease *jobs.Lease) error {
+	claim := lease.Claim()
+	var payload steerPayload
+	if err := json.Unmarshal(claim.Payload, &payload); err != nil || payload.RunID == "" || payload.FlowID == "" ||
+		!validSteerInput(payload.MessageID, payload.CreatedAt, payload.Body) {
+		return service.fail(lease, "invalid_steer_request", RuntimeCheckpoint{})
+	}
+	request := SteerRequest{
+		Scope: claim.Scope, RequestID: claim.RequestID, Target: payload.Target,
+		FlowID: payload.FlowID, RunID: payload.RunID, MessageID: payload.MessageID,
+		CreatedAt: payload.CreatedAt, Body: payload.Body,
+		Attribution:          payload.Attribution,
+		AuthorizationContext: claim.AuthorizationContext, Projection: payload.Projection,
+	}
+	authorize := func(ctx context.Context) error {
+		if service.steerAuthorizer != nil {
+			return service.steerAuthorizer.AuthorizeFlowSteer(ctx, request)
+		}
+		if payload.FlowID == TodoFlow || payload.Target.BindingKind == StackBindingKind {
+			return safeFailure{code: "steer_authorizer_unavailable", retryable: true}
+		}
+		return nil
+	}
+	if err := authorize(ctx); err != nil {
+		checkpoint, decodeErr := decodeCheckpoint(claim.ExternalReceipt)
+		if decodeErr != nil {
+			return service.fail(lease, "invalid_checkpoint", RuntimeCheckpoint{Projection: payload.Projection})
+		}
+		if checkpoint.Version == 0 {
+			checkpoint = RuntimeCheckpoint{Version: 1, Target: payload.Target, FlowID: payload.FlowID, RunID: payload.RunID, Projection: payload.Projection}
+		}
+		return service.runtimeError(lease, err, checkpoint)
+	}
+	return service.handleRunMutation(ctx, lease, payload.runMutationPayload, "steer",
+		func(ctx context.Context, runtime flowruntime.Runtime, generation int64) (flowruntime.MutationResult, error) {
+			// Waking and observing a retained host can take minutes. A removal
+			// committed during that wait must stop the Message too.
+			if err := authorize(ctx); err != nil {
+				return flowruntime.MutationResult{}, err
+			}
+			return runtime.Steer(ctx, flowruntime.Steer{
+				ApplicationRequestID: claim.OperationID, OwnerGeneration: generation,
+				RunID: payload.RunID, MessageID: payload.MessageID, CreatedAt: payload.CreatedAt,
+				Kind: "Message", Body: payload.Body,
+				Attribution: payload.Attribution,
+			})
+		})
+}
+
+// Both input kinds share wake, run identity verification, and receipt recovery.
+// The runtime remains the authority for whether an input was already applied.
+func (service *Service) handleRunMutation(ctx context.Context, lease *jobs.Lease, payload runMutationPayload, kind string,
+	mutate func(context.Context, flowruntime.Runtime, int64) (flowruntime.MutationResult, error),
+) error {
+	claim := lease.Claim()
 	checkpoint, err := decodeCheckpoint(claim.ExternalReceipt)
 	if err != nil {
 		return service.fail(lease, "invalid_checkpoint", RuntimeCheckpoint{Projection: payload.Projection})
@@ -333,6 +444,19 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	}
 	if checkpoint.Target != payload.Target || checkpoint.FlowID != payload.FlowID || checkpoint.RunID != payload.RunID {
 		return service.fail(lease, "checkpoint_request_mismatch", checkpoint)
+	}
+	if payload.FlowID == TodoFlow && payload.Target.BindingKind == StackBindingKind {
+		// Answer and Steer share one committed input sequence. A retry or
+		// slow/lost acknowledgment must not let another worker overtake it.
+		fragment := mustJSON(map[string]any{"target": payload.Target, "flowId": payload.FlowID, "runId": payload.RunID})
+		pending, err := service.store.HasEarlierPending(ctx, claim.Scope, claim.OperationID,
+			[]string{OperationSignal, OperationSteer}, fragment)
+		if err != nil {
+			return safeFailure{code: "input_order_unavailable", retryable: true}
+		}
+		if pending {
+			return safeFailure{code: "input_order_pending", retryable: true}
+		}
 	}
 	if payload.FlowID == "todo" {
 		// Checkpoint before the resolver's existing start/verification path.
@@ -379,7 +503,7 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	}
 
 	// Observation verifies the requested run's Flow identity. Its terminal
-	// state cannot distinguish a lost acknowledgment for a delivered signal
+	// state cannot distinguish a lost acknowledgment for a delivered input
 	// from a run that never took it; only Control's mutation receipt can.
 	// A verified host is not yet proof that this run has reattached. Keep the
 	// original wake allowance through Observe, including its durable retries.
@@ -410,24 +534,18 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	}
 
 	callContext, cancel = context.WithTimeout(ctx, service.runtimeCallTimeout)
-	result, err := runtime.Signal(callContext, flowruntime.FlowRuntimeSignal{
-		ApplicationRequestID: claim.OperationID,
-		OwnerGeneration:      identity.OwnerGeneration,
-		RunID:                checkpoint.RunID,
-		Name:                 payload.Name,
-		Payload:              payload.Payload,
-	})
+	result, err := mutate(callContext, runtime, identity.OwnerGeneration)
 	cancel()
 	if err != nil {
 		return service.runtimeError(lease, err, checkpoint)
 	}
-	if !validMutationResult(result, "signal", claim.OperationID) {
-		return service.fail(lease, "invalid_signal_receipt", checkpoint)
+	if !validRunMutationResult(result, kind, claim.OperationID, checkpoint.RunID) {
+		return service.fail(lease, "invalid_"+kind+"_receipt", checkpoint)
 	}
 	checkpoint.MutationReceipt = &result.Receipt
 	if result.Receipt.Tag == "Terminal" {
 		if result.Receipt.RunID != checkpoint.RunID || !terminalStatus(result.Receipt.Status) {
-			return service.fail(lease, "invalid_signal_receipt", checkpoint)
+			return service.fail(lease, "invalid_"+kind+"_receipt", checkpoint)
 		}
 		checkpoint.Run = &flowruntime.FlowRuntimeRun{
 			RunID: checkpoint.RunID, FlowID: checkpoint.FlowID, Status: result.Receipt.Status,
@@ -438,7 +556,7 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 		return err
 	}
 	return lease.Complete(ctx, mustJSON(terminalReceipt{
-		Kind: "runtime-signal", Runtime: identity, Receipt: &result.Receipt,
+		Kind: "runtime-" + kind, Runtime: identity, Receipt: &result.Receipt,
 		Run: checkpoint.Run, Projection: checkpoint.Projection,
 	}))
 }
@@ -533,7 +651,7 @@ func (service *Service) observe(
 		if err := service.checkpoint(ctx, lease, checkpoint, jobs.StateWaiting); err != nil {
 			return err
 		}
-		if observation.Terminal {
+		if observation.Terminal && !observation.HasMore {
 			return service.settle(ctx, lease, checkpoint)
 		}
 		if !observation.HasMore {
@@ -766,7 +884,7 @@ func runtimeCode(err error) string {
 }
 
 func terminalStatus(status string) bool {
-	return status == "completed" || status == "failed" || status == "cancelled"
+	return status == "completed" || status == "failed" || status == "cancelled" || status == "interrupted" || status == "uncertain"
 }
 
 func validLaunchResult(result flowruntime.FlowRuntimeLaunchResult, identity flowruntime.FlowRuntimeIdentity, operationID string) bool {
@@ -784,6 +902,13 @@ func validMutationResult(result flowruntime.FlowRuntimeMutationResult, operation
 	default:
 		return false
 	}
+}
+
+// Generic Control receipts may omit runId. When a receipt supplies it, a
+// mutation of another run cannot count as delivery to the requested run.
+func validRunMutationResult(result flowruntime.MutationResult, operation, requestID, runID string) bool {
+	return validMutationResult(result, operation, requestID) &&
+		(result.Receipt.RunID == "" || result.Receipt.RunID == runID)
 }
 
 func validObservationPage(previous string, observation flowruntime.FlowRuntimeObservation) bool {

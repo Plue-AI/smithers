@@ -20,7 +20,7 @@ INSERT INTO approvals (
 VALUES (
     $1, $2, $3, 'pending', $4, $5, $6, $7, $8
 )
-RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload
+RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, command, subject, revision, generation, reviewed_head_sha, decision_credential, decision_key
 `
 
 type CreateApprovalParams struct {
@@ -68,6 +68,15 @@ func (q *Queries) CreateApproval(ctx context.Context, arg CreateApprovalParams) 
 		&i.DecidedBy,
 		&i.ExpiresAt,
 		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.Command,
+		&i.Subject,
+		&i.Revision,
+		&i.Generation,
+		&i.ReviewedHeadSha,
+		&i.DecisionCredential,
+		&i.DecisionKey,
 	)
 	return i, err
 }
@@ -77,10 +86,10 @@ UPDATE approvals
 SET state       = $2,
     decided_at  = NOW(),
     decided_by  = $3
-WHERE id = $1
+WHERE member_id IS NULL AND id = $1
   AND repository_id = $4
   AND state = 'pending'
-RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload
+RETURNING id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, command, subject, revision, generation, reviewed_head_sha, decision_credential, decision_key
 `
 
 type DecideApprovalParams struct {
@@ -120,12 +129,21 @@ func (q *Queries) DecideApproval(ctx context.Context, arg DecideApprovalParams) 
 		&i.DecidedBy,
 		&i.ExpiresAt,
 		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.Command,
+		&i.Subject,
+		&i.Revision,
+		&i.Generation,
+		&i.ReviewedHeadSha,
+		&i.DecisionCredential,
+		&i.DecisionKey,
 	)
 	return i, err
 }
 
 const getApproval = `-- name: GetApproval :one
-SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals WHERE id = $1
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, command, subject, revision, generation, reviewed_head_sha, decision_credential, decision_key FROM approvals WHERE member_id IS NULL AND id = $1
 `
 
 // Returns a single approval row. Does NOT filter on repository_id; the route
@@ -146,13 +164,22 @@ func (q *Queries) GetApproval(ctx context.Context, id string) (Approval, error) 
 		&i.DecidedBy,
 		&i.ExpiresAt,
 		&i.Payload,
+		&i.MemberID,
+		&i.CredentialID,
+		&i.Command,
+		&i.Subject,
+		&i.Revision,
+		&i.Generation,
+		&i.ReviewedHeadSha,
+		&i.DecisionCredential,
+		&i.DecisionKey,
 	)
 	return i, err
 }
 
 const listApprovalsByRepo = `-- name: ListApprovalsByRepo :many
-SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals
-WHERE repository_id = $1
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, command, subject, revision, generation, reviewed_head_sha, decision_credential, decision_key FROM approvals
+WHERE member_id IS NULL AND repository_id = $1
   AND ($2::text = '' OR state = $2)
 ORDER BY created_at DESC
 LIMIT $4 OFFSET $3
@@ -193,6 +220,15 @@ func (q *Queries) ListApprovalsByRepo(ctx context.Context, arg ListApprovalsByRe
 			&i.DecidedBy,
 			&i.ExpiresAt,
 			&i.Payload,
+			&i.MemberID,
+			&i.CredentialID,
+			&i.Command,
+			&i.Subject,
+			&i.Revision,
+			&i.Generation,
+			&i.ReviewedHeadSha,
+			&i.DecisionCredential,
+			&i.DecisionKey,
 		); err != nil {
 			return nil, err
 		}
@@ -205,8 +241,8 @@ func (q *Queries) ListApprovalsByRepo(ctx context.Context, arg ListApprovalsByRe
 }
 
 const listPendingApprovalsBySession = `-- name: ListPendingApprovalsBySession :many
-SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload FROM approvals
-WHERE repository_id = $1 AND session_id = $2 AND state = 'pending'
+SELECT id, session_id, repository_id, state, kind, title, description, created_at, decided_at, decided_by, expires_at, payload, member_id, credential_id, command, subject, revision, generation, reviewed_head_sha, decision_credential, decision_key FROM approvals
+WHERE member_id IS NULL AND repository_id = $1 AND session_id = $2 AND state = 'pending'
 ORDER BY created_at DESC
 `
 
@@ -239,6 +275,15 @@ func (q *Queries) ListPendingApprovalsBySession(ctx context.Context, arg ListPen
 			&i.DecidedBy,
 			&i.ExpiresAt,
 			&i.Payload,
+			&i.MemberID,
+			&i.CredentialID,
+			&i.Command,
+			&i.Subject,
+			&i.Revision,
+			&i.Generation,
+			&i.ReviewedHeadSha,
+			&i.DecisionCredential,
+			&i.DecisionKey,
 		); err != nil {
 			return nil, err
 		}

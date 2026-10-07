@@ -114,6 +114,9 @@ func (f mythicalFault) fault() string {
 
 // sentence is the fault in a person's words.
 func (f mythicalFault) sentence() string {
+	if f.Class == "interrupted" {
+		return "Interrupted"
+	}
 	var sentence string
 	switch f.kind() {
 	case mythicalFailProvisioning:

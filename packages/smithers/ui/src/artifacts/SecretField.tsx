@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { type ComponentProps, useState } from "react";
 import { cn } from "../cn";
-import type { CopyFailureCode } from "../internal/copyToClipboard";
+import { canCopyText, type CopyFailureCode } from "../internal/copyToClipboard";
 import { useCopyFeedback } from "../internal/useCopyFeedback";
 import { useInjectUiCss } from "../styles";
 
@@ -40,7 +40,7 @@ export function SecretField({
   const { copied, copyFailed, copy } = useCopyFeedback({ value, onCopy, onCopyError });
   const isControlled = controlledRevealed !== undefined;
   const revealed = isControlled ? controlledRevealed : uncontrolledRevealed;
-  const hasClipboard = typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
+  const hasClipboard = canCopyText();
   const canCopy = onCopy !== undefined || hasClipboard;
   const context = label !== undefined ? ` ${label}` : "";
   const normalizedMaskLength = Math.min(64, Math.max(1, Math.trunc(maskLength) || 8));

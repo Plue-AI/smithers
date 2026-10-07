@@ -59,11 +59,11 @@ const record = (key: string, input: unknown): EntityRecoveryRecord | undefined =
     if (candidate.preparedCommandId !== undefined && (typeof value.card !== "object" || value.card === null || !("kind" in value.card) || value.card.kind !== "flow-form")) return undefined
     if (value.card === null) return { key, revision: candidate.revision as number, ...binding, value: { kind: "card", ...location, id: value.id, card: null } }
     const card = CardSchema.safeParse(value.card)
-    if (!card.success || card.data.id !== value.id || card.data.kind === "env" || card.data.kind === "approval" ||
+    if (!card.success || card.data.id !== value.id || card.data.kind === "approval" ||
       card.data.kind === "approvals-inbox" || (card.data.kind === "flow-form" && card.data.payload.flow === "env.set")) return undefined
     const history = value.history === undefined ? undefined : CardHistorySchema.safeParse(value.history)
     if (history !== undefined && (!history.success || history.data.id !== value.id || history.data.index >= history.data.entries.length || history.data.entries.some(entry =>
-      entry.id !== value.id || entry.kind === "env" || entry.kind === "approval" || entry.kind === "approvals-inbox" ||
+      entry.id !== value.id || entry.kind === "approval" || entry.kind === "approvals-inbox" ||
       (entry.kind === "flow-form" && entry.payload.flow === "env.set")))) return undefined
     return { key, revision: candidate.revision as number, ...binding, value: {
       kind: "card", ...location, id: value.id, card: card.data,

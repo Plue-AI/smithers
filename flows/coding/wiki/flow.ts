@@ -3,8 +3,7 @@ import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
 import { RefreshWiki } from "../planning-wiki.ts"
-import { CodingError } from "../schema.ts"
-import { admitStackBase } from "../stack.ts"
+import { admitStackBase, PrepareStackBase } from "../stack.ts"
 import { ImportDocs, ReadPublishedWiki, WikiRefreshInput, WikiRefreshResult } from "../wiki-refresh.ts"
 
 /**
@@ -21,7 +20,7 @@ export default Flow.make("coding/Wiki", {
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   payload: WikiRefreshInput,
   success: WikiRefreshResult,
-  error: Schema.Union([CodingError, RefreshWiki.errorSchema]),
+  error: Schema.Union([PrepareStackBase.errorSchema, RefreshWiki.errorSchema]),
   body: (input) =>
     admitStackBase(input.base).pipe(
       Node.andThen(ImportDocs.call({})),

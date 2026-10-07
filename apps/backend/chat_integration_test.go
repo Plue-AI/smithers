@@ -10,7 +10,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,7 +97,6 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		"SMITHERS_DATA_ROOT":                     state,
 		"SMITHERS_BLOB_DATA_DIR":                 filepath.Join(state, "blobs"),
 		"SMITHERS_AUTH_MODE":                     "selfhost",
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "owner-bootstrap-token",
 		"SMITHERS_AUTH_SESSION_SECRET":           "owner-session-secret",
 		"SMITHERS_LFS_SIGNING_SECRET":            "owner-lfs-secret",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "owner-model-encryption-secret",
@@ -122,7 +123,17 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 	go func() {
 		done <- run(serverCtx, nil, flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true})
 	}()
-	client := &http.Client{Timeout: 30 * time.Second}
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	client := &http.Client{Timeout: 30 * time.Second, Jar: jar}
+	authorize := func(request *http.Request) {
+		request.Header.Set("Origin", origin)
+		for _, cookie := range jar.Cookies(request.URL) {
+			if cookie.Name == "__csrf" {
+				request.Header.Set("X-CSRF-Token", cookie.Value)
+			}
+		}
+	}
 	ready := false
 	// Fresh product migrations can take longer than ten seconds on a busy
 	// PostgreSQL host. Bound readiness by elapsed time, not a poll count.
@@ -143,15 +154,13 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	require.True(t, ready, "backend did not become ready")
-	post := func(path, token string, body any) []byte {
+	post := func(path string, body any) []byte {
 		data, marshalErr := json.Marshal(body)
 		require.NoError(t, marshalErr)
 		request, requestErr := http.NewRequest(http.MethodPost, origin+path, bytes.NewReader(data))
 		require.NoError(t, requestErr)
 		request.Header.Set("Content-Type", "application/json")
-		if token != "" {
-			request.Header.Set("Authorization", "token "+token)
-		}
+		authorize(request)
 
 		response, sendErr := client.Do(request)
 		require.NoError(t, sendErr)
@@ -162,7 +171,7 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		if path == "/api/user/repos" {
 			wantStatus = http.StatusCreated
 		} else if strings.HasSuffix(path, "/workspaces") {
-			wantStatus = http.StatusAccepted
+			wantStatus = http.StatusServiceUnavailable
 		}
 		require.Equal(t, wantStatus, response.StatusCode, string(result))
 		return result
@@ -170,78 +179,55 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 	pool, err := postgresfixture.Open(t.Context(), databaseURL, 0)
 	require.NoError(t, err)
 	defer pool.Close()
-	token, err := seed.OwnerToken(t.Context(), pool, "l3bowner")
+	_, err = seed.OwnerToken(t.Context(), pool, "l3bowner")
 	require.NoError(t, err)
-	tokenResult := struct{ Token string }{Token: token}
+	// Person-only setup and workspace launch use a real browser session,
+	// not the fixture's delegated token. Keep the production person gate intact.
+	session := strings.Repeat("a", 64)
+	sessionSum := sha256.Sum256([]byte(session))
+	_, err = pool.Exec(t.Context(), `INSERT INTO auth_sessions(session_key,user_id,username,is_admin,expires_at) SELECT $1,id,username,is_admin,now()+interval '1 hour' FROM users WHERE username='l3bowner'`, hex.EncodeToString(sessionSum[:]))
+	require.NoError(t, err)
+	parsed, err := url.Parse(origin)
+	require.NoError(t, err)
+	jar.SetCookies(parsed, []*http.Cookie{{Name: "smithers_session", Value: session}, {Name: "__csrf", Value: "chat-fixture-csrf"}})
 
 	{
-		post("/api/user/repos", tokenResult.Token, map[string]any{
+		created := post("/api/user/repos", map[string]any{
 			"name": "flow-http-integration", "private": true, "auto_init": true, "default_bookmark": "main",
 		})
+		var installed struct {
+			ID int64 `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal(created, &installed))
+		require.Positive(t, installed.ID)
+		// The live member/context boundary reads the install's real repository.
+		// Bind the newly created repository instead of the old id-zero seed.
+		_, err = pool.Exec(t.Context(), `UPDATE install_settings SET value=value || jsonb_build_object('repository_id',$1::bigint,'repository_name','flow-http-integration') WHERE key IN ('github.repository','owner.access')`, installed.ID)
+		require.NoError(t, err)
+		_, err = pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission,github_login) SELECT $1,id,'admin',username FROM users WHERE username='l3bowner'`, installed.ID)
+		require.NoError(t, err)
 		// A flow call that names no box is refused: there is no repository-level host.
 		noBox, err := json.Marshal(map[string]any{"repo": "l3bowner/flow-http-integration"})
 		require.NoError(t, err)
 		refusal, err := http.NewRequest(http.MethodPost, origin+"/api/workflow/provision", bytes.NewReader(noBox))
 		require.NoError(t, err)
 		refusal.Header.Set("Content-Type", "application/json")
-		refusal.Header.Set("Authorization", "token "+tokenResult.Token)
+		authorize(refusal)
 		refused, err := client.Do(refusal)
 		require.NoError(t, err)
 		refusedBody, _ := io.ReadAll(refused.Body)
 		refused.Body.Close()
 		require.Equal(t, http.StatusBadRequest, refused.StatusCode, string(refusedBody))
-		// Open the box, then run on its coding host.
-		var workspace struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		}
-		require.NoError(t, json.Unmarshal(post("/api/repos/l3bowner/flow-http-integration/workspaces", tokenResult.Token, map[string]any{
+		// The test backend has process isolation only. Branch machine
+		// admission requires a real microVM and must refuse this host; the
+		// model HTTP checks below do not execute repository code. Real branch
+		// machine behavior is covered by the install/microVM suites.
+		refusedWorkspace := post("/api/repos/l3bowner/flow-http-integration/workspaces", map[string]any{
 			"name": "flows", "source_bookmark": "main",
-		}), &workspace))
-		_, err = uuid.Parse(workspace.ID)
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			request, _ := http.NewRequest(http.MethodGet, origin+"/api/repos/l3bowner/flow-http-integration/workspaces/"+workspace.ID, nil)
-			request.Header.Set("Authorization", "token "+tokenResult.Token)
-			response, getErr := client.Do(request)
-			if getErr != nil {
-				return false
-			}
-			defer response.Body.Close()
-			var current struct {
-				Status string `json:"status"`
-			}
-			return json.NewDecoder(response.Body).Decode(&current) == nil && current.Status == "running"
-		}, 2*time.Minute, 500*time.Millisecond)
-		// Provision starts the box's coding host in the background and answers
-		// "provisioning" until it is live, as the app polls (ff084303de).
-		for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(500 * time.Millisecond) {
-			var answer struct {
-				Status string `json:"status"`
-			}
-			require.NoError(t, json.Unmarshal(post("/api/workflow/provision", tokenResult.Token, map[string]any{
-				"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID,
-			}), &answer))
-			if answer.Status == "ready" {
-				break
-			}
-			require.Equal(t, "provisioning", answer.Status)
-			require.True(t, time.Now().Before(deadline), "the box's coding host did not become ready")
-		}
-		missing := post("/api/workflow/rpc", tokenResult.Token, map[string]any{
-			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID, "procedure": "Plan",
-			"payload": map[string]any{"flowId": "missing/flow", "input": map[string]any{}},
 		})
-		require.Contains(t, string(missing), `"ok":false`)
-		require.Contains(t, string(missing), `No flow`)
-		// Catalog reads reconnect to the host provision started.
-		catalog := post("/api/workflow/rpc", tokenResult.Token, map[string]any{
-			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID, "procedure": "List", "payload": map[string]string{"_tag": "flows"},
-		})
-		// The box's coding host answers its own catalog.
-		require.Contains(t, string(catalog), `"ok":true`)
-		require.Contains(t, string(catalog), `"flowId":"coding/dispatch"`)
+		require.Contains(t, string(refusedWorkspace), `"code":"service_unavailable"`)
 	}
+
 	key := "private-owner-model-key"
 	received := make(chan string, 1)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +241,7 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	}))
 	defer provider.Close()
-	credentialResponse := post("/api/model/credential", tokenResult.Token, map[string]string{"action": "enroll", "requestId": "owner-model-key-1", "name": "OWNER_PROVIDER", "origin": provider.URL, "value": key})
+	credentialResponse := post("/api/model/credential", map[string]string{"action": "enroll", "requestId": "owner-model-key-1", "name": "OWNER_PROVIDER", "origin": provider.URL, "value": key})
 	require.Contains(t, string(credentialResponse), `"ok":true`)
 	require.NotContains(t, string(credentialResponse), key)
 	model := map[string]string{"protocol": "openai-chat", "modelId": "test-model", "credential": "OWNER_PROVIDER", "baseUrl": provider.URL}
@@ -264,12 +250,12 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 	defaultRequest, err := http.NewRequest(http.MethodPut, origin+"/api/model/default", bytes.NewReader(defaultBytes))
 	require.NoError(t, err)
 	defaultRequest.Header.Set("Content-Type", "application/json")
-	defaultRequest.Header.Set("Authorization", "token "+tokenResult.Token)
+	authorize(defaultRequest)
 	defaultResponse, err := client.Do(defaultRequest)
 	require.NoError(t, err)
 	defer defaultResponse.Body.Close()
 	require.Equal(t, http.StatusOK, defaultResponse.StatusCode)
-	stream := post("/api/agent/turn", tokenResult.Token, map[string]any{"runId": "owner-" + uuid.NewString(),
+	stream := post("/api/agent/turn", map[string]any{"runId": "owner-" + uuid.NewString(),
 		"journal":      map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)},
 		"instructions": "Answer briefly.", "messages": []any{map[string]string{"role": "user", "content": "Say hello"}}})
 	require.Contains(t, string(stream), "owner chat reply")

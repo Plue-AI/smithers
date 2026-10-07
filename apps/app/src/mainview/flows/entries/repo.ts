@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect"
 import { text } from "@smthrs/ui/flow-form"
-import { flow, RepoTarget } from "./Declare"
+import { flow, RepoTarget, NoPayload } from "./Declare"
 import type { FlowEntry, FlowRequirement, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -38,8 +38,8 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     name: "repo.select", hidden: true, discloseToAgent: false,
     summary: "Make a pinned repository the active one",
     runtime: ["cloud"],
-    userOnly: true,
-    userOnlyReason: "which pinned repository is active is the human's selection",
+    agent: "never" as const,
+    agentReason: "which pinned repository is active is the human's selection",
     args: "<repoKey>",
     input: Schema.Struct({ repo: Schema.String }),
     handler: ({ repo }) => actions.selectRepo(repo)
@@ -51,7 +51,7 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
    * agent reads contents with files.list and files.read, the same route.
    */
   flow({
-    name: "repo.tree", hidden: true, discloseToAgent: false,
+    name: "repo.tree", visibility: "in-card", hidden: true, discloseToAgent: false,
     form: { args: (payload) => text(payload, "path") === undefined ? text(payload, "copy") ?? "" : `${text(payload, "copy")}#${text(payload, "path")}` },
     summary: "Expand or collapse a directory of a working copy (a local checkout or a cloud workspace)",
     /* A workspace copy lists through Smithers Cloud (RepoTreeSeam). */
@@ -62,20 +62,12 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   })
 ]
 
-/** Root composes these after wiring the repository lane controller. */
-export const tutorialRepositoryFlows = (actions: import("../../state/controller/repositoryChoice").TutorialRepositoryActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "repo.choose", hidden: true, discloseToAgent: false,
-    summary: "Choose a recently pushed GitHub repository",
-    args: "[owner/repo]", input: Schema.Struct({ repo: Schema.optional(Schema.String) }),
-    handler: ({ repo }) => actions.chooseTutorialRepository(repo)
-  }),
-  flow({
-    name: "repo.create", hidden: true, discloseToAgent: false,
-    summary: "Create repository",
-    args: "<name>", input: Schema.Struct({ name: Schema.String }),
-    form: { fields: { name: { kind: "text" } } },
-    confirm: "create repository",
-    handler: ({ name }) => actions.createTutorialRepository(name)
-  })
+/** Recorded first-run doors now use the install Setup card. */
+export const tutorialRepositoryFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+  ...["repo.choose", "repo.create"].map(name => flow({
+    name, hidden: true, discloseToAgent: false, minimumRole: "owner", actors: ["person"], agent: "never",
+    agentReason: "Install setup requires the owner’s person session", summary: "Setup", input: NoPayload,
+    grammar: () => ({ payload: {} }),
+    handler: async () => { await actions.presentCard("setup", "Set up Smithers"); return actions.showSetup() }
+  }))
 ]

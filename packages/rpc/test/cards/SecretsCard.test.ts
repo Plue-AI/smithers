@@ -41,3 +41,26 @@ describe("Secrets", () => {
     expect(fixtures.member_view.actions).toEqual([])
   })
 })
+
+
+test("the shared live model and literal old pinned rows keep names, scopes and hosts without values", async () => {
+  const { CardSchema } = await import("../../src/Cards.ts")
+  const base = { id: "secrets", kind: "secrets", title: "Secrets", status: "active", createdAt: 0, ordinal: 0 }
+  expect(CardSchema.safeParse({ ...base, payload: { secrets: [] } }).success).toBe(true)
+  const legacy = CardSchema.parse({ ...base, payload: { repo: "owner/repo", scope: "repository", secrets: [
+    { name: "DEPLOY", mainOnly: true, hosts: ["api.example.test"], matchHeaders: ["authorization"], updatedAt: null, value: "PRIVATE_LEGACY" }
+  ] } })
+  expect(legacy.kind).toBe("secrets")
+  if (legacy.kind !== "secrets") throw new Error("wrong kind")
+  expect(legacy.payload.secrets[0]).toEqual({ name: "DEPLOY", mainOnly: true, hosts: ["api.example.test"], matchHeaders: ["authorization"], updatedAt: null })
+  const live = CardSchema.parse({ ...base, payload: { secrets: [
+    { name: "DEPLOY", scope: "main_only", hosts: ["api.example.test"], actions: [], value: "PRIVATE_LIVE" },
+    { name: "TEST_KEY", scope: "all_branches", actions: [] }
+  ] } })
+  if (live.kind !== "secrets") throw new Error("wrong kind")
+  expect(live.payload.secrets).toEqual([
+    { name: "DEPLOY", mainOnly: true, hosts: ["api.example.test"], matchHeaders: [], updatedAt: null },
+    { name: "TEST_KEY", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null }
+  ])
+  expect(JSON.stringify({ legacy, live })).not.toContain("PRIVATE_")
+})

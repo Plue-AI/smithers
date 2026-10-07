@@ -70,7 +70,9 @@ export const providerRequest = (turn: StartAgentTurnRequest, options: ModelTurnO
   for (const item of turn.messages) appendWireMessage(messages, item)
   return ModelRequest.make({
     modelId: options.modelId,
-    system: [SystemPart.make({ text: composeAgentInstructions(turn.instructions, turn.context) })],
+    system: [
+      SystemPart.make({ text: composeAgentInstructions(turn.instructions, turn.context, turn.selectedContext) })
+    ],
     messages,
     tools: (turn.tools ?? []).map((tool) =>
       ToolDefinition.make({

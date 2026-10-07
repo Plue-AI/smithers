@@ -86,7 +86,7 @@ test("T1: /box.open renders the card, streams starting→running, and exposes it
   await expect(card).toContainText("Running", { timeout: 20_000 })
 
   // This host offers the current workspace facets and lifecycle controls.
-  await expect(card.getByRole("tab")).toHaveText(["Terminal", "Files", "Services", "Egress"])
+  await expect(card.getByRole("tab")).toHaveText(["Files", "Services", "Egress"])
   await expect(card.getByRole("button", { name: "Suspend", exact: true })).toBeVisible()
   await expect(card.getByRole("button", { name: "Delete", exact: true })).toBeVisible()
 
@@ -118,8 +118,43 @@ test("T1: a degraded sign-in refuses a box act with the exact enable wording", a
   })
   await page.getByTestId("composer-send").click()
 
-  const toast = page.locator('.mvp-notify .mvp-notice[data-tone="failed"]')
+  const toast = page.locator('.notify .notice[data-tone="failed"]')
   await expect(toast).toContainText("sign in again to enable", { timeout: 15_000 })
   await expect(toast).toContainText("This Smithers Cloud sign-in can't use boxes")
   expect(listRequests).toEqual([])
+})
+
+// T-UI-17: dispatcher -> registry -> View/adapter on the non-install seed fallback.
+// Machine ownership and frozen live metadata remain T-APP-12/T-TRM-01 receipts.
+test("T-UI-17: mounted terminal accepts owner keys and preserves the shell palette while watching", async ({ page }) => {
+  await page.goto("/")
+  const command = async (line: string) => {
+    await fillComposer(page, line)
+    await page.getByTestId("composer-send").press("Enter")
+    await expect(page.getByTestId("composer-input")).toHaveValue("")
+    const input = page.getByTestId("composer-input")
+    if (await input.isVisible()) await input.press("Escape")
+    if (await input.isVisible()) await input.press("Escape")
+  }
+  await command("/terminal T9")
+  const own = page.locator(".terminal-view").last()
+  await expect(own).toBeVisible()
+  await own.locator(".xterm-helper-textarea").focus()
+  await page.keyboard.type("pnpm test")
+  await page.keyboard.press("Enter")
+  await expect(own.locator(".xterm-rows")).toContainText("42 passed")
+  await expect(page.getByTestId("palette")).toBeHidden()
+  await page.keyboard.press("Meta+k")
+  await expect(page.getByTestId("palette")).toBeVisible()
+  await page.keyboard.press("Escape")
+  await command("/terminal.watch term-retry-1")
+  const watched = page.locator(".terminal-view").last()
+  await expect(watched.getByRole("status")).toHaveText("Watching")
+  await expect(watched.locator(".terminal-output > div")).toHaveAttribute("inert", "")
+  await watched.locator(".terminal-output").click()
+  await page.keyboard.press("Tab")
+  await expect(watched.locator(".xterm-helper-textarea")).not.toBeFocused()
+  await expect(page.getByTestId("palette")).toBeHidden()
+  await page.keyboard.press("Meta+k")
+  await expect(page.getByTestId("palette")).toBeVisible()
 })

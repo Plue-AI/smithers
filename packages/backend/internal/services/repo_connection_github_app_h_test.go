@@ -18,12 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type repoConnectionGitHubAppHFailReader struct{}
-
-func (repoConnectionGitHubAppHFailReader) Read([]byte) (int, error) {
-	return 0, errors.New("random failed")
-}
-
 func repoConnectionGitHubAppHPrivateKeyPEM(t *testing.T) string {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -264,13 +258,12 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	setTestCallerCredentials(t, "ID", "12345")
-	setTestCallerCredentials(t, "PEM", repoConnectionGitHubAppHPrivateKeyPEM(t))
-	oldReader := rand.Reader
-	rand.Reader = repoConnectionGitHubAppHFailReader{}
+	setTestCallerCredentials(t, "PEM", "invalid private key")
 	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
-	rand.Reader = oldReader
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
+	assert.Contains(t, err.Error(), "failed to create github app jwt")
+	setTestCallerCredentials(t, "PEM", repoConnectionGitHubAppHPrivateKeyPEM(t))
 
 	serverOK := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
@@ -318,7 +311,7 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 	svc = repoConnectionGitHubAppHTokenService(t, 8899, closedURL)
 	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	require.Error(t, err)
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
+	assert.Equal(t, http.StatusBadGateway, apiStatus(t, err))
 
 	svc = repoConnectionGitHubAppHTokenService(t, 8900, "%")
 	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)

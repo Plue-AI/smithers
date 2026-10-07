@@ -348,6 +348,10 @@ test(
           assert.equal(submission.workspaceId, fake.binding.workspaceId)
           assert.equal(submission.requestRunId, "request")
           assert.equal(submission.summary, cleanup.summary)
+          assert.deepEqual(
+            submission.plan,
+            cleanup.admission.fromStack === true ? cleanup.admission.request.plan : undefined
+          )
           return { itemId: "item-1", state: "integrating", source: submission.source }
         })
     }

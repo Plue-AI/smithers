@@ -113,7 +113,13 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     if (parsed.data.github.signed_in && !shared.stop && !shared.subscribing && options.topic) {
       shared.subscribing = true
       try {
-        const stop = options.topic.subscribe("install", receive, failure => {
+        const stop = options.topic.subscribe("install", data => {
+          // The shared topic carries install facts. Viewer authority and App
+          // callback fixes belong to this browser's authenticated HTTP read.
+          receive(typeof data === "object" && data !== null ? { ...data,
+            can_assign_models: shared.authoritative?.can_assign_models,
+            callback_fixes: shared.authoritative?.callback_fixes } : data)
+        }, failure => {
           shared.generation++
           if (failure.class === "permission") revoke(failure)
           else publish({ ...shared.snapshot, error: failure })
@@ -230,7 +236,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       try {
         await saved
         if (!current()) return false
-        const generation = shared.generation
+        // Fence GETs begun before this write; their old model cannot suppress its response.
+        const generation = ++shared.generation
         const result = await request(path, { method: path === "/install" ? "PUT" : "POST",
           headers: { "Idempotency-Key": row?.id ?? randomUuid() }, body: JSON.stringify(body) })
         if (!current()) return false
@@ -241,8 +248,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           if (result.class === "permission" && !setup) revoke(result)
           else {
             const model = shared.snapshot.model
-            const address = path === "/install" && typeof body === "object" && body !== null && "address" in body
-              ? body.address as InstallAddress : undefined
+            const address = path === "/install" && typeof body === "object" && body !== null && "bind" in body && "origins" in body
+              ? body as Pick<InstallAddress, "bind" | "origins"> : undefined
             const failedStep = setup ? (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId : undefined
             publish({ ...shared.snapshot, error: result, model: model && address ? { ...model, address: { ...model.address,
               change_failed: { from: model.address.origins[0] ?? "", to: address.origins[0] ?? "", reason: serviceFailureSentence(result) } } }
@@ -329,6 +336,10 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     if (!Number.isInteger(capacity) || capacity < 0 || (model && capacity > model.this_mac.capacity)) return "Machines exceed this Mac"
     return write("capacity", "/install", { capacity })
   }
+  const setInstallDailyAdmissions = (todo_daily_admissions: number) => {
+    if (!Number.isSafeInteger(todo_daily_admissions) || todo_daily_admissions < 1) return "TODOs per day must be a positive integer"
+    return write("todo_daily_admissions", "/install", { todo_daily_admissions })
+  }
   const setInstallParallel = (parallel: number) => {
     if (!Number.isInteger(parallel) || parallel < 1 || parallel > 8) return "Choose 1 to 8 TODOs at once"
     return write("parallel", "/install", { parallel })
@@ -412,8 +423,9 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   }
   return {
     snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
-    setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { address: input }),
-    setInstallCapacity, setInstallParallel, setInstallObsidian, saveInstallModelKey,
+    setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { bind: input.bind, origins: input.origins }),
+    setInstallPreapproveDefault: (todo_preapprove_default: boolean) => write("todo_preapprove_default", "/install", { todo_preapprove_default }),
+    setInstallCapacity, setInstallDailyAdmissions, setInstallParallel, setInstallObsidian, saveInstallModelKey,
     dispose: () => { shared.disposed = true; shared.generation++; shared.stop?.(); shared.stop = undefined
       if (shared.installPoll !== undefined) clearTimeout(shared.installPoll)
       shared.installPoll = undefined

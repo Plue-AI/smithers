@@ -1,19 +1,12 @@
-import { preparedView, type ViewAction } from "../PreparedView"
 /*
  * The bookmarks seam (jj branches): GET /api/repos/{owner}/{repo}/bookmarks
- * renders the "branches" card. Bookmarks are also the source choices a
+ * supplies the source choices a
  * created landing needs (LandingsSeam.createLanding), so the paginated fetch
  * is exported for that seam to reuse. Reference: multi
  * src/smithersCloud/bookmarks.ts.
  */
-import type { Card } from "../AppState"
-import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
 import { readErrorMessage } from "./SeamContext"
-
-export interface BookmarksSeam {
-  readonly listBookmarks: ViewAction<[repo?: string]>
-}
 
 /** One parsed bookmark (multi Bookmark): the change id is the landing-stack identity. */
 export interface BookmarkRow {
@@ -93,33 +86,3 @@ export const fetchAllBookmarks = async (
     error: `Branches for ${repo} couldn't be fully listed — pagination exceeded the supported page limit.`
   }
 }
-
-export const createBookmarksSeam = (ctx: SeamContext): BookmarksSeam => ({
-  listBookmarks: preparedView(ctx, (repoArg?: string) => {
-    const target = resolveTargetRepo(ctx.store, repoArg)
-    if ("error" in target) return target.error
-    const repo = target.repo
-    return { id: `branches-${repo}`, title: `Branches · ${repo}`, read: async () => {
-    const result = await fetchAllBookmarks(ctx, repo)
-    if ("error" in result) return result.error
-    const card: Card = {
-      id: `branches-${repo}`,
-      kind: "branches",
-      title: `Branches · ${repo}`,
-      status: "active",
-      createdAt: Date.now(),
-      ordinal: ctx.nextOrdinal(),
-      payload: {
-        repo,
-        // `head` is the bookmark's resolved git commit; plue can answer an
-        // empty target_commit_id, which stays null — never a fabricated ref.
-        bookmarks: result.rows.map(({ name: bookmarkName, targetCommitId }) => ({
-          name: bookmarkName,
-          head: targetCommitId
-        }))
-      }
-    }
-    return { card }
-    } }
-  })
-})

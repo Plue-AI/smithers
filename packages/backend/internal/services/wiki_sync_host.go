@@ -136,7 +136,7 @@ func ValidateInstallObsidianFolder(folder, state string) (string, string, error)
 	return canonical, fmt.Sprintf("%d:%d", syncFileNumber(info, "Dev"), syncFileNumber(info, "Ino")), nil
 }
 
-func (s *WikiService) SyncInstallWikiFolder(ctx context.Context, source InstallWikiFolderSource) error {
+func (s *WikiService) SyncInstallWikiFolder(ctx context.Context, source InstallWikiFolderSource) (result error) {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -152,6 +152,11 @@ func (s *WikiService) SyncInstallWikiFolder(ctx context.Context, source InstallW
 	} // No configured folder, no filesystem effects.
 	if setting.Owner == "" || setting.Repo == "" || setting.Login == "" || setting.Connection == "" || setting.Identity == "" {
 		return wikiUnavailable("install Obsidian scope unavailable")
+	}
+	if reporter, ok := source.(interface {
+		RecordWikiFolderSync(context.Context, *InstallWikiFolder, error) error
+	}); ok {
+		defer func() { result = errors.Join(result, reporter.RecordWikiFolderSync(ctx, setting, result)) }()
 	}
 	path, identity, err := ValidateInstallObsidianFolder(setting.Folder, setting.StateDirectory)
 	if err != nil {

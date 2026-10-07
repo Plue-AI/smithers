@@ -28,6 +28,7 @@ func TestTodoSettledCardHasNoPlaceRealPostgres(t *testing.T) {
 	require.NoError(t, err)
 	s := NewMythicalService(pool, nil)
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, repoID)
 	for _, title := range []string{"One", "Two", "Three"} {
 		_, err = s.FileTodo(ctx, repoID, userID, MythicalTodoInput{Title: title, Prompt: "Change " + title, Request: title})
 		require.NoError(t, err)

@@ -69,6 +69,35 @@ const rendered = (
   ModelRequest.Message.user(`[notification ${id} from ${actor} at ${lineage} turn ${turn}]\n${body}`)
 
 describe("harness notification adapter", () => {
+  it("carries attribution into the model message without replacing its authenticated source", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const queue = yield* NotificationQueue.NotificationQueue
+        const message = notification("member-feedback", "steer", "run/root/child", {
+          kind: "Message",
+          body: "Keep the question open.\nCheck cancellation."
+        })
+        yield* queue.admit("run", {
+          ...message,
+          provenance: {
+            ...message.provenance,
+            sourceActor: "bearer:product-backend",
+            attribution: { person: "ben", via: "codex", session: "terminal-1" }
+          }
+        })
+        const source = yield* Notifications.make({ runId: "run", lineageId: "run/root/child" })
+        const first = yield* source.drain({ boundary: "model-turn-2", wouldIdle: false })
+        const replay = yield* source.drain({ boundary: "model-turn-2", wouldIdle: false })
+        return { first, replay }
+      }).pipe(Effect.provide(notificationLayer()), Effect.scoped)
+    )
+    expect(result.first.inserts).toEqual([ModelRequest.Message.user(
+      "[notification member-feedback from bearer:product-backend at operator/root turn 7 attribution {\"person\":\"ben\",\"session\":\"[REDACTED]\",\"via\":\"codex\"}]\nKeep the question open.\nCheck cancellation."
+    )])
+    expect(result.replay.inserts).toEqual(result.first.inserts)
+    expect(result.replay.duplicate).toBe(true)
+  })
+
   it("drains the target lineage at turn boundaries with queue semantics and provenance", async () => {
     const result = await Effect.runPromise(
       Effect.gen(function*() {

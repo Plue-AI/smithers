@@ -8,6 +8,7 @@ pub mod gone;
 pub mod host;
 pub mod merge;
 pub mod reconcile;
+pub mod service;
 pub mod state;
 
 pub const MAX_TEXT_BYTES: usize = 1 << 20;

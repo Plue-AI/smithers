@@ -22,7 +22,7 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { appendFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 /** The first action's identifier in the execution counter. */
@@ -62,6 +62,7 @@ export interface FlowOptions {
   readonly secondSleepMs: number
   /** The host identity both incarnations share; it is what makes the reap theirs. */
   readonly hostId: string
+  readonly crossing?: "keyed-write" | "sealed-check" | "keyless-shell"
 }
 
 const record = (counterFile: string, step: string): void => {
@@ -75,13 +76,15 @@ const mark = (markerDir: string, name: string, contents = ""): void => {
 /** The step the flow body names. Its implementation holds both actions. */
 export const Settle = Action.make("e2e/kill-resume/Settle", {
   payload: { label: Schema.String },
-  success: Schema.String
+  success: Schema.String,
+  error: Action.IrreversibleRetryRequiresIdempotencyKey
 })
 
 /** The flow under the kill. */
 export const KillResume = Flow.make("e2e/kill-resume", {
   payload: { label: Schema.String },
   success: Schema.String,
+  error: Action.IrreversibleRetryRequiresIdempotencyKey,
   body: (payload) => Settle.call(payload)
 })
 
@@ -107,9 +110,23 @@ export const registration = (options: FlowOptions) => {
   const Second = Action.make({
     name: "e2e/kill-resume/Second",
     success: Schema.String,
-    tier: "sealed",
-    idempotencyKey: "e2e/kill-resume/second/v1",
+    error: Action.IrreversibleRetryRequiresIdempotencyKey,
+    tier: options.crossing === "keyed-write" || options.crossing === "keyless-shell" ? "irreversible" : "sealed",
+    idempotencyKey: options.crossing === "keyless-shell" ? undefined : "e2e/kill-resume/second/v1",
     execute: Effect.gen(function*() {
+      if (options.crossing !== undefined) {
+        record(options.counterFile, secondStep)
+        if (options.crossing === "keyed-write") {
+          record(options.counterFile, "lookup")
+          if (existsSync(join(options.markerDir, "remote.result"))) return "second-value"
+        }
+        record(options.counterFile, "write")
+        mark(options.markerDir, "remote.result", "second-value")
+        mark(options.markerDir, markers.secondStarted)
+        yield* Effect.sleep(options.secondSleepMs)
+        mark(options.markerDir, markers.secondDone)
+        return "second-value"
+      }
       const spawner = yield* ChildProcessSpawner
       // A two-process tree that only a group signal reaches. It is what turns
       // a `SIGKILL` of the host into a real orphan for the next incarnation's

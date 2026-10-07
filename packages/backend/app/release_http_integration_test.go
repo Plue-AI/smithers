@@ -2,6 +2,8 @@ package app_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -29,6 +31,7 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	for key, value := range map[string]string{
+		"SMITHERS_AUTH_MODE":    "selfhost",
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
 		"SMITHERS_AUTH_SESSION_COOKIE_NAME": "smithers_session",
 		"SMITHERS_AUTH_MODE":                "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "release-audit-bootstrap",
@@ -60,6 +63,7 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		}
 		req, err := http.NewRequest(method, server.URL+path, reader)
 		require.NoError(t, err)
+		req.Host = "127.0.0.1:4000"
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
 		}
@@ -85,6 +89,11 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	}
 	token, err = seed.OwnerToken(t.Context(), pool, "releaseowner")
 	require.NoError(t, err)
+	session = strings.TrimPrefix(token, "smithers_") + strings.Repeat("0", 24)
+	digest := sha256.Sum256([]byte(session))
+	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at)
+        SELECT $1,id,username,now()+interval '1 hour' FROM users WHERE username='releaseowner'`, hex.EncodeToString(digest[:]))
+	require.NoError(t, err)
 
 	repo, _ := request("POST", "/api/user/repos", `{"name":"audit","private":true,"auto_init":true}`, 201, nil)
 	require.Equal(t, true, repo["can_write"], "creator must retain editing access")
@@ -109,7 +118,6 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	browserSession = ownerBrowserSession(t, pool)
 	for _, tc := range []struct{ route, body string }{
 		{"/api/user/repos", `{"name":"discarded"}`},
-		{"/api/app-timelines", `{"client_key":"discarded"}`},
 		{path + "/issues", `{"title":"discarded"}`},
 		{path + "/variables", `{"name":"DISCARDED","value":"value"}`},
 		{path + "/secrets", `{"name":"DISCARDED","value":"scratch"}`},
@@ -128,11 +136,6 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	for _, suffix := range []string{" {}", " null", " broken"} {
 		request("PUT", path+"/agent-environment/secrets/DISCARDED", `{"value":"scratch"}`+suffix, 400, nil)
 	}
-	var discardedTimelines int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_timelines WHERE client_key='discarded'`).Scan(&discardedTimelines))
-	require.Zero(t, discardedTimelines, "rejected timeline documents must not persist their prefix")
-	request("POST", "/api/app-timelines", `{"client_key":"discarded","future":true}`, 201, nil)
-	request("POST", "/api/app-timelines", `{"client_key":"discarded"}`, 200, nil)
 	request("GET", "/api/repos/releaseowner/discarded", "", 404, nil)
 	request("GET", path+"/variables/DISCARDED", "", 404, nil)
 	request("GET", path+"/wiki/discarded", "", 404, nil)
@@ -151,7 +154,8 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	for next != "" {
 		req, err := http.NewRequest("GET", server.URL+next, nil)
 		require.NoError(t, err)
-		req.Header.Set("Authorization", "token "+token)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: session})
+		req.Host = "127.0.0.1:4000"
 		res, err := server.Client().Do(req)
 		require.NoError(t, err)
 		require.Equal(t, 200, res.StatusCode)

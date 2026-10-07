@@ -1,9 +1,15 @@
 import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 /** Standard package targets plus package-owned documentation generation. */
 import { Smithers } from "@smthrs/targets"
+import { Package as scriptPackage } from "../../scripts/PACKAGE.ts"
+
+const tuiSources = Smithers.Filegroup({
+  cwd: "apps/tui",
+  srcs: [Smithers.glob("src/**/*.ts"), Smithers.glob("src/**/*.tsx")]
+})
 
 const { check, circular, docs, docsFiles, fmt, lib, lint } = BuildAndCheckTypeScriptPackage({
-  deps: [],
+  deps: [tuiSources],
   cwd: "packages/smithers",
   // On the Node 22 CI hosts this complete process-boundary suite took
   // 1166.5 s on macOS and was killed at 1200.1 s on Ubuntu. Keep its
@@ -12,8 +18,6 @@ const { check, circular, docs, docsFiles, fmt, lib, lint } = BuildAndCheckTypeSc
   testTimeoutMs: 40 * 60_000,
   // `scripts/build.mjs` bundles the TUI that `smthrs tui` runs.
   buildInputs: [
-    Smithers.glob("//apps/tui/src/**/*.ts"),
-    Smithers.glob("//apps/tui/src/**/*.tsx"),
     Smithers.glob("vendor/opentui-native/**"),
     Smithers.file("scripts/build-tui.mjs"),
     Smithers.file("scripts/tui-native-editor.mjs")
@@ -64,9 +68,10 @@ const test = Smithers.Shell.Test({
     Smithers.glob("src/**/*.ts"),
     Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**"] }),
     Smithers.file("vitest.config.ts"),
-    Smithers.glob("//packages/repo-targets/test-utils/effect-property.*"),
+    Smithers.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+    Smithers.file("//packages/repo-targets/test-utils/effect-property.d.mts"),
     // `EvaluationCli.test.ts` lists the repository's shipped suites.
-    Smithers.glob("//evals/**/*.eval.ts"),
+    scriptPackage.repositoryInputs,
     // `ProductApi.test.ts` checks the generated client against the spec.
     Smithers.file("//docs/api/openapi.yaml")
   ],
@@ -260,6 +265,7 @@ const securityReview = Smithers.SecurityReview({
 
 export const Package = Smithers.Package({
   targets: {
+    tuiSources,
     check,
     circular,
     docs,

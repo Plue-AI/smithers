@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { MonitorCardSchema, type MonitorCard, type RunViewProps } from "@smthrs/rpc/MonitorCard"
 import { fixtures } from "@smthrs/rpc/fixtures/Monitor"
 import { RunContainer } from "./RunContainer"
+import { contextMonitor } from "../state/ContextMonitor"
 
 const mount = (model: MonitorCard | undefined, maximized: boolean) => {
   let props!: RunViewProps
@@ -11,6 +12,17 @@ const mount = (model: MonitorCard | undefined, maximized: boolean) => {
     View={value => { props = value; return null }} view={{ maximized }} onView={() => {}} />)
   return { props, calls }
 }
+
+test("a completed app-agent answer is Done, while a merged TODO retains Merged", () => {
+  const model = contextMonitor({ id: "attempt", turnId: "turn", legId: "leg", status: "complete",
+    receivedText: true, claimBuffer: "", createdAt: 1, revision: 1,
+    preflight: { context: [], candidates: [], model: "owner-fast", durationMs: 12 } })
+  const render = (value: MonitorCard | undefined) => renderToStaticMarkup(<RunContainer model={value} dispatch={() => {}}
+    view={{ maximized: false }} onView={() => {}} />)
+  expect(render(model)).toContain(">Done<")
+  expect(render(model)).not.toContain(">Merged<")
+  expect(render({ ...model!, todo: 10 })).toContain(">Merged<")
+})
 const tags = (model: MonitorCard, maximized: boolean) => mount(model, maximized).props.actions.map(action => action.tag)
 
 test("every Monitor fixture parses and every bound press dispatches its own tag", () => {

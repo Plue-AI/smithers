@@ -180,6 +180,12 @@ func (d *Dispatcher) watchEnded(ctx context.Context) {
 // interruptEnded stops local hosts whose turns ended elsewhere, such as a
 // cancel or retire that another replica served.
 func (d *Dispatcher) interruptEnded(ctx context.Context) {
+	if err := d.store.RevokeInactiveAuthors(ctx); err != nil {
+		if ctx.Err() == nil {
+			d.logger.Warn("chat author recheck failed", "error", err)
+		}
+		return
+	}
 	d.mu.Lock()
 	ids := make([]string, 0, len(d.running))
 	for id := range d.running {

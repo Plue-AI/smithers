@@ -39,6 +39,7 @@ import {
   flowRequirements,
   itemOf,
   modelInvocable,
+  viewerAdmitted,
   nameOf,
   namespaceOf,
   parseSubmit,
@@ -181,6 +182,8 @@ export interface FlowSubmission {
 export interface CommandRegistry {
   /** Every registered flow as UI-catalog records, admin entries included only for admin sessions. */
   readonly all: () => ReadonlyArray<CatalogItem>
+  /** Shared, authoritative viewer projection; undefined while authority is unavailable. */
+  readonly viewerCatalog: () => ReadonlyArray<CatalogItem> | undefined
   /** The same flows as executable entries. */
   readonly entries: () => ReadonlyArray<FlowEntry>
   readonly find: (name: string) => FlowEntry | undefined
@@ -200,6 +203,8 @@ export interface CommandRegistry {
   readonly slashTree: (needle: string) => Array<SlashRow<CatalogItem>>
   readonly recommended: () => CatalogItem
   readonly preload?: (name: string, args?: string) => Promise<void>
+  /** Continue only the pending, revision-bound message the person pressed. */
+  readonly confirm: (id: string, revision: string) => Promise<CommandOutcome>
   readonly run: (name: string, args?: string, source?: "automatic", originCardId?: string) => Promise<CommandOutcome>
   /**
    * `run` at the agent boundary (requirement axis): an unmet requirement is an
@@ -277,7 +282,7 @@ const valueOf = (value: unknown): string | undefined => {
 const OVER_MAXIMIZED_CARD: ReadonlySet<string> = new Set(["chat.open", "chat.dictate", "palette.open", "palette.actions", "theme", "input.mode"])
 
 
-export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle): CommandRegistry => {
+export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle, resolveConfirmation?: (id: string, revision: string) => { name: string; args?: string } | undefined): CommandRegistry => {
   /*
    * The app's own invocation carries no host authority. Approval is a
    * host-injected decorator over typed capabilities (a GrantStore the cell
@@ -308,7 +313,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     if (leafCache !== undefined && leafCache.repo === catalog.repo && leafCache.loadedAt === catalog.loadedAt) return leafCache.leaves
     // A declared flow that stands in for the repository's leaf (`workflow` is its own name) yields to that leaf.
     const taken = new Set([...base, ...guide, ...admin].filter((entry) => !standsIn(entry)).map(nameOf))
-    const built = repositoryFlowLeaves(actions, catalog.repo, catalog.flows).filter((entry) => !taken.has(nameOf(entry)))
+    const built = repositoryFlowLeaves(actions, catalog.repo, catalog.flows, base).filter((entry) => !taken.has(nameOf(entry)))
     leafCache = { repo: catalog.repo, loadedAt: catalog.loadedAt, leaves: built }
     return built
   }
@@ -321,10 +326,15 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     const catalog = agentActions.repositoryFlows()
     return (catalog === undefined
       ? undefined
-      : repositoryFlowLeaves(agentActions, catalog.repo, catalog.flows).find((candidate) => nameOf(candidate) === name)) ?? declared
+      : repositoryFlowLeaves(agentActions, catalog.repo, catalog.flows, agentEntries).find((candidate) => nameOf(candidate) === name)) ?? declared
   }
 
   const available = (entry: FlowEntry): boolean => {
+    // AppController has no qualified guest-execution binding yet (T-SEC-01).
+    // A terminal tunnel alone must not expose gestures that the seam refuses.
+    // Keep the shared declarations registered, but withhold all three doors
+    // until the production composition can supply that authority.
+    if (["code.hover", "code.definition", "code.diagnostics"].includes(nameOf(entry))) return false
     const bootstrap = actions.bootstrap
     const { hosts } = entry.metadata
     // A host-scoped flow exists only where the bootstrap names its host: no bootstrap, no host, no flow.
@@ -343,7 +353,17 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       .concat(leafEntries).filter(available)
   }
 
-  const items = (): ReadonlyArray<CatalogItem> => entries().map(itemOf)
+  const items = (): ReadonlyArray<CatalogItem> => entries().map(entry => {
+    const item = itemOf(entry)
+    return (item.name === "debug.api" || item.name === "debug-api") && !actions.debugApi.available()
+      ? { ...item, visibility: "hidden", hidden: true } : item
+  })
+
+  const listingItems = (): ReadonlyArray<CatalogItem> => {
+    const catalog = items()
+    const admitted = new Set(viewerAdmitted(actions.snapshot(), catalog).map(item => item.name))
+    return catalog.filter(item => item.visibility === undefined || admitted.has(item.name))
+  }
 
   const find = (name: string): FlowEntry | undefined => entries().find((entry) => nameOf(entry) === name)
 
@@ -462,7 +482,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     named?: Record<string, unknown>,
     httpCall?: AgentToolCall["httpCall"],
     inheritedGesture?: CommandGesture,
-    originCardId?: string
+    originCardId?: string,
+    confirmed = false
   ): Promise<CommandOutcome> => {
     invocation?.signal?.throwIfAborted()
     const request = { name, actor: invoker === "agent" ? "smithers" as const : invoker,
@@ -531,7 +552,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     } }
     const canPublish = (): boolean => acceptance === undefined || lifecycle?.canPublish?.(acceptance.receipt, request) !== false
     let outcome: CommandOutcome
-    try { outcome = await settle(invoker, name, args, seen, startedAt, scopedInvocation, named, gesture, execution, canPublish) }
+    try { outcome = await settle(invoker, name, args, seen, startedAt, scopedInvocation, named, gesture, execution, canPublish, confirmed) }
     catch { outcome = { status: "failed", error: "The command did not finish. Check its result before trying again." } }
     const retryableAuthorization = authorizationRefused && (!execution.invoked || name === "form.submit")
     if (acceptance !== undefined && lifecycle !== undefined && !await lifecycle.settle(acceptance.receipt, outcome, retryableAuthorization)) {
@@ -572,7 +593,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     named?: Record<string, unknown>,
     gesture?: CommandGesture,
     execution?: { invoked: boolean },
-    canPublish: () => boolean = () => true
+    canPublish: () => boolean = () => true,
+    confirmed = false
   ): Promise<CommandOutcome> => {
     const entry = find(name)
     if (entry === undefined) {
@@ -589,13 +611,13 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       return { status: "failed", error: `/${nameOf(target)} requires a person's confirmation.` }
     }
     if (invoker === "agent" && !modelInvocable(target)) {
-      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.userOnlyReason) }
+      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
     }
     // A user-only flow refuses every non-person actor, automatic `system` calls
     // included (#3717): a future automatic caller that forwards a name from data
     // must not bypass the person gate.
-    if (invoker !== "user" && !modelInvocable(target)) {
-      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.userOnlyReason) }
+    if (invoker !== "user" && target.metadata.agent === "never") {
+      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
     }
     const acting = invoker === "agent" ? agentActions : actions
     /*
@@ -714,6 +736,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       const rendered = acting.renderFlowForm({
         name: nameOf(target),
         args,
+        ...(named === undefined ? {} : { payload: named }),
         via: invoker === "agent" ? "agent" : "user",
         invocation: invocation === undefined ? undefined : { ...invocation, authorized: undefined, signal: undefined },
         input: target.input,
@@ -723,15 +746,16 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       return { status: "form", flow: nameOf(target), cardId: rendered.cardId, fields: rendered.missing }
     }
     /*
-     * A `confirm` flow asked for by the MODEL: consequential acts (land a
+     * A `confirm` flow asked for by the model (or person when declared): consequential acts (land a
      * PR, remove a credential, launch a harness) are invocable by the agent
      * — every listed flow is — but never performed by it. The invocation
      * posts a confirmation message whose button runs the flow as the user.
      * The label may depend on the payload (registry.ts `confirm`).
      */
-    const refusal = await target.preflight?.(parsed.payload)
+    const refusal = await target.preflight?.(parsed.payload, invoker)
     if (refusal !== undefined) return { status: "failed", error: refusal }
-    const confirmation = invoker === "agent" ? confirmLabel(target.metadata, parsed.payload) : undefined
+    const confirmation = invoker === "agent" || target.metadata.confirmPerson && !confirmed
+      ? confirmLabel(target.metadata, parsed.payload) : undefined
     if (confirmation !== undefined) {
       /*
        * The line the button will run. A flow whose bare form resolves an
@@ -813,12 +837,18 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
   const registry: CommandRegistry = {
     preload,
     all: items,
+    viewerCatalog: () => {
+      const state = actions.snapshot()
+      const catalog = items()
+      return state.viewerRole === undefined || !catalog.some(item => item.visibility !== undefined)
+        ? undefined : viewerAdmitted(state, catalog)
+    },
     entries,
     find,
     explainAbsent,
     state: actions.snapshot,
-    slashItems: (needle) => slashItems(actions.snapshot(), needle, items()),
-    slashTree: (needle) => slashTree(actions.snapshot(), needle, items()),
+    slashItems: (needle) => slashItems(actions.snapshot(), needle, listingItems()),
+    slashTree: (needle) => slashTree(actions.snapshot(), needle, listingItems()),
     recommended: () => {
       const name = recommendedNames(actions.snapshot())[0]
       const command = name === undefined ? undefined : items().find((item) => item.name === name)
@@ -826,6 +856,11 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       return command
     },
     run,
+    confirm: (id, revision) => {
+      const action = resolveConfirmation?.(id, revision)
+      if (!action) return Promise.resolve({ status: "failed", error: "Confirmation is stale." })
+      return runAs("user", action.name, action.args, new Set(), undefined, undefined, undefined, undefined, undefined, true)
+    },
     // Preserve the native host's direct tool path. Form continuations
     // still enter runForAgent below and must bring authority or fail closed.
     runAsAgent: (name, args, httpCall) => runAs("agent", name, args, new Set(), undefined, undefined, httpCall),
@@ -836,7 +871,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       if (early !== undefined) return early
       const target = find(clean)
       if (target !== undefined && !modelInvocable(target)) {
-        return { status: "failed", error: userOnlyError(clean, target.metadata.userOnlyReason) }
+        return { status: "failed", error: userOnlyError(clean, target.metadata.agentReason) }
       }
       return runAs("agent", clean, args, new Set(), {
         ...(invocation ?? unscopedInvocation),
@@ -850,7 +885,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       if (early !== undefined) return early
       const target = find(clean)
       if (target !== undefined && !modelInvocable(target)) {
-        return { status: "failed", error: userOnlyError(clean, target.metadata.userOnlyReason) }
+        return { status: "failed", error: userOnlyError(clean, target.metadata.agentReason) }
       }
       return runAs("agent", clean, display, new Set(), { ...(invocation ?? unscopedInvocation) }, payload)
     },

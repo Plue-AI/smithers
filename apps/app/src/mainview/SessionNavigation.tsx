@@ -28,8 +28,8 @@ function Crumbs() {
   const repo = catalogRepositoryOf(sessions[0]?.activeRepoKey, repositories) ?? controller.repositoryFlows()?.repo ?? world.repo.repo
   const at = views.find(view => view.id === design.viewer())?.at ?? "main"
   const nodes = designBranchTree(world, at)
-  return <div className="mvp-crumbs-host">
-    <span className="mvp-crumb-repo">{repo}</span><span aria-hidden="true">/</span>
+  return <div className="crumbs-host">
+    <span className="crumb-repo">{repo}</span><span aria-hidden="true">/</span>
     <BranchCrumbs nodes={nodes} view={{ selected_branch: at }}
       onAction={(tag, input) => { controller.commands.submit({ name: tag, payload: input ?? {}, actor: "user" }) }} onView={() => {}} />
   </div>

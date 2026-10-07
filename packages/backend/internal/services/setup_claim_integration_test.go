@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/jackc/pgx/v5/pgtype"
 	"io"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -201,8 +203,18 @@ func TestGitHubOwnerMigrationPreservesOwner(t *testing.T) {
 	// Restore the old password table to exercise an existing install upgrade.
 	_, err = pool.Exec(ctx, `CREATE TABLE local_credentials(user_id bigint PRIMARY KEY REFERENCES users(id),password_hash text NOT NULL); INSERT INTO local_credentials(user_id,password_hash) SELECT user_id,'retired-password' FROM self_host_owners`)
 	require.NoError(t, err)
-	migration, err := os.ReadFile("../../db/product/migrations/0110_github_owner_identity.sql")
+	paths, err := filepath.Glob("../../db/product/migrations/*.sql")
 	require.NoError(t, err)
+	var migration []byte
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		require.NoError(t, err)
+		if strings.Contains(string(content), "DROP TABLE local_credentials;") {
+			require.Nil(t, migration, "only one migration retires password credentials")
+			migration = content
+		}
+	}
+	require.NotNil(t, migration, "password retirement migration is present")
 	_, err = pool.Exec(ctx, string(migration))
 	require.NoError(t, err)
 	owner, err := q.GetSelfHostOwner(ctx)
@@ -214,4 +226,120 @@ func TestGitHubOwnerMigrationPreservesOwner(t *testing.T) {
 	var removed bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT to_regclass('local_credentials') IS NULL`).Scan(&removed))
 	require.True(t, removed)
+}
+
+// Database commit and output failures must never leave usable uncommitted
+// authority. Faults live in this test database and writer, not production hooks.
+func TestSetupMintFailureRecoveryPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	setup := &InstallSetupSessions{Pool: pool}
+	_, err := pool.Exec(ctx, `CREATE FUNCTION refuse_setup_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.key='setup.token' THEN RAISE EXCEPTION 'fixture refuses commit'; END IF; RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER refuse_setup_commit AFTER INSERT OR UPDATE ON install_settings DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION refuse_setup_commit()`)
+	require.NoError(t, err)
+	var output bytes.Buffer
+	require.ErrorContains(t, setup.Mint(ctx, nil, &output), "fixture refuses commit")
+	require.Empty(t, output.String())
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='setup.token'`).Scan(&count))
+	require.Zero(t, count)
+	_, err = pool.Exec(ctx, `DROP TRIGGER refuse_setup_commit ON install_settings; DROP FUNCTION refuse_setup_commit()`)
+	require.NoError(t, err)
+	require.ErrorContains(t, setup.Mint(ctx, nil, setupRefusingWriter{}), "fixture output failure")
+	var committed string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT value #>> '{}' FROM install_settings WHERE key='setup.token'`).Scan(&committed))
+	require.Len(t, committed, 64)
+	restarted := &InstallSetupSessions{Pool: pool}
+	require.NoError(t, restarted.Mint(ctx, nil, &output))
+	var replacement string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT value #>> '{}' FROM install_settings WHERE key='setup.token'`).Scan(&replacement))
+	require.NotEqual(t, committed, replacement)
+	var line struct {
+		URLs []string `json:"setup_urls"`
+	}
+	require.NoError(t, json.Unmarshal(output.Bytes(), &line))
+	parsed, err := url.Parse(line.URLs[0])
+	require.NoError(t, err)
+	digest := sha256.Sum256([]byte(parsed.Query().Get("token")))
+	require.Equal(t, hex.EncodeToString(digest[:]), replacement)
+	_, err = restarted.Exchange(ctx, parsed.Query().Get("token"))
+	require.NoError(t, err)
+}
+
+type setupRefusingWriter struct{}
+
+func (setupRefusingWriter) Write([]byte) (int, error) { return 0, errors.New("fixture output failure") }
+
+func TestSetupMintClaimLockOrdersPostgres(t *testing.T) {
+	for _, claimFirst := range []bool{true, false} {
+		name := "mint first"
+		if claimFirst {
+			name = "claim first"
+		}
+		t.Run(name, func(t *testing.T) {
+			pool, _ := postgresfixture.NewProductDatabase(t)
+			ctx := t.Context()
+			setup := &InstallSetupSessions{Pool: pool}
+			var initial bytes.Buffer
+			require.NoError(t, setup.Mint(ctx, nil, &initial))
+			var line struct {
+				URLs []string `json:"setup_urls"`
+			}
+			require.NoError(t, json.Unmarshal(initial.Bytes(), &line))
+			parsed, err := url.Parse(line.URLs[0])
+			require.NoError(t, err)
+			session, err := setup.Exchange(ctx, parsed.Query().Get("token"))
+			require.NoError(t, err)
+			user, err := db.New(pool).CreateUser(ctx, db.CreateUserParams{Username: "ordered-owner", LowerUsername: "ordered-owner"})
+			require.NoError(t, err)
+			barrier, err := pool.Acquire(ctx)
+			require.NoError(t, err)
+			defer barrier.Release()
+			_, err = barrier.Exec(ctx, `SELECT pg_advisory_lock(3443)`)
+			require.NoError(t, err)
+			defer barrier.Exec(ctx, `SELECT pg_advisory_unlock(3443)`)
+			waiters := func(n int) {
+				t.Helper()
+				require.Eventually(t, func() bool {
+					var count int
+					err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=3443 AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND NOT granted`).Scan(&count)
+					return err == nil && count == n
+				}, 5*time.Second, 10*time.Millisecond)
+			}
+			claimResult, mintResult := make(chan error, 1), make(chan error, 1)
+			claim := func() {
+				_, err := setup.ClaimOwner(WithInstallSetupSession(ctx, session), user, "ordered-person-session", time.Now().Add(time.Hour))
+				claimResult <- err
+			}
+			var output bytes.Buffer
+			mint := func() { mintResult <- setup.Mint(ctx, nil, &output) }
+			if claimFirst {
+				go claim()
+			} else {
+				go mint()
+			}
+			waiters(1)
+			if claimFirst {
+				go mint()
+			} else {
+				go claim()
+			}
+			waiters(2)
+			_, err = barrier.Exec(ctx, `SELECT pg_advisory_unlock(3443)`)
+			require.NoError(t, err)
+			require.NoError(t, <-claimResult)
+			mintErr := <-mintResult
+			if claimFirst {
+				require.NoError(t, mintErr)
+			} else {
+				require.ErrorContains(t, mintErr, "setup_closed")
+			}
+			require.Empty(t, output.String(), "no stale setup link may escape after claim")
+			var remaining int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='setup.token' OR key LIKE 'setup.session.%'`).Scan(&remaining))
+			require.Zero(t, remaining)
+			owner, err := db.New(pool).GetSelfHostOwner(ctx)
+			require.NoError(t, err)
+			require.Equal(t, user.ID, owner.ID)
+		})
+	}
 }

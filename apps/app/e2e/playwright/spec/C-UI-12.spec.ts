@@ -1,5 +1,248 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+import { createRequire } from "node:module"
+import { resolve } from "node:path"
+
+const axePath = createRequire(resolve(process.cwd(), "package.json")).resolve("axe-core/axe.min.js")
+
+// T-UI-02 phase: production Views, supplied callbacks; model writes belong to T-FLW-08.
+test("C-UI-12: Settings model slot is empty or supplied once with no duplicate actions", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { slotCalls: [] })
+    window.addEventListener("story-callback", event => (window as unknown as { slotCalls: unknown[] }).slotCalls.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=SettingsView/Settings%20for%20the%20owner&theme=${theme}`)
+    await expect(page.locator('[data-flow="settings.model.set"],[data-flow="settings.model-key"],input[type="password"]')).toHaveCount(0)
+    await expect(page.locator('[data-kind="settings"]')).not.toContainText("Fast model")
+    expect(await page.evaluate(() => (window as unknown as { slotCalls: unknown[] }).slotCalls)).toEqual([])
+    await page.goto(`/view-stories.html?story=SettingsView/Supplied%20model%20slot&theme=${theme}`)
+    await expect(page.locator(".setup-settings dt").filter({ hasText: "Fast model" })).toHaveCount(1)
+    await expect(page.locator('[data-flow="settings.model.set"],[data-flow="settings.model-key"]')).toHaveCount(0)
+    const button = page.getByRole("button", { name: "Change model", exact: true })
+    await expect(button).toHaveCount(1)
+    await button.focus()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as { slotCalls: unknown[] }).slotCalls)).toEqual([
+      { kind: "action", value: { tag: "settings.model.set", args: { role: "fast", model: "llama-4-scout" } } }
+    ])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
+test("C-UI-12: Setup zero capacity stays on one line at 390 px", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/view-stories.html?story=SetupView/This%20Mac%20has%20no%20room%20for%20a%20machine")
+  const line = page.locator(".setup-capacity")
+  await expect(line).toHaveText("No machine fits · memory · Close apps to free 6 GB")
+  const lines = await line.evaluate(node => {
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const rects = [...range.getClientRects()]
+    return rects.every(rect => rect.top < rects[0]!.bottom && rect.bottom > rects[0]!.top)
+  })
+  expect(lines).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+
+
+
+test("C-UI-12: Flow versions, actions and Paper focus remain usable in both themes and widths", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto(`/view-stories.html?story=FlowView/proposed&theme=${theme}`)
+    const flow = page.getByRole("region", { name: "TODO flow", exact: true })
+    await expect(flow.locator('.flow-path')).toHaveText("Built-in")
+    await expect(flow.locator('.flow-version')).toHaveText(["Active", "ProposedT12"])
+    await expect(flow.locator('.flow-actions button')).toHaveText(["Source", "Plan", "Run", "Edit"])
+    await page.evaluate(() => {
+      Object.assign(window, { flowReceipts: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { flowReceipts: unknown[] }).flowReceipts.push((event as CustomEvent).detail))
+    })
+    const proposed = flow.locator('.flow-version[data-state="proposed"]')
+    await proposed.focus()
+    await expect(proposed).toHaveCSS("outline-style", "solid")
+    await proposed.press("Enter")
+    await expect(proposed).toHaveAttribute("aria-pressed", "true")
+    await expect(flow.locator('[data-added="true"]')).toContainText("Update docs")
+    expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([{ kind: "view", value: { tab: "v4" } }])
+    for (const label of ["Source", "Plan", "Run", "Edit"]) await flow.getByRole("button", { name: label, exact: true }).press("Space")
+    expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([
+      { kind: "view", value: { tab: "v4" } },
+      { kind: "action", value: { tag: "flow.source", args: { name: "todo" } } },
+      { kind: "action", value: { tag: "flow.plan", args: { name: "todo" } } },
+      { kind: "action", value: { tag: "flow.run", args: { name: "todo" } } },
+      { kind: "action", value: { tag: "flow.edit", args: { name: "todo" } } }
+    ])
+    expect(await flow.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+    await expect(flow.locator('[class*="mvp-"]')).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=FlowView/merged_failed&theme=${theme}`)
+    await expect(page.locator('.flow-failure')).toHaveCount(0)
+    await page.locator('.flow-version[data-state="merged-failed"]').press("Enter")
+    await expect(page.locator('.flow-failure')).toContainText("Load failed")
+    await page.locator('.flow-failure summary').press("Enter")
+    await expect(page.locator('.flow-failure pre')).toHaveText("Flow validation failed")
+    await page.locator('.flow-version[data-state="active"]').press("Enter")
+    await expect(page.locator('.flow-failure')).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=FlowView/disabled&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Run", exact: true })).toBeDisabled()
+    await expect(page.locator('.flow-disabled')).toHaveText("No machine available")
+    await page.goto(`/view-stories.html?story=FlowView/no_actions&theme=${theme}`)
+    await expect(page.locator('.flow-actions button')).toHaveCount(0)
+    await expect(page.locator('.flow-steps')).toContainText("Implement")
+  }
+})
+
+test("C-UI-12 TODO: supplied Fork and Add to stack have keyboard paths", async ({ page }) => {
+  await page.goto("/view-stories.html?story=TodoView/fork_and_add")
+  await page.evaluate(() => window.addEventListener("story-callback", event => {
+    const detail = (event as CustomEvent).detail
+    if (detail.kind === "action") document.body.dataset.action = JSON.stringify(detail.value)
+  }))
+  await page.getByRole("button", { name: "Fork", exact: true }).press("Enter")
+  await expect(page.locator("body")).toHaveAttribute("data-action", JSON.stringify({ tag: "branch.fork", args: { from: "T12" } }))
+  await page.getByRole("textbox", { name: "TODO", exact: true }).fill("Keep retry")
+  await page.keyboard.press("Tab")
+  await expect(page.getByRole("button", { name: "Add to stack", exact: true })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.locator("body")).toHaveAttribute("data-action", JSON.stringify({ tag: "branch.add-to-stack", args: { branch: "scratch/retry", text: "Keep retry" } }))
+})
+
+test("C-UI-12 TODO conflict: 390 px layout and keyboard order", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/view-stories.html?story=TodoView/conflict_with_terminal")
+  const wait = page.locator('[data-wait-id="wait-conflict-1"]')
+  await expect(wait).toContainText("packages/rpc/src/TodoCard.ts")
+  await expect(wait).toContainText("ssh todo-12@mac-mini.local")
+  const terminal = wait.getByRole("textbox", { name: "Conflict terminal", exact: true })
+  await expect(terminal).toHaveCount(1)
+  await expect(wait.locator(".todo-actions")).toHaveCSS("flex-direction", "column")
+  const resolve = wait.getByRole("button", { name: "Resolve", exact: true })
+  const done = wait.getByRole("button", { name: "Done", exact: true })
+  const terminalBox = (await terminal.boundingBox())!, resolveBox = (await resolve.boundingBox())!, doneBox = (await done.boundingBox())!
+  expect(terminalBox.y + terminalBox.height).toBeLessThanOrEqual(resolveBox.y)
+  expect(resolveBox.y + resolveBox.height).toBeLessThanOrEqual(doneBox.y)
+  expect(await wait.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+  await page.evaluate(() => window.addEventListener("story-callback", event => {
+    const detail = (event as CustomEvent).detail
+    if (detail.kind === "action") document.body.dataset.action = JSON.stringify(detail.value)
+  }))
+  await terminal.focus()
+  await page.keyboard.press("Tab")
+  await expect(resolve).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(page.locator("body")).toHaveAttribute("data-action", JSON.stringify({ tag: "branch", args: { name: "todo/12", wait: "wait-conflict-1" } }))
+  await page.keyboard.press("Tab")
+  await expect(done).toBeFocused()
+  await page.keyboard.press("Space")
+  await expect(page.locator("body")).toHaveAttribute("data-action", JSON.stringify({ tag: "todo.answer", args: { n: "12", wait: "wait-conflict-1", answer: "done" } }))
+})
+
+test("C-UI-12 TODO: a REST-served question answers through the mounted card and real seam", async ({ page }) => {
+  await owner(page)
+  const model = {
+    n: 24, title: "Retry from the install", state: "needs_you",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [], merge: { state: "waiting", reason: "attention", on_github: false },
+    waits: [{ id: "question-24", kind: "question", prompt: "Keep retry?", since: "2026-10-05T10:00:00Z",
+      actions: [{ tag: "todo.answer", label: "Answer", input: [{ name: "answer", label: "Answer", kind: "text", required: true, multiline: true }] }] }],
+  }
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model }))
+  const answers: unknown[] = []
+  await page.route("**/api/todos/24/answer", async route => {
+    answers.push(route.request().postDataJSON())
+    await route.fulfill({ status: 202, json: { state: "accepted" } })
+  })
+  await page.goto("/")
+  await say(page, "/todo T24")
+  const card = page.getByRole("article", { name: "TODO T24", exact: true })
+  await expect(card).toContainText("Retry from the install")
+  await expect(card.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0)
+  await expect(card.getByRole("button", { name: "Open branch", exact: true })).toHaveCount(0)
+  await card.getByRole("textbox", { name: "Answer", exact: true }).fill("Keep retry\nverbatim")
+  await card.getByRole("button", { name: "Answer", exact: true }).press("Enter")
+  await expect.poll(() => answers).toEqual([{ answer: "Keep retry\nverbatim", wait: "question-24" }])
+})
+
+// T-UI-07: literal callbacks from ui-components T-UI-07, independent of model actions.
+test("C-UI-12: Conversation shell renders branch navigation, entries and Earlier", async ({ page }) => {
+  test.setTimeout(180_000)
+  const callbacks = async () => page.evaluate(() => (window as unknown as { shellCalls: unknown[] }).shellCalls)
+  const clear = async () => page.evaluate(() => { (window as unknown as { shellCalls: unknown[] }).shellCalls = [] })
+  await page.addInitScript(() => {
+    const state = window as unknown as { shellCalls: unknown[] }
+    state.shellCalls = []
+    window.addEventListener("story-callback", event => state.shellCalls.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=ConversationView/branch-main&theme=${theme}`)
+    await expect(page.locator(".tree-name")).toHaveText(["main", "todo/12", "scratch/repro", "Earlier · 3"])
+    await expect(page.locator(".tree")).toHaveCSS("box-sizing", "border-box")
+    await expect(page.locator(".tree-presence").first()).toHaveCSS("display", "flex")
+    for (const [node, expected] of [["main", { kind: "view", value: { selected_branch: "main" } }], ["todo-12", { kind: "view", value: { selected_branch: "todo-12" } }], ["scratch-repro", { kind: "action", value: { tag: "branch", args: { name: "scratch/repro" } } }], ["earlier", { kind: "view", value: { selected_branch: "earlier" } }]] as const) {
+      await clear()
+      const control = page.locator(`[data-node="${node}"]`)
+      await control.focus()
+      await page.keyboard.press("Enter")
+      await expect.poll(callbacks).toEqual([expected])
+      await expect(control).toBeFocused()
+      await expect(control).toHaveCSS("outline-style", "solid")
+      await expect(control).toHaveCSS("outline-width", "2px")
+    }
+    await page.goto(`/view-stories.html?story=ConversationView/crumb-ancestry&theme=${theme}`)
+    const crumb = page.locator(".crumb-here")
+    await crumb.focus()
+    await page.keyboard.press("Space")
+    await expect(page.getByRole("navigation", { name: "Branches", exact: true })).toBeVisible()
+    await page.locator('[data-node="main"]').focus()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("navigation", { name: "Branches", exact: true })).toHaveCount(0)
+    await expect(crumb).toBeFocused()
+    await page.goto(`/view-stories.html?story=ConversationView/context-collapsed&theme=${theme}`)
+    await page.locator(".context-toggle").focus()
+    await page.keyboard.press("Space")
+    await expect.poll(callbacks).toEqual([{ kind: "view", value: { expanded: true } }])
+    for (const [story, tag, label] of [["needs_you", "todo.answer", "Answer"], ["in_review", "merge", "Merge"]]) {
+      await page.goto(`/view-stories.html?story=ConversationView/entry-${story}&theme=${theme}`)
+      await expect(page.locator("[data-flow]")).toHaveAttribute("data-flow", tag!)
+      await page.getByRole("button", { name: label }).click()
+      await expect.poll(callbacks).toEqual([{ kind: "action", value: { tag, args: { n: "12" } } }])
+    }
+    // spec §14.5.2 and the Paper tone contract: literal token names, never schema-derived.
+    for (const [entry, token] of [["working", "--brand"], ["needs_you", "--attention"], ["failed", "--danger"]]) {
+      await page.goto(`/view-stories.html?story=ConversationView/entry-${entry}&theme=${theme}`)
+      const colors = await page.locator(".entry").evaluate((node, token) => {
+        const probe = document.createElement("span")
+        probe.style.color = `var(${token})`
+        document.body.append(probe)
+        const expected = getComputedStyle(probe).color
+        probe.remove()
+        return { actual: getComputedStyle(node).borderLeftColor, expected }
+      }, token!)
+      expect(colors.actual).toBe(colors.expected)
+    }
+    await page.goto(`/view-stories.html?story=ConversationView/entry-failed&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Retry" })).toBeDisabled()
+    await expect(page.getByText("Repository access refused")).toBeVisible()
+    expect(await callbacks()).toEqual([])
+    await page.goto(`/view-stories.html?story=ConversationView/entry-tombstone&theme=${theme}`)
+    await expect(page.locator("article[data-story]")).toHaveText("Card model contracts")
+    await expect(page.locator(".tombstone")).toHaveCSS("white-space", "nowrap")
+    await expect(page.locator("article[data-story] button")).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=ConversationView/entry-private&theme=${theme}`)
+    await expect(page.getByText("Only you")).toBeVisible()
+    await page.goto(`/view-stories.html?story=ConversationView/earlier-selected&theme=${theme}`)
+    await expect(page.getByText("Read-only")).toBeVisible()
+    await expect(page.locator(".read-only")).toHaveCSS("border-top-width", "1px")
+    await expect(page.locator("[data-flow]")).toHaveCount(0)
+    await page.getByRole("button", { name: "Earlier question" }).click()
+    await expect.poll(callbacks).toEqual([{ kind: "view", value: { selected_archive: "old" } }])
+  }
+})
 
 // UI projection of C-UI-12; its unit/CLI acceptance evidence remains separate.
 // Written before implementation: mvp.md §6, §9; lands with T-UI-01..T-UI-14
@@ -24,6 +267,233 @@ test("C-UI-12: Every card fixture renders inline and maximized", async ({ page }
         await page.getByRole("button", { name: "Restore", exact: true }).press("Enter")
         await expect(card).toBeVisible()
       }
+    }
+  }
+})
+
+// T-UI-01's phase is the shared primitives. Other View tickets own the matrix above.
+test("C-UI-12: primitive actors, states and tones render in both Paper themes", async ({ page }) => {
+  test.setTimeout(180_000)
+  const actors = [
+    ["person", "Ben"], ["person-ssh", "Maya via SSH"], ["person-terminal", "Maya's terminal"],
+    ["person-cli", "Maya via CLI"], ["system", "Smithers"], ["github", "@octocat"],
+    ["outside", "Changed outside Smithers"], ["smithers", "Smithers"],
+    ["smithers-for-ben", "Smithers for Ben"], ["coding-for-ben", "Coding agent for Ben"],
+    ["reviewer-for-ben", "Reviewer for Ben"], ["claude-code-for-ben", "Claude Code for Ben"],
+    ["codex-for-ben", "Codex for Ben"], ["external-for-ben", "External agent for Ben"]
+  ] as const
+  const states = [["queued", "Queued"], ["starting", "Starting"], ["working", "Working"],
+    ["needs_you", "Needs you"], ["paused", "Paused"], ["failed", "Failed"],
+    ["in_review", "In review"], ["merged", "Merged"], ["dropped", "Dropped"]] as const
+  for (const theme of ["light", "dark"]) {
+    for (const [actor, label] of actors) {
+      await page.goto(`/view-stories.html?story=PrimitivesView/actor-${actor}&theme=${theme}`)
+      await expect(page.locator(".avatar").first()).toHaveAttribute("aria-label", label)
+      await expect(page.locator(".avatar").first()).toHaveCSS("width", "22px")
+      await expect(page.locator(".avatar").last()).toHaveCSS("width", "28px")
+      if (actor.startsWith("person-")) await expect(page.locator(".avatar-badge")).toHaveCount(2)
+    }
+    for (const [state, label] of states) for (const step of [false, true]) {
+      await page.goto(`/view-stories.html?story=PrimitivesView/state-${state}${step ? "-step" : ""}&theme=${theme}`)
+      await expect(page.locator(".state")).toHaveText(label + (step ? " · Implement" : ""))
+      await expect(page.locator(".state")).toHaveAttribute("data-state", state)
+      await expect(page.locator(".state .glyph, .state .dot")).toHaveCount(1)
+    }
+    for (const [tone, token] of [["live", "--brand"], ["attention", "--attention"],
+      ["failed", "--danger"], ["done", "--text-muted"], ["quiet", "--text-muted"]] as const) {
+      await page.goto(`/view-stories.html?story=PrimitivesView/tone-${tone}&theme=${theme}`)
+      const colors = await page.locator(`[data-tone="${tone}"]`).evaluate((node, token) => {
+        const probe = document.createElement("span")
+        probe.style.color = `var(${token})`
+        document.body.append(probe)
+        const expected = getComputedStyle(probe).color
+        probe.remove()
+        return { actual: getComputedStyle(node).color, expected }
+      }, token)
+      expect(colors.actual).toBe(colors.expected)
+    }
+  }
+})
+
+test("C-UI-12: Branch states and recovery controls render in both themes and widths", async ({ page }, testInfo) => {
+  test.setTimeout(180_000)
+  const cases = [
+    ["branch-awake-activity", "Awake", "Sleep"],
+    ["branch-asleep-activity", "Asleep", "Wake"],
+    ["branch-waking-activity", "Waking", null],
+    ["branch-waiting-activity", "Waiting for a machine · #2", null],
+    ["branch-closed-activity", "Closed", null],
+    ["branch-failed-activity", "Image build failed", "Retry"],
+    ["branch-rebase_pending-activity", "Rebase pending onto T8", "Rebase now"],
+    ["branch-rebase_waiting_for-activity", "Waiting for Ben · Checks", null],
+    ["branch-rebasing-activity", "Rebasing… onto T8", null],
+    ["branch-scratch_conflict-activity", "packages/rpc/src/HomeCard.ts", "Resolve"],
+    ["branch-scratch_ready-activity", "Rebase conflict onto main", "Done"],
+    ["branch-moved_off-activity", "Ben moved this branch off T15", "Return to T15"],
+    ["branch-scratch_item-activity", "Forked from T12 Card model contracts", "Add to stack"],
+    ["branch-active-files", "flows/todo/prompt.md → flows/todo/instructions/implementer.md", null],
+    ["branch-active-terminals", "pnpm check", null],
+    ["branch-active-maximized", "Asked · Coding agent for Ben", null],
+    ["branch-asking", "Asks · Coding agent for Ben", null],
+  ] as const
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const [story, text, control] of cases) {
+      await page.goto(`/view-stories.html?story=BranchView/${story}&theme=${theme}`)
+      const card = page.locator('[data-kind="branch"]')
+      await expect(card).toBeVisible()
+      await expect(card).toContainText(text)
+      if (control) await expect(card.getByRole("button", { name: control, exact: true })).toBeEnabled()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await page.addScriptTag({ path: axePath })
+      const violations = await page.evaluate(async () => {
+        const axe = (window as unknown as { axe: { run: () => Promise<{ violations: { id: string; impact: string | null }[] }> } }).axe
+        return (await axe.run()).violations.filter(row => row.impact === "serious" || row.impact === "critical")
+      })
+      expect(violations, `${story} ${theme} ${width}`).toEqual([])
+      const screenshot = testInfo.outputPath(`${story}-${theme}-${width}.png`)
+      await card.screenshot({ path: screenshot, animations: "disabled" })
+      await testInfo.attach(`${story}-${theme}-${width}`, { path: screenshot, contentType: "image/png" })
+    }
+  }
+})
+
+test("File co-editing uses CodeMirror attribution and line flags in both themes and widths", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=CodeEditorView/live_separate&theme=${theme}`)
+    await expect(page.locator('.code-file-view[data-mode="live"] .cm-editor')).toBeVisible()
+    await expect(page.locator('.cm-gutter.code-presence-gutter .code-name-flag')).toHaveText(["Ben", "Will", "Claude Code for Ben"])
+    await expect(page.locator('.code-name-flag[data-kind="agent"]')).toHaveText("Claude Code for Ben")
+    await expect(page.locator('.code-author')).toHaveText(["const one = 1", "const two = 2", "const three = 3"])
+    await expect(page.locator('.cm-ySelection, .cm-ySelectionCaret')).toHaveCount(0)
+    expect(await page.locator('.code-author').first().evaluate(node => getComputedStyle(node).color)).not.toBe(await page.locator('.cm-content').evaluate(node => getComputedStyle(node).color))
+    await page.goto(`/view-stories.html?story=CodeEditorView/saved&theme=${theme}`)
+    await expect(page.locator('.code-saved')).toHaveText("Saved to the machine")
+    await page.goto(`/view-stories.html?story=CodeEditorView/no_binding&theme=${theme}`)
+    await expect(page.locator('.code-file-view[data-mode="read_only"]')).toBeVisible()
+    await expect(page.locator('.code-author,.code-name-flag,.code-saved,.code-avatar-stack')).toHaveCount(0)
+  }
+})
+
+// T-UI-16's File comparison phase uses the retained production story boundary.
+test("C-UI-12: File Compare is read-only and keyboard accessible in both themes and widths", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=CodeSurface/comparing&theme=${theme}`)
+    await expect(page.locator('.code-compare')).toBeVisible()
+    await expect(page.locator('.code-compare-cap')).toHaveText(["Currentsha256:9f2c41", "Snapshotgit:7d1e0c2"])
+    await expect(page.locator('.code-file-current .cm-content')).toContainText('description: "Complete one TODO"')
+    await expect(page.locator('.code-file-outside .cm-content')).toContainText('description: "Build"')
+    await expect(page.locator('.code-compare [contenteditable=true]')).toHaveCount(0)
+    await page.evaluate(() => {
+      Object.assign(window, { compareReceipts: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { compareReceipts: unknown[] }).compareReceipts.push((event as CustomEvent).detail))
+    })
+    const button = page.getByRole('button', { name: 'Compare', exact: true })
+    await button.focus()
+    await button.press('Enter')
+    expect(await page.evaluate(() => (window as unknown as { compareReceipts: unknown[] }).compareReceipts)).toEqual([
+      { kind: "action", value: { tag: "file.compare", args: { path: "flows/todo/flow.ts" } } },
+    ])
+    await page.keyboard.press('Tab')
+    await expect(page.locator('.code-file-current .cm-content')).toBeFocused()
+    await page.keyboard.press('Tab')
+    const snapshot = page.locator('.code-file-outside .cm-content')
+    await expect(snapshot).toBeFocused()
+    await page.keyboard.type('cannot write')
+    await expect(snapshot).toContainText('description: "Build"')
+    await expect(snapshot).not.toContainText('cannot write')
+    await snapshot.press('F12')
+    await snapshot.press('Control+Space')
+    expect(await page.evaluate(() => (window as unknown as { compareReceipts: { kind: string }[] }).compareReceipts.filter(call => call.kind === 'action'))).toHaveLength(1)
+    const boxes = await page.locator('.code-file-current, .code-file-outside').evaluateAll(nodes => nodes.map(node => ({ x: node.getBoundingClientRect().x, y: node.getBoundingClientRect().y })))
+    if (width === 390) expect(boxes[1]!.y).toBeGreaterThan(boxes[0]!.y)
+    else expect(boxes[1]!.x).toBeGreaterThan(boxes[0]!.x)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.goto(`/view-stories.html?story=CodeSurface/comparing_hostile&theme=${theme}`)
+    await expect(page.locator('.code-file-current .cm-content')).toContainText('<img src=x onerror="window.__pwned=1">')
+    await expect(page.locator('.code-file-outside .cm-content')).toContainText('<script>window.__pwned=1</script>')
+    await expect(page.locator('.code-file-view img,.code-file-view script')).toHaveCount(0)
+    expect(await page.evaluate(() => Reflect.get(window, '__pwned'))).toBeUndefined()
+    await page.goto(`/view-stories.html?story=CodeSurface/comparing_empty&theme=${theme}`)
+    await expect(page.locator('.code-compare')).toBeVisible()
+    await expect(page.locator('.code-file-outside .cm-content')).toHaveText('')
+  }
+})
+
+
+test("C-UI-12: File text reload retains comparison DOM, scroll and selected line", async ({ page }) => {
+  await page.goto('/view-stories.html?story=CodeSurface/comparing_reload')
+  const current = page.locator('.code-file-current .cm-content')
+  await current.focus()
+  for (let line = 0; line < 25; line++) await page.keyboard.press('ArrowDown')
+  await page.locator('.code-file-current .cm-scroller').evaluate(node => { node.scrollTop = 200 })
+  const line = await page.locator('.code-file-current .cm-activeLine').textContent()
+  const before = await page.locator('.code-file-current .cm-scroller').evaluate(node => node.scrollTop)
+  expect(before).toBeGreaterThan(0)
+  await page.evaluate(() => {
+    Object.assign(window, { reloadEditor: document.querySelector('.code-file-current .cm-editor'), reloadSnapshot: document.querySelector('.code-file-outside .cm-editor') })
+    window.dispatchEvent(new Event('story-reload'))
+  })
+  await expect(page.locator('.code-file-current .code-compare-cap')).toHaveText('Currentsha256:next')
+  await expect(page.locator('.code-file-current .cm-activeLine')).toHaveText(line!)
+  expect(await page.locator('.code-file-current .cm-scroller').evaluate(node => node.scrollTop)).toBe(before)
+  expect(await page.evaluate(() => Reflect.get(window, 'reloadEditor') === document.querySelector('.code-file-current .cm-editor'))).toBe(true)
+  expect(await page.evaluate(() => Reflect.get(window, 'reloadSnapshot') === document.querySelector('.code-file-outside .cm-editor'))).toBe(true)
+})
+
+test("C-UI-12: Terminal states keep literal actors and keyboard permissions in both themes and widths", async ({ page }) => {
+  test.setTimeout(180_000)
+  await page.addInitScript(() => {
+    Object.assign(window, { terminalInputs: [] })
+    window.addEventListener("story-callback", event => {
+      const detail = (event as CustomEvent).detail
+      if (detail.kind === "view" && typeof detail.value.input === "string")
+        (window as unknown as { terminalInputs: string[] }).terminalInputs.push(detail.value.input)
+    })
+  })
+  const states = [
+    ["Owner's idle terminal", "Ben", false, false],
+    ["Running a command with a watcher", "Ben", false, false],
+    ["Claude Code working in Ben's terminal", "Claude Code for Ben", false, false],
+    ["Someone else's terminal", "Ben", true, false],
+    ["The coding agent's terminal", "Coding agent for Ben", true, false],
+    ["Ben via SSH", "Ben via SSH", false, false],
+    ["Frozen while rebasing", "Ben", false, true],
+    ["Watching while rebasing", "Ben", true, true]
+  ] as const
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const [name, actor, watching, frozen] of states) {
+      await page.goto(`/view-stories.html?story=${encodeURIComponent(`TerminalView/${name}`)}&theme=${theme}`)
+      const card = page.locator(".terminal-view")
+      await expect(card).toBeVisible()
+      await expect(card.locator(`.avatar[aria-label="${actor}"]`).first()).toBeVisible()
+      const field = card.locator(".xterm-helper-textarea")
+      await expect(field).toHaveCount(1)
+      await expect(field).not.toBeFocused()
+      await expect(card.getByText("Watching", { exact: true })).toHaveCount(watching ? 1 : 0)
+      await expect(card.getByText("Rebasing…", { exact: true })).toHaveCount(frozen ? 1 : 0)
+      if (watching || frozen) {
+        await expect(card.locator(".terminal-output > div")).toHaveAttribute("inert", "")
+        await card.locator(".terminal-output").click()
+        await page.keyboard.press("Tab")
+        await expect(field).not.toBeFocused()
+      } else {
+        await field.focus()
+        await expect(field).toBeFocused()
+      }
+      await page.keyboard.type("pwd")
+      await page.keyboard.press("Enter")
+      expect(await page.evaluate(() => (window as unknown as { terminalInputs: string[] }).terminalInputs.join(""))).toBe(watching || frozen ? "" : "pwd\r")
+      // Even programmatically dispatched input cannot bypass the adapter's read-only state.
+      if (watching || frozen) {
+        await field.dispatchEvent("keypress", { key: "a", charCode: 97, keyCode: 97, bubbles: true })
+        expect(await page.evaluate(() => (window as unknown as { terminalInputs: string[] }).terminalInputs)).toEqual([])
+      }
+      await expect(card.getByRole("button", { name: /Ask to type|Allow|Let others type|Add to machine image/ })).toHaveCount(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     }
   }
 })

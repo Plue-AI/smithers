@@ -213,74 +213,80 @@ func (f *publicationFixture) startWorker() {
 // never at the stale sweep (J7 run 1: T1 stayed proposing 8 minutes).
 func TestTodoMovesOnSecondsAfterItsPassLosesARace(t *testing.T) {
 	const push = "/rehearsal-owner/app.git/git-receive-pack"
-	for _, tc := range []struct {
-		name string
-		// arm makes the race happen once inside the first pass's proposal.
-		arm func(f *publicationFixture, item db.MythicalItem, race func(sql string))
-	}{
-		{"the claim's lease ends before the push is recorded", func(f *publicationFixture, _ db.MythicalItem, race func(string)) {
-			guard := f.service.outbound.AcceptedGeneration
-			var once sync.Once
-			f.service.outbound.AcceptedGeneration = func(ctx context.Context, item db.MythicalItem, kind string) error {
-				err := guard(ctx, item, kind)
-				if kind == "push" {
-					once.Do(func() {
+	for _, effect := range []struct{ kind, path string }{
+		{"push", push}, {"open", "/repos/rehearsal-owner/app/pulls"},
+	} {
+		t.Run(effect.kind, func(t *testing.T) {
+			for _, tc := range []struct {
+				name string
+				// arm makes the race happen once inside the first pass's proposal.
+				arm func(f *publicationFixture, item db.MythicalItem, race func(sql string))
+			}{
+				{"the claim's lease ends before the send is recorded", func(f *publicationFixture, _ db.MythicalItem, race func(string)) {
+					guard := f.service.outbound.AcceptedGeneration
+					var once sync.Once
+					f.service.outbound.AcceptedGeneration = func(ctx context.Context, item db.MythicalItem, kind string) error {
+						err := guard(ctx, item, kind)
+						if kind == effect.kind {
+							once.Do(func() {
+								race(`UPDATE mythical_stacks SET lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
+							})
+						}
+						return err
+					}
+				}},
+				{"the claim's lease ends during the send", func(f *publicationFixture, _ db.MythicalItem, race func(string)) {
+					f.fake.OnNextRequest(http.MethodPost, effect.path, func() {
 						race(`UPDATE mythical_stacks SET lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
 					})
-				}
-				return err
+				}},
+				{"a newer claim takes the stack during the send", func(f *publicationFixture, _ db.MythicalItem, race func(string)) {
+					// The newer claimant's lease has ended too, so the stack is
+					// claimable again; only the lost pass's own request runs it.
+					f.fake.OnNextRequest(http.MethodPost, effect.path, func() {
+						race(`UPDATE mythical_stacks SET claim = claim + 1, lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
+					})
+				}},
+				{"another writer moves the TODO during the send", func(f *publicationFixture, item db.MythicalItem, race func(string)) {
+					f.fake.OnNextRequest(http.MethodPost, effect.path, func() {
+						_, err := f.pool.Exec(context.Background(), `UPDATE mythical_items SET version = version + 1 WHERE id = $1`, item.ID)
+						race("")
+						assert.NoError(f.t, err)
+					})
+				}},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					f := newPublicationFixture(t, false)
+					item := f.todo("Add a greeting", "Do it", f.main, "JOURNEY.md", "Hello\n")
+					var raced atomic.Bool
+					tc.arm(f, item, func(sql string) {
+						if sql != "" {
+							_, err := f.pool.Exec(context.Background(), sql, f.repoID)
+							assert.NoError(t, err)
+						}
+						raced.Store(true)
+					})
+					started := time.Now()
+					f.service.MainMoved(context.Background(), f.repoID)
+					f.startWorker()
+					deadline := started.Add(20 * time.Second)
+					for {
+						item = f.item(item.Number.Int64)
+						if todoState(item) == "in_review" || time.Now().After(deadline) {
+							break
+						}
+						time.Sleep(100 * time.Millisecond)
+					}
+					require.True(t, raced.Load(), "the race happened inside the pass")
+					require.Equal(t, "in_review", todoState(item), "state %s: %s", item.State, item.Reason)
+					assert.Empty(t, item.PendingOp)
+					branch := mythicalChecksOf(item).Branch
+					require.NotEmpty(t, branch)
+					assert.Equal(t, f.githubRef(branch), item.PRHead, "the pull request is at the pushed head")
+					assert.Equal(t, []string{"POST " + push, "POST /repos/rehearsal-owner/app/pulls"}, f.writes(), "one push and one pull request")
+					t.Logf("in review %s after the stack was requested", time.Since(started).Round(time.Millisecond))
+				})
 			}
-		}},
-		{"the claim's lease ends during the push", func(f *publicationFixture, _ db.MythicalItem, race func(string)) {
-			f.fake.OnNextRequest(http.MethodPost, push, func() {
-				race(`UPDATE mythical_stacks SET lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
-			})
-		}},
-		{"a newer claim takes the stack during the push", func(f *publicationFixture, _ db.MythicalItem, race func(string)) {
-			// The newer claimant's lease has ended too, so the stack is
-			// claimable again; only the lost pass's own request runs it.
-			f.fake.OnNextRequest(http.MethodPost, push, func() {
-				race(`UPDATE mythical_stacks SET claim = claim + 1, lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
-			})
-		}},
-		{"another writer moves the TODO during the push", func(f *publicationFixture, item db.MythicalItem, race func(string)) {
-			f.fake.OnNextRequest(http.MethodPost, push, func() {
-				_, err := f.pool.Exec(context.Background(), `UPDATE mythical_items SET version = version + 1 WHERE id = $1`, item.ID)
-				race("")
-				assert.NoError(f.t, err)
-			})
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newPublicationFixture(t, false)
-			item := f.todo("Add a greeting", "Do it", f.main, "JOURNEY.md", "Hello\n")
-			var raced atomic.Bool
-			tc.arm(f, item, func(sql string) {
-				if sql != "" {
-					_, err := f.pool.Exec(context.Background(), sql, f.repoID)
-					assert.NoError(t, err)
-				}
-				raced.Store(true)
-			})
-			started := time.Now()
-			f.service.MainMoved(context.Background(), f.repoID)
-			f.startWorker()
-			deadline := started.Add(20 * time.Second)
-			for {
-				item = f.item(item.Number.Int64)
-				if todoState(item) == "in_review" || time.Now().After(deadline) {
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-			require.True(t, raced.Load(), "the race happened inside the pass")
-			require.Equal(t, "in_review", todoState(item), "state %s: %s", item.State, item.Reason)
-			assert.Empty(t, item.PendingOp)
-			branch := mythicalChecksOf(item).Branch
-			require.NotEmpty(t, branch)
-			assert.Equal(t, f.githubRef(branch), item.PRHead, "the pull request is at the pushed head")
-			assert.Equal(t, []string{"POST " + push, "POST /repos/rehearsal-owner/app/pulls"}, f.writes(), "one push and one pull request")
-			t.Logf("in review %s after the stack was requested", time.Since(started).Round(time.Millisecond))
 		})
 	}
 }
@@ -318,6 +324,8 @@ func TestMythicalStepFailedDue(t *testing.T) {
 		{"a moved item runs the stack again at once", db.ErrMythicalItemMoved, now},
 		{"a wrapped lost race is still one", fmt.Errorf("record the push: %w", db.ErrMythicalLeaseLost), now},
 		{"a row not found is no lost race", pgx.ErrNoRows, now.Add(time.Minute)},
+		{"an uncertain write wakes for lookup", &mythicalOutboundUncertainError{errors.New("response lost")}, now.Add(5 * time.Second)},
+		{"a wrapped uncertain write wakes for lookup", fmt.Errorf("close: %w", &mythicalOutboundUncertainError{errors.New("response lost")}), now.Add(5 * time.Second)},
 		{"a transient failure waits a minute", errors.New("read the pull request branch: exit status 128"), now.Add(time.Minute)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -345,6 +353,7 @@ func TestMythicalDueAfterARecoveredOperation(t *testing.T) {
 		{"a landed merge takes no step", db.MythicalItem{State: "landed"}, true, time.Time{}},
 		{"a dropped TODO's sent close is looked up at once", db.MythicalItem{State: "cancelled", PendingOp: json.RawMessage(`{"kind":"close","state":"unknown"}`), WorkspaceID: "w"}, true, now},
 		{"a dropped TODO's settled close releases its lane at once", db.MythicalItem{State: "cancelled", PRState: "closed", WorkspaceID: "w"}, true, now},
+		{"a recovered Drop with no lane establishes its fresh read at once", db.MythicalItem{State: "cancelled", PRState: "closed", PRNumber: pgtype.Int8{Int64: 214, Valid: true}, NextAttemptAt: later, Checks: json.RawMessage(`{"dropped":{"at":"2026-10-05T03:00:00Z"}}`)}, true, now},
 		{"a dropped TODO with no lane takes no step", db.MythicalItem{State: "cancelled", PRState: "closed"}, true, time.Time{}},
 		{"an unchanged close waits for an event", db.MythicalItem{State: "cancelled", PendingOp: json.RawMessage(`{"kind":"close","state":"unknown"}`)}, false, time.Time{}},
 		{"a merge still open on GitHub waits for an event", db.MythicalItem{State: "proposed"}, false, time.Time{}},

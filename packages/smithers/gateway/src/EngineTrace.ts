@@ -9,6 +9,7 @@ import { ResultEncoded } from "@smthrs/flow/Flow"
 import * as EngineEvent from "@smthrs/journal/EngineEvent"
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import { Option, Schema } from "effect"
+import { inspectLabel } from "./internal/inspectLabels.ts"
 import type { JournalRecord, SpanDetail, TraceBuilder } from "./RunTrace.ts"
 
 // This is the private control bridge's envelope, not another engine contract.
@@ -372,7 +373,7 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
       const { state, status } = decision.value
       if (execution.flowName !== undefined && execution.flowName !== state.flowName) execution.coherent = false
       execution.flowName = state.flowName
-      execution.span.label = state.flowName
+      execution.span.label = inspectLabel(state.flowName)
       parent(state.parentExecutionId)
       execution.result = undefined
       execution.failure = undefined

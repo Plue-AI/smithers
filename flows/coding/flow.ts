@@ -1,13 +1,13 @@
 /** Linear implementation with a parallel slow-validation branch at every Change. */
 import { type Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { CodingError, Plan, Result, type ValidatedChange } from "./schema.ts"
+import { Plan, Result, type ValidatedChange } from "./schema.ts"
 import { Assess, FastGate, Implement, recalled, RunCheck, ValidatePlan } from "./workflow.ts"
 
 type Requirements = Action.Requirement<
   (typeof ValidatePlan | typeof Implement | typeof RunCheck | typeof FastGate | typeof Assess)["name"]
 >
-type Stages = Node.Node<ReadonlyArray<ValidatedChange>, CodingError, Requirements>
+type Stages = Node.Node<ReadonlyArray<ValidatedChange>, typeof Implement.errorSchema.Type, Requirements>
 
 /** Width is known from the plan. Slow checks never become a dependency of the next implementation. */
 const stages = (plan: Plan, index: number, parent: Parameters<typeof Implement.call>[0]["parent"]): Stages => {
@@ -46,7 +46,7 @@ export default Flow.make("coding/ImplementPlan", {
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   payload: { plan: Plan },
   success: Result,
-  error: CodingError,
+  error: Implement.errorSchema,
   body: ({ plan }) =>
     ValidatePlan.call({ plan }).pipe(Node.andThen(
       stages(plan, 0, plan.base).pipe(Node.bindPlanned((changes) => Assess.call({ plan, changes })))

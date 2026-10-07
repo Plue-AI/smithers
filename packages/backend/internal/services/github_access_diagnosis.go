@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -219,15 +220,17 @@ func (s *GitHubUserReposService) DiagnoseGitHubAccess(
 	if err != nil && isGitHubTokenExpired(err) {
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			_, err = s.requestGitHubRepoObject(ctx, newToken, normalizedOwner, normalizedRepo)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {
-		switch statusOfAPIError(err) {
-		case http.StatusUnauthorized:
+		switch {
+		case statusOfAPIError(err) == http.StatusUnauthorized:
 			diagnosis.Verdict = GitHubAccessVerdictTokenBroken
 			diagnosis.Detail = "GitHub rejected the linked credential and it could not be refreshed. Re-link GitHub on jjhub."
 			return diagnosis, nil
-		case http.StatusNotFound, http.StatusForbidden:
+		case isGitHubPermissionFailure(err), statusOfAPIError(err) == http.StatusNotFound, statusOfAPIError(err) == http.StatusForbidden:
 			diagnosis.Verdict = GitHubAccessVerdictNoOrgGrant
 			diagnosis.Detail = fmt.Sprintf(
 				"The GitHub App is installed with %s granted, but your own GitHub credential cannot see %s/%s. Authorize your account on the installation's settings page.",
@@ -280,30 +283,24 @@ func fetchRepoInstallation(ctx context.Context, client *http.Client, baseURL, jw
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return githubRepoInstallation{}, false, badGateway("github installation lookup failed")
+		return githubRepoInstallation{}, false, GitHubRequestFailure(ctx, "GitHub installation lookup failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if readErr != nil {
-		return githubRepoInstallation{}, false, badGateway("failed to read github installation lookup response")
-	}
-
-	switch {
-	case resp.StatusCode == http.StatusNotFound:
+	if resp.StatusCode == http.StatusNotFound {
 		return githubRepoInstallation{}, false, nil
-	case resp.StatusCode == http.StatusUnauthorized:
-		// The App JWT itself was rejected: the configured credentials are wrong.
-		return githubRepoInstallation{}, false, pkgerrors.Internal("github rejected the app credentials")
-	case resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices:
-		return githubRepoInstallation{}, false, badGateway(
-			fmt.Sprintf("github installation lookup returned status %d", resp.StatusCode),
-		)
+	}
+	if err := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); err != nil {
+		return githubRepoInstallation{}, false, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if readErr != nil || len(body) > 1<<20 {
+		return githubRepoInstallation{}, false, GitHubRequestFailure(ctx, "GitHub returned an incomplete installation response")
 	}
 
 	var installation githubRepoInstallation
 	if err := json.Unmarshal(body, &installation); err != nil || installation.ID <= 0 {
-		return githubRepoInstallation{}, false, badGateway("failed to decode github installation lookup response")
+		return githubRepoInstallation{}, false, GitHubRequestFailure(ctx, "GitHub returned an unreadable installation response")
 	}
 	return installation, true, nil
 }

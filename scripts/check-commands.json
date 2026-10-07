@@ -228,7 +228,7 @@
     },
     "C-GH-09": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/github_outbound_fault_test.go",
+      "reason": "Automation present: packages/backend/internal/services/github_outbound_fault_test.go; authenticated executable mapping and owner approval pending",
       "ticket": "T-GH-09"
     },
     "C-GH-13": {
@@ -698,6 +698,36 @@
       "status": "manual",
       "reason": "Person/hardware required: reference host A and a second Mac B, recorded; Absent: scripts/release/backup-restore.mjs, packages/smithers/test/host-backup.fault.test.ts, packages/backend/internal/services/install_quiesce_integration_test.go"
     },
+    "C-RMT-01": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-01"
+    },
+    "C-RMT-02": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-02"
+    },
+    "C-RMT-03": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-03"
+    },
+    "C-RMT-04": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-04"
+    },
+    "C-RMT-05": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-05"
+    },
+    "C-RMT-06": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-04"
+    },
     "C-SEC-01": {
       "status": "pending-owner",
       "reason": "Absent: packages/backend/internal/services/machine_secret_scan_integration_test.go",
@@ -902,7 +932,7 @@
     },
     "C-SPK-06": {
       "status": "pending-owner",
-      "reason": "Absent: scripts/spikes/homebrew-hypervisor/run.sh",
+      "reason": "Input preflight exists; fresh-user Homebrew signing/pour, GUI login and relocation evidence plus approved reference-host binding remain outstanding",
       "ticket": "T-INS-03"
     },
     "C-SPK-07": {
@@ -975,7 +1005,7 @@
     },
     "C-STK-07": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/todo_merge_race_db_test.go",
+      "reason": "Implemented in mythical_merge_todo_test.go, github_outbound_fault_test.go and compose/todo_merge_integration_test.go; authenticated owner approval of argv and host remains pending",
       "ticket": "T-STK-04"
     },
     "C-STK-08": {
@@ -985,8 +1015,8 @@
     },
     "C-STK-13": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/todo_preapproval_db_test.go",
-      "ticket": "T-STK-16"
+      "reason": "Implemented in mythical_merge_todo_test.go and mythical_automerge_label_integration_test.go, with composed preapproval routes; folded into T-STK-04, authenticated owner approval of argv and host remains pending",
+      "ticket": "T-STK-04"
     },
     "C-UI-01": {
       "status": "manual",

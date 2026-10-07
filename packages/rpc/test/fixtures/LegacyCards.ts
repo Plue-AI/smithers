@@ -2,6 +2,12 @@
  * @since 1.0.0
  */
 export const legacyCards = [
+  { row: { id: "proposal:lint", title: "Run lint", status: "active", createdAt: 0, ordinal: 0, kind: "proposal", payload: { id: "lint" } },
+    expectedKind: "proposal", expectedTitle: "Run lint", expectedWas: null },
+  {
+    row: { id: "saved-setup", title: "Set up Smithers", status: "active", createdAt: 0, ordinal: 0, kind: "setup", payload: {} },
+    expectedKind: "setup", expectedTitle: "Set up Smithers", expectedWas: null
+  },
   {
     "row": {
       "id": "card-r1",
@@ -1169,9 +1175,9 @@ export const legacyCards = [
         "chosen": "smithersai/smithers"
       }
     },
-    "expectedKind": "workflow-repo",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "workflow-repo"
   },
   {
     "row": {
@@ -1488,9 +1494,9 @@ export const legacyCards = [
         "reconnect": true
       }
     },
-    "expectedKind": "env",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "env"
   },
   {
     "row": {
@@ -1566,9 +1572,9 @@ export const legacyCards = [
         "unavailable": true
       }
     },
-    "expectedKind": "provider-accounts",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "provider-accounts"
   },
   {
     "row": {
@@ -1855,9 +1861,9 @@ export const legacyCards = [
         ]
       }
     },
-    "expectedKind": "account",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "account"
   },
   {
     "row": {
@@ -1905,9 +1911,9 @@ export const legacyCards = [
         "registration": true
       }
     },
-    "expectedKind": "repo-import",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "repo-import"
   },
   {
     "row": {
@@ -1977,9 +1983,9 @@ export const legacyCards = [
         "error": "the connector refused (500)"
       }
     },
-    "expectedKind": "connector-setup",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "connector-setup"
   },
   {
     "row": {
@@ -2057,9 +2063,9 @@ export const legacyCards = [
         ]
       }
     },
-    "expectedKind": "branches",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "branches"
   },
   {
     "row": {
@@ -3525,9 +3531,9 @@ export const legacyCards = [
         "error": "the history read stopped at its cap"
       }
     },
-    "expectedKind": "commit-list",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "commit-list"
   },
   {
     "row": {
@@ -3575,9 +3581,9 @@ export const legacyCards = [
         "error": "the status read failed"
       }
     },
-    "expectedKind": "commit",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "commit"
   },
   {
     "row": {

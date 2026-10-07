@@ -14,6 +14,11 @@ type networkListener struct {
 	// serve is the HTTP server's Serve; it returns when its listener closes.
 	serve  func(net.Listener) error
 	listen func(network, address string) (net.Listener, error)
+	// Optional SSH listener follows the same owner-selected host, on SSH's port.
+	sshServe   func(net.Listener) error
+	sshPort    string
+	sshLN      net.Listener
+	sshAddress string
 
 	mu sync.Mutex
 	ln net.Listener
@@ -30,7 +35,39 @@ func (l *networkListener) Listen(address string) error {
 			return &services.InstallReadinessError{Code: "address_unavailable", Class: "user", Message: "Can't listen on " + address}
 		}
 		next = ln
-		go func() { _ = l.serve(ln) }()
+	}
+	sshAddress := ""
+	if address != "" && l.sshServe != nil {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			if next != nil {
+				_ = next.Close()
+			}
+			return err
+		}
+		sshAddress = net.JoinHostPort(host, l.sshPort)
+	}
+	sshNext := l.sshLN
+	if sshAddress != l.sshAddress {
+		sshNext = nil
+		if sshAddress != "" {
+			ln, err := l.listen("tcp", sshAddress)
+			if err != nil {
+				if next != nil {
+					_ = next.Close()
+				}
+				return &services.InstallReadinessError{Code: "address_unavailable", Class: "user", Message: "Can't listen on " + sshAddress}
+			}
+			sshNext = ln
+			go func() { _ = l.sshServe(ln) }()
+		}
+		if l.sshLN != nil {
+			_ = l.sshLN.Close()
+		}
+		l.sshLN, l.sshAddress = sshNext, sshAddress
+	}
+	if next != nil {
+		go func() { _ = l.serve(next) }()
 	}
 	if l.ln != nil {
 		_ = l.ln.Close()

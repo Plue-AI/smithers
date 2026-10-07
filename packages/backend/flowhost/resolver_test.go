@@ -1061,3 +1061,45 @@ func TestSandboxedWorkspaceLauncherBindsAndReconnects(t *testing.T) {
 	require.Equal(t, "running", store.binding.State)
 	require.Contains(t, sandbox.commands[0].Args, "/guest/repository")
 }
+
+// Production launch decoration must participate in the retained host identity.
+type configuredProjectLauncher struct {
+	*memoryLauncher
+	project []byte
+}
+
+func (l *configuredProjectLauncher) ConfigureFlowHost(_ context.Context, launch HostLaunch) (HostLaunch, error) {
+	launch.ProjectConfig = append([]byte(nil), l.project...)
+	return launch, nil
+}
+func TestResolverPinsProjectAndReconfiguresOnlyIdleHost(t *testing.T) {
+	resolver, store, base, target := testResolver(t)
+	launcher := &configuredProjectLauncher{memoryLauncher: base, project: []byte(`{"wiki":true}`)}
+	resolver.launcher = launcher
+	runs := &memoryRuns{}
+	resolver.activeRuns = runs
+	first := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	require.Equal(t, int64(1), first.OwnerGeneration)
+	require.Equal(t, hostServiceIdentity(base.starts[0]), store.binding.ServiceIdentity)
+	runs.set("attempt-one", store.binding, "running")
+	launcher.project = []byte(`{"wiki":false}`)
+	_, err := resolver.ResolveFlowRuntime(t.Context(), target)
+	require.ErrorContains(t, err, "runtime_upgrade_pending")
+	require.Empty(t, base.stops)
+	require.Len(t, base.starts, 1)
+	runs.set("attempt-one", store.binding, "completed")
+	second := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	require.Equal(t, int64(2), second.OwnerGeneration)
+	require.Len(t, base.stops, 1)
+	require.Len(t, base.starts, 2)
+	require.JSONEq(t, `{"wiki":false}`, string(base.starts[1].ProjectConfig))
+	require.Equal(t, hostServiceIdentity(base.starts[1]), store.binding.ServiceIdentity)
+	resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	require.Len(t, base.starts, 2)
+	// Process recovery increments ownership without changing the snapshot.
+	base.running = false
+	recovered := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	require.Equal(t, int64(3), recovered.OwnerGeneration)
+	require.Len(t, base.starts, 3)
+	require.Equal(t, base.starts[1].ProjectConfig, base.starts[2].ProjectConfig)
+}

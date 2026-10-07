@@ -1,6 +1,9 @@
 import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 import { ReviewDocsAgainstCode, ReviewJsdocAgainstCode } from "@smthrs/repo-targets"
 import { Smithers } from "@smthrs/targets"
+import { Package as flowsJjPackage } from "./crates/flows-jj/PACKAGE.ts"
+import { Package as backendPackage } from "./packages/backend/PACKAGE.ts"
+import { Package as modelHostAppPackage } from "./apps/model-host/PACKAGE.ts"
 import project from "./apps/site/src/data/project.json" with { type: "json" }
 import { Package as modelHostPackage } from "./packages/smithers/agent/model-host/PACKAGE.ts"
 import { Package as integrationsPackage } from "./packages/smithers/agent/integrations/PACKAGE.ts"
@@ -48,7 +51,6 @@ const tsconfig = Smithers.Tsconfig({
     Smithers.glob("scripts/*/PACKAGE.ts"),
     Smithers.file("flows/PACKAGE.ts"),
     Smithers.file("examples/PACKAGE.ts"),
-    Smithers.glob("apps/docs/*/PACKAGE.ts"),
     // One entry per nesting depth, spelled out. Packages nest: a granular
     // package lives inside the product package it belongs to, so
     // `@smthrs/canonical` is `packages/smithers/flows/canonical` and
@@ -326,7 +328,7 @@ const nativeFfi = Smithers.Shell.Build({
     Smithers.file("//Cargo.lock"),
     Smithers.file("//rust-toolchain.toml"),
     Smithers.file("//crates/flows-jj/Cargo.toml"),
-    Smithers.glob("//crates/flows-jj/src/**/*.rs"),
+    flowsJjPackage.nativeSources,
     Smithers.glob("//crates/smithers-ffi/**/*.rs"),
     Smithers.file("//crates/smithers-ffi/Cargo.toml")
   ],
@@ -383,13 +385,13 @@ const backendGo = Smithers.Shell.Test({
     codingFlowsPackage.codingHostInputs,
     workspace,
     Smithers.file("//pnpm-lock.yaml"),
-    Smithers.glob("//apps/model-host/src/**/*.ts"),
+    modelHostAppPackage.backendInputs,
     Smithers.file("//apps/model-host/build.mjs"),
     Smithers.file("//apps/model-host/package.json"),
     Smithers.file("//go.mod"),
     Smithers.file("//go.sum"),
     Smithers.file("//packages/rpc/contracts/app-bootstrap-v1.schema.json"),
-    Smithers.glob("//packages/backend/**/*"),
+    backendPackage.buildInputs,
     Smithers.glob("//apps/backend/**/*"),
     Smithers.glob("//distribution/**/*"),
     Smithers.glob("//docs/api/**/*")
@@ -440,7 +442,7 @@ const driftCi = Smithers.GithubCiGen({
     name: "Per-commit drift",
     runsOn: ubuntu,
     timeoutMinutes: 10,
-    toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun], apt: bubblewrap }),
+    toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun] }),
     steps: [
       { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
       { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
@@ -450,7 +452,8 @@ const driftCi = Smithers.GithubCiGen({
       { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
       { name: "Conflict markers", verb: Smithers.Verb.Lint, pattern: "//scripts:conflictMarkers" },
       { name: "Tracked file hygiene", verb: Smithers.Verb.Lint, pattern: "//scripts:trackedHygiene" },
-      { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" }
+      { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" },
+      { name: "Generated CI workflow", verb: Smithers.Verb.Lint, pattern: "//:ci" }
     ]
   }]
 })
@@ -682,14 +685,12 @@ const ci = Smithers.GithubCiGen({
       steps: [{ name: "Script gates", verb: Smithers.Verb.Test, pattern: "//scripts/..." }]
     },
     {
-      // Source parity and site builds stay together in the independent docs gate.
       id: "docs",
-      name: "package documentation sites",
+      name: "published package documentation",
       runsOn: ubuntu,
-      // Run 36369423415: 14m19s; leave room for uncached site builds.
       timeoutMinutes: 45,
       toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun], apt: bubblewrap }),
-      steps: [{ name: "Package docs sites", verb: Smithers.Verb.Ci, pattern: "//apps/docs/..." }]
+      steps: [{ name: "Package documentation tarballs", verb: Smithers.Verb.Test, pattern: "//scripts:packageDocs" }]
     },
     {
       id: "apps-e2e",
@@ -743,7 +744,8 @@ const ci = Smithers.GithubCiGen({
       steps: [
         { name: "Cargo lint gates", verb: Smithers.Verb.Lint, pattern: "//crates/flows-jj/..." },
         { name: "Third-party notices", verb: Smithers.Verb.Test, pattern: "//scripts:thirdPartyNotices" },
-        { name: "Cargo test suite", verb: Smithers.Verb.Test, pattern: "//crates/flows-jj:cargoTest" }
+        { name: "Cargo test suite", verb: Smithers.Verb.Test, pattern: "//crates/flows-jj:cargoTest" },
+        { name: "Daemon document component tests", verb: Smithers.Verb.Test, pattern: "//crates/smithers-machined:documentComponents" }
       ]
     },
     {
@@ -927,8 +929,8 @@ const reviewDocsAgainstCode = ReviewDocsAgainstCode({
     Smithers.glob("//packages/*/*/*/README.md"),
     // Keep the shared context below LlmLint's 2 MiB cap. Package-level
     // reviews can opt into their full local docs; this overview selects
-    // concepts plus the runtime and build API sections explicitly.
-    Smithers.glob("//apps/site/src/content/docs/docs/concepts/*.mdx"),
+    // installation plus the runtime and build API sections explicitly.
+    Smithers.glob("//apps/site/src/content/docs/docs/installation.mdx"),
     Smithers.glob("//apps/site/src/content/docs/docs/reference/api/flows.mdx"),
     Smithers.glob("//apps/site/src/content/docs/docs/reference/api/flow.mdx"),
     Smithers.glob("//apps/site/src/content/docs/docs/reference/api/plan.mdx"),
@@ -1072,6 +1074,7 @@ const securityReview = Smithers.SecurityReview({
     ".github/scripts/*.sh",
     ".smithers/*.ts",
     ".smithers/*.json",
+    "flows/**/flow.{ts,mdx}",
     "distribution/*",
     "crates/smithers-ffi/Cargo.toml",
     "crates/smithers-ffi/src/*.rs",
@@ -1204,7 +1207,7 @@ const securityReview = Smithers.SecurityReview({
         "pnpm-workspace.yaml allowBuilds admitting a package that has no documented need for an install script, or .npmrc adding a registry or auth line.",
         "flake.nix or the Dockerfile fetching a source without a pinned hash."
       ],
-      paths: [".pnpmfile.mjs", ".npmrc", "pnpm-workspace.yaml", "patches/*.patch", "flake.nix", "distribution/Dockerfile"]
+      paths: [".pnpmfile.mjs", ".npmrc", "pnpm-workspace.yaml", "patches/*.patch", "flake.nix"]
     },
     {
       id: "root-tool-targets",

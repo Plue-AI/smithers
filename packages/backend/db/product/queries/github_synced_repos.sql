@@ -309,7 +309,7 @@ WHERE synced_repo_id = sqlc.arg(synced_repo_id)
 -- name: ListGitHubSyncedIssueComments :many
 SELECT *
 FROM github_synced_issue_comments
-WHERE synced_repo_id = sqlc.arg(synced_repo_id)
+WHERE source='conversation' AND synced_repo_id = sqlc.arg(synced_repo_id)
   AND issue_number = sqlc.arg(issue_number)
 ORDER BY github_created_at NULLS LAST, github_id
 LIMIT sqlc.arg(row_limit)::int OFFSET sqlc.arg(row_offset)::int;
@@ -325,7 +325,7 @@ SELECT
     (
         SELECT COUNT(*)
         FROM github_synced_issue_comments c
-        WHERE c.synced_repo_id = i.synced_repo_id
+        WHERE c.source='conversation' AND c.synced_repo_id = i.synced_repo_id
           AND c.issue_number = i.number
     )::bigint AS stored
 FROM github_synced_issues i
@@ -337,7 +337,7 @@ WHERE i.synced_repo_id = sqlc.arg(synced_repo_id)
 -- name: UpsertGitHubSyncedIssueComment :exec
 INSERT INTO github_synced_issue_comments (
     synced_repo_id, issue_number, github_id, payload,
-    github_created_at, github_updated_at
+    github_created_at, github_updated_at, source
 )
 VALUES (
     sqlc.arg(synced_repo_id),
@@ -345,9 +345,10 @@ VALUES (
     sqlc.arg(github_id),
     sqlc.arg(payload),
     sqlc.narg(github_created_at)::timestamptz,
-    sqlc.narg(github_updated_at)::timestamptz
+    sqlc.narg(github_updated_at)::timestamptz,
+ COALESCE(NULLIF(sqlc.arg(source)::text,''),'conversation')
 )
-ON CONFLICT (synced_repo_id, github_id) DO UPDATE
+ON CONFLICT (synced_repo_id, source, github_id) DO UPDATE
 SET issue_number      = EXCLUDED.issue_number,
     payload           = EXCLUDED.payload,
     github_created_at = EXCLUDED.github_created_at,
@@ -361,14 +362,14 @@ WHERE github_synced_issue_comments.github_updated_at IS NULL
 
 -- name: DeleteGitHubSyncedIssueComment :exec
 DELETE FROM github_synced_issue_comments
-WHERE synced_repo_id = sqlc.arg(synced_repo_id)
+WHERE source='conversation' AND synced_repo_id = sqlc.arg(synced_repo_id)
   AND github_id = sqlc.arg(github_id);
 
 -- name: DeleteGitHubSyncedIssueCommentsNotIn :exec
 -- Comment baseline load: drop an issue's stored comments GitHub no longer
 -- returns. Only ever run with the FULL just-fetched comment id set.
 DELETE FROM github_synced_issue_comments
-WHERE synced_repo_id = sqlc.arg(synced_repo_id)
+WHERE source='conversation' AND synced_repo_id = sqlc.arg(synced_repo_id)
   AND issue_number = sqlc.arg(issue_number)
   AND NOT (github_id = ANY(sqlc.arg(github_ids)::bigint[]));
 

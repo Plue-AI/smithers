@@ -33,9 +33,10 @@ export const storageRecoveryExportFlow = (run: () => Promise<string | void>): Fl
   }),
   input,
   metadata: {
+    agent: "never", visibility: "in-card", actors: ["person"], minimumRole: "member",
     summary: "Download a private local recovery file",
     hidden: true,
-    userOnlyReason: STORAGE_RECOVERY_USER_ONLY_REASON
+    agentReason: STORAGE_RECOVERY_USER_ONLY_REASON
   }
 })
 
@@ -64,9 +65,10 @@ export const storageRecoveryResetFlow = (run: () => Promise<string | void>): Flo
   }),
   input,
   metadata: {
+    agent: "never", visibility: "in-card", actors: ["person"], minimumRole: "member",
     summary: "Reset this browser's data",
     hidden: true,
-    userOnlyReason: STORAGE_RESET_USER_ONLY_REASON
+    agentReason: STORAGE_RESET_USER_ONLY_REASON
   }
 })
 

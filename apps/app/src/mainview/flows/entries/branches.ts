@@ -13,13 +13,11 @@ export const namespace: Namespace = { id: "branches", label: "Branches", summary
 /** The `branches` flows registered as one aggregator block. */
 export const branchesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "branches.list",
-    summary: "List a repository's branches (bookmarks)",
-    runtime: ["cloud"],
+    name: "branches", slash: "/branches", cli: ["branches"], journey: ["J3"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", agent: "run", http: {"method":"GET","path":"/api/branches"},
+    summary: "List branches with presence",
     args: "[owner/repo]",
     requires: ["signed-in"],
     input: RepoTarget,
-    prepare: ({ repo }) => actions.listBookmarks.preload?.(repo),
-    handler: ({ repo }) => actions.listBookmarks(repo)
+    handler: () => actions.listBookmarks()
   })
 ]

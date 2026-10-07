@@ -144,6 +144,23 @@ func New(config Config) (*Runtime, error) {
 	return runtime, nil
 }
 
+// AdmissionOwnership reports the supervised workspace's actual lifecycle. A
+// stopping workspace still holds capacity until its children have exited.
+// Unknown IDs remain unknown; missing metadata is never a release receipt.
+func (r *Runtime) AdmissionOwnership(holder string) (held, known bool) {
+	id, ok := strings.CutPrefix(holder, "workspace:")
+	if !ok {
+		return false, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ws := r.workspaces[id]
+	if ws == nil {
+		return false, false
+	}
+	return ws.State != string(workspaceapi.WorkspaceStopped) || len(ws.processes) != 0, true
+}
+
 func (r *Runtime) Isolation() workspaceapi.IsolationLevel {
 	return workspaceapi.IsolationTrustedProcess
 }

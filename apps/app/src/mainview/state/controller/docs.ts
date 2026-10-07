@@ -8,7 +8,7 @@ import type { ControllerContext } from "./context"
  * The in-app docs (M-35). `docs [page]` embeds one page as a read-only
  * Markdown card for either actor, the way `wiki.open` embeds a note;
  * `docs.read <page>` hands the agent the same page as data. A slug no page
- * answers is a refusal that names every page there is.
+ * answers opens the first page with a not-found state.
  */
 export interface DocsController {
   /** `docs [page]`: embed the page (the toc's first when none is named) and tell the agent what was embedded. */
@@ -27,7 +27,8 @@ export const createDocsController = (
     if (!deps.available()) return "Docs catalog is unavailable"
     const docs = deps.docs()
     const wanted = page?.trim() || docs.pages[0]!.slug
-    const [slug, anchor] = wanted.split("#", 2)
+    const [pageSlug, anchor] = wanted.split("#", 2)
+    const slug = pageSlug || docs.pages[0]!.slug
     const requested = docsPage(docs, slug!)
     const found = requested ?? docs.pages[0]!
     const id = `docs-${found.slug}`

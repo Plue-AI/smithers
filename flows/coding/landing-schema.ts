@@ -1,6 +1,7 @@
 /** Private receipt projections of Plue's existing landing service. Browser safe. */
 import { Schema } from "effect"
 import { ChangeId, Resolved, SourcePublication } from "./native-schema.ts"
+import { Plan } from "./schema.ts"
 
 const CommitId = Resolved.fields.commitId
 const PositiveId = Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER))
@@ -95,7 +96,8 @@ export const LaneSubmission = Schema.Struct({
   base: CommitId,
   source: CommitId,
   requestRunId: Schema.NonEmptyString.check(Schema.isMaxLength(1024)),
-  summary: Schema.NonEmptyString.check(Schema.isMaxLength(16_384))
+  summary: Schema.NonEmptyString.check(Schema.isMaxLength(16_384)),
+  plan: Schema.optionalKey(Plan)
 })
 export type LaneSubmission = typeof LaneSubmission.Type
 /** The stack service's receipt: the item that now carries this candidate. */

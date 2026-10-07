@@ -44,17 +44,29 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(html).toContain("Source ready"); expect(html).not.toContain("Machine ready")
     expect(html).toContain("Free disk space"); expect(html).toContain("Retry")
   })
+  test("served pre-approval default dispatches its typed owner control and stays hidden for members", () => {
+    const model = installFixture()
+    model.todo_preapprove_default = false
+    const h = harness({ model }); h.renderSettings()
+    expect(h.settings()!.model.todo_preapprove_default).toBe(false)
+    h.settings()!.onAction("settings.preapprove-default", { enabled: "true" })
+    expect(h.commands).toEqual([{ tag: "settings.preapprove-default", input: { todo_preapprove_default: true } }])
+    expect(h.renderSettings(false)).toBe("")
+  })
   test("Settings passes a schema-valid model, member view state and cardActions dispatch", () => {
     const h = harness(); h.renderSettings(); const props = h.settings()!
     expect(SettingsCardSchema.safeParse(props.model).success).toBe(true)
     expect(props.gestures).toEqual({}); expect(props.view).toBe(h.view); props.onView({ tab: "github" }); expect(h.patches).toEqual([{ tab: "github" }])
     expect(props.actions.map(action => [action.tag, action.args])).toEqual([
       ["settings.address", { field: "address", listen: "mac" }], ["settings.address", { field: "address", listen: "network" }],
-      ["settings.capacity", { field: "capacity", min: "0", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
-      ["settings.model-key", { field: "key", role: "fast" }], ["settings.model-key", { field: "key", role: "coding" }], ["settings.model-key", { field: "key", role: "jev" }]
+      ["image.add", undefined],
+      ["settings.capacity", { field: "capacity", min: "1", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
+      ["settings.model-key", { field: "key", role: "fast" }], ["settings.model-key", { field: "key", role: "coding" }], ["settings.model-key", { field: "key", role: "jev" }],
+      ["settings.model.set", { role: "fast" }], ["settings.model.set", { role: "coding" }], ["settings.model.set", { role: "jev" }]
     ])
-    props.onAction("settings.capacity", { capacity: "3" }); props.onAction("settings.parallel", { parallel: "1" })
-    expect(h.commands).toEqual([{ tag: "settings.capacity", input: { capacity: 3 } }, { tag: "settings.parallel", input: { parallel: 1 } }])
+    props.onAction("settings.capacity", { capacity: "0" }); props.onAction("settings.parallel", { parallel: "1" })
+    props.onAction("image.add", { name: "figlet" })
+    expect(h.commands).toEqual([{ tag: "settings.capacity", input: { capacity: 0 } }, { tag: "settings.parallel", input: { parallel: 1 } }, { tag: "image.add", input: { name: "figlet" } }])
   })
   test("Address sends bind and origins; refused origins remain outside the active list", () => {
     const model = installFixture(); model.address.change_failed = { from: "http://mini.local:4000", to: "http://refused.test", reason: "Address in use" }

@@ -3,11 +3,8 @@ import { afterAll, describe, expect, jest, spyOn, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import { pillStatus } from "./CardRenderers"
-import { ControllerTestProvider } from "../ControllerContext"
-import type { AppController } from "../state/AppController"
 import type { Card } from "../state/AppState"
-import { RepoImportCardBody } from "./RepoImportCard"
-import { ConnectorSetupCardBody, endpointLabel, rateLimitHeldUntil, SyncOpsCardBody } from "./SyncCards"
+import { endpointLabel, SyncOpsCardBody } from "./SyncCards"
 
 
 
@@ -20,29 +17,7 @@ afterAll(async () => {
   await GlobalRegistrator.unregister()
 })
 
-type SetupPayload = Extract<Card, { kind: "connector-setup" }>["payload"]
 type SyncOpsPayload = Extract<Card, { kind: "sync-ops" }>["payload"]
-
-const setupCard = (overrides: Partial<SetupPayload> = {}): Extract<Card, { kind: "connector-setup" }> => ({
-  id: "connector-setup-github-will/smithers",
-  kind: "connector-setup",
-  title: "Connect GitHub · will/smithers",
-  status: "active",
-  createdAt: 0,
-  ordinal: 0,
-  payload: {
-    connector: "github",
-    repo: "will/smithers",
-    phase: "setup",
-    steps: [
-      { id: "authorize", label: "Authorize in your browser", state: "done", detail: "authorized as Will" },
-      { id: "team", label: "Team", state: "active", detail: null },
-      { id: "repository", label: "Repository", state: "pending", detail: "will/smithers" },
-      { id: "confirm", label: "Confirm", state: "pending", detail: null }
-    ],
-    ...overrides
-  }
-})
 
 const syncOpsCard = (overrides: Partial<SyncOpsPayload> = {}): Extract<Card, { kind: "sync-ops" }> => ({
   id: "sync-ops-mirror-7",
@@ -71,22 +46,6 @@ const render = (node: React.ReactNode) => {
   return { host, commands }
 }
 
-const renderSetup = (
-  card: Extract<Card, { kind: "connector-setup" }>,
-  controller?: AppController
-) => {
-  const commands: Array<{ name: string; args?: string }> = []
-  const host = document.createElement("div")
-  document.body.append(host)
-  const body = <ConnectorSetupCardBody card={card} onRunCommand={(name, args) => commands.push({ name, args })} />
-  flushSync(() => {
-    createRoot(host).render(
-      controller === undefined ? body : <ControllerTestProvider controller={controller}>{body}</ControllerTestProvider>
-    )
-  })
-  return { host, commands }
-}
-
 const buttonNamed = (host: HTMLElement, text: string): HTMLButtonElement => {
   const button = [...host.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes(text))
   if (button === undefined) throw new Error(`no button named ${text}`)
@@ -98,7 +57,6 @@ const click = (host: HTMLElement, text: string): void => {
 }
 
 /** An ISO stamp a number of minutes from now — the rate-limit line reads against the real clock. */
-const minutesFromNow = (minutes: number): string => new Date(Date.now() + minutes * 60_000).toISOString()
 
 describe("the frame pill of a sync-ops card", () => {
   test("a null run state (nothing has answered yet) is never done, and a wire word is never renamed", () => {

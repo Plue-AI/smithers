@@ -19,13 +19,18 @@ import { fileCard, findFile } from "../../state/seams/DesignWorld/subjects"
 export const namespace: Namespace = { id: "flow", label: "Flows", summary: "Create, list, and run flows" }
 
 const flowNameGrammar = (args: string | undefined) => {
-  const [name, ...request] = (args ?? "").trim().split(/\s+/)
-  return { payload: { ...(name ? { name } : {}), ...(request.length ? { request: request.join(" ") } : {}) } }
+  if (args?.trim().startsWith("{")) {
+    try { return { payload: JSON.parse(args) } } catch { return { error: "Invalid flow input" } }
+  }
+  const input = (args ?? "").trimStart()
+  const boundary = input.search(/\s/)
+  const name = boundary < 0 ? input : input.slice(0, boundary)
+  const request = boundary < 0 ? undefined : input.slice(boundary).trimStart()
+  return { payload: { ...(name ? { name } : {}), ...(request ? { request } : {}) } }
 }
 
-/** The TODO a flow edit becomes (spec §11.5.1): the agent derives the change from this request; nothing else is stored. */
-export const flowEditPrompt = (name: string, request: string): string =>
-  `Change flows/${name}/flow.ts: ${request}; start from the built-in composition when no override exists`
+import { flowEditPrompt, flowEditTodoInput } from "@smthrs/rpc/FlowEdit"
+export { flowEditPrompt, flowEditTodoInput } from "@smthrs/rpc/FlowEdit"
 
 /*
  * The versioned flow doors (T-APP-05, J5): the Flow card, a proposed edit as
@@ -38,42 +43,50 @@ export const flowEditPrompt = (name: string, request: string): string =>
 export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   /** The named flow's card, or the refusal: an unserved catalog, or no such flow. */
   const named = async (name: string) => {
-    const cards = await actions.flowCards()
+    const cards = await actions.flowCards(name)
     return cards === undefined ? flowsUnavailable : cards.find(card => card.name === name) ?? `No flow ${name}`
   }
   return [
-    flow({ name: "flow", summary: "Show a flow's steps and versions", args: "<name>",
-      input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
+    flow({ name: "flow",   slash: "/flow", cli: ["flow","show"], journey: ["J5"], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/flows/{name}"}, summary: "Show a flow's steps and versions", args: "<name>",
+      agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
       handler: async ({ name }) => {
         const model = await named(name)
         return typeof model === "string" ? model : { value: await actions.presentFlow(name, flowTitle(name)) }
       } }),
-    flow({ name: "flow.edit", summary: "Propose a change to a flow", args: "<name> <request>",
-      input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString }),
-      grammar: flowNameGrammar, confirm: "change this flow",
-      form: { fields: { name: { label: "Flow" }, request: { label: "Request" } },
-        args: payload => line(text(payload, "name"), text(payload, "request")) },
-      handler: async ({ name, request }) => {
+    flow({ name: "flow.edit",   slash: "/flow.edit", cli: ["flow","edit"], journey: ["J5"], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/flows/{name}/edit"}, summary: "Propose a change to a flow", args: "<name> <request>",
+      agent: "confirm", input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString, diff: Schema.optional(Schema.String) }),
+      grammar: flowNameGrammar, confirm: payload => payload.diff === undefined ? "change this flow" : undefined,
+      form: { requires: () => ["name", "request"], fields: { name: { label: "Flow" }, request: { label: "Request" }, diff: { hidden: true } },
+        args: payload => payload.diff === undefined ? line(text(payload, "name"), text(payload, "request")) : JSON.stringify(payload) },
+      handler: async ({ name, request, diff }) => {
         const model = await named(name)
         if (typeof model === "string") return model
         if (model.system) return `${flowTitle(name)} is built in`
-        return actions.newTodo({ text: flowEditPrompt(name, request), title: `Change the ${flowTitle(name)}: ${request}` })
+        if (diff !== undefined) return { value: await actions.presentSubject({ id: `flow:${name}`, kind: "flow", title: flowTitle(name), payload: { name, proposal: { request, diff } } }) }
+        return actions.newTodo(flowEditTodoInput(name, request))
       } }),
-    flow({ name: "flow.source", summary: "Co-edit a flow's source", args: "<name>",
-      input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
+    flow({ name: "flow.source",   slash: "/flow.source", cli: ["flow","source"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Co-edit a flow's source", args: "<name>",
+      agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
       handler: async ({ name }) => {
         const world = actions.design.world()
         const model = await named(name)
         if (typeof model === "string") return model
         if (model.system) return `${flowTitle(name)} is built in`
         const path = "path" in model.source ? model.source.path : `flows/${name}/flow.ts`
-        const proposing = world.flowVersions.find(each => each.flow === name && each.state === "proposed" && each.todo !== undefined)
-        const branch = proposing?.todo === undefined ? undefined : todoOf(world, proposing.todo)?.branch
-        const file = findFile(world, path, branch) ?? findFile(world, path, "main")
+        const proposing = model.versions.find(each => each.state === "proposed" && each.todo !== undefined)
+        if (!actions.design.enabled) return proposing?.todo === undefined ? actions.newFlowSourceTodo(flowEditTodoInput(name, "Edit the source"), path) : actions.readFlowSource(proposing.todo, path)
+        if (proposing === undefined) {
+          // Retain the design seed's source projection off an install.
+          const seeded = findFile(world, path, "main")
+          return seeded === undefined ? actions.newTodo({ text: flowEditPrompt(name, "Edit the source"), title: `Change the ${flowTitle(name)}` })
+            : { value: await actions.presentSubject(fileCard(world.repo.repo, seeded.branch, seeded.path)) }
+        }
+        const branch = proposing?.todo === undefined ? undefined : todoOf(world, `T${proposing.todo}`)?.branch
+        const file = branch === undefined ? undefined : findFile(world, path, branch)
         if (file === undefined) return `No source for ${flowTitle(name)}`
         return { value: await actions.presentSubject(fileCard(world.repo.repo, file.branch, file.path)) }
       } }),
-    flow({ name: "flows", summary: "List the repository's flows", input: Schema.Struct({}),
+    flow({ name: "flows",   slash: "/flows", cli: ["flows"], journey: ["J5"], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/flows"}, summary: "List the repository's flows", agent: "run", input: Schema.Struct({}),
       handler: async () => {
         const cards = await actions.flowCards()
         if (cards === undefined) return flowsUnavailable
@@ -83,7 +96,7 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
   ]
 }
 
-/** The `flow.*` flows: create, choose a repository, list, run, and the run controls. */
+/** The `flow.*` flows: create, list, run, and the run controls. */
 export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     /*
@@ -92,11 +105,11 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * the relay event stream (THE EMBED LAW).
      *
      * Wave 12 §2: a trailing `owner/repo` names the target. Without one and
-     * with more than one loaded repository, the chooser-among-loaded asks —
+     * with more than one loaded repository, the ordinary input form asks —
      * the target is a genuine user choice, not a guess.
      */
-    name: "flow.create",
-    summary: "Create a Smithers flow from a description",
+    name: "flow.new", slash: "/flow.new", cli: ["flow","new"], journey: [], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", agent: "confirm", http: {"method":"POST","path":"/api/flows"},
+    summary: "Create a new flow",
     runtime: ["cloud"],
     args: "<description> [owner/repo]",
     requires: ["signed-in"],
@@ -108,32 +121,13 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     /*
-     * The answer to the which-repo question — one act, from the card.
-     *
-     * `userOnly` is load-bearing, not decoration. §2 exists because the target
-     * is a GENUINE user choice and nothing may be provisioned on a guess; a
-     * model that can execute this by name answers the human's question for
-     * them and provisions on ITS guess. Hidden keeps it out of the catalog;
-     * user-only keeps it un-executable even by a model that guesses the name.
-     */
-    name: "flow.repo.choose", hidden: true, discloseToAgent: false,
-    summary: "Choose which loaded repository a flow belongs to",
-    runtime: ["cloud"],
-    userOnly: true,
-    userOnlyReason: "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
-    args: "<owner/repo>",
-    input: Schema.Struct({ repo: Schema.String }),
-    handler: ({ repo }) => actions.chooseWorkflowRepo(repo)
-  }),
-  flow({
-    /*
      * Wave 12 §3 — the acts a run that has gone quiet offers, bound to the
      * card's buttons. Hidden from the slash menu and the catalog. Stopping a
      * run is consequential (the cancel is durable), so the model may ASK but
      * never perform it: `confirm` turns an agent invocation into a
      * confirmation message whose button runs the stop as the user.
      */
-    name: "flow.run.stop",
+    name: "flow.run.stop", visibility: "in-card",
     summary: "Stop a run",
     runtime: ["cloud"],
     hidden: true,
@@ -147,7 +141,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     /* A retry spends (.specs/engineering/spec.md §6.1): the model may ask, the human confirms. */
-    name: "flow.run.retry",
+    name: "flow.run.retry", visibility: "in-card",
     summary: "Check a run again",
     runtime: ["cloud"],
     hidden: true,
@@ -167,14 +161,14 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     name: "flow.run",
-    form: {
+     slash: "/flow.run", cli: ["flow","run"], journey: [], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/flows/{name}/run"}, form: {
       fields: { name: { label: "Flow" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, input: { label: "Input JSON" } },
       partial: flowRunParts,
       args: (payload) => line(text(payload, "sourceCard") === undefined ? undefined : `sourceCard=${text(payload, "sourceCard")}`,
         text(payload, "name"), text(payload, "repo"),
         payload.input === undefined ? undefined : typeof payload.input === "string" ? text(payload, "input") : JSON.stringify(payload.input))
     },
-    summary: "Run a flow on your workspace",
+    summary: "Run a flow with typed input",
     runtime: ["cloud"],
     args: "[sourceCard=id] <name> [owner/repo] [JSON object]",
     requires: ["signed-in"],
@@ -192,7 +186,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
    */
   flow({
     name: "flow.plan",
-    form: {
+     slash: "/flow.plan", cli: ["flow","plan"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, form: {
       fields: { name: { label: "Flow" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, input: { label: "Input JSON" } },
       partial: flowPlanParts,
       args: (payload) => line(text(payload, "sourceCard") === undefined ? undefined : `sourceCard=${text(payload, "sourceCard")}`,
@@ -251,14 +245,19 @@ const firstLine = (text: string): string => text.split("\n")[0]?.trim() ?? ""
 export const repositoryFlowLeaves = (
   actions: CommandActions,
   repo: string,
-  flows: ReadonlyArray<RepositoryFlow>
+  flows: ReadonlyArray<RepositoryFlow>,
+  builtins: ReadonlyArray<FlowEntry> = []
 ): ReadonlyArray<FlowEntry> =>
   flows.flatMap((row) => {
     const name = repositoryFlowName(row.id)
     if (!SLASH_NAME.test(name)) return []
+    const policy = builtins.find(entry => entry.declaredName === name)?.metadata
     return [
       flow({
-        name,
+        name, visibility: "core", slash: `/${name}`, group: "Flows",
+        agent: row.modelInvocable ? policy?.agent ?? "run" : "never",
+        actors: row.modelInvocable ? policy?.actors ?? ["person", "app_agent"] : ["person"],
+        minimumRole: policy?.minimumRole ?? "member",
         summary: row.summary ?? firstLine(row.description),
         workflow: row.id,
         runtime: ["cloud"],
@@ -268,7 +267,7 @@ export const repositoryFlowLeaves = (
         form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } } },
         ...(row.modelInvocable
           ? {}
-          : { userOnly: true, userOnlyReason: `${repo} declares ${row.id} is not for a model to start (.smithers/FACTORY.ts)` }),
+          : { agent: "never" as const, agentReason: `${repo} declares ${row.id} is not for a model to start (.smithers/FACTORY.ts)` }),
         input: Schema.Struct({ repo: Schema.optional(Schema.String), input: Schema.optional(Schema.Record(Schema.String, Schema.Json)) }),
         handler: ({ repo: target, input }) => actions.runWorkflow(row.id, target ?? repo, input, undefined, true)
       })
@@ -279,7 +278,7 @@ export const repositoryFlowLeaves = (
 export const flowRunStopAllFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     /* Stopping every run is consequential: agent invocations confirm first. */
-    name: "flow.run.stop-all",
+    name: "flow.run.stop-all", visibility: "in-card",
     summary: "Stop every live run on your workspace",
     runtime: ["cloud"],
     hidden: true,

@@ -99,9 +99,9 @@ func (s *WorkspaceService) RenewWorkspaceLease(ctx context.Context, workspaceID 
 	return s.toWorkspaceResponse(renewed), nil
 }
 
-// CleanupAbandonedWorkspaces reclaims workspaces whose client lease lapsed: a
-// running one is suspended, and any one lapsed for leaseDeleteAfter is
-// deleted. Workspaces without a lease are never listed.
+// CleanupAbandonedWorkspaces reclaims legacy nonbranch consumers whose client
+// lease lapsed. Branch machines retain their runtime and history regardless of
+// lease age; only settled/captured/quiet cleanup may remove them.
 func (s *WorkspaceService) CleanupAbandonedWorkspaces(ctx context.Context) error {
 	store, ok := s.q.(workspaceLeaseStore)
 	if !ok {
@@ -126,6 +126,16 @@ func (s *WorkspaceService) CleanupAbandonedWorkspaces(ctx context.Context) error
 			continue
 		}
 		if workspace.DeletedAt.Valid || !workspace.ClientLeaseExpiresAt.Valid || workspace.ClientLeaseExpiresAt.Time.After(time.Now()) {
+			continue
+		}
+		// A branch's lease is not a capture or settlement receipt. Neither
+		// suspension nor deletion may bypass the branch lifecycle policy.
+		keep, err := s.keepTodoWorkspace(ctx, workspace)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("check abandoned workspace %s identity: %w", workspace.ID, err))
+			continue
+		}
+		if keep {
 			continue
 		}
 		logArgs := []any{

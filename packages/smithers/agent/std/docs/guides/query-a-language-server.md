@@ -98,7 +98,7 @@ const servers = NodeLanguageServer.layer([
 ## Edits reach the server
 
 With a `LanguageServer` bound, `edit`, `write` and `apply_patch` send each file
-they write to its server: `textDocument/didOpen` the first time, then
+they write to its server after the entire operation succeeds: `textDocument/didOpen` the first time, then
 `textDocument/didChange` with the full text. A file `apply_patch` deletes or
 moves away gets `textDocument/didClose`. `edit` then returns `errors`, the
 error-severity diagnostics in the file after the edit (at most 20, 1-based

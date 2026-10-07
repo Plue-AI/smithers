@@ -60,7 +60,7 @@ describe("a seam that never answers becomes an honest answer", () => {
      * answer to runs behind it, so the deadline's refusal is the durable
      * card's (controller/flowAuthoring.ts), where the retry door stands.
      */
-    const outcome = await controller.commands.run("flow.create", "nightly digest will/flows")
+    const outcome = await controller.commands.run("flow.new", "nightly digest will/flows")
     expect(outcome.status).toBe("executed")
     const authoring = () => {
       const card = [...store.collections.cards.values()].find((entry) => entry.kind === "run-trace" && entry.payload.authoring !== undefined)

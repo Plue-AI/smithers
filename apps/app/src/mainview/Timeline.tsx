@@ -34,7 +34,7 @@ function StackGlyph({ level }: { level: number }) {
   const width = 6 + Math.min(level, 3) * 2
   const height = 2, gap = 1.5
   const top = (16 - (bars * height + (bars - 1) * gap)) / 2
-  return <svg className="mvp-tl-stack" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+  return <svg className="tl-stack" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
     {Array.from({ length: bars }, (_, index) => <rect key={index} x={(16 - width) / 2} y={top + index * (height + gap)} width={width} height={height} rx="1" fill="currentColor" />)}
   </svg>
 }
@@ -45,19 +45,19 @@ function Line({ line, inView, onView, onAction }: { line: TimelineLine; inView: 
   const span = zoom === undefined ? undefined : spanOf(zoom)
   const name = zoom === undefined ? undefined : `${zoom.count} entries${span ? `, ${span.from} to ${span.to}` : ""}: ${line.title}`
   return <li data-entry={line.entry_id} data-kind={line.kind} data-tone={line.tone} data-in-view={inView || undefined} data-fresh={line.fresh || undefined} data-zoom={zoom?.level}>
-    <button type="button" onClick={jump} aria-label={name}><span className="mvp-tl-node">
+    <button type="button" onClick={jump} aria-label={name}><span className="tl-node">
       {zoom ? <StackGlyph level={zoom.level} />
         : "state" in glyph ? <StateGlyph state={glyph.state} /> : "actor" in glyph ? <ActorChip actor={glyph.actor} size="s" />
         : glyph.event === "running" ? <Spinner size="sm" aria-label="Working" />
-        : glyph.event === "ok" ? <Check size={13} className="mvp-tl-ok" aria-hidden="true" />
-        : glyph.event === "attention" ? <CircleAlert size={13} className="mvp-toast-attention" aria-hidden="true" />
-        : <X size={13} className="mvp-tl-failed" aria-hidden="true" />}
+        : glyph.event === "ok" ? <Check size={13} className="tl-ok" aria-hidden="true" />
+        : glyph.event === "attention" ? <CircleAlert size={13} className="toast-attention" aria-hidden="true" />
+        : <X size={13} className="tl-failed" aria-hidden="true" />}
     </span>
-      <span className="mvp-tl-text"><b>{zoom?.written ? <Sparkles size={11} className="mvp-written" aria-hidden="true" /> : null}{line.title}</b>
-        {zoom ? <span className="mvp-tl-zoom">{zoom.count} entries{span ? <> · <time>{span.text}</time></> : null}</span>
+      <span className="tl-text"><b>{zoom?.written ? <Sparkles size={11} className="written" aria-hidden="true" /> : null}{line.title}</b>
+        {zoom ? <span className="tl-zoom">{zoom.count} entries{span ? <> · <time>{span.text}</time></> : null}</span>
           : line.summary === undefined ? null : <span>{line.summary}</span>}</span>
     </button>
-    {action ? <span className="mvp-tl-actions"><Button size="sm" variant="outline" data-flow={action.tag} disabled={Boolean(action.disabled)} onClick={event => { event.stopPropagation(); onAction(action.tag, action.args ?? {}) }}>{action.label}</Button>
+    {action ? <span className="tl-actions"><Button size="sm" variant="outline" data-flow={action.tag} disabled={Boolean(action.disabled)} onClick={event => { event.stopPropagation(); onAction(action.tag, action.args ?? {}) }}>{action.label}</Button>
       {action.disabled ? <span>{action.disabled.reason}</span> : null}</span> : null}
   </li>
 }
@@ -84,6 +84,6 @@ export function Timeline({ lines, on_screen, onView, onAction }: TimelineProps) 
   useSyncExternalStore(subscribe, () => window.matchMedia(WIDE).matches, () => false)
   const first = lines.findIndex(line => line.entry_id === on_screen[0])
   const last = lines.findIndex(line => line.entry_id === on_screen[1])
-  return <nav className="mvp-timeline" aria-label="Timeline"><ol>{lines.map((line, index) =>
+  return <nav className="timeline" aria-label="Timeline"><ol>{lines.map((line, index) =>
     <Line key={line.entry_id} line={line} inView={first >= 0 && last >= first && index >= first && index <= last} onView={onView} onAction={onAction} />)}</ol></nav>
 }

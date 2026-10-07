@@ -180,7 +180,7 @@ export function RunView({ model, actions, onAction, view, onView }: RunViewProps
   const latest = model.attempts.at(-1)
   const status = <span className="mvp-run-state" data-state={model.state}>
     {model.state === "running" ? <span className="mvp-run-live" aria-hidden="true" /> : model.state === "held" ? <span className="mvp-run-held" aria-hidden="true" /> : null}
-    {STATE_WORD[model.state]}{model.state === "held" && model.held !== undefined ? ` · since ${model.held.since}` : null}
+    {model.state === "done" && model.todo === undefined ? "Done" : STATE_WORD[model.state]}{model.state === "held" && model.held !== undefined ? ` · since ${model.held.since}` : null}
   </span>
   const header = <header className="smithers-card-header">
     <h2 className="smithers-card-title">{model.todo === undefined ? null : <span className="mvp-run-ref">T{model.todo}</span>}{model.title}</h2>

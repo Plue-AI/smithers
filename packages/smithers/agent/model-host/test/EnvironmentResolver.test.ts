@@ -30,6 +30,98 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+const contextInput = {
+  prompt: "Where do we retry?",
+  author: "ben",
+  branch: "main",
+  state: "ready",
+  recent: [{ title: "Earlier", text: "Earlier answer" }],
+  candidates: [{
+    item: { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123" },
+    text: "export const retries = 3"
+  }],
+  tokenBudget: 24000,
+  wikiOnly: false
+}
+const contextResponse = (input: typeof contextInput = contextInput): Response => {
+  const { recent, candidates, ...value } = input
+  const records = [
+    { type: "input", version: 1, value },
+    ...recent.map((value) => ({ type: "recent", value })),
+    ...candidates.map((value) => ({ type: "candidate", value })),
+    { type: "end", recent: recent.length, candidates: candidates.length }
+  ]
+  return new Response(records.map((record) => JSON.stringify(record) + "\n").join(""), {
+    headers: { "content-type": "application/x-ndjson" }
+  })
+}
+const sharedGrant = { ...grant, request: { ...grant.request, sharedConversation: true } }
+
+test.each([false, true])("resolves shared context from the authenticated host callback (%s)", async (global) => {
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(contextResponse())
+  vi.stubGlobal("fetch", fetchImpl)
+  const resolved = await Effect.runPromise(
+    environmentModelResolver({ binding, env, ...(global ? {} : { fetchImpl }) })(sharedGrant)
+  )
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
+  const [url, init] = fetchImpl.mock.calls[0]!
+  expect(String(url)).toBe("https://callback.test/internal/chat/context")
+  expect(init).toMatchObject({
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/json", authorization: "Bearer fixture-token" },
+    body: "{\"turnId\":\"turn\",\"generation\":1}"
+  })
+  expect(init?.signal).toBeInstanceOf(AbortSignal)
+  expect(resolved.preflight?.input).toEqual(contextInput)
+  expect(resolved.preflight?.model).toBe(resolved.model)
+  expect(resolved.preflight?.options).toEqual({ modelId: "fixture", credential: "fixture-key" })
+})
+
+test.each([
+  () => new Response("private failure", { status: 503 }),
+  () => new Response(null, { status: 403 }),
+  () => new Response(null, { status: 307, headers: { location: "https://attacker.test" } }),
+  () => Response.json({ ...contextInput, candidates: [{ item: { kind: "file", ref: "outside" }, text: "secret" }] }),
+  () => Response.json({ ...contextInput, recent: [{ title: "private", text: "secret", private: true }] }),
+  () => Response.json({ ...contextInput, tokenBudget: -1 }),
+  () => new Response("not json"),
+  () => new Response(null),
+  () => new Response(" ".repeat(2 * 1024 * 1024 + 1)),
+  () => new Response("{}", { headers: { "content-length": "2097153" } })
+])("refuses unavailable, malformed or oversized context before invoking a model", async (response) => {
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response())
+  await expect(Effect.runPromise(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant))).rejects.toThrow(
+    "configured model route is unavailable"
+  )
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
+  expect(String(fetchImpl.mock.calls[0]![0])).toBe("https://callback.test/internal/chat/context")
+})
+
+test("interrupting context resolution aborts its outstanding read", async () => {
+  let observed: AbortSignal | undefined
+  let entered!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation((_url, init) =>
+    new Promise((_resolve, reject) => {
+      observed = init?.signal as AbortSignal
+      observed.addEventListener("abort", () => reject(new Error("interrupted")))
+      entered()
+    })
+  )
+  const abort = new AbortController()
+  const result = Effect.runPromiseExit(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant), {
+    signal: abort.signal
+  })
+  await started
+  abort.abort()
+  expect((await result)._tag).toBe("Failure")
+  expect(observed?.aborted).toBe(true)
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
+})
+
 test.each([false, true])(
   "routes the chosen model using the configured fetch and token budget (%s)",
   async (override) => {
@@ -170,4 +262,85 @@ test("refuses a request model on another credential or origin than the configure
   const resolved = await Effect.runPromise(environmentModelResolver({ binding, env: twoKeys, fetchImpl })(nullModel))
   expect(resolved.options.modelId).toBe("fixture")
   expect(fetchImpl).not.toHaveBeenCalled()
+})
+
+test.each(["declared", "streamed"])(
+  "cancels unsupported content type or oversized context records (%s)",
+  async (mode) => {
+    const cancelled = vi.fn()
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          if (mode === "streamed") controller.enqueue(new Uint8Array(2097153))
+        },
+        cancel: cancelled
+      }),
+      { headers: { "content-type": mode === "declared" ? "application/json" : "application/x-ndjson" } }
+    )
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response)
+    await expect(Effect.runPromise(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant))).rejects
+      .toThrow()
+    expect(cancelled).toHaveBeenCalledTimes(1)
+  }
+)
+
+const fastBinding = { ...binding, baseUrl: "https://fast.test", modelId: "owner-fast", credential: "FAST" }
+const fastEnv = { ...env, SMITHERS_MODEL_KEY_FAST: "fast-key", SMITHERS_MODEL_KEY_FAST_ORIGIN: "https://fast.test" }
+
+test("the owner fast role uses its own credential and origin independently of the answer model", async () => {
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+    if (String(url) === "https://callback.test/internal/chat/context") return contextResponse()
+    expect(String(url)).toBe("https://fast.test/v1/chat/completions")
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fast-key")
+    expect(new TextDecoder().decode(init?.body as Uint8Array)).toContain("\"model\":\"owner-fast\"")
+    return new Response(
+      "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"fast answer\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+    )
+  })
+  const resolved = await Effect.runPromise(
+    environmentModelResolver({ binding, preflightBinding: fastBinding, env: fastEnv, fetchImpl })(sharedGrant)
+  )
+  expect(resolved.options).toEqual({ modelId: "fixture", credential: "fixture-key" })
+  expect(resolved.preflight?.options).toEqual({ modelId: "owner-fast", credential: "fast-key" })
+  expect(resolved.preflight?.input).toEqual(contextInput)
+  const frames: unknown[] = []
+  await Effect.runPromise(
+    runModelTurn(resolved.preflight!.model, grant.request, resolved.preflight!.options, (frame) =>
+      Effect.sync(() => {
+        frames.push(frame)
+      }))
+  )
+  expect(frames).toContainEqual({ runId: "run", type: "delta", kind: "text", text: "fast answer" })
+  expect(fetchImpl).toHaveBeenCalledTimes(2)
+})
+
+test.each([{}, null, { ...fastBinding, baseUrl: "https://attacker.test" }, {
+  ...fastBinding,
+  credential: "UNENROLLED"
+}])(
+  "an invalid owner fast role refuses without falling back to an answer call",
+  async (preflightBinding) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(contextResponse())
+    await expect(
+      Effect.runPromise(environmentModelResolver({ binding, preflightBinding, env: fastEnv, fetchImpl })(sharedGrant))
+    ).rejects.toThrow("configured model route is unavailable")
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  }
+)
+
+test.each([undefined, " "])("fast credentials removed during resolution refuse (%s)", async (removed) => {
+  let reads = 0
+  const changingEnv = {
+    ...fastEnv,
+    get SMITHERS_MODEL_KEY_FAST() {
+      return ++reads === 1 ? "fast-key" : removed
+    }
+  }
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(contextResponse())
+  await expect(
+    Effect.runPromise(
+      environmentModelResolver({ binding, preflightBinding: fastBinding, env: changingEnv, fetchImpl })(sharedGrant)
+    )
+  ).rejects.toThrow("configured model route is unavailable")
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
 })

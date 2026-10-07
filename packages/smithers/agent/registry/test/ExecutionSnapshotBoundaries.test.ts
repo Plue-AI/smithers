@@ -6,18 +6,7 @@ import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
 import * as Digest from "@smthrs/core/Digest"
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import {
-  Crypto,
-  Deferred,
-  Effect,
-  Fiber,
-  FileSystem,
-  Layer,
-  Logger,
-  Path,
-  PlatformError,
-  Schema
-} from "effect"
+import { Crypto, Deferred, Effect, Fiber, FileSystem, Layer, Logger, Path, PlatformError, Schema } from "effect"
 import { pathToFileURL } from "node:url"
 import { describe, expect, it } from "vitest"
 import * as Descriptor from "../src/Descriptor.ts"
@@ -48,41 +37,61 @@ interface Manifest {
   lockfileDigest: string
   compiled: Record<string, { source: string; links: Array<{ start: number; end: number; target: string }> }>
 }
-const fixture = Effect.gen(function*() {
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const crypto = yield* Crypto.Crypto
-  const root = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-snapshot-boundaries-" })
-  const entry = `${root}/flows/snapshot/flow.ts`
-  const helper = `${root}/flows/snapshot/helper.ts`
-  yield* fs.makeDirectory(path.dirname(entry), { recursive: true })
-  yield* fs.writeFileString(entry, source)
-  yield* fs.writeFileString(helper, "export const value = \"approved\"")
-  const scanned = yield* (yield* Discovery.Discovery).scan({ source: "project", root: `${root}/flows`, naming: "path" })
-  const executable = yield* Executable.fromDescriptor(scanned.entries[0]!, {
-    delegates: [],
-    load: () => Effect.succeed({ default: flow })
-  })
-  const digest = Descriptor.executionDigest(executable.descriptor)!
-  const store = ArtifactStore.makeFileSystem(fs, path, { directory: `${root}/.flows/objects` })
-  const snapshots = yield* Snapshot.makeFileSystem({ root, store })
-  yield* snapshots.pin(executable)
-  const index = `${root}/.flows/executions/${digest}.json`
-  const blob: string = JSON.parse(yield* fs.readFileString(index))
-  const manifest: Manifest = JSON.parse(new TextDecoder().decode(
-    yield* store.get(blob).pipe(Effect.provideService(Crypto.Crypto, crypto))
-  ))
-  const publishBytes = (bytes: Uint8Array) =>
-    Effect.gen(function*() {
-      const blob = yield* store.put(bytes).pipe(
-        Effect.provideService(Crypto.Crypto, crypto)
-      )
-      yield* fs.writeFileString(index, JSON.stringify(blob))
-      return blob
+const fixture = (lockfiles = false) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const crypto = yield* Crypto.Crypto
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-snapshot-boundaries-" })
+    const entry = `${root}/flows/snapshot/flow.ts`
+    const helper = `${root}/flows/snapshot/helper.ts`
+    yield* fs.makeDirectory(path.dirname(entry), { recursive: true })
+    yield* fs.writeFileString(entry, source)
+    yield* fs.writeFileString(helper, "export const value = \"approved\"")
+    const scanned = yield* (yield* Discovery.Discovery).scan({
+      source: "project",
+      root: `${root}/flows`,
+      naming: "path",
+      ...(lockfiles ? { lockfileRoot: root } : {})
     })
-  const publish = (value: Manifest) => publishBytes(new TextEncoder().encode(JSON.stringify(value)))
-  return { fs, path, root, entry, helper, executable, digest, snapshots, index, blob, manifest, publish, publishBytes }
-})
+    const executable = yield* Executable.fromDescriptor(scanned.entries[0]!, {
+      delegates: [],
+      load: () => Effect.succeed({ default: flow })
+    })
+    const digest = Descriptor.executionDigest(executable.descriptor)!
+    const store = ArtifactStore.makeFileSystem(fs, path, { directory: `${root}/.flows/objects` })
+    const snapshots = yield* Snapshot.makeFileSystem({ root, store })
+    yield* snapshots.pin(executable)
+    const index = `${root}/.flows/executions/${digest}.json`
+    const blob: string = JSON.parse(yield* fs.readFileString(index))
+    const manifest: Manifest = JSON.parse(new TextDecoder().decode(
+      yield* store.get(blob).pipe(Effect.provideService(Crypto.Crypto, crypto))
+    ))
+    const publishBytes = (bytes: Uint8Array) =>
+      Effect.gen(function*() {
+        const blob = yield* store.put(bytes).pipe(
+          Effect.provideService(Crypto.Crypto, crypto)
+        )
+        yield* fs.writeFileString(index, JSON.stringify(blob))
+        return blob
+      })
+    const publish = (value: Manifest) => publishBytes(new TextEncoder().encode(JSON.stringify(value)))
+    return {
+      fs,
+      path,
+      root,
+      entry,
+      helper,
+      executable,
+      digest,
+      snapshots,
+      index,
+      blob,
+      manifest,
+      publish,
+      publishBytes
+    }
+  })
 const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.runPromise(effect.pipe(
     Effect.provide(Discovery.layer),
@@ -101,12 +110,12 @@ const denied = (method: string, path: string) =>
 describe("execution snapshot admission boundaries", () => {
   it("preserves the legacy digest for a nonempty lockfile set", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, executable, index, digest } = yield* fixture
+      const { fs, root, executable, index, digest } = yield* fixture()
       // Legacy algorithm: ordered [filename, SHA-256(bytes)] pairs, JSON encoded and SHA-256 hashed.
       yield* fs.writeFileString(`${root}/pnpm-lock.yaml`, "lockfileVersion: 9.0\n")
-      yield* fs.writeFileString(`${root}/package-lock.json`, '{"lockfileVersion":3}\n')
+      yield* fs.writeFileString(`${root}/package-lock.json`, "{\"lockfileVersion\":3}\n")
       yield* fs.writeFileString(`${root}/yarn.lock`, "# yarn lockfile v1\n")
-      yield* fs.writeFileString(`${root}/bun.lock`, '{"lockfileVersion":1}\n')
+      yield* fs.writeFileString(`${root}/bun.lock`, "{\"lockfileVersion\":1}\n")
       yield* fs.writeFile(`${root}/bun.lockb`, new Uint8Array([0, 255, 1, 128]))
       yield* fs.remove(index)
       const snapshots = yield* Snapshot.makeFileSystem({ root })
@@ -122,7 +131,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("measures a lockfile retired during read as absent", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, executable, index, blob, manifest, digest } = yield* fixture
+      const { fs, root, executable, index, blob, manifest, digest } = yield* fixture()
       const lockfile = `${root}/pnpm-lock.yaml`
       yield* fs.writeFileString(lockfile, "retiring lockfile")
       yield* fs.remove(index)
@@ -146,7 +155,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it.each(["PermissionDenied", "Unknown", "Busy"] as const)("reports an index %s read as unavailable", async (tag) => {
     await run(Effect.gen(function*() {
-      const { fs, root, index, digest } = yield* fixture
+      const { fs, root, index, digest } = yield* fixture()
       const cause = PlatformError.systemError({
         _tag: tag,
         module: "FileSystem",
@@ -182,7 +191,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("exposes the exact approved descriptor and deduplicated CAS roots despite later lockfile changes", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, digest, executable, blob, manifest } = yield* fixture
+      const { fs, root, digest, executable, blob, manifest } = yield* fixture()
       const snapshots = yield* Snapshot.ExecutionSnapshot.pipe(Effect.provide(Snapshot.layerFileSystem({ root })))
       expect(yield* snapshots.descriptor(digest)).toEqual(executable.descriptor)
       const expected = new Set([blob, ...Object.values(manifest.modules)])
@@ -196,7 +205,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it.each(["", "../outside", "A".repeat(64), "f".repeat(63)])("rejects invalid public digest %s", async (digest) => {
     await run(Effect.gen(function*() {
-      const { snapshots } = yield* fixture
+      const { snapshots } = yield* fixture()
       const reads: ReadonlyArray<Effect.Effect<unknown, Snapshot.ExecutionSnapshotError>> = [
         snapshots.restore(digest),
         snapshots.descriptor(digest),
@@ -215,6 +224,7 @@ describe("execution snapshot admission boundaries", () => {
     [
       "identity",
       "descriptor",
+      "lockfile-identity",
       "missing-compiled",
       "missing-link-target",
       "compiled-source",
@@ -229,8 +239,9 @@ describe("execution snapshot admission boundaries", () => {
     ] as const
   )("refuses a verified CAS manifest with %s damage", async (mode) => {
     await run(Effect.gen(function*() {
-      const { fs, root, entry, helper, digest, manifest, publish } = yield* fixture
+      const { fs, root, entry, helper, digest, manifest, publish } = yield* fixture(mode === "lockfile-identity")
       if (mode === "identity") manifest.executionDigest = "0".repeat(64)
+      if (mode === "lockfile-identity") manifest.lockfileDigest = "0".repeat(64)
       if (mode === "descriptor") manifest.descriptor = { ...manifest.descriptor, description: "another identity" }
       if (mode === "missing-compiled") delete manifest.compiled[entry]
       if (mode === "missing-link-target") manifest.compiled[entry]!.links[0]!.target = `${root}/outside.ts`
@@ -271,7 +282,7 @@ describe("execution snapshot admission boundaries", () => {
     "cannot admit an executable with missing %s",
     async (mode) => {
       await run(Effect.gen(function*() {
-        const { fs, root, entry, helper, executable, index } = yield* fixture
+        const { fs, root, entry, helper, executable, index } = yield* fixture()
         yield* fs.remove(index)
         const modules = new Map(executable.source!.modules)
         if (mode === "entry") modules.delete(entry)
@@ -297,7 +308,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it.each(["invalid-json", "invalid-schema"] as const)("refuses a hash-valid %s manifest", async (mode) => {
     await run(Effect.gen(function*() {
-      const { root, digest, publishBytes } = yield* fixture
+      const { root, digest, publishBytes } = yield* fixture()
       yield* publishBytes(new TextEncoder().encode(mode === "invalid-json" ? "{" : "{}"))
       const fresh = yield* Snapshot.makeFileSystem({ root })
       const failure = yield* fresh.restore(digest).pipe(Effect.flip)
@@ -308,7 +319,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it.each(["valid", "invalid"] as const)("verifies %s measured MDX compilation at admission", async (mode) => {
     await run(Effect.gen(function*() {
-      const { root, executable } = yield* fixture
+      const { root, executable } = yield* fixture()
       const entry = `${root}/flows/snapshot/flow.mdx`
       const text = mode === "valid" ? "# Approved prompt" : "<Unclosed>"
       const bytes = new TextEncoder().encode(text)
@@ -341,7 +352,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("retains a measured legacy module descriptor with no imports field", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, entry, executable } = yield* fixture
+      const { fs, root, entry, executable } = yield* fixture()
       const text = source.replace("import { value } from \"./helper.ts\"\n", "").replace(
         "Node.succeed(value)",
         "Node.succeed(\"approved\")"
@@ -377,7 +388,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("refuses source identity changed while admission waits for its filesystem boundary", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, executable } = yield* fixture
+      const { fs, root, executable } = yield* fixture()
       const captured = { ...executable }
       const boundary = FileSystem.FileSystem.of({
         ...fs,
@@ -400,7 +411,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("reports a denied temporary index allocation without changing the old admission", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, executable, index } = yield* fixture
+      const { fs, root, executable, index } = yield* fixture()
       yield* fs.remove(index)
       const failing = FileSystem.FileSystem.of({
         ...fs,
@@ -418,7 +429,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("refuses denied publication lease acquisition without replacing retained admission", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, executable, digest, index, blob } = yield* fixture
+      const { fs, root, executable, digest, index, blob } = yield* fixture()
       const lock = `${root}/.flows/executions/${digest}.lock`
       const failing = FileSystem.FileSystem.of({
         ...fs,
@@ -442,7 +453,7 @@ describe("execution snapshot admission boundaries", () => {
     "cannot publish an invalid compiled %s link",
     async (mode) => {
       await run(Effect.gen(function*() {
-        const { fs, root, entry, helper, executable, index } = yield* fixture
+        const { fs, root, entry, helper, executable, index } = yield* fixture()
         yield* fs.remove(index)
         const link = {
           start: mode === "start" ? -1 : mode === "fractional-start" ? 0.5 : 0,
@@ -465,7 +476,7 @@ describe("execution snapshot admission boundaries", () => {
     "handles %s index publication without overwriting retained state",
     async (mode) => {
       await run(Effect.gen(function*() {
-        const { fs, root, digest, executable, index, blob } = yield* fixture
+        const { fs, root, digest, executable, index, blob } = yield* fixture()
         yield* fs.remove(index)
         // One intercepted syscall recreates a competing publisher or a portable permission denial;
         // CAS verification, index contents, all other syscalls and cleanup remain real.
@@ -501,7 +512,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("removes the temporary publication directory and lease on cancellation, then permits retry", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, digest, executable, index } = yield* fixture
+      const { fs, root, digest, executable, index } = yield* fixture()
       yield* fs.remove(index)
       const publishing = yield* Deferred.make<void>()
       // Hold the actual hard-link syscall after allocation and file sync so interruption
@@ -535,7 +546,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("keeps the published, synced index when reclaiming its temporary directory is denied", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, digest, executable, index, blob } = yield* fixture
+      const { fs, root, digest, executable, index, blob } = yield* fixture()
       yield* fs.remove(index)
       const executions = `${root}/.flows/executions`
       const events: Array<string> = []
@@ -580,7 +591,7 @@ describe("execution snapshot admission boundaries", () => {
     "reclaims only the temporary file when the host allocates it outside a private directory (%s)",
     async (mode) => {
       await run(Effect.gen(function*() {
-        const { fs, root, digest, executable, index, blob } = yield* fixture
+        const { fs, root, digest, executable, index, blob } = yield* fixture()
         yield* fs.remove(index)
         const executions = `${root}/.flows/executions`
         const parent = mode === "flat" ? executions : `${executions}/foreign`
@@ -615,7 +626,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("keeps a collected index intact if retiring it is denied", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, executable, index, blob } = yield* fixture
+      const { fs, root, executable, index, blob } = yield* fixture()
       yield* fs.remove(`${root}/.flows/objects/${blob.slice(0, 2)}/${blob}`)
       const failing = FileSystem.FileSystem.of({
         ...fs,
@@ -636,7 +647,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("refuses publication when the containing directory cannot be created", async () => {
     await run(Effect.gen(function*() {
-      const { fs, root, executable } = yield* fixture
+      const { fs, root, executable } = yield* fixture()
       const failing = FileSystem.FileSystem.of({
         ...fs,
         makeDirectory: (path, options) =>
@@ -655,7 +666,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("registry source loading restores the approved module after live bytes change", async () => {
     await run(Effect.gen(function*() {
-      const { fs, entry, digest, executable, snapshots } = yield* fixture
+      const { fs, entry, digest, executable, snapshots } = yield* fixture()
       yield* fs.writeFileString(entry, "UNAPPROVED_SOURCE")
       const registry = yield* Registry.Registry.pipe(Effect.provide(Registry.layerFromDescriptors(
         [executable.descriptor],
@@ -668,7 +679,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("registry loading refuses an approved snapshot belonging to another flow", async () => {
     await run(Effect.gen(function*() {
-      const { executable, snapshots, digest } = yield* fixture
+      const { executable, snapshots, digest } = yield* fixture()
       const registry = yield* Registry.Registry.pipe(Effect.provide(Registry.layerFromDescriptors([], [], snapshots)))
       const failure = yield* registry.loadBody("another-flow", digest).pipe(Effect.flip)
       expect(failure.code).toBe("execution_changed")
@@ -679,7 +690,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("registry loading uses the approved descriptor when the live registry no longer lists it", async () => {
     await run(Effect.gen(function*() {
-      const { entry, snapshots, digest } = yield* fixture
+      const { entry, snapshots, digest } = yield* fixture()
       const registry = yield* Registry.Registry.pipe(Effect.provide(Registry.layerFromDescriptors([], [], snapshots)))
       expect(yield* registry.loadBody("snapshot", digest)).toMatchObject({ _tag: "Module", path: entry })
     }))
@@ -687,7 +698,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("registry loading refuses an absent approved source when no snapshot port is installed", async () => {
     await run(Effect.gen(function*() {
-      const { digest } = yield* fixture
+      const { digest } = yield* fixture()
       const registry = yield* Registry.Registry.pipe(Effect.provide(Registry.layerFromDescriptors([])))
       const failure = yield* registry.loadBody("snapshot", digest).pipe(Effect.flip)
       expect(failure.code).toBe("execution_changed")
@@ -697,7 +708,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("registry loading rechecks the identity returned by its host-owned snapshot port", async () => {
     await run(Effect.gen(function*() {
-      const { snapshots, digest } = yield* fixture
+      const { snapshots, digest } = yield* fixture()
       // The real CAS service cannot return this mismatch; this unit contract exercises
       // the registry's independent check of an alternative host implementation's response.
       const invalid: Snapshot.Service = {
@@ -719,7 +730,7 @@ describe("execution snapshot admission boundaries", () => {
 
   it("does not import a module when the host rejects its final file URL locator", async () => {
     await run(Effect.gen(function*() {
-      const { path, entry, executable } = yield* fixture
+      const { path, entry, executable } = yield* fixture()
       const descriptor = new Descriptor.FlowDescriptor({
         ...executable.descriptor,
         body: {

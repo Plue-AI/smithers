@@ -7,6 +7,75 @@ const require = createRequire(resolve(process.cwd(), "package.json"))
 const axePath = require.resolve("axe-core/axe.min.js")
 const diffExpected: Record<string, string> = { item_base: 'description: "Complete one TODO"', fork: "export const repro = true", deleted: "export const legacy = true", burst: 'description: "Build"', multiple_hunks: "same", hostile: '<script>alert("diff")</script>' }
 const shots = process.env.SMITHERS_VIEW_SHOTS ?? resolve(process.cwd(), "../../.artifacts/checks/C-UI-12", new Date().toISOString().replace(/[:.]/g, "-"))
+test("Shell breakpoint and keyboard controls", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { shellReceipts: [] })
+    window.addEventListener("story-callback", event =>
+      (window as unknown as { shellReceipts: unknown[] }).shellReceipts.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1179, 1180]) for (const input of ["pointer", "Enter", "Space"]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto(`/view-stories.html?story=Shell/Breakpoint%20and%20controls&theme=${theme}`)
+    const timeline = page.getByRole("navigation", { name: "Timeline", includeHidden: true })
+    await expect(timeline).toHaveCSS("display", width === 1179 ? "none" : "block")
+    for (const direction of ["above", "below"]) {
+      const edge = page.locator(`.edge[data-edge="${direction}"]`)
+      if (width === 1179) {
+        await expect(edge.locator(".edge-pill")).toBeVisible()
+        await expect(edge.locator(".tl-edge")).toBeHidden()
+      } else {
+        await expect(edge.locator(".edge-pill")).toBeHidden()
+        await expect(edge.locator(".tl-edge")).toBeVisible()
+        await expect(edge.locator(".tl-row")).toHaveCount(2)
+        await expect(edge.locator(".tl-more")).toHaveText(`+1 ${direction}`)
+      }
+    }
+    expect(await timeline.locator("li[data-in-view]").evaluateAll(rows => rows.map(row => row.getAttribute("data-entry")))).toEqual(["line-2", "line-3"])
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "shellReceipts"))).toEqual([
+      { kind: "view", value: { timeline_visible: width === 1180 } },
+    ])
+    await page.evaluate(() => { Reflect.get(window, "shellReceipts").length = 0 })
+    const expected: unknown[] = []
+    const activate = async (selector: string, receipt: unknown) => {
+      const control = page.locator(selector)
+      if (input === "pointer") await control.click()
+      else {
+        await control.focus()
+        await page.keyboard.press("Shift+Tab")
+        await page.keyboard.press("Tab")
+        await expect(control).toBeFocused()
+        expect(await control.evaluate(node => getComputedStyle(node).outlineStyle)).not.toBe("none")
+        await page.keyboard.press(input)
+      }
+      if (receipt) expected.push(receipt)
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "shellReceipts"))).toEqual(expected)
+    }
+    await expect(page.locator(".notice")).toHaveCount(3)
+    await expect(page.locator(".notice-more")).toHaveText("+2 more")
+    await activate(".notice-more", undefined)
+    await expect(page.locator(".notice")).toHaveCount(5)
+    await expect(page.locator(".notice-more")).toHaveCount(0)
+    await activate('[aria-label="Hide Needs you"]', { kind: "view", value: { toast_hidden: "notice-2" } })
+    await expect(page.locator(".notice")).toHaveCount(5)
+    await expect(timeline.locator("li")).toHaveCount(4)
+    await expect(page.locator(".edge .tl-row")).toHaveCount(4)
+    await activate('[data-flow="notifications.allow"]', { kind: "action", value: { tag: "notifications.allow", args: {} } })
+    if (width === 1179) {
+      await activate('[data-edge="above"] .edge-pill', { kind: "view", value: { jump_to: "above-3" } })
+      await activate('[data-edge="below"] .edge-pill', { kind: "view", value: { jump_to: "below-1" } })
+    } else {
+      await activate('[data-edge="above"] .tl-row >> nth=0', { kind: "view", value: { jump_to: "above-1" } })
+      await activate('[data-edge="below"] .tl-row >> nth=0', { kind: "view", value: { jump_to: "below-1" } })
+      await activate('[data-edge="above"] .tl-more', { kind: "view", value: { jump_to: "above-3" } })
+      await activate('[data-edge="below"] .tl-more', { kind: "view", value: { jump_to: "below-3" } })
+      await activate('[data-entry="line-2"] > button', { kind: "view", value: { jump_to: "line-2" } })
+      await activate('[data-entry="line-3"] > button', { kind: "view", value: { jump_to: "line-3" } })
+      expect(await timeline.locator('[data-entry="line-2"] > button').evaluate(node => getComputedStyle(node).boxShadow)).not.toBe("none")
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
 test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "C-UI-12 requires Chromium")
   test.setTimeout(1_800_000) // ~360 stories × 2 themes × 3 widths with axe takes ~11 min on the mini
@@ -31,7 +100,7 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
       expect(copy).not.toMatch(/jev/i)
     }
     if (story.name.includes("/actor-")) {
-      const agents = page.locator(".mvp-avatar[data-agent]")
+      const agents = page.locator(".avatar[data-agent]")
       await expect(agents.locator("img")).toHaveCount(0)
       for (const chip of await agents.all()) {
         const label = await chip.getAttribute("aria-label")
@@ -70,8 +139,8 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
     }
     await page.evaluate(() => document.fonts.ready)
     // Worker highlighting can replace an entering annotation. Audit its settled projection.
-    const flagCount = story.name === "FilePresenceView/live_separate" ? 3
-      : /^FilePresenceView\/(live|no_binding|five_editors)$/.test(story.name) ? 1 : 0
+    const flagCount = story.name === "CodeEditorView/live_separate" ? 3
+      : /^CodeEditorView\/(live|five_editors)$/.test(story.name) ? 1 : 0
     await expect.poll(() => page.locator(".code-name-flag").evaluateAll(flags =>
       flags.map(flag => getComputedStyle(flag).opacity))).toEqual(Array(flagCount).fill("1"))
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -97,14 +166,14 @@ test("primitive labels, starting animation and neutral glyph colors", async ({ p
   await page.emulateMedia({ reducedMotion: "no-preference" })
   for (const theme of ["light", "dark"]) {
     await page.goto(`/view-stories.html?story=PrimitivesView/state-starting-step&theme=${theme}`)
-    await expect(page.locator(".mvp-state")).toHaveText("Starting · Implement")
-    await expect(page.locator(".mvp-dot")).toHaveCSS("animation-name", "mvp-blink")
+    await expect(page.locator(".state")).toHaveText("Starting · Implement")
+    await expect(page.locator(".dot")).toHaveCSS("animation-name", "blink")
     await page.emulateMedia({ reducedMotion: "reduce" })
-    await expect(page.locator(".mvp-dot")).toHaveCSS("animation-name", "none")
+    await expect(page.locator(".dot")).toHaveCSS("animation-name", "none")
     await page.emulateMedia({ reducedMotion: "no-preference" })
     for (const [state, token] of [["in_review", "--text-muted"], ["merged", "--text-faint"]]) {
       await page.goto(`/view-stories.html?story=PrimitivesView/state-${state}&theme=${theme}`)
-      const colors = await page.locator(".mvp-glyph").evaluate((glyph, token) => {
+      const colors = await page.locator(".glyph").evaluate((glyph, token) => {
         const probe = document.createElement("span")
         probe.style.color = `var(${token})`
         document.body.append(probe)
@@ -115,39 +184,47 @@ test("primitive labels, starting animation and neutral glyph colors", async ({ p
       expect(colors.actual).toBe(colors.expected)
     }
     await page.goto(`/view-stories.html?story=PrimitivesView/actor-fixture-system&theme=${theme}`)
-    await expect(page.locator(".mvp-avatar")).toHaveAttribute("aria-label", "Install event")
+    await expect(page.locator(".avatar")).toHaveAttribute("aria-label", "Smithers")
   }
 })
 
 test("Confirm approval and Cancel keep supplied revision bindings", async ({ page }) => {
-  await page.goto("/view-stories.html?story=ConfirmView/review_merge")
-  await page.evaluate(() => {
-    const receipts: unknown[] = []
-    Object.assign(window, { confirmCallbacks: receipts })
-    window.addEventListener("story-callback", event => receipts.push((event as CustomEvent).detail))
-  })
-  await page.locator('[data-flow="merge.confirm"]').focus()
-  await page.keyboard.press("Enter")
-  await page.locator('[data-flow="confirm.cancel"]').focus()
-  await page.keyboard.press("Space")
-  expect(await page.evaluate(() => (window as unknown as { confirmCallbacks: unknown[] }).confirmCallbacks)).toEqual([
-    { kind: "action", value: { tag: "merge.confirm", args: { n: "12", revision: "4bc79ae" } } },
-    { kind: "action", value: { tag: "confirm.cancel", args: { confirmation: "confirm-review_merge", revision: "4bc79ae" } } }
-  ])
-  await expect(page.locator(".confirm-view h2")).toHaveText("Merge T12 into main?")
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=ConfirmView/review_merge&theme=${theme}`)
+    await page.evaluate(() => {
+      const receipts: unknown[] = []
+      Object.assign(window, { confirmCallbacks: receipts })
+      window.addEventListener("story-callback", event => receipts.push((event as CustomEvent).detail))
+    })
+    await page.locator('[data-flow="merge.confirm"]').focus()
+    await page.keyboard.press("Enter")
+    await page.locator('[data-flow="confirm.cancel"]').focus()
+    await page.keyboard.press("Space")
+    expect(await page.evaluate(() => (window as unknown as { confirmCallbacks: unknown[] }).confirmCallbacks)).toEqual([
+      { kind: "action", value: { tag: "merge.confirm", args: { n: "12", revision: "4bc79ae" } } },
+      { kind: "action", value: { tag: "confirm.cancel", args: { confirmation: "confirm-review_merge", revision: "4bc79ae" } } }
+    ])
+    await expect(page.locator(".confirm-view h2")).toHaveText("Merge T12 into main?")
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
 })
 
 test("Confirm disabled, absent actions and stale approval", async ({ page }) => {
-  await page.goto("/view-stories.html?story=ConfirmView/disabled")
-  await expect(page.getByRole("button", { name: "Amend" })).toBeDisabled()
-  await expect(page.locator(".confirm-disabled")).toHaveText("Revision moved")
-  for (const name of ["no_actions", "done", "cancelled", "expired", "merging", "merged"]) {
-    await page.goto(`/view-stories.html?story=ConfirmView/${name}`)
-    await expect(page.locator(".confirm-view button")).toHaveCount(0)
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=ConfirmView/disabled&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Amend" })).toBeDisabled()
+    await expect(page.locator(".confirm-disabled")).toHaveText("Revision moved")
+    for (const name of ["no_actions", "done", "cancelled", "expired", "merging", "merged"]) {
+      await page.goto(`/view-stories.html?story=ConfirmView/${name}&theme=${theme}`)
+      await expect(page.locator(".confirm-view button")).toHaveCount(0)
   }
-  await page.goto("/view-stories.html?story=ConfirmView/stale_approval")
-  await expect(page.locator(".confirm-stale")).toHaveText("You approved 1b2c3d4. Review 9e8f7a6.")
+  await page.goto(`/view-stories.html?story=ConfirmView/stale_approval&theme=${theme}`)
+  await expect(page.locator(".confirm-stale")).toHaveText("Approved 1b2c3d4 · Review 9e8f7a6")
   await expect(page.locator('[data-flow="merge.confirm"]')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
 })
 test("answer and late draft use their supplied actions", async ({ page }) => {
   await page.goto("/view-stories.html?story=TodoView/needs_you");
@@ -229,77 +306,6 @@ for (const native of ["unavailable", "refused"]) test(`Settings Copy uses the fa
   await expect(page.locator('textarea[aria-hidden="true"]')).toHaveCount(0)
 })
 
-// T-UI-07: literal callbacks from ui-components T-UI-07, independent of model actions.
-test("Conversation shell renders branch navigation, entries and Earlier", async ({ page }) => {
-  const callbacks = async () => page.evaluate(() => (window as unknown as { shellCalls: unknown[] }).shellCalls)
-  const clear = async () => page.evaluate(() => { (window as unknown as { shellCalls: unknown[] }).shellCalls = [] })
-  await page.addInitScript(() => {
-    const state = window as unknown as { shellCalls: unknown[] }
-    state.shellCalls = []
-    window.addEventListener("story-callback", event => state.shellCalls.push((event as CustomEvent).detail))
-  })
-  for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
-    await page.setViewportSize({ width, height: 844 })
-    await page.goto(`/view-stories.html?story=ConversationView/branch-main&theme=${theme}`)
-    await expect(page.locator(".mvp-tree-name")).toHaveText(["main", "todo/12", "scratch/repro", "Earlier · 3"])
-    for (const [node, expected] of [["main", { kind: "view", value: { selected_branch: "main" } }], ["todo-12", { kind: "view", value: { selected_branch: "todo-12" } }], ["scratch-repro", { kind: "action", value: { tag: "branch", args: { name: "scratch/repro" } } }], ["earlier", { kind: "view", value: { selected_branch: "earlier" } }]] as const) {
-      await clear()
-      const control = page.locator(`[data-node="${node}"]`)
-      await control.focus()
-      await page.keyboard.press("Enter")
-      await expect.poll(callbacks).toEqual([expected])
-      await expect(control).toBeFocused()
-    }
-    await page.goto(`/view-stories.html?story=ConversationView/crumb-ancestry&theme=${theme}`)
-    const crumb = page.locator(".mvp-crumb-here")
-    await crumb.focus()
-    await page.keyboard.press("Space")
-    await expect(page.getByRole("navigation", { name: "Branches", exact: true })).toBeVisible()
-    await page.locator('[data-node="main"]').focus()
-    await page.keyboard.press("Escape")
-    await expect(page.getByRole("navigation", { name: "Branches", exact: true })).toHaveCount(0)
-    await expect(crumb).toBeFocused()
-    await page.goto(`/view-stories.html?story=ConversationView/context-collapsed&theme=${theme}`)
-    await page.locator(".mvp-context-toggle").focus()
-    await page.keyboard.press("Space")
-    await expect.poll(callbacks).toEqual([{ kind: "view", value: { expanded: true } }])
-    for (const [story, tag, label] of [["needs_you", "todo.answer", "Answer"], ["in_review", "merge", "Merge"]]) {
-      await page.goto(`/view-stories.html?story=ConversationView/entry-${story}&theme=${theme}`)
-      await expect(page.locator("[data-flow]")).toHaveAttribute("data-flow", tag!)
-      await page.getByRole("button", { name: label }).click()
-      await expect.poll(callbacks).toEqual([{ kind: "action", value: { tag, args: { n: "12" } } }])
-    }
-    // spec §14.5.2 and the Paper tone contract: literal token names, never schema-derived.
-    for (const [entry, token] of [["working", "--brand"], ["needs_you", "--attention"], ["failed", "--danger"]]) {
-      await page.goto(`/view-stories.html?story=ConversationView/entry-${entry}&theme=${theme}`)
-      const colors = await page.locator(".mvp-entry").evaluate((node, token) => {
-        const probe = document.createElement("span")
-        probe.style.color = `var(${token})`
-        document.body.append(probe)
-        const expected = getComputedStyle(probe).color
-        probe.remove()
-        return { actual: getComputedStyle(node).borderLeftColor, expected }
-      }, token!)
-      expect(colors.actual).toBe(colors.expected)
-    }
-    await page.goto(`/view-stories.html?story=ConversationView/entry-failed&theme=${theme}`)
-    await expect(page.getByRole("button", { name: "Retry" })).toBeDisabled()
-    await expect(page.getByText("Repository access refused")).toBeVisible()
-    expect(await callbacks()).toEqual([])
-    await page.goto(`/view-stories.html?story=ConversationView/entry-tombstone&theme=${theme}`)
-    await expect(page.locator("article[data-story]")).toHaveText("Card model contracts")
-    await expect(page.locator(".mvp-tombstone")).toHaveCSS("white-space", "nowrap")
-    await expect(page.locator("article[data-story] button")).toHaveCount(0)
-    await page.goto(`/view-stories.html?story=ConversationView/entry-private&theme=${theme}`)
-    await expect(page.getByText("Only you")).toBeVisible()
-    await page.goto(`/view-stories.html?story=ConversationView/earlier-selected&theme=${theme}`)
-    await expect(page.getByText("Read-only")).toBeVisible()
-    await expect(page.locator("[data-flow]")).toHaveCount(0)
-    await page.getByRole("button", { name: "Earlier question" }).click()
-    await expect.poll(callbacks).toEqual([{ kind: "view", value: { selected_archive: "old" } }])
-  }
-})
-
 // T-UI-14 §Tests: native disclosure must never dispatch a command.
 test("Commands keyboard disclosure and inert policy marks", async ({ page }) => {
   await page.goto("/view-stories.html?story=CommandsView/Commands%20a%20maintainer%20may%20run")
@@ -312,11 +318,12 @@ test("Commands keyboard disclosure and inert policy marks", async ({ page }) => 
   await expect(page.getByText("/monitor", { exact: true })).toBeHidden()
   await page.keyboard.press("Tab")
   await expect(page.locator("summary")).toBeFocused()
+  await expect(page.locator("summary")).toHaveCSS("outline-style", "solid")
   await page.keyboard.press("Enter")
   await expect(page.getByText("/monitor", { exact: true })).toBeVisible()
   await page.keyboard.press("Space")
   await expect(advanced).not.toHaveAttribute("open")
-  await expect(page.locator(".mvp-command-policy").filter({ hasText: "Asks first" })).toHaveCount(1)
+  await expect(page.locator(".command-policy").filter({ hasText: "Asks first" })).toHaveCount(1)
   await expect(page.locator("button, a")).toHaveCount(0)
   expect(await page.evaluate(() => (window as unknown as { commandCallbacks: unknown[] }).commandCallbacks)).toEqual([])
 })
@@ -341,7 +348,7 @@ test("Commands review screenshots and muted policy marks", async ({ page }) => {
     }
     await page.evaluate(() => document.fonts.ready)
     {
-      const policyColors = await page.locator(".mvp-command-policy").evaluateAll(marks => {
+      const policyColors = await page.locator(".command-policy").evaluateAll(marks => {
         const probe = document.createElement("span")
         probe.style.color = "var(--text-faint)"
         document.body.append(probe)
@@ -423,7 +430,7 @@ test("Flow versions stay local; keyboard actions dispatch once", async ({ page }
     Object.assign(window, { flowReceipts: [] })
     window.addEventListener("story-callback", event => (window as unknown as { flowReceipts: unknown[] }).flowReceipts.push((event as CustomEvent).detail))
   })
-  await page.locator('.mvp-version[data-state="proposed"]').focus()
+  await page.locator('.flow-version[data-state="proposed"]').focus()
   await page.keyboard.press("Enter")
   await expect(page.locator('[data-added="true"]')).toContainText("Update docs")
   expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([])
@@ -459,31 +466,56 @@ test("T-UI-11 Pierre renders supplied hunks with line numbers and burst Restore"
 
 // T-UI-03 named Draft cases share the same fixture harness and Chromium runner.
 import { fixtures as draftFixtures } from "@smthrs/rpc/fixtures/Draft"
-for (const [name, fixture] of Object.entries(draftFixtures)) test(`Draft ${name}: supplied actions and keyboard`, async ({ page }) => {
-  await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}`)
-  await expect(page.getByRole("region", { name: "Draft", exact: true })).toBeVisible()
-  await page.evaluate(() => {
-    (window as unknown as { draftCalls: unknown[] }).draftCalls = []
-    window.addEventListener("story-callback", event => {
-      const detail = (event as CustomEvent).detail
-      ;(window as unknown as { draftCalls: unknown[] }).draftCalls.push(detail)
+const draftActionCalls = {
+  append: [{ tag: "todo.new", args: {} }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  before: [{ tag: "todo.new", args: { before: "8" } }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  amend: [{ tag: "todo.amend", args: { n: "9" } }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  issue_fixes: [{ tag: "todo.new", args: {} }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  issue_without_fixes: [{ tag: "todo.new", args: {} }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  seed: [{ tag: "todo.new", args: {} }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  committed: [],
+  committed_amendment: [],
+  empty_stack: [{ tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+} as const
+for (const name of Object.keys(draftActionCalls) as (keyof typeof draftActionCalls)[]) test(`Draft ${name}: supplied actions and keyboard`, async ({ page }) => {
+  const fixture = draftFixtures[name]
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}&theme=${theme}`)
+    await expect(page.getByRole("region", { name: "Draft", exact: true })).toBeVisible()
+    await page.evaluate(() => {
+      (window as unknown as { draftCalls: unknown[] }).draftCalls = []
+      window.addEventListener("story-callback", event => {
+        ;(window as unknown as { draftCalls: unknown[] }).draftCalls.push((event as CustomEvent).detail)
+      })
     })
-  })
-  if (fixture.model.committed) {
-    await expect(page.locator(".draft-actions button")).toHaveCount(0)
-    await expect(page.locator(".draft-private")).toHaveCount(0)
-  } else {
-    await expect(page.locator(".draft-private")).toHaveText("Only you")
-    for (const action of fixture.actions) {
-      const control = page.locator(`button[data-flow="${action.tag}"]`)
-      if (action.disabled) await expect(control).toBeDisabled()
-      else { await control.focus(); await page.keyboard.press("Enter") }
+    if (name === "committed" || name === "committed_amendment") {
+      await expect(page.locator(".draft-actions button")).toHaveCount(0)
+      await expect(page.locator(".draft-private")).toHaveCount(0)
+      await expect(page.locator(".draft-receipt")).toContainText(name === "committed" ? "Committed as T12" : "Committed as T9+1")
+    } else {
+      await expect(page.locator(".draft-private")).toHaveText("Only you")
+      await page.keyboard.press("Tab")
+      await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeFocused()
+      await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveCSS("outline-width", "2px")
+      await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveCSS("outline-style", "solid")
+      if (name === "empty_stack") await expect(page.locator('button[data-flow="todo.new"]')).toBeDisabled()
+      if (name === "seed") {
+        await expect(page.locator(".draft-seed")).toContainText("Seed · Read-only")
+        await expect(page.locator(".draft-seed button,.draft-seed input,.draft-seed textarea")).toHaveCount(0)
+      }
+      for (const action of draftActionCalls[name]) {
+        const control = page.locator(`button[data-flow="${action.tag}"]`)
+        await control.focus(); await page.keyboard.press("Enter")
+      }
+      expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual(
+        draftActionCalls[name].map(value => ({ kind: "action", value })))
+      await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}&removeFirst&theme=${theme}`)
+      await expect(page.getByRole("button", { name: "Commit", exact: true })).toHaveCount(0)
+      await expect(page.locator('button[data-flow="draft.discard"]')).toHaveCount(1)
+      continue
     }
-    expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual(
-      fixture.actions.filter(action => !action.disabled).map(action => ({ kind: "action", value: { tag: action.tag, args: action.args ?? {} } })))
-    await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}&removeFirst`)
-    await expect(page.locator(`button[data-flow="${fixture.actions[0]!.tag}"]`)).toHaveCount(0)
-    await expect(page.locator('button[data-flow="draft.discard"]')).toHaveCount(1)
+    expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([])
   }
 })
 
@@ -504,12 +536,33 @@ test("Draft field edits forward literal payloads once and unchanged blur is sile
   await place.selectOption('{"mode":"before","n":8}'); await place.blur()
   const fixes = page.getByRole("checkbox")
   await fixes.uncheck(); await fixes.blur()
+  // Switch to the unchecked fixture so true changes the supplied model value.
+
   expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "title", value: "Browser title" } } },
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "prompt", value: "Browser\nprompt" } } },
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "acceptance", value: '["First","Second"]' } } },
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "place", value: '{"mode":"before","n":8}' } } },
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "fixes", value: "false" } } }
+  ])
+  await page.goto("/view-stories.html?story=DraftView/From%20an%20issue%20it%20does%20not%20close")
+  await page.evaluate(() => {
+    (window as unknown as { draftCalls: unknown[] }).draftCalls = []
+    window.addEventListener("story-callback", event => (window as unknown as { draftCalls: unknown[] }).draftCalls.push((event as CustomEvent).detail))
+  })
+  await page.getByRole("checkbox").check(); await page.getByRole("checkbox").blur()
+  expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "fixes", value: "true" } } }
+  ])
+  await page.goto("/view-stories.html?story=DraftView/Place%20before%20T8")
+  await page.evaluate(() => {
+    (window as unknown as { draftCalls: unknown[] }).draftCalls = []
+    window.addEventListener("story-callback", event => (window as unknown as { draftCalls: unknown[] }).draftCalls.push((event as CustomEvent).detail))
+  })
+  await page.getByRole("combobox", { name: "Place", exact: true }).selectOption('{"mode":"append"}')
+  await page.getByRole("combobox", { name: "Place", exact: true }).blur()
+  expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "place", value: '{"mode":"append"}' } } }
   ])
 })
 
@@ -600,6 +653,38 @@ test("Secrets Add, Cancel and absent actions use real controls", async ({ page }
   }
 })
 
+test("Secrets optional Hosts, disabled forms and Delete use real controls", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=SecretsView/no_hosts_field&theme=${theme}`)
+    await expect(page.getByRole("textbox", { name: "Hosts", exact: true })).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=SecretsView/disabled_form&theme=${theme}`)
+    await page.evaluate(() => {
+      Object.assign(window, { secretCalls: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { secretCalls: unknown[] }).secretCalls.push((event as CustomEvent).detail))
+    })
+    await expect(page.locator('.secret-add input:disabled,.secret-add select:disabled')).toHaveCount(4)
+    await expect(page.getByRole("button", { name: "Add", exact: true })).toBeDisabled()
+    await page.getByRole("button", { name: "Cancel", exact: true }).focus()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => Reflect.get(window, "secretCalls"))).toEqual([])
+    await page.goto(`/view-stories.html?story=SecretsView/hostile&theme=${theme}`)
+    await expect(page.locator('.secrets-view code')).toHaveText('<img src=x onerror="alert(1)">')
+    await expect(page.locator('.secrets-view img,.secrets-view script')).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=SecretsView/mixed&theme=${theme}`)
+    await expect(page.locator('.secret-scope')).toHaveText(["all branches", "main only"])
+    await page.evaluate(() => {
+      Object.assign(window, { secretCalls: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { secretCalls: unknown[] }).secretCalls.push((event as CustomEvent).detail))
+    })
+    await page.getByRole("button", { name: "Delete", exact: true }).first().focus()
+    await page.keyboard.press("Space")
+    expect(await page.evaluate(() => Reflect.get(window, "secretCalls"))).toEqual([
+      { kind: "action", value: { tag: "secrets.delete", args: { name: "NPM_TOKEN" } } }
+    ])
+  }
+})
+
 test("Secrets Replace keyboard form keeps values write-only", async ({ page }) => {
   for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
@@ -628,10 +713,11 @@ test("Secrets Replace keyboard form keeps values write-only", async ({ page }) =
 })
 
 test("File recovery Copy and Reapply remain keyboard accessible", async ({ page }) => {
-  await page.goto("/view-stories.html?story=FilePresenceView/unsaved")
+  await page.goto("/view-stories.html?story=CodeEditorView/unsaved")
   await page.evaluate(() => {
     const calls: unknown[] = []
-    Object.assign(window, { fileRecoveryCalls: calls })
+    Object.assign(window, { fileRecoveryCalls: calls, copiedRecovery: [] })
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as unknown as { copiedRecovery: string[] }).copiedRecovery.push(text) } } })
     window.addEventListener("story-callback", event => calls.push((event as CustomEvent).detail))
   })
   const notice = page.locator('.code-notice[data-tone="attention"]')
@@ -639,6 +725,8 @@ test("File recovery Copy and Reapply remain keyboard accessible", async ({ page 
   const reapply = notice.getByRole("button", { name: "Reapply", exact: true })
   await page.keyboard.press("Tab")
   await expect(copy).toBeFocused()
+  await page.keyboard.press("Enter")
+  expect(await page.evaluate(() => (window as unknown as { copiedRecovery: string[] }).copiedRecovery)).toEqual(['  description: "Build",\n'])
   await page.keyboard.press("Tab")
   await expect(reapply).toBeFocused()
   await page.keyboard.press("Enter")
@@ -649,7 +737,7 @@ test("File recovery Copy and Reapply remain keyboard accessible", async ({ page 
 })
 
 test("File Copy failure remains visible and retains recovered text", async ({ page }) => {
-  await page.goto("/view-stories.html?story=FilePresenceView/unsaved")
+  await page.goto("/view-stories.html?story=CodeEditorView/unsaved")
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("unavailable") } } })
     document.execCommand = () => false
@@ -668,8 +756,17 @@ test("Docs missing and disabled navigation stay on the page", async ({ page }) =
       Object.assign(window, { docsReceipts: [] })
       window.addEventListener("story-callback", event => (window as unknown as { docsReceipts: unknown[] }).docsReceipts.push((event as CustomEvent).detail))
     })
-    await page.locator(".mvp-docs .sui-md a").click()
+    const link = page.locator(".mvp-docs .sui-md a")
+    await expect(link).not.toHaveAttribute("href")
+    await expect(link).toHaveAttribute("tabindex", "-1")
+    for (const entry of await page.locator(".mvp-docs nav a").all()) {
+      await expect(entry).not.toHaveAttribute("href")
+      await entry.click({ button: "middle" })
+    }
+    await link.click({ button: "middle" })
+    await link.click()
     expect(page.url()).toBe(url)
+    expect(page.context().pages()).toHaveLength(1)
     expect(await page.evaluate(() => (window as unknown as { docsReceipts: unknown[] }).docsReceipts)).toEqual([])
   }
 })
@@ -761,7 +858,41 @@ test("DebugApiView hostile body and failure render as text", async ({ page }) =>
   expect(await page.evaluate(() => Reflect.get(window, "__pwned"))).toBeUndefined()
 })
 
-test("T-UI-15 keyboard controls preserve supplied arguments once", async ({ page }) => {
+test("DebugApiView supplied confirmations and unavailable actions obey the keyboard seam", async ({ page }) => {
+  const cases = [
+    ["pending_mutation", "Confirm POST /api/todos/12/drop", "dropTodo"],
+    ["pending_put", "Confirm PUT /api/secrets/key", "putSecret"],
+    ["pending_patch", "Confirm PATCH /api/settings", "patchSettings"],
+    ["pending_delete", "Confirm DELETE /api/secrets/key", "deleteSecret"],
+  ] as const
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const [story, label, operation] of cases) {
+      await page.goto(`/view-stories.html?story=DebugApiView/${story}&theme=${theme}`)
+      await page.evaluate(() => {
+        Object.assign(window, { debugApiCalls: [] })
+        window.addEventListener("story-callback", event =>
+          (window as unknown as { debugApiCalls: unknown[] }).debugApiCalls.push((event as CustomEvent).detail))
+      })
+      const control = page.getByRole("button", { name: label, exact: true })
+      await expect(page.locator(".mvp-debug-api button[data-flow]")).toHaveCount(1)
+      await expect(page.getByRole("button", { name: "Send", exact: true })).toHaveCount(0)
+      expect(await page.evaluate(() => Reflect.get(window, "debugApiCalls"))).toEqual([])
+      await control.focus()
+      await control.press("Enter")
+      expect(await page.evaluate(() => Reflect.get(window, "debugApiCalls"))).toEqual([
+        { kind: "action", value: { tag: "debug-api", args: { operation, confirm: "true" } } },
+      ])
+    }
+    await page.goto(`/view-stories.html?story=DebugApiView/disabled&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled()
+    await expect(page.getByRole("textbox", { name: "n", exact: true })).toBeDisabled()
+    await page.goto(`/view-stories.html?story=DebugApiView/operations&theme=${theme}`)
+    await expect(page.locator(".mvp-debug-api button[data-flow]")).toHaveCount(0)
+  }
+})
+
+for (const key of ["Enter", "Space"]) test(`T-UI-15 keyboard ${key} controls preserve supplied arguments once`, async ({ page }) => {
   const cases = [
     ["awake", "Sleep", "box.suspend", { branch: "todo/12" }],
     ["asleep", "Wake", "box.resume", { branch: "todo/12" }],
@@ -784,7 +915,7 @@ test("T-UI-15 keyboard controls preserve supplied arguments once", async ({ page
     const button = page.getByRole("button", { name: label, exact: true })
     await expect(button).toHaveAttribute("data-flow", tag)
     await button.focus()
-    await page.keyboard.press("Enter")
+    await page.keyboard.press(key)
     expect(await page.evaluate(() => (window as unknown as { branchCalls: unknown[] }).branchCalls)).toEqual([
       { kind: "action", value: { tag, args } },
     ])
@@ -793,6 +924,63 @@ test("T-UI-15 keyboard controls preserve supplied arguments once", async ({ page
   await expect(page.getByRole("button", { name: "Done", exact: true })).toBeDisabled()
   await page.goto("/view-stories.html?story=BranchView/branch-waking-activity")
   await expect(page.locator("button[data-flow]")).toHaveCount(0)
+})
+
+test("T-UI-15 tabs and SSH use only their supplied View and clipboard seams", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { branchCalls: [], branchCopied: [] })
+    window.addEventListener("story-callback", event =>
+      (window as unknown as { branchCalls: unknown[] }).branchCalls.push((event as CustomEvent).detail))
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => {
+      (window as unknown as { branchCopied: string[] }).branchCopied.push(text)
+    } } })
+  })
+  await page.goto("/view-stories.html?story=BranchView/branch-active-activity")
+  await page.getByRole("tab", { name: "Files", exact: false }).press("Enter")
+  await page.getByRole("button", { name: "Copy SSH line", exact: true }).press("Space")
+  expect(await page.evaluate(() => Reflect.get(window, "branchCalls"))).toEqual([{ kind: "view", value: { tab: "files" } }])
+  expect(await page.evaluate(() => Reflect.get(window, "branchCopied"))).toEqual(["ssh -p 2222 todo-12@mac-mini.local"])
+})
+
+test("T-UI-15 missing and disabled actions refuse callbacks; hostile text opens no connection", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { branchCalls: [], branchConnections: [] })
+    window.addEventListener("story-callback", event =>
+      (window as unknown as { branchCalls: unknown[] }).branchCalls.push((event as CustomEvent).detail))
+    window.fetch = ((...args: unknown[]) => {
+      (window as unknown as { branchConnections: unknown[] }).branchConnections.push(args)
+      throw new Error("BranchView opened a fetch")
+    }) as unknown as typeof fetch
+    window.WebSocket = class {
+      constructor(...args: unknown[]) {
+        (window as unknown as { branchConnections: unknown[] }).branchConnections.push(args)
+        throw new Error("BranchView opened a socket")
+      }
+    } as unknown as typeof WebSocket
+  })
+  for (const story of ["branch-no-actions", "branch-disabled-gestures", "branch-hostile", "branch-scratch_conflict-activity"]) {
+    await page.goto(`/view-stories.html?story=BranchView/${story}`)
+    await expect(page.locator("[data-story]")).toBeVisible()
+    if (story === "branch-no-actions" || story === "branch-hostile") await expect(page.locator("button[data-flow]")).toHaveCount(0)
+    if (story === "branch-disabled-gestures") {
+      for (const button of await page.locator("button[data-flow]").all()) {
+        await expect(button).toBeDisabled()
+        await button.evaluate(node => (node as HTMLButtonElement).click())
+      }
+    }
+    if (story === "branch-scratch_conflict-activity") {
+      const done = page.getByRole("button", { name: "Done", exact: true })
+      await expect(done).toBeDisabled()
+      await done.evaluate(node => (node as HTMLButtonElement).click())
+    }
+    if (story === "branch-hostile") {
+      await expect(page.locator("[data-story]")).toContainText('<script>window.__branchPwned=1</script>')
+      await expect(page.locator("[data-story] script, [data-story] img[src=x]")).toHaveCount(0)
+      expect(await page.evaluate(() => Reflect.get(window, "__branchPwned"))).toBeUndefined()
+    }
+    expect(await page.evaluate(() => Reflect.get(window, "branchCalls"))).toEqual([])
+    expect(await page.evaluate(() => Reflect.get(window, "branchConnections"))).toEqual([])
+  }
 })
 
 // T-UI-16 uses the existing production story runner; no live route is enabled.
@@ -853,6 +1041,30 @@ test("Proposal keyboard actions and receipt navigation use supplied callbacks", 
     expect(await page.evaluate(() => (window as unknown as { proposalCalls: unknown[] }).proposalCalls)).toEqual([
       { kind: "action", value: { tag: "wiki.page", args: { name: "Retry policy" } } },
     ])
+    await page.goto(`/view-stories.html?story=ProposalView/Accepted%20TODO%20link&theme=${theme}`)
+    await expect(page.locator('.proposal-status')).toHaveText("Accepted")
+    const todo = page.getByRole("button", { name: "T14 · Keep completion receipts in toasts", exact: true })
+    await todo.focus()
+    await expect(todo).toBeFocused()
+    await todo.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as { proposalCalls: unknown[] }).proposalCalls)).toEqual([
+      { kind: "action", value: { tag: "todo", args: { n: "14" } } },
+    ])
+    for (const [story, state] of [["Dismissed", "Dismissed"], ["Read-only proposal", "Suggested"]]) {
+      await page.goto(`/view-stories.html?story=${encodeURIComponent(`ProposalView/${story}`)}&theme=${theme}`)
+      await expect(page.locator('.proposal-status')).toHaveText(state!)
+      await expect(page.locator('.proposal-actions button')).toHaveCount(0)
+    }
+    await page.goto(`/view-stories.html?story=ProposalView/Hostile%20proposal&theme=${theme}`)
+    await expect(page.locator('.proposal-evidence')).toContainText('<script>alert("evidence")</script>')
+    await expect(page.locator('.proposal-ref')).toHaveText("Unsafe ref")
+    await expect(page.locator('.proposal-ref a, .proposal-view script')).toHaveCount(0)
+    for (const [story, count] of [["No lessons", null], ["One lesson", "1 lesson"], ["Lessons from T12", "2 lessons"]]) {
+      await page.goto(`/view-stories.html?story=${encodeURIComponent(`ProposalView/${story}`)}&theme=${theme}`)
+      if (count === null) await expect(page.locator('.proposal-lessons')).toHaveCount(0)
+      else await expect(page.locator('.proposal-lessons')).toContainText(count!)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
   }
 })
 

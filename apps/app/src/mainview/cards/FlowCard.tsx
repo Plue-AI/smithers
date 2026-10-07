@@ -1,12 +1,13 @@
+import { useLiveQuery } from "@tanstack/react-db"
+import { flowEditTodoInput } from "../flows/entries/flow"
 import { ViewSkeleton } from "../ViewSkeleton"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import { runSourceCommand } from "@smthrs/ui/run-command"
 import { Button, Markdown } from "@smthrs/ui"
-import { useId, useState, useSyncExternalStore, type KeyboardEvent } from "react"
+import { useSyncExternalStore } from "react"
 import type { Card } from "../state/AppState"
-import { rovingKeyDown } from "../RovingKeyDown"
 import type { CardFamily, CardOf, RunCommand } from "./CardFamily"
-import { defaultPill, settledPill } from "./CardFamily"
+import { settledPill } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
 import type { ComponentType } from "react"
 import { type FlowCard as FlowModel, type FlowViewProps } from "@smthrs/rpc/FlowCard"
@@ -34,80 +35,17 @@ export const FlowCard = ({ model: source, allowed, dispatch, View = FlowView, vi
   const active = new Set(activeVersion?.steps.map(step => step.id))
   const model = { ...source, versions: source.versions.map(version => ({ ...version,
     steps: version.steps.map(step => "wait" in step ? step : { ...step, added: activeVersion !== undefined && version.state !== "active" && !active.has(step.id) }) })) }
-  const definitions: CardActionDefinition[] = []
+  const selected = model.versions.find(version => version.id === view.tab) ?? activeVersion ?? model.versions[0]
+  const canEdit = !model.system && (selected === undefined || selected.state === "active")
+  const definitions: CardActionDefinition<CatalogTag, "agent">[] = []
   for (const [tag, label] of [["flow.source", "Source"], ["flow.plan", "Plan"], ["flow.run", "Run"], ["flow.edit", "Edit"]] as const) {
-    if (allowed.has(tag) && (!model.system || tag === "flow.plan")) definitions.push({ tag, label, command_input: { name: model.name } })
+    if (allowed.has(tag) && (!model.system || tag === "flow.plan") && (tag !== "flow.edit" || canEdit)) definitions.push({ tag, label, command_input: { name: model.name } })
   }
-  const bindings = cardActions(dispatch, definitions)
+  if (!model.system && allowed.has("flow.edit") && model.proposal !== undefined) definitions.push({ tag: "todo.new", label: "Make TODO", command_input: flowEditTodoInput(model.name, model.proposal.request, model.proposal.diff) })
+  if (allowed.has("agent")) definitions.push({ tag: "agent", label: "Agent", gesture: "agent", command_input: { name: "" }, resolve_input: input => ({ name: input.name ?? "" }) })
+  const bindings = cardActions<"agent">(dispatch, definitions)
   return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
-
-/*
- * Wave 12 §2 — which loaded repository. Embedded, keyboard-complete (arrows
- * move, Enter chooses), and one act: choosing IS the confirm, so the create
- * resumes immediately on the repo the human named.
- */
-const WorkflowRepoCardBody = ({
-  card,
-  onChooseWorkflowRepo
-}: {
-  readonly card: Extract<Card, { kind: "workflow-repo" }>
-  readonly onChooseWorkflowRepo: (fullName: string) => void
-}) => {
-  const optionId = useId()
-  const { repos, chosen, description } = card.payload
-  const [highlighted, setHighlighted] = useState(0)
-  const index = Math.min(highlighted, Math.max(repos.length - 1, 0))
-  if (chosen !== null) {
-    return <p className="smithers-card-note">Creating it on {chosen}.</p>
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLUListElement>): void => {
-    const move = rovingKeyDown(event.key, { count: repos.length, current: index })
-    if (move.kind === "move") {
-      event.preventDefault()
-      setHighlighted(move.index)
-      return
-    }
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault()
-      const repo = repos[index]
-      if (repo !== undefined) onChooseWorkflowRepo(repo)
-    }
-  }
-  return (
-    <div className="workflow-repo-chooser">
-      <p className="smithers-card-note">{description}</p>
-      <ul
-        className="workflow-repo-list"
-        role="listbox"
-        aria-label="Your loaded repositories"
-        aria-activedescendant={repos.length ? `${optionId}-${index}` : undefined}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-      >
-        {repos.map((repo, position) => (
-          <li key={repo}>
-            <button
-              type="button"
-              role="option"
-              id={`${optionId}-${position}`}
-              tabIndex={-1}
-              aria-selected={position === index}
-              data-highlighted={position === index}
-              className="workflow-repo-row"
-              {...flowProps("flow.repo.choose")}
-              onMouseEnter={() => setHighlighted(position)}
-              onClick={() => onChooseWorkflowRepo(repo)}
-            >
-              {repo}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 
 /*
  * The workspace's workflows (flow.list) — each row's Run is a command binding.
@@ -133,7 +71,7 @@ export const WorkflowListCardBody = ({
         {workflows.map((workflow) => (
           <li key={workflow.key} className="workflow-list-row">
             <div className="workflow-list-text">
-              <strong>{workflow.description ?? workflow.key.replace(/^issue\//, "issue.")}</strong>
+              <button type="button" {...flowAction(onRunCommand, "flow", flowArgs("flow", { name: workflow.key }))}><strong>{workflow.description ?? workflow.key.replace(/^issue\//, "issue.")}</strong></button>
               {workflow.description !== null ? <span>{workflow.key.replace(/^issue\//, "issue.")}</span> : null}
               {workflow.prompt ? <Markdown className="smithers-card-markdown" content={workflow.prompt} /> : null}
             </div>
@@ -150,11 +88,7 @@ export const WorkflowListCardBody = ({
   )
 }
 
-export const workflowCardFamily: CardFamily<"workflow-repo" | "workflow-list"> = {
-  "workflow-repo": {
-    render: (card, actions) => <WorkflowRepoCardBody card={card} onChooseWorkflowRepo={actions.onChooseWorkflowRepo} />,
-    pill: defaultPill
-  },
+export const workflowCardFamily: CardFamily<"workflow-list"> = {
   "workflow-list": {
     render: (card, actions) => <WorkflowListCardBody card={card} onRunCommand={actions.onRunCommand} />,
     pill: settledPill
@@ -164,24 +98,36 @@ export const workflowCardFamily: CardFamily<"workflow-repo" | "workflow-list"> =
 /*
  * The `flow` kind (card-kinds.md L5, T-APP-05): the card names its flow; this
  * reads the model. On an install it is GET /api/flows (controller.flowCatalog),
- * where Edit is the one press: Source, Plan and Run wait on their providers.
+ * where Edit, Source and agent navigation use install providers; Plan and Run await machine composition.
  * MOCK SEAM elsewhere: the seeded design world (state/seams/DesignWorld/run.ts),
  * whose Source and Edit are the design seam's presses.
  */
-const DESIGN_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.source", "flow.edit"])
-const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit"])
+const DESIGN_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.source", "flow.edit", "agent"])
+const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit", "flow.source", "agent"])
+const UNAVAILABLE_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set()
 const NO_FLOWS: FlowsSnapshot = {}
 const noCatalog: FlowsSnapshots = { subscribe: () => () => {}, get: () => NO_FLOWS }
 const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly maximized: boolean }) => {
   const controller = useController()
   const world = useDesignWorld()
+  const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
+  const member = controller.design.enabled ? controller.design.viewer() : identity?.login
+  const saved = useLiveQuery(controller.store.collections.cards).data.find(row => row.id === card.id)
+  const payload = saved?.kind === "flow" ? saved.payload : card.payload
   const catalog = controller.flowCatalog ?? noCatalog
   const served = useSyncExternalStore(catalog.subscribe, catalog.get, catalog.get)
   const model = controller.flowCatalog === undefined ? flowCardOf(world, card.payload.name) : served.flows?.find(flow => flow.name === card.payload.name)
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
-  return <FlowCard model={model} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
-    view={{ maximized }} onView={() => {}} />
+  if (model === undefined && controller.flowCatalog !== undefined) return served.error !== undefined
+    ? <p role="alert">{served.error}</p>
+    : served.flows === undefined ? <ViewSkeleton /> : <p role="alert">{`No flow ${card.payload.name}`}</p>
+  const proposed = model === undefined || payload.proposal === undefined ? model : { ...model, proposal: payload.proposal }
+  return <FlowCard model={proposed} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : served.error !== undefined ? UNAVAILABLE_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
+    view={{ maximized, tab: member === undefined || member === null ? undefined : payload.memberVersions?.[member] ?? payload.version }} onView={patch => {
+      if (!member || patch.tab === undefined || !model?.versions.some(version => version.id === patch.tab)) return
+      controller.setCardTab(card.id, patch.tab)
+    }} />
 }
 export const flowCardFamily: CardFamily<"flow"> = {
   flow: { render: (card, actions) => <FlowBody card={card} maximized={actions.presentation === "maximized"} />, pill: () => "" }

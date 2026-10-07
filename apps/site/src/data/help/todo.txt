@@ -1,9 +1,18 @@
-smthrs todo — Answer the install's TODOs
+smthrs todo — TODOs and the stack
 
 Usage: smthrs todo <command>
 
 Commands:
-  answer  Answer the question a TODO's agent asked
+  amend       Change an unmerged TODO's prompt; waits for the person's confirmation
+  answer      Answer the agent's question
+  drop        Abandon an unmerged TODO; waits for the person's confirmation
+  from-issue  Draft a TODO from an issue; waits for the person's confirmation
+  new         Write and place a TODO; waits for the person's confirmation
+  resume      Resume a paused TODO
+  retry       Retry a failed TODO
+  show        Open a TODO
+  steer       Send the agent a correction
+  stop        Pause a working TODO
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

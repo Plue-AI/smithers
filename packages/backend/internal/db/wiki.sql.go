@@ -176,7 +176,7 @@ func (q *Queries) DeleteWikiPage(ctx context.Context, arg DeleteWikiPageParams) 
 }
 
 const getWikiLatestRevision = `-- name: GetWikiLatestRevision :one
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit, learning_author FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1
 `
 
 type GetWikiLatestRevisionParams struct {
@@ -212,6 +212,7 @@ func (q *Queries) GetWikiLatestRevision(ctx context.Context, arg GetWikiLatestRe
 		&i.CrdtVector,
 		&i.TitleSource,
 		&i.SourceCommit,
+		&i.LearningAuthor,
 	)
 	return i, err
 }
@@ -282,7 +283,7 @@ func (q *Queries) GetWikiPageBySlug(ctx context.Context, arg GetWikiPageBySlugPa
 }
 
 const getWikiRevisionByNumber = `-- name: GetWikiRevisionByNumber :one
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 AND revision=$4
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit, learning_author FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 AND revision=$4
 `
 
 type GetWikiRevisionByNumberParams struct {
@@ -324,6 +325,7 @@ func (q *Queries) GetWikiRevisionByNumber(ctx context.Context, arg GetWikiRevisi
 		&i.CrdtVector,
 		&i.TitleSource,
 		&i.SourceCommit,
+		&i.LearningAuthor,
 	)
 	return i, err
 }
@@ -346,7 +348,7 @@ func (q *Queries) GetWikiSpaceHead(ctx context.Context, arg GetWikiSpaceHeadPara
 }
 
 const listWikiEvents = `-- name: ListWikiEvents :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND sequence>$3 ORDER BY sequence LIMIT $4
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit, learning_author FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND sequence>$3 ORDER BY sequence LIMIT $4
 `
 
 type ListWikiEventsParams struct {
@@ -394,6 +396,7 @@ func (q *Queries) ListWikiEvents(ctx context.Context, arg ListWikiEventsParams) 
 			&i.CrdtVector,
 			&i.TitleSource,
 			&i.SourceCommit,
+			&i.LearningAuthor,
 		); err != nil {
 			return nil, err
 		}

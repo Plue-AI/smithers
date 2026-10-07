@@ -1,5 +1,6 @@
+const TURN_RETIRE_PATH = "/api/agent/turn/retire"
 import { createHash } from "node:crypto"
-import { TURN_RETIRE_PATH, TURN_ERASE_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { TURN_ERASE_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnBatch, AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
@@ -54,6 +55,7 @@ export const createChatJournalFixture = () => {
       const turn = turns.get(id)
       const path = new URL(request.url).pathname
       if (retired.has(id)) return Response.json({ status: "retired" }, { status: path === TURN_ERASE_PATH ? 200 : 410 })
+      if (turn === undefined && path !== TURN_RETIRE_PATH && path !== TURN_ERASE_PATH) return Response.json({ status: "missing" }, { status: 404 })
       if (path !== TURN_ERASE_PATH && turn?.token !== body.journal?.token) return Response.json({ status: "forbidden" }, { status: 403 })
       if (path === TURN_ERASE_PATH && turn !== undefined && body.retirementProof !== createHash("sha256").update(agentTurnJournalDigestInput("access", turn.token)).digest("hex")) {
         return Response.json({ status: "error", code: "forbidden" }, { status: 403 })
@@ -62,7 +64,7 @@ export const createChatJournalFixture = () => {
         turns.delete(id); retired.add(id)
         return Response.json({ status: "retired" })
       }
-      if (turn === undefined) return Response.json({ status: "missing" }, { status: 404 })
+      if (turn === undefined) throw new Error("Journal access requires an accepted turn")
       const batches = turn.batches.filter(batch => batch.batch > (body.after?.batch ?? 0))
       return Response.json({ status: "ok", after: body.after ?? { ...turn.cursor, batch: 0, position: 0, hash: "0".repeat(64) }, next: turn.cursor, head: turn.cursor, batches, terminal: turn.terminal, more: false })
     }

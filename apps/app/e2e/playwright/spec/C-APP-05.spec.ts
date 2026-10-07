@@ -1,31 +1,32 @@
-import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { expect, test, type Page } from "../browserTest"
+import { installCloudFixture } from "../cloudFixture"
+import { say } from "./j1-fixtures"
 
-// UI projection of .specs/engineering/checks/C-APP-05.md.
-// Written before implementation: mvp.md §3 Conversation, §6.4, M-08; lands with T-APP-16
-test("C-APP-05: a host turn finishes after its author closes the tab", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §3 Conversation, §6.4, M-08; lands with T-APP-16")
-  // Seed a held host turn: this prompt stops T2, then asks privately to drop it.
-  // Release it after the author closes the tab. Seed three Earlier archives.
-  // Execution placement and retired write-route 404s require T-APP-16 integration receipts.
-  await owner(page)
-  await page.goto("/smithers-mvp-canary/node")
-  await say(page, "Stop T2, then drop T2")
-  await expect(page.getByText("Stop T2, then drop T2", { exact: true }).last()).toBeVisible()
+// Browser projection; the packaged-host version runs in TestBranchConversationTabClose.
+test("C-APP-05: a host turn replays after its author closes the tab", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["install", "identity", "agent"] })
+  const entries: unknown[] = []
+  let writes = 0
   const context = page.context()
+  const mountConversation = async (target: Page) => {
+  await target.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
+  await target.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { queue: [] } }))
+  await target.route("**/api/conversations/main/prompt", route => {
+    writes++
+    entries.push({ id: "held", author: 1, authorLogin: "scoped-user", runId: "held-run", prompt: "Summarize the repository", state: "running", frames: [] })
+    return route.fulfill({ status: 202, json: { turnId: "held", terminal: false } })
+  })
+  }
+  await mountConversation(page)
+  await page.goto("/")
+  await say(page, "Summarize the repository")
+  await expect(page.locator('[data-shared-turn="held"]')).toBeVisible()
   await page.close()
+  entries[0] = { id: "held", author: 1, authorLogin: "scoped-user", runId: "held-run", prompt: "Summarize the repository", state: "completed", frames: [{ runId: "held-run", type: "delta", kind: "text", text: "Repository summary." }, { runId: "held-run", type: "done", reason: "stop" }] }
   const returned = await context.newPage()
-  await owner(returned)
-  await returned.goto("/smithers-mvp-canary/node")
-  await expect(returned.getByText("Stop T2, then drop T2", { exact: true })).toHaveCount(1)
-  await expect(returned.getByText("Paused", { exact: true }).last()).toBeVisible()
-  await expect(returned.getByText("Drop T2?", { exact: true }).last()).toBeVisible()
-  await expect(returned.getByText("Dropped", { exact: true })).toHaveCount(0)
-  await returned.getByRole("button", { name: "Cancel", exact: true }).last().press("Enter")
-  await returned.getByRole("button", { name: "Earlier", exact: true }).press("Enter")
-  await expect(returned.getByRole("button", { name: /Legacy conversation/ })).toHaveCount(3)
-  await returned.getByRole("button", { name: /Legacy conversation/ }).first().press("Enter")
-  await expect(returned.getByText("Read-only", { exact: true }).last()).toBeVisible()
-  await expect(returned.getByText("Archived greeting", { exact: true }).last()).toBeVisible()
-  await expect(returned.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
+  await installCloudFixture(returned, { capabilities: ["install", "identity", "agent"] })
+  await mountConversation(returned)
+  await returned.goto("/")
+  await expect(returned.getByText("Repository summary.", { exact: true })).toBeVisible()
+  expect(writes).toBe(1)
 })

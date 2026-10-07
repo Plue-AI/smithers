@@ -55,12 +55,12 @@ func TestInstallAddressPublicIsTheSavedOriginTeammatesOpen(t *testing.T) {
 	address := &InstallAddress{Configured: []string{"http://127.0.0.1:4000"}}
 	require.Equal(t, "http://127.0.0.1:4000", address.Public(), "before step 0, the configured origin")
 	address.commit("0.0.0.0:4000", []string{"http://localhost:4000", "http://Williams-Mac-mini.local:4000/", "https://box.example"})
-	require.Equal(t, "http://williams-mac-mini.local:4000", address.Public(), "the first saved origin off loopback")
+	require.Equal(t, "http://localhost:4000", address.Public(), "the first saved origin")
 	address.commit("127.0.0.1:4000", []string{"http://localhost:4000"})
 	require.Equal(t, "http://localhost:4000", address.Public(), "This Mac only: the saved origin")
 	configured := &InstallAddress{Configured: []string{"http://127.0.0.1:4000", "https://smithers.example"}}
 	configured.commit("127.0.0.1:4000", []string{"http://localhost:4000"})
-	require.Equal(t, "https://smithers.example", configured.Public(), "a configured public origin beats a saved loopback one")
+	require.Equal(t, "http://localhost:4000", configured.Public(), "saved origins replace configured public origins")
 
 	// The stack reads it at each use, so a saved change applies to the next link.
 	s := &MythicalService{}

@@ -147,7 +147,7 @@ func startCodingHost(t *testing.T, fixture realHostFixture, port int, generation
 		"SMITHERS_CODING_LOCAL_OWNER=1",
 		// This direct process fixture has no backend launch catalog. Supply the
 		// packaged names explicitly; production BuildProcessSpec owns the policy.
-		`SMITHERS_SYSTEM_FLOWS=["stack","stack.move","stack.candidate","stack.propose","history.show","history.view","history.parallel","history.bootstrap","history.backfill","todo.new","todo.from-issue","todo.answer","todo.steer","todo.amend","todo.stop","todo.resume","todo.retry","todo.retry-current-flow","todo.drop","todo.takeover","todo.preapprove","todo.unapprove","history.todo","issue.implement","runs.steer","history.retry","branch.fork","branch.add-to-stack","branch.rebase","merge","history.land","prs.land","change.land","members","members.add","members.role","members.remove","settings","secrets.connect","secrets.connect.codex","secrets.connections","secrets.move","secrets.revoke","secrets","secrets.list","secrets.set","secrets.delete","secrets.scope","secrets.bind","admission","approvals.list","approvals.open","runs.attention","approval.approve","approval.deny","sync","github.reconcile","github.mirror-sync","github.mirror.retry-ref","sync.ops.show-more","setup","github.app","github.app.choose","github.app.open","repos.import","repos.import.retry","flow-load","summarizer","repository/setup","repository/trigger","repository-jobs/issues","repository-jobs/review","repository-jobs/ci","repository-jobs/feature","repository-jobs/chores","coding","coding/dispatch","coding/implementation","coding/request","coding/vibe","coding/verify","coding/wiki"]`,
+		`SMITHERS_SYSTEM_FLOWS=["stack","stack.move","stack.candidate","stack.propose","history.show","history.view","history.parallel","history.bootstrap","history.backfill","todo.new","todo.from-issue","todo.answer","todo.steer","todo.amend","todo.stop","todo.resume","todo.retry","todo.retry-current-flow","todo.drop","todo.takeover","todo.preapprove","todo.unapprove","learning.accept","learning.dismiss","history.todo","issue.implement","runs.steer","history.retry","branch.fork","branch.add-to-stack","branch.rebase","branch.bring-in","branch.discard-foreign","merge","history.land","prs.land","change.land","members","members.add","members.role","members.remove","settings","secrets.connect","secrets.connect.codex","secrets.connections","secrets.move","secrets.revoke","secrets","secrets.list","secrets.set","secrets.delete","secrets.scope","secrets.bind","admission","approvals.list","approvals.open","runs.attention","approval.approve","approval.deny","sync","github.reconcile","github.mirror-sync","github.mirror.retry-ref","sync.ops.show-more","setup","github.app","github.app.choose","github.app.open","repos.import","repos.import.retry","flow-load","summarizer","repository/setup","repository/trigger","repository-jobs/issues","repository-jobs/review","repository-jobs/ci","repository-jobs/feature","repository-jobs/chores","coding","coding/dispatch","coding/implementation","coding/request","coding/vibe","coding/verify","coding/wiki"]`,
 		"SMITHERS_OWNER_GENERATION="+strconv.FormatInt(generation, 10),
 		"SMITHERS_SOURCE_REVISION="+fixture.revision,
 		"SMITHERS_FLOW_ARTIFACT_SHA256="+fixture.digest,
@@ -489,6 +489,7 @@ func TestRealBundledHostRunsRepositoryFileFlow(t *testing.T) {
 		Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
 			return observedAcceptanceRuntime{Runtime: client, t: t}, nil
 		}), Projector: projector, ObservationDelay: 10 * time.Millisecond,
+		ObservationLimit: 1, ObservationPages: 1,
 	})
 	require.NoError(t, err)
 	request := LaunchRequest{
@@ -516,6 +517,14 @@ func TestRealBundledHostRunsRepositoryFileFlow(t *testing.T) {
 	require.NotNil(t, terminal.Run)
 	require.Equal(t, "completed", terminal.Run.Status)
 	require.NotContains(t, host.logs.String(), "SchemaError")
+	// Read the actual journal tail independently: settlement must not hide
+	// events beyond the dispatcher's saved cursor, even for a completed run.
+	tail, err := client.Observe(context.Background(), terminal.Run.RunID, terminal.Cursor, 1)
+	require.NoError(t, err)
+	require.True(t, tail.Terminal)
+	require.False(t, tail.HasMore)
+	require.Empty(t, tail.Events, "settlement must drain the live host's entire journal")
+	require.Equal(t, terminal.Cursor, tail.NextCursor)
 
 	// The run's journal reaches the projection page by page, each page read
 	// after the cursor the previous one ended at (the invoked run's log).
@@ -530,7 +539,7 @@ func TestRealBundledHostRunsRepositoryFileFlow(t *testing.T) {
 		cursor = update.Checkpoint.Cursor
 		events += len(update.Events)
 	}
-	require.NotZero(t, events, "the live host's journal must reach the projection")
+	require.Greater(t, events, 1, "the live host's journal must span multiple projection pages")
 	require.Equal(t, terminal.Cursor, cursor, "every journal page up to the terminal cursor was projected")
 }
 

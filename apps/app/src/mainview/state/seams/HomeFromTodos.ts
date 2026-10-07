@@ -1,5 +1,5 @@
 import type { HomeCard as HomeModel, HomeItem } from "@smthrs/rpc/HomeCard"
-import type { Action } from "@smthrs/rpc/CardAction"
+import { type Action } from "@smthrs/rpc/CardAction"
 import { PlaceholderAvatarUrl, type TodoState } from "@smthrs/rpc/CardPrimitives"
 import { actionFor } from "../../flows/rowAction"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"

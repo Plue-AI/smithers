@@ -48,13 +48,14 @@ var errGitHubIssueTextUnavailable = errors.New("GitHub did not answer who wrote 
 // writer of each part (nil when GitHub names none, such as a deleted
 // account).
 type gitHubIssueText struct {
-	Title, Body             string
-	Author                  *gitHubActor
-	TitleWriter, BodyWriter *gitHubActor
+	Title, Body                 string
+	TitleEditedAt, BodyEditedAt time.Time
+	Author                      *gitHubActor
+	TitleWriter, BodyWriter     *gitHubActor
 }
 
-const gitHubIssueTextFields = `title body author{__typename login} userContentEdits(first:1){nodes{editor{__typename login}}} ` +
-	`timelineItems(itemTypes:[RENAMED_TITLE_EVENT],last:1){nodes{... on RenamedTitleEvent{actor{__typename login}}}}`
+const gitHubIssueTextFields = `title body lastEditedAt author{__typename login} userContentEdits(first:1){nodes{editor{__typename login}}} ` +
+	`timelineItems(itemTypes:[RENAMED_TITLE_EVENT],last:1){nodes{... on RenamedTitleEvent{createdAt actor{__typename login}}}}`
 
 const gitHubIssueTextQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){` +
 	`issueOrPullRequest(number:$number){... on Issue{` + gitHubIssueTextFields + `} ... on PullRequest{` + gitHubIssueTextFields + `}}}}`
@@ -80,17 +81,19 @@ func (g *gitHubIssueTextAPI) IssueText(ctx context.Context, token, owner, repo s
 		Data struct {
 			Repository *struct {
 				Issue *struct {
-					Title  string              `json:"title"`
-					Body   string              `json:"body"`
-					Author *gitHubGraphQLActor `json:"author"`
-					Edits  struct {
+					Title        string              `json:"title"`
+					LastEditedAt time.Time           `json:"lastEditedAt"`
+					Body         string              `json:"body"`
+					Author       *gitHubGraphQLActor `json:"author"`
+					Edits        struct {
 						Nodes []struct {
 							Editor *gitHubGraphQLActor `json:"editor"`
 						} `json:"nodes"`
 					} `json:"userContentEdits"`
 					Renames struct {
 						Nodes []struct {
-							Actor *gitHubGraphQLActor `json:"actor"`
+							Actor     *gitHubGraphQLActor `json:"actor"`
+							CreatedAt time.Time           `json:"createdAt"`
 						} `json:"nodes"`
 					} `json:"timelineItems"`
 				} `json:"issueOrPullRequest"`
@@ -116,13 +119,14 @@ func (g *gitHubIssueTextAPI) IssueText(ctx context.Context, token, owner, repo s
 		return gitHubIssueText{}, pkgerrors.Forbidden("GitHub did not show who wrote the issue text")
 	}
 	issue := out.Data.Repository.Issue
-	text := gitHubIssueText{Title: issue.Title, Body: issue.Body}
+	text := gitHubIssueText{Title: issue.Title, Body: issue.Body, BodyEditedAt: issue.LastEditedAt}
 	if author := issue.Author.actor(); author != nil {
 		// GraphQL types the author by its account; the rule needs a user.
 		text.Author, text.TitleWriter, text.BodyWriter = author, author, author
 	}
 	if len(issue.Renames.Nodes) > 0 {
 		text.TitleWriter = issue.Renames.Nodes[0].Actor.actor()
+		text.TitleEditedAt = issue.Renames.Nodes[0].CreatedAt
 	}
 	if len(issue.Edits.Nodes) > 0 {
 		text.BodyWriter = issue.Edits.Nodes[0].Editor.actor()
@@ -234,51 +238,37 @@ func (s *GitHubTextStamper) forgetMaintainers(eventType string, payload []byte) 
 // retried; one it will not list, or an issue with more events than are
 // read, is not the person's.
 func (g *gitHubIssueTextAPI) LabelAppliedByPerson(ctx context.Context, token, owner, repo string, number int64, label, login string, appliedAt time.Time) (bool, error) {
-	const pages, skew = 10, 5 * time.Second
-	var found *bool
-	for page := 1; ; page++ {
-		if page > pages {
-			slog.Warn("github.label_events_unread", "owner", owner, "repo", repo, "issue", number)
-			return false, nil
-		}
-		var events []struct {
-			Event string `json:"event"`
-			Actor *struct {
-				Login string `json:"login"`
-			} `json:"actor"`
-			Label *struct {
-				Name string `json:"name"`
-			} `json:"label"`
-			CreatedAt time.Time        `json:"created_at"`
-			ViaApp    *json.RawMessage `json:"performed_via_github_app"`
-		}
-		query := url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}
-		status, err := g.api.request(ctx, token, http.MethodGet,
-			landingGitHubRepoPath(owner, repo)+"/issues/"+strconv.FormatInt(number, 10)+"/events?"+query.Encode(), nil, &events)
-		if err != nil || gitHubTransient(status) {
-			return false, errGitHubIssueTextUnavailable
-		}
-		if status != http.StatusOK {
-			slog.Warn("github.label_events_unreadable", "owner", owner, "repo", repo, "issue", number, "status", status)
-			return false, nil
-		}
-		for _, event := range events {
-			if event.Event == "labeled" && event.Actor != nil && event.Label != nil &&
-				strings.EqualFold(event.Actor.Login, login) && strings.EqualFold(strings.TrimSpace(event.Label.Name), strings.TrimSpace(label)) &&
-				!event.CreatedAt.Before(appliedAt.Add(-skew)) && !event.CreatedAt.After(appliedAt.Add(skew)) {
-				person := event.ViaApp == nil || string(*event.ViaApp) == "null"
-				found = &person
-			}
-		}
-		if len(events) < 100 {
-			break
-		}
-	}
-	if found == nil {
-		// GitHub's list can trail the webhook.
+	const skew = 5 * time.Second
+	objects, _, err := readGitHubIssueEvents(ctx, 0, g.api.issueEventPages(token, owner, repo))
+	if err != nil {
 		return false, errGitHubIssueTextUnavailable
 	}
-	return *found, nil
+	found := false
+	for _, object := range objects {
+		var event gitHubFetchedEvent
+		if json.Unmarshal(object, &event) != nil {
+			return false, errGitHubIssueTextUnavailable
+		}
+		var issue gitHubIssueHeader
+		if json.Unmarshal(event.Issue, &issue) != nil || issue.Number <= 0 {
+			return false, errGitHubIssueTextUnavailable
+		}
+		if issue.Number != number || event.Event != "labeled" ||
+			!strings.EqualFold(event.Actor.Login, login) || !strings.EqualFold(strings.TrimSpace(event.Label.Name), strings.TrimSpace(label)) ||
+			event.CreatedAt.Before(appliedAt.Add(-skew)) || event.CreatedAt.After(appliedAt.Add(skew)) {
+			continue
+		}
+		// A time-window match is ambiguous if any matching application came
+		// through an App. Never attribute that action to the person.
+		if event.ViaApp != nil && string(*event.ViaApp) != "null" {
+			return false, nil
+		}
+		found = true
+	}
+	if !found {
+		return false, errGitHubIssueTextUnavailable
+	}
+	return true, nil
 }
 
 // PullCreatedViaApp reads whether a pull request was created through a

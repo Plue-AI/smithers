@@ -37,6 +37,9 @@ var (
 	ErrNotCharged = errors.New("modelproxy: provider did not charge the call")
 )
 
+// StepHeader binds a coding-host model call to a workflow step under its run credential.
+const StepHeader = "X-Smithers-Step-Id"
+
 // Caller is who pays for a call and what it is correlated with.
 type Caller struct {
 	OwnerType     string
@@ -46,6 +49,8 @@ type Caller struct {
 	RepositoryID  int64
 	WorkspaceID   string
 	WorkflowRunID int64
+	// WorkflowStepID is resolved under the run credential, never from model input.
+	WorkflowStepID int64
 	// Reference names the calling Flow host binding or chat turn.
 	Reference string
 }
@@ -197,13 +202,16 @@ func (m Meter) Execute(ctx context.Context, caller Caller, call Call, spend func
 
 func insertUsage(ctx context.Context, db *pgxpool.Pool, key string, accountID int64, caller Caller, call Call) error {
 	tag, err := db.Exec(ctx, `INSERT INTO model_usage (request_key, credit_account_id, reservation_id, owner_type, owner_id, source,
-			user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens)
-		SELECT $1, $2, r.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-		FROM credit_reservations r WHERE r.account_id = $2 AND r.request_key = $1`,
+			user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens, workflow_step_id)
+		SELECT $1, $2, r.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+		FROM credit_reservations r WHERE r.account_id = $2 AND r.request_key = $1
+        AND ($15::bigint IS NULL OR EXISTS (
+            SELECT 1 FROM workflow_steps s WHERE s.id = $15
+            AND s.workflow_run_id = $9 AND s.repository_id = $7))`,
 		key, accountID, caller.OwnerType, caller.OwnerID, caller.Source,
 		positive(caller.UserID), positive(caller.RepositoryID), nonEmpty(caller.WorkspaceID), positive(caller.WorkflowRunID),
 		caller.Reference, call.Provider, strings.TrimSpace(call.Model), call.Stream,
-		call.Maximum.PromptTokens()+call.Maximum.OutputTokens)
+		call.Maximum.PromptTokens()+call.Maximum.OutputTokens, positive(caller.WorkflowStepID))
 	if err == nil && tag.RowsAffected() != 1 {
 		err = errors.New("reservation not found")
 	}

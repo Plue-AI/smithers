@@ -40,19 +40,19 @@ describe("a zoomed timeline line", () => {
       expect(button.getAttribute("type")).toBe("button")
       if (line.zoom === undefined) {
         expect(button.getAttribute("aria-label")).toBeNull()
-        expect(item.querySelector(".mvp-tl-zoom")).toBeNull()
+        expect(item.querySelector(".tl-zoom")).toBeNull()
         continue
       }
       const { count, from, to } = line.zoom
       // The locale's own range: one meridiem when both ends share it (`9:10 – 10:32 AM`), two when they differ.
       const span = CLOCK.formatRange(from!, to!)
       expect(span).toContain(clock(to!))
-      expect(item.querySelector(".mvp-tl-zoom")!.textContent).toBe(`${count} entries · ${span}`)
-      expect(item.querySelector(".mvp-tl-zoom time")!.textContent).toBe(span)
+      expect(item.querySelector(".tl-zoom")!.textContent).toBe(`${count} entries · ${span}`)
+      expect(item.querySelector(".tl-zoom time")!.textContent).toBe(span)
       expect(button.getAttribute("aria-label")).toBe(`${count} entries, ${clock(from!)} to ${clock(to!)}: ${line.title}`)
       // The stacked node: one bar per level above the entry, capped at the coarsest look; no entry glyph beside it.
-      expect(item.querySelectorAll(".mvp-tl-node .mvp-tl-stack rect")).toHaveLength(Math.min(line.zoom.level, 3) + 1)
-      expect(item.querySelector(".mvp-tl-node .lucide-check, .mvp-tl-node .lucide-x, .mvp-tl-node .lucide-circle-alert, .mvp-tl-node .mvp-avatar")).toBeNull()
+      expect(item.querySelectorAll(".tl-node .tl-stack rect")).toHaveLength(Math.min(line.zoom.level, 3) + 1)
+      expect(item.querySelector(".tl-node .lucide-check, .tl-node .lucide-x, .tl-node .lucide-circle-alert, .tl-node .avatar")).toBeNull()
       // The run's summary stays with the model; the count and span are the words.
       expect(item.textContent).not.toContain(line.summary!)
     }
@@ -61,7 +61,7 @@ describe("a zoomed timeline line", () => {
     expect(body.querySelector("li[data-fresh]")!.getAttribute("data-entry")).toBe("entry-757")
     // Short chats are unchanged: no zoom attribute, no stacked node.
     const plain = render(fixtures.timeline.model.lines, fixtures.timeline.model.on_screen)
-    expect(plain.querySelectorAll("li[data-zoom], .mvp-tl-stack, .mvp-tl-zoom")).toHaveLength(0)
+    expect(plain.querySelectorAll("li[data-zoom], .tl-stack, .tl-zoom")).toHaveLength(0)
     expect(plain.querySelectorAll("li[data-entry]")).toHaveLength(fixtures.timeline.model.lines.length)
   })
 
@@ -70,7 +70,7 @@ describe("a zoomed timeline line", () => {
     const body = render([deep])
     const item = body.querySelector("li[data-entry]")!
     expect(item.getAttribute("data-zoom")).toBe("5")
-    expect(item.querySelectorAll(".mvp-tl-stack rect")).toHaveLength(4)
+    expect(item.querySelectorAll(".tl-stack rect")).toHaveLength(4)
     expect(body.querySelector('li[data-entry="entry-1"] button')!.getAttribute("aria-label")).toBe(`237 entries, ${clock(deep.zoom!.from!)} to ${clock(deep.zoom!.to!)}: ${deep.title}`)
   })
 
@@ -88,27 +88,27 @@ describe("a zoomed timeline line", () => {
     const dated: TimelineLine = { ...byId("entry-1"), zoom: { level: 3, count: 237, last_entry_id: "entry-237", from, to } }
     const timeless: TimelineLine = { ...byId("entry-404"), zoom: { level: 3, count: 289, last_entry_id: "entry-692" } }
     const body = render([dated, timeless])
-    expect(body.querySelector('li[data-entry="entry-1"] .mvp-tl-zoom')!.textContent).toBe(`237 entries · ${DAY.formatRange(from, to)}`)
+    expect(body.querySelector('li[data-entry="entry-1"] .tl-zoom')!.textContent).toBe(`237 entries · ${DAY.formatRange(from, to)}`)
     expect(body.querySelector('li[data-entry="entry-1"] button')!.getAttribute("aria-label")).toBe(`237 entries, ${day(from)} to ${day(to)}: ${dated.title}`)
-    expect(body.querySelector('li[data-entry="entry-404"] .mvp-tl-zoom')!.textContent).toBe("289 entries")
+    expect(body.querySelector('li[data-entry="entry-404"] .tl-zoom')!.textContent).toBe("289 entries")
     expect(body.querySelector('li[data-entry="entry-404"] button')!.getAttribute("aria-label")).toBe(`289 entries: ${timeless.title}`)
   })
 
   test("a title the fast model wrote wears the written mark before it; the run's own title wears none (#3732)", () => {
     const written: TimelineLine = { ...byId("entry-1"), title: "Hardened webhook retries", zoom: { ...byId("entry-1").zoom!, written: true } }
     const body = render([written, byId("entry-404"), ...fixtures.timeline.model.lines])
-    const title = body.querySelector('li[data-entry="entry-1"] .mvp-tl-text b')!
+    const title = body.querySelector('li[data-entry="entry-1"] .tl-text b')!
     expect(title.textContent).toBe("Hardened webhook retries")
-    expect(title.firstElementChild!.matches("svg.mvp-written[aria-hidden=true]")).toBe(true)
+    expect(title.firstElementChild!.matches("svg.written[aria-hidden=true]")).toBe(true)
     expect(body.querySelector('li[data-entry="entry-1"] button')!.getAttribute("aria-label")).toBe(`237 entries, ${clock(written.zoom!.from!)} to ${clock(written.zoom!.to!)}: Hardened webhook retries`)
-    expect(body.querySelectorAll(".mvp-written")).toHaveLength(1)
-    expect(body.querySelector('li[data-entry="entry-404"] .mvp-tl-text b')!.textContent).toBe(byId("entry-404").title)
+    expect(body.querySelectorAll(".written")).toHaveLength(1)
+    expect(body.querySelector('li[data-entry="entry-404"] .tl-text b')!.textContent).toBe(byId("entry-404").title)
   })
 
   test("a run's act is its own control beside the line, never inside it", () => {
     const body = render(zoomed, fixtures.zoomed.model.on_screen)
     const asking = body.querySelector('li[data-entry="entry-733"]')!
-    const act = asking.querySelector('.mvp-tl-actions > button[data-flow="todo.answer"]')!
+    const act = asking.querySelector('.tl-actions > button[data-flow="todo.answer"]')!
     expect(act.textContent).toBe("Answer")
     expect(act.getAttribute("disabled")).toBeNull()
     expect(asking.querySelector(":scope > button button")).toBeNull()

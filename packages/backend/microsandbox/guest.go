@@ -65,11 +65,15 @@ func (r *Runtime) installGuest(ctx context.Context, machine string) error {
 
 // Retained wake and recovery must install trusted bytes before their first
 // cleanup helper, including when the retained machine has an older helper.
+// Interrupted mutations settle before prepareGuest can admit new writers.
 func (r *Runtime) cleanupGuest(ctx context.Context, machine string) error {
 	if err := r.installGuest(ctx, machine); err != nil {
 		return err
 	}
-	_, err := r.guest(ctx, machine, nil, "kill-all")
+	if _, err := r.guest(ctx, machine, nil, "kill-all"); err != nil {
+		return err
+	}
+	_, err := r.guest(ctx, machine, nil, "recover-files")
 	return err
 }
 

@@ -22,7 +22,7 @@ import { canonicalCommandName } from "@smthrs/ui/command-line"
 import { ASK_HONEST_LINES, type ImpossibleAskClass } from "./Instructions"
 
 /** The commands that launch a run on the user's workspace. */
-export const RUN_LAUNCH_COMMANDS: ReadonlyArray<string> = ["flow.create", "flow.run"]
+export const RUN_LAUNCH_COMMANDS: ReadonlyArray<string> = ["flow.new", "flow.run"]
 
 /**
  * The command a model tool call would launch a run with, if any. The model
@@ -54,7 +54,7 @@ export const runLaunchCommandOf = (toolName: string, toolArguments: string): str
  *
  * `flow-requested` is the authoring door's saved request (controller/
  * flowAuthoring.ts). It is a durable request exactly as `run-requested` is,
- * and it was the whole of `flow.create`'s answer the moment the flow builder
+ * and it was the whole of `flow.new`'s answer the moment the flow builder
  * was on, so a gate reading only `run-` left the deployed model free to write
  * "has been created" over a run that had not launched.
  */
@@ -95,7 +95,8 @@ export const claimsRunState = (text: string): boolean => {
  * one about its own layout, so it names the card instead of pointing at it.
  */
 export const deterministicRunLine = (command: string): string =>
-  command === "flow.run" || command === "flow.create"
+  command.startsWith("confirm:") ? "Waiting for you to confirm." :
+  command === "flow.run" || command === "flow.new"
     ? "Run requested."
     : "I started that run — the run card shows its real progress."
 

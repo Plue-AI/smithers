@@ -13,24 +13,24 @@ export const namespace: Namespace = { id: "approval", label: "Approvals", summar
 /** The `approval` flows registered as one aggregator block. */
 export const approvalFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "approval.approve",
+    name: "approval.approve", visibility: "in-card",
     summary: "Approve a pending approval card",
     hidden: true,
     args: "<cardId>",
-    userOnly: true,
-    userOnlyReason: "approvals belong to the human",
+    agent: "never" as const,
+    agentReason: "approvals belong to the human",
     input: CardTarget,
     handler: ({ cardId }) => {
       actions.decideApproval(cardId, "approved")
     }
   }),
   flow({
-    name: "approval.deny",
+    name: "approval.deny", visibility: "in-card",
     summary: "Deny a pending approval card",
     hidden: true,
     args: "<cardId>",
-    userOnly: true,
-    userOnlyReason: "approvals belong to the human",
+    agent: "never" as const,
+    agentReason: "approvals belong to the human",
     input: CardTarget,
     handler: ({ cardId }) => {
       actions.decideApproval(cardId, "denied")

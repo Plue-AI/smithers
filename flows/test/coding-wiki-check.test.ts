@@ -8,7 +8,7 @@ import * as Registry from "@smthrs/registry/Registry"
 import { Effect, FileSystem, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -16,14 +16,7 @@ import { CapabilityPattern } from "../../packages/smithers/flows/capability/src/
 import { Rule } from "../../packages/smithers/flows/capability/src/Permission.ts"
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
 import { catalogLayers } from "../coding/catalog.ts"
-import {
-  type Check,
-  CodingError,
-  type Implementation,
-  Receipt,
-  receiptMatches,
-  type Revision
-} from "../coding/schema.ts"
+import { type Check, type Implementation, Receipt, receiptMatches, type Revision } from "../coding/schema.ts"
 import { wikiCheckDelegate, wikiCheckLayers, wikiCheckPolicy } from "../coding/wiki-check.ts"
 import { bindWikiRegistry } from "../coding/wiki-registry.ts"
 import { RunCheck } from "../coding/workflow.ts"
@@ -39,7 +32,7 @@ const citationsSupported = makeHostJudge().layer
 const CheckRun = Flow.make("acceptance/WikiCheck", {
   payload: RunCheck.payloadSchema,
   success: Receipt,
-  error: CodingError,
+  error: RunCheck.errorSchema,
   body: (input) => RunCheck.call(input)
 })
 const exporter = process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
@@ -50,7 +43,7 @@ test("native wiki check captures immutable pages, returns owner findings, reuses
     : false,
   timeout: 300_000
 }, async (t) => {
-  const temporary = await mkdtemp(join(tmpdir(), "coding-wiki-check-"))
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-wiki-check-")))
   let dispose = async () => {}
   t.after(async () => {
     await dispose()
@@ -58,7 +51,8 @@ test("native wiki check captures immutable pages, returns owner findings, reuses
   })
   const root = join(temporary, "repo"), output = join(temporary, "wiki")
   execFileSync("jj", ["git", "init", root], { stdio: "pipe" })
-  const jj = (...args: string[]) => execFileSync("jj", ["-R", root, ...args], { cwd: root, stdio: "pipe" }).toString()
+  const jj = (...args: Array<string>) =>
+    execFileSync("jj", ["-R", root, ...args], { cwd: root, stdio: "pipe" }).toString()
   jj("config", "set", "--repo", "user.name", "Wiki check fixture")
   jj("config", "set", "--repo", "user.email", "wiki-check@example.com")
   await writeFile(join(root, ".gitignore"), ".flows/\n")
@@ -72,7 +66,7 @@ test("native wiki check captures immutable pages, returns owner findings, reuses
   const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
   const runtime = process.versions.bun ? await import("@smthrs/flows/BunRuntime") : NodeRuntime
   const fs = await Effect.runPromise(FileSystem.FileSystem.pipe(Effect.provide(platform)))
-  const scratch: string[] = []
+  const scratch: Array<string> = []
   const trackedFs: FileSystem.FileSystem = {
     ...fs,
     makeTempDirectoryScoped: (options) =>
@@ -83,7 +77,7 @@ test("native wiki check captures immutable pages, returns owner findings, reuses
           })
         ))
   }
-  const pages: PageSpec[] = [{
+  const pages: Array<PageSpec> = [{
     id: "answer",
     title: "Answer",
     purpose: "Read the answer.",
@@ -141,7 +135,12 @@ test("native wiki check captures immutable pages, returns owner findings, reuses
           owner: { hostId: "wiki-check-fixture" },
           signals: [],
           rules: [[
-            new Rule({ effect: "allow", pattern: new CapabilityPattern({ action: "proc:spawn", resource: "**" }) })
+            new Rule({ effect: "allow", pattern: new CapabilityPattern({ action: "proc:spawn", resource: "**" }) }),
+            ...[root, `${root}/**`].flatMap((resource) =>
+              (["fs:read", "fs:write"] as const).map((action) =>
+                new Rule({ effect: "allow", pattern: new CapabilityPattern({ action, resource }) })
+              )
+            )
           ]]
         },
         Layer.mergeAll(

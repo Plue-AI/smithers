@@ -4,7 +4,7 @@ import type { Action } from "@smthrs/rpc/CardAction";
 import { useState } from "react";
 import { Loader } from "lucide-react";
 import type { EvidenceItem } from "@smthrs/rpc/CardPrimitives";
-import type { TodoViewProps } from "@smthrs/rpc/TodoCard";
+import type { TodoViewProps } from "../TodoCard";
 
 import { ActorChip, actorName } from "./ActorChip";
 import { LessonsCount } from "./ProposalView";
@@ -46,6 +46,8 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
           {item.name} · {item.version}
         </span>
       );
+    case "wiki":
+      return <a href={item.url}>{item.slug} · r{item.revision}</a>;
     case "model_access":
       return <span>{item.label}</span>;
   }
@@ -80,7 +82,8 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
         <h2>
           <span className="todo-ref">T{todo.n}</span> {todo.title}
         </h2>
-        <StateWord state={todo.state} />
+        <StateWord state={todo.state} step={todo.state === "working" ? todo.step : undefined} />
+ {todo.state === "merged" && todo.preapproval && <span> · pre-approved by {todo.preapproval.by}</span>}
         {todo.place && <span className="todo-title-meta">{todo.place === 1 ? "Next to merge" : `#${todo.place} in stack`}</span>}
         {todo.branch && <span className="todo-title-meta">{todo.branch.name}</span>}
         <span className="todo-owner-chip"><ActorChip actor={{ kind: "person", login: todo.owner.login, name: todo.owner.name, avatar_url: todo.owner.avatar_url,
@@ -105,7 +108,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
               machine: "Waiting for a machine",
               merge_order: `Waiting for T${todo.queue.after}`,
               rebase: "Waiting for a rebase",
-              daily_limit: "Daily limit",
+              daily_limit: "Daily limit reached · starts tomorrow",
             }[todo.queue.reason]
           }{" "}
           · #{todo.queue.position}
@@ -113,13 +116,15 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       )}
       {todo.pause && (
         <p className="todo-meta">
-          Paused · {todo.pause.reason === "person" ? "Stopped" : "Daily token budget"}
+          Paused · {todo.pause.reason === "person" ? "Stopped" : "daily token budget"}
           {todo.pause.owner && ` · ${todo.pause.owner.name}`}
-          {todo.pause.resume_at && ` · ${todo.pause.resume_at}`}
         </p>
       )}
       {todo.rebase_pending && <p className="todo-meta">Rebase pending onto {todo.rebase_pending.onto} ↶ Verify</p>}
-      {todo.prompt_revisions[0] && <p className="todo-prompt">{todo.prompt_revisions[0].text}</p>}
+      {["queued", "dropped"].includes(todo.state) && todo.prompt_revisions.at(-1) && <>
+        <p className="todo-prompt">{todo.prompt_revisions.at(-1)!.text}</p>
+        <ul>{todo.prompt_revisions.at(-1)!.acceptance.map(text => <li key={text}>{text}</li>)}</ul>
+      </>}
       {todo.prompt_revisions.length > 1 && (
         <details>
           <summary>+{todo.prompt_revisions.length - 1}</summary>
@@ -136,7 +141,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
           ))}
         </details>
       )}
-      <ol className="todo-steps" aria-label="Flow steps">
+      {!["queued", "dropped"].includes(todo.state) && <ol className="todo-steps" aria-label="Flow steps">
         {todo.steps.map((step, index) => {
           const phase = currentIndex < 0 ? step.state
             : index < currentIndex ? "done"
@@ -155,14 +160,14 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
           </li>
           );
         })}
-      </ol>
+      </ol>}
       {todo.run?.indicators.map((flag, index) => (
         <p className="todo-meta" key={index}>
           {flag.text}
         </p>
       ))}
       {todo.waits.map((wait) => (
-        <section className="todo-wait" key={wait.id} data-wait-id={wait.id}>
+        <section className="todo-wait" key={wait.id} data-wait-id={wait.id} data-wait-kind={wait.kind}>
           <div className="todo-authored">
             {wait.by && <><ActorChip size="s" actor={wait.by} /><span>{actorName(wait.by)}</span></>}
             <b>{wait.prompt}</b>
@@ -172,6 +177,9 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
           ))}
           {wait.ssh_line && <code>{wait.ssh_line}</code>}
           {wait.sha && <code>{wait.sha}</code>}
+          {wait.kind === "conflict" && wait.id === todo.waits.find(row => row.kind === "conflict")?.id && conflictTerminal && (
+            <div className="todo-conflict-terminal">{conflictTerminal}</div>
+          )}
           <div className="todo-actions">
             {wait.actions.map((action, index) => (
               <TodoActionView
@@ -247,6 +255,7 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
                     usage: "Usage",
                     flow: "Flow",
                     model_access: "Model",
+                    wiki: "Wiki",
                   }[item.kind]
                 }
               </span>
@@ -275,7 +284,10 @@ export function TodoView({ model: todo, actions, onAction }: TodoViewProps) {
       <div className="todo-actions">
         {actions.map((action, index) =>
           action.tag === "merge" && (todo.merge.state !== "ready" || action.disabled) ? null : (
-            <TodoActionView
+            action.tag === "todo.amend" && todo.state === "queued" ? <details key={`${action.tag}-${index}`}>
+              <summary>Edit</summary>
+              <TodoActionView action={action} onAction={onAction} drafts={drafts} onView={(next) => setDrafts(next)} />
+            </details> : <TodoActionView
               key={`${action.tag}-${index}`}
               action={action}
               onAction={onAction}

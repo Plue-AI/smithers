@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// OpenTerminal is the S2 POST /api/terminals door. Keep it unmounted until
+// OpenTerminal is the S2 POST /api/terminals door. Refuse startup until
 // isolation (T-INS-02), person admission (T-MCH-06), member identities
 // (T-MCH-11), authenticated machined transport (T-COL-03), owner sessions
 // (T-TRM-07), branch.join (T-ACC-03), revocation (T-ACC-02), and session-bound

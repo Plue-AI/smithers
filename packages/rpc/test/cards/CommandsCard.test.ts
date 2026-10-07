@@ -30,8 +30,11 @@ describe("Commands", () => {
     expect([...new Set(agents)].sort()).toEqual([...AGENT].sort())
     expect(groups.some((group) => group.advanced)).toBe(true)
   })
-  test.each(["/todo", "arbitrary.command", ""])("refuses unpublished tag %j", (tag) => {
+  test.each(["/todo", "with spaces", ""])("refuses malformed catalog name %j", (tag) => {
     expect(CommandsCardSchema.safeParse(withCommand({ tag })).success).toBe(false)
+  })
+  test("accepts inert repository flow names without registering them as actions", () => {
+    expect(CommandsCardSchema.parse(withCommand({ tag: "release-notes", synopsis: "/release-notes" })).groups[0]!.commands[0]!.tag).toBe("release-notes")
   })
   test("each command needs its synopsis and description", () => {
     for (const key of ["synopsis", "description"]) {

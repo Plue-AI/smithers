@@ -104,7 +104,9 @@ func TestBranchForkAnswersTheNewBranch(t *testing.T) {
 	}
 	router := branchRouter(&BranchHandler{Authorize: authorize, Reads: fixture, Forks: fixture})
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest("POST", "/api/branches", strings.NewReader(`{"from":"T2","name":"try-retry"}`)))
+	request := httptest.NewRequest("POST", "/api/branches", strings.NewReader(`{"from":"T2","name":"try-retry"}`))
+	request.Header.Set("Idempotency-Key", "fork-retry")
+	router.ServeHTTP(w, request)
 	require.Equal(t, 201, w.Code)
 	var created struct {
 		Name       string                    `json:"name"`
@@ -117,7 +119,7 @@ func TestBranchForkAnswersTheNewBranch(t *testing.T) {
 	require.Equal(t, "scratch", created.Kind)
 	require.Equal(t, strings.Repeat("a", 40), created.Head)
 	require.Equal(t, services.BranchForkedFrom{Kind: "item", Ref: "T2", Commit: strings.Repeat("a", 40), Base: strings.Repeat("b", 40), Item: 2}, created.ForkedFrom)
-	require.Equal(t, services.BranchForkInput{From: "T2", Name: "try-retry"}, fixture.fork)
+	require.Equal(t, services.BranchForkInput{From: "T2", Name: "try-retry", Request: "fork-retry"}, fixture.fork)
 	require.Equal(t, [2]int64{101, 7}, fixture.forkBy)
 	require.Equal(t, []string{"branch.fork"}, commands)
 
@@ -127,6 +129,9 @@ func TestBranchForkAnswersTheNewBranch(t *testing.T) {
 	}{
 		{`{"from":"T9"}`, `{"code":"no_verified_head","class":"conflict","message":"T9 has no verified head to fork yet"}`, 409},
 		{`{"from":"T2","mode":"replace"}`, `{"code":"bad_request","class":"user","message":"invalid fork request"}`, 400},
+		{`{}`, `{"code":"bad_request","class":"user","message":"invalid fork request"}`, 400},
+		{`{"from":"T2"} {"from":"main"}`, `{"code":"bad_request","class":"user","message":"invalid fork request"}`, 400},
+		{`{"from":" "}`, `{"code":"bad_request","class":"user","message":"invalid fork request"}`, 400},
 		{`not json`, `{"code":"bad_request","class":"user","message":"invalid fork request"}`, 400},
 	} {
 		w := httptest.NewRecorder()

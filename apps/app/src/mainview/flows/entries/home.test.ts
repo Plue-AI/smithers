@@ -34,6 +34,7 @@ test("the Home doors register, and every one has an agent door (a merge only eve
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => ["stack", "stack.move", "merge", "background.retry", "background.dismiss", "github", "github.retry"].includes(nameOf(entry)))
+    expect(entries.find(entry => nameOf(entry) === "github.retry")?.metadata).toMatchObject({ agent: "run", minimumRole: "member", visibility: "in-card", http: { method: "POST", path: "/api/github/sync" } })
     expect(entries.map(nameOf).sort()).toEqual(["background.dismiss", "background.retry", "github", "github.retry", "merge", "stack", "stack.move"])
     expect(Object.fromEntries(entries.map(entry => [nameOf(entry), modelInvocable(entry)]))).toEqual({
       "stack": true, "stack.move": true, "merge": true, "background.retry": true, "background.dismiss": true, "github": true, "github.retry": true
@@ -225,4 +226,47 @@ test("on an install, a bare Merge opens the person's Review & merge for the serv
     expect((await button(h, "confirm.cancel", { confirmation: "merge:todo:12", revision: head })).status).toBe("executed")
     expect(h.store.collections.cards.get("confirm:merge:todo:12")).toBeUndefined()
   } finally { h.controller.dispose() }
+})
+
+
+test("removed history.show stays out of the slash catalog and bootstrap stays hidden", async () => {
+  const h = await boot()
+  try {
+    await slash(h, "branch", "retry-webhooks")
+    expect(shellViewsOf(h.controller.design).get(h.controller.design.viewer())?.at).toBe("b-retry")
+    expect(await slash(h, "history.show")).toEqual({ status: "unknown-command" })
+    expect(shellViewsOf(h.controller.design).get(h.controller.design.viewer())?.at).toBe("b-retry")
+    expect(h.controller.commands.entries().find(entry => nameOf(entry) === "history.bootstrap")?.metadata.visibility).toBe("hidden")
+    expect(h.requests.some(request => request.includes("mythical"))).toBe(false)
+  } finally { await h.controller.dispose() }
+})
+
+test("an install reconnects its persisted running Retry after controller restart without a second POST", async () => {
+  const storage = memoryStorage()
+  const first = await createAppStore({ kind: "localStorage", storage })
+  await first.dispatch({ type: "github.sync.request.changed", actor: "system", request: {
+    id: "recovered-sync", owner: "maya", phase: "running", lastSuccessAt: "2026-10-06T00:00:00Z"
+  } }).isPersisted.promise
+  const store = await createAppStore({ kind: "localStorage", storage })
+  expect(store.session().githubSyncRequest?.id).toBe("recovered-sync")
+  const calls: string[] = []
+  const fetchImpl = signupProfileFetch(async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+    if (url.endsWith("/api/github/sync")) {
+      calls.push(init?.method ?? "GET")
+      return Response.json({ state: "fresh", last_success_at: "2026-10-06T00:01:00Z" })
+    }
+    return new Response("{}", { status: 404 })
+  }).fetchImpl
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null }
+  const controller = createAppController(store, unavailableAgent, { fetchImpl, bootstrap })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => store.session().githubSyncRequest === undefined)
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.every(method => method === "GET")).toBe(true)
+    await store.settled?.()
+    const recovered = await createAppStore({ kind: "localStorage", storage })
+    expect(recovered.session().githubSyncRequest).toBeUndefined()
+  } finally { controller.dispose() }
 })

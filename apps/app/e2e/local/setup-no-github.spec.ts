@@ -188,7 +188,7 @@ const showsServedState = async (state: keyof typeof WAITS) => {
     // Fast while a short state may pass, then gently for a wait that lasts minutes.
     await page.waitForTimeout(Date.now() - began < 5_000 ? 100 : 1_000)
   }
-  await expect(todoCard().locator("header .mvp-state")).toHaveAttribute("data-state", state)
+  await expect(todoCard().locator("header .state")).toHaveAttribute("data-state", state)
 }
 test("8 TODO created", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "f6-app-install (T-APP-02 #3466; now passing)" })
@@ -205,7 +205,7 @@ test("8 TODO created", async ({}, info) => {
   expect(await served()).toMatchObject({ n: 1, title: "First local TODO", prompt_revisions: [expect.objectContaining({ text: "Add a greeting to JOURNEY.md" })] })
   await expect.poll(async () => {
     const state = (await served()).state
-    return await todoCard().locator("header .mvp-state").getAttribute("data-state") === state ? state : `card differs from ${state}`
+    return await todoCard().locator("header .state").getAttribute("data-state") === state ? state : `card differs from ${state}`
   }, { timeout: 10_000 }).toMatch(/^(queued|starting|working|needs_you|in_review)$/)
 })
 for (const [state, owner] of [

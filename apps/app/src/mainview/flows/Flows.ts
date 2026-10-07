@@ -22,10 +22,13 @@
  * a new namespace is one import plus one spread line here and nothing else.
  * FlowOrder.test.ts pins that order.
  */
+import { pendingControlFlows } from "./entries/controls"
+import { codeFlows } from "./entries/code"
 import type { FlowEntry } from "./registry"
 import type { CommandActions } from "./entries/Declare"
 import { accountFlows } from "./entries/account"
 import {  adminResetFlows, adminToolFlows } from "./entries/admin"
+import { modelFlows } from "./entries/model"
 import { agentFlows } from "./entries/agent"
 import { appFlows } from "./entries/app"
 import { themeFlows } from "./entries/theme"
@@ -34,7 +37,6 @@ import { approvalsFlows } from "./entries/approvals"
 import { authFlows } from "./entries/auth"
 import { billingBalanceFlows, billingPlanFlows } from "./entries/billing"
 import { branchesFlows } from "./entries/branches"
-import { commitsFlows } from "./entries/commits"
 import { browserFlows } from "./entries/browser"
 import { contextFlows } from "./entries/context"
 import { cardFlows } from "./entries/card"
@@ -49,6 +51,7 @@ import { envFlows } from "./entries/env"
 import {  filesFlows } from "./entries/files"
 import { findingsFlows } from "./entries/findings"
 import { flowFlows, flowRunStopAllFlows, flowVersionFlows } from "./entries/flow"
+import { imageFlows } from "./entries/image"
 import { todoFlows } from "./entries/todo"
 import { homeFlows } from "./entries/home"
 import { formFlows } from "./entries/form"
@@ -113,6 +116,7 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
 ]
 
 export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+  ...pendingControlFlows(actions),
   ...wikiSurfaceFlows(actions),
   ...themeFlows(actions),
   ...docsFlows(actions),
@@ -154,10 +158,11 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...secretsFlows(actions),
   ...historyFlows(actions),
   ...todoFlows(actions),
+  ...imageFlows(actions),
   ...homeFlows(actions),
   ...branchesFlows(actions),
-  ...commitsFlows(actions),
   ...filesFlows(actions),
+  ...codeFlows(actions),
   ...githubFlows(actions),
   ...reposImportRetryFlows(actions),
   ...syncFlows(actions),
@@ -168,6 +173,7 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...findingsFlows(actions),
   ...chatReloadFlows(actions),
   ...agentFlows(actions),
+  ...modelFlows(actions),
   ...formFlows(actions),
   ...repoFlows(actions),
   ...tutorialRepositoryFlows(actions),

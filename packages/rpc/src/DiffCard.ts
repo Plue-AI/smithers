@@ -29,6 +29,9 @@ export const DiffCardSchema = z.object({
   path: z.string(),
   branch: z.string(),
   against: DiffAgainstSchema,
+  last_writer: ActorSchema.optional(),
+  post_digest: z.string().optional(),
+  version: z.string().optional(),
   change: z.enum(["added", "modified", "deleted", "renamed"]),
   renamed_to: z.string().optional(),
   binary: z.object({ before_bytes: z.number().int().nonnegative(), after_bytes: z.number().int().nonnegative() })

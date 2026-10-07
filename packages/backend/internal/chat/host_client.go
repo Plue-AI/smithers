@@ -33,6 +33,9 @@ func (r *ProviderRefusal) Error() string { return "model provider refused the tu
 
 // Text is the reason the person reads, in product words.
 func (r *ProviderRefusal) Text() string {
+	if r.Code == "instructions_invalid" {
+		return "App instructions exceed the read limit."
+	}
 	who := r.Provider
 	if who == "" {
 		who = "The model provider"

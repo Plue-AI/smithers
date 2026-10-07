@@ -52,8 +52,11 @@ type Account struct {
 }
 
 type Config struct {
+	// Now controls installation-token expiration in deterministic polling rehearsals.
+	Now func() time.Time
 	// OwnerStatus injects a GitHub outage at the public account lookup boundary.
 	OwnerStatus                                          int
+	SSHKeys                                              map[string][]string
 	AppID                                                int64
 	Slug, OwnerLogin, OwnerKind                          string
 	PrivateKeyPEM, ClientID, ClientSecret, WebhookSecret string
@@ -70,6 +73,13 @@ type Write struct {
 	Status   int             `json:"status"`
 	// Permissions are those of the installation token that made the write.
 	Permissions map[string]string `json:"permissions,omitempty"`
+}
+
+// Read records a repository REST read without retaining credentials.
+type Read struct {
+	Path        string
+	IfNoneMatch string
+	Status      int
 }
 
 type Server struct {
@@ -92,6 +102,7 @@ type Server struct {
 	// (SignInAs) rather than the owner, by code.
 	signIns map[string]int64
 	writes  []Write
+	reads   []Read
 	tokens  map[string]int64
 	pulls   map[string]Pull
 	// grants are each installation token's permissions: those requested
@@ -111,10 +122,10 @@ type Server struct {
 	labels map[string][]string
 	// opened are the issues people opened (OpenIssue), with each issue's
 	// or pull request's timeline events and comments, by repo/number.
-	opened               map[string]*issue
-	events               map[string][]IssueEvent
-	comments             map[string][]IssueComment
-	eventIDs, commentIDs int64
+	opened                         map[string]*issue
+	events                         map[string][]IssueEvent
+	comments                       map[string][]IssueComment
+	eventIDs, commentIDs, issueIDs int64
 	// main holds the squash commits GitHub's main contains; held are merged
 	// commits main has not reached yet (HoldMain). In a repository the Git
 	// fixture hosts, heldTip is the newest held squash commit: the next one
@@ -208,6 +219,9 @@ func (s *Server) SetInstallationPermission(name, level string) {
 type Refusal struct {
 	Status  int
 	Message string
+	Errors  []struct {
+		Message string `json:"message"`
+	} `json:"errors,omitempty"`
 }
 
 // CheckRun is one check GitHub reports on a commit.
@@ -259,6 +273,7 @@ func (s *Server) UpdatePull(repo string, number int64, change func(*Pull)) {
 	defer s.mu.Unlock()
 	key := repo + "/" + strconv.FormatInt(number, 10)
 	p := s.pulls[key]
+	p.UpdatedAt = time.Now().UTC()
 	change(&p)
 	s.pulls[key] = p
 }
@@ -387,6 +402,7 @@ func (s *Server) merge(key string, p Pull, title, message string) (Pull, bool) {
 	now := time.Now().UTC()
 	p.Merged = true
 	p.MergedAt = &now
+	p.UpdatedAt = now
 	p.State = "closed"
 	p.MergeCommitSHA = commit
 	s.pulls[key] = p
@@ -640,6 +656,12 @@ func (s *Server) Writes() []Write {
 	return writes
 }
 
+func (s *Server) Reads() []Read {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Read(nil), s.reads...)
+}
+
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	hook := s.hooks[r.Method+" "+r.URL.Path]
@@ -684,13 +706,33 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Body: append(json.RawMessage(nil), body...), Status: status,
 			Permissions: s.grants[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]})
 	}
+	if r.Method == http.MethodGet && (strings.HasPrefix(r.URL.Path, "/repos/") || strings.HasPrefix(r.URL.Path, "/users/") && strings.HasSuffix(r.URL.Path, "/keys")) {
+		if status == http.StatusOK {
+			raw, err := json.Marshal(response)
+			if err != nil {
+				status, response = failure(http.StatusInternalServerError, "invalid fixture response")
+			} else {
+				etag := fmt.Sprintf(`"%x"`, sha256.Sum256(raw))
+				w.Header().Set("ETag", etag)
+				if r.Header.Get("If-None-Match") == etag {
+					status = http.StatusNotModified
+				}
+			}
+		}
+		s.reads = append(s.reads, Read{Path: r.URL.RequestURI(), IfNoneMatch: r.Header.Get("If-None-Match"), Status: status})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(response)
+	if status != http.StatusNotModified {
+		_ = json.NewEncoder(w).Encode(response)
+	}
 }
 
 func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 	path := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if status, response, ok := s.reviewRead(r, path); ok {
+		return status, response
+	}
 	if r.Method == http.MethodPost && len(path) == 3 && path[0] == "app-manifests" && path[2] == "conversions" {
 		if path[1] != s.config.ConversionCode || s.converted {
 			return failure(http.StatusNotFound, "manifest code not found")
@@ -711,7 +753,21 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		if s.config.OwnerKind == "org" {
 			kind = "Organization"
 		}
-		return http.StatusOK, map[string]string{"login": s.config.OwnerLogin, "type": kind}
+		return http.StatusOK, map[string]any{"id": int64(7), "login": s.config.OwnerLogin, "type": kind}
+	}
+	if r.Method == http.MethodGet && len(path) == 3 && path[0] == "users" && path[2] == "keys" {
+		known := path[1] == s.config.OwnerLogin
+		for _, login := range s.accounts {
+			known = known || strings.EqualFold(login, path[1])
+		}
+		if !known {
+			return failure(http.StatusNotFound, "GitHub user not found")
+		}
+		keys := []map[string]any{}
+		for i, key := range s.config.SSHKeys[path[1]] {
+			keys = append(keys, map[string]any{"id": i + 1, "key": key})
+		}
+		return http.StatusOK, keys
 	}
 	if r.Method == http.MethodGet && len(path) == 2 && path[0] == "users" {
 		for id, login := range s.accounts {
@@ -874,7 +930,11 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		token := fmt.Sprintf("ghs_githubfake_%d_%d", id, len(s.writes)+1)
 		s.tokens[token] = id
 		s.grants[token] = granted
-		return http.StatusCreated, map[string]any{"token": token, "expires_at": time.Now().UTC().Add(time.Hour), "permissions": granted}
+		now := time.Now()
+		if s.config.Now != nil {
+			now = s.config.Now()
+		}
+		return http.StatusCreated, map[string]any{"token": token, "expires_at": now.UTC().Add(time.Hour), "permissions": granted}
 	}
 	if r.Method == http.MethodGet && len(path) == 4 && path[0] == "repos" && path[3] == "installation" {
 		for _, installation := range s.config.Installations {
@@ -1026,20 +1086,31 @@ func (s *Server) validJWT(token string) bool {
 	return rsa.VerifyPKCS1v15(s.key, crypto.SHA256, digest[:], signature) == nil
 }
 
+// PullAuthor is the numeric GitHub account identity on a fixture PR.
+type PullAuthor struct {
+	ID    int64  `json:"id"`
+	Login string `json:"login"`
+	Type  string `json:"type"`
+}
+
 // Pull is a fixture PR receipt; all writes still pass through the App token
-// boundary and permanent write log. The fake previously served no PR API.
+// boundary and permanent write log.
 type Pull struct {
-	Repository     string     `json:"-"`
-	Number         int64      `json:"number"`
-	NodeID         string     `json:"node_id"`
-	Title          string     `json:"title"`
-	Body           string     `json:"body"`
-	State          string     `json:"state"`
-	Draft          bool       `json:"draft"`
-	Merged         bool       `json:"merged"`
-	MergedAt       *time.Time `json:"merged_at"`
-	MergeCommitSHA string     `json:"merge_commit_sha"`
-	HTMLURL        string     `json:"html_url"`
+	User           *PullAuthor `json:"user,omitempty"`
+	ID             int64       `json:"id"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	Repository     string      `json:"-"`
+	Number         int64       `json:"number"`
+	NodeID         string      `json:"node_id"`
+	Title          string      `json:"title"`
+	Body           string      `json:"body"`
+	State          string      `json:"state"`
+	Draft          bool        `json:"draft"`
+	Merged         bool        `json:"merged"`
+	MergedAt       *time.Time  `json:"merged_at"`
+	MergeCommitSHA string      `json:"merge_commit_sha"`
+	HTMLURL        string      `json:"html_url"`
 	// Mergeable and MergeableState are GitHub's computed mergeability. An
 	// empty MergeableState answers what GitHub computes for the PR as it is;
 	// UpdatePull sets one to answer it instead (unknown, dirty, blocked).
@@ -1054,6 +1125,7 @@ type Pull struct {
 	} `json:"head"`
 	Base struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha"`
 	} `json:"base"`
 	Labels []Label `json:"labels"`
 }
@@ -1098,6 +1170,20 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	if len(path) == 3 && path[0] == "issues" && r.Method == http.MethodPost && (path[2] == "labels" || path[2] == "comments") {
 		return s.issueWrite(repo, path[1], path[2], body)
 	}
+	if len(path) == 4 && path[0] == "issues" && path[2] == "labels" && r.Method == http.MethodDelete {
+		if status, response, ok := s.accessible(r, "issues", "write"); !ok {
+			return status, response
+		}
+		key := repo + "/" + path[1]
+		for i, label := range s.labels[key] {
+			if strings.EqualFold(label, path[3]) {
+				s.labels[key] = append(s.labels[key][:i], s.labels[key][i+1:]...)
+				s.event(key, "unlabeled", "", true, label)
+				return http.StatusOK, labelsOf(s.labels[key])
+			}
+		}
+		return failure(http.StatusNotFound, "label not found")
+	}
 	if status, response, ok := s.issueRequest(r, repo, path, body); ok {
 		return status, response
 	}
@@ -1106,7 +1192,8 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page > 1 {
 			runs = []CheckRun{}
 		}
-		return 200, map[string]any{"total_count": len(runs), "check_runs": runs}
+		start, end := pageBounds(r, len(runs))
+		return 200, map[string]any{"total_count": len(runs), "check_runs": runs[start:end]}
 	}
 	if r.Method == http.MethodGet && len(path) == 3 && path[0] == "commits" && path[2] == "statuses" {
 		return 200, []any{}
@@ -1144,7 +1231,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			}
 		}
 		number := s.nextNumber(repo)
-		p := Pull{Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
+		s.issueIDs++
+		now := time.Now().UTC()
+		p := Pull{ID: s.issueIDs, CreatedAt: now, UpdatedAt: now, Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
 		p.Head.Ref = input.Head
 		digest := sha256.Sum256([]byte(repo + "/" + input.Head))
 		p.Head.SHA = fmt.Sprintf("%x", digest)[:40]
@@ -1169,7 +1258,15 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				result = append(result, s.view(s.current(key)))
 			}
 		}
-		sort.Slice(result, func(i, j int) bool { return result[i].Number < result[j].Number })
+		sort.Slice(result, func(i, j int) bool {
+			if r.URL.Query().Get("sort") == "updated" && !result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+				if r.URL.Query().Get("direction") == "asc" {
+					return result[i].UpdatedAt.Before(result[j].UpdatedAt)
+				}
+				return result[i].UpdatedAt.After(result[j].UpdatedAt)
+			}
+			return result[i].Number < result[j].Number
+		})
 		start, end := pageBounds(r, len(result))
 		return 200, result[start:end]
 	}
@@ -1200,7 +1297,7 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			}
 			if refusal, ok := s.refusals[key]; ok {
 				delete(s.refusals, key)
-				return failure(refusal.Status, refusal.Message)
+				return refusal.Status, map[string]any{"message": refusal.Message, "errors": refusal.Errors}
 			}
 			if p.Merged {
 				// GitHub refuses a merge of a merged pull request.
@@ -1260,8 +1357,16 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				if *input.State != "open" && *input.State != "closed" {
 					return failure(422, "invalid pull state")
 				}
+				if p.State != *input.State {
+					kind := "reopened"
+					if *input.State == "closed" {
+						kind = "closed"
+					}
+					s.event(key, kind, "", true, "")
+				}
 				p.State = *input.State
 			}
+			p.UpdatedAt = time.Now().UTC()
 			s.pulls[key] = p
 			return 200, s.view(p)
 		}
@@ -1348,6 +1453,7 @@ func (s *Server) current(key string) Pull {
 	if p.State == "open" {
 		if head, hosted, exists := s.branchHead(p.Repository, p.Head.Ref); hosted && exists && head != p.Head.SHA {
 			p.Head.SHA = head
+			p.UpdatedAt = time.Now().UTC()
 			s.pulls[key] = p
 		}
 	}
@@ -1415,6 +1521,7 @@ func (s *Server) pullMutation(installationID int64, body []byte) (int, any) {
 			return 200, map[string]any{"errors": []map[string]string{{"message": "Pull request is closed"}}}
 		}
 		p.Draft = mutation == "convertPullRequestToDraft"
+		p.UpdatedAt = time.Now().UTC()
 		s.pulls[key] = p
 		return 200, map[string]any{"data": map[string]any{mutation: map[string]any{"pullRequest": map[string]any{"id": p.NodeID, "isDraft": p.Draft}}}}
 	}

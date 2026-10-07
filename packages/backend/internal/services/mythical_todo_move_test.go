@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -91,12 +92,16 @@ func TestTodoMoveSwapsWithTheNearestItemOnTheStack(t *testing.T) {
 	_, err = o.move(session, n[3], "down", "move-4")
 	requireTodoRefusal(t, err, http.StatusConflict, "conflict", "T3 is already last")
 	_, err = o.move(session, n[1], "down", "move-5")
-	requireTodoRefusal(t, err, http.StatusConflict, "conflict", "TODO is settled")
+	requireTodoRefusal(t, err, http.StatusConflict, "todo_transition_refused", "TODO is settled")
 	_, err = o.move(session, 99, "down", "move-6")
 	requireTodoRefusal(t, err, http.StatusNotFound, "todo_not_found", "")
 	_, err = o.service.ControlTodo(mythicalRunContext(context.Background(), o.userID), n[2], TodoControlInput{Op: "move", Direction: "down",
 		Repository: o.repoID, Actor: o.userID, Request: "move-7"})
-	requireTodoRefusal(t, err, http.StatusForbidden, "permission", "Only a person moves a TODO")
+	var access *AccessError
+	require.ErrorAs(t, err, &access)
+	require.Equal(t, http.StatusForbidden, access.Status)
+	require.Equal(t, "permission", access.Class)
+	require.Equal(t, "permission", access.Code)
 	require.Equal(t, []int64{n[4], n[2], n[3]}, o.stackOrder(), "no refused move changed the order")
 
 	// A TODO moves down past a failed one too.
@@ -292,15 +297,32 @@ func TestTodoMoveConcurrentPressesSerialize(t *testing.T) {
 		require.Equal(t, TodoControlReceipt{State: "accepted", Place: 2}, receipt)
 	}
 	require.Equal(t, []int64{n[0], n[2], n[1]}, o.stackOrder())
+	// Hold the common placement lock until both presses have read the old
+	// revision. Exactly one may change that revision.
+	tx, err := o.pool.Begin(session)
+	require.NoError(t, err)
+	_, err = tx.Exec(session, `SELECT pg_advisory_xact_lock($1)`, o.repoID)
+	require.NoError(t, err)
 	errs = make(chan error, 2)
 	for _, request := range []string{"a", "b"} {
-		go func() {
-			_, err := o.move(session, n[1], "up", request)
-			errs <- err
-		}()
+		go func() { _, err := o.move(session, n[1], "up", request); errs <- err }()
 	}
+	require.Eventually(t, func() bool {
+		var waiting int
+		err := o.pool.QueryRow(session, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory'`).Scan(&waiting)
+		return err == nil && waiting == 2
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, tx.Commit(session))
+	wins, conflicts := 0, 0
 	for range 2 {
-		require.NoError(t, <-errs)
+		if err := <-errs; err == nil {
+			wins++
+		} else {
+			requireTodoRefusal(t, err, http.StatusConflict, "conflict", "TODO moved; try again")
+			conflicts++
+		}
 	}
-	require.Equal(t, []int64{n[1], n[0], n[2]}, o.stackOrder(), "two whole swaps, one after the other")
+	require.Equal(t, 1, wins)
+	require.Equal(t, 1, conflicts)
+	require.Equal(t, []int64{n[0], n[1], n[2]}, o.stackOrder())
 }

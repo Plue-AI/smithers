@@ -126,3 +126,12 @@ describe("Smithers has exactly one actor encoding: the smithers agent participan
     })
   })
 })
+
+test("retained check logs accept install paths and refuse executable or foreign-origin paths", () => {
+  const check = { kind: "check", name: "build", state: "passed" }
+  const path = `/api/todos/1/attempts/2/logs/${"a".repeat(64)}`
+  expect(EvidenceItemSchema.parse({ ...check, log_url: path })).toEqual({ ...check, log_url: path })
+  for (const log_url of ["//evil.test/log", "/\\evil.test/log", "javascript:alert(1)", "/api/log\n"]) {
+    expect(EvidenceItemSchema.safeParse({ ...check, log_url }).success).toBe(false)
+  }
+})

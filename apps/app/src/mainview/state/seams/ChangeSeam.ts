@@ -70,8 +70,7 @@ export interface ChangeSeam {
   readonly sinceMyReview: (changeId: string, repo?: string) => Outcome
   /** `change.checks <changeId> <seq>`: the Checks facet's revision picker. */
   readonly checksAt: (changeId: string, seq: number, repo?: string) => Outcome
-  /** `change.land <changeId>`: land the carrying landing request (queued). */
-  readonly landChange: (changeId: string, repo?: string) => Outcome
+  /** Internal Plue landing; no app flow or card exposes this operation. */
   /** `change.resolve <changeId> <path>`: dispatch an agent session on the conflict; a degraded sign-in can't. */
   readonly resolveConflict: (changeId: string, path: string, repo?: string) => Outcome
   /** The card's body tab; hidden, card-button scoped. */
@@ -1332,75 +1331,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     }
   }
 
-  /*
-   * Walk run 3, C3-N8: the land door read the repository's landing requests,
-   * sent no land, and left nothing on screen. Its refusal WAS written — to a
-   * toast that leaves after four seconds — so a door that acted on nothing
-   * looked like a door that did nothing, and the next session could not read
-   * back what it had said. A land that lands or queues renders its own card;
-   * a land that refuses states the reason where the person is still looking.
-   */
-  const landChange: ChangeSeam["landChange"] = async (changeId, repo) => {
-    const current = captureCloudOwner(ctx, false)
-    const answer = await land(changeId, repo)
-    if (typeof answer === "string" && current()) ctx.dispatch({ type: "message.appended", actor: "system", text: answer })
-    return answer
-  }
-
-  const land: ChangeSeam["landChange"] = async (changeId, repo) => {
-    const refusal = gate()
-    if (refusal !== undefined) return refusal
-    const current = captureCloudOwner(ctx)
-    const resolved = resolveRepo(changeId, repo)
-    if ("error" in resolved) return resolved.error
-    const repoId = resolved.repo
-    const landingRead = await loadLanding(repoId, changeId)
-    if (!current()) return SIGN_OUT_REFUSAL
-    if ("unread" in landingRead) {
-      return `The landing requests of ${repoId} weren't read (${landingRead.unread}) — nothing was landed.`
-    }
-    if (landingRead.value === null) {
-      return `No landing request carries ${changeId} on ${repoId}.`
-    }
-    const { landing, position } = landingRead.value
-    const size = landing.changeIds.length
-    const top = landing.changeIds[size - 1] ?? changeId
-    /*
-     * PUT /landings/{n}/land lands the request's WHOLE stack. A prefix land
-     * from a mid-stack change ("lands 1 → 2") has no route even with
-     * landable_prefix read (#452 states the count, not a partial land), so a
-     * mid-stack change refuses and names the blast radius, and the top
-     * change's land states the full scope in its own line — never a silent
-     * over-land.
-     */
-    if (position < size) {
-      return `Land all ${size} changes from ${top}.`
-    }
-    /* plue lands a request only while it is open or failed (landing.go LandLandingRequest). */
-    if (landing.state !== "open" && landing.state !== "failed") {
-      return `Landing request #${landing.number} is ${landing.state}. Only open or failed requests can land.`
-    }
-    /*
-     * The land names the commit it lands (ADR 0003: the server refuses a land
-     * whose commit no longer matches), so the change is re-read for its
-     * current commit right before the PUT — never a commit from an older card.
-     */
-    const loaded = await loadChange(repoId, changeId, current)
-    if ("error" in loaded) return `${changeId} couldn't be re-read before landing (${loaded.error}) — nothing was landed.`
-    if (!current()) return SIGN_OUT_REFUSAL
-    if (loaded.change.commitId === null) return `${changeId} carries no commit id to land at — nothing was landed.`
-    const queued = await sendJson("PUT", repoPath(repoId, `/landings/${landing.number}/land`), { commit_id: loaded.change.commitId })
-    if (!current() && "error" in queued) return SIGN_OUT_REFUSAL
-    if ("error" in queued) return queued.error
-    /*
-     * 202/200: the land is QUEUED, never a terminal claim the platform hasn't
-     * made. The re-read renders the state the platform answers; the line
-     * names the scope the PUT covered.
-     */
-    const scope = size <= 1 ? `${changeId} alone` : `1 → ${size} together (${landing.changeIds.join(", ")})`
-    return mutationResult(repoId, changeId, `Landing request #${landing.number} is queued — it lands ${scope}; the card tracks it.`, {}, null, current)
-  }
-
   const resolveConflict: ChangeSeam["resolveConflict"] = async (changeId, path, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
@@ -1581,7 +1511,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     setPins,
     sinceMyReview,
     checksAt,
-    landChange,
     resolveConflict,
     setFacet,
     threadDone: transitionThread("done"),

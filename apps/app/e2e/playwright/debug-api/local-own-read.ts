@@ -7,6 +7,12 @@ import { dirname, join, resolve } from "node:path"
 import { parse } from "yaml"
 import { strict as assert } from "node:assert"
 import fixtures from "./role-cases.fixture.json"
+import operations from "../../../src/debugApi/install-operations.fixture.json"
+import { chromium, expect } from "@playwright/test"
+import { fillComposer } from "../composer"
+import { createAppController } from "../../../src/mainview/state/AppController"
+import { createAppStore } from "../../../src/mainview/state/AppStore"
+import { memoryStorage, silentAgent } from "../../../src/mainview/state/TestFixtures"
 
 const outputDir = process.argv[2]!
 const rootDir = resolve("../..")
@@ -57,13 +63,14 @@ try {
   let activeCookie = cookie
   const csrf = createHash("sha256").update("c-ui-10-csrf").digest("hex")
   const origin = session.modeConfig.origin
+  const releaseDocument = () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument
   let requests = 0
   const sentCookies: string[] = []
-  const seam = createDebugApiSeam({ origin, document: async () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument,
+  const seam = createDebugApiSeam({ origin, document: async () => releaseDocument(),
     gates: () => ({ view: true, catalog: true, authorizer: true }),
-    fetch: (url, init) => { requests++; const headers = new Headers(init.headers); headers.set("cookie", `${activeCookie ? `smithers_session=${activeCookie}; ` : ""}__csrf=${csrf}`); headers.set("X-CSRF-Token", csrf); sentCookies.push(headers.get("cookie")!); return fetch(url, { ...init, headers }) } })
+    fetch: (url, init) => { requests++; const headers = new Headers(init.headers); headers.set("cookie", `${activeCookie ? `smithers_session=${activeCookie}; ` : ""}__csrf=${csrf}`); headers.set("X-CSRF-Token", csrf); headers.set("Origin", origin); sentCookies.push(headers.get("cookie")!); return fetch(url, { ...init, headers }) } })
   try {
-    if (selectedCase === "read") {
+    if (selectedCase === "read" || selectedCase === "browser") {
       await seam.open(fixtures.read.operationId)
       assert.equal(requests, 0)
       await seam.send({ intent: "send", operationId: fixtures.read.operationId })
@@ -75,11 +82,116 @@ try {
       const curl = command(["curl", "--silent", "--show-error", "--fail", "--cookie", `smithers_session=${cookie}`, `${origin}/api/todos`])
       assert.deepEqual(JSON.parse(curl), fixtures.read.body)
       console.log("C-UI-10 REAL READ PASS: Member GET /api/todos; literal []; independent curl session comparison")
+      if (selectedCase === "browser") {
+        const browser = await chromium.launch({ headless: true })
+        try {
+          const context = await browser.newContext()
+          await context.addCookies([{ name: "smithers_session", value: cookie, url: origin }])
+          const page = await context.newPage()
+          // Observe the playground's redirect-blocking transport while leaving
+          // the native fetch and real response untouched. The live TODO provider
+          // also reads this URL when Chat changes; those reads are independent.
+          await page.addInitScript(() => {
+            const observed = window as unknown as { debugApiReads: number }
+            observed.debugApiReads = 0
+            const nativeFetch = window.fetch.bind(window)
+            window.fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => {
+              const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
+              if (init?.redirect === "error" && url.pathname === "/api/todos") observed.debugApiReads++
+              return nativeFetch(input, init)
+            }, window.fetch)
+          })
+          const browserReads = () => page.evaluate(() => (window as unknown as { debugApiReads: number }).debugApiReads)
+          await page.goto(origin)
+          await expect.poll(async () => await page.getByTestId("composer-input").isVisible() ||
+            await page.getByRole("button", { name: "Chat", exact: true }).isVisible(), { timeout: 60_000 }).toBe(true)
+          await fillComposer(page, "/help")
+          await page.keyboard.press("Enter")
+          const help = page.getByRole("article", { name: "Commands", exact: true })
+          await help.getByText("Advanced", { exact: true }).click()
+          await help.getByRole("button", { name: /debug-api/ }).click()
+          const card = page.getByRole("article", { name: "Debug API", exact: true })
+          await expect(card).toBeVisible({ timeout: 60_000 })
+          const shown = await card.getByRole("navigation", { name: "Operations" }).locator("button code").allTextContents()
+          assert.deepEqual(shown.sort(), operations.map(operation => `${operation.method} ${operation.path}`).sort())
+          const beforeSelection = await browserReads()
+          await card.getByRole("button", { name: /^GET \/api\/todos(?: |$)/ }).click()
+          assert.equal(await browserReads(), beforeSelection)
+          await expect(card.getByRole("region", { name: "Exchange" })).toHaveCount(0)
+          await card.getByRole("button", { name: "Send", exact: true }).click()
+          await expect(card.getByText(/200 ·/)).toBeVisible({ timeout: 60_000 })
+          assert.equal(await browserReads(), beforeSelection + 1)
+          await card.getByRole("button", { name: /^PUT \/api\/secrets PUT/ }).click()
+          assert.deepEqual(await card.locator("input:not([type=hidden]), textarea").evaluateAll(elements => elements.map(element =>
+            Array.from(document.querySelectorAll("label")).find(label => label.htmlFor === element.id)?.textContent?.trim())), ["JSON"])
+          await fillComposer(page, "/debug-api get_api_todos")
+          await page.keyboard.press("Enter")
+          await expect(card.getByRole("button", { name: /^GET \/api\/todos(?: |$)/ })).toHaveAttribute("aria-pressed", "true")
+          assert.equal(await browserReads(), beforeSelection + 1)
+          await expect(page.getByTestId("composer-input")).toBeEnabled()
+          writeFileSync(join(outputDir, "browser.role-receipt.json"), `${JSON.stringify({ revision, layer: "CardRenderers browser against real backend and PostgreSQL", operations: shown.length, requestsOnSelection: 0, readStatus: 200 }, null, 2)}\n`)
+          console.log("C-UI-10 REAL BROWSER PASS")
+        } finally { await browser.close() }
+      }
+    } else if (selectedCase.startsWith("guard-")) {
+      const missing = selectedCase.slice(6)
+      assert.ok(missing === "catalog" || missing === "authorizer" || missing === "view")
+      const gates = { catalog: true, authorizer: true, view: true }
+      const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+      let playgroundRequests = 0
+      activeCookie = miaCookie
+      const controller = createAppController(store, silentAgent, {
+        openApi: async () => releaseDocument(), debugApiOrigin: origin, debugApiGates: () => gates,
+        fetchImpl: (url, init) => {
+          if (init?.redirect === "error") playgroundRequests++
+          const headers = new Headers(init?.headers)
+          headers.set("cookie", `smithers_session=${activeCookie}; __csrf=${csrf}`)
+          headers.set("X-CSRF-Token", csrf); headers.set("Origin", origin)
+          return fetch(new URL(String(url), origin), { ...init, headers })
+        }
+      })
+      const values = { body: JSON.stringify(fixtures.write.body) }
+      const send = JSON.stringify({ intent: "send", operationId: fixtures.write.operationId, values })
+      const count = () => sql(`SELECT count(*) FROM repository_secrets WHERE repository_id=${repo.id}`)
+      const settle = async (ready: () => boolean) => {
+        for (let n = 0; n < 200 && !ready(); n++) await Bun.sleep(10)
+        assert.ok(ready(), "controller background action settled")
+      }
+      try {
+        assert.equal(count(), "0")
+        gates[missing] = false
+        assert.deepEqual(Object.entries(gates).filter(([, available]) => !available).map(([name]) => name), [missing])
+        assert.equal((await controller.runCommandForResult("debug-api", fixtures.write.operationId)).status, "failed")
+        assert.equal(store.collections.cards.has("debug-api"), false)
+        assert.equal((await controller.runCommandForResult("debug.api", send)).status, "failed")
+        assert.equal(playgroundRequests, 0)
+        assert.equal(count(), "0")
+        gates[missing] = true
+        assert.equal((await controller.runCommandForResult("debug-api", fixtures.write.operationId)).status, "executed")
+        await settle(() => store.collections.cards.has("debug-api"))
+        assert.equal((await controller.runCommandForResult("debug.api", send)).status, "executed")
+        await settle(() => !!controller.debugApi.get().confirmation)
+        const confirmation = controller.debugApi.get().confirmation
+        gates[missing] = false
+        assert.equal((await controller.runCommandForResult("debug.api", JSON.stringify({ intent: "confirm", operationId: fixtures.write.operationId, values, confirmation }))).status, "failed")
+        assert.equal(playgroundRequests, 0)
+        assert.equal(count(), "0", "revoked dependency blocks an already mounted card and pending mutation")
+        gates[missing] = true
+        await controller.runCommandForResult("debug.api", send)
+        await settle(() => !!controller.debugApi.get().confirmation)
+        await controller.runCommandForResult("debug.api", JSON.stringify({ intent: "confirm", operationId: fixtures.write.operationId, values, confirmation: controller.debugApi.get().confirmation }))
+        await settle(() => !!controller.debugApi.get().model.exchange && !controller.debugApi.get().busy)
+        assert.equal(controller.debugApi.get().model.exchange?.response?.status, 201)
+        assert.equal(playgroundRequests, 1)
+        assert.equal(count(), "1", "positive control proves the same live transport can mutate SQL")
+        writeFileSync(join(outputDir, "guard.role-receipt.json"), `${JSON.stringify({ revision, layer: "production app dispatcher and DebugApiSeam against real install HTTP and PostgreSQL", missing, refusedRequests: 0, refusedRows: 0, positiveControlStatus: 201, positiveControlRows: 1 }, null, 2)}\n`)
+        console.log(`C-UI-10 REAL GUARD PASS: ${missing}`)
+      } finally { await controller.dispose() }
     } else if (selectedCase === "signout") {
       await seam.open(fixtures.signout.operationId)
       assert.equal(requests, 0, "Opening and selecting sends nothing")
       const logout = await fetch(`${origin}/api/auth/logout`, { method: "POST", headers: {
-        cookie: `smithers_session=${cookie}; __csrf=${csrf}`, "X-CSRF-Token": csrf
+        cookie: `smithers_session=${cookie}; __csrf=${csrf}`, "X-CSRF-Token": csrf, Origin: origin
       } })
       assert.equal(logout.status, 204)
       assert.ok(logout.headers.get("set-cookie")?.includes("smithers_session="))
@@ -110,7 +222,7 @@ try {
       assert.equal(selectedCase, "write")
       const count = () => sql(`SELECT count(*) FROM repository_secrets WHERE repository_id=${repo.id}`)
       assert.equal(count(), "0")
-      const values = { "path:owner": repo.owner, "path:repo": repo.name, body: JSON.stringify(fixtures.write.body) }
+      const values = { body: JSON.stringify(fixtures.write.body) }
       await seam.open(fixtures.write.operationId)
       assert.equal(requests, 0)
       await seam.send({ intent: "send", operationId: fixtures.write.operationId, values })
@@ -138,7 +250,8 @@ try {
         body: JSON.parse(exchange.response!.body), failure: exchange.failure, rows: Number(count()) } }
       writeFileSync(join(outputDir, "write.role-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`)
       console.log(`C-UI-10 REAL WRITE OBSERVED: ${JSON.stringify(receipt)}`)
-      assert.equal(benExchange.failure?.class, "permission", "Ben's real backend error class")
+      assert.deepEqual(JSON.parse(benExchange.response!.body), fixtures.write.denied, "Ben's literal role refusal, rather than a transport refusal")
+      assert.deepEqual(benExchange.failure, { ...fixtures.write.denied, status: 403 })
       assert.equal(exchange.response?.status, 201, "Mia's real backend response")
       assert.equal(exchange.failure, undefined)
       const metadata = JSON.parse(exchange.response!.body)

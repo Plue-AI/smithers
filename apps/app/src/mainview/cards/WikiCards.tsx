@@ -1,3 +1,4 @@
+import { Markdown } from "@smthrs/ui/markdown"
 import { ViewSkeleton } from "../ViewSkeleton"
 import { KnowledgeGraphSurface } from "../ViewModules"
 import { flowAction } from "../flows/FlowAction"
@@ -162,7 +163,7 @@ export const WikiHistoryCardBody = ({ card, onRunCommand }: { readonly card: Wik
         <span className="world-card-path" data-testid="wiki-history-path">{path}</span>
         <span className="wiki-space-chip" data-space={space}>{space}</span>
       </div>
-      {revisions.length === 0 ? <p className="world-card-empty">No revisions yet</p> : (
+      {card.payload.content !== undefined ? <div data-testid="wiki-pinned-content" data-revision={card.payload.content.revision}><Markdown content={card.payload.content.markdown} /></div> : revisions.length === 0 ? <p className="world-card-empty">No revisions yet</p> : (
         <ol className="search-results-items" aria-label="Revisions">
           {revisions.map((row) => (
             <li key={row.revision} className="search-results-item" data-testid={`wiki-revision-${row.revision}`} data-deleted={row.deleted || undefined}>

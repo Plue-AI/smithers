@@ -24,7 +24,7 @@ test("A-FLOW-EDIT: mounted controls", async ({ page }) => {
   await owner(page)
   await page.goto("/")
   await say(page, "/flow.edit todo Run pnpm test")
-  await expect(page.getByLabel("Title", { exact: true }).last()).toHaveValue("Change the TODO flow: Run pnpm test")
+  await expect(page.getByRole("textbox", { name: "Title", exact: true }).last()).toHaveValue("Change the TODO flow: Run pnpm test")
   await expect(page.getByRole("textbox", { name: "Prompt", exact: true }).last()).toHaveValue("Change flows/todo/flow.ts: Run pnpm test; start from the built-in composition when no override exists")
   await page.keyboard.press("Control+k")
   await expect(page.getByTestId("composer-input")).toBeEditable()
@@ -32,13 +32,16 @@ test("A-FLOW-EDIT: mounted controls", async ({ page }) => {
 
 // Written before implementation: mvp.md Appendix A, J5.2, Form law; lands with T-FLW-05, T-APP-05
 test("A-FLOW-EDIT: Edit prefills the flow name", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md Appendix A, J5.2, Form law; lands with T-FLW-05, T-APP-05")
   await owner(page)
   await page.goto("/")
   await say(page, "/flow todo")
   await page.getByRole("region", { name: "TODO flow", exact: true }).last().getByRole("button", { name: "Edit", exact: true }).press("Enter")
-  await expect(page.getByLabel("Flow", { exact: true }).last()).toHaveValue("todo")
+  // The form asks only for the missing request; its result proves the given flow name survives.
+  await expect(page.getByRole("textbox", { name: "Flow", exact: true })).toHaveCount(0)
   await page.getByLabel("Request", { exact: true }).last().fill("Run pnpm test")
-  await page.getByRole("button", { name: "Submit", exact: true }).last().press("Enter")
-  await expect(page.getByLabel("Title", { exact: true }).last()).toHaveValue("Change the TODO flow: Run pnpm test")
+  await page.getByLabel("Request", { exact: true }).last().press("Tab")
+  const submit = page.getByRole("button", { name: "Submit", exact: true }).last()
+  await expect(submit).toBeEnabled()
+  await submit.click()
+  await expect(page.getByRole("textbox", { name: "Title", exact: true }).last()).toHaveValue("Change the TODO flow: Run pnpm test")
 })

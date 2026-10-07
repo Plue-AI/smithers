@@ -1,3 +1,8 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { ControllerTestProvider } from "../ControllerContext"
+import { renderCardBody } from "../cards/CardRenderers"
+import { viewerAdmitted, type CatalogItem } from "./registry"
 import { stubCommandActions } from "./StubCommandActions"
 /*
  * Commands.ts at the host boundary (docs/web-mode/PLAN.md §1, §3).
@@ -25,6 +30,7 @@ import { createAppController } from "../state/AppController"
 import type { AppServices } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
 import { flow, NoPayload } from "./entries/Declare"
+import { settle } from "../state/TestFixtures"
 import { invokeStartupRecovery } from "./StorageRecoveryFlow"
 
 const memoryStorage = (): StorageApi => {
@@ -71,10 +77,10 @@ describe("commands from a maximized card", () => {
     test(`${origin} origin decides presentation independently of the flow name`, async () => {
       const { store, controller } = await freshController()
       try {
-        await controller.commands.run("agent.list")
+        await controller.commands.run("agents")
         const card = [...store.collections.cards.values()].find(card => card.kind === "agents")!
         await controller.commands.run("card.maximize", card.id)
-        const outcome = await controller.commands.run("agent.list", "", undefined,
+        const outcome = await controller.commands.run("agents", "", undefined,
           origin === "self" ? card.id : origin === "other" ? "other-card" : undefined)
         expect(outcome.status).toBe("executed")
         expect(store.session().maximizedCardId).toBe(origin === "self" ? card.id : null)
@@ -85,12 +91,12 @@ describe("commands from a maximized card", () => {
   test("a structured submission preserves only its originating maximized card", async () => {
     const { store, controller } = await freshController()
     try {
-      await controller.commands.run("agent.list")
+      await controller.commands.run("agents")
       const card = [...store.collections.cards.values()].find(card => card.kind === "agents")!
       await controller.commands.run("card.maximize", card.id)
-      expect((await controller.commands.submit({ name: "agent.list", payload: {}, actor: "user", originCardId: card.id })).status).toBe("executed")
+      expect((await controller.commands.submit({ name: "agents", payload: {}, actor: "user", originCardId: card.id })).status).toBe("executed")
       expect(store.session().maximizedCardId).toBe(card.id)
-      expect((await controller.commands.submit({ name: "agent.list", payload: {}, actor: "user" })).status).toBe("executed")
+      expect((await controller.commands.submit({ name: "agents", payload: {}, actor: "user" })).status).toBe("executed")
       expect(store.session().maximizedCardId).toBeNull()
     } finally { await controller.dispose() }
   })
@@ -106,7 +112,7 @@ describe("Chat slash presentation transport (#3348)", () => {
   }
   const maximized = async () => {
     const fixture = await freshController()
-    await fixture.controller.commands.run("agent.list")
+    await fixture.controller.commands.run("agents")
     const card = [...fixture.store.collections.cards.values()].find(card => card.kind === "agents")!
     await fixture.controller.commands.run("card.maximize", card.id)
     return { ...fixture, card }
@@ -144,12 +150,12 @@ describe("Chat slash presentation transport (#3348)", () => {
     })
   }
 
-  for (const line of ["/agent.list", "a plain prompt", "/missing-command", "/INPUT.mode vim", "/input.mode"]) {
+  for (const line of ["/agents", "a plain prompt", "/missing-command", "/INPUT.mode vim", "/input.mode"]) {
     test(`Chat retains existing transcript behavior for ${line}`, async () => {
       const { store, controller } = await maximized()
       try {
         expect((await controller.commands.run("chat.send", line)).status).toBe("executed")
-        if (line === "/agent.list") await settledCommand(store, "agent.list", 1)
+        if (line === "/agents") await settledCommand(store, "agents", 1)
         if (line === "/input.mode") await settledCommand(store, "input.mode")
         expect(store.session().maximizedCardId).toBeNull()
         if (line === "/input.mode") {
@@ -277,17 +283,18 @@ describe("trace argument redaction", () => {
           snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false }),
           noteCommandRun: () => {},
           traceFlow: (record) => { records.push(record) },
+          presentCard: async () => "settings",
           setEnvironmentVar: async (...input) => { received.push(input); return `Invalid ${args}` },
           setFormField: async (...input) => { received.push(input); return `Invalid ${args}` },
           submitForm: async (...input) => { received.push(input); return { value: "Saved VALUE=ordinary words" } }
         })
         const commands = createCommandRegistry(actions)
         await commands[invoker](name!, args)
-        expect(received).toHaveLength(1)
+        expect(received).toHaveLength(invoker === "runAsAgent" && name === "env.set" ? 0 : 1)
         expect(records).toHaveLength(1)
         expect(records[0]?.args).toBe(expected!)
         expect(records[0]?.detail).toBe("[REDACTED]")
-        if (name === "env.set") expect(received[0]?.[0]).toBe(args!.replace(/ owner\/repo$/, ""))
+        if (name === "env.set" && invoker === "run") expect(received[0]?.[0]).toBe(args!.replace(/ owner\/repo$/, ""))
         if (name === "form.set") expect(received[0]?.[2]).toBe(args!.split(/\s+/).slice(2).join(" "))
       })
     }
@@ -351,5 +358,140 @@ describe("notifications.allow stays dark until its providers are mounted", () =>
       else Reflect.deleteProperty(globalThis, "Notification")
       await controller.dispose()
     }
+  })
+})
+
+
+describe("Commands catalog through the production dispatcher (T-UI-14)", () => {
+  const input: ReadonlyArray<CatalogItem> = [
+    { name: "todo.amend", summary: "Change a TODO", args: "Tn", group: "todo", visibility: "core", actors: ["person"], minimumRole: "member", agent: "confirm" },
+    { name: "members", summary: "Manage people", group: "chat", visibility: "core", actors: ["person"], minimumRole: "maintainer", agent: "never" },
+    { name: "release-notes", summary: "Write release notes", group: "flow", visibility: "core", actors: ["person"], minimumRole: "member", agent: "run" },
+    { name: "monitor", summary: "Watch runs", group: "runs", visibility: "advanced", actors: ["person"], minimumRole: "member", agent: "run" },
+    { name: "secret", summary: "Hidden", group: "chat", visibility: "hidden", actors: ["person"], minimumRole: "member", agent: "run" },
+    { name: "todo.preapprove", summary: "In card", group: "todo", visibility: "in-card", actors: ["person"], minimumRole: "member", agent: "never" },
+    { name: "no-policy", summary: "Missing policy", group: "chat", visibility: "core", actors: ["person"], minimumRole: "member" },
+    { name: "no-role", summary: "Missing role", group: "chat", visibility: "core", actors: ["person"], agent: "run" },
+    { name: "no-actors", summary: "Missing actors", group: "chat", visibility: "core", minimumRole: "member", agent: "run" },
+    { name: "unknown", summary: "Missing visibility" }
+  ]
+  const handlers: Parameters<typeof renderCardBody>[1] = {
+    presentation: "embedded", onDecideApproval: () => {}, onConnectGitHub: () => {},
+    onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [],
+    onChangeWorldDocument: () => {}, onRunCommand: () => { throw new Error("listing executed a command") }
+  }
+  const invoke = async (fixture: Awaited<ReturnType<typeof freshController>>, slash: boolean) => {
+    const { controller, store } = fixture
+    const before = [...store.collections.commandIntents.values()].filter(row => row.name === "help" && row.status === "settled").length
+    const outcome = await controller.commands.submit({ name: slash ? "chat.send" : "help", payload: slash ? { text: "/help" } : {}, actor: "user" })
+    if (slash) {
+      const deadline = Date.now() + 3000
+      while ([...store.collections.commandIntents.values()].filter(row => row.name === "help" && row.status === "settled").length <= before) {
+        if (Date.now() > deadline) throw new Error("/help did not settle")
+        await new Promise(resolve => setTimeout(resolve, 1))
+      }
+    }
+    return outcome
+  }
+  const mountedCard = (fixture: Awaited<ReturnType<typeof freshController>>) => {
+    const cards = [...fixture.store.collections.cards.values()].filter(card => card.kind === "commands")
+    expect(cards).toHaveLength(1)
+    return renderToStaticMarkup(createElement(ControllerTestProvider, { controller: fixture.controller,
+      children: renderCardBody(cards[0]!, handlers) }))
+  }
+  for (const role of ["member", "maintainer"] as const) for (const slash of [false, true]) {
+    test(`${role} ${slash ? "chat.send /help" : "help"} mounts one live card without a Markdown catalog`, async () => {
+      const fixture = await freshController()
+      const provider = spyOn(fixture.controller.commands, "viewerCatalog").mockImplementation(() => viewerAdmitted({ ...fixture.controller.commands.state(), viewerRole: role }, input))
+      try {
+        expect((await invoke(fixture, slash)).status).toBe("executed")
+        const html = mountedCard(fixture)
+        expect(html).toContain("/todo.amend Tn")
+        expect(html).toContain("Asks first")
+        expect(html).toContain("/release-notes")
+        expect(html).toContain("Write release notes")
+        expect((html.match(/command-policy/g) ?? []).length).toBe(role === "member" ? 1 : 2)
+        expect(html.includes("Only you")).toBe(role === "maintainer")
+        expect(html.includes("/members")).toBe(role === "maintainer")
+        expect(html).toContain('<summary>Advanced</summary>')
+        for (const excluded of ["/secret", "/todo.preapprove", "/unknown", "/no-policy", "/no-role", "/no-actors"]) expect(html).not.toContain(excluded)
+        expect([...fixture.store.collections.messages.values()].filter(row => row.role === "smithers")).toHaveLength(0)
+        await invoke(fixture, slash)
+        mountedCard(fixture)
+      } finally { provider.mockRestore(); await fixture.controller.dispose() }
+    })
+  }
+  test("unavailable projection refuses without output and recovers on the next invocation", async () => {
+    const fixture = await freshController()
+    const provider = spyOn(fixture.controller.commands, "viewerCatalog").mockReturnValue(undefined)
+    try {
+      expect(await invoke(fixture, false)).toMatchObject({ status: "failed", error: "Commands unavailable" })
+      await invoke(fixture, true)
+      expect([...fixture.store.collections.cards.values()].filter(card => card.kind === "commands")).toHaveLength(0)
+      expect([...fixture.store.collections.messages.values()].filter(row => row.role === "smithers")).toHaveLength(0)
+      provider.mockImplementation(() => viewerAdmitted({ ...fixture.controller.commands.state(), viewerRole: "member" }, input))
+      await invoke(fixture, true)
+      expect(mountedCard(fixture)).not.toContain("/members")
+    } finally { provider.mockRestore(); await fixture.controller.dispose() }
+  })
+  test("install /help reads real membership and never uses the disabled design seed", async () => {
+    let unavailable = false, suspended = false, reads = 0
+    const fixture = await freshController({ ...WEB, capabilities: ["install"], authFlow: "none" }, {
+      fetchImpl: async request => {
+        if (!String(request).endsWith("/api/members")) return new Response("", { status: 404 })
+        reads++
+        return unavailable ? new Response("", { status: 503 }) : Response.json({ members: [
+          { login: "will", name: "Will", avatar_url: "https://avatars.githubusercontent.com/u/1", color_index: 0,
+            role: "owner", needs_access: false, suspended, actions: [] }
+        ], access_url: "https://github.com/smithersai/smithers/settings/access" })
+      }
+    })
+    try {
+      await fixture.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+      expect(fixture.controller.commands.viewerCatalog()).toBeUndefined()
+      expect((await fixture.controller.commands.run("help")).status).toBe("executed")
+      expect(reads).toBeGreaterThan(0)
+      expect(mountedCard(fixture)).toContain("/help")
+      expect(fixture.controller.commands.state().viewerRole).toBe("owner")
+      suspended = true
+      expect(await fixture.controller.commands.run("help")).toMatchObject({ status: "failed", error: "Commands unavailable" })
+      expect(fixture.controller.commands.viewerCatalog()).toBeUndefined()
+      unavailable = true
+      expect(await fixture.controller.commands.run("help")).toMatchObject({ status: "failed", error: "Commands unavailable" })
+      suspended = false; unavailable = false
+      expect((await fixture.controller.commands.run("help")).status).toBe("executed")
+      expect(mountedCard(fixture)).toContain("/help")
+    } finally { await fixture.controller.dispose() }
+  })
+  test("the real repository projection supplies live inert /help rows without invoking a flow", async () => {
+    const fixture = await freshController(WEB, { fetchImpl: async () => new Response("", { status: 404 }) })
+    try {
+      await fixture.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+      await fixture.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "o/r", org: "o", name: "r", ownerKind: "user", head: null }] }).isPersisted.promise
+      await fixture.store.dispatch({ type: "repo.selected", actor: "user", id: "o/r" }).isPersisted.promise
+      await settle()
+      await fixture.store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "o/r", flows: [
+        { id: "release-notes", description: "Write release notes", summary: "Live repository summary", featured: false, model: null, modelInvocable: true },
+        { id: "private-tool", description: "<img src=x onerror=alert(1)>", summary: null, featured: false, model: null, modelInvocable: false }
+      ] }).isPersisted.promise
+      await invoke(fixture, true)
+      const html = mountedCard(fixture)
+      expect(html).toContain("/release-notes [owner/repo] [JSON object]")
+      expect(html).toContain("Live repository summary")
+      expect(html).toContain("/private-tool")
+      expect(html).toContain("Only you")
+      expect(html).not.toContain("<img")
+      expect(fixture.controller.commands.slashItems("release-notes").map(item => item.flow.name)).toEqual(["release-notes"])
+      expect([...fixture.store.collections.cards.values()].filter(card => card.kind === "run")).toHaveLength(0)
+      expect([...fixture.store.collections.commandIntents.values()].map(row => row.name)).not.toContain("release-notes")
+    } finally { await fixture.controller.dispose() }
+  })
+  test("the real registry supplies /help and rejects its replaced name", async () => {
+    const fixture = await freshController()
+    try {
+      expect((await fixture.controller.commands.run("help")).status).toBe("executed")
+      expect(mountedCard(fixture)).toContain("/help")
+      expect((await fixture.controller.commands.run("chat.commands")).status).toBe("unknown-command")
+    } finally { await fixture.controller.dispose() }
   })
 })

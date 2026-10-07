@@ -1,3 +1,4 @@
+import * as Yaml from "yaml"
 import { afterAll, describe, expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
 import { readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -8,7 +9,8 @@ const shell = readFileSync(new URL("cloud.sh", import.meta.url), "utf8")
 const github = readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
 // The per-commit drift workflow GitHub keeps beside ci.yml (#2484).
 const drift = readFileSync(new URL("../../.github/workflows/drift.yml", import.meta.url), "utf8")
-const runs = (yaml: string) => Array.from(yaml.matchAll(/run: "(pnpm exec [^"]+)"/g), ([, command]) => command!)
+const runs = (yaml: string): string[] => Object.values(Yaml.parse(yaml).jobs as Record<string, { steps: Array<{ run?: string }> }>).
+  flatMap(({ steps }) => steps.flatMap(({ run }) => run?.startsWith("pnpm exec ") ? [run.replace(/ --results-file "[^"]+"/g, "")] : []))
 const nodeVersion = readFileSync(new URL("../../.node-version", import.meta.url), "utf8")
 const section = (from: string, to: string) => shell.slice(shell.indexOf(from), shell.indexOf(to))
 const toolsBlock = section("gate_tools() {", "bootstrap_for() {")
@@ -397,8 +399,9 @@ describe("Local CI gate runner", () => {
       "ensure_jj() { echo BOOTSTRAP-jj; }",
       "ensure_foundry() { echo BOOTSTRAP-foundry; }",
       "ensure_rust() { echo BOOTSTRAP-rust; }",
-      // jsdocTree fails, and so does the first of the docs gate's three commands.
-      "pnpm() { echo \"RAN $*\"; case \"$*\" in *jsdocTree*|*//apps/docs/...*) return 3 ;; esac; }",
+      "ensure_postgres() { echo BOOTSTRAP-postgres; }",
+      // Both documentation gates fail to exercise group failure reporting.
+      "pnpm() { echo \"RAN $*\"; case \"$*\" in *jsdocTree*|*packageDocs*) return 3 ;; esac; }",
       // The tui gate's native helper fails to build.
       "rustup() { echo \"RAN rustup $*\"; }",
       "cargo() { echo \"RAN cargo $*\"; return 4; }",
@@ -412,17 +415,16 @@ describe("Local CI gate runner", () => {
     const run = (...args: string[]) =>
       spawnSync("bash", ["scripts/ci/cloud.group-probe.tmp.sh", ...args], { cwd: root, encoding: "utf8" })
 
-    test("the real docs lane contains only the package docs target", () => {
+    test("the real docs lane checks published package content", () => {
       const result = run("docs")
-      const targets = Array.from(result.stdout.matchAll(/^RAN exec smthrs ci (\S+)/gm), ([, target]) => target)
-      expect(targets).toEqual(["//apps/docs/..."])
+      expect(result.stdout).toContain("RAN exec smthrs test //scripts:packageDocs")
     })
 
     test("bootstraps the union of the group's toolchains exactly once", () => {
       const result = run("group", "workspace", "script-lint", "rust-test", "server")
       expect(result.error).toBeUndefined()
       expect(result.status).toBe(0)
-      for (const tool of ["js", "jj", "foundry", "rust"]) {
+      for (const tool of ["js", "jj", "foundry", "rust", "postgres"]) {
         expect(result.stdout.match(new RegExp(`^BOOTSTRAP-${tool}$`, "gm"))?.length).toBe(1)
       }
       // JS first: every other installer runs pnpm or needs the checkout ready.

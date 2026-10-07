@@ -68,9 +68,10 @@ func TestScorecardMissingCoveragePostgres(t *testing.T) {
 	require.NoError(t, err)
 	defer observed.Close()
 	ctx := context.Background()
-	// Table presence and even rows are not evidence of the new producer contract.
-	_, err = pool.Exec(ctx, `CREATE TABLE burst_files (id text); INSERT INTO burst_files VALUES ('unqualified');`)
-	require.NoError(t, err)
+	// The real migrated tables are not evidence of producer coverage.
+	var present bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT to_regclass('public.burst_files') IS NOT NULL`).Scan(&present))
+	require.True(t, present)
 	from := time.Date(2026, 10, 4, 6, 30, 0, 0, time.UTC)
 	service := &ScorecardService{Pool: observed}
 	first, err := service.Summary(ctx, from, from.Add(14*24*time.Hour))

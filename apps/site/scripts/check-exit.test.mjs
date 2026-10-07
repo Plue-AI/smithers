@@ -4,11 +4,11 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
-import { sites } from "../../docs/shared/manifest.mjs"
+import { sites } from "../../../scripts/package-docs.mjs"
 
 const site = join(dirname(fileURLToPath(import.meta.url)), "..")
 const repo = join(site, "..", "..")
@@ -22,6 +22,13 @@ const withCopy = (fn) => {
   }
 }
 const copy = (root, rel) => cpSync(join(repo, rel), join(root, rel), { recursive: true })
+const copyPackageRoster = (root) => {
+  copy(root, "scripts/package-docs.mjs")
+  copy(root, "scripts/workspace-packages.mjs")
+  copy(root, "pnpm-workspace.yaml")
+  copy(root, "apps/site/scripts/package-doc-links.mjs")
+  symlinkSync(join(repo, "node_modules"), join(root, "node_modules"), "dir")
+}
 const check = (root, script) =>
   spawnSync(process.execPath, [join(root, "apps/site/scripts", script), "--check"], { encoding: "utf8", stdio: "pipe" })
 
@@ -30,7 +37,7 @@ test("generate-llms --check names the stale file and the fix command", () => {
     for (const rel of ["scripts/generate-llms.mjs", "scripts/docs-text.mjs", "src/content/docs/docs", "src/data", "public/llms.txt", "public/llms-full.txt"]) {
       copy(root, join("apps/site", rel))
     }
-    copy(root, "apps/docs/shared/manifest.mjs")
+    copyPackageRoster(root)
     for (const entry of sites) copy(root, join(entry.dir, "package.json"))
     const generate = spawnSync(process.execPath, [join(root, "apps/site/scripts/generate-llms.mjs")], { encoding: "utf8", stdio: "pipe" })
     assert.equal(generate.status, 0, generate.stderr)
@@ -47,7 +54,7 @@ test("sync-api-docs --check names the stale page and the fix command", () => {
   withCopy((root) => {
     copy(root, "apps/site/scripts/sync-api-docs.mjs")
     copy(root, "apps/site/scripts/docs-text.mjs")
-    copy(root, "apps/docs/shared")
+    copyPackageRoster(root)
     copy(root, "apps/site/src/content/docs/docs/reference/api")
     // Only each package's manifest and api.md are inputs; copy just those.
     const walk = (dir) => {
@@ -68,6 +75,8 @@ test("sync-api-docs --check names the stale page and the fix command", () => {
       }
     }
     walk(join(repo, "packages"))
+    const generated = spawnSync(process.execPath, [join(root, "apps/site/scripts/sync-api-docs.mjs")], { encoding: "utf8" })
+    assert.equal(generated.status, 0, generated.stderr)
     assert.equal(check(root, "sync-api-docs.mjs").status, 0, "the copied tree starts clean")
     appendFileSync(join(root, "apps/site/src/content/docs/docs/reference/api/agent.mdx"), "stale\n")
     const result = check(root, "sync-api-docs.mjs")
@@ -80,7 +89,7 @@ test("sync-api-docs --check names the stale page and the fix command", () => {
 test("ingest-reference --check names the stale page and the fix command", () => {
   withCopy((root) => {
     copy(root, "apps/site/scripts/ingest-reference.mjs")
-    copy(root, "apps/docs/shared")
+    copyPackageRoster(root)
     copy(root, "apps/site/src/content/docs/docs/reference")
     // The docs manifest reads every package's manifest; the ingested sources are three docs trees.
     const walk = (dir) => {
@@ -116,7 +125,6 @@ test("no check ends with process.exit()", () => {
   for (const script of [
     "check-docs.mjs",
     "gen-cli-data.mjs",
-    "gen-examples.mjs",
     "generate-llms.mjs",
     "generate-project-copy.mjs",
     "ingest-reference.mjs",

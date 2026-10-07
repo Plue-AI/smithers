@@ -6,9 +6,9 @@
 import { Schema } from "effect"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
-import { flow, type CommandActions, type CommandResult } from "./Declare"
-import type { Grammar } from "../SlashPayload"
-import { activeTraces, traceNamed } from "../../state/seams/DesignWorld/run"
+import { flow, type CommandActions } from "./Declare"
+import { carriedPayload, type Grammar } from "../SlashPayload"
+import { activeTraces } from "../../state/seams/DesignWorld/run"
 
 /** The `runs` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = {
@@ -28,28 +28,28 @@ const runGrammar: Grammar = args => {
 
 /** The `runs` flows registered as one aggregator block. */
 export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
-  /*
-   * The Run card doors (T-FLW-07): `/run` opens the card, `/run.inspect` is
-   * Inspect (the card maximized), `/runs` opens every run still going. MOCK:
-   * they read the seeded design world (state/seams/DesignWorld/run.ts) until
-   * topic `run:<id>` and /api/runs land; the handlers then read those.
-   */
-  const open = async (id: string, maximize: boolean): Promise<CommandResult> => {
-    const trace = traceNamed(actions.design.world(), id)
-    if (trace === undefined) return `No run ${id}`
-    return { value: await actions.presentRun(trace.id, trace.title, maximize) }
-  }
+  // The doors share the install's authenticated run topic, retained preflight
+  // evidence, and the design provider outside an install.
   return [
-  flow({ name: "runs", summary: "Active and attention-needing runs", input: Schema.Struct({}),
+  flow({ name: "run.view", summary: "Select a run detail", args: "<JSON view>", grammar: carriedPayload("run.view"),
+    input: Schema.Struct({ cardId: Schema.String, selected: Schema.optional(Schema.String),
+      at: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+      tab: Schema.optional(Schema.Literals(["run", "journal", "custom"])) }),
+    handler: ({ cardId, ...patch }) => actions.setRunView(cardId, patch) }),
+  flow({ name: "monitor", summary: "Every run, with its debug view", slash: "/monitor", cli: ["monitor"],
+    group: "Advanced", journey: ["J11"], visibility: "advanced", actors: ["person", "app_agent", "external_agent"],
+    minimumRole: "member", agent: "run", http: { method: "GET", path: "/api/runs" },
+    input: Schema.Struct({}), handler: () => actions.listRunMonitors() }),
+  flow({ name: "runs",   slash: "/runs", cli: ["runs","list"], journey: ["J4"], group: "Runs", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs"}, summary: "Active and attention-needing runs", agent: "run", input: Schema.Struct({}),
     handler: async () => {
       const traces = activeTraces(actions.design.world())
       for (const trace of traces) await actions.presentRun(trace.id, trace.title, false)
       return { value: traces.length === 0 ? "No active runs" : `${traces.length} active ${traces.length === 1 ? "run" : "runs"}` }
     } }),
-  flow({ name: "run", summary: "Open a run's card", args: "<id>", grammar: runGrammar,
-    input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => open(id, false) }),
-  flow({ name: "run.inspect", summary: "Open a run's monitor", args: "<id>", grammar: runGrammar,
-    input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => open(id, true) }),
+  flow({ name: "run",   slash: "/run", cli: ["runs","show"], journey: ["J4"], group: "Runs", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}"}, summary: "Open a run's card", args: "<id>", grammar: runGrammar,
+    agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.openRunMonitor(id, false) }),
+  flow({ name: "run.inspect",   slash: "/run.inspect", cli: ["run","inspect"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}"}, summary: "Open a run's monitor", args: "<id>", grammar: runGrammar,
+    agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.openRunMonitor(id, true) }),
   flow({
     name: "runs.attention",
     summary: "Show pending approvals and parked or failed runs on this repository",
@@ -120,11 +120,11 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     /* Continue answers a runaway guard's park: the workspace resumes the run on the approval. */
-    name: "runs.continue",
+    name: "runs.continue", visibility: "in-card",
     summary: "Approve a runaway guard's request, which resumes the run",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: "approvals belong to the human",
+    agent: "never" as const,
+    agentReason: "approvals belong to the human",
     runtime: ["cloud"],
     args: "[sourceCard=id] <runId> <requestId>",
     requires: ["signed-in"],
@@ -143,7 +143,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, sourceCard }) => actions.rerunRun(runId, sourceCard)
   }),
   flow({
-    name: "runs.signal", hidden: true, discloseToAgent: false,
+    name: "runs.signal", visibility: "in-card", hidden: true, discloseToAgent: false,
     confirm: "release the run's wait with a signal",
     summary: "Deliver a named signal to a waiting run",
     runtime: ["cloud"],
@@ -155,16 +155,6 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
       payload: Schema.optional(Schema.String)
     }),
     handler: ({ runId, name, payload, sourceCard }) => actions.signalRun(runId, name, payload, sourceCard)
-  }),
-  flow({
-    name: "runs.steer",
-    confirm: "steer the running agent",
-    summary: "Send an operator message into a running run",
-    runtime: ["cloud"],
-    args: "[sourceCard=id] <runId> <message>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, body: Schema.String }),
-    handler: ({ runId, body, sourceCard }) => actions.steerRun(runId, body, sourceCard)
   }),
   flow({
     name: "runs.logs",
@@ -197,19 +187,19 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
    * already on the card.
    */
   flow({
-    name: "runs.trace.filter",
-    summary: "Filter a run's trace: all, running, failed, model, flow, forks or messages",
+    name: "runs.trace.filter", visibility: "in-card",
+    summary: "Filter a run's trace: all, running, failed, model, flow or messages",
     runtimeAny: ["cloud"],
     hidden: true,
-    args: "[sourceCard=id] <runId> <all|running|failed|model|flow|forks|messages>",
+    args: "[sourceCard=id] <runId> <all|running|failed|model|flow|messages>",
     input: Schema.Struct({
       sourceCard: Schema.optional(Schema.String), runId: Schema.String,
-      filter: Schema.Literals(["all", "running", "failed", "model", "flow", "forks", "messages"])
+      filter: Schema.Literals(["all", "running", "failed", "model", "flow", "messages"])
     }),
     handler: ({ runId, filter, sourceCard }) => actions.traceFilter(runId, filter, sourceCard)
   }),
   flow({
-    name: "runs.trace.select",
+    name: "runs.trace.select", visibility: "in-card",
     summary: "Select a node of a run's trace, optionally scrubbing to a journal seq",
     runtimeAny: ["cloud"],
     hidden: true,
@@ -218,7 +208,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, nodeId, seq, sourceCard }) => actions.traceSelect(runId, nodeId, seq, sourceCard)
   }),
   flow({
-    name: "runs.coding.select",
+    name: "runs.coding.select", visibility: "in-card",
     summary: "Inspect or collapse a predicted Change in a coding run",
     runtimeAny: ["cloud"],
     hidden: true,
@@ -227,7 +217,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, changeId, sourceCard }) => actions.selectCodingChange(runId, changeId, sourceCard)
   }),
   flow({
-    name: "runs.trace.view",
+    name: "runs.trace.view", visibility: "in-card",
     summary: "Show a run's turn explanations, full execution timeline, graph, step list or DevTools in its embedded card",
     runtimeAny: ["cloud"],
     hidden: true,
@@ -237,7 +227,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     /* Pan and zoom stay userOnly gestures (AGENTS.md:35); which node the camera chases is a fact on the card. */
-    name: "runs.graph.follow",
+    name: "runs.graph.follow", visibility: "in-card",
     summary: "Keep a run graph's camera on the running node, or let it be",
     runtimeAny: ["cloud"],
     hidden: true,
@@ -247,7 +237,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     /* The run forest (RunForest.ts): open a child execution in place, or none to return to the run's own. */
-    name: "runs.graph.execution",
+    name: "runs.graph.execution", visibility: "in-card",
     summary: "Draw one execution of a run's forest on its graph, or the run's own",
     runtimeAny: ["cloud"],
     hidden: true,
@@ -256,7 +246,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, executionId, sourceCard }) => actions.graphExecution(runId, executionId, sourceCard)
   }),
   flow({
-    name: "runs.trace.live",
+    name: "runs.trace.live", visibility: "in-card",
     summary: "Return a run's trace to its latest recorded turn",
     runtimeAny: ["cloud"],
     hidden: true,

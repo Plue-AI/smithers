@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
@@ -180,10 +181,10 @@ func (s *MythicalService) currentMembership(ctx context.Context, item db.Mythica
 
 // mythicalCommandAuthorization: the system publishes a TODO's own change and
 // closes its pull request; it never merges. A merge is authorized only by a
-// person's browser session, or a Land that session recorded (M-05, M-39).
+// person's browser session or its attributed approval (M-05, M-39).
 func mythicalCommandAuthorization(ctx context.Context, item db.MythicalItem, kind string) error {
 	switch kind {
-	case "push", "open", "body":
+	case "push", "open", "body", "draft":
 		if item.Source != "todo" && item.Source != "issue" {
 			return errors.New("only a TODO's own change is published to GitHub")
 		}
@@ -196,10 +197,10 @@ func mythicalCommandAuthorization(ctx context.Context, item db.MythicalItem, kin
 		if mergeSession(middleware.AuthInfoFromContext(ctx)) {
 			return nil
 		}
-		if land := mythicalChecksOf(item).Land; land != nil && land.Session != "" {
+		if approval := mythicalMergeApproval(item); approval != nil && (approval.Session != "" || approval.StandingUser != 0) {
 			return nil
 		}
-		return errors.New("a person merges a TODO; Smithers never merges on its own")
+		return &TodoControlError{Status: 403, Code: "permission", Class: "permission", Message: "a person merges a TODO; Smithers never merges on its own"}
 	}
 	return fmt.Errorf("GitHub operation %q is not authorized", kind)
 }
@@ -215,7 +216,7 @@ func (s *MythicalService) acceptedGeneration(ctx context.Context, item db.Mythic
 		return errors.New("the TODO changed while its GitHub operation was prepared")
 	}
 	switch kind {
-	case "push", "open", "body":
+	case "push", "open", "body", "draft":
 		if persisted.State == "cancelled" || persisted.State == "dropped" || mythicalSettledStates[persisted.State] {
 			return errors.New("the TODO is " + persisted.State)
 		}
@@ -309,6 +310,19 @@ func mythicalTodoEvidenceText(item db.MythicalItem) (string, string) {
 	var lines []string
 	if mythicalPlanNamesNoChecks(item) {
 		lines = append(lines, "- No checks found")
+	}
+	var recordedPlan struct {
+		Checks []struct {
+			ID string `json:"id"`
+		} `json:"checks"`
+	}
+	if json.Unmarshal(item.Plan, &recordedPlan) == nil {
+		for _, check := range recordedPlan.Checks {
+			if check.ID == "build-only" {
+				lines = append(lines, "- no checks detected")
+				break
+			}
+		}
 	}
 	review := ""
 	for _, entry := range currentTodoEvidence(item).Items {
@@ -431,6 +445,7 @@ func (st *mythicalItemStep) shape(ctx context.Context, item db.MythicalItem) (my
 		return mythicalPRShape{}, err
 	}
 	shape.First, shape.FirstNumber, shape.Included = true, mythicalItemNumber(item), nil
+	manifest := &mythicalMergedManifest{Included: []mythicalManifestItem{}}
 	base := ""
 	if st.r != nil {
 		base = st.r.mainTip
@@ -447,8 +462,15 @@ func (st *mythicalItemStep) shape(ctx context.Context, item db.MythicalItem) (my
 		}
 		if earlier.CandidateVerified && earlier.CandidateHead != "" && earlier.CandidateBase == base {
 			shape.Included = append(shape.Included, mythicalPRIncluded{Number: mythicalItemNumber(earlier), URL: earlier.PRURL})
+			manifest.Included = append(manifest.Included, mythicalCandidateIdentity(earlier))
 			base = earlier.CandidateHead
 		}
+	}
+	// Only a verified candidate rooted in this exact prefix can attest inclusion.
+	// Publication rewrites its parent onto main, so retain the candidate identity
+	// separately from the actual published head.
+	if item.CandidateVerified && item.CandidateHead != "" && item.CandidateBase == base {
+		shape.Manifest = manifest
 	}
 	if st.r != nil && item.CandidateHead != "" && st.fetchCandidate(ctx, item) == nil {
 		if stat, err := st.r.g.git(ctx, "diff", "--shortstat", "--no-ext-diff", "--no-textconv", st.prefix(item), item.CandidateHead); err == nil {
@@ -514,6 +536,19 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 		return pull.HeadSHA, false, nil
 	case "merge":
 		return st.s.mergeLookup(ctx, gh, item, op)
+	case "draft":
+		number, err := strconv.ParseInt(op.Target, 10, 64)
+		if err != nil {
+			return "", false, err
+		}
+		pull, err := st.s.github.Pull(ctx, gh, number)
+		if err != nil {
+			return "", false, err
+		}
+		if pull.State != "open" {
+			return "closed", false, nil
+		}
+		return strconv.FormatBool(pull.Draft), false, nil
 	case "body":
 		number, err := strconv.ParseInt(op.Target, 10, 64)
 		if err != nil {
@@ -533,12 +568,23 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 		if err != nil {
 			return "", false, fmt.Errorf("invalid pull request number %q", op.Target)
 		}
+		reader, ok := st.s.github.(interface {
+			AppliedClose(context.Context, mythicalGitHubRepo, int64, time.Time) (bool, error)
+		})
+		drop := mythicalChecksOf(item).Dropped
+		if !ok || drop == nil {
+			return "", false, errors.New("Waiting for canonical App close-event reconciliation")
+		}
+		applied, err := reader.AppliedClose(ctx, gh, number, drop.At)
+		if err != nil {
+			return "", false, err
+		}
 		pull, err := st.s.github.Pull(ctx, gh, number)
 		if err != nil {
 			return "", false, err
 		}
-		// GitHub answers a merged pull request closed too.
-		return pull.State, false, nil
+		// Preserve current state separately from proof of the earlier close.
+		return pull.State, applied, nil
 	}
 	return "", false, fmt.Errorf("GitHub %s reconciliation is not composed", op.Kind)
 }
@@ -553,6 +599,8 @@ func mythicalBodyDigest(body string) string {
 // errMythicalBodyStale: the body a "body" operation was prepared with is not
 // the body the item renders now, so nothing is sent and the gate prepares
 // it again.
+var errMythicalPlacementStale = errors.New("the TODO placement changed since its draft update was prepared")
+
 var errMythicalBodyStale = errors.New("the pull request body changed since its update was prepared")
 
 // appSend repeats an operation whose lookup proved it never took effect: a
@@ -568,6 +616,40 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 		return st.pushProposal(ctx, item, gh, mythicalProposalOp{Branch: op.Target, Expected: op.Precondition, Head: op.Desired})
 	case "open":
 		return st.createPull(ctx, item, gh, op.Target)
+	case "draft":
+		number, err := strconv.ParseInt(op.Target, 10, 64)
+		if err != nil || !item.PRNumber.Valid || number != item.PRNumber.Int64 {
+			return errors.New("draft target changed")
+		}
+		shape, err := st.acceptedShape(ctx, item, mythicalChecksOf(item).Branch)
+		if err != nil {
+			return err
+		}
+		if !shape.DraftsAvailable || op.Desired != strconv.FormatBool(!shape.First) {
+			return errMythicalPlacementStale
+		}
+
+		pull, err := st.s.github.Pull(ctx, gh, number)
+		if err != nil {
+			return err
+		}
+		if pull.State != "open" || pull.HeadSHA != item.PRHead {
+			return errors.New("draft head changed")
+		}
+		writer, ok := st.s.github.(interface {
+			MarkReadyForReview(context.Context, mythicalGitHubRepo, string) error
+			ConvertToDraft(context.Context, mythicalGitHubRepo, string) error
+		})
+		if !ok {
+			return &mythicalPRUnavailable{}
+		}
+		if op.Desired == "true" {
+			return writer.ConvertToDraft(ctx, gh, pull.NodeID)
+		}
+		if op.Desired != "false" {
+			return errors.New("invalid desired draft state")
+		}
+		return writer.MarkReadyForReview(ctx, gh, pull.NodeID)
 	case "body":
 		// The operation carries only the body's digest: the body is rendered
 		// again from the item, and sent only if it is the one prepared.
@@ -638,22 +720,48 @@ func (st *mythicalItemStep) prepareMerge(ctx context.Context, item db.MythicalIt
 // proposed head, records a written body or a closed pull request, and lands
 // a merge once main contains it; a push settles from lookup alone.
 func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
+	if op.Kind == "draft" {
+		next := item
+		checks := mythicalChecksOf(next)
+		checks.PRDraft = op.Desired == "true"
+		first := !checks.PRDraft
+		checks.PRFirst = &first
+		next.Checks = checks.encode()
+		return next, nil
+	}
 	if op.Kind == "body" {
-		// Lookup found the body written: it is the one Smithers last wrote,
-		// and it carries the current head's verdict.
+		// Lookup confirms the old digest, even if a newer verdict arrived
+		// while its response was held. Only that matching verdict is posted.
 		next := item
 		checks := mythicalChecksOf(next)
 		checks.PRBody = op.Desired
+		checks.PRBodyDeclined = ""
 		if checks.Review != nil && checks.Review.Head == next.PRHead {
-			checks.Review.Posted = true
+			shape, err := st.acceptedShape(ctx, item, checks.Branch)
+			if err == nil {
+				_, body, renderErr := shape.render()
+				checks.Review.Posted = renderErr == nil && mythicalBodyDigest(body) == op.Desired
+			}
 		}
 		next.Checks = checks.encode()
 		return next, nil
 	}
 	if op.Kind == "close" {
-		// Lookup found the dropped TODO's pull request closed.
+		// The close may have applied before a person reopened it. Project
+		// GitHub's current state without sending another close.
+		gh, err := st.publicationGitHub(ctx)
+		if err != nil {
+			return item, err
+		}
+		pull, err := st.s.github.Pull(ctx, gh, item.PRNumber.Int64)
+		if err != nil {
+			return item, err
+		}
 		next := item
-		next.PRState = "closed"
+		next.PRState = pull.State
+		// The pre-Drop follow deadline cannot postpone the fresh post-close
+		// observation that admits a person's reopen.
+		next.NextAttemptAt.Valid = false
 		return next, nil
 	}
 	if op.Kind != "open" && op.Kind != "merge" {

@@ -608,6 +608,18 @@ describe("application client controlled HTTP units", () => {
 })
 
 describe("application identity and owner contract units", () => {
+  test("private topic identity comes from the selected backend's numeric member ID", async () => {
+    const client = createApplicationClient(target("web-selfhost"), { pageOrigin,
+      fetchImpl: async () => Response.json({ id: 42, username: "owner" }) })
+    await expect(client.identity.current()).resolves.toEqual({ memberId: 42, username: "owner", admin: false, scopes: null })
+  })
+
+  test.each([0, -1, 1.5, "42", null, Number.MAX_SAFE_INTEGER + 1])("invalid member ID %p refuses identity", async id => {
+    const client = createApplicationClient(target("web-selfhost"), { pageOrigin,
+      fetchImpl: async () => Response.json({ id, username: "owner" }) })
+    expect(await clientError(client.identity.current())).toMatchObject({ code: "invalid-response" })
+  })
+
   test.each([
     { name: "omitted", body: { username: "owner" }, expected: { username: "owner", admin: false, scopes: null } },
     { name: "empty", body: { username: "owner", token_scopes: [] }, expected: { username: "owner", admin: false, scopes: "degraded" } },
@@ -758,4 +770,22 @@ describe("application client owned browser cookie units", () => {
     expect(await clientError(client.stream("https://foreign.example.test/api/read"))).toMatchObject({ code: "invalid-target", message: "Application credentials cannot be sent outside the selected backend origin." })
     expect(calls).toBe(0)
   })
+})
+
+
+test("install browser starts agent turns with cookies and never resolves a turn bearer", async () => {
+  let tokenReads = 0
+  const client = createApplicationClient(target("web-selfhost"), {
+    pageOrigin,
+    token: () => { tokenReads++; return "host-only-turn-bearer" },
+    fetchImpl: async (_input, init) => {
+      expect(init?.credentials).toBe("include")
+      expect(new Headers(init?.headers).get("Authorization")).toBeNull()
+      expect(new Headers(init?.headers).get("Smithers-Via")).toBeNull()
+      expect(JSON.stringify(init)).not.toContain("host-only-turn-bearer")
+      return Response.json({ id: "turn-1", state: "requested" })
+    }
+  })
+  await client.request("/api/agent/turn", { method: "POST", body: JSON.stringify({ prompt: "Read the retry code" }) })
+  expect(tokenReads).toBe(0)
 })

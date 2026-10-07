@@ -1,7 +1,6 @@
 import { preparedView, type ViewAction, type ViewResult, invalidatePreparedViews } from "../PreparedView"
 import { readRepositoryDetail } from "../RepositoryReadReceipts"
 import { readRepositoryListError, repositoryListRead, type RepositoryForm } from "./RepositoryListSeam"
-import { publishRepoView, repoPaneCard } from "../EmbeddedHistory"
 /*
  * The landings seam ("PRs"): /api/repos/{owner}/{repo}/landings* through the
  * product Worker's platform proxy. Landing a PR QUEUES it (202 Accepted) — the
@@ -25,7 +24,6 @@ export interface LandingsSeam {
   readonly setTab: (cardId: string, tab: "conversation" | "commits" | "checks" | "files") => Promise<string | void>
   readonly listLandings: ViewAction<[repo?: string]>
   readonly viewLanding: ViewAction<[number: number, repo?: string]>
-  readonly landLanding: (number: number, repo?: string) => Promise<string | void>
   /**
    * One pull request as the context a review flow reads (the Review a PR
    * app, `prs.triage`): its title, description, state, author, commits and
@@ -561,66 +559,6 @@ export const createLandingsSeam = (ctx: SeamContext, renderRepositoryForm?: Repo
       if ("error" in target) return target.error
       return readRepositoryDetail(ctx, target.repo, "pr", number, () => landingView(number, target.repo))
     }, { preload: landingView.preload }),
-
-    landLanding: async (number, repoArg) => {
-      const target = resolveTargetRepo(ctx.store, repoArg)
-      if ("error" in target) return target.error
-      const repo = target.repo
-      /*
-       * plue's land names the commit it lands (LandLandingRequestInput
-       * `commit_id`, required; the server refuses a land whose commit no
-       * longer matches — ADR 0003). The request's tip change is read for its
-       * current commit right before the PUT; a tip that can't be read lands
-       * nothing.
-       */
-      const tip = await fetchTipCommit(repo, number)
-      if ("error" in tip) return tip.error
-      let response: Response
-      try {
-        response = await ctx.http(`${landingsUrl(repo)}/${number}/land`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ commit_id: tip.commitId })
-        })
-      } catch {
-        return `Pull request #${number} couldn't be queued to land — the platform didn't answer.`
-      }
-      if (!response.ok) {
-        return readErrorMessage(response, `Pull request #${number} couldn't be queued to land.`)
-      }
-      // 202/200: the land is QUEUED. The card states the platform-returned
-      // post-enqueue state (or "queued"); a re-read fills in the rest.
-      const landed = parseLandingDetail(await response.json().catch(() => undefined))
-      const state = landed?.state ?? "queued"
-      const refreshError = await surfaceLanding(repo, number, state)
-      if (typeof refreshError !== "string") return
-      // The land itself succeeded, so a failed re-read must not report
-      // failure. State the queued truth from the land answer plus whatever
-      // the transcript already knows about this PR. The detail may be the
-      // repository pane's current location rather than a card of its own.
-      const pane = repoPaneCard(ctx, repo)
-      const existing = pane !== undefined && pane.kind === "pr" && pane.payload.number === number ? pane : ctx.store.collections.cards.get(`pr-${repo}-${number}`)
-      const kept = existing !== undefined && existing.kind === "pr" ? existing.payload : undefined
-      const title = landed?.title ?? kept?.title ?? `Pull request #${number}`
-      await publishRepoView(ctx, {
-        id: `pr-${repo}-${number}`,
-        kind: "pr",
-        title: `#${number} ${title} · ${repo}`,
-        status: "active",
-        createdAt: Date.now(),
-        ordinal: ctx.nextOrdinal(),
-        payload: {
-          repo,
-          number,
-          title,
-          state,
-          author: landed?.author ?? kept?.author ?? null,
-          prBody: landed?.body ?? kept?.prBody ?? "",
-          reviews: kept?.reviews ?? [],
-          checks: kept?.checks ?? []
-        }
-      })
-    },
 
     reviewLanding: async (number, type, body, repoArg) => {
       const target = resolveTargetRepo(ctx.store, repoArg)

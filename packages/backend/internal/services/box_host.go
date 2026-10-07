@@ -305,7 +305,7 @@ func (s *WorkspaceService) replaceMissingBoxLocked(ctx context.Context, row db.W
 	if err != nil {
 		return err
 	}
-	createCtx, err := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "replace"))
+	createCtx, err := s.workspaceStartContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "replace"))
 	if err != nil {
 		return err
 	}

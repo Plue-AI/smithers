@@ -11,7 +11,7 @@ import { Effect, Schema } from "effect"
 import { FlowCancellation } from "../FlowCancellation"
 import { FlowGesture, type CommandGesture } from "../CommandGesture"
 import type { AppBootstrap, RuntimeCapability } from "@smthrs/rpc/AppBootstrap"
-import { NoInput, type Operation, type OperationPayload } from "@smthrs/ui/app-operations"
+import { operation, NoInput, type Operation, type OperationPayload } from "@smthrs/ui/app-operations"
 import type { AppController } from "../../state/AppController"
 import { lostActRefusal } from "../../state/BrowserWriteFailure"
 import type { CommandState, FlowEntry, FlowMetadata } from "../registry"
@@ -34,6 +34,8 @@ export type CommandActions =
   & Omit<
     AppController,
     | "store"
+    // Document resources are card data, never command actions.
+    | "fileDocuments"
     // Control focus is the composition root's DOM-owned projection, never a flow's act.
     | "controlFocus"
     | "formFocus"
@@ -132,11 +134,11 @@ export type Handler<I extends OperationPayload> = (payload: I["Type"], signal: A
 /**
  * Everything one registered flow declares, in one literal: the shared
  * operation (`@smthrs/ui/app-operations`) plus the GUI's handler. Every
- * `userOnly` flow states its `userOnlyReason`; flows/agent-parity.test.ts
+ * `userOnly` flow states its `agentReason`; flows/agent-parity.test.ts
  * enumerates them.
  */
 export interface Declaration<I extends OperationPayload> extends AppOperation<I>, FlowMetadata {
-  readonly preflight?: (payload: I["Type"]) => string | undefined | Promise<string | undefined>
+  readonly preflight?: (payload: I["Type"], invoker?: "user" | "agent" | "system") => string | undefined | Promise<string | undefined>
   /** The call identity is available for destination-side idempotency. */
   readonly prepare?: (payload: I["Type"]) => void | Promise<void>
   readonly handler: Handler<I>
@@ -149,11 +151,11 @@ export interface Declaration<I extends OperationPayload> extends AppOperation<I>
  * carries the argument hint; `metadata.summary` stays the human's catalog copy.
  */
 export const flow = <I extends OperationPayload>(declaration: Declaration<I>): FlowEntry => {
-  const { name, input, handler, prepare, preflight, userOnly, ...metadata } = declaration
+  const { name, input, handler, prepare, preflight, ...metadata } = operation(declaration)
   const described = metadata.args === undefined ? metadata.summary : `${metadata.summary} (args: ${metadata.args})`
   let binding: FlowEntry["binding"] | undefined
   return {
-    preflight: preflight === undefined ? undefined : payload => preflight(Schema.decodeUnknownSync(input)(payload)),
+    preflight: preflight === undefined ? undefined : (payload, invoker) => preflight(Schema.decodeUnknownSync(input)(payload), invoker),
     prepare: prepare === undefined ? undefined : async (payload) => {
       const decoded = Schema.decodeUnknownSync(input)(payload)
       await prepare(decoded)
@@ -170,7 +172,7 @@ export const flow = <I extends OperationPayload>(declaration: Declaration<I>): F
           input,
           output: Ack
         }),
-        modelInvocable: userOnly !== true,
+        modelInvocable: metadata.agent !== "never",
         /*
          * A returned refusal is the handler's own words and travels as it is.
          * A THROWN one used to render as nothing, which reached the person as

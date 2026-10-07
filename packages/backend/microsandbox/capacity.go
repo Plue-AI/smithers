@@ -57,7 +57,13 @@ func (r *Runtime) releaseAuxVM(name string) {
 	defer r.mu.Unlock()
 	delete(r.auxVMs, name)
 	delete(r.auxCleanup, name)
-	r.detachAdmissionMachineLocked(name, false)
+	release := false
+	for _, h := range r.admission {
+		if h.machine == name && !h.releasing.IsZero() {
+			release = true
+		}
+	}
+	r.detachAdmissionMachineLocked(name, release)
 }
 
 func (r *Runtime) finishAuxVM(name string) error {

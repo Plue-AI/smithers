@@ -124,6 +124,10 @@
     "./adapters/code-editor": {
       "types": "./src/adapters/code-editor/index.tsx",
       "default": "./src/adapters/code-editor/index.tsx"
+    },
+    "./app-operations/controls": {
+      "types": "./src/app-operations/controls.ts",
+      "default": "./src/app-operations/controls.ts"
     }
   },
   "files": [

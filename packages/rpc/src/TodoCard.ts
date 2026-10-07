@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod"
+import { LessonsReceiptSchema } from "./ProposalCard.ts"
 import { ActionSchema } from "./CardAction.ts"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 import {
@@ -57,6 +58,11 @@ export const TodoCardSchema = z.object({
   state: TodoStateSchema,
   owner: PersonRefSchema,
   owner_removed: z.boolean().optional(),
+  flow_version: z.object({
+    flow_name: z.string(),
+    source_commit: z.string().regex(/^[a-f0-9]{40}$/),
+    digest: z.string().regex(/^[a-f0-9]{64}$/)
+  }).optional(),
   place: z.number().int().positive().optional(),
   queue: QueueSchema.optional(),
   pause: z.object({
@@ -112,9 +118,11 @@ export const TodoCardSchema = z.object({
     draft_after: z.number().int().positive().optional(),
     included_items: z.array(z.number().int().positive())
   }).optional(),
+  preapproval: z.object({ by: z.string(), at: z.string() }).optional(),
   merged_via: z.number().int().positive().optional(),
   merge: MergeSchema,
   lessons: z.number().int().nonnegative().optional(),
+  lessons_receipt: LessonsReceiptSchema.optional(),
   approval_cleared: z.boolean().optional(),
   present: z.array(ActorSchema)
 })
@@ -144,6 +152,8 @@ export type TodoCardCallbacks = CardCallbacks<
   | "todo.stop"
   | "todo.resume"
   | "todo.retry"
+  | "todo.preapprove"
+  | "todo.unapprove"
   | "todo.drop"
   | "todo.amend"
   | "merge"

@@ -1,14 +1,4 @@
-/*
- * The one-tool agent contract ("commands are the app"), ported from flows/ui
- * src/ui/runtime/agentTools.ts: the agent reaches the app through ONE tool —
- * list the registered commands with the live app state, or execute one by
- * name through the identical code path the buttons and slash menu use.
- *
- * Wave 3b: the chat tool-call loop binds to this contract. The turn carries
- * `agentToolSpecs`; a `tool_call` frame executes through
- * `CommandRegistry.executeForAgent` (actor smithers), and the honest result
- * string below is what the continuation turn posts back to the model.
- */
+/** Browser delivery executes UI-only flows; host-bound commands refuse here. */
 import type { AgentToolSpec } from "@smthrs/rpc/NativeAgent"
 import { commandsToolSpec, decodeCommandsCall, unknownCommandResult, unknownToolResult } from "@smthrs/rpc/AgentCommands"
 import { agentFaultNote } from "@smthrs/rpc/RefusalCopy"
@@ -60,7 +50,7 @@ export const agentVisibleCatalog = (
 
 /*
  * The agent's own door beside a user-only act (§2a): the registry's
- * `userOnlyReason` says WHY the act is the human's; this table says what the
+ * `agentReason` says WHY the act is the human's; this table says what the
  * model does INSTEAD, where an instead exists — a prompt flow that renders the
  * human's button in the chat, or the text answer that replaces the gesture.
  * A flow that stops being user-only leaves this table (.specs/engineering/spec.md §6.1).
@@ -191,13 +181,18 @@ export const executeAgentToolCall = async (
    */
   const target = registry.find(name)
   if (target !== undefined && !registry.callable().includes(target)) {
-    return userOnlyError(name, target.metadata.userOnlyReason)
+    return userOnlyError(name, target.metadata.agentReason)
   }
   /*
    * The agent-mode run (requirement axis): an unmet requirement comes back
    * as an honest failure naming the missing step — the model can tell the
    * user, but can never park work that fires after its turn ends.
    */
+  // Only per-member UI instructions are executed in this browser. Every
+  // catalog operation with an HTTP door runs in the host's author-bound loop.
+  if (target === undefined || target.metadata.http !== null || target.metadata.cli != null || target.metadata.actors?.includes("external_agent")) {
+    return "failed: this command runs on the conversation host"
+  }
   const outcome = await registry.runAsAgent(name, input.args, call.httpCall)
   switch (outcome.status) {
     case "executed":

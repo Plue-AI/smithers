@@ -29,16 +29,21 @@ type MachineCapacity struct {
 }
 
 type InstallCapacityService struct {
-	Queries InstallCapacityQueries
-	Profile microsandbox.HostProfile
-	InUse   func() int
-	// Parallel writes stay dark until install authority and catalog policy are composed.
+	Queries  InstallCapacityQueries
+	Profile  microsandbox.HostProfile
+	InUse    func() int
+	FreeDisk func(context.Context) (int64, error)
+	// Parallel writes require the shared owner command policy.
 	AuthorizeParallel func(context.Context) error
 }
 
 func (s *InstallCapacityService) Read(ctx context.Context) (HostStatus, error) {
-	status := HostStatus{Profile: s.Profile, Limits: microsandbox.ComputeSizing(s.Profile)}
-	capacity, err := s.Capacity(ctx)
+	profile, err := s.currentProfile(ctx)
+	if err != nil {
+		return HostStatus{}, err
+	}
+	status := HostStatus{Profile: profile, Limits: microsandbox.ComputeSizing(profile)}
+	capacity, err := s.capacity(ctx, profile)
 	if err != nil {
 		return HostStatus{}, err
 	}
@@ -88,13 +93,33 @@ func (s *InstallCapacityService) Set(ctx context.Context, actor int64, value int
 	return nil
 }
 
-// Capacity excludes the usage projection and clamps every read against this startup's profile.
+// Capacity keeps startup memory/core measurements and refreshes only free disk.
 func (s *InstallCapacityService) Capacity(ctx context.Context) (int, error) {
+	profile, err := s.currentProfile(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return s.capacity(ctx, profile)
+}
+
+func (s *InstallCapacityService) currentProfile(ctx context.Context) (microsandbox.HostProfile, error) {
+	profile := s.Profile
+	if s.FreeDisk != nil {
+		free, err := s.FreeDisk(ctx)
+		if err != nil {
+			return profile, err
+		}
+		profile.DiskFreeBytes = free
+	}
+	return profile, nil
+}
+
+func (s *InstallCapacityService) capacity(ctx context.Context, profile microsandbox.HostProfile) (int, error) {
 	row, err := s.Queries.GetInstallCapacity(ctx)
 	if err != nil {
 		return 0, err
 	}
-	formula := microsandbox.ComputeSizing(s.Profile).Capacity
+	formula := microsandbox.ComputeSizing(profile).Capacity
 	if len(row.Capacity) == 0 {
 		return formula, nil
 	}
@@ -134,7 +159,7 @@ func (s *InstallCapacityService) Parallel(ctx context.Context) (InstallParallel,
 	if err != nil {
 		return InstallParallel{}, err
 	}
-	requested := max(1, capacity-1)
+	requested := min(8, max(1, capacity-1))
 	if len(raw) != 0 {
 		var saved *int
 		if err = json.Unmarshal(raw, &saved); err != nil {

@@ -1,3 +1,7 @@
+import { DiffCardSurface } from "./DiffSurface"
+import { cardActions } from "../flows/cardActions"
+import { useContext } from "react"
+import { ControllerContext } from "../ControllerContext"
 import { DiffSurface } from "../ViewModules"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import type React from "react"
@@ -17,7 +21,7 @@ import type React from "react"
 import { Button, StatusPill } from "@smthrs/ui"
 import { AlertTriangle, FileDiff, GitMerge, GitPullRequest, History } from "lucide-react"
 import { Suspense } from "react"
-import type { ChangeFacet, ChangeRevision, ChangeThread, LandingBlock } from "@smthrs/rpc/Changes"
+import type { ChangeFacet, ChangeRevision, ChangeThread } from "@smthrs/rpc/Changes"
 import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
@@ -98,88 +102,11 @@ const landingPill = (state: string): { readonly status: string; readonly label?:
     ? { status: "cancelled", label: "Closed" }
     : { status: "pending" }
 
-/** One gate block in words, from the block's own fields (plue#452 `blocked_by`). */
-const blockWords = (block: LandingBlock): string => {
-  if (block.kind === "check") return `check ${block.name ?? ""}`.trim()
-  if (block.kind === "review") {
-    if (block.missing === "human_approval") return `${block.count ?? 1} human approval${(block.count ?? 1) === 1 ? "" : "s"} missing`
-    if (block.missing === "agent_lgtm") return "agent LGTM missing"
-    if (block.missing === "person_approval") return "person approval missing"
-    if (block.missing === "changes_requested") return `changes requested by ${block.name ?? "a reviewer"}`
-    return `review ${block.name ?? ""}`.trim()
-  }
-  if (block.kind === "conflict") return `conflict in ${block.name ?? "a file"}`
-  if (block.kind === "owner") return `owner approval missing on ${block.path ?? "a path"}`
-  if (block.kind === "agent_policy") return `agent changes denied on ${block.path ?? "a path"}`
-  if (block.kind === "thread") return `${block.count ?? 1} comment${(block.count ?? 1) === 1 ? "" : "s"} open`
-  return block.kind
-}
-
-/** The threads the gate counts as unresolved: open, and done-but-unacked (plue counts `state <> 'resolved'`). */
-const unresolvedThreads = (threads: ReadonlyArray<ChangeThread> | null): number =>
-  (threads ?? []).filter((thread) => thread.state === "open" || thread.state === "done").length
-
-/**
- * What the landing gate stands on, from the card's own facts: the threads
- * still open (ADR 0004's `2 threads open`, shown as `2 comments open`) and the
- * blocks the landing list stated for this change.
- */
-const gateReasons = (payload: ChangePayload): ReadonlyArray<string> => {
-  const reasons: Array<string> = []
-  const open = unresolvedThreads(payload.threads)
-  if (open > 0) reasons.push(`${open} comment${open === 1 ? "" : "s"} open`)
-  for (const block of payload.stack?.blockedBy ?? []) {
-    if (block.kind === "thread") continue
-    reasons.push(blockWords(block))
-  }
-  return reasons
-}
-
 /** The people whose requested changes the landing list states for this change. */
 const changesRequestedBy = (payload: ChangePayload): ReadonlyArray<string> =>
   (payload.stack?.blockedBy ?? []).flatMap((block) =>
     block.kind === "review" && block.missing === "changes_requested" && block.name !== null ? [block.name] : []
   )
-
-interface LandAct {
-  readonly label: string
-  readonly ariaLabel: string
-  /** The blocking reason the disabled button wears; null when Land may run. */
-  readonly blocked: string | null
-}
-
-/*
- * The Land act's label, scope, and blocking reason from the card's own state
- * (ADR 0003: "Land (confirm; disabled with the blocking reason)"). A
- * landing request lands its WHOLE stack, so the label names the scope
- * (`Land 1 → N`), only the top change may land (a prefix land is plue#452),
- * plue lands a request only while it is open or failed, and the gate's own
- * blocks (open threads, checks, owners) read on the button.
- */
-const landAct = (payload: ChangePayload): LandAct => {
-  const { stack } = payload
-  if (stack === null) return { label: "Land", ariaLabel: "Land the change", blocked: null }
-  const scope = stack.size <= 1 ? ` ${payload.changeId} alone` : ` 1 → ${stack.size} together`
-  const ariaLabel = `Land the change: lands${scope}`
-  if (stack.position < stack.size) {
-    const top = stack.changeIds[stack.size - 1] ?? "its top change"
-    return {
-      label: "Land",
-      ariaLabel,
-      blocked:
-        `Land all ${stack.size} changes from ${top}.`
-    }
-  }
-  if (stack.state === "queued" || stack.state === "landing") return { label: "Land", ariaLabel, blocked: `${stack.state}…` }
-  if (stack.state === "merged") return { label: "Land", ariaLabel, blocked: "landed" }
-  if (stack.state !== "open" && stack.state !== "failed") {
-    return { label: "Land", ariaLabel, blocked: `${stack.state} — only open or failed requests can land` }
-  }
-  const verb = stack.state === "failed" ? "Retry land" : "Land"
-  const label = stack.size <= 1 ? verb : `${verb} 1 → ${stack.size}`
-  const reasons = gateReasons(payload)
-  return { label, ariaLabel, blocked: reasons.length === 0 ? null : reasons.join(" · ") }
-}
 
 /*
  * The facet strip: Walkthrough leads when the current revision came from an
@@ -890,7 +817,6 @@ export const ChangeCardBody = ({
   /* A facet whose data is absent (a walkthrough that vanished, no owners) falls back to the diff rather than an empty tab. */
   const facet: ChangeFacet = facets.some(([name]) => name === wanted) ? wanted : "diff"
   const landed = payload.stack?.state === "merged"
-  const land = landAct(payload)
   const turn = payload.turn ?? null
   const agentReviews = (payload.reviews ?? []).filter((review) => review.reviewerKind === "agent")
   const humanReviews = (payload.reviews ?? []).filter((review) => review.reviewerKind !== "agent")
@@ -1008,17 +934,6 @@ export const ChangeCardBody = ({
       </div>
       <ChangeFacetBody card={card} facet={facet} onRunCommand={onRunCommand} />
       <div className="world-card-row">
-        {payload.changeset !== null && payload.stack === null ? null : (
-        <Button
-          size="sm"
-          aria-label={land.ariaLabel}
-          disabled={land.blocked !== null}
-          {...flowAction(onRunCommand, "change.land", payload.changeId)}
-        >
-          <GitMerge size={12} aria-hidden="true" /> {land.label}
-        </Button>
-        )}
-        {land.blocked !== null ? <span className="world-card-path">{land.blocked}</span> : null}
         {/* A person's requested changes hold the landing until they review again: ask them. */}
         {changesRequestedBy(payload).map((login) => (
           <Button
@@ -1057,6 +972,14 @@ export const DiffCardBody = ({
   onRunCommand
 }: { readonly card: DiffCard } & ChangeCardActions) => {
   const { payload } = card
+  const controller = useContext(ControllerContext)
+  if (payload.branchDiffRequest && payload.error) return <p role="alert">{payload.error}</p>
+  if (payload.branchFiles) return <>{payload.branchFiles.map(model => {
+    const bindings = cardActions((tag, input) => {
+      if (tag === "file.restore") void controller?.commands.submit({ name: "file.restore", payload: { ...input, branch: model.branch }, actor: "user", originCardId: card.id })
+    }, model.against.kind === "burst" && model.version && model.post_digest ? [{ tag: "file.restore", label: "Restore this file", command_input: { path: model.path, revision: model.version, post_digest: model.post_digest } }] : [])
+    return <DiffCardSurface key={model.path} model={model} view={{ maximized: false }} {...bindings} onView={() => {}} />
+  })}</>
   return (
     <div className="world-card-list">
       <p className="world-card-path">

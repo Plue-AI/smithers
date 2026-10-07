@@ -79,11 +79,11 @@ func wikiGitMissing(err error) (bool, error) {
 // git runs read-only plumbing in the folder. Inherited repository overrides
 // are dropped so discovery always starts at the configured folder.
 func (a *ObsidianSync) git(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
-	cmd := hostexec.Git(ctx, append([]string{"--no-optional-locks", "--no-replace-objects", "-c", "core.fsmonitor=false"}, args...)...)
+	cmd := hostexec.Git(ctx, append([]string{"--no-optional-locks", "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", "protocol.allow=never"}, args...)...)
 	cmd.Dir = a.folder
 	// Cancellation also stops waiting on a descendant that holds the pipes.
 	cmd.WaitDelay = time.Second
-	cmd.Env = append(cmd.Env, "LC_ALL=C")
+	cmd.Env = append(cmd.Env, "LC_ALL=C", "GIT_NO_LAZY_FETCH=1")
 	cmd.Stdin = stdin
 	out, err := cmd.Output()
 	if err != nil && ctx.Err() != nil {

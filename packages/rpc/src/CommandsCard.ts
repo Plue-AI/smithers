@@ -5,7 +5,6 @@
 
 import { z } from "zod"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
-import { CatalogTagSchema } from "./catalog/index.ts"
 
 /**
  * Commands projection fields from spec §14.3 and ui-components.md v0.4 (T-UI-14): the `/help` groups filtered for
@@ -21,7 +20,8 @@ export const CommandsCardSchema = z.object({
       advanced: z.boolean(),
       commands: z.array(
         z.object({
-          tag: CatalogTagSchema,
+          // Listing names include repository flows; this never grants execution authority.
+          tag: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
           synopsis: z.string(),
           description: z.string(),
           agent: z.enum(["run", "confirm", "never"])

@@ -293,7 +293,7 @@ func TestInstallSourceReadyRequestsStackWithoutWaitingPostgres(t *testing.T) {
 
 	step := f.awaitStep(t, "source", InstallReady)
 	require.Nil(t, step.Error)
-	require.Equal(t, []ImportGitHubRepoInput{{UserID: f.owner.ID, Owner: setupGitHubOwner, Repo: "app", Branch: "main"}}, imports.starts(), "one import per operation, across the clone's deferral")
+	require.Equal(t, []ImportGitHubRepoInput{{UserID: f.owner.ID, Owner: setupGitHubOwner, Repo: "app", Branch: "main", setupOperationID: step.OperationID}}, imports.starts(), "one import per operation, across the clone's deferral")
 	stacks := f.stacks(t)
 	require.Len(t, stacks, 1, "the stack was requested")
 	require.Equal(t, "bootstrapping", stacks[0].State, "Source ready does not wait for the stack worker")

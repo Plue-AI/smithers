@@ -189,3 +189,12 @@ describe("dark branch file operations", () => {
   })
 
 })
+
+test("live documents never use S2 text reload or snapshot-before Restore", async () => {
+  const requests: string[] = []
+  const seam = fixture(async url => { requests.push(url); return json(file()) }, ready)
+  const live = { ...file(), mode: "live" as const }
+  expect(await seam.reload(live, { path: live.path, post_digest: "two", actor: writer })).toBeUndefined()
+  expect(await seam.restore(live, { version: "before-17", post_digest: "one" })).toEqual({ error: "Use document recovery." })
+  expect(requests).toEqual([])
+})

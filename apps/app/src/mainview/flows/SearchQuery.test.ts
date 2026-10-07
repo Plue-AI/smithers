@@ -186,6 +186,6 @@ describe("§2 actions: every action is a registered flow whose input the ref fil
     expect(actionsFor({ kind: "flow", ref: "flow.list", title: "flow.list" }, entries)).toEqual([
       { flow: "flow.list", label: "List the flows on your workspace", role: "open" }
     ])
-    expect(actionsFor({ kind: "secret-name", ref: "NPM_TOKEN", title: "NPM_TOKEN" }, entries).map((action) => action.flow)).toEqual(["secrets.list"])
+    expect(actionsFor({ kind: "secret-name", ref: "NPM_TOKEN", title: "NPM_TOKEN" }, entries).map((action) => action.flow)).toEqual(["secrets"])
   })
 })

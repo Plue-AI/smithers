@@ -1,9 +1,9 @@
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Effect, Exit, FileSystem, PlatformError } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Grep from "../src/Grep.ts"
 import { MAX_LINE_CHARS } from "../src/internal/Text.ts"
 import * as Read from "../src/Read.ts"
-import { layer } from "./TestLayers.ts"
+import { fileInfo, layer } from "./TestLayers.ts"
 
 const execute = <A, E>(effect: Effect.Effect<A, E, never>) => Effect.runPromise(effect)
 
@@ -212,5 +212,73 @@ describe("Read", () => {
   it("declares sealed hermetic effects and narrows each invocation", () => {
     expect(Read.effects).toMatchObject({ tier: "sealed", mode: "hermetic" })
     expect(Read.effectsFor({ path: "/a.txt" }).reads).toEqual(["/a.txt"])
+  })
+})
+
+// Refusal paths use explicit platform failures so no special-file read can hang.
+describe("Read host refusals", () => {
+  it.each(["Directory", "FIFO"] as const)("refuses a %s before opening it", async (type) => {
+    let opened = false
+    const fs = FileSystem.makeNoop({
+      stat: () => Effect.succeed(fileInfo({ type })),
+      readFile: () =>
+        Effect.sync(() => {
+          opened = true
+          return new Uint8Array()
+        })
+    })
+    const failure = await Effect.runPromise(Effect.flip(
+      Read.run({ path: "/special" }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs)
+      )
+    ))
+    expect(failure).toMatchObject({ code: type === "Directory" ? "is_directory" : "not_found", path: "/special" })
+    expect(opened).toBe(false)
+  })
+
+  it("preserves a denied stat without offering directory hints", async () => {
+    const fs = FileSystem.makeNoop({
+      stat: () =>
+        Effect.fail(PlatformError.systemError({
+          _tag: "PermissionDenied",
+          module: "FileSystem",
+          method: "stat"
+        })),
+      readDirectory: () => Effect.die("denied reads must not list parents")
+    })
+    const failure = await Effect.runPromise(Effect.flip(
+      Read.run({ path: "secret" }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs)
+      )
+    ))
+    expect(failure).toMatchObject({ code: "permission_denied", path: "secret" })
+  })
+
+  it.each([
+    { entries: [], suffix: "" },
+    { entries: [".secret"], suffix: "" },
+    { entries: ["apple", "aardvark", "zebra"], suffix: ". The working directory holds: apple, aardvark, zebra." },
+    {
+      entries: Array.from({ length: 14 }, (_, i) => `entry${i}`),
+      suffix:
+        ". The working directory holds: entry0, entry1, entry2, entry3, entry4, entry5, entry6, entry7, entry8, entry9, entry10, entry11 and 2 more."
+    },
+    { entries: undefined, suffix: "" }
+  ])("bounds hints and tolerates unreadable parents: $suffix", async ({ entries, suffix }) => {
+    const fs = FileSystem.makeNoop({
+      stat: () => Effect.fail(PlatformError.systemError({ _tag: "NotFound", module: "FileSystem", method: "stat" })),
+      readDirectory: () =>
+        entries === undefined
+          ? Effect.fail(
+            PlatformError.systemError({ _tag: "PermissionDenied", module: "FileSystem", method: "readDirectory" })
+          )
+          : Effect.succeed(entries)
+    })
+    const failure = await Effect.runPromise(Effect.flip(
+      Read.run({ path: "./apricot" }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs)
+      )
+    ))
+    expect(failure.message).toBe(`File not found: ./apricot${suffix}`)
   })
 })

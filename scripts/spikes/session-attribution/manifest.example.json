@@ -1,0 +1,5 @@
+[
+  {"role":"vscode", "cgroup":"/sys/fs/cgroup/smithers/sessions/s1", "uid":20000, "participant":"maya"},
+  {"role":"formatter", "cgroup":"/sys/fs/cgroup/smithers/sessions/s2", "uid":20000, "participant":"maya"},
+  {"role":"idle-node", "cgroup":"/sys/fs/cgroup/smithers/sessions/s3", "uid":20001, "participant":"ben"}
+]

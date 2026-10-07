@@ -100,6 +100,8 @@ func TestServerRouter_RepositoryJobPauseRequiresPerson(t *testing.T) {
 	} {
 		t.Run(credential.name, func(t *testing.T) {
 			spy := &pauseRepositoryJobSpy{}
+			// Test the retained endpoint's credential gate, not the MVP's
+			// earlier refusal of every repository-job route.
 			cfg := testConfigAllFlagsOn()
 			cfg.Auth.Mode = config.AuthModeMultitenant
 			router := buildRouter(

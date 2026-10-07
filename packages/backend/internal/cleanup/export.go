@@ -21,3 +21,12 @@ func (r *Periodic) Start(ctx context.Context, sweep func(context.Context) error)
 func (r *Periodic) Stop()                   { r.runner.Stop() }
 func (r *Periodic) Wait()                   { r.runner.Wait() }
 func (r *Periodic) Interval() time.Duration { return r.runner.interval }
+
+// Trigger coalesces an immediate sweep with the existing worker. It is safe
+// before Start, during a sweep, and after Stop, and never waits for execution.
+func (r *Periodic) Trigger() {
+	select {
+	case r.runner.wakeCh <- struct{}{}:
+	default:
+	}
+}

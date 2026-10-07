@@ -49,38 +49,30 @@ export const makeCli = () => ({
   }
 }
 
-test("CLI docs omit deferred pages while retaining every command and help capture", (t) => {
-  const { root, commands, read, run } = fixture(t)
-  const generated = run()
-  assert.equal(generated.status, 0, generated.stdout + generated.stderr)
-  assert.deepEqual(JSON.parse(read("apps/site/src/data/cli-commands.json")).commands, commands)
-  const index = read("apps/site/src/content/docs/docs/reference/cli/index.mdx")
-  for (const name of retired) {
-    assert.equal(existsSync(join(root, `apps/site/src/content/docs/docs/reference/cli/${name}.mdx`)), false, `${name}: no public page`)
-    assert.ok(!index.includes(`/docs/reference/cli/${name}/`), `${name}: no dead index link`)
-    for (const path of [`${name}.txt`, `${name}/inspect.txt`]) {
-      assert.match(read(`apps/site/src/data/help/${path}`), /Canonical help/, `${path}: full help retained`)
-    }
+test("CLI generation retains complete source facts and retires every public command page", (t) => {
+  const { root, read, run } = fixture(t)
+  const result = run()
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  const { commands } = JSON.parse(read("apps/site/src/data/cli-commands.json"))
+  assert.ok(commands.some(command => command.name === "flow list"))
+  for (const name of [...retired, "flow", "index", "manual", "triggers-extra"]) {
+    assert.match(read(`apps/site/src/data/help/${name}.txt`), /Canonical help/)
+    assert.equal(existsSync(join(root, `apps/site/src/content/docs/docs/reference/cli/${name}.mdx`)), false)
   }
-  assert.match(index, /\/docs\/reference\/cli\/flow\//)
-  assert.match(index, /\/docs\/reference\/cli\/index-command\//)
-  assert.match(index, /\/docs\/reference\/cli\/triggers-extra\//, "retained prefix neighbor is not excluded")
-  assert.match(index, /Retained index prose/)
-  assert.match(read("apps/site/src/content/docs/docs/reference/cli/flow.mdx"), /## flow list/)
-  assert.equal(read("apps/site/src/content/docs/docs/reference/cli/manual.mdx"), "Hand-written command reference.\n")
+  assert.equal(existsSync(join(root, "apps/site/src/content/docs/docs/reference/cli/index.mdx")), false)
   assert.equal(existsSync(join(root, "apps/site/src/data/help/stale.txt")), false)
   const checked = run("--check")
   assert.equal(checked.status, 0, checked.stdout + checked.stderr)
 })
 
-test("CLI check reports retired owned pages and leaves them for write mode", (t) => {
+test("CLI check reports retired pages without changing them", (t) => {
   const { root, read, run } = fixture(t)
   const checked = run("--check")
   assert.equal(checked.status, 1, checked.stdout + checked.stderr)
   for (const name of retired) {
-    assert.ok(checked.stderr.includes(`reference/cli/${name}.mdx is stale`), `${name}: drift receipt`)
+    assert.ok(checked.stderr.includes(`reference/cli/${name}.mdx is stale`))
     assert.match(read(`apps/site/src/content/docs/docs/reference/cli/${name}.mdx`), /Old generated page/)
   }
-  assert.equal(existsSync(join(root, "apps/site/src/data/cli-commands.json")), false, "check mode creates no output")
+  assert.equal(existsSync(join(root, "apps/site/src/data/cli-commands.json")), false)
   assert.equal(read("apps/site/src/data/help/stale.txt"), "Retired help capture.\n")
 })

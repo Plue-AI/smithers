@@ -1,12 +1,12 @@
 # ADR 0004: The machine daemon's wire contract
 
-Status: proposed (2026-10-03). Owner: T-COL-03r ([#3626](https://github.com/smithersai/smithers/issues/3626)). Accepted when the golden frames under `packages/backend/internal/compose/testdata/cocontracts/` pass against the Go codec (`packages/backend/internal/machined/wire/`) and the Rust codec (`crates/smithers-machined/src/conn.rs`, `src/msg.rs`).
+Status: proposed (2026-10-03); codecs and component evidence implemented 2026-10-05, pending smithers-8a acceptance and smithers-3f sign-off. Owner: T-COL-03r ([#3626](https://github.com/smithersai/smithers/issues/3626)). Accepted when the golden frames under `packages/backend/internal/compose/testdata/cocontracts/` pass against the Go codec (`packages/backend/internal/machined/wire/`) and the Rust codec (`crates/smithers-machined/src/conn.rs`, `src/msg.rs`).
 
 ## Context
 
 `smithers-machined` runs inside every branch machine and keeps one multiplexed connection to the host (spec §9.1.1). That connection carries control RPC, durable change events and their acknowledgements, presence, terminal and SSH sessions, git objects, and in stage 3 live-document frames. Two codecs speak it: Go on the host, Rust in the guest. Their first consumers are T-COL-03 (host registry), T-COL-03a (daemon core), T-COL-03f (Go fake daemon), T-COL-04 and T-COL-04a (watcher and events), T-TRM-07 (sessions) and T-COL-08a/08b (documents, S3).
 
-No daemon wire exists to reuse. The terminal WebSocket (`packages/backend/internal/routes/terminal_session_manager.go`) has no request correlation, acknowledgement or actor envelope. The guest helper's `relay` and `bridge` (`packages/backend/microsandbox/guest/smithers-guest.py:419`, `:441`) are byte pipes with no framing. Both stay the byte transport underneath this contract.
+No surviving daemon wire exists to reuse. The deleted Go guest protocol (`4a9e413dbd^:packages/backend/sandbox/guest/protocol.go`) used length-prefixed JSON RPC with `Hello` and `Authenticate`. It was a single stream without credit, object streams or outbox acknowledgements, so restoring its format would not meet this contract. The terminal WebSocket (`packages/backend/internal/routes/terminal_session_manager.go`) has no request correlation, acknowledgement or actor envelope. The guest helper's `relay` and `bridge` (`packages/backend/microsandbox/guest/smithers-guest.py:419`, `:441`) are byte pipes with no framing. Both stay the byte transport underneath this contract.
 
 T-COL-01 and T-COL-11 have not chosen between the two transports (C-SPK-03's first run decided nothing). This contract works over both.
 
@@ -151,7 +151,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | --- | --- | --- | --- | --- |
 | 1 | `status` | — | `1 state: u8` (1 booting, 2 reconciling, 3 ready), `2 protocol: u16`, `3 version: str`, `4 outbox_depth: u32`, `5 acked_head: oid`?, `6 lock_queue: u16` | T-COL-03a |
 | 2 | `read_file` | `1 path: str`, `2 at: oid`? | `1 content: bytes`, `2 digest: digest`, `3 mode: u32` | T-COL-03a |
-| 3 | `write_file` | `1 path: str`, `2 base: Base`, `3 content: bytes`, `4 actor: Actor` | `1 post_digest: digest` | T-COL-03a |
+| 3 | `write_file` | `1 path: str`, `2 base: Base`, `3 content: bytes`, `4 actor: Actor` | `1 post_digest: digest`, `2 raced: Raced`? | T-COL-03a |
 | 4 | `capture` | — | `1 head: oid`, `2 tree: oid`, `3 flushed_documents: u16` (the flush phase's count; 0 until S3) | T-COL-03a |
 | 5 | `wake_reconcile` | `1 head: oid` | `1 outcome: union {1 unchanged {}, 2 moved {1 head: oid}, 3 conflict {1 paths: list<str>}}` | T-COL-03a |
 | 6 | `open_session` | `1 user: User`, `2 kind: u8` (1 pty, 2 exec, 3 sftp), `3 argv: list<str>`?, `4 size: Size`? | `1 session: u32` | T-TRM-07; `unsupported` |
@@ -161,13 +161,23 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | 10 | `register_run` | `1 run: str`, `2 session: u32` | — | T-COL-04; `unsupported` |
 | 11 | `rebase` | `1 onto: oid`, `2 actor: Actor` | `1 head: oid` | T-STK-08; `unsupported` |
 | 12 | `return_to_item` | `1 actor: Actor` | `1 head: oid` | T-COL-05; `unsupported` |
-| 13 | `open_doc` | `1 path: str` (T-COL-08b adds tags ≥ 2) | `1 stream: u32` | T-COL-08a (S3); `unsupported` |
+| 13 | `open_doc` | `1 path: str`, `2 actor: Actor.principal` | `1 stream: u32` | T-COL-08a (S3); `unsupported` |
 | 14 | `close_doc` | `1 stream: u32` | — | T-COL-08a (S3); `unsupported` |
 | 15 | `attach_session` | `1 session: u32`, `2 received: u64` | `1 received: u64` | T-TRM-07; `unsupported` |
+| 16 | `set_roster` | `1 members: list<User>` | — | working-together W5; `unsupported` until broker ready |
+
+`Raced := struct {1 path: str, 2 displaced_digest: digest}`. A write success
+without tag 2 is `applied`; with tag 2 it applied while preserving the displaced
+outside version. The existing `stale` error is unchanged. No rollback follows
+an exchange race. The roster is replaced atomically, including an empty roster;
+unlisted users' sessions are killed before the reply. Send it after Welcome,
+before ready, and after every roster change. A missing/unsupported roster hook
+must prevent session admission, not grant access. `set_roster` is host-only.
 
 `?` marks an optional field. `Base := union {1 digest {1 digest: digest}, 2 absent {}}`. `Size := struct {1 cols: u16, 2 rows: u16}`. `rebase` and `return_to_item` carry the actor the rewrite is attributed to ("Rebased onto Tk"). `attach_session` re-attaches a stream after a reconnect (§9.6.4): each side reports how many bytes it received and the other resends from there; unacknowledged bytes never exceed the 256 KiB credit, so that is all either side keeps.
 
-Until `wake_reconcile` succeeds on this boot, every method except `status` and `wake_reconcile` answers `not_ready`.
+Until `wake_reconcile` succeeds on this boot, every method except `status`, `wake_reconcile` and handshake roster synchronization
+(`set_roster`) answers `not_ready`.
 
 ```
 Error := struct { 1 code: u8, 2 detail: str?, 3 current_digest: digest?, 4 session: u32?,
@@ -286,7 +296,7 @@ Rejected: a TypeScript codec of these frames (a third codec to keep byte-equal);
 
 `packages/backend/internal/compose/testdata/cocontracts/` holds `<name>.bin`, `<name>.json` and `MANIFEST.json`. `gen.mjs` (Node, no dependencies) writes every `.bin` from byte tables of its own, never from either codec; `node gen.mjs --check` regenerates into a temporary directory and fails on any difference. `MANIFEST.json` records `protocol`, the `yrs` pin (`=0.27.4`), each frame's direction, SHA-256 and expected result (`ok` or a `ProtocolError` name), and named sequences of frames. T-COL-08b adds document frames and the `yjs` pin.
 
-Each codec's test, for every frame: decodes the `.bin` and compares the value with the `.json`; for `ok` frames, encodes the `.json` value and compares bytes; for refusal frames, asserts the exact error code. The Rust fake host and the Go fake daemon replay the sequences byte for byte.
+Each codec's test, for every frame: decodes the `.bin` and compares the kind, stream and canonical tagged payload with the `.json`; for `ok` frames, encodes the `.json` value and compares bytes; for refusal frames, asserts the exact error code. The Rust fake host and the Go fake daemon replay the sequences byte for byte.
 
 | group | frames |
 | --- | --- |
@@ -309,3 +319,81 @@ Each codec's test, for every frame: decodes the `.bin` and compares the value wi
 - Spec §9.1.4's "git push" is implemented as a bundle on an object stream. §9.5.3's "presents the secret" is implemented as an HMAC proof. Both need the spec edits listed at the end of the design document.
 - The transport decision (T-COL-11) changes the boot file and the host's `LinkSource`, nothing else.
 - The daemon stays identity-agnostic: it never parses a participant, so M-34 participant changes need no daemon release.
+
+## Implementation evidence (2026-10-05)
+
+The exported Go `Read`, `Decode`, `DecodeLocal`, `Encode`, `EncodeLocal` and
+`RequestFrame` and Rust `Frame::{read,decode,decode_local,encode,encode_local}`
+share the framing above. `msg` exposes method and error discriminants; tagged
+payload builders construct requests without a second framing implementation.
+The 113 literal frames include 1 MiB and 1 MiB + 1 content fixtures and preserve
+the browser document fixtures. The JSON companion records kind, stream and the
+canonical payload as hex; it never records JSON sent over the connection.
+`gen.mjs --check` verifies the independent byte tables and manifest hashes.
+
+The compiled executable exits 78 before opening a connection or invoking a
+hook. Fake-host tests feed literal frames through the production decoder and
+dispatcher, including correlated malformed replies and S2 document refusals.
+The FIFO executor supports asynchronous waiting, drains admitted mutations,
+retains jobs when a waiter disappears and continues after a job panics.
+These are component receipts, not C-DUR-04 or real-machine confinement evidence.
+No acceptance or security approval is inferred from passing tests.
+
+### S3 document payloads (T-COL-08b)
+
+The kind remains `0x04`, with the daemon-allocated `open_doc(path)` stream;
+`close_doc(stream)` closes that exact stream. S3 adds required tag 2
+`actor: Actor.principal` to `open_doc` so the epoch notice can bind a client id
+before the first browser update. No branch selector is accepted
+inside a payload: the authenticated connection supplies it. The following
+fixed bodies follow `msg`; all fixed integers are big-endian. The existing
+`0xFF refused` Error struct remains unchanged.
+
+| msg | direction | body |
+| --- | --- | --- |
+| 1 input sync | host → daemon | canonical `Actor.principal`, `seq: u64`, then unchanged y-protocols sync bytes |
+| 2 input awareness | host → daemon | canonical `Actor.principal`, then unchanged awareness bytes |
+| 3 sync | daemon → host | unchanged y-protocols sync bytes |
+| 4 awareness | daemon → host | unchanged awareness bytes |
+| 5 epoch | daemon → host | epoch `id128`, client id `u32` (nonzero) |
+| 6 saved | daemon → host | Unix milliseconds `u64`, `through_seq: u64`, then saved state-vector bytes |
+| 7 gone | daemon → host | form `u8` (1 deleted, 2 renamed), `by: str`, then `to: str` for renamed |
+
+The actor comes exclusively from the host authorizer, never a browser payload.
+The daemon rejects client-id and authors-map spoofing before applying updates.
+The host document host opens one stream per code path as the daemon's trusted
+peer. Browser subscriptions and their client ids belong to the host document
+host. Epoch precedes sync; the host never manufactures code durability receipts.
+Sequences are monotonic per stream; repeating a sequence with different update
+bytes is refused. `through_seq` covers every input through that sequence,
+including delete-only updates that do not advance a state vector. Reconnect
+requires resync and remapping pending browser receipts to the new stream.
+
+Document frame bodies retain the existing 4 MiB daemon framing maximum; the
+browser connection has the stricter 2 MiB unsent budget. Missing topology,
+authenticated connection or document handler returns unsupported.
+
+### Working-together I1 compatibility (2026-10-06)
+
+The amended document bodies above are **document protocol 2**. They have no
+in-band discriminator: do not guess the layout from length or Yjs bytes.
+Go `EncodeDocumentV2`/`DecodeDocumentV2` and Rust
+`Document::encode_v2`/`decode_v2` select it explicitly. Existing unversioned
+entry points continue decoding and encoding protocol 1 recordings byte for byte
+(actor then sync bytes; milliseconds then state-vector bytes). All other document
+messages and `open_doc{path, actor}` are unchanged. The optional actor accepted
+by the envelope decoder exists only to retain S2 recordings; a live document
+handler still requires the authenticated actor.
+
+The live connection now advertises protocol 2. The host and daemon require a
+matching protocol in the handshake before selecting these entry points and
+fail closed on mismatches; never fall back to a protocol 1 save receipt for
+pending sequenced edits. Protocol 1 remains available for decoding recordings.
+I1 supplies the codec contract and golden proof, not real-machine qualification
+of the document host or daemon process.
+Control method 16 and optional write-result tag 2 are additive; old frame bytes,
+old malformed-frame outcomes, and old document interpretations are unchanged.
+
+The §10 I1 exact shape takes precedence over §3's shorthand `applied{raced:[path]}`:
+the single-file RPC carries one optional `Raced` record; I3 aggregates those
+records into `raced[]`, and I7 resolves the saved version for the HTTP reply.

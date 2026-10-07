@@ -1700,13 +1700,22 @@ The standard filesystem capabilities, all seven bound: `read`, `write`,
 ```ts
 const shell: (
   services: Context.Context<ChildProcessSpawner.ChildProcessSpawner | Path.Path>,
-  container?: Container.Container
+  container?: Container.Container,
+  options?: {
+    readonly sealedTo?: string | undefined
+    readonly terminal?: "agent" | undefined
+  }
 ) => FlowBinding.Source
 ```
 
 Shell execution as one ordinary flow, `bash`. The container transport defaults
 to `Container.makeCommand()`, the docker or podman CLI; a composition that
 supplies none refuses a containerised call.
+
+`options.sealedTo` restricts execution to one container. `options.terminal`
+(since 1.0.0) accepts `"agent"` and fails with `provider_unavailable` until
+registered PTY execution and card evidence are available. It never falls back
+to container execution.
 
 ### StandardFlows.tests
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
@@ -125,7 +126,7 @@ func TestPrepareFailedRemovalKeepsCapacityUntilConfirmed(t *testing.T) {
 	require.NoError(t, r.reserveAuxVM(t.Context(), "prepare"))
 	require.Error(t, r.finishAuxVM("prepare"))
 	require.Equal(t, 1, r.InUse())
-	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700))
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in list) echo '[]';; esac\nexit 0\n"), 0700))
 	// The next product admission reconciles failed cleanup, without private retry.
 	require.NoError(t, r.reserveAuxVM(t.Context(), "next"))
 	require.Equal(t, 1, r.InUse())
@@ -153,7 +154,7 @@ func TestCachedLayerCapacityRefusalPreservesSnapshotAndRecovers(t *testing.T) {
 	require.NoError(t, err)
 	binary := filepath.Join(root, "msb")
 	log := filepath.Join(root, "requests")
-	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'list --format json ') echo '[]';;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	r.cli = &cli{binary: binary, home: root}
 	require.NoError(t, r.reserveAuxVM(t.Context(), "busy"))
@@ -185,7 +186,7 @@ func TestCloseRetriesOnlyFailedAuxiliaryCleanup(t *testing.T) {
 	require.NoError(t, r.reserveAuxVM(t.Context(), "prepare"))
 	require.Error(t, r.finishAuxVM("prepare"))
 	require.Equal(t, 1, r.InUse())
-	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700))
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in list) echo '[]';; esac\nexit 0\n"), 0700))
 	require.NoError(t, r.Close())
 	require.Zero(t, r.InUse())
 	require.NoError(t, r.Close())
@@ -224,7 +225,7 @@ func TestSlowAuxCleanupDoesNotBlockUsage(t *testing.T) {
 	entered, release := filepath.Join(root, "entered"), filepath.Join(root, "release")
 	binary := filepath.Join(root, "msb")
 	// A real local process blocks cleanup; no VM/hardware is needed to test lock scope.
-	script := fmt.Sprintf("#!/bin/sh\ntouch %s\nwhile [ ! -f %s ]; do sleep 0.01; done\n", shellQuote(entered), shellQuote(release))
+	script := fmt.Sprintf("#!/bin/sh\ntouch %s\nwhile [ ! -f %s ]; do sleep 0.01; done\ncase \"$1\" in list) echo '[]';; esac\n", shellQuote(entered), shellQuote(release))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	r := &Runtime{cli: &cli{binary: binary, home: root}, config: Config{MaxRunningVMs: 1}, auxVMs: map[string]struct{}{"old": {}}, auxCleanup: map[string]struct{}{"old": {}}}
 	done := make(chan error, 1)
@@ -262,11 +263,12 @@ func TestCachedLayerVerificationCleanupFailurePreservesSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	binary := filepath.Join(root, "msb")
 	log := filepath.Join(root, "requests")
-	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'list --format json ') echo '[]';;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	r.cli = &cli{binary: binary, home: root}
 	// Verification succeeds, then a transport failure prevents confirmed removal.
 	script = strings.Replace(script, "request=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in", "request=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\nremove\\ *) echo failure >&2; exit 2 ;;", 1)
+	script = strings.Replace(script, "'list --format json ') echo '[]';;", "'list --format json ') exit 2;;", 1)
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	_, err = e.ensure(t.Context(), layerDependency, value, "", "fixture", nil, false)
 	require.Error(t, err)
@@ -319,7 +321,7 @@ func TestCachedLayerMarkerFailureClassification(t *testing.T) {
 			require.NoError(t, err)
 			binary := filepath.Join(root, "msb")
 			log := filepath.Join(root, "requests")
-			script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
+			script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'list --format json ') echo '[]';;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
 			require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 			r.cli = &cli{binary: binary, home: root}
 			failure := "*'cat '*) echo transport-failure >&2; exit 1 ;;\n*'if [ -e '*) echo transport-failure >&2; exit 1 ;;"
@@ -641,9 +643,33 @@ func TestFailedBootRetainsCapacityUntilConfirmedStop(t *testing.T) {
 				_, err := r.StartWorkspace(t.Context(), "A")
 				require.Error(t, err)
 			}
+			registry := prometheus.NewRegistry()
+			require.NoError(t, registry.Register(r.MachineMetrics()))
+			families, err := registry.Gather()
+			require.NoError(t, err)
+			found := false
+			for _, family := range families {
+				if family.GetName() != "smithers_machine_wake_total" {
+					continue
+				}
+				require.Len(t, family.Metric, 1)
+				labels := map[string]string{}
+				for _, label := range family.Metric[0].Label {
+					labels[label.GetName()] = label.GetValue()
+				}
+				kind := "warm"
+				if mode == "create" {
+					kind = "cold"
+				}
+				require.Equal(t, map[string]string{"kind": kind, "outcome": "failure"}, labels)
+				require.Equal(t, float64(1), family.Metric[0].GetCounter().GetValue())
+				found = true
+			}
+			require.True(t, found)
+
 			require.Equal(t, 1, r.InUse())
 			require.Error(t, r.reserveAuxVM(t.Context(), "next"))
-			require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700))
+			require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in list) echo '[]';; esac\nexit 0\n"), 0700))
 			require.NoError(t, r.StopWorkspace(t.Context(), "A"))
 			require.Zero(t, r.InUse())
 		})
@@ -668,4 +694,673 @@ func TestAdmissionSlotDrivesRealAuxiliaryReservation(t *testing.T) {
 	r.ConfirmAdmissionStop("H", false)
 	require.Error(t, r.reserveAuxVM(ctx, "ungranted"))
 	require.Zero(t, r.InUse())
+}
+
+func TestAdmissionWaitWakesOnConfirmedStop(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "A", "T1", "wake")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+	result := make(chan error, 1)
+	go func() {
+		ctx, err := r.WaitAdmission(t.Context(), p, "person", "B", "Alice", "terminal")
+		if err == nil && ctx.Value(admissionContextKey{}) != "B" {
+			err = errors.New("grant context lost its holder")
+		}
+		result <- err
+	}()
+	require.Eventually(t, func() bool { rows := r.AdmissionSnapshot(); return len(rows) == 2 && rows[1].Position == 1 }, time.Second, time.Millisecond)
+	require.True(t, r.CancelAdmission("A", "T1", time.Now()))
+	select {
+	case <-result:
+		t.Fatal("slot released before confirmed stop")
+	case <-time.After(20 * time.Millisecond):
+	}
+	require.Equal(t, 1, r.InUse())
+	r.ConfirmAdmissionStop("A", false)
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("confirmed stop did not wake waiter")
+	}
+	require.Equal(t, 1, r.InUse())
+	require.Equal(t, "granted", r.AdmissionSnapshot()[1].State)
+}
+
+func TestAdmissionOverdueStopWaitsForObservation(t *testing.T) {
+	for _, status := range []string{"running", "starting", "stopped", "missing", "unknown", "booting", "preparing"} {
+		t.Run(status, func(t *testing.T) {
+			r, p := admissionFixture()
+			root := t.TempDir()
+			binary := filepath.Join(root, "msb")
+			log := filepath.Join(root, "calls")
+			listing := fmt.Sprintf(`[{"name":"vm-a","status":%q}]`, status)
+			if status == "booting" || status == "preparing" {
+				listing = `[{"name":"vm-a","status":"stopped"}]`
+			}
+			if status == "missing" {
+				listing = "[]"
+			}
+			script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> '%s'\ncase \"$1\" in\nlist) echo '%s';;\nesac\n", log, listing)
+			require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+			r.cli = &cli{binary: binary, home: root}
+			_, err := r.Request("person", "A", "Alice", "terminal")
+			require.NoError(t, err)
+			_, err = r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+			if status == "preparing" {
+				r.auxVMs = map[string]struct{}{"vm-a": {}}
+			}
+			if status == "booting" {
+				ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "starting"}, root)
+				ws.booting = true
+				r.workspaces["A"] = ws
+			}
+			now := time.Now()
+			require.True(t, r.CancelAdmission("A", "Alice", now))
+			_, err = r.Request("person", "B", "Ben", "terminal")
+			require.NoError(t, err)
+			require.Empty(t, r.AdmissionForceStops(now.Add(59999*time.Millisecond)))
+			require.NoFileExists(t, log)
+			require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(time.Minute)))
+			calls, err := os.ReadFile(log)
+			require.NoError(t, err)
+			require.Contains(t, string(calls), "stop -t 0 -q vm-a")
+			grant, err := r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			if status == "stopped" || status == "missing" {
+				require.Equal(t, "B", grant.Holder)
+			} else {
+				require.Empty(t, grant.Holder, "CLI success is not a confirmed stop")
+			}
+			require.Equal(t, 1, r.InUse())
+			if status == "booting" {
+				r.finishBoot(r.workspaces["A"])
+				require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(time.Minute)))
+				grant, err = r.GrantNext(t.Context(), p)
+				require.NoError(t, err)
+				require.Equal(t, "B", grant.Holder)
+				require.Equal(t, 1, r.InUse())
+			}
+			if status == "preparing" {
+				r.releaseAuxVM("vm-a") // owner observed removal after prepare returned
+				grant, err = r.GrantNext(t.Context(), p)
+				require.NoError(t, err)
+				require.Equal(t, "B", grant.Holder)
+				require.Equal(t, 1, r.InUse())
+			}
+		})
+	}
+}
+
+func TestAdmissionWaitCancellationAndMissingProviders(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "held", "run", "wake")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() { _, err := r.WaitAdmission(ctx, p, "person", "waiting", "Alice", "terminal"); result <- err }()
+	require.Eventually(t, func() bool { return len(r.AdmissionSnapshot()) == 2 }, time.Second, time.Millisecond)
+	cancel()
+	require.ErrorIs(t, <-result, context.Canceled)
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[1].State)
+	require.Equal(t, 1, r.InUse())
+	r.ConfirmAdmissionStop("held", false)
+	_, err = r.WaitAdmission(t.Context(), AdmissionProviders{}, "todo", "missing", "run", "wake")
+	require.Error(t, err)
+	require.Zero(t, r.InUse())
+}
+
+func TestAdmissionUnusedGrantCancelledWithoutReleasingBoundVM(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.WaitAdmission(t.Context(), p, "todo", "A", "T1", "wake")
+	require.NoError(t, err)
+	r.CancelFailedAdmission("A", "T1")
+	require.Zero(t, r.InUse())
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+	_, err = r.WaitAdmission(t.Context(), p, "todo", "A", "T1", "wake")
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+	r.CancelFailedAdmission("A", "T1")
+	require.Equal(t, 1, r.InUse())
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+}
+
+func TestAdmissionExistingVMReusesOneSlot(t *testing.T) {
+	r, p := admissionFixture()
+	r.workspaces["A"] = newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "running"}, "")
+	require.Equal(t, 1, r.InUse())
+	ctx, err := r.WaitAdmission(t.Context(), p, "person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	require.Equal(t, "workspace:A", ctx.Value(admissionContextKey{}))
+	require.Equal(t, 1, r.InUse())
+	_, err = r.WaitAdmission(t.Context(), AdmissionProviders{}, "person", "workspace:A", "Ben", "terminal")
+	require.Error(t, err, "missing authority must also refuse demand on a held VM")
+	require.Len(t, r.AdmissionSnapshot(), 1)
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionWaitsForPublishedBinding(t *testing.T) {
+	r, p := admissionFixture()
+	var mu sync.Mutex
+	published := false
+	p.Ready = func(context.Context, AdmissionRequest) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if !published {
+			return ErrAdmissionNotReady
+		}
+		return nil
+	}
+	result := make(chan error, 1)
+	go func() { _, err := r.WaitAdmission(t.Context(), p, "todo", "branch", "T1", "wake"); result <- err }()
+	require.Eventually(t, func() bool {
+		rows := r.AdmissionSnapshot()
+		return len(rows) == 1 && rows[0].State == "waiting" && rows[0].Position == 1
+	}, time.Second, time.Millisecond)
+	require.Zero(t, r.InUse(), "an unpublished binding cannot book a VM")
+	mu.Lock()
+	published = true
+	mu.Unlock()
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("published binding did not grant")
+	}
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionCancelledPrepareReleasesAfterConfirmedRemoval(t *testing.T) {
+	r, p := admissionFixture()
+	ctx, err := r.WaitAdmission(t.Context(), p, "todo", "A", "T1", "wake")
+	require.NoError(t, err)
+	require.NoError(t, r.reserveAuxVM(ctx, "prepare"))
+	r.CancelFailedAdmission("A", "T1")
+	require.Equal(t, 1, r.InUse(), "failed prepare retains its VM until removal confirms")
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+	r.releaseAuxVM("prepare")
+	require.Zero(t, r.InUse(), "confirmed removal must release an abandoned grant")
+	_, err = r.WaitAdmission(t.Context(), p, "person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionOperationFailureNeverStopsAwakeWork(t *testing.T) {
+	r, p := admissionFixture()
+	r.workspaces["A"] = newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "running"}, "")
+	_, err := r.WaitAdmission(t.Context(), p, "person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	r.CancelFailedAdmission("workspace:A", "Alice")
+	require.Equal(t, 1, r.InUse())
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+	require.Empty(t, r.AdmissionForceStops(time.Now().Add(2*time.Hour)), "an operation failure must not schedule preemption")
+	require.Equal(t, "running", r.workspaces["A"].State)
+}
+
+func TestAdmissionExternalCancellationEndsWait(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.WaitAdmission(t.Context(), p, "todo", "held", "run", "wake")
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() {
+		_, err := r.WaitAdmission(t.Context(), p, "person", "waiting", "Alice", "terminal")
+		result <- err
+	}()
+	require.Eventually(t, func() bool { return len(r.AdmissionSnapshot()) == 2 }, time.Second, time.Millisecond)
+	r.CancelAdmission("waiting", "Alice", time.Now())
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("cancelled row left its waiter blocked")
+	}
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionReleaseObservedWithoutWaitingCaller(t *testing.T) {
+	for _, overdue := range []bool{false, true} {
+		t.Run(fmt.Sprint(overdue), func(t *testing.T) {
+			r, p := admissionFixture()
+			root := t.TempDir()
+			binary := filepath.Join(root, "msb")
+			log := filepath.Join(root, "calls")
+			listing := filepath.Join(root, "status")
+			require.NoError(t, os.WriteFile(listing, []byte(`[{"name":"vm-a","status":"running"}]`), 0600))
+			script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> '%s'\ncase \"$1\" in\nlist) cat '%s';;\nesac\n", log, listing)
+			require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+			r.cli = &cli{binary: binary, home: root}
+			_, err := r.Request("person", "A", "Alice", "terminal")
+			require.NoError(t, err)
+			_, err = r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+			now := time.Now()
+			if overdue {
+				now = now.Add(-time.Minute)
+			}
+			require.True(t, r.CancelAdmission("A", "Alice", now))
+			r.startAdmissionReconciler(t.Context())
+			t.Cleanup(func() { r.admissionCancel() })
+			require.Eventually(t, func() bool { _, err := os.Stat(log); return err == nil }, 3*time.Second, 10*time.Millisecond)
+			require.Equal(t, 1, r.InUse(), "a successful stop command does not release the slot")
+			calls, err := os.ReadFile(log)
+			require.NoError(t, err)
+			if overdue {
+				require.Contains(t, string(calls), "stop -t 0 -q vm-a")
+			} else {
+				require.NotContains(t, string(calls), "stop -t 0")
+			}
+			// Atomic replacement avoids an incomplete observation while the daemon reads.
+			next := filepath.Join(root, "next")
+			require.NoError(t, os.WriteFile(next, []byte(`[{"name":"vm-a","status":"stopped"}]`), 0600))
+			require.NoError(t, os.Rename(next, listing))
+			require.Eventually(t, func() bool { return r.InUse() == 0 }, 3*time.Second, 10*time.Millisecond)
+			require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+		})
+	}
+}
+
+func TestAdmissionOrdinaryStopRequiresRuntimeObservation(t *testing.T) {
+	r, p := admissionFixture()
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	listing := filepath.Join(root, "status")
+	require.NoError(t, os.WriteFile(listing, []byte(`[{"name":"vm-a","status":"running"}]`), 0600))
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\nlist) cat '%s';;\nesac\n", listing)
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+	r.cli = &cli{binary: binary, home: root}
+	_, err := r.Request("person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("workspace:A", "vm-a"))
+	ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "running"}, root)
+	r.workspaces["A"] = ws
+	require.ErrorContains(t, r.StopWorkspace(t.Context(), "A"), "stop is not confirmed")
+	require.Equal(t, 1, r.InUse())
+	_, err = r.Request("person", "workspace:B", "Ben", "terminal")
+	require.NoError(t, err)
+	grant, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Empty(t, grant.Holder)
+	request, err := r.Request("person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	require.Equal(t, "waiting", request.State, "new demand cannot reuse a releasing grant")
+	require.Equal(t, 2, request.Position, "new demand ranks after Ben's earlier request")
+	require.NoError(t, os.WriteFile(listing, []byte(`[{"name":"vm-a","status":"stopped"}]`), 0600))
+	require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), time.Now()))
+	require.Equal(t, "stopped", ws.State)
+	grant, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:B", grant.Holder)
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionAuxiliaryRemovalRequiresRuntimeObservation(t *testing.T) {
+	r, p := admissionFixture()
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	listing := filepath.Join(root, "status")
+	require.NoError(t, os.WriteFile(listing, []byte(`[{"name":"prepare","status":"stopped"}]`), 0600))
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\nlist) cat '%s';;\nesac\n", listing)
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+	r.cli = &cli{binary: binary, home: root}
+	_, err := r.Request("person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	ctx := WithAdmissionHolder(t.Context(), "workspace:A")
+	require.NoError(t, r.reserveAuxVM(ctx, "prepare"))
+	require.ErrorContains(t, r.finishAuxVM("prepare"), "removal is not confirmed")
+	require.Equal(t, 1, r.InUse())
+	require.Error(t, r.BindAdmissionMachine("workspace:A", "branch"), "no transfer before prepare removal")
+	require.NoError(t, os.WriteFile(listing, []byte(`[]`), 0600))
+	require.NoError(t, r.finishAuxVM("prepare"))
+	require.Equal(t, 1, r.InUse(), "confirmed prepare removal retains branch grant")
+	require.NoError(t, r.BindAdmissionMachine("workspace:A", "branch"))
+}
+
+func TestAdmissionMachineMetricsFollowRuntimeQueueAndBoots(t *testing.T) {
+	r, p := admissionFixture()
+	registry := prometheus.NewRegistry()
+	require.NoError(t, registry.Register(r.MachineMetrics()))
+	require.Same(t, r.MachineMetrics(), r.MachineMetrics())
+	depths := func() map[string]float64 {
+		families, err := registry.Gather()
+		require.NoError(t, err)
+		got := map[string]float64{}
+		for _, f := range families {
+			if f.GetName() == "smithers_machine_queue_depth" {
+				for _, sample := range f.Metric {
+					got[sample.Label[0].GetValue()] = sample.GetGauge().GetValue()
+				}
+			}
+		}
+		return got
+	}
+	require.Equal(t, map[string]float64{"person": 0, "todo": 0, "background": 0}, depths())
+	for _, row := range []struct{ class, holder, actor string }{
+		{"todo", "workspace:A", "T1"}, {"person", "workspace:A", "Alice"},
+		{"person", "workspace:A", "Ben"}, {"todo", "workspace:B", "T2"},
+		{"background", "review:50", "review"},
+	} {
+		_, err := r.Request(row.class, row.holder, row.actor, "wake")
+		require.NoError(t, err)
+	}
+	require.Equal(t, map[string]float64{"person": 1, "todo": 1, "background": 1}, depths())
+	grant, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:A", grant.Holder)
+	require.Equal(t, map[string]float64{"person": 0, "todo": 1, "background": 1}, depths())
+	r.CancelAdmission("workspace:B", "T2", time.Now())
+	require.Equal(t, map[string]float64{"person": 0, "todo": 0, "background": 1}, depths())
+	// A failed retained boot passes through the production runtime lifecycle.
+	// Transport observations are conformance fixtures, not real-VM receipts.
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in\nlist) echo '[{\"name\":\"vm-a\",\"status\":\"stopped\"}]';;\nstart) exit 1;;\nstop) exit 0;;\nesac\n"), 0700))
+	r.cli = &cli{binary: binary, home: root}
+	ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "stopped"}, root)
+	r.workspaces["A"] = ws
+	_, err = r.StartWorkspace(WithAdmissionHolder(t.Context(), "workspace:A"), "A")
+	require.Error(t, err)
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	seenCounter, seenDuration := false, false
+	for _, f := range families {
+		if f.GetName() != "smithers_machine_wake_total" && f.GetName() != "smithers_machine_wake_duration_seconds" {
+			continue
+		}
+		require.Len(t, f.Metric, 1)
+		labels := map[string]string{}
+		for _, label := range f.Metric[0].Label {
+			labels[label.GetName()] = label.GetValue()
+		}
+		require.Equal(t, map[string]string{"kind": "warm", "outcome": "failure"}, labels)
+		if f.GetName() == "smithers_machine_wake_total" {
+			require.Equal(t, float64(1), f.Metric[0].GetCounter().GetValue())
+			seenCounter = true
+		} else {
+			require.Equal(t, uint64(1), f.Metric[0].GetHistogram().GetSampleCount())
+			require.Greater(t, f.Metric[0].GetHistogram().GetSampleSum(), float64(0))
+			seenDuration = true
+		}
+	}
+	require.True(t, seenCounter)
+	require.True(t, seenDuration)
+	// Already awake and invalid requests do not count as boot attempts.
+	ws.State = "running"
+	_, err = r.StartWorkspace(t.Context(), "A")
+	require.NoError(t, err)
+	_, err = r.CreateWorkspace(t.Context(), workspaceapi.WorkspaceSpec{ID: "A"})
+	require.NoError(t, err)
+	_, err = r.StartWorkspace(t.Context(), "missing")
+	require.Error(t, err)
+	families, err = registry.Gather()
+	require.NoError(t, err)
+	for _, f := range families {
+		if f.GetName() == "smithers_machine_wake_total" {
+			require.Len(t, f.Metric, 1)
+			require.Equal(t, float64(1), f.Metric[0].GetCounter().GetValue())
+		}
+	}
+}
+
+func TestAdmissionIdleCaptureFailureNeverForceStops(t *testing.T) {
+	now := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-A"))
+	_, err = r.Request("person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	safe := AdmissionSafety{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true, BurstsEnabled: true, BurstsKnown: true, DocumentsEnabled: true, DocumentsKnown: true}
+	failed := errors.New("outbox drain failed")
+	stops := 0
+	idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) { return []AdmissionSafety{safe}, nil }, Prepare: func(context.Context, string) error {
+		require.Empty(t, r.AdmissionForceStops(now.Add(time.Hour)))
+		joined, err := r.Request("person", "A", "Ben", "terminal")
+		require.NoError(t, err)
+		require.Equal(t, "waiting", joined.State)
+		require.False(t, r.CancelAdmission("A", "T1", now))
+		return failed
+	}, Stop: func(context.Context, string) error { stops++; return nil }}
+	require.ErrorIs(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle), failed)
+	require.Zero(t, stops)
+	require.Empty(t, r.AdmissionForceStops(now.Add(time.Hour)))
+	require.Equal(t, 1, r.InUse())
+	rows := r.AdmissionSnapshot()
+	require.Equal(t, "cancelled", rows[0].State)
+	require.Equal(t, "waiting", rows[1].State)
+	require.Equal(t, "granted", rows[2].State)
+}
+
+func TestAdmissionIdlePreparedStopRetainsSlot(t *testing.T) {
+	now := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-A"))
+	_, err = r.Request("person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	safe := AdmissionSafety{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}
+	failed := errors.New("stop not confirmed")
+	calls := []string{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) { return []AdmissionSafety{safe}, nil }, Prepare: func(context.Context, string) error { calls = append(calls, "capture"); cancel(); return nil }, Stop: func(ctx context.Context, holder string) error {
+		require.NoError(t, ctx.Err())
+		require.Equal(t, "A", holder)
+		calls = append(calls, "stop")
+		next, err := r.GrantNext(ctx, p)
+		require.NoError(t, err)
+		require.Empty(t, next.Holder)
+		return failed
+	}}
+	require.ErrorIs(t, r.ReconcileAdmissionIdle(ctx, now, now.Add(-time.Hour), idle), failed)
+	require.Equal(t, []string{"capture", "stop"}, calls)
+	require.Equal(t, 1, r.InUse())
+	require.Empty(t, r.AdmissionForceStops(now.Add(59900*time.Millisecond)))
+	require.Equal(t, []string{"A"}, r.AdmissionForceStops(now.Add(time.Minute)))
+	// A transport failure does not release the slot. Only the runtime's stop
+	// observation lets the queued person's machine start.
+	r.ConfirmAdmissionStop("A", false)
+	next, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "B", next.Holder)
+}
+
+func TestAdmissionIdleProviderAndSafetyRefusals(t *testing.T) {
+	now := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	for _, kind := range []string{"safety_missing", "prepare_missing", "stop_missing", "read_failed", "restart", "presence_unknown", "sessions_unknown", "run_unknown", "burst_unknown", "flush_unknown", "safe"} {
+		t.Run(kind, func(t *testing.T) {
+			r, p := admissionFixture()
+			_, err := r.Request("todo", "A", "T1", "run")
+			require.NoError(t, err)
+			_, err = r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			_, err = r.Request("person", "B", "Alice", "terminal")
+			require.NoError(t, err)
+			safe := AdmissionSafety{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}
+			prepared, stopped := 0, 0
+			idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) { return []AdmissionSafety{safe}, nil }, Prepare: func(context.Context, string) error { prepared++; return nil }, Stop: func(context.Context, string) error { stopped++; return nil }}
+			start := now.Add(-time.Hour)
+			switch kind {
+			case "safety_missing":
+				idle.Safety = nil
+			case "prepare_missing":
+				idle.Prepare = nil
+			case "stop_missing":
+				idle.Stop = nil
+			case "read_failed":
+				idle.Safety = func(context.Context) ([]AdmissionSafety, error) { return nil, errors.New("stale observation") }
+			case "restart":
+				start = now.Add(-29900 * time.Millisecond)
+			case "presence_unknown":
+				safe.PresenceKnown = false
+			case "sessions_unknown":
+				safe.SessionsKnown = false
+			case "run_unknown":
+				safe.RunKnown = false
+			case "burst_unknown":
+				safe.BurstsEnabled = true
+			case "flush_unknown":
+				safe.DocumentsEnabled = true
+			}
+			err = r.ReconcileAdmissionIdle(t.Context(), now, start, idle)
+			if strings.HasSuffix(kind, "missing") || kind == "read_failed" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if kind == "safe" {
+				require.Equal(t, 1, prepared)
+				require.Equal(t, 1, stopped)
+			} else {
+				require.Zero(t, prepared)
+				require.Zero(t, stopped)
+				require.Empty(t, r.AdmissionForceStops(now.Add(time.Hour)))
+			}
+			require.Equal(t, 1, r.InUse())
+		})
+	}
+}
+
+func TestAdmissionIdleDoesNotReleaseWithSpareCapacity(t *testing.T) {
+	now := time.Now()
+	r, p := admissionFixture()
+	r.SetCapacityReader(func(context.Context) (int, error) { return 2, nil })
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	_, err = r.Request("person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	prepared := 0
+	idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) {
+		return []AdmissionSafety{{Holder: "A", IdleSince: now.Add(-time.Minute), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+	}, Prepare: func(context.Context, string) error { prepared++; return nil }, Stop: func(context.Context, string) error { return nil }}
+	require.NoError(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle))
+	require.Zero(t, prepared)
+	// The owner lowering capacity changes release pressure without preempting a
+	// working step, and disk is reread rather than cached from host startup.
+	idle.FreeDisk = func(context.Context) (int64, error) { return 100 << 30, nil }
+	require.NoError(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle))
+	require.Equal(t, 1, prepared)
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionConfiguredIdleReleaseWakesWaitingPerson(t *testing.T) {
+	now := time.Now()
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-A"))
+	prepared := 0
+	require.Error(t, r.SetAdmissionIdleProviders(AdmissionIdleProviders{}))
+	require.NoError(t, r.SetAdmissionIdleProviders(AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) {
+		return []AdmissionSafety{{Holder: "A", IdleSince: time.Now().Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+	}, Prepare: func(context.Context, string) error { prepared++; return nil }, Stop: func(context.Context, string) error { r.ConfirmAdmissionStop("A", false); return nil }}))
+	r.mu.Lock()
+	r.admissionStarted = time.Now().Add(-time.Hour)
+	r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	granted, err := r.WaitAdmission(ctx, p, "person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	require.NotNil(t, granted)
+	require.Equal(t, 1, prepared)
+	require.Equal(t, 1, r.InUse())
+	require.Equal(t, "granted", r.AdmissionSnapshot()[1].State)
+}
+
+func TestAdmissionIdleConcurrentPreparationDoesNotBlockCancellation(t *testing.T) {
+	r, p := admissionFixture()
+	now := time.Now()
+	_, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	_, err = r.Request("person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	entered, finish, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	idle := AdmissionIdleProviders{Now: func() time.Time { return now }, FreeDisk: p.FreeDisk, Safety: func(context.Context) ([]AdmissionSafety, error) {
+		return []AdmissionSafety{{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+	}, Prepare: func(context.Context, string) error { close(entered); <-finish; return errors.New("capture failed") }, Stop: func(context.Context, string) error { t.Error("must not stop after capture failure"); return nil }}
+	go func() { done <- r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle) }()
+	<-entered
+	// A second tick must not wait on a blocked capture or enter it twice.
+	require.NoError(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle))
+	joined, err := r.Request("todo", "A", "T1", "run")
+	require.NoError(t, err)
+	require.Equal(t, "waiting", joined.State)
+	require.False(t, r.admissionGranted("A", "T1"))
+	require.False(t, r.CancelAdmission("A", "T1", now))
+	require.False(t, r.CancelAdmission("B", "Alice", now))
+	require.Empty(t, r.AdmissionForceStops(now.Add(time.Hour)))
+	close(finish)
+	require.ErrorContains(t, <-done, "capture failed")
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionHeldUntilObservedStop(t *testing.T) {
+	r, p := admissionFixture()
+	require.False(t, r.AdmissionHeld("workspace:T1"))
+	_, err := r.Request("todo", "workspace:T1", "T1", "machine")
+	require.NoError(t, err)
+	require.False(t, r.AdmissionHeld("workspace:T1"))
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.True(t, r.AdmissionHeld("workspace:T1"))
+	require.True(t, r.CancelAdmission("workspace:T1", "T1", time.Now()))
+	require.True(t, r.AdmissionHeld("workspace:T1"), "cancellation is not observed release")
+	r.ConfirmAdmissionStop("workspace:T1", false)
+	require.False(t, r.AdmissionHeld("workspace:T1"))
+	r.workspaces["recovered"] = &workspace{metadata: metadata{Machine: "vm", State: "running"}}
+	require.True(t, r.AdmissionHeld("workspace:recovered"))
+	r.workspaces["recovered"].State = "stopping"
+	require.True(t, r.AdmissionHeld("workspace:recovered"))
+	r.workspaces["recovered"].State = "stopped"
+	require.False(t, r.AdmissionHeld("workspace:recovered"))
+}
+
+func TestAdmissionStackReorderPreservesPersonAndGrants(t *testing.T) {
+	r, p := admissionFixture()
+	for _, holder := range []string{"T2", "T1", "T3"} {
+		_, err := r.Request("todo", holder, holder, "machine")
+		require.NoError(t, err)
+	}
+	_, err := r.Request("person", "Ben", "Ben", "machine")
+	require.NoError(t, err)
+	r.ReorderTodoAdmission([]string{"T1", "T2", "T3", "T1", "absent"})
+	rows := r.AdmissionSnapshot()
+	require.Equal(t, []string{"Ben", "T1", "T2", "T3"}, []string{rows[0].Holder, rows[1].Holder, rows[2].Holder, rows[3].Holder})
+	require.Equal(t, []int{1, 2, 3, 4}, []int{rows[0].Position, rows[1].Position, rows[2].Position, rows[3].Position})
+	before := r.admissionSequence
+	r.ReorderTodoAdmission([]string{"T1", "T2", "T3"})
+	require.Equal(t, before, r.admissionSequence, "reading an unchanged order cannot invalidate an in-flight grant")
+	granted, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "Ben", granted.Holder)
+	r.ReorderTodoAdmission([]string{"T3", "T2", "T1"})
+	require.True(t, r.AdmissionHeld("Ben"), "reordering never preempts a grant")
+	require.Equal(t, 1, r.InUse())
+	require.True(t, r.CancelAdmission("Ben", "Ben", time.Now()))
+	r.ConfirmAdmissionStop("Ben", false)
+	granted, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "T3", granted.Holder)
 }

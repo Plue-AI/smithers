@@ -38,6 +38,7 @@ func TestWorkspaceCommandMissingToolPreservesCompletedResult(t *testing.T) {
 			require.NoError(t, err)
 			require.Contains(t, string(raw), `"code":"missing_machine_tool"`)
 			require.Contains(t, string(raw), `"class":"user"`)
+			require.Contains(t, string(raw), `"missing_tool":{"name":"cargo","file":".smithers/machine.json"}`)
 			require.Contains(t, string(raw), "rust-toolchain.toml")
 		})
 	}

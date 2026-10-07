@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
-import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
+import { HomeCardSchema, type HomeViewProps, type HomeItem } from "@smthrs/rpc/HomeCard"
 import type { Action, CatalogTag } from "@smthrs/rpc/CardAction"
 import { fixtures } from "@smthrs/rpc/fixtures/Home"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { HOME_TAGS, HomeCard, HomeContainer, homeFailureModel, homeSource } from "./HomeContainer"
+import { HOME_TAGS, HomeCard, HomeContainer, homeFailureModel, homeSource, withHomeRowControls } from "./HomeContainer"
 import { HomeView } from "./views/HomeView"
 import { homeFromTodos } from "../state/seams/HomeFromTodos"
 import { fixtures as todoFixtures } from "@smthrs/rpc/fixtures/Todo"
@@ -26,7 +26,7 @@ import type { IdentitySession } from "../state/AppState"
 import { homeLine } from "../ShellRail"
 import { useHome, type HomeAnswer } from "./HomeContainer"
 import type { GitHubSyncHealth } from "../state/seams/GitHubSyncSeam"
-const allowed = new Set<CatalogTag>(["todo.new", "github.retry", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
+const allowed = new Set<CatalogTag>(["settings", "todo.new", "github.retry", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
   let props!: HomeViewProps
   const calls: unknown[] = []
@@ -87,7 +87,22 @@ test("sync Retry is offered only while main's sync is stale", () => {
   expect(tags("fresh")).toEqual(["todo.new"])
   expect(tags("stale")).toEqual(["todo.new", "github.retry"])
   expect(tags("limited")).toEqual(["todo.new"])
-  expect(tags("refused")).toEqual(["todo.new"])
+  expect(tags("refused")).toEqual(["todo.new", "settings"])
+})
+
+test("a refused main sync offers Fix through the same settings flow as the slash door", async () => {
+  GlobalRegistrator.register()
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  const host = document.createElement("div"), root = createRoot(host), calls: unknown[] = []
+  try {
+    await act(async () => root.render(<HomeContainer model={fixtures.refused.model} role="owner" allowed={HOME_TAGS}
+      dispatch={(tag, input) => calls.push([tag, input])} view={{ maximized: false }} onView={() => {}} />))
+    expect(host.textContent).toContain("Repository access refused")
+    const fix = host.querySelector<HTMLButtonElement>('button[data-flow="settings"]')!
+    expect(fix.textContent).toBe("Fix")
+    await act(async () => fix.click())
+    expect(calls).toEqual([["settings", undefined]])
+  } finally { await act(async () => root.unmount()); await GlobalRegistrator.unregister() }
 })
 
 test("lack of admission removes all controls, and unavailable models never render", () => {
@@ -134,7 +149,7 @@ test("Merge is absent for members and for blocked, later or draft rows", () => {
     h.props.onAction("merge", { n: String(row.n) })
     expect(h.calls).toHaveLength(role === "member" ? 0 : 1)
   }
-  for (const patch of [{ place: 2 }, { merge: { state: "blocked", on_github: false } }, { pr: { number: 123, draft: true } }]) {
+  for (const patch of [{ merge: { state: "blocked", on_github: false } }, { pr: { number: 123, draft: true } }]) {
     const h = mount({ ...base, attention: [], items: [{ ...row, ...patch }] })
     expect(h.props.model.items[0]!.actions).toEqual([])
   }
@@ -202,13 +217,13 @@ test("the mounted card composes itself from the controller: Answer opens T9's TO
   const h = seeded(MAYA, true)
   try {
     await act(async () => b.root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
-    expect(b.host.querySelectorAll(".mvp-stack-row")).toHaveLength(4)
-    const t9 = [...b.host.querySelectorAll(".mvp-stack-row")].find(row => row.textContent?.includes("T9"))!
+    expect(b.host.querySelectorAll(".stack-row")).toHaveLength(4)
+    const t9 = [...b.host.querySelectorAll(".stack-row")].find(row => row.textContent?.includes("T9"))!
     await click(t9.querySelector('button[data-flow="todo.answer"]'))
     expect(h.submitted).toEqual([{ name: "todo", payload: { n: 9 }, actor: "user" }])
-    await click(t9.querySelector('button.mvp-branch-chip[data-flow="branch"]'))
+    await click(t9.querySelector('button.branch-chip[data-flow="branch"]'))
     expect(h.submitted.at(-1)).toEqual({ name: "branch", payload: { name: "retry-webhooks" }, actor: "user" })
-    expect(t9.querySelector("button.mvp-branch-chip")?.textContent).toBe("retry-webhooks")
+    expect(t9.querySelector("button.branch-chip")?.textContent).toBe("retry-webhooks")
   } finally { await b.close() }
 })
 
@@ -219,12 +234,12 @@ test("the filter is the member's view state: it narrows the rows and is what a r
     await act(async () => b.root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
     await click(b.host.querySelector('[data-filter="needs_you"]'))
     expect(designHomeView(h.controller.design, MAYA)).toEqual({ maximized: false, filter: "needs_you" })
-    expect([...b.host.querySelectorAll(".mvp-stack-row .mvp-ref")].map(ref => ref.textContent)).toEqual(["T9"])
+    expect([...b.host.querySelectorAll(".stack-row .ref")].map(ref => ref.textContent)).toEqual(["T9"])
     expect(b.host.querySelector('[data-filter="needs_you"]')?.getAttribute("aria-pressed")).toBe("true")
     expect(h.submitted).toEqual([])
     await click(b.host.querySelector('[data-filter="needs_you"]'))
     expect(designHomeView(h.controller.design, MAYA)).toEqual({ maximized: false })
-    expect(b.host.querySelectorAll(".mvp-stack-row")).toHaveLength(4)
+    expect(b.host.querySelectorAll(".stack-row")).toHaveLength(4)
   } finally { await b.close() }
 })
 
@@ -249,9 +264,9 @@ test("a host with no home provider keeps the seed; a provider that fails shows m
       await b.answer(frame)
       const text = b.host.textContent ?? ""
       for (const title of SEEDED_TITLES) expect(text).not.toContain(title)
-      expect(b.host.querySelectorAll(".mvp-stack-row")).toHaveLength(0)
-      expect(b.host.querySelector(".mvp-sync")?.getAttribute("data-health")).toBe(health)
-      expect(b.host.querySelector(".mvp-sync")?.textContent).toBe(cause)
+      expect(b.host.querySelectorAll(".stack-row")).toHaveLength(0)
+      expect(b.host.querySelector(".sync")?.getAttribute("data-health")).toBe(health)
+      expect(b.host.querySelector(".sync")?.textContent).toBe(cause)
       expect([...b.host.querySelectorAll("button[data-flow]")].map(button => button.getAttribute("data-flow"))).toEqual(["todo.new"])
     } finally { await b.close() }
   }
@@ -271,7 +286,7 @@ test("a controller with no live channel keeps the seed and opens no /api/live so
   const root = createRoot(host)
   try {
     await act(async () => root.render(<ControllerTestProvider controller={seeded(MAYA).controller}><HomeCard /></ControllerTestProvider>))
-    expect(host.querySelectorAll(".mvp-stack-row")).toHaveLength(4)
+    expect(host.querySelectorAll(".stack-row")).toHaveLength(4)
     expect(sockets).toBe(0)
     expect(liveChannel().getSnapshot("home")).toBeUndefined()
   } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
@@ -296,6 +311,31 @@ test("production props alone keep the seed until the home topic serves data; the
     await b.answer({ t: "snap", cursor: 3, data: { ...live, repository: "Fresh after gap" } })
     expect(host.textContent).toContain("Fresh after gap")
   } finally { await b.close() }
+})
+
+test("the install Home reads the live seam and disabled title actions never launch a flow", async () => {
+  const b = browser(), h = seeded(MAYA, true, "smithersai")
+  h.controller.design.dispose()
+  const controller = { ...h.controller, design: createDesignWorld({ enabled: false }) } as AppController
+  try {
+    await act(async () => b.root.render(<ControllerTestProvider controller={controller}><HomeCard /></ControllerTestProvider>))
+    expect(b.host.textContent).not.toContain("Stripe")
+    const row = fixtures.active.model.items[0]!
+    await b.answer({ t: "snap", cursor: 1, data: { ...fixtures.fresh.model, repository: "install-owner/repo",
+      items: [{ ...row, title: "Real served TODO", actions: [{ tag: "todo", label: "Real served TODO", args: { n: "8", door: "title" }, disabled: { reason: "Permission missing" } }] }] } })
+    expect(b.host.querySelector("h2")?.textContent).toBe("install-owner/repo")
+    expect(b.host.textContent).toContain("Real served TODO")
+    expect(b.host.textContent).toContain("Permission missing")
+    const title = b.host.querySelector<HTMLButtonElement>('.stack-title button[data-flow="todo"]')!
+    expect(title.disabled).toBe(true)
+    await click(title)
+    expect(h.submitted).toEqual([])
+    await b.answer({ t: "snap", cursor: 2, data: { ...fixtures.fresh.model, repository: "install-owner/repo",
+      items: [{ ...row, title: "Real served TODO", actions: [{ tag: "todo", label: "Real served TODO", args: { n: "8", door: "title" } }] }] } })
+    await click(b.host.querySelector('.stack-title button[data-flow="todo"]'))
+    expect(h.submitted).toEqual([{ name: "todo", payload: { n: 8 }, actor: "user" }])
+    expect(b.host.textContent).not.toContain("Stripe")
+  } finally { await b.close(); controller.design.dispose() }
 })
 
 test("sync health ages at 120 seconds and preserves refused and limited facts", () => {
@@ -401,11 +441,18 @@ test("an install's main row reads its GitHub sync over an unavailable stack: syn
   markup = render()
   expect(markup).toContain('data-health="refused"')
   expect(markup).toContain("GitHub App not installed")
-  // No success yet, or a host with no sync: the row is the stack's.
-  for (const none of [{ state: "stale", last_success_at: null } as const, undefined]) {
-    health = none
-    expect(render()).toContain("Stack unavailable")
+  // Initial failures still carry authoritative health and a Retry door.
+  for (const state of ["stale", "limited"] as const) {
+    health = { state, last_success_at: null, ...(state === "limited" ? { retry_at: new Date(Date.now() + 60_000).toISOString() } : {}) }
+    markup = render()
+    expect(markup).toContain(`data-health="${state}"`)
+    if (state === "stale") expect(markup).toContain('data-flow="github.retry"')
+    else expect(markup).toContain("retries at")
+    expect(markup).not.toContain("Stack unavailable")
+    expect(markup).not.toContain("synced")
   }
+  health = undefined
+  expect(render()).toContain("Stack unavailable")
   controller.design.dispose()
 })
 
@@ -566,8 +613,8 @@ test("on an install the session decides the role: over the J1 rehearsal's GET /a
       const root = createRoot(host)
       try {
         await act(async () => root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
-        const rows = [...host.querySelectorAll(".mvp-stack-row")]
-        expect(rows.map(row => row.querySelector(".mvp-ref")?.textContent)).toEqual(["T1"])
+        const rows = [...host.querySelectorAll(".stack-row")]
+        expect(rows.map(row => row.querySelector(".ref")?.textContent)).toEqual(["T1"])
         expect(host.textContent).toContain("First TODO")
         expect(host.textContent).not.toContain("Stripe")
         expect(rows.flatMap((row, index) => [...row.querySelectorAll('button[data-flow="merge"]')].map(() => index + 1))).toEqual([...merges])
@@ -630,6 +677,66 @@ test("on a host with the seed the rail's home line reads the seeded stack", () =
   expect(home.kind).toBe("seed")
   expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: home.model.repository, summary: "1 need you · 1 working", tone: "attention", glyph: { state: "needs_you" } })
   h.controller.design.dispose()
+})
+
+
+test("after a merge, Home offers Merge on the first open row regardless of its original place", async () => {
+  GlobalRegistrator.register()
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  const [first] = rehearsalTodos
+  const h = rehearsalHost("rehearsal-owner", [
+    { ...first, n: 1, state: "merged", merge: { state: "done", on_github: true } },
+    { ...first, n: 2, place: 2, title: "Second TODO" },
+    { ...first, n: 3, place: 3, title: "Third TODO" }
+  ])
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
+    const rows = [...host.querySelectorAll(".stack-row")]
+    expect(rows.map(row => row.querySelector(".ref")?.textContent)).toEqual(["T2", "T3"])
+    expect(rows.map(row => row.querySelectorAll('button[data-flow="merge"]').length)).toEqual([1, 0])
+    await click(rows[0]!.querySelector('button[data-flow="merge"]'))
+    expect(h.submitted).toEqual([{ name: "merge", payload: { n: 2 }, actor: "user" }])
+  } finally {
+    await act(async () => root.unmount()); host.remove(); h.controller.design.dispose()
+    await GlobalRegistrator.unregister()
+  }
+})
+
+
+test("served Home rows bind order controls once and exclude completed rows from order boundaries", () => {
+  const base = Object.values(fixtures).find(fixture => fixture.model.items.length > 0)!.model
+  const row = { ...base.items[0]!, state: "working" as const, actions: [] }
+  const home = withHomeRowControls({ ...base, items: [
+    { ...row, n: 1, state: "merged" }, { ...row, n: 2 }, { ...row, n: 3 }, { ...row, n: 4, state: "dropped" }
+  ] })
+  expect(home.items.map(item => item.actions.filter(action => action.tag !== "branch").map(action => action.label)))
+    .toEqual([[], ["Move down", "Drop"], ["Move up", "Drop"], []])
+  expect(withHomeRowControls(home)).toEqual(home)
+  const h = mount(home)
+  h.props.onAction("stack.move", { n: "2", direction: "down" })
+  h.props.onAction("todo.drop", { n: "3" })
+  expect(h.calls).toEqual([{ tag: "stack.move", input: { n: 2, direction: "down" } }, { tag: "todo.drop", input: { n: 3 } }])
+})
+
+
+test("served Home waits use the shared Resolve and Review policy and keep the branch door", () => {
+  const base = fixtures.active.model
+  for (const [kind, tag, label] of [["conflict", "branch", "Resolve"], ["moved_off", "branch", "Resolve"], ["foreign_push", "todo", "Review"], ["question", "todo.answer", "Answer"]] as const) {
+    const row: HomeItem = { ...base.items[0]!, state: "needs_you" as const, needs_you: { kind, prompt: "Waiting" },
+      branch: { id: "branch-8", name: "fix-api" }, actions: [
+        { tag: "todo" as const, label: "Fix API", args: { n: "8", door: "title" } },
+        { tag: "todo.answer" as const, label: "Answer", args: { n: "8" } }
+      ] }
+    const h = mount(withHomeRowControls({ ...base, items: [row] }), "member")
+    const actions = h.props.model.items[0]!.actions
+    expect(actions.filter(action => action.label === label)).toHaveLength(1)
+    if (label !== "Answer") expect(actions.some(action => action.label === "Answer")).toBe(false)
+    expect(actions.find(action => action.args?.door === "branch")).toEqual({ tag: "branch", label: "fix-api", args: { name: "fix-api", door: "branch", n: String(row.n) } })
+    h.props.onAction(tag, actions.find(action => action.label === label)!.args)
+    expect(h.calls).toEqual([{ tag, input: tag === "branch" ? { name: "fix-api" } : tag === "todo.answer" ? { n: row.n, answer: "" } : { n: row.n } }])
+  }
 })
 
 test("removing the not-ready Review action keeps a TODO titled Review openable", () => {

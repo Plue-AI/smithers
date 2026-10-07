@@ -27,8 +27,8 @@ const Space = Schema.Literals(["public", "private"])
 export const wikiSurfaceOperations = [
   operation({
     name: "wiki",
-    summary: `See what Smithers understands (${WIKI_DISPLAY_NAME})`,
-    input: NoInput
+     slash: "/wiki", cli: ["wiki","show"], journey: ["J8"], group: "Wiki", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open the wiki",
+    agent: "run", input: NoInput
   })
 ] as const
 
@@ -42,8 +42,8 @@ export const wikiOperations = [
      */
     name: "wiki.ask",
     summary: "Ask the codebase a question; the answer cites the Wiki",
-    userOnly: true,
-    userOnlyReason: WIKI_ASK_USER_ONLY_REASON,
+    agent: "never" as const,
+    agentReason: WIKI_ASK_USER_ONLY_REASON,
     args: "<question>",
     form: { submitLabel: "Ask", fields: { question: { label: "Question" } } },
     input: Schema.Struct({ question: Schema.String })
@@ -140,8 +140,8 @@ export const wikiOperations = [
     name: "wiki.heading",
     summary: "Scroll the open note to a heading",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: WIKI_HEADING_USER_ONLY_REASON,
+    agent: "never" as const,
+    agentReason: WIKI_HEADING_USER_ONLY_REASON,
     args: "<line> [cardId]",
     input: Schema.Struct({ line: Schema.String, cardId: Schema.optional(Schema.String) })
   }),
@@ -157,16 +157,16 @@ export const wikiOperations = [
     name: "wiki.delete.confirm",
     summary: "Delete the note Smithers asked about",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: CONFIRM_ANSWER_REASON,
+    agent: "never" as const,
+    agentReason: CONFIRM_ANSWER_REASON,
     input: NoInput
   }),
   operation({
     name: "wiki.delete.cancel",
     summary: "Keep the note Smithers asked about",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: CONFIRM_ANSWER_REASON,
+    agent: "never" as const,
+    agentReason: CONFIRM_ANSWER_REASON,
     input: NoInput
   }),
   operation({
@@ -224,8 +224,8 @@ export const wikiOperations = [
     /* The file comes from the human's own dialog (the gesture); a model has no file to give. */
     name: "wiki.attach",
     summary: "Attach a file to the repository Wiki",
-    userOnly: true,
-    userOnlyReason: WIKI_ATTACH_USER_ONLY_REASON,
+    agent: "never" as const,
+    agentReason: WIKI_ATTACH_USER_ONLY_REASON,
     args: "[path] [owner/repo]",
     requires: ["signed-in"],
     /* No slug: a new attachment's slug is derived from its path and bytes, an existing one is read from the index. */
@@ -239,8 +239,8 @@ export const wikiOperations = [
      */
     name: "wiki.pane",
     summary: `Open the ${WIKI_DISPLAY_NAME} beside the chat`,
-    userOnly: true,
-    userOnlyReason: "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
+    agent: "never" as const,
+    agentReason: "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
     input: NoInput
   })
 ] as const

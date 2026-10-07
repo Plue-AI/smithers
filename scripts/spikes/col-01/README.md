@@ -14,6 +14,12 @@ app's lib0 0.2.117; its launcher installs only offline from the existing store.
 No container runtime or guest build toolchain is needed. The Rust toolchain cross-links static Linux
 binaries with its bundled musl and LLD.
 
+Before building or starting a VM, the launcher compares the runtime source and
+embedded assets against `origin/main`. Missing, changed, symlinked or extra
+inputs refuse the launch with exit 2. The runtime installs a root helper;
+matching a branch-provided digest does not authorize its bytes. Fetch main
+before measurements. Remote browser mode does not provision a VM.
+
 Modes: `rtt` (both transports, idle/busy, setup, controls), `keystrokes` (both
 transports), `control` (retry only the write baselines), `snapshot` (jj burst capture), and `serve relay|bridge` (keep one document VM and host endpoint up
 for a second Mac). The default runs everything. `SPIKE_LAN` selects the LAN
@@ -160,3 +166,14 @@ C-SPK-03 retains `growth-samples.csv`, `versions-samples.csv`, `growth-summary.j
 `growth-abandon.log`, `growth-gc.log`, `kernel-probes.json` and failure evidence.
 The reference-host rerun, second-device browser results and signed ADR topology
 are still required. No topology decision is inferred from missing observations.
+
+Completed snapshot or growth observations that miss their budget exit **3**.
+The launcher verifies the complete summary before continuing to the remaining
+follow-up measurements, and retains the budget failure in its final exit.
+Execution, security, corruption, cancellation and incomplete-summary failures
+still stop dependent work. This allows slow snapshot runs to collect growth,
+versions and filesystem evidence without turning a latency miss into a pass.
+The final report requires the 1,000 consecutive growth samples, 100 versions
+samples, abandon/GC logs, evaluated growth budget, and complete guest kernel
+observations. A blocked privileged probe cannot be reported as a measured no
+or a passing C-SPK-03 receipt.

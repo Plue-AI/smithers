@@ -1,0 +1,1297 @@
+[
+  {
+    "name": "chat.send",
+    "summary": "Ask or tell Smithers anything",
+    "slash": null,
+    "cli": null,
+    "journey": [],
+    "group": "Ask",
+    "visibility": "core",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "member",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "help",
+    "summary": "List these commands",
+    "slash": "/help",
+    "cli": null,
+    "journey": [],
+    "group": "Ask",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "docs",
+    "summary": "Read the docs in the app",
+    "slash": "/docs",
+    "cli": null,
+    "journey": [],
+    "group": "Ask",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "stop",
+    "summary": "Stop the current answer",
+    "slash": "/stop",
+    "cli": null,
+    "journey": [],
+    "group": "Ask",
+    "visibility": "core",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "member",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "search",
+    "summary": "Search code, wiki and runs",
+    "slash": "/search",
+    "cli": [
+      "search"
+    ],
+    "journey": [
+      "J9"
+    ],
+    "group": "Ask",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/search"
+    }
+  },
+  {
+    "name": "stack",
+    "summary": "Show the stack and background runs",
+    "slash": "/stack",
+    "cli": [
+      "stack"
+    ],
+    "journey": [
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/todos"
+    }
+  },
+  {
+    "name": "todo.new",
+    "summary": "Write and place a TODO",
+    "slash": "/todo.new",
+    "cli": [
+      "todo",
+      "new"
+    ],
+    "journey": [
+      "J1",
+      "J2"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos"
+    }
+  },
+  {
+    "name": "todo.from-issue",
+    "summary": "Draft a TODO from an issue",
+    "slash": "/todo.from-issue",
+    "cli": [
+      "todo",
+      "from-issue"
+    ],
+    "journey": [
+      "J2"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": null
+  },
+  {
+    "name": "todo",
+    "summary": "Open a TODO's card",
+    "slash": "/todo",
+    "cli": [
+      "todo",
+      "show"
+    ],
+    "journey": [
+      "J2",
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/todos/{n}"
+    }
+  },
+  {
+    "name": "todo.answer",
+    "summary": "Answer the agent's question",
+    "slash": "/todo.answer",
+    "cli": [
+      "todo",
+      "answer"
+    ],
+    "journey": [
+      "J2",
+      "J3",
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos/{n}/answer"
+    }
+  },
+  {
+    "name": "todo.steer",
+    "summary": "Send the agent a correction",
+    "slash": "/todo.steer",
+    "cli": [
+      "todo",
+      "steer"
+    ],
+    "journey": [
+      "J3",
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos/{n}/steer"
+    }
+  },
+  {
+    "name": "todo.amend",
+    "summary": "Change an unmerged TODO's prompt",
+    "slash": "/todo.amend",
+    "cli": [
+      "todo",
+      "amend"
+    ],
+    "journey": [
+      "J7"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "PATCH",
+      "path": "/api/todos/{n}"
+    }
+  },
+  {
+    "name": "todo.stop",
+    "summary": "Pause a working TODO",
+    "slash": "/todo.stop",
+    "cli": [
+      "todo",
+      "stop"
+    ],
+    "journey": [
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos/{n}/stop"
+    }
+  },
+  {
+    "name": "todo.resume",
+    "summary": "Resume a paused TODO",
+    "slash": "/todo.resume",
+    "cli": [
+      "todo",
+      "resume"
+    ],
+    "journey": [
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos/{n}/resume"
+    }
+  },
+  {
+    "name": "todo.retry",
+    "summary": "Retry a failed TODO",
+    "slash": "/todo.retry",
+    "cli": [
+      "todo",
+      "retry"
+    ],
+    "journey": [
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos/{n}/retry"
+    }
+  },
+  {
+    "name": "todo.drop",
+    "summary": "Abandon an unmerged TODO",
+    "slash": "/todo.drop",
+    "cli": [
+      "todo",
+      "drop"
+    ],
+    "journey": [
+      "J4",
+      "J7"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos/{n}/drop"
+    }
+  },
+  {
+    "name": "stack.move",
+    "summary": "Reorder an item",
+    "slash": "/stack.move",
+    "cli": [
+      "stack",
+      "move"
+    ],
+    "journey": [
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos/{n}/move"
+    }
+  },
+  {
+    "name": "merge",
+    "summary": "Review and merge the next item",
+    "slash": "/merge",
+    "cli": [
+      "merge"
+    ],
+    "journey": [
+      "J1",
+      "J2",
+      "J4"
+    ],
+    "group": "TODOs and the stack",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "maintainer",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/todos/{n}/merge"
+    }
+  },
+  {
+    "name": "branches",
+    "summary": "List branches with presence",
+    "slash": "/branches",
+    "cli": [
+      "branches"
+    ],
+    "journey": [
+      "J3"
+    ],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/branches"
+    }
+  },
+  {
+    "name": "branch",
+    "summary": "Open a branch's card",
+    "slash": "/branch",
+    "cli": [
+      "branch",
+      "show"
+    ],
+    "journey": [
+      "J3"
+    ],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/branches/{name}"
+    }
+  },
+  {
+    "name": "branch.fork",
+    "summary": "Fork a scratch branch",
+    "slash": "/branch.fork",
+    "cli": [
+      "branch",
+      "fork"
+    ],
+    "journey": [
+      "J7"
+    ],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/branches"
+    }
+  },
+  {
+    "name": "branch.add-to-stack",
+    "summary": "Add a scratch branch as a TODO",
+    "slash": "/branch.add-to-stack",
+    "cli": [
+      "branch",
+      "add-to-stack"
+    ],
+    "journey": [
+      "J7"
+    ],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/branches/{branch}/add-to-stack"
+    }
+  },
+  {
+    "name": "branch.rebase",
+    "summary": "Rebase this branch now",
+    "slash": "/branch.rebase",
+    "cli": [
+      "branch",
+      "rebase"
+    ],
+    "journey": [
+      "J7"
+    ],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/branches/{branch}/rebase"
+    }
+  },
+  {
+    "name": "terminal",
+    "summary": "Open a terminal on a branch",
+    "slash": "/terminal",
+    "cli": null,
+    "journey": [
+      "J3",
+      "J6"
+    ],
+    "group": "Branches and machines",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "file",
+    "summary": "Open and co-edit a file",
+    "slash": "/file",
+    "cli": [
+      "file"
+    ],
+    "journey": [
+      "J3",
+      "J9"
+    ],
+    "group": "Files and code",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "files",
+    "summary": "Browse a branch's files",
+    "slash": "/files",
+    "cli": [
+      "files"
+    ],
+    "journey": [
+      "J3"
+    ],
+    "group": "Files and code",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "diff",
+    "summary": "Show a branch's changes",
+    "slash": "/diff",
+    "cli": [
+      "diff"
+    ],
+    "journey": [
+      "J2",
+      "J3"
+    ],
+    "group": "Files and code",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "review",
+    "summary": "Review a change, return findings",
+    "slash": "/review",
+    "cli": [
+      "review"
+    ],
+    "journey": [
+      "J2"
+    ],
+    "group": "Review",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": null
+  },
+  {
+    "name": "pr",
+    "summary": "Open a pull request's card",
+    "slash": "/pr",
+    "cli": [
+      "pr"
+    ],
+    "journey": [
+      "J2"
+    ],
+    "group": "Review",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "issues",
+    "summary": "List the repository's issues",
+    "slash": "/issues",
+    "cli": [
+      "issues"
+    ],
+    "journey": [
+      "J2"
+    ],
+    "group": "Issues",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/issues"
+    }
+  },
+  {
+    "name": "issue",
+    "summary": "Open an issue's card",
+    "slash": "/issue",
+    "cli": [
+      "issue",
+      "show"
+    ],
+    "journey": [
+      "J2"
+    ],
+    "group": "Issues",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/issues/{number}"
+    }
+  },
+  {
+    "name": "issue.new",
+    "summary": "Open a GitHub issue",
+    "slash": "/issue.new",
+    "cli": [
+      "issue",
+      "new"
+    ],
+    "journey": [],
+    "group": "Issues",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/issues"
+    }
+  },
+  {
+    "name": "issue.comment",
+    "summary": "Comment on an issue",
+    "slash": "/issue.comment",
+    "cli": [
+      "issue",
+      "comment"
+    ],
+    "journey": [
+      "J2"
+    ],
+    "group": "Issues",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/issues/{number}/comments"
+    }
+  },
+  {
+    "name": "wiki",
+    "summary": "Open the wiki",
+    "slash": "/wiki",
+    "cli": [
+      "wiki",
+      "show"
+    ],
+    "journey": [
+      "J8"
+    ],
+    "group": "Wiki",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "wiki.page",
+    "summary": "Open or create a page",
+    "slash": "/wiki.page",
+    "cli": [
+      "wiki",
+      "page"
+    ],
+    "journey": [
+      "J8"
+    ],
+    "group": "Wiki",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "wiki.save",
+    "summary": "Save this answer as a page",
+    "slash": "/wiki.save",
+    "cli": [
+      "wiki",
+      "save"
+    ],
+    "journey": [
+      "J9"
+    ],
+    "group": "Wiki",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "flows",
+    "summary": "List the repository's flows",
+    "slash": "/flows",
+    "cli": [
+      "flows"
+    ],
+    "journey": [
+      "J5"
+    ],
+    "group": "Flows",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/flows"
+    }
+  },
+  {
+    "name": "flow",
+    "summary": "Show a flow's steps and versions",
+    "slash": "/flow",
+    "cli": [
+      "flow",
+      "show"
+    ],
+    "journey": [
+      "J5"
+    ],
+    "group": "Flows",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/flows/{name}"
+    }
+  },
+  {
+    "name": "flow.edit",
+    "summary": "Propose a change to a flow",
+    "slash": "/flow.edit",
+    "cli": [
+      "flow",
+      "edit"
+    ],
+    "journey": [
+      "J5"
+    ],
+    "group": "Flows",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/flows/{name}/edit"
+    }
+  },
+  {
+    "name": "flow.run",
+    "summary": "Run a flow with typed input",
+    "slash": "/flow.run",
+    "cli": [
+      "flow",
+      "run"
+    ],
+    "journey": [],
+    "group": "Flows",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "POST",
+      "path": "/api/flows/{workflow}/run"
+    }
+  },
+  {
+    "name": "flow.new",
+    "summary": "Create a new flow",
+    "slash": "/flow.new",
+    "cli": [
+      "flow",
+      "new"
+    ],
+    "journey": [],
+    "group": "Flows",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "confirm",
+    "http": {
+      "method": "POST",
+      "path": "/api/flows"
+    }
+  },
+  {
+    "name": "runs",
+    "summary": "Active and attention-needing runs",
+    "slash": "/runs",
+    "cli": [
+      "runs",
+      "list"
+    ],
+    "journey": [
+      "J4"
+    ],
+    "group": "Runs",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/runs"
+    }
+  },
+  {
+    "name": "run",
+    "summary": "Open a run's card",
+    "slash": "/run",
+    "cli": [
+      "runs",
+      "show"
+    ],
+    "journey": [
+      "J4"
+    ],
+    "group": "Runs",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/runs/{id}"
+    }
+  },
+  {
+    "name": "github",
+    "summary": "Show sync status and retry",
+    "slash": "/github",
+    "cli": [
+      "github"
+    ],
+    "journey": [
+      "J10"
+    ],
+    "group": "GitHub",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/github/sync"
+    }
+  },
+  {
+    "name": "monitor",
+    "summary": "Every run, with its debug view",
+    "slash": "/monitor",
+    "cli": [
+      "monitor"
+    ],
+    "journey": [
+      "J11"
+    ],
+    "group": "Advanced",
+    "visibility": "advanced",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/runs"
+    }
+  },
+  {
+    "name": "debug-api",
+    "summary": "Try any call in the open API",
+    "slash": "/debug-api",
+    "cli": null,
+    "journey": [],
+    "group": "Advanced",
+    "visibility": "advanced",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "member",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "run.inspect",
+    "summary": "Open a run's monitor",
+    "slash": "/run.inspect",
+    "cli": [
+      "run",
+      "inspect"
+    ],
+    "journey": [
+      "J11"
+    ],
+    "group": "Advanced",
+    "visibility": "advanced",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/runs/{id}"
+    }
+  },
+  {
+    "name": "flow.source",
+    "summary": "Co-edit a flow's source",
+    "slash": "/flow.source",
+    "cli": [
+      "flow",
+      "source"
+    ],
+    "journey": [
+      "J11"
+    ],
+    "group": "Advanced",
+    "visibility": "advanced",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "flow.plan",
+    "summary": "Preview a flow's plan",
+    "slash": "/flow.plan",
+    "cli": [
+      "flow",
+      "plan"
+    ],
+    "journey": [
+      "J11"
+    ],
+    "group": "Advanced",
+    "visibility": "advanced",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  },
+  {
+    "name": "agents",
+    "summary": "The factory's agents",
+    "slash": "/agents",
+    "cli": [
+      "agents"
+    ],
+    "journey": [
+      "J11"
+    ],
+    "group": "Advanced",
+    "visibility": "advanced",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/agents"
+    }
+  },
+  {
+    "name": "agent",
+    "summary": "Configure an agent",
+    "slash": "/agent",
+    "cli": [
+      "agent"
+    ],
+    "journey": [
+      "J11"
+    ],
+    "group": "Advanced",
+    "visibility": "advanced",
+    "actors": [
+      "person",
+      "app_agent",
+      "external_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": {
+      "method": "GET",
+      "path": "/api/agents/{name}"
+    }
+  },
+  {
+    "name": "settings",
+    "summary": "Model access, machines, GitHub (owner)",
+    "slash": "/settings",
+    "cli": null,
+    "journey": [
+      "J1"
+    ],
+    "group": "Account and settings",
+    "visibility": "core",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "owner",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "secrets",
+    "summary": "Set secrets machines can use",
+    "slash": "/secrets",
+    "cli": null,
+    "journey": [
+      "J1"
+    ],
+    "group": "Account and settings",
+    "visibility": "core",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "member",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "members",
+    "summary": "Add people and manage roles",
+    "slash": "/members",
+    "cli": null,
+    "journey": [
+      "J1"
+    ],
+    "group": "Account and settings",
+    "visibility": "core",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "member",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "ssh",
+    "summary": "Copy the SSH line for a branch",
+    "slash": "/ssh",
+    "cli": null,
+    "journey": [
+      "J3"
+    ],
+    "group": "Account and settings",
+    "visibility": "core",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "member",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "sign-in",
+    "summary": "Sign in with GitHub",
+    "slash": "/sign-in",
+    "cli": null,
+    "journey": [
+      "J1"
+    ],
+    "group": "Account and settings",
+    "visibility": "core",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "member",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "sign-out",
+    "summary": "Sign in with GitHub",
+    "slash": "/sign-out",
+    "cli": null,
+    "journey": [
+      "J1"
+    ],
+    "group": "Account and settings",
+    "visibility": "core",
+    "actors": [
+      "person"
+    ],
+    "minimumRole": "member",
+    "agent": "never",
+    "http": null
+  },
+  {
+    "name": "theme",
+    "summary": "Switch light or dark",
+    "slash": "/theme",
+    "cli": null,
+    "journey": [],
+    "group": "Account and settings",
+    "visibility": "core",
+    "actors": [
+      "person",
+      "app_agent"
+    ],
+    "minimumRole": "member",
+    "agent": "run",
+    "http": null
+  }
+]

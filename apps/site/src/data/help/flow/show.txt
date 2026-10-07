@@ -1,16 +1,12 @@
-smthrs flow show — Show a discovered flow's identity and description
+smthrs flow show — Show a flow's steps and versions
 
-Usage: smthrs flow show <flow> [options]
+Usage: smthrs flow show <name> [options]
 
 Arguments:
-  flow  Discovered flow name
+  name
 
 Options:
-  --root <string>        Project directory; defaults to the nearest Smithers project
-  --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
-  --mcp-config <string>  Path to the configured MCP servers
-  --quiet                Suppress progress messages
-  --verbose              Show redacted diagnostic details
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -93,6 +93,7 @@ type landingGitHubPullRequest struct {
 	} `json:"head"`
 	Base struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha"`
 	} `json:"base"`
 }
 
@@ -413,8 +414,9 @@ func defaultPushLandingCommit(ctx context.Context, sourceURL, sourceRef, commitI
 }
 
 type landingGitHubAPI struct {
-	client  *http.Client
-	baseURL func() string
+	maxResponseBytes int64 // Zero uses the repository metadata limit.
+	client           *http.Client
+	baseURL          func() string
 }
 
 func (a *landingGitHubAPI) request(ctx context.Context, token, method, path string, body any, out any, refusal ...*GitHubRefusal) (int, error) {
@@ -435,9 +437,11 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(a.baseURL(), "/")+path, reader)
 	if err != nil {
-		return 0, nil, pkgerrors.Internal("build GitHub request").WithCause(err)
+		return 0, nil, GitHubRequestFailure(ctx, "GitHub request URL is invalid")
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	if method == http.MethodGet && etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}
@@ -449,10 +453,21 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return 0, nil, pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub did not answer")
+		return 0, nil, GitHubRequestFailure(ctx, "GitHub did not answer")
 	}
 	defer func() { _ = resp.Body.Close() }()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if limited := GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return resp.StatusCode, resp.Header.Clone(), limited
+	}
+
+	limit := a.maxResponseBytes
+	if limit == 0 {
+		limit = githubRepoMetadataMaxResponseBytes
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if readErr != nil || int64(len(raw)) > limit {
+		return resp.StatusCode, resp.Header.Clone(), GitHubRequestFailure(ctx, "GitHub returned an incomplete response")
+	}
 	if resp.StatusCode >= 400 && len(refusal) > 0 && refusal[0] != nil {
 		_ = json.Unmarshal(raw, refusal[0])
 		refusal[0].Status = resp.StatusCode
@@ -460,21 +475,17 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 && out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {
-			return resp.StatusCode, resp.Header.Clone(), pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub returned an unreadable pull request receipt")
+			return resp.StatusCode, resp.Header.Clone(), GitHubRequestFailure(ctx, "GitHub returned an unreadable response")
 		}
 	}
 	return resp.StatusCode, resp.Header.Clone(), nil
 }
 
 func landingGitHubStatusError(status int, owner, repo, action string) error {
-	switch status {
-	case http.StatusUnauthorized, http.StatusForbidden:
-		return pkgerrors.Forbidden("The Smithers GitHub App cannot " + action + " on " + owner + "/" + repo + "; grant it contents and pull requests write access")
-	case http.StatusNotFound:
-		return pkgerrors.NotFound("GitHub repository " + owner + "/" + repo + " is not visible to the Smithers GitHub App")
-	default:
-		return pkgerrors.New(pkgerrors.CodeBadGateway, fmt.Sprintf("GitHub refused to %s (HTTP %d)", action, status))
+	if err := GitHubResponseFailure(status, nil, time.Now()); err != nil {
+		return err.WithCause(fmt.Errorf("GitHub %s on %s/%s returned HTTP %d", action, owner, repo, status))
 	}
+	return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub returned an unexpected response")
 }
 
 func landingGitHubRepoPath(owner, repo string) string {

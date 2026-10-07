@@ -52,6 +52,7 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 			return err
 		}
 		var repository struct {
+			ID            int64  `json:"id"`
 			Squash        *bool  `json:"allow_squash_merge"`
 			DefaultBranch string `json:"default_branch"`
 		}
@@ -69,6 +70,16 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 		}
 		if err = recordInstallRepositoryInstallation(ctx, connections, owner.ID, o, n, diagnosis.InstallationID); err != nil {
 			return err
+		}
+		// Local installs have no public webhook to bind the fetched-state registry.
+		if stacks != nil && stacks.installGitHubSync != nil {
+			if repository.ID <= 0 {
+				return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub repository identity unavailable")
+			}
+			_, err = stacks.installGitHubSync.EnrollGitHubRepo(ctx, EnrollGitHubRepoInput{Owner: o, Repo: n, InstallationID: diagnosis.InstallationID, GitHubRepositoryID: repository.ID, EnrolledVia: GitHubSyncedRepoEnrolledViaInstallation, MetadataOnly: true})
+			if err != nil {
+				return err
+			}
 		}
 		raw, _ := json.Marshal(input.Repository)
 		return db.New(s.Pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "repository", Value: raw})
@@ -147,7 +158,7 @@ func (s *InstallSetupService) prepareSource(ctx context.Context, lease *jobs.Lea
 		return err
 	}
 	if receipt.ImportID == "" {
-		job, err := imports.StartImport(ctx, ImportGitHubRepoInput{UserID: owner.ID, Owner: o, Repo: n, Branch: "main"})
+		job, err := imports.StartImport(ctx, ImportGitHubRepoInput{UserID: owner.ID, Owner: o, Repo: n, Branch: "main", setupOperationID: lease.Claim().OperationID})
 		if err != nil {
 			return err
 		}
@@ -174,6 +185,11 @@ func (s *InstallSetupService) prepareSource(ctx context.Context, lease *jobs.Lea
 	}
 	if err = members.BindRepository(ctx, owner, o, n, repo.ID); err != nil {
 		return err
+	}
+	if s.CodingDefaults != nil {
+		if err = s.CodingDefaults(ctx, job.RepoOwner+"/"+job.RepoName); err != nil {
+			return err
+		}
 	}
 	// Import's selected local slug can differ from the GitHub slug. Pin it for
 	// machine preparation rather than guessing a repository-host identity.

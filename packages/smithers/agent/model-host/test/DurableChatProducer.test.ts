@@ -203,3 +203,192 @@ test("does not call the model after a refused provider-start acknowledgment", as
   ).rejects.toThrow("chat provider start refused (403)")
   expect(streamed).toBe(false)
 })
+
+test("wiki-only preflight journals and supplies only the chosen pinned page", async () => {
+  const frames: AgentTurnFrame[] = [], requests: unknown[] = []
+  let expected = cursor
+  const wiki = {
+    item: { kind: "page" as const, label: "Retries", ref: "retries", revision: "4" },
+    text: "Retry three times"
+  }
+  const model = Model.make({
+    stream: () =>
+      Stream.fromIterable([
+        { type: "text-delta" as const, id: "s", text: "[{\"index\":0,\"reason\":\"Policy\"}]" },
+        { type: "settle" as const, stopReason: "stop" as const }
+      ])
+  })
+  const answer = Model.make({
+    stream: (request) => {
+      requests.push(request)
+      return Stream.fromIterable([
+        { type: "text-delta" as const, id: "a", text: "Three times." },
+        { type: "settle" as const, stopReason: "stop" as const }
+      ])
+    }
+  })
+  const fetchImpl: FetchLike = async (url, init) => {
+    if (String(url).includes("provider-started")) return new Response(null, { status: 204 })
+    const body = JSON.parse(String(init?.body))
+    frames.push(...body.frames)
+    const response = reply(expected, body.frames[0])
+    expected = response.cursor
+    return Response.json(response)
+  }
+  await Effect.runPromise(runDurableChatTurn(answer, grant, { modelId: "coding" }, grant.producerBaseUrl, fetchImpl, {
+    model,
+    options: { modelId: "fast" },
+    input: {
+      prompt: "Retry?",
+      author: "ben",
+      branch: "main",
+      state: "synced",
+      recent: [],
+      tokenBudget: 24000,
+      wikiOnly: true,
+      candidates: [
+        { item: { kind: "file", label: "Excluded", ref: "retry.ts", revision: "abc" }, text: "unselected-file-canary" },
+        wiki
+      ]
+    }
+  }))
+  expect(frames[0]).toMatchObject({
+    type: "context.preflight",
+    phase: "started",
+    result: { candidates: [wiki.item], context: [] }
+  })
+  expect(frames[1]).toMatchObject({
+    type: "context.preflight",
+    phase: "completed",
+    result: { candidates: [wiki.item], context: [{ ...wiki.item, reason: "Policy" }] }
+  })
+  expect(requests).toHaveLength(1)
+  expect(JSON.stringify(requests)).toContain("Retry three times")
+  expect(JSON.stringify(requests)).not.toContain("unselected-file-canary")
+})
+
+test("pages large candidate and choice lists into bounded hash-checked journal writes", async () => {
+  const { projectContextPreflight } = await import("@smthrs/rpc/ContextPreflight")
+  const candidates = Array.from(
+    { length: 2500 },
+    (_, i) => ({
+      kind: "file" as const,
+      label: `${i} <☃>`,
+      ref: `src/${i}-${"x".repeat(60)}.ts`,
+      revision: "a".repeat(40)
+    })
+  )
+  const result = {
+    candidates,
+    context: candidates.map((item) => ({ ...item, reason: "Chosen" })),
+    model: "fast",
+    durationMs: 42
+  }
+  const frames: AgentTurnFrame[] = []
+  const fetchImpl: FetchLike = async (_url, init) => {
+    const body = JSON.parse(String(init?.body))
+    const response = reply(body.expected, body.frames[0])
+    expect(new TextEncoder().encode(agentTurnJournalDigestInput("batch", response.batch)).byteLength)
+      .toBeLessThanOrEqual(96 * 1024)
+    frames.push(body.frames[0])
+    return Response.json(response)
+  }
+  const producer = new DurableChatProducer(grant.producerBaseUrl, grant, fetchImpl)
+  for (const phase of ["started", "completed"] as const) {
+    const value = phase === "started" ? { ...result, context: [], durationMs: 0 } : result
+    await Effect.runPromise(producer.writePreflight(phase, value))
+    const pages = frames.filter((frame) => frame.type === "context.preflight" && frame.phase === phase)
+    expect(pages.length).toBeGreaterThan(1)
+    let state = {}
+    for (const frame of pages) {
+      if (frame.type !== "context.preflight") throw new Error("unexpected frame")
+      state = projectContextPreflight(state, frame)
+    }
+    expect(state).toEqual({ preflight: value, preflightPhase: phase, preflightPage: undefined })
+  }
+})
+
+test.each(["first-item", "later-item", "metadata"])(
+  "refuses unpageable %s before writing a partial step",
+  async (mode) => {
+    let writes = 0
+    const producer = new DurableChatProducer(grant.producerBaseUrl, grant, async () => {
+      writes++
+      throw new Error("unexpected")
+    })
+    const huge = { kind: "todo" as const, label: "x".repeat(100000), ref: "T1" }
+    const small = { kind: "todo" as const, label: "small", ref: "T2" }
+    await expect(Effect.runPromise(producer.writePreflight("started", {
+      model: mode === "metadata" ? "m".repeat(100000) : "fast",
+      durationMs: 0,
+      context: [],
+      candidates: mode === "metadata" ? [] : mode === "first-item" ? [huge] : [small, huge]
+    }))).rejects.toThrow("journal limit")
+    expect(writes).toBe(0)
+  }
+)
+
+test.each(["started", "completed"] as const)("refused later %s page stops subsequent model work", async (phase) => {
+  let selectorCalls = 0, answerCalls = 0, starts = 0
+  const selector = Model.make({
+    stream: () => {
+      selectorCalls++
+      return Stream.fromIterable([
+        { type: "text-delta" as const, id: "s", text: "[]" },
+        { type: "settle" as const, stopReason: "stop" as const }
+      ])
+    }
+  })
+  const answer = Model.make({
+    stream: () => {
+      answerCalls++
+      return Stream.empty
+    }
+  })
+  const refused: Array<string> = []
+  const accepted: Array<AgentTurnFrame> = []
+  const fetchImpl: FetchLike = async (url, init) => {
+    if (String(url).includes("provider-started")) {
+      starts++
+      return new Response(null, { status: 204 })
+    }
+    const body = JSON.parse(String(init?.body))
+    const frame = body.frames[0]
+    if (frame.type === "context.preflight" && frame.phase === phase && frame.page.index === 1) {
+      refused.push(String(init?.body))
+      return new Response(null, { status: 403 })
+    }
+    accepted.push(frame)
+    return Response.json(reply(body.expected, frame))
+  }
+  await expect(
+    Effect.runPromise(runDurableChatTurn(answer, grant, { modelId: "coding" }, grant.producerBaseUrl, fetchImpl, {
+      model: selector,
+      options: { modelId: "fast" },
+      input: {
+        prompt: "Find context",
+        author: "ben",
+        branch: "main",
+        state: "synced",
+        recent: [],
+        tokenBudget: 24000,
+        wikiOnly: false,
+        candidates: Array.from({ length: 1000 }, (_, i) => ({
+          item: {
+            kind: "file" as const,
+            label: `File ${i}`,
+            ref: `src/${i}-${"x".repeat(100)}.ts`,
+            revision: "a".repeat(40)
+          },
+          text: "fixture"
+        }))
+      }
+    }))
+  ).rejects.toThrow("403")
+  expect(refused).toHaveLength(2)
+  expect(refused[0]).toBe(refused[1])
+  expect(accepted.filter((frame) => frame.type === "context.preflight" && frame.phase === phase)).toHaveLength(1)
+  expect(selectorCalls).toBe(phase === "started" ? 0 : 1)
+  expect(starts).toBe(phase === "started" ? 0 : 1)
+  expect(answerCalls).toBe(0)
+})

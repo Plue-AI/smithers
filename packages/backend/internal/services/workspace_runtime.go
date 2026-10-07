@@ -127,7 +127,30 @@ func (s *WorkspaceService) workspaceRuntimeContext(ctx context.Context, row db.W
 	if operation.TenantID == "" || operation.PrincipalID == "" {
 		return nil, pkgerrors.Internal("workspace runtime identity unavailable")
 	}
+
 	return workspaceapi.WithOperation(ctx, operation), nil
+}
+
+// workspaceStartContext is the shared per-start admission boundary; arbitrary
+// operation IDs used by reads or commands never request a machine.
+func (s *WorkspaceService) workspaceStartContext(ctx context.Context, row db.Workspace, requesterID int64, operationID string) (context.Context, error) {
+	if s.machineAdmission == nil {
+		return s.workspaceRuntimeContext(ctx, row, requesterID, operationID)
+	}
+	if s.billing == nil {
+		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "machine admission policy unavailable")
+	}
+	intent := &machineStartIntent{acquire: func(ctx context.Context) (context.Context, error) {
+		return s.admitWorkspaceOperation(ctx, row, requesterID)
+	}}
+	policyCtx := context.WithValue(ctx, machineStartIntentKey{}, intent)
+	if err := s.billing.AuthorizeSandboxStart(policyCtx, requesterID); err != nil {
+		return nil, err
+	}
+	if intent.granted == nil {
+		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "machine admission policy unavailable")
+	}
+	return s.workspaceRuntimeContext(intent.granted, row, requesterID, operationID)
 }
 
 func workspaceLifecycleOperation(row db.Workspace, action string) string {
@@ -143,6 +166,16 @@ func workspaceLifecycleOperation(row db.Workspace, action string) string {
 func (s *WorkspaceService) ensureRuntimeWorkspaceRunning(ctx context.Context, row db.Workspace, requesterID int64) (db.Workspace, error) {
 	result := row
 	err := s.withWorkspaceMutationAuthority(ctx, row, requesterID, func(ctx context.Context) error {
+		// Register person demand before waiting on a branch's lifecycle lock, so
+		// a person can promote the TODO already waiting on that same branch.
+		class, actor := machineDemand(ctx, row, requesterID)
+		if s.machineAdmission != nil && class == "person" {
+			if queue, ok := s.runtime.(workspaceMachineQueue); ok {
+				if _, err := queue.Request(class, machineQueueHolder(row.ID), actor, workspaceMachineReason); err != nil {
+					return err
+				}
+			}
+		}
 		unlock := s.lockRuntimeWorkspace(row.ID)
 		defer unlock()
 		current, err := s.currentRuntimeWorkspaceLocked(ctx, row)
@@ -152,6 +185,12 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunning(ctx context.Context, ro
 		result, err = s.ensureRuntimeWorkspaceRunningLocked(ctx, current, requesterID)
 		return err
 	})
+	if err != nil && s.machineAdmission != nil {
+		if runtime, ok := s.runtime.(interface{ CancelFailedAdmission(string, string) }); ok {
+			_, actor := machineDemand(ctx, row, requesterID)
+			runtime.CancelFailedAdmission(machineQueueHolder(row.ID), actor)
+		}
+	}
 	return result, err
 }
 
@@ -292,7 +331,15 @@ func runtimeOperationError(operation string, err error) error {
 	return pkgerrors.Internal(operation + ": " + err.Error())
 }
 
-func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Context, row db.Workspace, requesterID int64) (db.Workspace, error) {
+func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Context, row db.Workspace, requesterID int64) (result db.Workspace, resultErr error) {
+	defer func() {
+		if resultErr != nil && s.machineAdmission != nil {
+			if runtime, ok := s.runtime.(interface{ CancelFailedAdmission(string, string) }); ok {
+				_, actor := machineDemand(ctx, row, requesterID)
+				runtime.CancelFailedAdmission(machineQueueHolder(row.ID), actor)
+			}
+		}
+	}()
 	if err := s.refuseRebuildRequired(row); err != nil {
 		return row, err
 	}
@@ -310,7 +357,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 	}
 	create := row.Status == "pending" || row.Status == "starting"
 	if create {
-		createCtx, contextErr := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "create"))
+		createCtx, contextErr := s.workspaceStartContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "create"))
 		if contextErr != nil {
 			return row, contextErr
 		}
@@ -348,7 +395,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 				return row, err
 			}
 		}
-		startCtx, contextErr := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "start"))
+		startCtx, contextErr := s.workspaceStartContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "start"))
 		if contextErr != nil {
 			return row, contextErr
 		}
@@ -442,7 +489,7 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 	}
 	unlock := s.lockRuntimeWorkspace(row.ID)
 	defer unlock()
-	operationCtx, err := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "restore-snapshot:"+snapshot.ID))
+	operationCtx, err := s.workspaceStartContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "restore-snapshot:"+snapshot.ID))
 	if err != nil {
 		return row, err
 	}
@@ -473,7 +520,7 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 		return row, pkgerrors.Internal("workspace runtime restored a mismatched workspace")
 	}
 	if observed.State == workspaceapi.WorkspaceStopped {
-		startCtx, contextErr := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "start-restored-snapshot:"+snapshot.ID))
+		startCtx, contextErr := s.workspaceStartContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "start-restored-snapshot:"+snapshot.ID))
 		if contextErr != nil {
 			return row, contextErr
 		}
@@ -506,10 +553,10 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 	return updated, nil
 }
 
-// Runtime forks use stack-resolved revisions, never machine snapshots. Until
-// the authorized stack operation is wired, retain access checks but refuse
-// before creating a workspace, waking the source, or invoking the runtime.
+// Runtime forks delegate to the stack's revision writer after checking source
+// workspace authority. No lifecycle operation runs on the source machine.
 func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
+	var response WorkspaceResponse
 	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, source db.Workspace) error {
 		if err := s.requireBranchMachineProviders(); err != nil {
 			return err
@@ -517,9 +564,14 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 		if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
 			return err
 		}
-		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision-based fork unavailable")
+		if s.revisionFork == nil {
+			return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision-based fork unavailable")
+		}
+		var err error
+		response, err = s.revisionFork(ctx, source, input)
+		return err
 	})
-	return WorkspaceResponse{}, err
+	return response, err
 }
 
 func (s *WorkspaceService) createRuntimeWorkspaceSnapshot(ctx context.Context, input CreateWorkspaceSnapshotInput, snapshotName string) (WorkspaceSnapshotResponse, error) {

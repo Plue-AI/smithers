@@ -576,7 +576,7 @@ describe("ExternalTranscript", () => {
         "text beside ciphertext",
         [{ type: "Text", text: "visible" }, { type: "encrypted_content", encrypted_content: "gAAAA" }],
         "final_answer",
-        { type: "text", text: "visible", final: true }
+        { type: "encrypted" }
       ],
       [
         "several text parts",
@@ -588,6 +588,10 @@ describe("ExternalTranscript", () => {
       ["content that is not a list", "plain", "final_answer", { type: "text", text: "", final: true }]
     ])("reads an AgentMessage with %s", (_, content, phase, part) => {
       expect(partOf({ type: "AgentMessage", content, phase })).toEqual(part)
+    })
+
+    it("preserves encrypted reasoning as a placeholder", () => {
+      expect(partOf({ type: "Reasoning", summary_text: [], encrypted_content: "ciphertext" })).toEqual({ type: "encrypted" })
     })
 
     it("joins the text of every UserMessage content part, and reads content that is not a list as empty", () => {

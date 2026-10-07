@@ -77,6 +77,11 @@ func TestTodoPublicationNeverAuthorizesSystemMerge(t *testing.T) {
 	unsigned := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: 1}})
 	landed := mythicalChecks{Land: &mythicalLand{By: "owner", Session: "browser", Head: strings.Repeat("a", 40)}}
 	unsessioned := mythicalChecks{Land: &mythicalLand{By: "label", Head: strings.Repeat("a", 40)}}
+	standing := mythicalChecks{Automerge: true, Preapproval: &mythicalLand{By: "owner", StandingUser: 1}}
+	unattributed := mythicalChecks{Automerge: true, Preapproval: &mythicalLand{By: "label"}}
+	withdrawn := standing
+	withdrawn.Automerge = false
+	intent := []byte(`{"kind":"merge","target":"1","desired":"head","precondition":"preapproved","state":"intended"}`)
 	for _, tc := range []struct {
 		name   string
 		ctx    context.Context
@@ -97,6 +102,9 @@ func TestTodoPublicationNeverAuthorizesSystemMerge(t *testing.T) {
 		{"label land merge", context.Background(), db.MythicalItem{Source: "todo", Checks: unsessioned.encode()}, "merge", "never merges on its own"},
 		{"person merge", person, db.MythicalItem{Source: "todo"}, "merge", ""},
 		{"person's recorded land", context.Background(), db.MythicalItem{Source: "todo", Checks: landed.encode()}, "merge", ""},
+		{"person's standing approval", context.Background(), db.MythicalItem{Source: "todo", Checks: standing.encode(), PendingOp: intent}, "merge", ""},
+		{"unattributed preapproval", context.Background(), db.MythicalItem{Source: "todo", Checks: unattributed.encode(), PendingOp: intent}, "merge", "never merges on its own"},
+		{"withdrawn preapproval", context.Background(), db.MythicalItem{Source: "todo", Checks: withdrawn.encode(), PendingOp: intent}, "merge", "never merges on its own"},
 		{"approve", person, db.MythicalItem{Source: "todo"}, "approve", "not authorized"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -106,6 +114,10 @@ func TestTodoPublicationNeverAuthorizesSystemMerge(t *testing.T) {
 				return
 			}
 			assert.ErrorContains(t, err, tc.denied)
+			if tc.name == "withdrawn preapproval" {
+				var refusal *TodoControlError
+				assert.ErrorAs(t, err, &refusal, "a removed unsent grant ends its fence rather than retrying forever")
+			}
 		})
 	}
 }
@@ -146,6 +158,11 @@ func TestTodoPublicationHeldByForeignHead(t *testing.T) {
 			assert.Equal(t, item.State, next.State)
 			assert.Equal(t, item.Checks, next.Checks)
 			assert.Equal(t, time.Unix(100, 0).Add(mythicalPullPollEvery), next.NextAttemptAt.Time)
+			assert.False(t, called)
+			// Reconciliation can call the push boundary directly, without propose.
+			// It must honor the same hold before reading or writing the repository.
+			err = st.pushProposal(t.Context(), item, mythicalGitHubRepo{}, mythicalProposalOp{Branch: "smithers/retry", Expected: strings.Repeat("a", 40), Head: strings.Repeat("b", 40)})
+			require.ErrorContains(t, err, tc.held)
 			assert.False(t, called)
 		})
 	}

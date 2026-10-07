@@ -4,6 +4,7 @@ import { afterEach } from "bun:test"
 
 // Initialize the event environment before any test imports React DOM.
 // Bun shares modules and globals across files in a directory run.
+export const nativeHttp = { fetch, Response, Request, Headers, AbortController, AbortSignal }
 GlobalRegistrator.register()
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const { createRoot: createReactRoot } = await import("react-dom/client")

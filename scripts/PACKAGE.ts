@@ -12,6 +12,11 @@
  * `node`.
  */
 import { Smithers } from "@smthrs/targets"
+import { existsSync, readdirSync } from "node:fs"
+import { listFiles } from "./check-tracked-hygiene.mjs"
+import { libraryPackages, repoRoot } from "./workspace-packages.mjs"
+import { Package as backendPackage } from "../packages/backend/PACKAGE.ts"
+import { Package as appPackage } from "../apps/app/PACKAGE.ts"
 
 /**
  * Everything under `scripts/`, digested as the input of every gate here.
@@ -26,6 +31,31 @@ const sources = [
   Smithers.glob("//scripts/fixtures/**/*.json")
 ]
 
+/** The whole checkout is the subject of repository-wide engineering gates. */
+const repositoryPackages = Object.fromEntries(
+  [...new Set(["", ...listFiles(repoRoot, { includeUntracked: true })
+    .filter((path) => path === "PACKAGE.ts" || path.endsWith("/PACKAGE.ts"))
+    .map((path) => path === "PACKAGE.ts" ? "" : path.slice(0, -"/PACKAGE.ts".length))])]
+    .sort()
+    .map((directory) => [
+      `repositoryInputs_${Buffer.from(directory).toString("hex") || "root"}`,
+      Smithers.Filegroup({ cwd: directory === "" ? "./" : directory, srcs: [Smithers.glob("**/*")] })
+    ])
+)
+const repositoryInputs = Smithers.Filegroup({ srcs: Object.values(repositoryPackages) })
+
+const engineeringScriptRegressions = Smithers.NodeTest({
+  runner: Smithers.testRunner([
+    Smithers.file("//scripts/homebrew-publish.test.mjs"),
+    Smithers.file("//scripts/homebrew-release.test.mjs"),
+    Smithers.file("//scripts/migration-landing.test.mjs"),
+    Smithers.file("//scripts/perf/questions.test.mjs"),
+    Smithers.file("//scripts/spikes/col-01/result.test.mjs")
+  ]),
+  srcs: [],
+  deps: [repositoryInputs]
+})
+
 /**
  * The pack directory the release rehearsal writes and the smoke check reads.
  *
@@ -33,6 +63,14 @@ const sources = [
  * directory named by an environment expression, which made the two steps agree
  * only by both interpolating the same string.
  */
+const engineeringChecks = Smithers.Filegroup({ cwd: ".specs/engineering", srcs: [Smithers.glob("checks/*.md")] })
+const integrationSources = Smithers.Filegroup({ cwd: "packages/smithers/agent/integrations", srcs: [Smithers.glob("src/**/*.ts")] })
+const gatewaySources = Smithers.Filegroup({ cwd: "packages/smithers/gateway", srcs: [Smithers.glob("src/**/*.ts"), Smithers.glob("test/**/*.ts")] })
+const apiSchemas = Smithers.Filegroup({ cwd: "docs/api/openapi", srcs: [Smithers.glob("*.yaml")] })
+const workflowSources = Smithers.Filegroup({ cwd: ".github", srcs: [Smithers.glob("workflows/*.yml")] })
+const machineSources = Smithers.Filegroup({ cwd: "crates/smithers-machined", srcs: [Smithers.glob("**/*")] })
+const ffiSources = Smithers.Filegroup({ cwd: "crates/smithers-ffi", srcs: [Smithers.glob("src/**")] })
+
 const packDirectory = "dist/release-packs"
 
 const privateAdapterManifests = [
@@ -206,12 +244,10 @@ const toolchainPins = Smithers.NodeTest({
     Smithers.file("//flake.nix"),
     Smithers.file("//.node-version"),
     Smithers.file("//rust-toolchain.toml"),
-    Smithers.glob("//.github/workflows/*.yml"),
     Smithers.file("//PACKAGE.ts"),
-    Smithers.file("//scripts/ci/cloud.sh"),
-    Smithers.file("//distribution/Dockerfile")
+    Smithers.file("//scripts/ci/cloud.sh")
   ],
-  deps: []
+  deps: [workflowSources]
 })
 
 /**
@@ -310,16 +346,12 @@ const mvpDocs = Smithers.NodeTest({
     Smithers.file("//docs/architecture/0002-mac-install.md"),
     Smithers.file("//docs/architecture/self-host-implementation.md"),
     Smithers.file("//.specs/product/mvp.md"),
-    Smithers.glob("//docs/**/*"),
-    Smithers.glob("//apps/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
-    Smithers.glob("//packages/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
-    Smithers.glob("//flows/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
     Smithers.file("//scripts/check-release-evidence-tags.mjs"),
     Smithers.file("//.specs/engineering/README.md"),
     Smithers.file("//.specs/design/README.md"),
     Smithers.file("//.specs/engineering/spec.md")
   ],
-  deps: []
+  deps: [repositoryInputs]
 })
 
 /**
@@ -340,6 +372,7 @@ const conflictMarkers = Smithers.Shell.Diff({
 /** Tracked files must resolve declared paths and exclude local build and agent state. */
 const trackedHygiene = Smithers.Shell.Diff({
   shell: "node scripts/check-tracked-hygiene.mjs --projected-tree",
+  data: [repositoryInputs],
   changes: [],
   timeout: "2m"
 })
@@ -348,6 +381,19 @@ const trackedHygieneUnit = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/check-tracked-hygiene.test.mjs")]),
   srcs: sources,
   deps: []
+})
+
+/** Hosting drift gate and CLI fixtures, required by the script CI tier. */
+const gates = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/check-deployment-branches.test.mjs")]),
+  srcs: [
+    ...sources,
+    Smithers.file("//scripts/deployment-composition-baseline.json"),
+    ...readdirSync(`${repoRoot}/docs/api/openapi`).filter((name) => name.endsWith(".yaml"))
+      .map((name) => Smithers.file(`//docs/api/openapi/${name}`)),
+    Smithers.file("//docs/api/openapi.yaml")
+  ],
+  deps: [backendPackage.buildInputs, appPackage.solidCodegenInputs]
 })
 
 /**
@@ -367,8 +413,8 @@ const conflictMarkersUnit = Smithers.NodeTest({
 // and that the committed bundle matches its sources.
 const openapiBundle = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/openapi-bundle.test.mjs")]),
-  srcs: [...sources, Smithers.glob("//docs/api/openapi/*.yaml"), Smithers.file("//docs/api/openapi.yaml")],
-  deps: []
+  srcs: [...sources, Smithers.file("//docs/api/openapi.yaml")],
+  deps: [apiSchemas]
 })
 
 // The product API client generator: naming, schema mapping, refusals, the
@@ -507,18 +553,7 @@ const lockfileParity = Smithers.NodeTest({
   srcs: [
     ...sources,
     Smithers.file("//bun.lock"),
-    Smithers.file("//pnpm-workspace.yaml"),
-    Smithers.glob("//packages/*/package.json"),
-    Smithers.glob("//packages/smithers/*/package.json"),
-    Smithers.glob("//packages/smithers/agent/*/package.json"),
-    Smithers.glob("//packages/smithers/build/*/package.json"),
-    Smithers.glob("//packages/smithers/flows/*/package.json"),
-    Smithers.glob("//packages/smithers/ui/*/package.json"),
-    Smithers.file("//examples/package.json"),
-    Smithers.file("//flows/package.json"),
-    Smithers.glob("//apps/*/package.json"),
-    Smithers.glob("//apps/docs/*/package.json"),
-    Smithers.glob("//evals/*/package.json")
+    Smithers.pnpmWorkspace("//pnpm-workspace.yaml")
   ],
   deps: []
 })
@@ -700,15 +735,11 @@ const issueClaim = Smithers.NodeTest({
     Smithers.file("//scripts/check-evidence.mjs"),
     Smithers.file("//scripts/check-run.mjs"),
     Smithers.file("//scripts/check-commands.json"),
-    Smithers.glob("//.specs/engineering/checks/*.md"),
     Smithers.file("//scripts/fixtures/check-receipts.mjs"),
     Smithers.file("//scripts/github-proxy.mjs"),
     Smithers.file("//scripts/github-app-auth.mjs"),
-    // The proxy imports `@smthrs/integrations` through this export map.
-    Smithers.file("//packages/smithers/agent/integrations/package.json"),
-    Smithers.glob("//packages/smithers/agent/integrations/src/**/*.ts")
   ],
-  deps: []
+  deps: [engineeringChecks, integrationSources]
 })
 
 /**
@@ -764,10 +795,8 @@ const mutationGate = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("//scripts/check-mutations.mjs")),
   srcs: [
     ...sources,
-    Smithers.glob("//packages/smithers/gateway/src/**/*.ts"),
-    Smithers.glob("//packages/smithers/gateway/test/**/*.ts")
   ],
-  deps: []
+  deps: [gatewaySources]
 })
 
 /** Deterministic scheduler and journal cost regressions, after output validation. */
@@ -786,8 +815,63 @@ const perf = Smithers.NodeTest({
   timeout: "24h"
 })
 
+/** Installed two-member keystroke workload; never substitutes for a receipt. */
+const perfKeystroke = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/keystroke.mjs")),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+
+/** Persistent member SSH writes observed through the installed File card. */
+const perfDiskWrite = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/disk-write.mjs")),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+
+/** K1–K8 campaign keeps component evidence distinct from integrated proof. */
+const workingTogetherFaults = Smithers.Shell.Test({
+  shell: "node scripts/working-together/faults.mjs",
+  data: [...sources, machineSources, ffiSources, Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock")],
+  exclusive: true, timeout: "1h"
+})
+const workingTogetherComponents = Smithers.Shell.Test({
+  shell: "node scripts/working-together/faults.mjs --components-only",
+  data: [...sources, machineSources, ffiSources, Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock")],
+  exclusive: true, timeout: "1h"
+})
+
+/** K8 through the composed wiki host, real native state and PostgreSQL. */
+const workingTogetherWikiFaults = Smithers.Shell.Test({
+  shell: "node scripts/working-together/faults.mjs --wiki-only",
+  data: [...sources, backendPackage.buildInputs, Smithers.file("//go.mod"), Smithers.file("//go.sum"), Smithers.file("//apps/app/package.json"), Smithers.file("//pnpm-lock.yaml")],
+  exclusive: true, timeout: "1h"
+})
+
+/** Code mirror recovery through composed HTTP/live with a scripted daemon peer. */
+const workingTogetherCodeFaults = Smithers.Shell.Test({
+  shell: "node scripts/working-together/faults.mjs --code-only",
+  data: [...sources, backendPackage.buildInputs, Smithers.file("//go.mod"), Smithers.file("//go.sum"), Smithers.file("//apps/app/package.json"), Smithers.file("//pnpm-lock.yaml")],
+  exclusive: true, timeout: "1h"
+})
+
+/** Per-budget availability reports retain honest incomplete evidence. */
+const perfProjection = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/run.mjs"), ["C-PERF-02"]),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+const perfWarmWake = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/run.mjs"), ["C-PERF-05"]),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+const perfRebaseHold = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/run.mjs"), ["C-PERF-06"]),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+
 const perfUnit = Smithers.NodeTest({
   runner: Smithers.testRunner([
+    Smithers.file("//scripts/working-together/faults.test.mjs"),
+    Smithers.file("//scripts/perf/keystroke.test.mjs"),
+    Smithers.file("//scripts/perf/disk-write.test.mjs"),
     Smithers.file("//scripts/perf/lib/stats.test.mjs"),
     Smithers.file("//scripts/perf/lib/artifact.test.mjs")
   ]),
@@ -1027,14 +1111,39 @@ const securityReview = Smithers.SecurityReview({
   ]
 })
 
+/** Explicit cross-package inputs; declaration-scoped globs do not cross child packages. */
+const packageDocInputs = libraryPackages().flatMap(({ dir }) => {
+  const docs = `${repoRoot}/${dir}/docs`
+  const walk = (path: string): string[] => readdirSync(path, { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory() ? walk(`${path}/${entry.name}`) : [`${path}/${entry.name}`])
+  return [
+    Smithers.file(`//${dir}/package.json`),
+    ...(existsSync(`${repoRoot}/${dir}/README.md`) ? [Smithers.file(`//${dir}/README.md`)] : []),
+    ...(existsSync(docs) ? walk(docs).map((path) => Smithers.file(`//${path.slice(repoRoot.length + 1)}`)) : [])
+  ]
+})
+const packageDocs = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/package-docs.test.mjs"), Smithers.file("//scripts/package-docs-redirect.test.mjs")]),
+  timeout: "30m",
+  cache: false,
+  srcs: [...sources, Smithers.file("//pnpm-workspace.yaml"), ...packageDocInputs],
+  deps: []
+})
+
 export const Package = Smithers.Package({
   targets: {
+    ...repositoryPackages,
+    repositoryInputs,
+    engineeringScriptRegressions,
+    engineeringChecks, integrationSources, gatewaySources, apiSchemas, workflowSources, machineSources, ffiSources,
+    gates,
     apiBaseline,
     conflictMarkers,
     conflictMarkersUnit,
     trackedHygiene,
     trackedHygieneUnit,
     docsDrift,
+    packageDocs,
     driftJob,
     providerLiveGuards,
     openapiBundle,
@@ -1050,6 +1159,15 @@ export const Package = Smithers.Package({
     benchmarkGate,
     perf,
     perfUnit,
+    perfKeystroke,
+    perfDiskWrite,
+    perfProjection,
+    perfWarmWake,
+    perfRebaseHold,
+    workingTogetherFaults,
+    workingTogetherComponents,
+    workingTogetherWikiFaults,
+    workingTogetherCodeFaults,
     tierContracts,
     releaseIntegrity,
     webBundleContract,

@@ -599,26 +599,16 @@ describe("card patches never invent defaults", () => {
   })
 })
 
-describe("env card persistence", () => {
-  test("redacts values on initial decoding, patches, and repeated reads", () => {
-    const vars = [{ name: "DATABASE_URL", value: "postgres://user:password@host/db" }, { name: "PIN", value: "12" }]
-    const card = CardSchema.parse({
-      ...base,
-      kind: "env",
-      payload: { repo: "smithers", vars, setupScript: null, secretNames: ["TOKEN"] }
-    })
-    expect(card.payload).toMatchObject({ vars: [{ name: "DATABASE_URL", value: "pos…" }, { name: "PIN", value: "…" }] })
-    expect(JSON.stringify(card)).not.toContain("password")
-    expect(CardSchema.parse(card)).toEqual(card)
-    expect(CardPatchSchema.parse({ kind: "env", payload: { vars } })).toMatchObject({
-      payload: {
-        vars: [
-          { name: "DATABASE_URL", value: "pos…" },
-          { name: "PIN", value: "…" }
-        ]
-      }
-    })
-  })
+describe("legacy environment persistence", () => {
+ test("retains the title without restoring saved values or controls", () => {
+   const row = { ...base, kind: "env", payload: { repo: "smithers", vars: [{ name: "DATABASE_URL", value: "postgres://user:password@host/db" }], setupScript: "pnpm install" } }
+   const decoded = CardSchema.parse(row)
+   expect(decoded.kind).toBe("retired")
+   expect(decoded.title).toBe(row.title)
+   expect(decoded.payload).toEqual({ was: "env" })
+   expect(JSON.stringify(decoded)).not.toContain("password")
+   expect(CardSchema.parse(decoded)).toEqual(decoded)
+ })
 })
 
 describe("the run trace card's graph view", () => {
@@ -810,19 +800,24 @@ const FIXTURES: Record<
 > = {
   todo: {
     minimal: { n: 12, requests: [] },
-    full: { n: 12, model: todoFixtures.failed.model, requests: [], answerDraft: "A late answer", answeredBy: "maya" }
+    full: { n: 12, model: todoFixtures.failed.model, requests: [], observedConfirmations: [], answerDraft: "A late answer", answeredBy: "maya" }
   },
   /* Confirm (T-APP-04): the card names its subject; the card file reads the confirmation. */
   confirm: { minimal: { id: "act:act-1" }, full: { id: "merge:t-stripe" } },
-  branch: { minimal: { id: "b-retry" }, full: { id: "b-retry" } },
+  branch: { minimal: { id: "b-retry" }, full: { id: "b-retry", tab: "activity" } },
   terminal: { minimal: { id: "term-1" }, full: { id: "term-1" } },
+  proposal: { minimal: { id: "lint" }, full: { id: "lint", model: { id: "lint", title: "Run lint", evidence: ["3 of the last 5"],
+    refs: [{ label: "T7", url: "https://github.com/smithers/canary/pull/41" }], state: "accepted", todo: { n: 12, title: "Run lint" } },
+    load: { owner: "ben", state: "failed", error: "Not available" },
+    request: { action: "accept", owner: "ben", state: "failed", error: "Not available" } } },
+  run: { minimal: { id: "run-1" }, full: { id: "run-1", view: { selected: "cell-legacy", tab: "journal", at: 3 }, memberViews: { alice: { selected: "cell-alice", tab: "run", at: 2 } } } },
+  flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", memberVersions: { will: "v3", ben: "v2" }, proposal: { request: "request-1", diff: "diff-1" } } },
+  setup: { minimal: {}, full: {} },
   /* #3730: an agent CLI started from the conversation names the session it wrote. */
   "agent-session": {
     minimal: { agent: "codex", session: "0199e2e0-0000-7000-8000-00000000a11c" },
     full: { agent: "codex", session: "0199e2e0-0000-7000-8000-00000000a11c" }
   },
-  run: { minimal: { id: "run-1" }, full: { id: "run-1" } },
-  flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3" } },
   settings: { minimal: {}, full: {} },
   members: { minimal: {}, full: {} },
   commands: { minimal: {}, full: {} },
@@ -833,8 +828,10 @@ const FIXTURES: Record<
       issue: draftFixtures.issue_fixes.model.issue,
       issueDigest: "4babb1e1dd0eee80b2bc65f0117d7ac639a2914627f7a0569119d42379ce3d37",
       seed: draftFixtures.seed.model.seed,
+      source: { path: "TODO.md", owner: "ben", opened: true },
       committed: { n: 12, rev: 1 },
       optionsFailure: "Could not load placement",
+      imagePreparation: { name: "todo", repo: "org/repo", state: "requested" },
       idempotencyKey: "commit-1",
       request: { key: "commit-1", owner: "ben", operation: "create", state: "accepted", body: {}, n: 12 }
     }
@@ -882,6 +879,30 @@ const FIXTURES: Record<
         state: "open",
         tags: ["bug"],
         read: false
+      }]
+    }
+  },
+  "repository-choice": {
+    minimal: {
+      cutoff: "2026-08-10T00:00:00Z",
+      partial: false,
+      error: null,
+      selected: null,
+      created: null,
+      repositories: []
+    },
+    full: {
+      cutoff: "2026-08-10T00:00:00Z",
+      partial: true,
+      error: "GitHub answered 403 for one repository",
+      selected: "smithersai/smithers",
+      created: { fullName: "owner/smithers-playground" },
+      repositories: [{
+        fullName: "smithersai/smithers",
+        count: 12,
+        latest: "2026-09-05T09:00:00Z",
+        coverage: "default-branch",
+        error: null
       }]
     }
   },
@@ -1480,21 +1501,6 @@ const FIXTURES: Record<
       }]
     }
   },
-  env: {
-    minimal: { repo: "smithersai/smithers", vars: [], setupScript: null },
-    full: {
-      repo: "smithersai/smithers",
-      vars: [{ name: "DATABASE_URL", value: "postgres://user:password@host/db" }, { name: "PIN", value: "12" }],
-      setupScript: "pnpm install",
-      reconnect: true
-    },
-    decodedFull: {
-      repo: "smithersai/smithers",
-      vars: [{ name: "DATABASE_URL", value: "pos…" }, { name: "PIN", value: "…" }],
-      setupScript: "pnpm install",
-      reconnect: true
-    }
-  },
   stack: {
     minimal: { repo: "smithersai/smithers", failure: null },
     full: {
@@ -1512,24 +1518,6 @@ const FIXTURES: Record<
         requestedAt: 2
       }],
       view: "metrics"
-    }
-  },
-  "provider-accounts": {
-    minimal: { accounts: [] },
-    full: {
-      accounts: [
-        {
-          id: "conn-1",
-          provider: "claude",
-          label: "work",
-          email: "ada@example.com",
-          state: "active",
-          limitedUntil: "2026-09-25T10:15:00Z"
-        },
-        { id: "conn-2", provider: "codex", label: "codex-1", email: null, state: "refresh_failed", limitedUntil: null }
-      ],
-      pending: { userCode: "ABCD-EFGH", verificationUri: "https://auth.openai.com/codex/device" },
-      unavailable: true
     }
   },
   secrets: {
@@ -1649,95 +1637,8 @@ const FIXTURES: Record<
       fixture: "Evaluator.layerScripted(() => ({ [\"ok\"]: { probability: 0.97 } }))"
     }
   },
-  account: {
-    minimal: { login: "will", scopes: [], boxes: [] },
-    full: {
-      login: "will",
-      provider: "github",
-      scopes: [{ scope: "repo", plain: "read and write your repositories" }],
-      refresh: { id: "account-read", state: "failed", error: "Permissions could not be loaded." },
-      boxes: [{ id: "ws-1", repoId: "smithersai/smithers", name: "review", status: "running" }]
-    }
-  },
-  "repo-import": {
-    minimal: { repo: "smithersai/smithers", jobId: null, phase: "starting", detail: null },
-    full: {
-      repo: "smithersai/smithers",
-      jobId: "job-1",
-      phase: "failed",
-      detail: "provisioning the workspace",
-      stage: "provisioning_workspace",
-      counts: {
-        refs: { done: 214, total: 214 },
-        objects: { done: 90_000, total: 90_000 },
-        issues: { done: 12, total: 40 }
-      },
-      error: "the import failed (500)",
-      repository: { owner: "smithersai", name: "smithers" },
-      workspaceId: "ws-1",
-      rateLimit,
-      requestId: "import-request-1",
-      requestKind: "retry",
-      retryMode: "restart",
-      accountOwner: "smithersai",
-      registration: true
-    }
-  },
-  registration: {
-    minimal: {
-      link: "acme/widgets",
-      repo: "acme/widgets",
-      phase: "importing",
-      startedAt: 0,
-      error: null,
-      cloudRepo: null,
-      replay: 0,
-      accountOwner: null
-    },
-    full: {
-      link: "https://github.com/acme/widgets",
-      repo: "acme/widgets",
-      phase: "failed",
-      startedAt: 1_790_000_000_000,
-      error: "The import failed.",
-      cloudRepo: "acme/widgets",
-      replay: 2,
-      accountOwner: "acme",
-      cached: {
-        commit: "fc3f257b643b41dd8de24d4b0d3248253ab411c5",
-        report: {
-          repo: "acme/widgets",
-          clone: {
-            _tag: "clone",
-            repo: "acme/widgets",
-            commit: "fc3f257b643b41dd8de24d4b0d3248253ab411c5",
-            files: 12,
-            lines: 340
-          }
-        }
-      }
-    }
-  },
-  "connector-setup": {
-    minimal: { connector: "github", repo: "smithersai/smithers", phase: "setup", steps: [] },
-    full: {
-      connector: "github",
-      repo: "smithersai/smithers",
-      phase: "connected",
-      steps: [{
-        id: "authorize",
-        label: "Authorize",
-        state: "error",
-        detail: "authorized as will",
-        error: "authorization expired"
-      }],
-      installationId: 4212,
-      configured: true,
-      installUrl: "https://github.com/apps/smithers/installations/new",
-      rateLimit,
-      error: "the connector refused (500)"
-    }
-  },
+
+
   "sync-ops": {
     minimal: { subject: "Mirror · smithersai/smithers", source: "github-mirror", runState: null, ops: [] },
     full: {
@@ -1791,6 +1692,9 @@ const FIXTURES: Record<
   file: {
     minimal: { repo: "smithersai/smithers", path: "README.md", content: "# hi\n", truncated: false },
     full: {
+      file: { path: "README.md", branch: "b12", language: "markdown", digest: "digest-2", content: { kind: "text", text: "# current\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] },
+      compare: true,
+      comparison: { version: "versions-17", text: "# before\n" },
       workspaceId: gatewayWorkspaceId,
       repo: "smithersai/smithers",
       localRepoId: "repo-1",
@@ -2036,6 +1940,8 @@ const FIXTURES: Record<
       files: []
     },
     full: {
+      branchDiffSource: "scratch/ben/try-retry", branchDiffRequest: "diff-request-1", branchDiffPending: false,
+      branchFiles: [{ path: "retry.ts", branch: "b12", against: { kind: "item_base", rev: "candidate-11" }, change: "modified", hunks: [{ old_start: 1, new_start: 1, lines: [{ op: "-", text: "const n = 1" }, { op: "+", text: "const n = 2" }] }] }],
       repo: "smithersai/smithers",
       changeId: "qupxosqw",
       from: "4",
@@ -2552,7 +2458,7 @@ const FIXTURES: Record<
       links: [{ source: "wiki/bounded-reads.md", target: "wiki/caps.md" }]
     }
   },
-  /* A wiki page's history (#1922): every field is required but a revision's attachment; the full one carries a rename and the deletion. */
+  /* A wiki page's history (#1922): the full row includes pinned content, a rename and deletion. */
   "wiki-history": {
     minimal: {
       repo: "smithersai/smithers",
@@ -2566,6 +2472,7 @@ const FIXTURES: Record<
       hasNext: false
     },
     full: {
+      content: { revision: 1, markdown: "# Saved revision" },
       repo: "smithersai/smithers",
       space: "private",
       pageId: 3,
@@ -2686,36 +2593,6 @@ const FIXTURES: Record<
     }
   },
   /* The tutorial's repository chooser: every field is required, so both fixtures name all six. */
-  "repository-choice": {
-    minimal: {
-      cutoff: "2026-08-10T00:00:00Z",
-      partial: false,
-      error: null,
-      selected: null,
-      created: null,
-      repositories: []
-    },
-    full: {
-      cutoff: "2026-08-10T00:00:00Z",
-      partial: true,
-      error: "GitHub answered 403 for one repository",
-      selected: "smithersai/smithers",
-      created: { fullName: "owner/smithers-playground" },
-      repositories: [{
-        fullName: "smithersai/smithers",
-        count: 12,
-        latest: "2026-09-05T09:00:00Z",
-        coverage: "default-branch",
-        error: null
-      }]
-    }
-  },
-  /*
-   * Repository setup: the editable candidate plus the host's evidence about it.
-   * `previousReceipts` carries a default, so a card written before that field
-   * decodes with an empty history rather than with the field absent, and the
-   * minimal fixture states what that card reads back as.
-   */
   "repository-setup": {
     minimal: {
       repo: "smithersai/smithers",
@@ -2983,14 +2860,7 @@ describe("every persisted card kind", () => {
 
   test("PR read failures and repository import launch identity refuse invalid persisted values", () => {
     expect(CardSchema.safeParse(card("pr", { ...FIXTURES.pr.full, readErrors: { commits: 500 } })).success).toBe(false)
-    expect(CardSchema.safeParse(card("repo-import", { ...FIXTURES["repo-import"].full, requestId: 1 })).success).toBe(
-      false
-    )
-    expect(
-      CardSchema.safeParse(card("repo-import", { ...FIXTURES["repo-import"].full, requestKind: "resume" })).success
-    ).toBe(false)
-    expect(CardSchema.safeParse(card("repo-import", { ...FIXTURES["repo-import"].full, accountOwner: 1 })).success)
-      .toBe(false)
+
   })
 })
 
@@ -3084,16 +2954,8 @@ const cloudAgentFixtures: KindFixtures = {
 
 describe("removed presentation compatibility", () => {
   // Pin the Cut contract independently of the schema and retirement registry.
-  const cutKinds = [
-    "admin-health",
-    "agent",
-    "connect",
-    "grant-confirm",
-    "notifications",
-    "registration",
-    "repository-setup"
-  ] as const
-  test("the cut manifest records exactly the seven removed card kinds", () => {
+  const cutKinds = ["admin-health", "agent", "commit", "commit-list", "connect", "grant-confirm", "notifications", "registration", "repository-setup"] as const
+  test("the cut manifest records exactly the removed card kinds", () => {
     const manifest = JSON.parse(readFileSync(new URL("../src/catalog/cuts.json", import.meta.url), "utf8")) as {
       rows: { disposition: string; cardKinds: string[] }[]
     }
@@ -3210,8 +3072,9 @@ test("a saved local repository receipt drops its retired path", () => {
     created: { name: "smithers-playground", path: "/tmp/smithers-playground" },
     repositories: []
   }))
-  if (parsed.kind !== "repository-choice") throw new Error("expected repository choice")
-  expect(parsed.payload.created).toEqual({ fullName: "smithers-playground" })
+  expect(parsed.kind).toBe("repository-choice")
+  expect(parsed.payload).toMatchObject({ created: { fullName: "smithers-playground" } })
+  expect(parsed.payload).not.toHaveProperty("created.path")
 })
 
 test("saved provider sync settings disappear while native conversation history and sends remain", () => {
@@ -3305,36 +3168,27 @@ describe("pinned historical storage", () => {
 
 test("deferred billing, repository and trigger cards retain live decoding", () => {
   const base = { id: "retained", title: "Saved", status: "active", createdAt: 1, ordinal: 1 }
-  for (
-    const card of [
-      {
-        kind: "repository-choice",
-        payload: {
-          cutoff: "2026-10-03T00:00:00Z",
-          partial: false,
-          error: null,
-          selected: null,
-          created: null,
-          repositories: []
-        }
-      },
-      { kind: "trigger-list", payload: { repo: "will/app", triggers: [] } },
-      { kind: "workflow-repo", payload: { intent: "create", description: "A flow", repos: [], chosen: null } },
-      { kind: "anonymous-ceiling", payload: { message: "Saved", retryAt: null } },
-      { kind: "billing-plans", payload: { planKey: null, sandbox: null, plans: [], checkout: false } },
-      {
-        kind: "balance",
-        payload: {
-          totalUsd: "0.00",
-          state: "empty",
-          allowedToStartWork: false,
-          lifetimeChargedUsd: "0.00",
-          chargeCount: 0,
-          introUsd: null
-        }
-      }
-    ]
-  ) {
+  for (const card of [
+    { kind: "trigger-list", payload: { repo: "will/app", triggers: [] } },
+    { kind: "anonymous-ceiling", payload: { message: "Saved", retryAt: null } },
+    { kind: "billing-plans", payload: { planKey: null, sandbox: null, plans: [], checkout: false } },
+    { kind: "balance", payload: { totalUsd: "0.00", state: "empty", allowedToStartWork: false,
+      lifetimeChargedUsd: "0.00", chargeCount: 0, introUsd: null } }
+  ]) {
     expect(CardSchema.parse({ ...base, ...card }).kind).toBe(card.kind)
   }
+})
+
+test("persisted fork filters decode as all without dropping the old journal", () => {
+  const original = card("run-trace", {
+    ...FIXTURES["run-trace"].full,
+    filter: "forks",
+    events: [{ seq: 1, type: "fork", executionId: "historical" }]
+  })
+  const decoded = CardSchema.parse(original)
+  expect(decoded.payload).toMatchObject({
+    filter: "all",
+    events: [{ seq: 1, type: "fork", executionId: "historical" }]
+  })
+  expect(CardSchema.parse(JSON.parse(JSON.stringify(decoded)))).toEqual(decoded)
 })

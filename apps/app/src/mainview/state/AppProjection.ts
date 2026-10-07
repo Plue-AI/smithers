@@ -194,6 +194,7 @@ export const APP_TRANSITION_TYPES = {
   "conversation.reset": true,
   "conversation.reset.asked": true,
   "conversation.cleared": true,
+  "conversation.archives.loaded": true,
   "conversation.restored": true,
   "card.maximized": true,
   "card.minimized": true,
@@ -224,9 +225,15 @@ export const APP_TRANSITION_TYPES = {
   "librarian.launches.changed": true,
   "coding.provider.requests.changed": true,
   "stack.wiki.requests.changed": true,
+  "github.sync.request.changed": true,
+  "wiki.saves.changed": true,
   "install.requests.changed": true,
+  "repository.imports.changed": true,
   "secret.requests.changed": true,
   "egress.requests.changed": true,
+  "conversation.ui.applied": true,
+  "conversation.prompt.changed": true,
+  "branch.navigation.changed": true,
   "theme.changed": true,
   "palette.changed": true,
   "composer.control.changed": true,
@@ -759,6 +766,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
     delete draft.approvalsInboxRequests
     delete draft.runOpenRequests
     delete draft.codingProviderRequests
+    delete draft.repositoryImports
     delete draft.secretRequests
     delete draft.egressRequests
     draft.phase = "idle"
@@ -1090,12 +1098,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
   const approvalRequest = (id: string): ApprovalRequest | undefined => {
     const request = collections.approvalRequests.get(id)
     return isApprovalRequest(request) ? freezeRequest(structuredClone(CardSchema.parse(request)) as ApprovalRequest) : undefined
-  }
-  if ((transition.type === "card.upsert" || transition.type === "card.view.loaded") && transition.card.kind === "env") {
-    transition = { ...transition, card: CardSchema.parse(transition.card) }
-  } else if (transition.type === "card.updated" &&
-    (transition.patch.kind ?? collections.cards.get(transition.id)?.kind) === "env") {
-    transition = { ...transition, patch: CardPatchSchema.parse({ ...transition.patch, kind: "env" }) }
   }
   let applied = false
   // A transport batch uses the same primitive cases as ordinary dispatch.
@@ -1684,6 +1686,20 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           })
           break
 
+        case "conversation.archives.loaded": {
+          if (accountOwnerOf(collections.identitySessions.get("identity")) !== transition.owner) return
+          const incoming = new Set(transition.branches.map(branch => branch.id))
+          for (const branch of collections.branches.values()) {
+            if (branch.archiveOwner === transition.owner && !incoming.has(branch.id)) collections.branches.delete(branch.id)
+          }
+          for (const branch of transition.branches) {
+            if (branch.archiveOwner !== transition.owner || !branch.id.startsWith("earlier:journal:")) throw new Error("Invalid archive audience")
+            if (collections.branches.has(branch.id)) collections.branches.update(branch.id, draft => { Object.assign(draft, branch) })
+            else collections.branches.insert(branch)
+          }
+          break
+        }
+
         case "conversation.restored": {
           if (accountOwnerOf(collections.identitySessions.get("identity")) !== transition.owner || current.phase !== "idle" || current.draft !== "" || (current.queuedPrompts?.length ?? 0) > 0 ||
             transition.afterRevision > current.revision || historyHasNewerUserIntent(collections.transitions.values(), transition.afterRevision) ||
@@ -2120,6 +2136,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, draft => { draft.installRequests = transition.requests })
           break
         }
+        case "repository.imports.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.repositoryImports = transition.requests })
+          break
+        }
         case "secret.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.secretRequests = transition.requests })
           break
@@ -2128,10 +2148,36 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, draft => { draft.egressRequests = transition.requests })
           break
         }
+        case "github.sync.request.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.githubSyncRequest = transition.request })
+          break
+        }
         case "stack.wiki.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.wikiRequests = transition.requests })
           break
         }
+        case "wiki.saves.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.wikiSaves = transition.requests })
+          break
+        }
+        case "conversation.ui.applied":
+          if (accountOwnerOf(collections.identitySessions.get("identity")) !== transition.owner) break
+          collections.sessions.update(SESSION_ID, draft => { draft.uiInstructionsSeen = [...new Set([...(draft.uiInstructionsSeen ?? []), transition.id])] })
+          break
+
+        case "conversation.prompt.changed":
+          if (accountOwnerOf(collections.identitySessions.get("identity")) !== transition.request.owner) break
+          collections.sessions.update(SESSION_ID, draft => {
+            const rows = draft.sharedPrompts ?? []
+            draft.sharedPrompts = [...rows.filter(row => row.id !== transition.request.id), transition.request]
+            if (transition.clearDraft) draft.draft = ""
+          })
+          break
+
+        case "branch.navigation.changed":
+          collections.sessions.update(SESSION_ID, draft => { draft.branchNavigation = transition.navigation })
+          break
+
         case "theme.changed":
           collections.sessions.update(SESSION_ID, (draft) => {
             draft.theme = transition.theme
@@ -2383,7 +2429,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         case "card.recovered": {
           // A recovered composer's ask resumes with the session (`resumeModelCalls`); an entry of its history holds none.
           const card = transition.card === null ? null : transition.card
-          const protectedCard = (row: Card): boolean => row.kind === "env" || row.kind === "approval" || row.kind === "approvals-inbox" ||
+          const protectedCard = (row: Card): boolean => row.kind === "approval" || row.kind === "approvals-inbox" ||
             (row.kind === "flow-form" && row.payload.flow === "env.set")
           if ((card !== null && (card.id !== transition.id || protectedCard(card))) || approvalRequest(transition.id)) return
           const history = transition.history
@@ -2691,6 +2737,8 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               : transition.state === "signed-out" ? null : owner
             draft.state = transition.state
             draft.login = transition.login
+            if (transition.state === "signed-in" && transition.memberId !== undefined) draft.memberId = transition.memberId
+            else delete draft.memberId
             if (transition.provider !== undefined && transition.state !== "unavailable") draft.provider = transition.provider
             draft.sessionObservation = { at: createdAt, revision }
             draft.admin = transition.admin
@@ -2712,6 +2760,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.ownerRevision = revision
             draft.state = "signed-out"
             draft.login = null
+            delete draft.memberId
             draft.accountOwnerLogin = null
             draft.admin = false
             draft.updatedAt = createdAt
@@ -2764,6 +2813,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           const toast: Toast = {
             id,
             key: transition.key,
+            ...(transition.audience === undefined ? {} : { audience: transition.audience }),
             title: transition.title,
             sourceCard: transition.sourceCard,
             status: "running",
@@ -2778,6 +2828,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           } else {
             collections.toasts.update(id, (draft) => {
               Object.assign(draft, toast)
+              if (transition.audience === undefined) delete draft.audience
             })
           }
           break

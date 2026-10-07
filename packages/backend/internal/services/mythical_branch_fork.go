@@ -2,8 +2,11 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,8 +26,37 @@ import (
 // BranchForkInput is POST /api/branches fork{from, name?} (spec §6.3):
 // from is main or a TODO (T2); name defaults to fork-<from>.
 type BranchForkInput struct {
-	From string `json:"from"`
-	Name string `json:"name,omitempty"`
+	From    string `json:"from"`
+	Name    string `json:"name,omitempty"`
+	Request string `json:"-"`
+}
+
+// forkWorkspaceRevision keeps the hosted workspace door on the same revision
+// operation as /api/branches. A workspace id selects a server-owned item
+// binding, never a caller-supplied commit or a machine snapshot.
+func (s *MythicalService) forkWorkspaceRevision(ctx context.Context, source db.Workspace, input ForkWorkspaceInput) (WorkspaceResponse, error) {
+	if s == nil || s.store == nil {
+		return WorkspaceResponse{}, branchForkUnavailable("fork unavailable")
+	}
+	from := "main"
+	if strings.HasPrefix(source.TargetBookmark, scratchBranchPrefix) {
+		from = source.TargetBookmark // S1 refuses; S2 must capture before selecting it.
+	} else {
+		var number int64
+		err := s.store.QueryRow(ctx, `SELECT i.number FROM mythical_items i
+            LEFT JOIN mythical_lanes l ON l.item_id=i.id
+            WHERE i.repository_id=$1 AND (i.workspace_id=$2 OR l.workspace_id=$2)
+            ORDER BY l.created_at DESC NULLS LAST LIMIT 1`, source.RepositoryID, source.ID).Scan(&number)
+		if err == nil {
+			from = "T" + strconv.FormatInt(number, 10)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return WorkspaceResponse{}, err
+		} else if source.TargetBookmark != "main" {
+			return WorkspaceResponse{}, &BranchError{409, "no_verified_head", "conflict", "Workspace has no verified revision to fork"}
+		}
+	}
+	branch, err := s.ForkBranch(ctx, input.RepositoryID, input.UserID, BranchForkInput{From: from, Name: input.Name, Request: input.Request})
+	return branch.Machine, err
 }
 
 // BranchError is a branch command's refusal on the §6.2.3 envelope.
@@ -68,7 +100,7 @@ type branchForkSource struct {
 // workspace records forked_from, then the branch is published in the
 // install's repository and nowhere else: a scratch branch never reaches
 // GitHub (M-22). Forking a scratch branch waits for stage 2's capture.
-func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput) (BranchMachineResponse, error) {
+func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput, selected *branchForkSource, remember func(branchForkSource) error) (BranchMachineResponse, error) {
 	if s == nil || s.store == nil || s.host == nil {
 		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
 	}
@@ -76,8 +108,8 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 	if !ok {
 		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
 	}
-	if err := middleware.RequirePerson(ctx, "fork a branch"); err != nil {
-		return BranchMachineResponse{}, &BranchError{http.StatusForbidden, "permission", "permission", "Only a person forks a branch"}
+	if _, err := Authorize(ctx, s.queries(), "branch.fork"); err != nil {
+		return BranchMachineResponse{}, err
 	}
 	from := strings.TrimSpace(input.From)
 	if from == "" {
@@ -119,9 +151,14 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 	if err != nil {
 		return BranchMachineResponse{}, branchForkUnavailable("the repository could not be read")
 	}
-	source, err := s.forkSource(ctx, q, repository, from, refs)
-	if err != nil {
-		return BranchMachineResponse{}, err
+	var source branchForkSource
+	if selected != nil {
+		source = *selected
+	} else {
+		source, err = s.forkSource(ctx, q, repository, from, refs)
+		if err != nil {
+			return BranchMachineResponse{}, err
+		}
 	}
 	if !g.has(ctx, source.commit) {
 		if _, err := g.git(ctx, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "--depth=1",
@@ -130,9 +167,19 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 		}
 	}
 	r := &mythicalRun{row: db.MythicalStack{RepositoryID: repositoryID}, g: g, bridge: bridge, owner: owner, repo: repository.Name}
+	if remember != nil && selected == nil {
+		// Retain before committing intent: recovery must not depend on a moving ref.
+		if err := s.pin(ctx, r, source.commit); err != nil {
+			return BranchMachineResponse{}, err
+		}
+		source.pin = repohost.MythicalReservedRefNS + "keep/" + source.commit
+		if err := remember(source); err != nil {
+			return BranchMachineResponse{}, err
+		}
+	}
 	branchRow, err := forks.ForkScratch(ctx, ScratchFork{
 		RepositoryID: repositoryID, Owner: owner, Repo: repository.Name, ActorID: actorID, Branch: branch,
-		Commit: source.commit, Base: source.base, Item: source.item, Parent: source.parent,
+		Commit: source.commit, Base: source.base, Recover: selected != nil, Item: source.item, Parent: source.parent,
 		Retain: func(ctx context.Context, workspaceID string) error {
 			_, err := s.retainFor(ctx, r, workspaceID, source.commit)
 			return err
@@ -151,6 +198,117 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 		branchRow.Head = source.commit
 	}
 	return branchRow, nil
+}
+
+// ForkBranch serializes a session's request through the existing operation
+// store. A completed retry returns the original branch even after main moves;
+// a different payload cannot reuse its key. Authorization still runs on every
+// HTTP request before this receipt is read.
+func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput) (BranchMachineResponse, error) {
+	decision, err := Authorize(ctx, s.queries(), "branch.fork")
+	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	ctx = WithInstallAuthorization(ctx, "branch.fork", decision)
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil || info.User.ID != actorID {
+		return BranchMachineResponse{}, &BranchError{403, "permission", "permission", "Access denied"}
+	}
+	if input.Request == "" {
+		if s == nil || s.store == nil {
+			return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
+		}
+		var branch BranchMachineResponse
+		err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+			if err := guardInstallTodoWrite(ctx, tx, repositoryID, actorID); err != nil {
+				return err
+			}
+			var err error
+			branch, err = s.forkBranch(ctx, repositoryID, actorID, input, nil, nil)
+			return err
+		})
+		return branch, err
+	}
+	if len(input.Request) > 256 {
+		return BranchMachineResponse{}, &BranchError{400, "bad_request", "user", "Invalid Idempotency-Key"}
+	}
+	if s == nil || s.store == nil {
+		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
+	}
+	credential, err := todoRequestCredential(ctx, actorID)
+	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	scope := jobs.Scope{TenantID: strconv.FormatInt(repositoryID, 10), PrincipalID: "branch-request:" + credential}
+	id := uuid.NewSHA1(confirmationNamespace, []byte(scope.TenantID+"\x00"+scope.PrincipalID+"\x00branch.fork\x00"+input.Request)).String()
+	canonical, _ := json.Marshal(input)
+	intentID := uuid.NewSHA1(confirmationNamespace, []byte(id+"\x00intended")).String()
+	var branch BranchMachineResponse
+	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		if err := guardInstallTodoWrite(ctx, tx, repositoryID, actorID); err != nil {
+			return err
+		}
+		digest := sha256.Sum256([]byte(id))
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(binary.BigEndian.Uint64(digest[:8]))); err != nil {
+			return err
+		}
+		var raw []byte
+		err := tx.QueryRow(ctx, `SELECT data FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND operation_id=$3 AND event_type='branch.fork.completed'`, scope.TenantID, scope.PrincipalID, id).Scan(&raw)
+		if err == nil {
+			var receipt struct {
+				Input  json.RawMessage       `json:"input"`
+				Branch BranchMachineResponse `json:"branch"`
+			}
+			if err := json.Unmarshal(raw, &receipt); err != nil {
+				return err
+			}
+			if !jsonEqual(receipt.Input, canonical) {
+				return &BranchError{409, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
+			}
+			branch = receipt.Branch
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		var selected *branchForkSource
+		err = tx.QueryRow(ctx, `SELECT data FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND operation_id=$3 AND event_type='branch.fork.intended'`, scope.TenantID, scope.PrincipalID, intentID).Scan(&raw)
+		if err == nil {
+			var intent branchForkIntent
+			if err := json.Unmarshal(raw, &intent); err != nil {
+				return err
+			}
+			if !jsonEqual(intent.Input, canonical) {
+				return &BranchError{409, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
+			}
+			source := intent.source()
+			selected = &source
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		remember := func(source branchForkSource) error {
+			intent := branchForkIntent{Input: canonical, Ref: source.ref, Commit: source.commit, Base: source.base, Pin: source.pin, Parent: source.parent, Item: source.item, Number: source.number}
+			data, err := json.Marshal(intent)
+			if err != nil {
+				return err
+			}
+			// This intent survives rollback of the completion transaction. The
+			// request lock above serializes writers; machine work begins only
+			// after the immutable revision and this intent are durable.
+			return pgx.BeginFunc(ctx, s.store, func(intentTx pgx.Tx) error {
+				_, err := jobs.RecordFactInTx(ctx, intentTx, scope, intentID, "branch.fork.intended", "intended", data)
+				return err
+			})
+		}
+		branch, err = s.forkBranch(ctx, repositoryID, actorID, input, selected, remember)
+		if err != nil {
+			return err
+		}
+		fact, _ := json.Marshal(map[string]any{"input": json.RawMessage(canonical), "branch": branch})
+		_, err = jobs.RecordFactInTx(ctx, tx, scope, id, "branch.fork.completed", "completed", fact)
+		return err
+	})
+	return branch, err
 }
 
 // forkSource resolves from to its revision (spec §8.5.0, §8.5.3): main is
@@ -276,4 +434,21 @@ func mythicalDefaultBranch(repository db.Repository) string {
 
 func branchForkUnavailable(message string) *BranchError {
 	return &BranchError{http.StatusServiceUnavailable, "branch_unavailable", "infra", message}
+}
+
+// branchForkIntent binds interrupted work to the revision originally resolved.
+// It shares the request stream with completion; no branch or history store is added.
+type branchForkIntent struct {
+	Input  json.RawMessage `json:"input"`
+	Ref    string          `json:"ref"`
+	Commit string          `json:"commit"`
+	Base   string          `json:"base"`
+	Pin    string          `json:"pin"`
+	Parent string          `json:"parent"`
+	Item   pgtype.UUID     `json:"item"`
+	Number int64           `json:"number"`
+}
+
+func (i branchForkIntent) source() branchForkSource {
+	return branchForkSource{ref: i.Ref, commit: i.Commit, base: i.Base, pin: i.Pin, parent: i.Parent, item: i.Item, number: i.Number}
 }

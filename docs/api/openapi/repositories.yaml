@@ -2471,6 +2471,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/agent-sessions/{id}/egress:
     get:
+      x-composition: plue
       summary: GET /api/repos/{owner}/{repo}/agent-sessions/{id}/egress
       description: Lists retained outbound-request audit rows for this agent session or workspace. Query strings and credential values are never stored; swapped_secret_names contains names only. Requires read:repository and repository read permission.
       operationId: get_api_repos_owner_repo_agent_sessions_id_egress
@@ -2531,8 +2532,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -6731,146 +6731,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/wiki/{slug}/stream:
-    get:
-      summary: GET /api/repos/{owner}/{repo}/wiki/{slug}/stream
-      operationId: get_api_repos_owner_repo_wiki_slug_stream
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: slug
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Event stream
-          content:
-            text/event-stream:
-              schema:
-                type: string
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/wiki/{slug}/updates:
-    get:
-      summary: GET /api/repos/{owner}/{repo}/wiki/{slug}/updates
-      operationId: get_api_repos_owner_repo_wiki_slug_updates
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: slug
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    post:
-      summary: POST /api/repos/{owner}/{repo}/wiki/{slug}/updates
-      operationId: post_api_repos_owner_repo_wiki_slug_updates
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: slug
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/wiki/search:
     get:
       summary: GET /api/repos/{owner}/{repo}/wiki/search
@@ -7961,6 +7821,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -7971,7 +7836,16 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: object
+                required: [name, path, type, encoding, content, size, digest]
+                properties:
+                  name: {type: string}
+                  path: {type: string}
+                  type: {type: string, const: file}
+                  encoding: {type: string, enum: [utf-8, base64]}
+                  content: {type: string}
+                  size: {type: integer}
+                  digest: {type: string, pattern: '^[0-9a-f]{64}$'}
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7988,6 +7862,14 @@ paths:
           $ref: '#/components/responses/InternalError'
     put:
       summary: PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content
+      description: |
+        Writes one text file with the path query, or submits a whole atomic batch
+        without that query. Every affected path carries its own base_digest.
+        Batch content is UTF-8 by default or canonical padded base64; null deletes.
+        Existing modes are preserved; new files use 0644. Duplicate and ancestor/
+        descendant paths are rejected. Requests and total decoded content are each
+        bounded to 1 MiB; encoding and JSON overhead count toward the request limit.
+        Qualified provider availability is required for both forms.
       operationId: put_api_repos_owner_repo_workspaces_id_files_content
       tags:
         - Repositories
@@ -8007,7 +7889,52 @@ paths:
           required: true
           schema:
             type: string
-      x-smithers-opaque-body: true
+        - name: path
+          in: query
+          description: Required for a single-file request; forbidden for a batch.
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [content, base_digest]
+                  properties:
+                    content:
+                      type: string
+                    base_digest:
+                      type: string
+                      pattern: '^(absent|[0-9a-f]{64})$'
+                - type: object
+                  additionalProperties: false
+                  required: [changes]
+                  properties:
+                    changes:
+                      type: array
+                      minItems: 1
+                      maxItems: 256
+                      items:
+                        oneOf:
+                          - type: object
+                            additionalProperties: false
+                            required: [path, content, base_digest]
+                            properties:
+                              path: {type: string, minLength: 1, maxLength: 4096}
+                              content: {type: string}
+                              encoding: {type: string, enum: [utf-8, base64], default: utf-8}
+                              base_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
+                          - type: object
+                            additionalProperties: false
+                            required: [path, content, base_digest]
+                            properties:
+                              path: {type: string, minLength: 1, maxLength: 4096}
+                              content: {type: 'null'}
+                              base_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -8018,7 +7945,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: object
+                additionalProperties: false
+                required: [paths, raced]
+                properties:
+                  paths:
+                    type: array
+                    minItems: 1
+                    maxItems: 256
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [path, post_digest]
+                      properties:
+                        path: {type: string}
+                        post_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
+                  raced:
+                    type: array
+                    description: Outside writes retained for Compare after a concurrent swap; the Smithers write remains applied.
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [path, version]
+                      properties:
+                        path: {type: string}
+                        version: {type: string, minLength: 1, description: Retained outside version used by Compare.}
+        '409':
+          description: A file does not match base_digest; the entire batch is unchanged. Batch errors include the refusing path.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, current_digest]
+                properties:
+                  path: {type: string, description: Present for batch requests.}
+                  code: {type: string, const: stale}
+                  current_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
+        '503':
+          description: Qualified isolated compare-and-write provider unavailable.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -8027,6 +7991,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '413':
+          description: Request body or decoded content exceeds 1 MiB.
         '422':
           $ref: '#/components/responses/ValidationError'
         '429':
@@ -8765,54 +8731,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-  /api/repos/{owner}/{repo}/changes/{change_id}/split:
-    post:
-      x-composition: plue
-      summary: POST /api/repos/{owner}/{repo}/changes/{change_id}/split
-      operationId: post_api_repos_owner_repo_changes_change_id_split
-      tags:
-        - Repositories
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: change_id
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/github-proxy:
     post:
       summary: POST /api/repos/{owner}/{repo}/github-proxy
@@ -9060,17 +8978,44 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flow]
+              properties:
+                flow:
+                  type: string
+                input:
+                  type: object
+                  additionalProperties: true
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
-        '200':
-          description: Successful response
+        '201':
+          description: Queued flow run
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: object
+                required: [id, run_id, workflow_definition_id, flow, path, status]
+                properties:
+                  id:
+                    type: integer
+                  run_id:
+                    type: integer
+                  workflow_definition_id:
+                    type: integer
+                  flow:
+                    type: string
+                  path:
+                    type: string
+                  status:
+                    type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -9085,6 +9030,12 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+        '503':
+          description: Isolated Flow runtime unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/repos/{owner}/{repo}/landings/{number}/review-requests:
     post:
       summary: POST /api/repos/{owner}/{repo}/landings/{number}/review-requests
@@ -10933,8 +10884,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -10981,8 +10931,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -11034,8 +10983,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -11082,8 +11030,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -11985,8 +11932,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '404':
           $ref: '#/components/responses/NotFound'
         '422':

@@ -1,7 +1,8 @@
 # Machine host admission
 
-T-COL-03's host registry is unmounted. It does not plant a binary, accept a
-wire connection, dispatch an RPC, publish awake state or replace the reporter.
+The host registry, authenticated link and RPC dispatcher are implemented as
+library boundaries. Install composition still does not plant the daemon or
+connect its watcher and object receiver; the existing reporter remains mounted.
 The existing reporter cannot supply boot authentication or connection leases;
 the registry is new for those duties.
 
@@ -35,10 +36,18 @@ main-pinned packaged binary and T-MCH-11's trusted guest identities/no-sudo
 image. There is no activation entry point in this increment.
 
 No root step is added. No boot file or credential is written to a guest.
-The proposed `machine_event_receipts,product,planned:T-COL-03 owner:smithers-3f`
-reservation awaits T-PRC-02's planned-row support and owner acceptance; the
-current ownership checker treats it as an absent installed table. There is no
-migration or transaction/ack implementation yet. Unit tests cover registry
+Working-together I6 installs `machine_event_receipts(workspace_id, event_id,
+outcome, at)` with a primary key on `(workspace_id, event_id)`, and
+`burst_files(event_id, path, change, before_blob, after_blob, post_digest,
+renamed_to)` keyed by `(event_id, path)`. File rows reference the canonical
+`product_job_events.event_id`; receipts survive activity retention and are
+removed only with their workspace. Ingest must claim the receipt and insert
+activity plus file rows in one transaction before acknowledgment. The tables
+alone do not activate ingest or prove producer coverage. W3 and W6 own that
+composition. The install migration command and migration replay constraints
+are tested against PostgreSQL.
+
+Unit tests cover registry
 leases, revocation, reconnect admission and concurrent replacement; they are
 not C-COL-01, C-COL-04 or C-DUR-04 acceptance receipts.
 
@@ -76,7 +85,8 @@ uses cumulative consumer-delivered offsets, recovers lost windows and returns
 only the remaining bytes without charging credit again. Offsets outside the
 retained range fail without changing the buffer. Closing discards replay and
 refuses further reads and reattachment. This module is not yet wired into a
-running daemon; it does not implement a disconnect timer or session lifecycle.
+running daemon. The separate broker lifetime module owns disconnect deadlines
+and session lifecycle; transport mounting remains pending.
 
 ### Activation prerequisites
 
@@ -89,8 +99,20 @@ a registered run. A host-interface test cannot prove these properties.
 
 The broker must create processes only after privilege drop, retain lingering
 cgroups after close, confirm `populated 0` before kill responses, and clear all
-sessions before daemon restart. These operations, stream-frame dispatch and
-the 30-second grace timer remain unimplemented in this slice. Terminal and SSH
+sessions before daemon restart. The production library now provides the session registry, per-session 30-second
+grace timer, immutable agent-run bindings and restart cleanup ordering in
+`broker/sessions.rs`. Closed and exited entries remain available for watcher
+attribution until confirmed cleanup. Reconnecting the host does not reattach
+omitted sessions. `broker/cgroups.rs` holds protected cgroup-v2 directory
+descriptors, writes `cgroup.kill`, and waits for `populated 0` against one
+five-second deadline before removing each registry entry. Retained cgroups
+are cleaned before restart; invalid retained names refuse startup.
+
+The crate is now a buildable workspace library, including the existing credit,
+replay, document and outbox components. It is not a runnable daemon. Spawn,
+PTY allocation, signals, authenticated RPC/local-socket dispatch and transport
+adaptation remain unavailable. The cgroup implementation has Linux cross-build
+evidence only; no real-root integration acceptance is claimed. Terminal and SSH
 cutover require C-COL-04 and C-J3-06 evidence; no root code from this branch is
 installed or executed.
 
@@ -104,3 +126,39 @@ pipe. Use the Rust broker's lifetime module when its owning core lands, porting
 validated descriptor cleanup and privilege-drop ordering from the helper.
 Owner acceptance and root validation receipts remain pending. No helper or
 terminal ownership code is replaced until the actual cutover.
+
+
+## Watcher changes and recovery
+
+`session::samples` derives candidate identity from the authenticated broker:
+all sessions of a member share `Person(uid)`, and registered agent PTY commands
+share `Run(run_id)`. Agent exec hosts are excluded from CPU-window candidates;
+their socket writes already have exact attribution. Missing counters, unknown
+actors, changed bindings and overlapping participants remain outside changes.
+The wire actor remains a session reference for host resolution, not a grant.
+
+The W3 event pump calls `BurstIngest.Apply` with its admitted connection. Its
+object provider must verify the parentless versions commit, indexed blobs,
+`a/` and `b/` paths and post-digests. Missing objects produce no receipt.
+The existing product event writer, file rows and machine receipt commit in one
+transaction; post-commit notifications rebuild `:activity` and `:files` through
+the shared live broker. Burst identity and payload fingerprints reject divergent
+replays. Retaining the branch-scoped burst ref precedes acknowledgement, and
+replay repairs a failed ref publication. Split bursts are refused until their
+complete assembly is supplied; no partial activity is acknowledged as complete.
+
+Activity uses persisted stream cursors on `/api/live`: a fresh subscription gets
+the last 200 entries, reconnect gets subsequent deltas, and a missing cursor or
+more than 200 replay entries yields `gap`. File projections remain readable
+while the machine sleeps and do not wake it.
+
+`POST /api/branches/{b}/files/{path}` accepts the File seam's
+`{action: "restore" | "restore-deleted", version, base_digest}`. The catalog
+resolves the member; unknown fields, including actor overrides, are refused.
+Only that branch's retained version can supply the before bytes. Its blob hash
+is checked before the shared guarded write, using the recorded post-digest (or
+`absent` for deletion). A stale file returns 409 without a retry or overwrite.
+
+The host connection pump and object receiver are still uncomposed. Component
+PostgreSQL, HTTP and live-socket evidence does not qualify the real watcher,
+object transfer, formatter or reference-host timing checks.

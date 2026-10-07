@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/buildcache"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -46,13 +48,14 @@ type RevocationSource interface {
 }
 
 type Handler struct {
-	Revocations RevocationSource
-	Store       *Store
-	Dispatcher  *Dispatcher
+	ContextRepository ContextRepository
+	// ResolveBranch authorizes and resolves branch aliases at the install boundary.
+	ResolveBranch func(context.Context, Scope, string) (string, error)
+	Revocations   RevocationSource
+	Store         *Store
+	Dispatcher    *Dispatcher
 	// Sources serves the source read and list callbacks; nil refuses them.
 	Sources SourceReader
-	// API serves the API read callback; nil refuses it.
-	API CommandAPI
 	// credentials keeps the credential that admitted each turn here.
 	credentials *turnCredentials
 	logger      *slog.Logger
@@ -96,19 +99,23 @@ type producerRequest struct {
 }
 
 func decodeBounded(w http.ResponseWriter, r *http.Request, target any) bool {
+	return decodeBoundedWithProblem(w, r, target, writeProblem)
+}
+
+func decodeBoundedWithProblem(w http.ResponseWriter, r *http.Request, target any, problem func(http.ResponseWriter, int, string)) bool {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, maxPayloadBytes+maxBatchBytes+4097))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		if middleware.IsMaxBytesError(err) {
-			writeProblem(w, http.StatusRequestEntityTooLarge, "request_too_large")
+			problem(w, http.StatusRequestEntityTooLarge, "request_too_large")
 			return false
 		}
-		writeProblem(w, http.StatusBadRequest, "request_invalid")
+		problem(w, http.StatusBadRequest, "request_invalid")
 		return false
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		writeProblem(w, http.StatusBadRequest, "request_invalid")
+		problem(w, http.StatusBadRequest, "request_invalid")
 		return false
 	}
 	return true
@@ -131,6 +138,12 @@ func readTurnRequest(w http.ResponseWriter, r *http.Request) (string, JournalReq
 	}
 	object, ok := value.(map[string]any)
 	if !ok {
+		writeProblem(w, http.StatusBadRequest, "request_invalid")
+		return "", JournalRequest{}, nil, false
+	}
+	// Only canonical prompt admission may declare a future shared audience.
+	// Legacy browser history remains private even if a client forges this field.
+	if _, supplied := object["sharedConversation"]; supplied {
 		writeProblem(w, http.StatusBadRequest, "request_invalid")
 		return "", JournalRequest{}, nil, false
 	}
@@ -249,6 +262,15 @@ func (h *Handler) publicScope(w http.ResponseWriter, r *http.Request) (Scope, bo
 		writeProblem(w, http.StatusForbidden, "forbidden")
 		return Scope{}, false
 	}
+	// Public install routes have no /repos prefix and therefore no RepoContext.
+	// Bind their durable queue to the installed repository, never a body field.
+	if scope.RepositoryID == 0 {
+		scope.RepositoryID, err = db.New(h.Store.pool).InstallRepositoryID(r.Context())
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			publicError(w, err)
+			return Scope{}, false
+		}
+	}
 	return scope, true
 }
 
@@ -301,13 +323,7 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// The credential is recorded before the turn exists, so no dispatcher can
-	// claim the turn without it; an admission that accepts nothing new forgets it.
-	release := h.credentials.admit(turnKey{userID: scope.UserID, runID: runID, legID: journal.LegID}, middleware.CredentialOf(auth))
-	accepted, err := h.Store.Admit(r.Context(), AdmitInput{Scope: scope, RunID: runID, Journal: journal, Request: request})
-	if err != nil || accepted.Status != "accepted" {
-		release()
-	}
+	accepted, err := h.admit(r, scope, runID, journal, request)
 	if err != nil {
 		publicError(w, err)
 		return
@@ -559,10 +575,17 @@ func (h *Handler) ProviderStarted(w http.ResponseWriter, r *http.Request) {
 
 // MountAuthenticated contains the routes that need an active account scope.
 func (h *Handler) MountAuthenticated(router chi.Router) {
+	// Private API questions share the same journal, dispatcher and host as
+	// branch prompts. They retain scoped reader access and private Drafts.
 	router.Post(TurnPath, h.Turn)
-	router.Post(CancelPath, h.Cancel)
+	router.Get("/api/conversations/{b}", h.Conversation)
+	router.Post("/api/conversations/{b}/prompt", h.Prompt)
 	router.Post(ReplayPath, h.Replay)
-	router.Post(RetirePath, h.Retire)
+	router.Post("/api/conversations/{b}/turns/{id}/stop", h.QueueTurn)
+	router.Patch("/api/conversations/{b}/turns/{id}", h.QueueTurn)
+	router.Delete("/api/conversations/{b}/turns/{id}", h.QueueTurn)
+	router.Get("/api/conversations/{b}/view-state", h.ViewState)
+	router.Put("/api/conversations/{b}/view-state", h.ViewState)
 	router.Get(HistoryPath, h.History)
 	router.Post(AccountReplayPath, h.ReplayAccount)
 }
@@ -582,5 +605,5 @@ func (h *Handler) MountProducerCallbacks(router chi.Router) {
 	router.Post(ProviderStartedPath, h.ProviderStarted)
 	router.Post(SourceReadPath, h.SourceRead)
 	router.Post(SourceListPath, h.SourceList)
-	router.Post(APICallPath, h.APICall)
+	router.Post(ContextPath, h.Context)
 }

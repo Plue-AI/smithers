@@ -484,26 +484,25 @@ describe("the trace model", () => {
     expect(visible("all")).toHaveLength(11)
   })
 
-  test("a prototype offers all, messages and failed; every other run the shared six (spec 06 §2, §3)", () => {
+  test("a prototype offers all, messages and failed; every other run the shared five (spec 06 §2, §3)", () => {
     expect(traceFiltersFor("prototype").map(([id]) => id)).toEqual(["all", "messages", "failed"])
     expect(traceFiltersFor("implement").map(([id]) => id)).toEqual([
       "all",
       "running",
       "failed",
       "model",
-      "flow",
-      "forks"
+      "flow"
     ])
     expect(traceFiltersFor(undefined).map(([id, label]) => `${id}=${label}`)).toEqual([
       "all=all",
       "running=running",
       "failed=failed",
       "model=model calls",
-      "flow=flow calls",
-      "forks=forks"
+      "flow=flow calls"
     ])
     expect(isTraceFilter("messages")).toBe(true)
     expect(isTraceFilter("calls")).toBe(false)
+    expect(isTraceFilter("forks")).toBe(false)
   })
 
   test("the messages filter keeps a prototype's agent/send and agent/await spans with their ancestors", () => {
@@ -1423,5 +1422,26 @@ describe("what the journal did not say", () => {
     ], CHECKS)
     expect(bookkeeping.lines).toEqual([])
     expect(bookkeeping.bands.map((band) => band.phase)).toEqual(["unrecorded"])
+  })
+})
+
+
+describe("Appendix C Inspect labels", () => {
+  test("recorded coding actions use literal past-tense titles on every replay", () => {
+    const journal = [
+      at(1, "control.agent.cell-call-started", { flowName: "coding/edit-atom", callId: "edit" }, 1000),
+      at(2, "control.agent.cell-call-settled", { flowName: "coding/edit-atom", callId: "edit", outcome: "success", value: {} }, 2000),
+      at(3, "control.agent.cell-call-started", { flowName: "coding/check-command", callId: "check" }, 3000),
+      at(4, "control.agent.cell-call-settled", { flowName: "coding/check-command", callId: "check", outcome: "failure", message: "2 failed" }, 4000),
+      at(5, "control.agent.cell-call-started", { flowName: "<cell-call:coding/PreparePlan>", callId: "plan" }, 5000),
+      at(6, "control.agent.cell-call-started", { flowName: "historical/action", callId: "old" }, 6000)
+    ]
+    const run = { runId: "labels", flowId: "todo", status: "running" }
+    const first = traceFromJournal(run, journal)
+    expect(first.rows.filter(row => row.kind === "call").map(row => row.label)).toEqual([
+      "Edited the files", "Ran checks", "Planned the change", "historical/action"
+    ])
+    expect(traceFromJournal(run, journal)).toEqual(first)
+    expect(first.rows.find(row => row.id === "call-2")?.detail.message).toBe("2 failed")
   })
 })

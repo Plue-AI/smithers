@@ -86,7 +86,7 @@ func parallelOwnerContext(ctx context.Context, id int64) context.Context {
 func TestInstallParallelDefaultsClampAndSavedValues(t *testing.T) {
 	q := &parallelQueries{capacityQueries: capacityQueries{row: db.GetInstallCapacityRow{OwnerID: 1}, rows: 1}}
 	s := InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 128 << 30, PerfCores: 32, DiskFreeBytes: 1024 << 30}}
-	for _, tc := range []struct{ capacity, requested, effective int }{{0, 1, 0}, {1, 1, 1}, {2, 1, 1}, {3, 2, 2}, {6, 5, 5}, {7, 6, 6}} {
+	for _, tc := range []struct{ capacity, requested, effective int }{{0, 1, 0}, {1, 1, 1}, {2, 1, 1}, {3, 2, 2}, {6, 5, 5}, {7, 6, 6}, {10, 8, 8}} {
 		// Inject the disk term only, leaving startup memory/core measurements fixed.
 		s.Profile.DiskFreeBytes = int64(40+32*tc.capacity) << 30
 		result, err := s.Parallel(t.Context())
@@ -162,4 +162,16 @@ func TestInstallParallelOwnerAndPolicyRefuseBeforeEffects(t *testing.T) {
 	s.Queries = &capacityQueries{row: db.GetInstallCapacityRow{OwnerID: 1}}
 	require.Error(t, s.SetParallel(owner, 2))
 	require.Error(t, (*InstallCapacityService)(nil).SetParallel(owner, 2))
+}
+
+func TestInstallParallelCurrentDiskFailureRefuses(t *testing.T) {
+	q := &parallelQueries{capacityQueries: capacityQueries{row: db.GetInstallCapacityRow{OwnerID: 1}, rows: 1}, saved: []byte(`8`)}
+	failure := errors.New("disk unavailable")
+	s := InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}, FreeDisk: func(context.Context) (int64, error) { return 0, failure }}
+	_, err := s.Parallel(t.Context())
+	require.ErrorIs(t, err, failure)
+	_, err = s.Read(t.Context())
+	require.ErrorIs(t, err, failure)
+	require.Equal(t, []byte(`8`), q.saved)
+	require.EqualValues(t, 400<<30, s.Profile.DiskFreeBytes)
 }

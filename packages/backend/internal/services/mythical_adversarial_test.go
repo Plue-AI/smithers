@@ -87,11 +87,11 @@ func TestMythicalAdversarialOtherWriterLabelsThroughStamper(t *testing.T) {
 			}}})
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/permission"):
 			_ = json.NewEncoder(w).Encode(map[string]string{"permission": "write"})
-		case r.Method == http.MethodGet && r.URL.Path == "/repos/smithersai/smithers/issues/602/events":
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/smithersai/smithers/issues/events":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
-				{"event": "labeled", "actor": map[string]string{"login": "other-writer"},
+				{"id": 2, "issue": map[string]int{"number": 602}, "event": "labeled", "actor": map[string]string{"login": "other-writer"},
 					"label": map[string]string{"name": "todo"}, "created_at": "2026-01-01T00:00:00Z"},
-				{"event": "labeled", "actor": map[string]string{"login": "other-writer"},
+				{"id": 1, "issue": map[string]int{"number": 602}, "event": "labeled", "actor": map[string]string{"login": "other-writer"},
 					"label": map[string]string{"name": "automerge"}, "created_at": "2026-01-01T00:00:00Z"},
 			})
 		default:

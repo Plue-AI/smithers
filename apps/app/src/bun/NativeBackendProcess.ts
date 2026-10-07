@@ -12,8 +12,6 @@ interface Child {
 export interface NativeBackend {
   readonly mode: NativeBackendMode
   readonly origin: string | undefined
-  /** Trusted main-process handoff for first-owner setup; never sent over HTTP. */
-  readonly bootstrapToken: string | undefined
   readonly failure: Promise<Error | undefined> | undefined
   readonly stop: () => Promise<void>
 }
@@ -26,6 +24,8 @@ export interface NativeBackendOptions {
   /** Executable location injection for bundle fixtures only. */
   readonly executablePath?: string
   readonly setupHandoff?: "socket"
+ readonly bind?: string
+ readonly publicOrigins?: ReadonlyArray<string>
   readonly spawn?: (
     argv: ReadonlyArray<string>,
     options: {
@@ -354,7 +354,7 @@ export const startNativeBackend = async (
   // Names only: the triage line for a backend that differs between terminal and Dock launches.
   console.error(`owned backend env: ${Object.keys(environment).sort().join(" ")}`)
   const spawn = options.spawn ?? ((argv, childOptions) => Bun.spawn([...argv], childOptions))
-  const child = spawn(options.setupHandoff === "socket" ? [backend, "--setup-handoff=socket"] : [backend], {
+  const child = spawn([backend, ...(options.setupHandoff === "socket" ? ["--setup-handoff=socket"] : []), ...(options.bind === undefined ? [] : ["--bind", options.bind]), ...(options.publicOrigins ?? []).flatMap((origin) => ["--origin", origin])], {
     env: environment,
     stdout: "inherit",
     stderr: "inherit"
@@ -407,7 +407,7 @@ export const startNativeBackend = async (
       if (exitCode !== undefined) {
         throw new Error(`Owned backend exited before readiness with code ${exitCode}.`)
       }
-      if (response?.ok) return { mode, origin, bootstrapToken: undefined, failure, stop }
+      if (response?.ok) return { mode, origin, failure, stop }
       if (response?.step !== undefined && response.step !== step) {
         step = response.step
         deadline = Date.now() + idleMs

@@ -9,7 +9,7 @@ import { javascript } from "@codemirror/lang-javascript"
 import { go } from "@codemirror/lang-go"
 import { rust } from "@codemirror/lang-rust"
 import { python } from "@codemirror/lang-python"
-import { lintGutter, setDiagnostics } from "@codemirror/lint"
+import { lintGutter, lintKeymap, setDiagnostics } from "@codemirror/lint"
 
 /** Positions use 1-based lines and UTF-16 columns (T-UI-11, spec §7.6). */
 export interface EditorPosition { readonly line: number; readonly col?: number }
@@ -17,6 +17,8 @@ export interface EditorPosition { readonly line: number; readonly col?: number }
 export interface EditorGesture<Tag extends string> { readonly tag: Tag; readonly label: string; readonly args?: Record<string, string>; readonly disabled?: { readonly reason: string } }
 /** A host-approved document binding; no transport or authority is discovered here. */
 export interface EditorBinding {
+  /** Stable document binding; visual extensions may change without detaching sync. */
+  readonly identity?: object
   readonly extensions: Extension
   readonly text: string
 }
@@ -112,7 +114,7 @@ export function CodeEditorView<Tag extends string>(props: CodeEditorViewProps<Ta
         compartments.current.attributes.of(EditorView.contentAttributes.of({ tabindex: "0", role: "textbox", "aria-readonly": String(!latest.current.binding), "aria-label": latest.current.path })),
         lineNumbers(), highlightActiveLine(), highlightActiveLineGutter(), lintGutter(), paper,
         syntaxHighlighting(highlight), compartments.current.language.of(languageExtension(latest.current.language)), compartments.current.hover.of([]),
-        keymap.of([{ key: "Ctrl-Space", run: view => send("hover", view) }, { key: "F12", run: view => send("definition", view) }, ...defaultKeymap]),
+        keymap.of([{ key: "Ctrl-Space", run: view => send("hover", view) }, { key: "F12", run: view => send("definition", view) }, ...lintKeymap, ...defaultKeymap]),
         EditorView.domEventHandlers({ mousemove: (event, view) => {
           if (!event.ctrlKey) { hoverPosition = null; return false }
           const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
@@ -132,7 +134,7 @@ export function CodeEditorView<Tag extends string>(props: CodeEditorViewProps<Ta
   }, [])
   useLayoutEffect(() => {
     const view = editor.current!
-    const replaced = bound.current !== props.binding
+    const replaced = (bound.current?.identity ?? bound.current) !== (props.binding?.identity ?? props.binding)
     if (replaced) view.dispatch({ effects: [compartments.current.binding.reconfigure([]), compartments.current.access.reconfigure([EditorState.readOnly.of(!props.binding), EditorView.editable.of(!!props.binding), ...(props.binding ? [EditorState.lineSeparator.of("\n")] : [])])] })
     const before = view.state.doc.toString()
     const after = view.state.toText(props.binding?.text ?? props.text).toString()

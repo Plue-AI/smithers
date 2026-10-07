@@ -378,16 +378,7 @@ const (
 	agentMessagePostScope           = "agent_message_post"
 	devtoolsSnapshotPostScope       = "devtools_snapshot_post"
 	workflowDispatchScope           = "workflow_dispatch"
-	appTimelineWriteScope           = "app_timeline_write"
 )
-
-// AppTimelineWriteRateLimit enforces the per-user app-timeline write rate
-// (event appends, rewrites, snapshots, member changes). Default 240/min:
-// timeline appends ride every machine event, so the bucket must absorb a
-// busy interactive session while still stopping a runaway sync loop.
-func AppTimelineWriteRateLimit(store SearchRateLimitStore, limit int) func(http.Handler) http.Handler {
-	return newRateLimit(store, appTimelineWriteScope, limit, time.Minute, 240, time.Minute)
-}
 
 // EmailVerificationRateLimit enforces verification email rate limit: 5 requests/hour per user.
 func EmailVerificationRateLimit(store SearchRateLimitStore) func(http.Handler) http.Handler {

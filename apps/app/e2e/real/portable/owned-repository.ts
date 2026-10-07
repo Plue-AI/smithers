@@ -88,18 +88,14 @@ const gitToken = async (page: Page, request: APIRequestContext): Promise<string>
     if (!token) throw new Error("application token is unavailable for the local git fixture")
     return token
   }
-  const name = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT
-  const raw = name ? process.env[name] : undefined
-  if (!raw) throw new Error("owner credential envelope is unavailable for the local git fixture")
-  const credentials = JSON.parse(raw) as { readonly username: string; readonly password: string }
   const tokenName = fixtureProtocolId(`matrix-git-${randomUUID().slice(0, 8)}`)
   const { response } = await withOwnerAuthRetry(async () => {
-    const response = await realApi(page, request, "POST", "/api/auth/local/token", {
-      username: credentials.username, password: credentials.password, name: tokenName
+    const response = await realApi(page, request, "POST", "/api/user/tokens", {
+      name: tokenName, scopes: ["read:repository", "write:repository"], expires_at: new Date(Date.now() + 3_600_000).toISOString()
     })
     return { status: response.status(), retryAfter: response.headers()["retry-after"] ?? null, response }
   })
-  expect(response.status()).toBe(200)
+  expect(response.status()).toBe(201)
   const body = await response.json() as { readonly token?: unknown }
   if (typeof body.token !== "string" || body.token === "") throw new Error("owner token endpoint returned no token")
   return body.token

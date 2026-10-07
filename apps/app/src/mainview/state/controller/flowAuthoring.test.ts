@@ -174,7 +174,7 @@ test("a flow file written mid-run is planned before the authoring run settles", 
   const served = relay()
   const controller = createAppController(store, silentAgent, served.services)
   try {
-    await controller.commands.run("flow.create", `review my pull requests ${REPO}`)
+    await controller.commands.run("flow.new", `review my pull requests ${REPO}`)
     await waitFor(() => served.plans.includes(FLOW_AUTHORING_ENTRY))
     /* Nothing is planned while the author has written nothing. */
     await settle(5)

@@ -316,7 +316,7 @@ interface DeclaredMove {
 }
 
 /** Only these app doors left; the persisted oracle is unchanged. */
-const CUT_FLOW_NAMES = new Set([/* renamed to their mvp.md Appendix A names, or replaced by /help */ "appearance.dark-mode", "chat.stop", "search.open", "auth.sign-in", "auth.sign-out", "chat.commands", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
+const CUT_FLOW_NAMES = new Set([/* renamed to their mvp.md Appendix A names, or replaced by /help */ "appearance.dark-mode", "history.show", "branches.list", "secrets.list", "flow.create", "chat.stop", "search.open", "auth.sign-in", "auth.sign-out", "chat.commands", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
   { flow: "issues.create", kind: "sentence", rows: 1,
@@ -405,7 +405,13 @@ const HISTORICAL_CASES = [
     `triggers.register::known-flag:${field}`,
     `triggers.register::known-flag-number:${field}`
   ]),
-  "issues.list::known-flags:filter+repo"
+  "issues.list::known-flags:filter+repo",
+  "repo.choose::known-flag-number:repo",
+  "repo.choose::known-flag:repo",
+  "repo.create::known-flag-number:name",
+  "repo.create::known-flag:name",
+  "model.assign::known-flags:seat+recordId",
+  ...["seat", "recordId"].flatMap(field => [`model.assign::known-flag:${field}`, `model.assign::known-flag-number:${field}`])
 ].sort()
 
 /**
@@ -511,19 +517,20 @@ describe("the card every slash line opens, against main@origin", () => {
     const pause = lost.filter((row) => row.flow === "triggers.pause")
     expect(pause.length).toBe(13)
     expect(pause.every((row) => baseline.sentences[baseline.rows[key(row)]![0]] === "triggers.pause takes the values its button carries")).toBe(true)
-    expect(lost.filter((row) => row.flow !== "triggers.pause").map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([
+    expect(lost.filter((row) => row.flow !== "triggers.pause" && !row.flow.startsWith("model.")).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([
       "/issues.list codeplanesmithers/canary"
     ])
+    const modelLost = lost.filter(row => row.flow.startsWith("model."))
+    expect(Object.fromEntries(["model.show", "model.edit", "model.remove", "model.test", "model.assign"].map(name =>
+      [name, modelLost.filter(row => row.flow === name).length]))).toEqual({ "model.show": 15, "model.edit": 15, "model.remove": 15, "model.test": 15, "model.assign": 8 })
     /* `here` counts only flows that still exist: the three `change.pick` rows left with the flow (#1904). */
     /* 1448: `/issues.create --nope value` and friends now read the create grammar's own --kind refusal instead of a usage line (smithers-ui-DESIGN.md §3.1). */
     /* 1462: the one-input register form (D-18) fills whole from a positional line, so 14 such lines keep the grammar's sentence main@origin's six-field card withheld. */
     /* 1449: the thirteen typed `/triggers.pause` lines no longer quote a button-only refusal (#1732). */
-    /* 1454: `/flow.create` and `/feature.prototype` read box-chooser JSON, so malformed JSON and unknown fields get the grammar's diagnostic. */
+    /* 1454: `/flow.new` and `/feature.prototype` read box-chooser JSON, so malformed JSON and unknown fields get the grammar's diagnostic. */
     /* 1483: the 29 `/theme` lines that name no mode read `dark-mode takes light or dark` (#3311). */
     /* 1359: the MVP cut (#3385) removed the desktop, forge, integration, model-lab and time-travel doors; their rows left with them. */
     /* 1361: malformed recovery rejection refuses two unknown box.open flags (099995ffa, #3318). */
-    const cutDiagnostics = Object.entries(baseline.rows)
-      .filter(([name, [index]]) => CUT_FLOW_NAMES.has(name.split(SEPARATOR)[0]!) && index !== -1).length
     const removedDeltas = new Map<string, number>()
     for (const move of CUT_DIAGNOSTIC_MOVES) {
       expect(CUT_FLOW_NAMES.has(move.flow)).toBe(true)
@@ -540,7 +547,6 @@ describe("the card every slash line opens, against main@origin", () => {
       "agent.session.stop": 1,
       "change.split": 1
     })
-    const removedDeclaredDiagnostics = [...removedDeltas.values()].reduce((sum, count) => sum + count, 0)
     const historicalDiagnostics = rows.filter(row => row.historical && row.error !== null)
     expect(historicalDiagnostics.map(key).sort()).toEqual([
       "issues.list::known-flags:filter+repo",

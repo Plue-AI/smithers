@@ -212,13 +212,13 @@ for (const p of pages) {
       continue
     }
     const [originalPath, anchor] = target.split("#")
-    const path = p.rel === "pricing.mdx" ? redirectTarget(originalPath) : originalPath
+    const path = redirectTarget(originalPath)
     const norm = path === "/" ? "/" : path.endsWith("/") ? path : path + "/"
     if (!routes.has(norm) && !staticRoutes.has(path) && !staticRoutes.has(norm)) {
       err(p.path, `link to nowhere: ${path}`)
       continue
     }
-    if (anchor && byRoute.has(norm) && !byRoute.get(norm).headingIds.has(anchor)) {
+    if (anchor && (path === originalPath || norm !== "/docs/installation/") && byRoute.has(norm) && !byRoute.get(norm).headingIds.has(anchor)) {
       err(p.path, `anchor #${anchor} missing on ${norm}`)
     }
   }

@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,7 +24,12 @@ func FixedOrigins(origins ...string) func() []string {
 // one the browser sends. A value that is not an origin is only trimmed.
 func CanonicalOrigin(origin string) string {
 	if canonical, err := config.CanonicalOrigin(origin); err == nil {
-		return canonical
+		u, _ := url.Parse(canonical)
+		port := u.Port()
+		if port == "" || (u.Scheme == "http" && port == "80") || (u.Scheme == "https" && port == "443") {
+			u.Host = strings.TrimSuffix(u.Host, ":"+port)
+		}
+		return u.Scheme + "://" + u.Host
 	}
 	return strings.TrimRight(strings.TrimSpace(origin), "/")
 }
@@ -37,6 +44,9 @@ func SameOrigin(a, b string) bool {
 // The origin it returns is canonical (CanonicalOrigin), whatever the spelling
 // of the known origin it matched.
 func ResolveEffectiveOrigin(r *http.Request, publicOrigins []string) (string, bool) {
+	if origin, ok := EffectiveOriginFromContext(r.Context()); ok {
+		return origin, true
+	}
 	host := r.Host
 	socketPeer := r.RemoteAddr
 	if original, ok := r.Context().Value(socketPeerKey{}).(string); ok {
@@ -59,8 +69,17 @@ func ResolveEffectiveOrigin(r *http.Request, publicOrigins []string) (string, bo
 	}
 	origin := ""
 	for _, candidate := range known {
+		candidate = CanonicalOrigin(candidate)
 		u, err := url.Parse(candidate)
-		if err == nil && strings.EqualFold(u.Host, host) {
+		if err != nil {
+			continue
+		}
+		request, err := url.Parse(CanonicalOrigin(u.Scheme + "://" + host))
+		if err == nil && strings.EqualFold(u.Host, request.Host) {
+			ip := net.ParseIP(u.Hostname())
+			if !loopback && (strings.EqualFold(u.Hostname(), "localhost") || (ip != nil && ip.IsLoopback())) {
+				continue
+			}
 			if origin != "" && origin != CanonicalOrigin(candidate) {
 				return "", false
 			}
@@ -71,4 +90,43 @@ func ResolveEffectiveOrigin(r *http.Request, publicOrigins []string) (string, bo
 		return "", false
 	}
 	return origin, true
+}
+
+// EffectiveOrigin resolves the install origin before authentication and RealIP.
+// Readiness is reachable without a browser host only on the control loopback.
+func EffectiveOrigin(origins func() []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			peer, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				peer = r.RemoteAddr
+			}
+			ip := net.ParseIP(peer)
+			if r.URL.Path == "/readyz" && ip != nil && ip.IsLoopback() {
+				next.ServeHTTP(w, r)
+				return
+			}
+			origin, ok := ResolveEffectiveOrigin(r, origins())
+			if !ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMisdirectedRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"class": "user", "code": "unknown_origin", "message": "unknown_origin"})
+				return
+			}
+			if r.Header.Get("Authorization") == "" && r.Header.Get("Origin") != "" && !SameOrigin(r.Header.Get("Origin"), origin) {
+				writeOriginPermission(w, "origin")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), effectiveOriginKey{}, origin)))
+		})
+	}
+}
+
+type effectiveOriginKey struct{}
+
+// EffectiveOriginFromContext reads the install origin resolved for this request.
+// Hosted compositions leave it unset and keep their own origin policy.
+func EffectiveOriginFromContext(ctx context.Context) (string, bool) {
+	origin, ok := ctx.Value(effectiveOriginKey{}).(string)
+	return origin, ok
 }

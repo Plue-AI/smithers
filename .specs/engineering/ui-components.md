@@ -358,7 +358,7 @@ type HomeViewProps = CardProps<HomeModel, HomeViewState>
 
 Private entries show the Draft "Only you" lock chip. A tombstone shows only the card title in one muted line, with no summary or action. The final muted branch-tree node reads "Earlier · N" and opens archives with a "Read-only" chip and no mutation controls. 
 
-[S2, M-38] T-AGT-03 supplies existing chat components with normalized message/tool/error parts plus `origin: "external"`, `agent_kind: "claude-code" | "codex"`, `format_version: string`, `source_id: string`, `session_id: string`, `actor: Actor` and `read_only: true`. Tool calls/results retain their correlation id; edit reports retain path and reported outcome. Mutation action lists are empty. Copy, disclosure and navigation use existing handlers. smithers-06 owns presentation in T-UI-07 and T-UI-01; smithers-b8 owns binding. No new View or card is introduced. Check: C-AGT-02.
+[S2, M-38] T-AGT-03 supplies existing chat components with normalized message/tool/error parts plus `origin: "external"`, `agent_kind: "claude-code" | "codex"`, `format_version: string`, `source_id: string`, `session_id: string`, `participant_id: string`, `actor: Actor` and `read_only: true`. Assistant/tool actors match the agent kind, session and participant id and include the acting-for member; prompt actors name the owner. Missing metadata rejects the record rather than decoding it as Smithers. Durable snapshots preserve these fields. Tool calls/results retain their correlation id; edit reports retain path and reported outcome. Mutation action lists are empty. Copy, disclosure and navigation use existing handlers. smithers-06 owns presentation in T-UI-07 and T-UI-01; smithers-b8 owns binding. No new View or card is introduced. Check: C-AGT-02.
 
 ```ts
 // Open branches only; a closed branch's conversation opens from its merged TODO.
@@ -480,7 +480,7 @@ type FlowModel = {
 
 ### T-APP-15 File (read-only) and Diff
 
-The File card renders through the existing `CodeFileView` (`@smthrs/ui` `adapters/code-view`) via `cards/CodeSurface.tsx`. Revert the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*` and `y-codemirror.next` pins from 4a36b0cfb; T-APP-14 restores them in S3. Fold `DiffView` into `cards/DiffSurface.tsx`. Check: C-UI-13.
+The File card renders through `CodeEditorView` and the restored CodeMirror adapter (`@smthrs/ui/adapters/code-editor`) via `cards/CodeEditorSurface.tsx`. Fold `DiffView` into `cards/DiffSurface.tsx`. Check: C-UI-13.
 
 Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to co-edit · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor.
 
@@ -498,9 +498,18 @@ type FileBase = {                                 // `branch:<id>:files` (§14.3
   hover?: { line: number; col: number; markdown: string }   // the result of the last hover gesture
   reveal?: { line: number; col?: number; to_line?: number } // a same-file definition, or a cited range
 }
+type CoEdit = {
+  authors: Actor[]
+  editors: { actor: Actor; line: number }[]  // supplied awareness / BranchPresence file location, people and agents
+  saved?: "saving" | "saved"
+  unsaved?: { count: number; text: string }
+}
 type FileView = { line?: number; compare?: boolean }         // the viewer's cursor line feeds presence {path, line} (§7.6)
-type FileProps = CardProps<FileModel, FileView, "hover" | "definition">   // rendered by CodeSurface over CodeFileView;
-                                                                         // the live binding arrives with T-APP-14 (S3)
+type FileProps = CardProps<FileModel, FileView, "hover" | "definition">
+// App-local CodeEditorView also accepts binding?: EditorBinding; this nonserializable prop stays outside RPC.
+// A supplied live binding mounts sync, authorRanges colours and editor gutter flags. Without it, the
+// editor stays read-only and shows no inferred presence or Saved state. Recovery keeps literal text
+// for Copy and renders only supplied Reapply actions. No carets or remote selections.
 // Gestures: hover raises onAction(gestures.hover.tag, { path, line, col }); the container answers through
 // `hover`. Definition raises onAction(gestures.definition.tag, { path, line, col }); the container opens the
 // target's File card, or sets `reveal` when the target is in this file. line is 1-based; col counts UTF-16 units.
@@ -639,19 +648,26 @@ BranchCard is a TypeScript props contract; the existing stories are retained.
 T-APP-10 owns HTTP/storage decoding. §14.3 defines
 machine, item/scratch, rebase, moved-off, presence, terminals, activity,
 changed_files and ssh_line. `view.tab` selects activity, files or terminals.
+The container persists this selection as `payload.tab` through the shared card
+transition, for both live and seeded cards.
 Buttons render supplied actions in order; activity actions retain burst ids.
 Scratch Done carries conflict_change and onto_revision in its supplied args
 (§8.5.2b). Sleep/Wake/Retry use the retained box.suspend/box.resume controls.
 Copy SSH uses the shared clipboard helper. Presence has no local state.
-The existing DesignWorld mount keeps its seeded data. Live integration remains
-pending T-APP-10/T-COL-05; this View adds no subscriptions or execution.
+The existing DesignWorld mount keeps its seeded data. T-APP-10's production
+container reads live Branch topics on installs; the View adds no subscriptions
+or execution. File presence reads editing; running terminal presence includes
+its command. Moved-off copy reads "<actor> moved this branch off Tn".
+Activity distinguishes Steer, Answer, Asked and Asks in the retained mock.
 Named gestures are `item`, `file` and `terminal`. Each optional supplied action
 opens the TODO, file (path and optional line) or terminal (id); bound args are
-retained. No gesture means plain text. Renamed files open renamed_to.
+retained. The live item gesture binds the supplied TODO number through `todo`
+when its `showTodo` provider is composed, including on closed branches; input
+cannot replace that number. No gesture means plain text. Renamed files open renamed_to.
 
 ### T-UI-16 File live states (S2)
 
-`CodeSurface` reuses the File props and existing CodeFileView. Gone keeps the last content with a Snapshot caption; Restore and Follow are supplied actions. Outside shows Changed outside Smithers with the supplied Compare action. Compare needs the outside text; contract pending (T-UI-16 report: Issues to file). `DiffCardSurface` retains renamed and burst Restore states. Check: C-UI-12.
+`CodeEditorView` reuses the File props and restored CodeMirror adapter. Gone keeps the last content with a Snapshot caption; Restore and Follow are supplied actions. Outside shows Changed outside Smithers with the supplied Compare action. The app-only `comparison?: { version: string; text: string }` prop carries snapshot bytes loaded by T-APP-11. With `view.compare`, text content and a matching `outside.version`, the retained current editor and the snapshot editor form a read-only comparison. Missing or mismatched bytes show no comparison. The two columns stack on narrow screens; neither snapshot gestures nor snapshot cursor changes dispatch actions. `DiffCardSurface` retains renamed and burst Restore states. Check: C-UI-12.
 
 ### T-UI-18 Secrets
 
@@ -698,3 +714,7 @@ supplied confirmation actions inside an attention inset. The exchange shows requ
 typed failures use ember. Absent actions render no control; disabled forms cannot
 submit. Inline cases in `DebugApiView.stories.tsx` replace the RPC fixture layer.
 The View stays unmounted until T-APP-21, makes no request and decides no authorization.
+
+## Pinned Wiki context (T-APP-17)
+
+The retained `WikiHistoryCardBody` accepts its existing `wiki-history` card with optional `payload.content: {revision, markdown}`. It renders the selected revision as read-only Markdown in the embedded card. Without content it retains the revision list. Context's page gesture runs `wiki.page({name, revision})` through `cardActions` and `flowAction`; no live document or editing controls are created.

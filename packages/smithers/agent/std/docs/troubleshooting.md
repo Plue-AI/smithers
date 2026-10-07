@@ -293,3 +293,21 @@ summary would report two modifications where one write survived.
 
 **What to change.** Put several `@@` chunks inside one section, which is the
 shape the parser already accepts.
+
+## stale_read: Re-read before retrying
+
+A coding run can replace an existing file only after its `read` flow has read
+that version. `base_digest` is the full-file SHA-256 recorded by that read;
+`current_digest` is the current full-file SHA-256, or `absent` for a missing file.
+An unread existing file reports `base_digest: unread`. Pagination still records
+the complete original bytes. Internal reads performed by `edit` or `apply_patch`
+do not refresh the base. Re-read the file and rebuild the intended change.
+
+Read bases belong to the authenticated coding session. A restarted host loses
+its in-memory bases and requires new reads. A multi-file patch checks all source
+and destination bases before applying any hunk. A stale refusal does not update
+the bases or emit successful file diagnostics.
+
+`provider_unavailable` means the authenticated atomic mutation provider is not
+composed. Re-reading cannot enable that provider; the coding host refuses writes
+rather than using a host-side read followed by an unconditional replacement.

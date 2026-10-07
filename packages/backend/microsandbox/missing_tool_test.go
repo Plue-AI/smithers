@@ -54,7 +54,6 @@ func TestMissingToolErrorDoesNotMislabelOrdinaryFailures(t *testing.T) {
 	}{
 		{[]string{"cargo", "test"}, workspaceapi.CommandResult{ExitCode: 1, Stderr: "compile error"}},
 		{[]string{"node", "--version"}, workspaceapi.CommandResult{ExitCode: 0}},
-		{[]string{"custom-build"}, workspaceapi.CommandResult{ExitCode: 127, Stderr: "custom-build: command not found"}},
 		{[]string{"sh", "-c", "cargo test"}, workspaceapi.CommandResult{ExitCode: 127, Stderr: "test assertion exited 127"}},
 		{[]string{"sh", "-c", "echo 'cargo: not found'"}, workspaceapi.CommandResult{ExitCode: 127, Stdout: "cargo: not found"}},
 		{nil, workspaceapi.CommandResult{ExitCode: 127}},
@@ -67,12 +66,14 @@ func TestMissingToolErrorDoesNotMislabelOrdinaryFailures(t *testing.T) {
 	}
 }
 
-func TestMissingToolErrorIgnoresRubyExecutables(t *testing.T) {
+func TestMissingToolErrorVerifiedNamesOutsideDetectedToolchains(t *testing.T) {
 	for _, tool := range []string{"ruby", "bundle"} {
 		for _, args := range [][]string{{tool, "--version"}, {"sh", "-c", tool + " --version"}} {
 			result := workspaceapi.CommandResult{ExitCode: 127, Stderr: "sh: " + tool + ": not found\n"}
-			if err := MissingToolError(workspaceapi.Command{Args: args}, result); err != nil {
-				t.Errorf("unsupported tool %s gets detector instruction: %v", tool, err)
+			err := MissingToolError(workspaceapi.Command{Args: args}, result)
+			var refusal *RecipeError
+			if !errors.As(err, &refusal) || refusal.MissingTool == nil || refusal.MissingTool.File != machineJSONPath {
+				t.Errorf("verified package %s has no image proposal: %v", tool, err)
 			}
 		}
 	}
@@ -91,7 +92,8 @@ func TestExecuteCommandMapsMissingToolsAndPreservesExitEvidence(t *testing.T) {
 		{"direct missing cargo", []string{"cargo", "test"}, 127, "cargo: not found\n", "rust-toolchain.toml"},
 		{"shell missing pnpm", []string{"bash", "-c", "node --version && pnpm test"}, 127, "bash: line 1: pnpm: command not found\n", "package.json"},
 		{"ordinary cargo failure", []string{"cargo", "test"}, 1, "compile error\n", ""},
-		{"unrelated missing tool", []string{"custom-build"}, 127, "custom-build: not found\n", ""},
+		{"verified custom missing tool", []string{"custom-build"}, 127, "custom-build: not found\n", machineJSONPath},
+		{"unverified custom exit127", []string{"custom-build"}, 127, "assertion failed\n", ""},
 		{"shell internal exit127", []string{"sh", "-c", "cargo test"}, 127, "assertion failed\n", ""},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -127,5 +129,39 @@ func TestExecuteCommandMapsMissingToolsAndPreservesExitEvidence(t *testing.T) {
 				t.Fatal("failed command retains concurrency slot")
 			}
 		})
+	}
+}
+
+func TestMissingToolVerifiedPackageDiagnostic(t *testing.T) {
+	for _, fixture := range []struct {
+		code   int
+		stderr string
+		name   string
+	}{
+		{127, "sh: 1: figlet: not found\n", "figlet"},
+		{127, "bash: line 1: g++: command not found\n", "g++"},
+		{1, "sh: 1: figlet: not found\n", ""},
+		{127, "", ""},
+		{127, "sh: Fig Let: not found\n", ""},
+		{127, "sh: figlet;id: not found\n", ""},
+	} {
+		t.Run(fmt.Sprintf("%d/%s", fixture.code, fixture.stderr), func(t *testing.T) {
+			err := MissingToolError(workspaceapi.Command{Args: []string{"sh", "-c", "figlet"}}, workspaceapi.CommandResult{ExitCode: fixture.code, Stderr: fixture.stderr})
+			if fixture.name == "" {
+				if err != nil {
+					t.Fatalf("unverified diagnostic: %v", err)
+				}
+				return
+			}
+			var refusal *RecipeError
+			if !errors.As(err, &refusal) || refusal.MissingTool == nil || refusal.MissingTool.Name != fixture.name || refusal.MissingTool.File != ".smithers/machine.json" {
+				t.Fatalf("missing machine package annotation: %#v", err)
+			}
+		})
+	}
+	err := MissingToolError(workspaceapi.Command{Args: []string{"cargo"}}, workspaceapi.CommandResult{ExitCode: 127})
+	var refusal *RecipeError
+	if !errors.As(err, &refusal) || refusal.MissingTool != nil {
+		t.Fatal("exit status alone certified a package")
 	}
 }

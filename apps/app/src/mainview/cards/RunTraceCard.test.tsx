@@ -11,7 +11,7 @@ import { memoryStorage } from "../state/TestFixtures"
 import { phasePins, PROTOTYPE_BANNER, RunTraceBody, traceOf } from "./RunTraceCard"
 import { WorkflowRunCardBody } from "./RunTraceCard"
 import { CODING_PLAN } from "./fixtures/CodingPlan"
-import { completedRequestCard, vibeCatalog, CODING_REQUEST_ID, publicationVibeCard } from "./fixtures/CodingVibe"
+import { completedRequestCard, vibeCatalog, publicationVibeCard } from "./fixtures/CodingVibe"
 import { blockedCodingJournal, earlyCodingJournal, preparedCodingJournal } from "./fixtures/CodingJournal"
 import { traceFromJournal, turnNarratives } from "./RunTrace"
 
@@ -273,7 +273,7 @@ describe("the run card as a trace", () => {
     expect(row.tagName).toBe("BUTTON")
     row.focus()
     expect(document.activeElement).toBe(row)
-    expect(row.textContent).toContain("coding/ImplementPlan · completed")
+    expect(row.textContent).toContain("Implemented the plan · completed")
     expect(compact.host.querySelector("[data-testid='run-trace-pane-run-1']")).toBeNull()
     click(row)
     expect(compact.dispatched).toEqual([{ name: "runs.trace.select", args: "sourceCard=flow-run-run-1 run-1 engine:native:0" }])
@@ -322,18 +322,18 @@ describe("the run card as a trace", () => {
     expect([...host.querySelectorAll("[role='tablist'] button")].map((tab) => tab.textContent)).toEqual(["Trace", "Transcript"])
   })
 
-  test("every other run is the same trace with the shared filters and the steer row while live; an implement run needs no banner", () => {
+  test("every other run is the same trace with the shared filters; an implement run needs no banner", () => {
     const { host } = renderRun({ workflow: "review", steps: ["1 turn · 2 calls"], events: JOURNAL })
     expect(host.querySelector("[data-testid='run-trace-run-1']")).not.toBeNull()
     expect(host.textContent).toContain("2 turns · 2 calls")
-    expect(chips(host)).toEqual(["all", "running", "failed", "model", "flow", "forks"])
-    expect(host.querySelector("[data-testid='flow-run-steer-run-1']")).not.toBeNull()
+    expect(chips(host)).toEqual(["all", "running", "failed", "model", "flow"])
+    expect(host.querySelector("[data-testid='flow-run-steer-run-1']")).toBeNull()
     expect(host.querySelector("[data-testid='run-trace-banner-run-1']")).toBeNull()
 
     const implement = renderRun({ workflow: "implement", kind: "implement", events: JOURNAL })
     expect(implement.host.querySelector("[data-testid='run-trace-run-1']")).not.toBeNull()
     expect(implement.host.querySelector("[data-testid='run-trace-banner-run-1']")).toBeNull()
-    expect(implement.host.querySelector("[data-testid='flow-run-steer-run-1']")).not.toBeNull()
+    expect(implement.host.querySelector("[data-testid='flow-run-steer-run-1']")).toBeNull()
   })
 
   test("the tree nests the journal, the waterfall has one bar per span, and the payload's selection fills the pane", () => {
@@ -638,17 +638,16 @@ describe("predicted coding Changes in the same run card", () => {
 
 
 describe("retained prototype card", () => {
-  test("real child source, findings and steering use the same embedded native card", () => {
+  test("real child source and findings use the same embedded native card", () => {
     const { host, dispatched } = renderTrace({ events: CODING_POC_HOST_EVENTS, lastSeq: 263 })
     const poc = host.querySelector('[aria-label="Disposable prototype"]')!
     expect(poc.textContent).toContain("Drafted and discarded. No build or tests ran.")
     expect(poc.textContent).toContain("prototype greeting")
     const buttons = [...poc.querySelectorAll("button")]
     buttons.find(button => button.textContent?.includes("Inspect prototype execution"))!.click()
-    buttons.find(button => button.textContent?.includes("Give prototype feedback"))!.click()
+    expect(buttons.find(button => button.textContent?.includes("Give prototype feedback"))).toBeUndefined()
     expect(dispatched).toEqual([
-      { name: "runs.trace.select", args: "sourceCard=flow-run-run-1 run-1 engine:a4392ed73b6ef7680ecd9a7068f3804e19d4e7de0358944469d54ebe8f4368fa:0" },
-      { name: "runs.steer", args: "sourceCard=flow-run-run-1 run-1" }
+      { name: "runs.trace.select", args: "sourceCard=flow-run-run-1 run-1 engine:a4392ed73b6ef7680ecd9a7068f3804e19d4e7de0358944469d54ebe8f4368fa:0" }
     ])
     const completed = renderTrace({ events: CODING_POC_HOST_EVENTS, lastSeq: 263, phase: "completed" }).host
     expect(completed.querySelector('[aria-label="Disposable prototype"]')).not.toBeNull()
@@ -668,19 +667,17 @@ describe("retained prototype card", () => {
 })
 
 
-test("the completed Request card reuses source-qualified flow launch and catalog refresh", () => {
+test("retained Request cards show evidence without a legacy delivery door", () => {
   const card = completedRequestCard(), sent: Array<{ name: string; args?: string }> = []
   const dispatch: Parameters<typeof RunTraceBody>[0]["onRunCommand"] = (name, args) => sent.push({ name, args })
-  const host = render(<RunTraceBody card={card} onRunCommand={dispatch} workflowCatalogs={[vibeCatalog()]} />)
-  const button = [...host.querySelectorAll("button")].find(element => element.textContent === "Vibe this change")!
-  expect(button).toBeDefined()
-  click(button)
-  expect(sent).toEqual([{ name: "flow.run", args: `sourceCard=${card.id} coding/vibe ${JSON.stringify({ requestExecutionId: CODING_REQUEST_ID })}` }])
-  const absent = render(<RunTraceBody card={card} onRunCommand={dispatch} />)
-  expect(absent.textContent).toContain("Vibe is not available in this workspace's recorded flows.")
-  expect(absent.textContent).not.toContain("Vibe this change")
-  click([...absent.querySelectorAll("button")].find(element => element.textContent === "Check available flows")!)
-  expect(sent.at(-1)).toEqual({ name: "flow.list", args: `sourceCard=${card.id}` })
+  for (const workflowCatalogs of [[], [vibeCatalog()]]) {
+    const host = render(<RunTraceBody card={card} onRunCommand={dispatch} workflowCatalogs={workflowCatalogs} />)
+    expect(host.textContent).toContain("Validated")
+    expect(host.textContent).not.toContain("Vibe this change")
+    expect(host.textContent).not.toContain("Check available flows")
+    expect(host.textContent).not.toContain("Vibe is not available")
+  }
+  expect(sent).toEqual([])
 })
 
 
@@ -1294,4 +1291,16 @@ test("a pending facet does not claim an empty result; refusal keeps the existing
   expect(failed).not.toContain("The transcript is empty so far.")
   expect(failed).toContain('data-flow="runs.logs"')
   expect(failed).toContain('data-flow-args="run-1"')
+})
+
+
+test("Inspect renders Appendix C labels from the recorded coding journal", () => {
+  const { host } = renderTrace({ workflow: "todo", events: [
+    stamp(1, "control.agent.turn-opened", {}, 1000),
+    stamp(2, "control.agent.cell-call-started", { flowName: "coding/edit-atom", callId: "edit" }, 2000),
+    stamp(3, "control.agent.cell-call-settled", { flowName: "coding/edit-atom", callId: "edit", outcome: "success", value: {} }, 3000),
+    stamp(4, "control.agent.cell-call-started", { flowName: "coding/check-command", callId: "check" }, 4000)
+  ] })
+  expect(host.textContent).toContain("Edited the files")
+  expect(host.textContent).toContain("Ran checks")
 })

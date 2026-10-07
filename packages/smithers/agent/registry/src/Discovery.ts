@@ -33,6 +33,7 @@ import {
   SourceScan
 } from "./Descriptor.ts"
 import * as Frontmatter from "./internal/Frontmatter.ts"
+import { measureLockfiles } from "./internal/Lockfiles.ts"
 import * as ModuleClosure from "./internal/ModuleClosure.ts"
 import * as ModuleMetadata from "./internal/ModuleMetadata.ts"
 import * as Names from "./internal/Names.ts"
@@ -301,6 +302,23 @@ export const make = (fs: FileSystem.FileSystem, path: Path.Path): Discovery =>
 
         if (!(yield* withinRoot(source.root))) {
           return new SourceScan({ entries, warnings })
+        }
+
+        const lockfiles = source.lockfileRoot === undefined ? undefined : {
+          root: path.relative(source.root, source.lockfileRoot).split(path.sep).join("/"),
+          digest: yield* measureLockfiles(source.lockfileRoot).pipe(
+            Effect.provideService(FileSystem.FileSystem, fs),
+            Effect.provideService(Path.Path, path),
+            Effect.mapError((cause) =>
+              discoveryError({
+                code: "read_failed",
+                method: "scan",
+                path: source.lockfileRoot,
+                description: "Could not measure repository lockfiles",
+                cause
+              })
+            )
+          )
         }
 
         const rootEntries = yield* fs.readDirectory(source.root).pipe(
@@ -588,7 +606,10 @@ export const make = (fs: FileSystem.FileSystem, path: Path.Path): Discovery =>
                   warnings.push(...projected.warnings)
                   Option.match(projected.descriptor, {
                     onNone: () => undefined,
-                    onSome: (descriptor) => entries.push(descriptor)
+                    onSome: (descriptor) =>
+                      entries.push(
+                        lockfiles === undefined ? descriptor : new FlowDescriptor({ ...descriptor, lockfiles })
+                      )
                   })
                 }
               }

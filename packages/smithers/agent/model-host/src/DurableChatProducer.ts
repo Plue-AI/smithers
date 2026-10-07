@@ -5,15 +5,19 @@
  */
 
 import type * as Model from "@smthrs/model/Model"
+import { ModelError } from "@smthrs/model/ModelError"
 import {
   AgentTurnCursorSchema,
   agentTurnJournalDigestInput,
   AgentTurnJournalReplySchema
 } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnCursor, AgentTurnJournalReply } from "@smthrs/rpc/AgentTurnJournal"
+import { ContextPreflightInputSchema } from "@smthrs/rpc/ContextPreflight"
+import type { ContextPreflightFrame, ContextPreflightInput, ContextPreflightResult } from "@smthrs/rpc/ContextPreflight"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect } from "effect"
-import { apiReader, hostOwned, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
+import { runContextPreflight } from "./ContextPreflight.ts"
+import { apiCaller, hostOwned, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
 import { CommitRefused, ProducerUnreachable, ProviderStartRefused, ReceiptMismatch } from "./ModelHostError.ts"
 import type { ProducerError } from "./ModelHostError.ts"
 import { runModelTurn } from "./ModelTurnHost.ts"
@@ -39,12 +43,13 @@ export interface DurableChatGrant {
   readonly producerBaseUrl: string
   /** The mirrored repository the turn's author may read; absent until Source is ready for them. */
   readonly source?: { readonly repository: string }
+  /** Backend-verified Active-main Markdown; never taken from the browser request. */
+  readonly agentInstructions?: string
   /**
-   * The install API the turn's commands may read as its author, whose login
-   * their private cards are addressed to; absent unless the credential that
-   * admitted the turn is its author's browser session.
+   * Host-only public API authority for the current producer generation.
+   * The author's login addresses private cards; the bearer is never model input.
    */
-  readonly api?: { readonly author: string }
+  readonly api?: { readonly author: string; readonly token: string }
 }
 
 type CommitReply = Extract<AgentTurnJournalReply, { readonly status: "committed" | "duplicate" }>
@@ -120,6 +125,71 @@ export class DurableChatProducer {
     )
   }
 
+  writePreflight(
+    phase: "started" | "completed",
+    result: ContextPreflightResult
+  ): Effect.Effect<void, ProducerError | ModelError> {
+    return Effect.gen({ self: this }, function*() {
+      const pages: Array<ContextPreflightResult> = []
+      let current: ContextPreflightResult = { ...result, candidates: [], context: [] }
+      const frame: ContextPreflightFrame = {
+        runId: this.grant.runId,
+        type: "context.preflight",
+        phase,
+        page: { index: Number.MAX_SAFE_INTEGER - 1, total: Number.MAX_SAFE_INTEGER },
+        result: current
+      }
+      const bytes = (value: unknown) => new TextEncoder().encode(agentTurnJournalDigestInput("batch", value)).byteLength
+      // Canonical sizes use the journal's own encoding. Worst-case cursor
+      // digits and per-item digest prefixes conservatively cover all overhead.
+      const overhead = bytes({
+        version: 1,
+        runId: this.grant.runId,
+        legId: this.grant.legId,
+        batch: Number.MAX_SAFE_INTEGER,
+        from: Number.MAX_SAFE_INTEGER,
+        previousHash: this.cursor.hash,
+        hash: this.cursor.hash,
+        frames: [frame]
+      })
+      if (overhead > 96 * 1024) {
+        return yield* Effect.fail(
+          new ModelError({ code: "invalid_provider_output", message: "preflight metadata exceeds journal limit" })
+        )
+      }
+      let size = overhead
+      for (const field of ["candidates", "context"] as const) {
+        for (const item of result[field]) {
+          const cost = bytes(item) + 1
+          if (overhead + cost > 96 * 1024) {
+            return yield* Effect.fail(
+              new ModelError({ code: "invalid_provider_output", message: "preflight item exceeds journal limit" })
+            )
+          }
+          if (size + cost > 96 * 1024) {
+            pages.push(current)
+            current = { ...result, candidates: [], context: [] }
+            size = overhead
+          }
+          current = { ...current, [field]: [...current[field], item] }
+          size += cost
+        }
+      }
+      pages.push(current)
+      // Finish preparing every page before the first write. A refused page
+      // cannot authorize provider start or the following answer request.
+      for (const [index, value] of pages.entries()) {
+        yield* this.write({
+          runId: this.grant.runId,
+          type: "context.preflight",
+          phase,
+          page: { index, total: pages.length },
+          result: value
+        })
+      }
+    })
+  }
+
   write(frame: AgentTurnFrame): Effect.Effect<void, ProducerError> {
     const expected = this.cursor
     const body = JSON.stringify({
@@ -184,20 +254,57 @@ export const runDurableChatTurn = (
   grant: DurableChatGrant,
   options: ModelTurnOptions,
   callbackBaseUrl: string = grant.producerBaseUrl,
-  fetchImpl: FetchLike = fetch.bind(globalThis)
+  fetchImpl: FetchLike = fetch.bind(globalThis),
+  preflight?: { readonly input: ContextPreflightInput; readonly model: Model.Model; readonly options: ModelTurnOptions }
 ): Effect.Effect<void, Model.ModelFailure | ProducerError> => {
   const producer = new DurableChatProducer(callbackBaseUrl, grant, fetchImpl)
   const write = (frame: AgentTurnFrame) => producer.write(frame)
   return Effect.gen(function*() {
-    yield* producer.providerStarted()
-    if (hostOwned(grant.request)) {
-      yield* runHostTurn(model, grant, options, write, {
+    // Shared prompt admission must never degrade to a transcript-only answer
+    // while the authorized host context provider is unavailable.
+    if (grant.request.sharedConversation === true && preflight === undefined) {
+      return yield* Effect.fail(
+        new ModelError({ code: "invalid_provider_output", message: "shared conversation preflight is unavailable" })
+      )
+    }
+    // Selected content is only supplied by the trusted provider; a renderer
+    // cannot pass its own selection or private transcript through this path.
+    const { selectedContext: _untrustedSelection, ...request } = grant.request
+    let prepared: DurableChatGrant = { ...grant, request }
+    if (preflight !== undefined) {
+      const decoded = ContextPreflightInputSchema.safeParse(preflight.input)
+      if (!decoded.success) {
+        return yield* Effect.fail(
+          new ModelError({ code: "invalid_provider_output", message: "context preflight input is invalid" })
+        )
+      }
+      // Prove durable step writes before spending on either model. A failed
+      // start receipt never permits the selector or answer request.
+      yield* producer.writePreflight("started", {
+        context: [],
+        candidates: decoded.data.candidates.filter((candidate) =>
+          !decoded.data.wikiOnly || candidate.item.kind === "page"
+        ).map((candidate) => candidate.item),
+        model: preflight.options.modelId,
+        durationMs: 0
+      })
+      yield* producer.providerStarted()
+      const answer = yield* runContextPreflight(decoded.data, preflight.model, preflight.options)
+      yield* producer.writePreflight("completed", answer.result)
+      prepared = {
+        ...grant,
+        request: { ...request, messages: answer.messages, selectedContext: answer.selectedContext }
+      }
+    }
+    if (preflight === undefined) yield* producer.providerStarted()
+    if (hostOwned(prepared.request)) {
+      yield* runHostTurn(model, prepared, options, write, {
         read: sourceReader(callbackBaseUrl, grant, fetchImpl),
         list: sourceLister(callbackBaseUrl, grant, fetchImpl),
-        api: apiReader(callbackBaseUrl, grant, fetchImpl)
+        api: apiCaller(callbackBaseUrl, grant, fetchImpl)
       })
       return
     }
-    yield* runModelTurn(model, grant.request, options, write)
+    yield* runModelTurn(model, prepared.request, options, write)
   })
 }

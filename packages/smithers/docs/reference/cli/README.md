@@ -12,6 +12,9 @@ run-kind targets; `flow start` starts durable flows.
 
 | Command | Purpose |
 | --- | --- |
+| `auth login/logout/status/token`, `login` | Authenticate to Smithers and inspect token status. |
+| `index <pattern>` | Read selected target declarations. |
+| `mcp add` | Register Smithers with a coding agent. |
 | `build/test/lint/docs/review/ci/run <patterns...>` | Execute the union of the selected target kinds; `ci` combines build, test, lint, and docs. |
 | `target <labels...>` or `//package:target` | Execute exact declarations using their own kinds. |
 | `targets [pattern]` | List target labels and summaries. |
@@ -30,9 +33,36 @@ run-kind targets; `flow start` starts durable flows.
 | `environment add/list/view/remove/exec/shell/forward` | Save an execution location and run commands there. |
 | `memory`, `credentials`, `triggers`, `integrations`, `eval` | Operate the persistent agent features described below. |
 | `open [dir]`, `.` | Open the checkout's `owner/repo` in the Smithers app (`smithers://open/<owner>/<repo>`), the dev build inside a smithers checkout whose remote is on github.com or smithers.sh, or print its smithers.sh page. |
-| `host start [--bundle <dir>]`, `host stop`, `host status` | Run a verified server bundle as an unprivileged macOS LaunchAgent, stop it, or inspect its health. |
+| `host start [--bundle <dir>] [--bind <addr>] [--origin <url>]`, `host stop`, `host status` | Run a verified server bundle as an unprivileged macOS LaunchAgent, stop it, or inspect its health. |
+| `host backup`, `host upgrade`, `host restore <directory>` | Host maintenance commands. Currently refuse until capture, drain and owner authorization are composed; restore validates the backup before any state change. |
 | `serve`, `doctor`, `suggest`, `migrate`, `update`, `bug` | Host, diagnose, discover uses, migrate source, check versions, or submit a report. |
 | `token mint` | Mint a scoped, expiring gateway token under `SMITHERS_TOKEN`. |
+| `agent` | Configure an agent |
+| `agents` | The factory's agents |
+| `api` | Make raw API calls to the Smithers server |
+| `branch` | Add a scratch branch as a TODO; waits for the person's confirmation |
+| `branches` | List branches with presence |
+| `cp` | Copy files or directories between the local machine and a workspace |
+| `debug` | Call the documented API |
+| `diff` | Show a branch's changes |
+| `exec` | Run a workspace command with a durable receipt and bounded output |
+| `file` | Open and co-edit a file |
+| `files` | Browse a branch's files |
+| `flows` | List the repository's flows |
+| `github` | Show sync status and retry |
+| `issue` | Comment on an issue; waits for the person's confirmation |
+| `issues` | List the repository's issues |
+| `merge` | Review and merge the next item; waits for the person's confirmation |
+| `monitor` | Every run, with its debug view |
+| `pr` | Open a pull request's card |
+| `review` | Review a change, return findings; waits for the person's confirmation |
+| `search` | Search code, wiki and runs |
+| `shell` | Open an interactive terminal in a workspace via the WebSocket terminal endpoint |
+| `ssh-key` | Add an SSH key |
+| `stack` | Reorder an item |
+| `todo` | Change an unmerged TODO's prompt; waits for the person's confirmation |
+| `wiki` | Open or create a page |
+| `workspace` | SSH into a workspace (creates one if none exists for the repo) |
 
 Target patterns include `//...`, `//package/...`, and `//package:target`.
 Execution supports `--plan`, `--jobs`, and `--no-cache`. `affected` compares
@@ -51,7 +81,16 @@ integrations, evaluations, and local maintenance reject remote access.
 ## Backend commands
 
 Set `SMITHERS_API_ORIGIN` or run `smithers config set api_origin https://your-api-host`,
-then `smithers auth login`. One saved login serves backend commands and remote
+then `smthrs login <install-origin>`. An external agent signs in with
+`smthrs login <install-origin> --agent claude-code` (or `--agent codex`).
+Agent labels use 1–32 lowercase letters, digits or hyphens; `smithers` and
+`terminal` are reserved for the host. Laptop credentials expire after 30 days.
+They act for the signed-in member, have no approval scope, and cannot approve,
+merge or move `main`. Re-run login to rotate the credential. Requests retain
+the stored agent's attribution even with a forged `Smithers-Via` header.
+A generic `cli` or branch `terminal` credential names Claude Code when
+`CLAUDECODE=1`, or Codex when a `CODEX_*` variable is present.
+One saved login serves backend commands and remote
 control-plane commands on that origin. `SMITHERS_TOKEN` overrides the saved login
 for automation. `SMITHERS_TOKEN_FILE` reads a token from a fixed file path after
 `SMITHERS_TOKEN` and before saved credentials. Missing or invalid files refuse
@@ -359,9 +398,7 @@ scripts. The Claude mirror protocol is hidden as `internal claude`.
 
 ## Command pages
 
-Every canonical command has a page generated from its `--help` at
-[smithers.sh/docs/reference/cli](https://smithers.sh/docs/reference/cli/), with
-the hidden-alias table.
+
 
 ## Other reference
 
@@ -397,10 +434,16 @@ when a requested resource exceeds its configured cap.
 
 ## macOS host service
 
+The [host command reference](host.md) is generated from the source CLI schemas.
+
 Build the stage-1 server bundle with `smthrs build //apps/app:serverBundle`,
 then run `smthrs host start --bundle <output-directory>` in your macOS login
 session. Start verifies every manifest digest before registering the service.
 Without `--bundle`, it uses `/opt/homebrew/opt/smithers/libexec`.
+
+Before setup, add `--bind 0.0.0.0 --origin http://lan-a:4000` to serve the
+install on the network. Repeat `--origin` for each public address. Loopback
+stays available. After setup, saved owner settings take precedence over startup flags.
 
 Start waits up to 60 seconds for `http://127.0.0.1:4000/readyz` and prints the
 setup links. Open one to set up the owner. The links come from backend memory

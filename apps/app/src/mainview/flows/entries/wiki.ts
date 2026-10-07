@@ -21,8 +21,8 @@ export const recommendations: ReadonlyArray<Recommendation> = [
 
 /** The bare `wiki` surface switch, registered first with the other top-level surfaces. */
 export const wikiSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
-  /* MOCK SEAM (DesignWorld/subjects.ts): the seeded wiki's first page stands in for the repository wiki. */
   bind(wikiSurfaceOperations, { wiki: async () => {
+    if (actions.bootstrap?.capabilities.includes("install")) return actions.listCloudWiki()
     const page = actions.design.world().wiki[0]
     return page === undefined ? actions.showWorld() : { value: await actions.presentSubject(wikiCard(page.id, page.title)) }
   } })
@@ -59,8 +59,8 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     "wiki.attach": ({ path, repo }, _signal, _call, gesture) => actions.attachCloudWiki(path ?? "", repo, gesture),
     "wiki.pane": () => actions.showWikiPane()
   }), flow({
-    name: "wiki.save", summary: "Save this answer as a page", args: "<name>",
-    input: Schema.Struct({ name: Schema.NonEmptyString, text: Schema.optional(Schema.String) }),
+    name: "wiki.save",  slash: "/wiki.save", cli: ["wiki","save"], journey: ["J9"], group: "Wiki", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Save this answer as a page", args: "<name>",
+    agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString, text: Schema.optional(Schema.String) }),
     grammar: args => {
       if (!args?.trim().startsWith("{")) return { payload: args?.trim() ? { name: args.trim() } : {} }
       try {
@@ -70,7 +70,5 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
       } catch { return { error: "Invalid page input" } }
     },
     form: { submitLabel: "Save", fields: { text: { hidden: true } }, args: payload => JSON.stringify(payload) },
-    // Keep the existing shared operation as the authority. Its current contract is a refresh;
-    // T-APP-02 cannot manufacture a page write when wiki.create accepts only a repository.
-    handler: () => "Saving answers is unavailable."
+    handler: ({ name, text }) => actions.saveWikiAnswer(name, text)
   })]

@@ -18,6 +18,33 @@ FROM access_tokens t
 JOIN users u ON t.user_id = u.id
 WHERE t.token_hash = $1
   AND (t.expires_at IS NULL OR t.expires_at > NOW())
+  -- An app-agent bearer belongs to exactly one live producer generation.
+  -- Checking on every lookup also fences a crashed host without relying on
+  -- its deferred token deletion to run. Scope separators match Go unicode.IsSpace
+  -- and comma, as middleware.tokenScopeEntries requires for grants and bindings.
+  -- Coding-file grants are fenced by their flow host and exact request body,
+  -- not a chat producer. The middleware still validates the entire profile.
+  AND (NOT (t.system_issued AND 'via:smithers' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+    AND NOT ('profile:coding_file_s1' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))))
+    OR EXISTS (
+      SELECT 1 FROM chat_turns c
+      WHERE c.user_id = t.user_id AND c.state = 'running' AND NOT c.terminal
+        AND c.cancel_requested_at IS NULL AND c.producer_token_hash IS NOT NULL
+        AND c.producer_lease_expires_at > NOW()
+        AND ('terminal-session:' || lower(c.id) || '/' || c.producer_generation::text)
+          = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+    ))
+  -- Terminal bearers die with their bound session even when cleanup crashes.
+  AND (NOT (t.system_issued AND ('via:terminal' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+      OR 'profile:terminal_s1' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))))
+    OR EXISTS (
+      SELECT 1 FROM workspace_sessions ws
+      WHERE ws.user_id = t.user_id AND ws.kind = 'terminal'
+        AND ws.status IN ('pending', 'starting', 'running')
+        AND ('terminal-session:' || ws.id::text) = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+        AND ('branch:' || ws.workspace_id::text) = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+        AND ('repo:' || ws.repository_id::text) = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+    ))
   AND u.is_active = true
   AND u.prohibit_login = false;
 

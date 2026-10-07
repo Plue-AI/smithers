@@ -1,15 +1,22 @@
-import { copyFile, readFile, writeFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import { z } from "zod"
 import { test as realTest, expect, command, realApi } from "./support/test"
+import { FIRST_TODO_PROMPT, CANARY_README, FIRST_TODO_README } from "./support/canary"
 import { realHost } from "./support/host"
 import { scenario } from "./coverage/types"
 import { J1PreconditionError, requireJ1Preconditions } from "./support/j1-preconditions"
+import { retainReviewedRecording } from "./support/recording"
 
 // Setup is intentionally unsigned-in. The normal real lifecycle requires an already
 // authenticated host and would consume the fresh-install precondition before setup.
 const test = realTest.extend({
   _realLifecycle: async ({}, use) => { requireJ1Preconditions(); await use() }
 })
+
+// Setup includes a one-time URL, OAuth and provider-key entry. Playwright's
+// failure traces include request bodies and cookies; videos can expose key entry.
+// Only the independently sanitized full-run recording is retained below.
+test.use({ trace: "off", video: "off", screenshot: "off" })
 
 // Request the overridden lifecycle explicitly before every test.
 test.beforeEach(async ({ _realLifecycle }) => { void _realLifecycle })
@@ -46,6 +53,7 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
     if (at === undefined) {
       const response = await realApi(page, request, "GET", "/api/bootstrap")
       expect(response.status()).toBe(200)
+      expect((await response.json()).buildSha, "installed candidate changed during activation").toBe(input.install.commit)
       const date = response.headers().date
       if (!date || !Number.isFinite(Date.parse(date))) throw new J1PreconditionError("host_timestamp_missing", "production host response must carry an HTTP Date timestamp")
       at = new Date(Date.parse(date)).toISOString()
@@ -55,6 +63,16 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   }
   await info.attach("preconditions", { body: JSON.stringify(publicInput), contentType: "application/json" })
   await page.goto(input.setupURL)
+  // Verify the installed candidate before the operator enters any credentials.
+  // Self-hosted installs classify as local; that must not skip build pinning.
+  const bootstrapResponse = await realApi(page, request, "GET", "/api/bootstrap")
+  expect(bootstrapResponse.status()).toBe(200)
+  const bootstrap = await bootstrapResponse.json()
+  const observedHost = realHost(bootstrap)
+  expect(observedHost).toBe(process.env.SMITHERS_REAL_E2E_HOST)
+  expect(bootstrap.buildSha).toBe(input.install.commit)
+  info.annotations.push({ type: "real-host-verified", description: observedHost })
+  info.annotations.push({ type: "real-build-sha", description: bootstrap.buildSha })
   await record("setup session opened")
   const setup = page.getByRole("region", { name: "Set up Smithers", exact: true })
   await expect(setup).toBeVisible()
@@ -70,19 +88,7 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   await expect(setup.locator('[data-step="machine"]')).toHaveCount(1)
   await expect(setup.locator('[data-step="source"]')).toHaveCount(1)
 
-  const bootstrapResponse = await realApi(page, request, "GET", "/api/bootstrap")
-  expect(bootstrapResponse.status()).toBe(200)
-  const bootstrap = await bootstrapResponse.json()
-  const observedHost = realHost(bootstrap)
-  expect(observedHost).toBe(process.env.SMITHERS_REAL_E2E_HOST)
-  info.annotations.push({ type: "real-host-verified", description: observedHost })
-  if (observedHost === "production") {
-    expect(bootstrap.buildSha).toBe(input.install.commit)
-    info.annotations.push({ type: "real-build-sha", description: bootstrap.buildSha })
-  }
-
-  // JOURNEY.md is read from the real scratch repository on GitHub, never from specs
-  // or a production implementation's constants. Its complete text is the fixed TODO.
+  // Read independent GitHub state; expectations remain checked-in literals.
   const github = async (path: string) => {
     const response = await request.get(`https://api.github.com/repos/${input.repository}${path}`, {
       headers: { Accept: "application/vnd.github+json" }
@@ -94,10 +100,9 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   expect(repo.allow_squash_merge).toBe(true)
   expect(repo.default_branch).toBe("main")
   const initialMain = (await github("/git/ref/heads/main")).object.sha as string
-  const journey = await github("/contents/JOURNEY.md?ref=main")
-  expect(journey.encoding).toBe("base64")
-  const prompt = Buffer.from(journey.content, "base64").toString("utf8").trim()
-  expect(prompt.length).toBeGreaterThan(0)
+  const initialReadme = await github("/contents/README.md?ref=main")
+  expect(initialReadme.encoding).toBe("base64")
+  expect(Buffer.from(initialReadme.content, "base64").toString("utf8")).toBe(CANARY_README)
   await command(page, "What does this repository do? Show the relevant files.")
   await expect(page.locator('[data-kind="file-list"]').last()).toBeVisible({ timeout: remaining() })
   await record("first answer")
@@ -109,7 +114,7 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   const draft = page.getByRole("region", { name: "Draft", exact: true }).last()
   await expect(draft).toBeVisible()
   await draft.getByLabel("Title", { exact: true }).fill("First TODO")
-  await draft.getByLabel("Prompt", { exact: true }).fill(prompt)
+  await draft.getByLabel("Prompt", { exact: true }).fill(FIRST_TODO_PROMPT)
   await draft.getByLabel("Place", { exact: true }).selectOption({ label: "Append" })
   await draft.getByRole("button", { name: "Commit", exact: true }).click()
   await record("TODO placed")
@@ -170,6 +175,10 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   expect(compare.commits[0].sha).toBe(merged!.merge_commit_sha)
   expect(compare.commits[0].parents).toHaveLength(1)
   expect(compare.commits[0].parents[0].sha).toBe(initialMain)
+  expect(compare.files.map((file: { filename: string }) => file.filename)).toEqual(["README.md"])
+  const mergedReadme = await github(`/contents/README.md?ref=${merged!.merge_commit_sha}`)
+  expect(mergedReadme.encoding).toBe("base64")
+  expect(Buffer.from(mergedReadme.content, "base64").toString("utf8")).toBe(FIRST_TODO_README)
   const main = (await github("/git/ref/heads/main")).object.sha
   expect(main).toBe(merged!.merge_commit_sha)
   await expect(todo.getByText("Merged", { exact: true })).toBeVisible({ timeout: remaining() })
@@ -203,12 +212,17 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   await info.attach("activation", { path: info.outputPath("activation.json"), contentType: "application/json" })
 })
 
-// Preserve the external recording even when a feature assertion fails. Browser
-// video alone cannot prove the install keystroke or the absence of assistance.
+// Preserve reviewed full-run evidence on success and failure. Never publish the
+// raw setup capture, even when an assertion fails before setup completes.
 test.afterEach(async ({}, info) => {
   const path = process.env.SMITHERS_J1_PRECONDITIONS
   if (!path) return
-  const input = JSON.parse(await readFile(path, "utf8")) as { recording: string }
-  await copyFile(input.recording, info.outputPath("screen-recording"))
+  const input = JSON.parse(await readFile(path, "utf8")) as { recording: string; install: { commit: string }; operator: { name: string } }
+  const review = await retainReviewedRecording({
+    rawRecording: input.recording, candidate: input.install.commit, operator: input.operator.name,
+    reviewPath: process.env.SMITHERS_J1_RECORDING_REVIEW,
+    destination: info.outputPath("screen-recording")
+  })
+  await info.attach("recording-review", { body: JSON.stringify(review), contentType: "application/json" })
   await info.attach("screen-recording", { path: info.outputPath("screen-recording"), contentType: "video/mp4" })
 })

@@ -8,6 +8,9 @@
  * uses the workspace's Node runtime and package manager.
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as backendPackage } from "../../packages/backend/PACKAGE.ts"
+import { Package as flowsJjPackage } from "../../crates/flows-jj/PACKAGE.ts"
+import { Package as machinedPackage } from "../../crates/smithers-machined/PACKAGE.ts"
 import { Package as rpcPackage } from "../../packages/rpc/PACKAGE.ts"
 import { Package as harnessDetectPackage } from "../../packages/smithers/agent/harness-detect/PACKAGE.ts"
 import { Package as gatewayPackage } from "../../packages/smithers/gateway/PACKAGE.ts"
@@ -15,15 +18,23 @@ import { Package as componentPackage } from "../../packages/smithers/ui/PACKAGE.
 
 const cwd = "apps/app"
 
+const distributionInputs = Smithers.Filegroup({ cwd: "distribution", srcs: [Smithers.glob("**/*")] })
+const crateInputs = Smithers.Filegroup({
+  cwd: "crates",
+  srcs: [Smithers.glob("**/*"), flowsJjPackage.nativeSources, machinedPackage.buildInputs]
+})
+const proofMockInputs = Smithers.Filegroup({ cwd: ".specs/design/mock", srcs: [Smithers.glob("src/**/*")] })
+
 /**
  * Uncached release assembly: external toolchains and registry inputs are validated by the assembler,
  * which cross-builds the Linux arm64 guest helper from the same commit.
  */
 const serverBundle = Smithers.Shell.Build({
+  cache: false,
   shell: 'SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" bun apps/app/scripts/build-native.ts',
   data: [Smithers.glob("//apps/app/scripts/**/*"), Smithers.glob("//apps/app/src/**/*"),
-    Smithers.file("//packages/smithers/src/internal/backend/HostService.ts"), Smithers.glob("//distribution/**/*"), Smithers.glob("//crates/**/*"),
-    Smithers.glob("//packages/backend/microsandbox/**/*"), Smithers.file("//scripts/build-backend.sh"),
+    Smithers.file("//packages/smithers/src/internal/backend/HostService.ts"), distributionInputs, crateInputs,
+    backendPackage.buildInputs, Smithers.file("//scripts/build-backend.sh"),
     Smithers.file("//package.json"), Smithers.file("//pnpm-lock.yaml"), Smithers.file("//rust-toolchain.toml")],
   outDirs: ["//apps/app/.native", "//apps/app/.native-archive"],
   sandbox: "none",
@@ -303,6 +314,9 @@ const proofPage = Smithers.Shell.Build({
 const webSources = Smithers.Filegroup({
   srcs: [
     Smithers.glob("src/mainview/**/*"),
+    Smithers.glob("src/debugApi/**/*"),
+    Smithers.file("scripts/openapi-chunk.ts"),
+    Smithers.file("//docs/api/openapi.yaml"),
     Smithers.file("tailwind.config.js"),
     Smithers.file("scripts/build-stamp.ts"),
     Smithers.file("package.json")
@@ -373,7 +387,7 @@ const securityReview = Smithers.SecurityReview({
         "An executable path taken from an env override that skips the checksum check.",
         "The bootstrap-token secrets file read when it is group/world readable or not a regular file.",
         "Isolation not forced to microvm or runtime paths taken from the shell.",
-        "An address, origin, PATH or machine sizing value taken from the process environment."
+        "An address, origin, PATH or machine sizing value taken from the process environment instead of explicit owner host flags."
       ],
       paths: ["src/bun/NativeBackendProcess.ts", "src/bun/serve.ts", "scripts/bundle-postgres.ts", "scripts/validate-git-bundle.ts"]
     },
@@ -446,5 +460,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
 })

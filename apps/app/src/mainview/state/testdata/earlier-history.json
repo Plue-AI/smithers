@@ -1,0 +1,78 @@
+{
+  "index": {
+    "status": "ok",
+    "conversations": [
+      {
+        "id": "legacy-journal",
+        "turns": [
+          {
+            "runId": "legacy-turn",
+            "legId": "legacy-leg",
+            "acceptedAt": 1,
+            "terminal": true,
+            "runLinks": []
+          }
+        ]
+      }
+    ],
+    "next": null
+  },
+  "replay": {
+    "conversationId": "legacy-journal",
+    "userText": "Legacy journal question",
+    "page": {
+      "status": "ok",
+      "after": {
+        "version": 1,
+        "runId": "legacy-turn",
+        "legId": "legacy-leg",
+        "batch": 0,
+        "position": 0,
+        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "head": {
+        "version": 1,
+        "runId": "legacy-turn",
+        "legId": "legacy-leg",
+        "batch": 1,
+        "position": 2,
+        "hash": "7cffb7234453a0c7bb4bf2cf7f445d55880f8fe301e2dff832d192675fb6c407"
+      },
+      "next": {
+        "version": 1,
+        "runId": "legacy-turn",
+        "legId": "legacy-leg",
+        "batch": 1,
+        "position": 2,
+        "hash": "7cffb7234453a0c7bb4bf2cf7f445d55880f8fe301e2dff832d192675fb6c407"
+      },
+      "terminal": true,
+      "more": false,
+      "batches": [
+        {
+          "version": 1,
+          "runId": "legacy-turn",
+          "legId": "legacy-leg",
+          "batch": 1,
+          "from": 1,
+          "previousHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "frames": [
+            {
+              "type": "delta",
+              "runId": "legacy-turn",
+              "kind": "text",
+              "text": "Archived journal greeting"
+            },
+            {
+              "type": "done",
+              "runId": "legacy-turn",
+              "reason": "stop"
+            }
+          ],
+          "hash": "7cffb7234453a0c7bb4bf2cf7f445d55880f8fe301e2dff832d192675fb6c407"
+        }
+      ]
+    },
+    "status": "ok"
+  }
+}

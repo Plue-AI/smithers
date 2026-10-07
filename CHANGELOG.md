@@ -5,6 +5,12 @@ release (what changed and why it matters, with screenshots and examples), see
 the release notes at
 [smithers.sh/changelogs/1.0.0-rc.0](https://smithers.sh/changelogs/1.0.0-rc.0).
 
+## Unreleased
+
+### Removed
+
+- The `change.land` and `prs.land` flows and their card landing controls. Use the TODO's **Review & merge** with the displayed PR head, or a maintainer's standing pre-approval. The retired TUI and `smthrs history land` commands are not aliases for Merge; Plue's separate landing API is retained.
+
 ## 1.0.0-rc.1 (2026-09-22)
 
 <!-- commits:1.0.0-rc.1 -->

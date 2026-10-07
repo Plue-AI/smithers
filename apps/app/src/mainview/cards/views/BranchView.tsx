@@ -14,6 +14,10 @@ function terminalName(model: BranchViewProps["model"], id: string) {
   return model.terminals.find((terminal) => terminal.id === id)?.title ?? "a terminal"
 }
 
+function terminalCommand(model: BranchViewProps["model"], id: string) {
+  return model.terminals.find((terminal) => terminal.id === id)?.command
+}
+
 const tabs = ["activity", "files", "terminals"] as const
 const machineWords = {
   awake: "Awake",
@@ -46,7 +50,7 @@ function BranchLink({
       >
         {children}
       </button>
-      {action.disabled ? <span className="branch-muted">{action.disabled.reason}</span> : null}
+      {action.disabled ? <span className="branch-muted"> · {action.disabled.reason}</span> : null}
     </span>
   ) : (
     <>{children}</>
@@ -120,7 +124,7 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
           <div className="branch-notice" data-tone="attention">
             <b>Needs you</b>
             <span>
-              {actorName(model.moved_off.by)} moved off T{model.moved_off.item}
+              {actorName(model.moved_off.by)} moved this branch off T{model.moved_off.item}
             </span>
           </div>
         ) : null}
@@ -219,64 +223,69 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
 
 type ListProps = Pick<BranchViewProps, "model" | "gestures" | "onAction">
 function Presence({ model, gestures, onAction }: ListProps) {
-  if (!model.presence.length) return <p className="branch-muted">Nobody here</p>
+  if (!model.presence.length) return null
   return (
     <ul className="branch-presence" aria-label="On this branch">
-      {[
-        ...model.presence.filter((row) => row.actor.kind === "person"),
-        ...model.presence.filter((row) => row.actor.kind !== "person"),
-      ].map((row, index) => (
-        <li key={index}>
-          <ActorChip actor={row.actor} size="s" live={model.machine.state === "awake"} />
-          <b>{actorName(row.actor)}</b>
-          {row.where.kind !== "branch" ? (
-            <span className="branch-location">
-              <span className="branch-muted">{row.where.kind === "step" ? "at" : "in"}</span>
-              {row.where.kind === "file" ? (
-                <FileCode2 size={12} aria-hidden="true" />
-              ) : row.where.kind === "terminal" ? (
-                <SquareTerminal size={12} aria-hidden="true" />
-              ) : (
-                <Play size={12} aria-hidden="true" />
-              )}
-              <BranchLink
-                action={
-                  row.where.kind === "file"
-                    ? gestures.file
+      {(
+        [
+          ...model.presence.filter((row) => row.actor.kind === "person"),
+          ...model.presence.filter((row) => row.actor.kind !== "person"),
+        ].map((row, index) => (
+          <li key={index}>
+            <ActorChip actor={row.actor} size="s" live={model.machine.state === "awake"} />
+            <b>{actorName(row.actor)}</b>
+            {row.where.kind !== "branch" ? (
+              <span className="branch-location">
+                <span className="branch-muted">{row.where.kind === "file" ? "editing"
+                  : row.where.kind === "step" ? "at"
+                  : terminalCommand(model, row.where.id) ? "running" : "in"}</span>
+                {row.where.kind === "file" ? (
+                  <FileCode2 size={12} aria-hidden="true" />
+                ) : row.where.kind === "terminal" ? (
+                  <SquareTerminal size={12} aria-hidden="true" />
+                ) : (
+                  <Play size={12} aria-hidden="true" />
+                )}
+                <BranchLink
+                  action={
+                    row.where.kind === "file"
+                      ? gestures.file
+                      : row.where.kind === "terminal"
+                        ? gestures.terminal
+                        : undefined
+                  }
+                  input={
+                    row.where.kind === "file"
+                      ? {
+                          path: row.where.path,
+                          ...(row.where.line === undefined ? {} : { line: String(row.where.line) }),
+                        }
+                      : row.where.kind === "terminal"
+                        ? { id: row.where.id }
+                        : {}
+                  }
+                  onAction={onAction}
+                >
+                  {row.where.kind === "file"
+                    ? `${row.where.path}${row.where.line === undefined ? "" : `:${row.where.line}`}`
                     : row.where.kind === "terminal"
-                      ? gestures.terminal
-                      : undefined
-                }
-                input={
-                  row.where.kind === "file"
-                    ? {
-                        path: row.where.path,
-                        ...(row.where.line === undefined ? {} : { line: String(row.where.line) }),
-                      }
-                    : row.where.kind === "terminal"
-                      ? { id: row.where.id }
-                      : {}
-                }
-                onAction={onAction}
-              >
-                {row.where.kind === "file"
-                  ? `${row.where.path}${row.where.line === undefined ? "" : `:${row.where.line}`}`
-                  : row.where.kind === "terminal"
-                    ? terminalName(model, row.where.id)
-                    : row.where.label}
-              </BranchLink>
-            </span>
-          ) : <span className="branch-muted">here</span>}
-          {row.watching ? (
-            <span className="branch-muted branch-watching">
-              watching{" "}
-              <BranchLink action={gestures.terminal} input={{ id: row.watching }} onAction={onAction}>
-                {terminalName(model, row.watching)}
-              </BranchLink>
-            </span>
-          ) : null}
-        </li>
-      ))}
+                      ? <>{terminalName(model, row.where.id)}{terminalCommand(model, row.where.id)
+                        ? ` · ${terminalCommand(model, row.where.id)}` : ""}</>
+                      : row.where.label}
+                </BranchLink>
+              </span>
+            ) : <span className="branch-muted">here</span>}
+            {row.watching ? (
+              <span className="branch-muted branch-watching">
+                watching{" "}
+                <BranchLink action={gestures.terminal} input={{ id: row.watching }} onAction={onAction}>
+                  {terminalName(model, row.watching)}
+                </BranchLink>
+              </span>
+            ) : null}
+          </li>
+        ))
+      )}
     </ul>
   )
 }
@@ -296,6 +305,10 @@ function ActivityList({ model, view, onAction }: Pick<BranchViewProps, "model" |
           <ActorChip actor={entry.actor} size="s" />
           <div>
             <span>
+              {entry.kind === "steer" || entry.kind === "answer" || entry.kind === "question" ? (
+                <span className="branch-muted">{entry.kind === "steer" ? "Steer" : entry.kind === "answer" ? "Answer"
+                  : index + earlier < lastAnswer ? "Asked" : "Asks"} · </span>
+              ) : null}
               {entry.asked_by ? (
                 <span className="branch-muted">{actorName(entry.asked_by)} asked · </span>
               ) : null}

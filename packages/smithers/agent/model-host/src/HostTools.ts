@@ -5,29 +5,23 @@
  * legs: the browser executes none of them. A request that offers tools keeps
  * executing them itself, so the two never share a turn.
  *
- * The host runs the catalog commands `@smthrs/rpc` declares for it
- * (`INSTALL_HOST_COMMANDS`: each one's name, copy and agent rule, mvp.md
- * Appendix B), binding each to this host's transport with the grammar, input
- * and card builder the GUI uses: `files.list` and `files.read` list and read
- * the turn's mirrored main through the producer's source callbacks; `stack` and `todo` read the
- * install's TODO routes through the producer's API callback; `todo.new`, a
- * confirm command, only shows its author a private Draft, which they commit
- * themselves. Go grants each transport only when the credential that admitted
- * the turn can use it now and authorizes every call again as that credential.
- * A turn offered any command gets this host's instructions and capability
- * lines, which list exactly the commands its grant runs; a turn offered none
- * keeps its request's own.
+ * Commands use the generated catalog shared with the CLI. The host binds
+ * file reads to the turn's mirrored source and HTTP commands to the public
+ * API with a generation-bound bearer. The server rechecks the author's
+ * permission and owns confirmations. Commands without a transport are not
+ * offered. No repository code runs in this host.
  *
  * @since 1.0.0-rc.0
  */
 
+import { type CatalogDescriptor, catalogDescriptors } from "@smthrs/cli/Catalog"
+import { type CatalogHttpRequest, catalogRequest } from "@smthrs/cli/CatalogRequest"
 import type * as Model from "@smthrs/model/Model"
 import type { ModelError } from "@smthrs/model/ModelError"
 import {
   type AgentCommand,
   commandsToolSpec,
   decodeCommandsCall,
-  INSTALL_HOST_COMMANDS,
   unknownCommandResult,
   unknownToolResult
 } from "@smthrs/rpc/AgentCommands"
@@ -49,9 +43,12 @@ import { boundToolResult, MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import type { Card } from "@smthrs/rpc/Cards"
 import { fileListCard, FILES_LIST_COMMAND, parseFileListArgs } from "@smthrs/rpc/FileList"
 import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc/FileRead"
+import { FlowCardSchema } from "@smthrs/rpc/FlowCard"
+import { flowEditTodoInput, flowTitle } from "@smthrs/rpc/FlowEdit"
+import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
 import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
-import { draftCard, parseTodoArgs, todoCard, TodoNewInputSchema, todoPath, TODOS_PATH } from "@smthrs/rpc/TodoCommands"
+import { draftCard, parseTodoArgs, TodoNewInputSchema, todoCard } from "@smthrs/rpc/TodoCommands"
 import { Effect } from "effect"
 import { z } from "zod"
 import type { DurableChatGrant } from "./DurableChatProducer.ts"
@@ -73,14 +70,6 @@ export const SOURCE_READ_PATH = "/internal/chat/source/read"
  * @since 1.0.0-rc.0
  */
 export const SOURCE_LIST_PATH = "/internal/chat/source/list"
-
-/**
- * The producer callback a host command reads the install's API through.
- *
- * @category protocol
- * @since 1.0.0-rc.0
- */
-export const API_CALL_PATH = "/internal/chat/api"
 
 /**
  * Whether the host runs this turn's tool calls: its request offers no tools.
@@ -155,8 +144,8 @@ export type SourceListing = { readonly directory: SourceDirectory } | { readonly
 export type SourceList = (path: string) => Effect.Effect<SourceListing>
 
 /**
- * An API read's answer: the route's own status and body, or the refusal code
- * the callback stated before reaching the route.
+ * An API call's answer: the route's own status and body, or the refusal code
+ * the transport stated before receiving a valid answer.
  *
  * @category models
  * @since 1.0.0-rc.0
@@ -164,15 +153,22 @@ export type SourceList = (path: string) => Effect.Effect<SourceListing>
 export type ApiAnswer = { readonly status: number; readonly body: unknown } | { readonly code: string }
 
 /**
- * Reads one install API route as the turn's admitting credential.
+ * Calls one install API route with the turn's generation-bound credential.
  *
  * @category models
  * @since 1.0.0-rc.0
  */
-export type ApiRead = (path: string) => Effect.Effect<ApiAnswer>
+export type ApiCall = (
+  path: string,
+  request?: {
+    readonly method: CatalogHttpRequest["method"]
+    readonly body?: Record<string, unknown>
+    readonly idempotencyKey?: string
+  }
+) => Effect.Effect<ApiAnswer>
 
 /**
- * The producer callbacks a host-owned turn's commands reach the install through.
+ * The source callbacks and public API transport used by host-owned commands.
  *
  * @category models
  * @since 1.0.0-rc.0
@@ -180,7 +176,7 @@ export type ApiRead = (path: string) => Effect.Effect<ApiAnswer>
 export interface HostTransport {
   readonly read: SourceRead
   readonly list: SourceList
-  readonly api: ApiRead
+  readonly api: ApiCall
 }
 
 /** A callback refusal's code, or the status it answered without one. */
@@ -239,20 +235,74 @@ export const sourceLister =
       return parsed.success ? { directory: parsed.data } : { code: "invalid_answer" }
     })
 
-const ApiAnswerSchema = z.object({ status: z.number().int(), body: z.unknown() }).strict()
-
 /**
- * The API read callback for one producer generation: a GET of one install
- * route, answered as the route answered the turn's admitting credential.
+ * Call the public API with the generation-bound bearer, at the same pinned
+ * loopback origin as the producer. Redirects never receive the credential.
  *
  * @category constructors
  * @since 1.0.0-rc.0
  */
-export const apiReader = (callbackBaseUrl: string, grant: DurableChatGrant, fetchImpl: FetchLike): ApiRead => (path) =>
-  callback(callbackBaseUrl, grant, fetchImpl, API_CALL_PATH, { method: "GET", path }, (_response, body) => {
-    const parsed = ApiAnswerSchema.safeParse(body)
-    return parsed.success ? { status: parsed.data.status, body: parsed.data.body } : { code: "invalid_answer" }
-  })
+export const apiCaller =
+  (callbackBaseUrl: string, grant: DurableChatGrant, fetchImpl: FetchLike): ApiCall => (path, request) =>
+    Effect.tryPromise({
+      try: async (signal): Promise<ApiAnswer> => {
+        if (grant.api === undefined) return { code: "forbidden" }
+        const origin = new URL(callbackBaseUrl)
+        const target = new URL(path, origin)
+        if (
+          !path.startsWith("/api/") || path.includes("\\") || target.origin !== origin.origin ||
+          !target.pathname.startsWith("/api/") || target.hash !== ""
+        ) return { code: "call_refused" }
+        const method = request?.method ?? "GET"
+        if (method !== "GET" && !request?.idempotencyKey) return { code: "call_refused" }
+        const token = grant.api.token
+        const response = await fetchImpl(target, {
+          method,
+          ...(method === "GET" ? {} : { body: JSON.stringify(request?.body ?? {}) }),
+          signal,
+          redirect: "manual",
+          // The private listener reaches the same install router as the public
+          // loopback address. EffectiveOrigin trusts forwarding only from loopback.
+          headers: {
+            authorization: `Bearer ${token}`,
+            "Smithers-Via": "smithers",
+            "X-Forwarded-Host": "127.0.0.1:4000",
+            ...(method === "GET"
+              ? {}
+              : { "Content-Type": "application/json", "Idempotency-Key": request!.idempotencyKey! })
+          }
+        })
+        if (response.status >= 300 && response.status < 400 || response.redirected) return { code: "call_refused" }
+        if (response.body === null) {
+          return response.status === 204 && method !== "GET"
+            ? { status: 204, body: null }
+            : { code: "invalid_answer" }
+        }
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder("utf-8", { fatal: true })
+        let raw = "", bytes = 0
+        try {
+          for (;;) {
+            const chunk = await reader.read()
+            if (chunk.done) break
+            bytes += chunk.value.byteLength
+            if (bytes > 4 * 1024 * 1024) return { code: "invalid_answer" }
+            raw += decoder.decode(chunk.value, { stream: true })
+          }
+          raw += decoder.decode()
+          // Normalize escapes before redacting: a reflected bearer never enters
+          // a model message, a card, or the durable transcript.
+          const body: unknown = JSON.parse(JSON.stringify(JSON.parse(raw)).split(token).join("[redacted]"))
+          return { status: response.status, body }
+        } catch {
+          return { code: "invalid_answer" }
+        } finally {
+          await reader.cancel().catch(() => undefined)
+          reader.releaseLock()
+        }
+      },
+      catch: () => ({ code: "unreachable" })
+    }).pipe(Effect.catch((refused) => Effect.succeed(refused)))
 
 const MAX_SHOWN_PATH = 200
 
@@ -280,7 +330,7 @@ const refusalText = (path: string, code: string): string => {
 }
 
 /** What one command answered: the cards it shows and the model's copy, or the refusal both are told. */
-type Outcome = { readonly cards: ReadonlyArray<Card>; readonly value: string } | { readonly refusal: string }
+type Outcome = { readonly cards: ReadonlyArray<Card>; readonly value: string; readonly ui?: { readonly command: "theme"; readonly mode: "light" | "dark" } } | { readonly refusal: string }
 
 /** One command bound to this turn: it runs with the call's argument text and ordinal. */
 type BoundRun = (args: string | undefined, ordinal: number) => Effect.Effect<Outcome>
@@ -391,72 +441,46 @@ const filesList: Bind = (grant, { list }) => {
     })
 }
 
-/** What the model and the conversation are told when a TODO read does not answer. */
-const todoRefusal = (answer: ApiAnswer): string => {
-  if ("code" in answer) {
-    return answer.code === "forbidden"
-      ? "The person who asked can't use this install's TODOs now."
-      : "The TODO read did not answer. Ask again."
+/** Decode model arguments against the same generated payload schema as the CLI. */
+const commandPayload = (row: CatalogDescriptor, args: string | undefined): Record<string, unknown> => {
+  const text = (args ?? "").trim()
+  let input: unknown = {}
+  const properties = (row.payload.schema.properties ?? {}) as Record<string, unknown>
+  const keys = Object.keys(properties)
+  if (text.startsWith("{")) input = JSON.parse(text)
+  else if (text !== "") {
+    if (keys.includes("n")) {
+      const match = /^T([1-9]\d*)(?:\s+([\s\S]+))?$/u.exec(text)
+      if (match === null) throw new Error("Expected Tn or a JSON payload")
+      input = { n: Number(match[1]) }
+      if (match[2] !== undefined) {
+        const tail = ["answer", "text", "direction"].find((key) => keys.includes(key))
+        if (tail === undefined) throw new Error("Unexpected arguments")
+        ;(input as Record<string, unknown>)[tail] = match[2]
+      }
+    } else if (keys.includes("text")) input = { text }
+    else if (keys.length === 1) input = { [keys[0]!]: text }
+    else throw new Error("Use a JSON object matching the command payload")
   }
-  // The route's own refusal names its reason, as it does for the person's browser.
-  const { body } = answer
-  return typeof body === "object" && body !== null && "message" in body && typeof body.message === "string"
-    ? body.message
-    : "The TODO read did not answer. Ask again."
+  // Only declared payload fields reach the shared HTTP encoder.
+  return z.fromJSONSchema(
+    {
+      ...row.payload.schema,
+      $defs: row.payload.definitions,
+      additionalProperties: false
+    } as Parameters<typeof z.fromJSONSchema>[0]
+  ).parse(input) as Record<string, unknown>
 }
 
-/** One install route's answer as `schema` reads it, or the refusal the model and the conversation are told. */
-const readRoute = <A>(
-  api: ApiRead,
-  path: string,
-  schema: z.ZodType<A>
-): Effect.Effect<{ readonly value: A } | { readonly refusal: string }> =>
-  Effect.map(api(path), (answer) => {
-    if ("code" in answer || answer.status !== 200) return { refusal: todoRefusal(answer) }
-    const parsed = schema.safeParse(answer.body)
-    return parsed.success ? { value: parsed.data } : { refusal: "The TODO read did not answer. Ask again." }
-  })
+/** UI instructions share the committed journal, but only the author's private view projects them. */
+const themeCommand = (row: CatalogDescriptor): Bind => grant => grant.api === undefined ? undefined : args => Effect.sync(() => {
+  try {
+    const payload = commandPayload(row, args)
+    if (payload.mode !== "light" && payload.mode !== "dark") throw new Error("Explicit mode required")
+    return { cards: [], value: `Requested /theme ${payload.mode} on the author's screen.`, ui: { command: "theme" as const, mode: payload.mode } }
+  } catch { return { refusal: "Invalid arguments for theme; use light or dark." } }
+})
 
-/** `stack`: the install's TODOs, each open one shown as its TODO card. */
-const stack: Bind = (grant, { api }) =>
-  grant.api === undefined ? undefined : (args, ordinal) =>
-    Effect.gen(function*() {
-      if ((args ?? "").trim() !== "") return { refusal: "/stack takes no arguments." }
-      const listed = yield* readRoute(api, TODOS_PATH, z.array(TodoCardSchema))
-      if ("refusal" in listed) return listed
-      const now = Date.now()
-      return {
-        cards: listed.value.filter((model) => model.state !== "merged" && model.state !== "dropped").map((model) =>
-          todoCard(model.n, model, ordinal, now)
-        ),
-        value: JSON.stringify({
-          todos: listed.value.map((model) => ({
-            n: model.n,
-            title: model.title,
-            state: model.state,
-            owner: model.owner.login,
-            ...(model.place === undefined ? {} : { place: model.place })
-          }))
-        })
-      }
-    })
-
-const TodoNumberSchema = z.number().int().positive()
-
-/** `todo Tn`: one TODO, shown as its TODO card. */
-const todo: Bind = (grant, { api }) =>
-  grant.api === undefined ? undefined : (args, ordinal) =>
-    Effect.gen(function*() {
-      const input = parseTodoArgs()(args)
-      if ("error" in input) return { refusal: input.error }
-      const n = TodoNumberSchema.safeParse(input.payload.n)
-      if (!n.success) return { refusal: "Name the TODO by its number: /todo T12." }
-      const read = yield* readRoute(api, todoPath(n.data), TodoCardSchema)
-      if ("refusal" in read) return read
-      return { cards: [todoCard(n.data, read.value, ordinal, Date.now())], value: JSON.stringify(read.value) }
-    })
-
-/** `todo.new`'s declared input, refusing every field it does not declare. */
 const TodoNewInput = z.strictObject(TodoNewInputSchema.shape)
 
 /** What the model is told after a Draft is shown. */
@@ -502,25 +526,152 @@ const todoNew: Bind = (grant) => {
     })
 }
 
-/** Each command this host runs, bound by name: a declared command without a binding, or the reverse, does not compile. */
-const binds: { readonly [Name in (typeof INSTALL_HOST_COMMANDS)[number]["name"]]: Bind } = {
-  "files.list": filesList,
-  "files.read": filesRead,
-  stack,
-  todo,
-  "todo.new": todoNew
+/** Flow proposals use the same catalog and private Draft as the browser. */
+const flowCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
+  const author = grant.api?.author
+  if (author === undefined) return undefined
+  return (args, ordinal) => Effect.gen(function*() {
+    let input: { name?: string | undefined; request?: string | undefined; diff?: string | undefined }
+    try {
+      const raw = args?.trimStart() ?? ""
+      const boundary = raw.search(/\s/)
+      const parsed = raw.startsWith("{") ? JSON.parse(raw) : {
+        ...(raw === "" ? {} : { name: boundary < 0 ? raw : raw.slice(0, boundary) }),
+        ...(boundary < 0 ? {} : { request: raw.slice(boundary).trimStart() })
+      }
+      input = z.strictObject({ name: z.string().min(1).optional(), request: z.string().min(1).optional(), diff: z.string().optional() }).parse(parsed)
+    } catch { return { refusal: `Invalid arguments for ${row.name}; use its declared payload.` } }
+    const missing = ["name", ...(row.name === "flow.edit" ? ["request"] : [])].filter(key => input[key as "name" | "request"] === undefined)
+    if (missing.length > 0) {
+      const form: Card = { id: `form:${globalThis.crypto.randomUUID()}`, kind: "flow-form", title: row.summary,
+        status: "active", ordinal, createdAt: Date.now(), payload: {
+          flow: row.name, via: "agent", given: input, draft: {},
+          fields: missing.map(name => ({ name, label: name === "name" ? "Flow" : "Request", kind: "text", required: true }))
+        } }
+      return { cards: [form], value: `Rendered a form for ${missing.join(", ")}.` }
+    }
+    // The required name was checked above; no user code is loaded to resolve it.
+    const name = input.name!
+    const answer = yield* api("/api/flows", { method: "GET" })
+    if ("code" in answer) return { refusal: answer.code }
+    const parsed = z.array(FlowCardSchema).safeParse(answer.body)
+    if (answer.status !== 200 || !parsed.success) return { refusal: "Flows unavailable" }
+    let model = parsed.data.find(flow => flow.name === name)
+    if (model === undefined) {
+      const named = yield* api(`/api/flows/${encodeURIComponent(name)}`, { method: "GET" })
+      if (!("code" in named) && named.status === 200) {
+        const selected = FlowCardSchema.safeParse(named.body)
+        if (selected.success && selected.data.name === name) model = selected.data
+      }
+    }
+    if (model === undefined) return { refusal: `No flow ${name}` }
+    if (row.name === "flow.edit" && model.system) return { refusal: `${flowTitle(name)} is built in` }
+    const now = Date.now()
+    if (row.name === "flow.edit") {
+      const draft = flowEditTodoInput(name, input.request!, input.diff)
+      return { cards: [draftCard({ id: `draft:${globalThis.crypto.randomUUID()}`, author,
+        ...draft, options: [], idempotencyKey: globalThis.crypto.randomUUID() }, ordinal, now)], value: DRAFTED }
+    }
+    const card: Card = { id: `flow:${name}`, kind: "flow", title: flowTitle(name), status: "active",
+      ordinal, createdAt: now, payload: { name } }
+    return { cards: [card], value: JSON.stringify(model) }
+  })
+}
+
+/** The one descriptor-to-HTTP dispatch path; policy/confirmations stay on the server. */
+const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
+  if (grant.api === undefined || row.http === null) return undefined
+  return (args, ordinal) =>
+    Effect.gen(function*() {
+      let payload: Record<string, unknown>
+      let request: CatalogHttpRequest
+      try {
+        payload = commandPayload(row, args)
+        request = catalogRequest(row, payload)
+      } catch {
+        return { refusal: `Invalid arguments for ${row.name}; use its declared payload.` }
+      }
+      // A call's position is stable within the durable turn. The model cannot
+      // choose or replace this key, even when it supplies one in its payload.
+      const answer = yield* api(request.path, {
+        ...request,
+        idempotencyKey: `chat:${grant.turnId}:${ordinal}`
+      })
+      if ("code" in answer) return { refusal: answer.code }
+      if (answer.status < 200 || answer.status >= 300) {
+        return { refusal: JSON.stringify({ status: answer.status, body: answer.body }) }
+      }
+      if (row.agent === "confirm") {
+        const confirmation = z.object({
+          confirmation: z.string().min(1),
+          state: z.enum(["pending", "approved", "rejected", "expired"])
+        }).safeParse(
+          answer.body
+        )
+        if (answer.status === 202 && confirmation.success) {
+          // The backend publishes the full Confirm only to its author. Shared
+          // frames carry the command's status, never its private payload/card.
+          return { cards: [], value: JSON.stringify(confirmation.data) }
+        }
+        return { refusal: "Invalid confirmation response" }
+      }
+      const now = Date.now()
+      if (row.name === "stack") {
+        const parsed = HomeCardSchema.safeParse(answer.body)
+        if (!parsed.success) return { refusal: "Invalid stack response" }
+        const cards: Array<Card> = []
+        const todo = catalogDescriptors.find((entry) => entry.name === "todo")!
+        for (const item of parsed.data.items) {
+          if (item.state === "merged" || item.state === "dropped") continue
+          const request = catalogRequest(todo, { n: item.n })
+          const detail = yield* api(request.path, request)
+          if ("code" in detail) return { refusal: detail.code }
+          const model = TodoCardSchema.safeParse(detail.body)
+          if (detail.status !== 200 || !model.success || model.data.n !== item.n) {
+            return { refusal: "Invalid TODO response" }
+          }
+          cards.push(todoCard(item.n, model.data, ordinal, now))
+        }
+        return { cards, value: JSON.stringify(parsed.data) }
+      }
+      if (row.name === "todo") {
+        const parsed = TodoCardSchema.safeParse(answer.body)
+        if (!parsed.success) return { refusal: "Invalid TODO response" }
+        return { cards: [todoCard(parsed.data.n, parsed.data, ordinal, now)], value: JSON.stringify(parsed.data) }
+      }
+      return { cards: [], value: JSON.stringify({ status: answer.status, body: answer.body }) }
+    })
 }
 
 /** A command this turn's grant runs. */
 interface Offered {
-  readonly command: AgentCommand
+  readonly command: AgentCommand & { readonly args: string }
   readonly run: BoundRun
 }
 
 /** The commands this turn's grant runs, in the order the list and the instructions name them. */
 const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): ReadonlyArray<Offered> =>
-  INSTALL_HOST_COMMANDS.flatMap((command) => {
-    const run = binds[command.name](grant, transport)
+  catalogDescriptors.flatMap((row) => {
+    if (
+      !row.actors.includes("app_agent") || row.visibility === "hidden" ||
+      (row.name === "merge" && grant.request.sharedConversation !== true) ||
+      (row.agent !== "run" && row.agent !== "confirm")
+    ) return []
+    const bind = row.name === "files.list" ? filesList
+      : row.name === "files.read" ? filesRead
+      : row.name === "todo.new" && grant.request.sharedConversation !== true ? todoNew
+      : row.name === "flow" || row.name === "flow.edit" ? flowCommand(row)
+      : row.name === "theme" ? themeCommand(row)
+      : catalogCommand(row)
+    const run = bind(grant, transport)
+    const command: Offered["command"] = {
+      name: row.name,
+      summary: row.summary,
+      agent: row.agent,
+      args: row.name === "files.list" ? FILES_LIST_COMMAND.args : row.name === "files.read"
+        ? FILES_READ_COMMAND.args
+        : JSON.stringify({ ...row.payload.schema, $defs: row.payload.definitions, additionalProperties: false })
+    }
     return run === undefined ? [] : [{ command, run }]
   })
 
@@ -549,7 +700,16 @@ const hostInstructions = (offered: ReadonlyArray<Offered>): string => {
     ACCOUNT_NUMBERS_LINE,
     "",
     "The commands you can run in this conversation, and no others (any other answers \"unknown-command\" and nothing runs):",
-    ...offered.map(({ command }) => agentCommandLine(command)),
+    ...offered.map(({ command: { args, ...command } }) =>
+      agentCommandLine({
+        ...command,
+        ...(command.name === "todo" ? { args: "<Tn>" }
+          : command.name === "todo.new" ? { args: "[text]" }
+          : command.name.startsWith("files.") && args !== undefined ? { args }
+          : {})
+      })
+    ),
+    "Call commands with action list to inspect payload schemas. HTTP commands accept a JSON object; TODO references also accept Tn.",
     ...(reads.includes(FILES_LIST_COMMAND.name) ? [LIST_BEFORE_READ_LINE] : []),
     "",
     `Everything this list lacks is a can't-yet. ${cantYetsSentence(namedCantYets(reads))}`,
@@ -569,7 +729,7 @@ const hostContext = (context: AgentRuntimeContext): AgentRuntimeContext => {
     ...facts,
     capabilities: [
       "Hold a streaming conversation in this chat and read its visible transcript.",
-      "Run the commands the instructions list through the \"commands\" tool, as the person who asked; each answers with a card in this chat."
+      "Run the commands the instructions list through the \"commands\" tool, as the person who asked; read the returned status before claiming success. Pending confirmations require the person to act."
     ],
     limitations: [
       "Cannot see or control the host environment beyond what this context block states.",
@@ -612,7 +772,7 @@ const runCommand = <E>(
       return `failed: ${outcome.refusal}`
     }
     for (const card of outcome.cards) yield* write({ runId, type: "card", card })
-    yield* write({ runId, type: "call.settled", link, ordinal, name, verdict: "run" })
+    yield* write({ runId, type: "call.settled", link, ordinal, name, verdict: "run", ...(outcome.ui ? { ui: outcome.ui } : {}) })
     return boundToolResult(outcome.value).modelOutput
   })
 
@@ -641,7 +801,7 @@ const runHostTool = <E>(
         ? [{
           name: command.name,
           summary: command.summary,
-          ...(command.args === undefined ? {} : { args: command.args })
+          args: command.args
         }]
         : []
     )
@@ -674,6 +834,9 @@ export const runHostTurn = <E>(
     let request: StartAgentTurnRequest = offered.length === 0
       ? { ...grant.request, tools: [] }
       : hostRequest(grant.request, offered)
+    if (grant.agentInstructions !== undefined) {
+      request = { ...request, instructions: request.instructions + "\n\n" + grant.agentInstructions }
+    }
     let usage: AgentTurnUsage | undefined
     let ordinal = 0
     for (let link = 0;; link += 1) {

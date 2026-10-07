@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import type { ComponentProps } from "react";
 import { cn } from "../cn";
-import type { CopyFailureCode } from "../internal/copyToClipboard";
+import { canCopyText, type CopyFailureCode } from "../internal/copyToClipboard";
 import { useCopyFeedback } from "../internal/useCopyFeedback";
 import { useInjectUiCss } from "../styles";
 
@@ -20,7 +20,7 @@ export type SnippetProps = Omit<ComponentProps<"div">, "children"> & {
 export function Snippet({ code, language, onCopyCode, onCopyError, className, ...props }: SnippetProps) {
   useInjectUiCss();
   const { copied, copyFailed, copy: copyCode } = useCopyFeedback({ value: code, onCopy: onCopyCode, onCopyError });
-  const hasClipboard = typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
+  const hasClipboard = canCopyText();
   const canCopy = onCopyCode !== undefined || hasClipboard;
 
 

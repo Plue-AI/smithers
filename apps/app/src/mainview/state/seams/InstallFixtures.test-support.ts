@@ -4,6 +4,7 @@ export const credentialReceipt = (name = "AI_GATEWAY_API_KEY") => ({ ok: true, c
   name, present: true, managed: true, origins: MODEL_CREDENTIALS.find(credential => credential.name === name)!.origins
 } })
 export const installFixture = (): InstallModel => ({
+  can_assign_models: true,
   address: { listen: "network", bind: "0.0.0.0:4000", origins: ["http://localhost:4000", "http://mini.local:4000", "https://smithers.example.test"] },
   steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })) as InstallModel["steps"],
   this_mac: { memory_gb: 48, disk_free_gb: 100, capacity: 3 },

@@ -149,3 +149,14 @@ func TestAppBootstrapInstallOnlyWhenRoutesAreMounted(t *testing.T) {
 		}
 	}
 }
+
+func TestAppBootstrapDebugAPIRequiresInstallAuthorizer(t *testing.T) {
+	for _, role := range []topology{localTopology, hostedAPITopology} {
+		for _, identity := range []bool{false, true} {
+			for _, composed := range []bool{false, true} {
+				document := bootstrapHTTPDocument(t, bootstrapFeatures{role: role, identity: identity, debugAPI: composed})
+				require.Equal(t, composed && identity && !role.hosted(), slices.Contains(document["capabilities"].([]any), any("debug.api")))
+			}
+		}
+	}
+}

@@ -226,6 +226,7 @@ SHA-256 digest of the table. Change a row only with a version bump.
 | `commands.select` | optional | optional |
 | `browser.read` | optional | optional |
 | `identity` | core | core |
+| `debug.api` | optional | absent |
 | `install` | optional | absent |
 | `github` | optional | core |
 | `cloud` | core | core |

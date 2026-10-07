@@ -31,7 +31,9 @@ import {
   validateTags
 } from "./Store.ts"
 
-const NOTE_COLUMNS = "namespace_kind, namespace_id, id, text, tags_json, provenance_json, status, created_at_ms"
+const CREATION_COLUMNS = "namespace_kind, namespace_id, id, text, tags_json, provenance_json, status, created_at_ms"
+
+const NOTE_COLUMNS = `${CREATION_COLUMNS}, status_at_ms, accepted_todo`
 
 type ReadNotes = (
   input: ListNotesInput & { readonly ids?: ReadonlyArray<string> | undefined },
@@ -133,7 +135,7 @@ export const make = (database: DatabaseService): {
       const now = yield* Clock.currentTimeMillis
       const row = yield* database.write(
         Effect.gen(function*() {
-          const inserted = yield* sql`INSERT INTO memory_notes (${columns}) VALUES (
+          const inserted = yield* sql`INSERT INTO memory_notes (${sql.literal(CREATION_COLUMNS)}) VALUES (
             ${namespace.kind}, ${namespace.id}, ${input.id}, ${input.text}, ${tagsJson},
             ${provenanceJson}, ${status}, ${now}
             ) ON CONFLICT (id) DO NOTHING`.raw
@@ -215,12 +217,36 @@ export const make = (database: DatabaseService): {
   const setNoteStatus: Service["setNoteStatus"] = (input) =>
     Effect.gen(function*() {
       yield* validateNonEmpty(input.id, "note id", ["id"])
-      const result = yield* database.write(
-        sql`UPDATE memory_notes SET status = ${input.status} WHERE id = ${input.id}`.raw
-      ).pipe(Effect.mapError(storeError("could not update memory note status")))
-      if (changed(result) === 0) {
-        return yield* Effect.fail(error("not_found", `memory note "${input.id}" was not found`))
+      if (input.acceptedTodo !== undefined) {
+        yield* validateNonEmpty(input.acceptedTodo, "accepted TODO", ["acceptedTodo"])
+        if (input.status !== "accepted") {
+          return yield* Effect.fail(error("invalid_argument", "a TODO reference requires accepted status"))
+        }
       }
+      const now = yield* Clock.currentTimeMillis
+      yield* database.write(Effect.gen(function*() {
+        // A no-op update acquires the row lock on PostgreSQL as well as the
+        // serialized SQLite writer, before reading the lifecycle binding.
+        const locked = yield* sql`UPDATE memory_notes SET status = status WHERE id = ${input.id}`.raw
+        if (changed(locked) === 0) {
+          return yield* Effect.fail(error("not_found", `memory note "${input.id}" was not found`))
+        }
+        const rows = yield* sql<NoteRow>`SELECT ${columns} FROM memory_notes WHERE id = ${input.id}`
+        const row = rows[0]!
+        if (
+          row.accepted_todo !== null &&
+          (input.status !== "accepted" || input.acceptedTodo !== undefined && input.acceptedTodo !== row.accepted_todo)
+        ) {
+          return yield* Effect.fail(error("idempotency_conflict", "learning note already belongs to another TODO"))
+        }
+        if (
+          row.status === input.status && (input.acceptedTodo === undefined || input.acceptedTodo === row.accepted_todo)
+        ) return
+        yield* sql`UPDATE memory_notes SET status = ${input.status},
+          status_at_ms = ${row.status === input.status ? row.status_at_ms : now},
+          accepted_todo = ${input.acceptedTodo ?? row.accepted_todo}
+          WHERE id = ${input.id}`.raw
+      })).pipe(Effect.mapError(storeError("could not update memory note status")))
     })
 
   const supersede: Service["supersede"] = (input) =>

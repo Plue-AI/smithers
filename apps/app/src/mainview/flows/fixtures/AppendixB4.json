@@ -1,0 +1,314 @@
+[
+  {
+    "name": "todo.return-to-item",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "todo.keep-moved",
+    "agent": "never",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "branch.bring-in",
+    "agent": "confirm",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "branch.discard-foreign",
+    "agent": "confirm",
+    "minimumRole": "maintainer",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "file.restore",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "file.compare",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "file.restore-deleted",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "file.follow-rename",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "todo.retry-current-flow",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "branch.rebase-now",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "learning.accept",
+    "agent": "confirm",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "learning.dismiss",
+    "agent": "confirm",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "terminal.watch",
+    "agent": "never",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "notifications.allow",
+    "agent": "never",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "todo.takeover",
+    "agent": "never",
+    "minimumRole": "maintainer",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "merge.confirm",
+    "agent": "never",
+    "minimumRole": "maintainer",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "todo.preapprove",
+    "agent": "never",
+    "minimumRole": "maintainer",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "todo.unapprove",
+    "agent": "never",
+    "minimumRole": "maintainer",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "order.ok",
+    "agent": "never",
+    "minimumRole": "maintainer",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "draft.discard",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "confirm.cancel",
+    "agent": "never",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "settings.model.set",
+    "agent": "never",
+    "minimumRole": "owner",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "background.retry",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "background.dismiss",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "main.reset-to-github",
+    "agent": "never",
+    "minimumRole": "owner",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  },
+  {
+    "name": "image.add",
+    "agent": "run",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person",
+      "app_agent"
+    ]
+  },
+  {
+    "name": "file.reapply",
+    "agent": "never",
+    "minimumRole": "member",
+    "visibility": "in-card",
+    "slash": null,
+    "cli": null,
+    "actors": [
+      "person"
+    ]
+  }
+]

@@ -167,3 +167,51 @@ Tools manage their own login in the selected home; profiles describe locations.
 - Verify before rebase and verify the final candidate again. Parse structured
   final reports rather than incidental tool text. Preserve meaningful errors
   and cancellation receipts through every recovery transition.
+
+## Commands
+
+- `smthrs agent` — run. Configure an agent
+- `smthrs agents` — run. The factory's agents
+- `smthrs branch show` — run. Open a branch's card
+- `smthrs branch add-to-stack` — confirm; waits for the person's confirmation. Add a scratch branch as a TODO
+- `smthrs branch fork` — run. Fork a scratch branch
+- `smthrs branch rebase` — run. Rebase this branch now
+- `smthrs branches` — run. List branches with presence
+- `smthrs diff` — run. Show a branch's changes
+- `smthrs file` — run. Open and co-edit a file
+- `smthrs files` — run. Browse a branch's files
+- `smthrs flow show` — run. Show a flow's steps and versions
+- `smthrs flow edit` — confirm; waits for the person's confirmation. Propose a change to a flow
+- `smthrs flow new` — confirm; waits for the person's confirmation. Create a new flow
+- `smthrs flow plan` — run. See what a flow would run
+- `smthrs flow run` — run. Run a flow with typed input
+- `smthrs flow source` — run. Co-edit a flow's source
+- `smthrs flows` — run. List the repository's flows
+- `smthrs github` — run. Show sync status and retry
+- `smthrs issue show` — run. Open an issue's card
+- `smthrs issue comment` — confirm; waits for the person's confirmation. Comment on an issue
+- `smthrs issue new` — confirm; waits for the person's confirmation. Open a GitHub issue
+- `smthrs issues` — run. List the repository's issues
+- `smthrs merge` — confirm; waits for the person's confirmation. Review and merge the next item
+- `smthrs monitor` — run. Every run, with its debug view
+- `smthrs pr` — run. Open a pull request's card
+- `smthrs review` — confirm; waits for the person's confirmation. Review a change, return findings
+- `smthrs runs show` — run. Open a run's card
+- `smthrs run inspect` — run. Open a run's monitor
+- `smthrs runs list` — run. Active and attention-needing runs
+- `smthrs search` — run. Search code, wiki and runs
+- `smthrs stack` — run. Show the stack and background runs
+- `smthrs stack move` — run. Reorder an item
+- `smthrs todo show` — run. Open a TODO
+- `smthrs todo amend` — confirm; waits for the person's confirmation. Change an unmerged TODO's prompt
+- `smthrs todo answer` — run. Answer the agent's question
+- `smthrs todo drop` — confirm; waits for the person's confirmation. Abandon an unmerged TODO
+- `smthrs todo from-issue` — confirm; waits for the person's confirmation. Draft a TODO from an issue
+- `smthrs todo new` — confirm; waits for the person's confirmation. Write and place a TODO
+- `smthrs todo resume` — run. Resume a paused TODO
+- `smthrs todo retry` — run. Retry a failed TODO
+- `smthrs todo steer` — run. Send the agent a correction
+- `smthrs todo stop` — run. Pause a working TODO
+- `smthrs wiki show` — run. Open the wiki
+- `smthrs wiki page` — run. Open or create a page
+- `smthrs wiki save` — run. Save this answer as a page

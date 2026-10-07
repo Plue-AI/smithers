@@ -7,11 +7,139 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const scorecardFirstAnswer = `-- name: ScorecardFirstAnswer :one
+SELECT COALESCE(min(b.created_at), 'epoch'::timestamptz)::timestamptz AS answered_at,
+       (count(*) > 0)::boolean AS covered
+FROM chat_turns t JOIN chat_turn_batches b ON b.turn_id = t.id
+WHERE t.repository_id > 0 AND t.conversation_id IS NOT NULL AND t.conversation_id <> ''
+ AND EXISTS(SELECT 1 FROM jsonb_array_elements(
+   CASE WHEN jsonb_typeof(b.frames) = 'array' THEN b.frames ELSE '[]'::jsonb END
+ ) AS f(frame) WHERE frame->>'type' = 'delta' AND frame->>'kind' = 'text'
+   AND jsonb_typeof(frame->'text') = 'string' AND frame->>'text' <> '')
+`
+
+type ScorecardFirstAnswerRow struct {
+	AnsweredAt time.Time `json:"answered_at"`
+	Covered    bool      `json:"covered"`
+}
+
+// The shared app journal's first persisted answer text. Frames are data:
+// malformed arrays and reasoning/tool frames cannot count as an answer.
+func (q *Queries) ScorecardFirstAnswer(ctx context.Context) (ScorecardFirstAnswerRow, error) {
+	row := q.db.QueryRow(ctx, scorecardFirstAnswer)
+	var i ScorecardFirstAnswerRow
+	err := row.Scan(&i.AnsweredAt, &i.Covered)
+	return i, err
+}
+
+const scorecardInstallStart = `-- name: ScorecardInstallStart :many
+SELECT value FROM install_settings WHERE key = 'setup.started_at'
+`
+
+// Immutable setup initialization receipt; never install_settings.updated_at.
+func (q *Queries) ScorecardInstallStart(ctx context.Context) ([]json.RawMessage, error) {
+	rows, err := q.db.Query(ctx, scorecardInstallStart)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []json.RawMessage{}
+	for rows.Next() {
+		var value json.RawMessage
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		items = append(items, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scorecardMergeCoverage = `-- name: ScorecardMergeCoverage :one
+SELECT (count(*) > 0 AND bool_and(COALESCE(
+  receipt.event_type = 'todo.github_merged' AND receipt.data->>'source' = 'github', false)))::boolean AS covered
+FROM mythical_items i
+LEFT JOIN LATERAL (
+  SELECT transition.event_type, transition.data
+  FROM (SELECT event_type, data, state, sequence,
+          lag(state) OVER (ORDER BY sequence) AS previous
+        FROM product_job_events WHERE tenant_id = i.repository_id::text
+          AND principal_id = 'todo:' || i.id::text AND event_type LIKE 'todo.%') AS transition
+  WHERE transition.state = 'merged' AND transition.previous IS DISTINCT FROM transition.state
+  ORDER BY transition.sequence DESC LIMIT 1
+) AS receipt ON true
+WHERE i.state = 'landed' AND (i.source = 'todo' OR i.checks->>'todo' = 'true')
+`
+
+// Merge settlement is covered independently from the missing main-commit
+// inventory. Both app merges and direct GitHub merges settle through this
+// existing synced-store writer; repeated delivery is not another merge.
+func (q *Queries) ScorecardMergeCoverage(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, scorecardMergeCoverage)
+	var covered bool
+	err := row.Scan(&covered)
+	return covered, err
+}
+
+const scorecardPresence = `-- name: ScorecardPresence :many
+SELECT id::text AS id, actor_id, target_name, metadata
+FROM audit_log
+WHERE event_type = 'presence' AND target_type = 'branch' AND action = 'visit'
+`
+
+type ScorecardPresenceRow struct {
+	ID         string          `json:"id"`
+	ActorID    pgtype.Int8     `json:"actor_id"`
+	TargetName string          `json:"target_name"`
+	Metadata   json.RawMessage `json:"metadata"`
+}
+
+// T-COL-06's completed continuous visits. Keep metadata as data: parsing in
+// the reader lets malformed legacy receipts fail coverage without aborting
+// the snapshot. An audit row is the session identity, not a socket identity.
+func (q *Queries) ScorecardPresence(ctx context.Context) ([]ScorecardPresenceRow, error) {
+	rows, err := q.db.Query(ctx, scorecardPresence)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardPresenceRow{}
+	for rows.Next() {
+		var i ScorecardPresenceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.TargetName,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const scorecardSourceRelations = `-- name: ScorecardSourceRelations :many
 SELECT source.name::text AS name,
-       (to_regclass('public.' || source.name) IS NOT NULL)::boolean AS present
+       (to_regclass('public.' || source.name) IS NOT NULL
+        AND (source.name <> 'mythical_items' OR
+             (SELECT count(*) = 2 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'mythical_items'
+                AND column_name IN ('owner_id', 'created_by')))
+        AND (source.name <> 'chat_turns' OR EXISTS(
+             SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+              AND table_name = 'chat_turns' AND column_name = 'conversation_id')))::boolean AS present
 FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
                  'chat_turns', 'chat_turn_batches', 'burst_files', 'audit_log',
                  'workflow_definitions']) AS source(name)
@@ -35,6 +163,68 @@ func (q *Queries) ScorecardSourceRelations(ctx context.Context) ([]ScorecardSour
 	for rows.Next() {
 		var i ScorecardSourceRelationsRow
 		if err := rows.Scan(&i.Name, &i.Present); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scorecardTODOs = `-- name: ScorecardTODOs :many
+SELECT i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
+       i.state::text AS state, i.checks, i.paused_at,
+       (SELECT COALESCE(jsonb_object_agg(receipt.state, receipt.since), '{}'::jsonb)
+        FROM (SELECT DISTINCT ON (transition.state) transition.state, transition.recorded_at AS since
+          FROM (SELECT state, recorded_at, sequence, lag(state) OVER (ORDER BY sequence) AS previous
+            FROM product_job_events WHERE tenant_id = i.repository_id::text
+              AND principal_id = 'todo:' || i.id::text AND event_type LIKE 'todo.%') AS transition
+          WHERE transition.previous IS DISTINCT FROM transition.state
+          ORDER BY transition.state, transition.sequence DESC) AS receipt)::jsonb AS state_times,
+       COALESCE(min(e.recorded_at), 'epoch'::timestamptz)::timestamptz AS accepted,
+       (count(e.event_id) > 0)::boolean AS covered
+FROM mythical_items i
+LEFT JOIN product_job_events e ON e.tenant_id = i.repository_id::text
+ AND e.principal_id = 'todo:' || i.id::text
+ AND e.event_type = 'todo.created' AND e.data->>'item' = i.id::text
+WHERE i.source = 'todo' OR i.checks->>'todo' = 'true'
+GROUP BY i.id
+`
+
+type ScorecardTODOsRow struct {
+	ID         string             `json:"id"`
+	Owner      int64              `json:"owner"`
+	State      string             `json:"state"`
+	Checks     json.RawMessage    `json:"checks"`
+	PausedAt   pgtype.Timestamptz `json:"paused_at"`
+	StateTimes json.RawMessage    `json:"state_times"`
+	Accepted   time.Time          `json:"accepted"`
+	Covered    bool               `json:"covered"`
+}
+
+// Creation receipts, not row creation times, establish stack acceptance.
+// Deduplicate repeated deliveries by the TODO identity.
+func (q *Queries) ScorecardTODOs(ctx context.Context) ([]ScorecardTODOsRow, error) {
+	rows, err := q.db.Query(ctx, scorecardTODOs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardTODOsRow{}
+	for rows.Next() {
+		var i ScorecardTODOsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Owner,
+			&i.State,
+			&i.Checks,
+			&i.PausedAt,
+			&i.StateTimes,
+			&i.Accepted,
+			&i.Covered,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

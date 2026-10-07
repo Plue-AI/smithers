@@ -102,6 +102,16 @@ func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx
 	if err := p.Authorize(ctx, tx, "branch.join", repositoryID, branch, actorID); err != nil {
 		return err
 	}
+	// A join by branch name resolves its existing lane before asking for
+	// lane authority. Only the stack's fresh lane creation uses an empty ID.
+	if workspaceID == "" && !StackLaneCreation(ctx) && tx != nil {
+		err := tx.QueryRow(ctx, `SELECT id::text FROM workspaces
+            WHERE repository_id=$1 AND target_bookmark=$2 AND deleted_at IS NULL`, repositoryID, branch).Scan(&workspaceID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+
 	if err := p.LaneBinding(ctx, tx, repositoryID, branch, workspaceID); err != nil {
 		return err
 	}
@@ -211,7 +221,14 @@ func ensureWorkspaceShare(ctx context.Context, q *db.Queries, row db.Workspace, 
 	if actorID == row.UserID {
 		return nil
 	}
-	_, err := q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{
+	share, err := q.GetWorkspaceShare(ctx, db.GetWorkspaceShareParams{WorkspaceID: row.ID, GranteeUserID: actorID})
+	if err == nil && share.OwnerUserID == row.UserID && share.Level == string(WorkspaceAccessWrite) {
+		return nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{
 		WorkspaceID: row.ID, OwnerUserID: row.UserID, GranteeUserID: actorID, Level: string(WorkspaceAccessWrite),
 	})
 	return err
@@ -319,17 +336,14 @@ func (s *WorkspaceService) withBranchMachineMutation(ctx context.Context, row db
 	if err != nil {
 		return fmt.Errorf("%w: %w", errBranchMachineAdmission, err)
 	}
-	return fn(context.WithValue(ctx, workspaceMutationAuthorityKey{}, authority))
+	return commitWorkspaceMutation(ctx, tx, authority, fn)
 }
 
 // RevokeBranchMachineShare composes with T-ACC-02's authorized member-removal
 // transaction. The caller holds the collaborator's removal lock in this same
 // tx. Deleting the share waits for the existing mutation grant lock; durable
 // revocation and NOTIFY become visible only when the caller commits.
-func (s *WorkspaceService) RevokeBranchMachineShare(ctx context.Context, tx pgx.Tx, workspaceID string, memberID int64) error {
-	if err := s.requireBranchMachineProviders(); err != nil {
-		return err
-	}
+func RevokeBranchMachineShare(ctx context.Context, tx pgx.Tx, workspaceID string, memberID int64) error {
 	q := db.New(tx)
 	row, err := q.GetWorkspace(ctx, workspaceID)
 	if err != nil {

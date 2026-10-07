@@ -18,7 +18,7 @@ VALUES (
     $4,
     $5
 )
-RETURNING id, user_id, name, public_key, fingerprint, key_type, created_at, updated_at
+RETURNING id, user_id, name, public_key, fingerprint, key_type, created_at, updated_at, source
 `
 
 type CreateSSHKeyParams struct {
@@ -47,6 +47,7 @@ func (q *Queries) CreateSSHKey(ctx context.Context, arg CreateSSHKeyParams) (Ssh
 		&i.KeyType,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Source,
 	)
 	return i, err
 }
@@ -68,7 +69,7 @@ func (q *Queries) DeleteSSHKey(ctx context.Context, arg DeleteSSHKeyParams) erro
 }
 
 const getSSHKeyByFingerprint = `-- name: GetSSHKeyByFingerprint :one
-SELECT id, user_id, name, public_key, fingerprint, key_type, created_at, updated_at
+SELECT id, user_id, name, public_key, fingerprint, key_type, created_at, updated_at, source
 FROM ssh_keys
 WHERE fingerprint = $1
 `
@@ -85,12 +86,13 @@ func (q *Queries) GetSSHKeyByFingerprint(ctx context.Context, fingerprint string
 		&i.KeyType,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Source,
 	)
 	return i, err
 }
 
 const getSSHKeyByID = `-- name: GetSSHKeyByID :one
-SELECT id, user_id, name, public_key, fingerprint, key_type, created_at, updated_at
+SELECT id, user_id, name, public_key, fingerprint, key_type, created_at, updated_at, source
 FROM ssh_keys
 WHERE id = $1
 `
@@ -107,6 +109,7 @@ func (q *Queries) GetSSHKeyByID(ctx context.Context, id int64) (SshKey, error) {
 		&i.KeyType,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Source,
 	)
 	return i, err
 }
@@ -130,7 +133,7 @@ func (q *Queries) GetUserBySSHFingerprint(ctx context.Context, fingerprint strin
 }
 
 const listUserSSHKeys = `-- name: ListUserSSHKeys :many
-SELECT id, user_id, name, public_key, fingerprint, key_type, created_at, updated_at
+SELECT id, user_id, name, public_key, fingerprint, key_type, created_at, updated_at, source
 FROM ssh_keys
 WHERE user_id = $1
 ORDER BY created_at DESC
@@ -154,6 +157,7 @@ func (q *Queries) ListUserSSHKeys(ctx context.Context, userID int64) ([]SshKey, 
 			&i.KeyType,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}

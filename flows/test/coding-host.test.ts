@@ -543,3 +543,18 @@ test("direct host composition refuses a missing system policy before opening ser
   assert.throws(() => layer(platform, options as Parameters<typeof layer>[1]), /SMITHERS_SYSTEM_FLOWS/)
   assert.throws(() => layer(platform, { ...options, systemFlows: [] }), /SMITHERS_SYSTEM_FLOWS/)
 })
+
+test("explicit operator model pins override generated auto role defaults", () => {
+  const pins = CodingHost.operatorSeats({
+    SMITHERS_CODING_IMPLEMENT_MODEL: "test:writer",
+    SMITHERS_CODING_REVIEW_MODEL: "test:reviewer"
+  })
+  const resolver = roleResolver(SeatResolver.makeNoop(), "test:writer", {
+    seats: { "coding/implement": "auto", "coding/plan": "auto", ...pins }
+  })
+  assert.equal(resolver.routedAs?.("coding/implement"), undefined)
+  assert.equal(resolver.routedAs?.("coding/plan"), undefined)
+  assert.equal(pins["coding/plan"], "test:writer")
+  assert.equal(pins["coding/review"], "test:reviewer")
+  assert.deepEqual(CodingHost.operatorSeats({}), {})
+})

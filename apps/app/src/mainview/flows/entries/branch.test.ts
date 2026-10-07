@@ -10,7 +10,8 @@ import { memoryStorage, signupProfileFetch, unavailableAgent } from "../../state
 import { todoOf } from "../../state/seams/DesignWorld"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 
-const boot = async (live?: import("../../state/useTopic").LiveTopics, bootstrap?: AppBootstrap) => {
+const boot = async (live?: import("../../state/useTopic").LiveTopics, bootstrap?: AppBootstrap | boolean) => {
+  if (bootstrap === true) bootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
   const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, ...(live ? { live } : {}), ...(bootstrap ? { bootstrap } : {}) })
@@ -39,7 +40,7 @@ test("a bootstrapped demo with a live channel opens branches through button, sla
     expect(h.store.collections.cards.get("branch:b-checkout")).toMatchObject({ kind: "branch", title: "fix-checkout-race", payload: { id: "b-checkout" } })
     expect((await h.controller.runCommandForResult("branch", "T9")).status).toBe("executed")
     expect(h.store.collections.cards.get("branch:b-retry")?.kind).toBe("branch")
-    expect(await h.controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "branch", args: "b-stripe" }) })).toBe("Opened upgrade-stripe")
+    expect(await h.controller.commands.runAsAgent("branch", "b-stripe")).toMatchObject({ status: "executed", value: "Opened upgrade-stripe" })
     expect(h.store.collections.cards.get("branch:b-stripe")?.kind).toBe("branch")
   } finally { await h.controller.dispose() }
 })
@@ -102,7 +103,7 @@ test("/ssh hands back the branch's SSH line", async () => {
 test("Fork opens a scratch branch; Add to stack places it after the item it came from", async () => {
   const h = await boot()
   try {
-    expect((await submit(h, "branch.fork", { name: "retry-webhooks" })).status).toBe("executed")
+    expect((await submit(h, "branch.fork", { from: "T9" })).status).toBe("executed")
     const fork = h.controller.design.world().branches.find(each => each.name === "maya/retry-webhooks")!
     expect(fork.from).toBe("b-retry")
     expect(fork.item).toBeUndefined()
@@ -120,7 +121,7 @@ test("Fork opens a scratch branch; Add to stack places it after the item it came
 test("A✓: the agent's Add to stack asks for the person's press and commits nothing; the press commits it", async () => {
   const h = await boot()
   try {
-    await submit(h, "branch.fork", { name: "retry-webhooks" })
+    await submit(h, "branch.fork", { from: "T9" })
     const fork = h.controller.design.world().branches.find(each => each.name === "maya/retry-webhooks")!
     const item = () => h.controller.design.world().branches.find(each => each.id === fork.id)?.item
     expect(await h.controller.commands.runForAgent("branch.add-to-stack", fork.id)).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
@@ -133,8 +134,8 @@ test("A✓: the agent's Add to stack asks for the person's press and commits not
   } finally { h.controller.dispose() }
 })
 
-test("live dispatcher refuses absent Branch and Terminal providers before seed or cloud effects", async () => {
-  const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined })
+test("install live dispatcher refuses absent Branch and Terminal providers before seed or cloud effects", async () => {
+  const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined }, true)
   const before = h.controller.design.world()
   try {
     for (const [name, payload, error] of [
@@ -143,12 +144,33 @@ test("live dispatcher refuses absent Branch and Terminal providers before seed o
       ["terminal.send", { id: "term-retry-1", command: "bad" }, "Terminal unavailable"],
       ["branch", { name: "retry-webhooks" }, "Branch unavailable"],
       ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"],
-      ["branch.fork", { name: "b-retry" }, "Branch unavailable"]
+      ["branch.fork", { from: "T9" }, "Branch unavailable"]
     ] as const) {
       expect(await submit(h, name, payload)).toMatchObject({ status: "failed", error })
     }
     expect(h.controller.design.world()).toEqual(before)
   } finally { h.controller.dispose() }
+})
+
+
+
+test("bootstrap and an unanswered live channel keep seeded Home branch doors available off an install", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: [], authFlow: "redirect", sandbox: null },
+    live: { subscribe: () => () => {}, getSnapshot: () => undefined } })
+  try {
+    expect(await controller.submitCommand({ name: "branch", payload: { name: "T9" }, actor: "user" })).toMatchObject({ status: "executed" })
+    expect(store.collections.cards.get("branch:b-retry")).toMatchObject({ kind: "branch", title: "retry-webhooks" })
+    expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T10" }, actor: "user" })).toMatchObject({ status: "executed" })
+    const scratch = controller.design.world().branches.find(branch => branch.from === "b-checkout" && branch.item === undefined)!
+    expect(scratch).toBeDefined()
+    expect(await controller.submitCommand({ name: "branch.add-to-stack", payload: { branch: scratch.id }, actor: "user" })).toMatchObject({ status: "executed" })
+    const world = controller.design.world()
+    const placed = world.branches.find(branch => branch.id === scratch.id)!
+    expect(todoOf(world, placed.item!)?.ref).toBe("T12")
+  } finally { await controller.dispose() }
 })
 
 test("On an install Fork is POST /api/branches {from, name}: the value is the new scratch branch, a refusal is the server message", async () => {
@@ -171,9 +193,99 @@ test("On an install Fork is POST /api/branches {from, name}: the value is the ne
     expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T2", name: "try-retry" }, actor: "user" })).toEqual({ status: "executed", value: "scratch/ben/try-retry" })
     expect(await controller.runCommandForResult("branch.fork", "T2")).toMatchObject({ status: "executed", value: "scratch/ben/fork-t2" })
     expect((await controller.submitCommand({ name: "branch.fork", payload: { from: "T9" }, actor: "user" })).status).toBe("failed")
+    // A name is never a substitute for the required source; no HTTP mutation.
+    expect(await controller.submitCommand({ name: "branch.fork", payload: { name: "T2" }, actor: "user" })).toMatchObject({ status: "form", fields: ["from"] })
     expect(posts.map(post => post.body)).toEqual([{ from: "T2", name: "try-retry" }, { from: "T2" }, { from: "T9" }])
     expect(posts.every(post => post.key !== null && post.key.length > 0)).toBe(true)
     // The seeded world is off on an install: nothing forked there.
     expect(controller.design.world().branches.some(each => each.name.startsWith("scratch/ben/"))).toBe(false)
   } finally { await controller.dispose() }
+})
+
+test("non-install bootstrap keeps the design terminal doors while install bootstrap refuses them", async () => {
+  for (const install of [false, true]) {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
+    const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+      live: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: install ? ["install"] : [], authFlow: "none", sandbox: null } })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+    try {
+      const opened = await controller.submitCommand({ name: "terminal", payload: { branch: "b-retry" }, actor: "user" })
+      if (install) {
+        expect(opened).toMatchObject({ status: "failed", error: "Terminal unavailable" })
+        expect(controller.design.world().terminals).toEqual([])
+      } else {
+        expect(opened.status).toBe("executed")
+        const terminal = controller.design.world().terminals.find(each => each.owner === "maya")!
+        expect(store.collections.cards.get(`terminal:${terminal.id}`)?.kind).toBe("terminal")
+        expect((await controller.submitCommand({ name: "terminal.send", payload: { id: terminal.id, command: "pnpm test" }, actor: "user" })).status).toBe("executed")
+        expect(controller.design.world().terminals.find(each => each.id === terminal.id)!.lines.at(-1)?.text).toBe("✓ 42 passed")
+        expect((await controller.submitCommand({ name: "terminal.watch", payload: { id: "term-retry-1" }, actor: "user" })).status).toBe("executed")
+      }
+    } finally { controller.dispose() }
+  }
+})
+
+test("install Watch reaches the terminal card only for authenticated registered branch metadata", async () => {
+  const { LiveChannel } = await import("../../runtime/LiveChannel")
+  const frames: { t: string; id: number; topic?: string }[] = []
+  const socket = { readyState: 1, onopen: null, onclose: null, onmessage: null,
+    send: (frame: string | Uint8Array) => { if (typeof frame === "string") frames.push(JSON.parse(frame)) }, close: () => {} } as import("../../runtime/LiveChannel").LiveSocket
+  const live = new LiveChannel({ socket: () => socket })
+  const h = await boot(live, true)
+  const release = live.subscribe("branch:b1", () => {})
+  try {
+    await h.controller.presentBranchCard("branch", "b1", "Retry")
+    socket.onopen?.()
+    const subscription = frames.find(frame => frame.topic === "branch:b1")!
+    socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: subscription.id, cursor: 1, data: {
+      terminals: [{ id: "t-ben", title: "Ben's shell", owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }, agents: [], watchers: [], frozen: false }]
+    } }) })
+    expect(h.controller.terminalCards?.branch("t-ben")).toBe("b1")
+    expect((await submit(h, "terminal.watch", { id: "t-ben" })).status).toBe("executed")
+    expect(h.store.collections.cards.get("terminal:t-ben")).toMatchObject({ kind: "terminal", payload: { id: "t-ben" } })
+    expect((await submit(h, "terminal.watch", { id: "missing" })).status).toBe("failed")
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+    expect(h.controller.terminalCards?.available()).toBe(false)
+    expect(h.controller.terminalCards?.branch("t-ben")).toBeUndefined()
+    expect((await submit(h, "terminal.watch", { id: "t-ben" })).status).toBe("failed")
+  } finally { release(); h.controller.dispose(); live.dispose() }
+})
+
+test("an agent's Discard asks the person with the exact wait/head and changes nothing", async () => {
+  const h = await boot()
+  try {
+    const before = structuredClone(h.controller.design.world())
+    const input = { branch: "smithers/retry-webhooks", id: "foreign-1", revision: "a".repeat(40) }
+    expect(await h.controller.commands.runForAgent("branch.discard-foreign", JSON.stringify(input))).toMatchObject({
+      status: "executed", value: expect.stringContaining("asked the user to confirm")
+    })
+    const asks = [...h.store.collections.messages.values()].filter(each => each.action?.flow === "branch.discard-foreign")
+    expect(asks).toHaveLength(1)
+    expect(JSON.parse(asks[0]!.action!.args!)).toEqual(input)
+    expect(h.controller.design.world()).toEqual(before)
+    expect([...h.store.collections.cards.values()].filter(each => each.kind === "todo" && each.payload.requests.length > 0)).toEqual([])
+  } finally { h.controller.dispose() }
+})
+
+test("install SSH reads the authorized live branch without waking it or using the seed", async () => {
+  let snapshot: import("../../runtime/LiveChannel").TopicSnapshot | undefined
+  const live = { subscribe: () => () => {}, getSnapshot: (topic: string) => topic === "branch:b-real" ? snapshot : undefined }
+  const h = await boot(live, true)
+  try {
+    expect((await submit(h, "ssh", { branch: "b-real" })).status).toBe("failed")
+    snapshot = { topic: "branch:b-real", cursor: 1, data: { id: "b-real", ssh_line: "ssh -p 2222 scratch/ben/retry@factory.example", machine: { state: "asleep" } } }
+    expect(await submit(h, "ssh", { branch: "b-real" })).toEqual({ status: "executed", value: "ssh -p 2222 scratch/ben/retry@factory.example" })
+    snapshot = { ...snapshot, error: "forbidden" }
+    expect((await submit(h, "ssh", { branch: "b-real" })).status).toBe("failed")
+    expect((await submit(h, "ssh", { branch: "retry-webhooks" })).status).toBe("failed")
+  } finally { h.controller.dispose() }
+})
+
+test("an unanswered live SSH provider keeps the off-install seed available", async () => {
+  const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined })
+  try {
+    expect(await submit(h, "ssh", { branch: "retry-webhooks" })).toEqual({ status: "executed", value: "ssh -p 2222 retry-webhooks@maya-mini.tail1234.ts.net" })
+  } finally { h.controller.dispose() }
 })

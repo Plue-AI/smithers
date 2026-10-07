@@ -56,7 +56,8 @@
     "THIRD_PARTY_NOTICES.md",
     "README.md",
     "CHANGELOG.md",
-    "VENDOR.md"
+    "VENDOR.md",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",

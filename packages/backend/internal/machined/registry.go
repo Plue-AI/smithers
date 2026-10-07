@@ -3,8 +3,10 @@
 package machined
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"io"
 	"sync"
@@ -19,15 +21,20 @@ var (
 // cannot authenticate a boot or fence an old connection's reconciliation.
 // The zero value is usable; host restart requires fresh boot registration.
 type Registry struct {
-	mu       sync.Mutex
-	branches map[string]*boot
-	boots    map[[16]byte]*boot
+	mu         sync.Mutex
+	closed     bool
+	branches   map[string]*boot
+	boots      map[[16]byte]*boot
+	rosterSync func(context.Context, string) error
+	objects    ObjectImporter
 }
 
 type boot struct {
 	branch, machine string
 	id              [16]byte
 	credential      [32]byte
+	secret          [32]byte
+	link            *Link
 	connection      *Connection
 }
 
@@ -52,6 +59,10 @@ func (r *Registry) BindBoot(branch, machine string, id [16]byte, credential []by
 		return ErrUnauthorized
 	}
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return ErrNotReady
+	}
 	if r.branches == nil {
 		r.branches = make(map[string]*boot)
 		r.boots = make(map[[16]byte]*boot)
@@ -72,6 +83,27 @@ func (r *Registry) BindBoot(branch, machine string, id [16]byte, credential []by
 		_ = old.closeStream()
 	}
 	return nil
+}
+
+// Close fences every boot before closing transport streams. A reader exiting
+// during shutdown cannot restore authority or evict a replacement registry.
+func (r *Registry) Close() error {
+	r.mu.Lock()
+	r.closed = true
+	var connections []*Connection
+	for _, b := range r.branches {
+		if b.connection != nil {
+			connections = append(connections, b.connection)
+			b.connection = nil
+		}
+	}
+	clear(r.branches)
+	r.mu.Unlock()
+	var errs []error
+	for _, c := range connections {
+		errs = append(errs, c.closeStream())
+	}
+	return errors.Join(errs...)
 }
 
 // Admit is called only after the wire handshake verifies the host nonce proof.
@@ -116,6 +148,9 @@ func (c *Connection) Reconciled() error {
 // RequireReady fences reads, writes, captures and sessions to the authenticated
 // branch. Request authorization remains the production authorizer's job.
 func (c *Connection) RequireReady(branch string) error {
+	if c == nil || c.registry == nil || c.boot == nil {
+		return ErrUnauthorized
+	}
 	r := c.registry
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -147,4 +182,35 @@ func (c *Connection) Close() error {
 func (c *Connection) closeStream() error {
 	c.closeOnce.Do(func() { c.closeErr = c.stream.Close() })
 	return c.closeErr
+}
+
+// PresenceScope is a host-minted boot identity for session lease fencing.
+// It exposes no credential and refuses stale or unreconciled connections.
+func (c *Connection) PresenceScope(branch string) (string, error) {
+	if err := c.RequireReady(branch); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(c.boot.id[:]), nil
+}
+
+// BindRosterSync installs the host's authoritative roster reconciliation. It
+// runs on every handshake, even when the boot and its processes survived.
+func (r *Registry) BindRosterSync(syncRoster func(context.Context, string) error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rosterSync = syncRoster
+}
+
+// ConnectedBranches includes connections still reconciling. A disconnected
+// branch receives its current roster at its next admission instead.
+func (r *Registry) ConnectedBranches() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	branches := make([]string, 0, len(r.branches))
+	for branch, boot := range r.branches {
+		if boot.connection != nil {
+			branches = append(branches, branch)
+		}
+	}
+	return branches
 }

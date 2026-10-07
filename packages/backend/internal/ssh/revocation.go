@@ -1,7 +1,9 @@
 package ssh
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/gliderlabs/ssh"
@@ -15,18 +17,24 @@ type RevocationSource interface {
 	Subscribe(fn func(revocation.Event)) func()
 }
 
-// sessionRegistry tracks every live SSH session with the principal it was
-// authorized as, so a revocation can end it. An SSH session is authorized
+// sessionRegistry tracks SSH connections, sessions and forwarding channels
+// with their principals, so revocation also ends idle connections. SSH is authorized
 // once at connection time (public key for git and LFS, a workspace access
 // token for workspace logins) and the guest never re-checks; closing the
-// session is the only way to enforce a revocation that lands mid-session.
+// connection prevents both ongoing access and opening replacement channels.
 type sessionRegistry struct {
 	mu       sync.Mutex
 	sessions map[ssh.Session]revocation.Principal
-	unsub    func()
+	channels map[io.Closer]revocation.Principal
+	// The connection outlives its sessions. Read its authenticated context at
+	// revocation time; the TCP accept callback runs before SSH authentication.
+	connections map[io.Closer]context.Context
+	unsub       func()
 }
 
 var liveSessions = &sessionRegistry{sessions: map[ssh.Session]revocation.Principal{}}
+
+const authFingerprintKey contextKey = "auth-key-fingerprint"
 
 // SetRevocationSource subscribes the SSH server to source. Call once at
 // startup; a nil source disables revocation-driven termination.
@@ -54,17 +62,59 @@ func (r *sessionRegistry) remove(sess ssh.Session) {
 	r.mu.Unlock()
 }
 
+func (r *sessionRegistry) addChannel(channel io.Closer, principal revocation.Principal) func() {
+	r.mu.Lock()
+	if r.channels == nil {
+		r.channels = make(map[io.Closer]revocation.Principal)
+	}
+	r.channels[channel] = principal
+	r.mu.Unlock()
+	return func() {
+		r.mu.Lock()
+		delete(r.channels, channel)
+		r.mu.Unlock()
+	}
+}
+
+func (r *sessionRegistry) addConnection(conn io.Closer, ctx context.Context) func() {
+	r.mu.Lock()
+	if r.connections == nil {
+		r.connections = make(map[io.Closer]context.Context)
+	}
+	r.connections[conn] = ctx
+	r.mu.Unlock()
+	return func() {
+		r.mu.Lock()
+		delete(r.connections, conn)
+		r.mu.Unlock()
+	}
+}
+
 func (r *sessionRegistry) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.sessions)
+	return len(r.sessions) + len(r.channels) + len(r.connections)
 }
 
-// handle closes every live session the event revokes, telling the client why
-// on stderr first so the disconnect is not mistaken for a network fault.
+// handle closes every affected transport and channel. Session stderr receives
+// a best-effort reason; transport termination must not wait for a slow reader.
 func (r *sessionRegistry) handle(event revocation.Event) {
 	r.mu.Lock()
 	var doomed []ssh.Session
+	var channels []io.Closer
+	var connections []io.Closer
+	for conn, ctx := range r.connections {
+		if event.Affects(contextPrincipal(ctx)) {
+			connections = append(connections, conn)
+			delete(r.connections, conn)
+		}
+	}
+	for channel, principal := range r.channels {
+		if event.Affects(principal) {
+			channels = append(channels, channel)
+			delete(r.channels, channel)
+		}
+	}
 	for sess, principal := range r.sessions {
 		if event.Affects(principal) {
 			doomed = append(doomed, sess)
@@ -72,6 +122,15 @@ func (r *sessionRegistry) handle(event revocation.Event) {
 		}
 	}
 	r.mu.Unlock()
+	// End the authenticated transport as well as current channels. Otherwise
+	// an idle client (or SSH ControlMaster) can reuse its revoked credential.
+	// Closing first also prevents a blocked stderr write delaying revocation.
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+	for _, channel := range channels {
+		_ = channel.Close()
+	}
 	for _, sess := range doomed {
 		reason := "access revoked"
 		if event.Reason != "" {
@@ -86,12 +145,22 @@ func (r *sessionRegistry) handle(event revocation.Event) {
 // sessionPrincipal describes what a session was authorized as: the key's
 // user for git and LFS sessions, the sandbox for workspace logins.
 func sessionPrincipal(sess ssh.Session) revocation.Principal {
+	return contextPrincipal(sess.Context())
+}
+
+func contextPrincipal(ctx context.Context) revocation.Principal {
 	var principal revocation.Principal
-	if p, ok := sess.Context().Value(principalKey).(sshPrincipal); ok && !p.IsDeployKey {
-		principal.UserID = p.UserID
+	if p, ok := ctx.Value(principalKey).(sshPrincipal); ok {
+		principal.KeyFingerprint = p.Fingerprint
+		if !p.IsDeployKey {
+			principal.UserID = p.UserID
+		}
 	}
-	if workspace, ok := sess.Context().Value(workspaceAccessKey).(WorkspaceAccess); ok {
+	if workspace, ok := ctx.Value(workspaceAccessKey).(WorkspaceAccess); ok {
 		principal.SandboxID = workspace.SandboxID
+	}
+	if fingerprint, ok := ctx.Value(authFingerprintKey).(string); ok {
+		principal.KeyFingerprint = fingerprint
 	}
 	return principal
 }

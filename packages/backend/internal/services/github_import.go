@@ -540,10 +540,12 @@ type ImportJobRepository struct {
 }
 
 type ImportGitHubRepoInput struct {
-	UserID int64
-	Owner  string
-	Repo   string
-	Branch string
+	// Setup binds admission to its durable operation, including completed imports.
+	setupOperationID string
+	UserID           int64
+	Owner            string
+	Repo             string
+	Branch           string
 }
 
 type ImportTemplateRepoInput struct {
@@ -642,9 +644,56 @@ func (s *GitHubImportService) startImport(ctx context.Context, input ImportGitHu
 		return ImportJob{}, pkgerrors.BadRequest("invalid target bookmark: " + err.Error())
 	}
 	id := uuid.New().String()
-	job, created, err := s.scanStartedImportJob(s.db.QueryRow(ctx, createImportJobSQL, id, input.UserID, owner, repo, localOwner, targetName, branch, branch))
+	var admission GitHubImportDB = s.db
+	var admissionTx pgx.Tx
+	if input.setupOperationID != "" {
+		if s.pool == nil {
+			return ImportJob{}, pkgerrors.Internal("durable setup import unavailable")
+		}
+		id = uuid.NewSHA1(uuid.NameSpaceURL, []byte("smithers.install.source:"+input.setupOperationID)).String()
+		admissionTx, err = s.pool.Begin(ctx)
+		if err != nil {
+			return ImportJob{}, err
+		}
+		defer admissionTx.Rollback(context.WithoutCancel(ctx))
+		if _, err = admissionTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, id); err != nil {
+			return ImportJob{}, err
+		}
+		prior, lookupErr := s.scanImportJob(admissionTx.QueryRow(ctx, getImportJobSQL, id, input.UserID))
+		if lookupErr == nil {
+			if !strings.EqualFold(prior.githubOwner, owner) || !strings.EqualFold(prior.githubRepo, repo) || prior.TargetBookmark != branch {
+				return ImportJob{}, pkgerrors.Conflict("setup import inputs changed")
+			}
+			if prior.Status == "failed" {
+				prior, err = s.scanImportJob(admissionTx.QueryRow(ctx, retryImportJobSQL, id, input.UserID))
+				if err != nil {
+					return ImportJob{}, err
+				}
+				if err = admissionTx.Commit(ctx); err != nil {
+					return ImportJob{}, err
+				}
+				s.wakeDurableWorker()
+				return prior, nil
+			}
+			return prior, admissionTx.Commit(ctx)
+		}
+		if !errors.Is(lookupErr, pgx.ErrNoRows) {
+			return ImportJob{}, lookupErr
+		}
+		admission = admissionTx
+	}
+	job, created, err := s.scanStartedImportJob(admission.QueryRow(ctx, createImportJobSQL, id, input.UserID, owner, repo, localOwner, targetName, branch, branch))
 	if err != nil {
 		return ImportJob{}, pkgerrors.Internal("create import job: " + err.Error())
+	}
+	if admissionTx != nil {
+		// An unrelated active import cannot become this operation's receipt.
+		if job.ImportJobID != id {
+			return ImportJob{}, pkgerrors.Conflict("repository import already active")
+		}
+		if err = admissionTx.Commit(ctx); err != nil {
+			return ImportJob{}, err
+		}
 	}
 	if !created {
 		if !strings.EqualFold(job.RepoName, targetName) {
@@ -2428,13 +2477,8 @@ func (s *GitHubImportService) githubCloneInfoForRepo(ctx context.Context, userID
 	if status == http.StatusNotFound {
 		return "", false, "", pkgerrors.NotFound("github repository not found")
 	}
-	if status == http.StatusTooManyRequests || (status == http.StatusForbidden && githubRepoMetadataRateLimited(responseHeader)) {
-		return "", false, "", &pkgerrors.APIError{
-			Status:     http.StatusTooManyRequests,
-			Code:       pkgerrors.CodeRateLimitExceeded,
-			Message:    "github repository request was rate limited",
-			RetryAfter: gitHubRepoMetadataRetryAfter(responseHeader, time.Now().UTC()),
-		}
+	if limited := GitHubRateLimitError(status, responseHeader, time.Now()); limited != nil {
+		return "", false, "", limited
 	}
 	if status == http.StatusUnauthorized {
 		return "", false, "", pkgerrors.Unauthorized("github oauth token was rejected")
@@ -2539,15 +2583,6 @@ func (s *GitHubImportService) fetchGitHubRepoMetadata(ctx context.Context, token
 		return githubRepoMetadata{}, resp.StatusCode, responseHeader, pkgerrors.Internal("failed to decode github repository response").WithCause(err)
 	}
 	return metadata, resp.StatusCode, responseHeader, nil
-}
-
-func githubRepoMetadataRateLimited(header http.Header) bool {
-	for name := range header {
-		if strings.EqualFold(name, "Retry-After") {
-			return true
-		}
-	}
-	return strings.TrimSpace(header.Get("X-RateLimit-Remaining")) == "0"
 }
 
 // refreshUserGitHubToken performs a single reactive refresh of the user's GitHub

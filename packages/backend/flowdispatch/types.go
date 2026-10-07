@@ -19,6 +19,7 @@ const (
 	OperationLaunch  = "flow.runtime.launch"
 	OperationApprove = "flow.runtime.approve"
 	OperationSignal  = "flow.runtime.signal"
+	OperationSteer   = "flow.runtime.steer"
 )
 
 var (
@@ -26,7 +27,8 @@ var (
 	ErrNotLaunchOperation  = errors.New("flow dispatch: operation is not a Flow launch")
 	// ErrTodoOutsideStack refuses the todo composition on any route other
 	// than the stack's pinned launch of an owner's TODO attempt.
-	ErrTodoOutsideStack = errors.New("flow dispatch: the todo flow runs only from stack admission of a filed TODO")
+	ErrTodoOutsideStack       = errors.New("flow dispatch: the todo flow runs only from stack admission of a filed TODO")
+	ErrEngineFlowOutsideStack = errors.New("flow dispatch: coding request, delivery, verification and review are engine-only flows")
 	// ErrRelayPayload refuses a relayed call whose payload the relay cannot
 	// classify exactly: not one object, a duplicate key, or a missing or
 	// mistyped field the call needs.
@@ -56,6 +58,18 @@ func IsTodoFlow(flowID string) bool {
 		name = strings.TrimSuffix(inner, "/flow.ts")
 	}
 	return name == TodoFlow
+}
+
+func engineOnlyFlow(flowID string) bool {
+	name := path.Clean(strings.TrimSpace(flowID))
+	if inner, ok := strings.CutPrefix(name, "flows/"); ok {
+		name = strings.TrimSuffix(inner, "/flow.ts")
+	}
+	switch name {
+	case "coding/request", "coding/vibe", "coding/verify", "review/change":
+		return true
+	}
+	return false
 }
 
 // todoLaunchAllowed is the one route to the todo composition: a stack item
@@ -106,15 +120,45 @@ type SignalRequest struct {
 	Projection           json.RawMessage
 }
 
+// SteerRequest delivers model feedback through Control's notification queue.
+// MessageID and CreatedAt are fixed at product admission and survive retries.
+// The caller authorizes the input; dispatch resolves the fenced runtime owner.
+type SteerRequest struct {
+	Scope                jobs.Scope
+	RequestID            string
+	Target               flowruntime.FlowRuntimeTarget
+	FlowID               string
+	RunID                string
+	MessageID            string
+	CreatedAt            float64
+	Body                 string
+	Attribution          map[string]string
+	AuthorizationContext json.RawMessage
+	Projection           json.RawMessage
+}
+
+// SteerAuthorizer rechecks the committed input's current authority before a
+// worker wakes its host and again immediately before runtime delivery.
+// Admission authorization alone cannot authorize an input held across removal
+// of its author from the repository. TODO delivery requires this provider.
+// A product implementation may also commit a held input's one-time release;
+// it must keep that transition atomic and must not claim runtime consumption.
+type SteerAuthorizer interface {
+	AuthorizeFlowSteer(context.Context, SteerRequest) error
+}
+
 type RuntimeCheckpoint struct {
-	Version             int                             `json:"version"`
-	Target              flowruntime.FlowRuntimeTarget   `json:"target"`
-	FlowID              string                          `json:"flowId"`
-	Projection          json.RawMessage                 `json:"projection"`
-	Identity            flowruntime.FlowRuntimeIdentity `json:"identity"`
-	PlanID              string                          `json:"planId,omitempty"`
-	PlanDigest          string                          `json:"planDigest,omitempty"`
-	ExecutionDigest     string                          `json:"executionDigest,omitempty"`
+	Version         int                             `json:"version"`
+	Target          flowruntime.FlowRuntimeTarget   `json:"target"`
+	FlowID          string                          `json:"flowId"`
+	Projection      json.RawMessage                 `json:"projection"`
+	Identity        flowruntime.FlowRuntimeIdentity `json:"identity"`
+	PlanID          string                          `json:"planId,omitempty"`
+	PlanDigest      string                          `json:"planDigest,omitempty"`
+	ExecutionDigest string                          `json:"executionDigest,omitempty"`
+	// PinRefused survives transient runtime errors while a mismatched guest
+	// is being cancelled. ExecutionDigest remains the admitted identity.
+	PinRefused          bool                            `json:"pinRefused,omitempty"`
 	Envelope            json.RawMessage                 `json:"envelope,omitempty"`
 	Approval            json.RawMessage                 `json:"approval,omitempty"`
 	ApprovalOperationID string                          `json:"approvalOperationId,omitempty"`
@@ -161,9 +205,10 @@ func (project ProjectorFunc) ProjectFlowRuntime(ctx context.Context, update Proj
 }
 
 type Config struct {
-	Store     *jobs.Store
-	Resolver  flowruntime.FlowRuntimeResolver
-	Projector Projector
+	Store           *jobs.Store
+	Resolver        flowruntime.FlowRuntimeResolver
+	Projector       Projector
+	SteerAuthorizer SteerAuthorizer
 	// ObservationDelay is the first wait before re-polling a parked or running
 	// launch. Each poll that finds no progress doubles it, up to
 	// MaxObservationDelay.
@@ -200,6 +245,21 @@ type signalPayload struct {
 	Name       string                        `json:"name"`
 	Payload    json.RawMessage               `json:"payload"`
 	Projection json.RawMessage               `json:"projection"`
+}
+
+type runMutationPayload struct {
+	Target     flowruntime.FlowRuntimeTarget `json:"target"`
+	FlowID     string                        `json:"flowId"`
+	RunID      string                        `json:"runId"`
+	Projection json.RawMessage               `json:"projection"`
+}
+
+type steerPayload struct {
+	runMutationPayload
+	MessageID   string            `json:"messageId"`
+	CreatedAt   float64           `json:"createdAt"`
+	Body        string            `json:"body"`
+	Attribution map[string]string `json:"attribution,omitempty"`
 }
 
 type terminalReceipt struct {

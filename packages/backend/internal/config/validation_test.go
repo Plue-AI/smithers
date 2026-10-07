@@ -409,3 +409,13 @@ func TestValidateServerStartup_MeteredAdmissionNeedsNoPaymentKeys(t *testing.T) 
 	cfg.Billing.StripeSecretKey = ""
 	require.ErrorContains(t, ValidateServerStartupWithDependencies(cfg, StartupDependencies{MeteredAdmission: true}), "injected admission requires billing.mode=metered")
 }
+
+func TestValidateServerStartupInstallCallbackIsPerRequest(t *testing.T) {
+	cfg := validStartupConfig()
+	cfg.Auth.GitHubRedirectURL = ""
+	require.NoError(t, ValidateServerStartup(cfg))
+	var errs []string
+	cfg.Auth.Mode = AuthModeMultitenant
+	validateOptionalProviders(cfg, &errs)
+	require.NotEmpty(t, errs, "hosted authentication still requires its configured callback")
+}

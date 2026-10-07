@@ -2,15 +2,28 @@ import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "approval.approve": { readonly cardId: string }
+  readonly "approval.deny": { readonly cardId: string }
+  readonly "flow": { readonly name: string }
+  readonly "wiki.save": { readonly name?: string; readonly text?: string }
+  readonly "todo.drop": { readonly n: number }
+  readonly "branch.bring-in": { readonly branch: string; readonly id: string; readonly revision: string }
+  readonly "branch.discard-foreign": { readonly branch: string; readonly id: string; readonly revision: string }
+  readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
+
+ readonly "agent.model": { readonly role: string; readonly model?: string }
   readonly "context.inspect": { readonly branch: string; readonly answer: string }
   readonly "debug.api": import("../state/seams/DebugApiSeam").DebugApiInput
   readonly "docs": { readonly page?: string }
   readonly "docs.read": { readonly page: string }
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
-  readonly "flow.create": { readonly description: string; readonly repo: string }
+  readonly "flow.new": { readonly description: string; readonly repo: string }
+  readonly "file.compare": { readonly path: string }
+  readonly "file.restore-deleted": { readonly path: string }
+  readonly "file.follow-rename": { readonly path: string }
+  readonly "file.reapply": { readonly path: string }
   readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
   readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
-  readonly "commits.read": { readonly ref: string; readonly repo: string }
   readonly "runs.trace.view": { readonly runId: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools" }
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
   readonly "runs.signal": { readonly runId: string; readonly name: string; readonly payload?: string }
@@ -29,7 +42,6 @@ export interface FlowInput {
   readonly "wiki.attach": { readonly path?: string; readonly repo?: string }
   readonly "wiki.card.select": { readonly cardId: string; readonly documentId: string }
   readonly "wiki.card.view": { readonly cardId: string; readonly view: string }
-  readonly "prs.land": { readonly number: number; readonly repo: string }
   readonly "prs.review": { readonly number: number; readonly verdict: "approve" | "request-changes" | "comment"; readonly repo: string }
 
   readonly "box.egress": { readonly workspaceId: string; readonly cursor?: string }
@@ -38,7 +50,6 @@ export interface FlowInput {
   readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }
   readonly "change.checks": { readonly changeId: string; readonly seq: number }
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
-  readonly "commits.list": { readonly branch: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
   readonly "secrets.move": { readonly id: string; readonly direction: "up" | "down" }
   /** Carried as JSON: the form opens with these and asks for the value. */
@@ -122,7 +133,6 @@ export interface FlowInput {
   /** `<cardId> <field> [value]` — a blank value clears the field (THE FORM LAW). */
   readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
   /** `<runId> <body>` — the body is the rest of the line. */
-  readonly "runs.steer": { readonly runId: string; readonly body: string }
 
 }
 
@@ -167,8 +177,16 @@ const graphLine = (payload: Payload, target: string, value: string): string => {
  * of the line.
  */
 const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } = {
-  "flow.create": payload => JSON.stringify(payload),
-  "commits.read": payload => line(token(payload, "ref"), token(payload, "repo")),
+  "approval.approve": payload => token(payload, "cardId")!,
+  "approval.deny": payload => token(payload, "cardId")!,
+  "flow": payload => JSON.stringify(payload),
+  "branch.bring-in": payload => JSON.stringify(payload),
+  "branch.discard-foreign": payload => JSON.stringify(payload),
+  "todo.drop": payload => JSON.stringify(payload),
+  "wiki.save": payload => JSON.stringify(payload),
+  "file": payload => JSON.stringify(payload),
+  "agent.model": payload => JSON.stringify(payload),
+  "flow.new": payload => JSON.stringify(payload),
   "runs.trace.view": payload => line(token(payload, "runId"), token(payload, "view")),
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
   "runs.signal": payload => line(token(payload, "runId"), token(payload, "name"), typeof payload.payload === "string" ? payload.payload : undefined),
@@ -187,7 +205,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "wiki.attach": payload => line(token(payload, "path"), token(payload, "repo")),
   "wiki.card.select": payload => fileArgs(String(payload.cardId), String(payload.documentId)),
   "wiki.card.view": payload => line(token(payload, "cardId"), token(payload, "view")),
-  "prs.land": payload => line(token(payload, "number"), token(payload, "repo")),
   "prs.review": payload => JSON.stringify(payload),
   "github.mirror.retry-ref": payload => JSON.stringify(payload),
 
@@ -198,7 +215,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "box.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
-  "commits.list": payload => line(token(payload, "branch"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
   "secrets.move": payload => line(token(payload, "id"), token(payload, "direction")),
   "secrets.set": payload => JSON.stringify(payload),
@@ -232,6 +248,10 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "docs": payload => token(payload, "page") ?? "",
   "context.inspect": payload => JSON.stringify(payload),
   "docs.read": payload => token(payload, "page") ?? "",
+  "file.compare": payload => JSON.stringify(payload),
+  "file.restore-deleted": payload => JSON.stringify(payload),
+  "file.follow-rename": payload => JSON.stringify(payload),
+  "file.reapply": payload => JSON.stringify(payload),
   "files.read": (payload) => fileArgs(
     [payload.path, payload.line, payload.column].filter((value) => value !== undefined).join(":"),
     payload.repo as string | undefined,
@@ -258,7 +278,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.facet": (payload) => line(token(payload, "changeId"), token(payload, "facet")),
   "change.resolve": (payload) => line(token(payload, "changeId"), token(payload, "path")),
   "form.set": (payload) => line(token(payload, "cardId"), token(payload, "field"), token(payload, "value")),
-  "runs.steer": (payload) => line(token(payload, "runId"), token(payload, "body")),
   "triggers.register": payload => JSON.stringify({ ...payload,
     ...(payload.tokens === undefined ? {} : { tokens: String(payload.tokens) }),
     ...(payload.minutes === undefined ? {} : { minutes: String(payload.minutes) }) }),

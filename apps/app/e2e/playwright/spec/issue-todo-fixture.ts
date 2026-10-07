@@ -10,6 +10,12 @@ export async function issueTodoInstall(page: Page, label = false) {
   await installCloudFixture(page, { capabilities: ["identity", "install"], repos: [{ owner: "smithers-mvp-canary", name: "node", full_name: ISSUE_REPO, default_bookmark: "main", owner_type: "User" }] })
   await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: { ...installFixture(), repository: { owner: "smithers-mvp-canary", name: "node" }, repositories: [ISSUE_REPO] } }))
+  await page.route("**/api/members", route => route.fulfill({ json: {
+    members: [{ login: "canary-owner", name: "Canary owner", avatar_url: "https://example.com/owner.png", color_index: 0,
+      role: "owner", needs_access: false, suspended: false, actions: [] }],
+    access_url: `https://github.com/${ISSUE_REPO}/settings/access`
+  } }))
+  await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: ISSUE_REPO }] } }))
   const make = (n: number, text: string): TodoCard => ({ ...fixtures.queued.model, n, title: n === 1 && label ? "Retry webhooks" : `Fixture ${n}`, place: n, issue: undefined, prompt_revisions: [{ ...fixtures.queued.model.prompt_revisions[0]!, text, acceptance: [] }] })
   let todos = label ? [make(1, "Retry webhooks\n\nB1")] : [make(1, "First"), make(2, "Second")]
   const commits: unknown[] = []

@@ -140,14 +140,14 @@ func TestInstallModelAccessTestsEachKeyBeforeDonePostgres(t *testing.T) {
 	require.Zero(t, written, "a refused key writes no model role")
 	require.Equal(t, []map[string]string{
 		{"role": "fast", "provider": "Cerebras", "key": "saved"},
-		{"role": "coding", "provider": "OpenAI", "key": "failed", "error": "Out of credits or rate limited"},
+		{"role": "coding", "model": "gpt-5.1", "provider": "OpenAI", "key": "failed", "error": "Out of credits or rate limited"},
 		{"role": "jev", "provider": "AI Gateway", "key": "saved"},
 	}, modelRoles(t, service))
 
 	// A new value for the refused key reads saved until it is tested.
 	_, err := service.Pool.Exec(t.Context(), `UPDATE owner_model_credentials SET value_encrypted='sealed-replacement' WHERE name='OPENAI_API_KEY'`)
 	require.NoError(t, err)
-	require.Equal(t, map[string]string{"role": "coding", "provider": "OpenAI", "key": "saved"}, modelRoles(t, service)[1])
+	require.Equal(t, map[string]string{"role": "coding", "model": "gpt-5.1", "provider": "OpenAI", "key": "saved"}, modelRoles(t, service)[1])
 
 	tests.mu.Lock()
 	tests.answers = map[string]string{}
@@ -161,9 +161,9 @@ func TestInstallModelAccessTestsEachKeyBeforeDonePostgres(t *testing.T) {
 	require.JSONEq(t, `{"protocol":"openai-responses","modelId":"gpt-5.1","credential":"OPENAI_API_KEY"}`, agentSetting(t, service, "coding"))
 	require.JSONEq(t, `{"protocol":"evaluation","modelId":"typesafe-ai/jev","credential":"AI_GATEWAY_API_KEY"}`, agentSetting(t, service, "jev"))
 	require.Equal(t, []map[string]string{
-		{"role": "fast", "provider": "Cerebras", "key": "saved"},
-		{"role": "coding", "provider": "OpenAI", "key": "saved"},
-		{"role": "jev", "provider": "AI Gateway", "key": "saved"},
+		{"role": "fast", "model": "gpt-oss-120b", "provider": "Cerebras", "key": "saved"},
+		{"role": "coding", "model": "gpt-5.1", "provider": "OpenAI", "key": "saved"},
+		{"role": "jev", "model": "typesafe-ai/jev", "provider": "AI Gateway", "key": "saved"},
 	}, modelRoles(t, service))
 }
 
@@ -224,4 +224,25 @@ func TestInstallModelAccessRequiresCodingAndGatewayKeysPostgres(t *testing.T) {
 	require.Equal(t, InstallFailed, step.Status)
 	require.Equal(t, "model_key_missing", step.Error.Code)
 	require.Empty(t, tests.roles(), "a missing key is refused before any provider call")
+}
+
+func TestInstallModelAccessPreservesOwnerFastAssignmentPostgres(t *testing.T) {
+	service, owner := modelAccessFixture(t, "OPENAI_API_KEY", "AI_GATEWAY_API_KEY", "CEREBRAS_API_KEY")
+	service.Models = &modelTestRecorder{requests: map[string]json.RawMessage{}}
+	const custom = `{"protocol":"openai-chat","modelId":"custom-fast","credential":"CEREBRAS_API_KEY","baseUrl":"https://api.cerebras.ai"}`
+	q := db.New(service.Pool)
+	require.NoError(t, q.AssignInstallAgentModel(t.Context(), "fast", json.RawMessage(custom)))
+	require.Equal(t, InstallReady, runModelAccess(t, service, "custom-fast-present").Status)
+	require.JSONEq(t, custom, agentSetting(t, service, "fast"))
+	_, err := service.Pool.Exec(t.Context(), `UPDATE owner_model_credentials SET value_encrypted=NULL WHERE user_id=$1 AND name='CEREBRAS_API_KEY'`, owner)
+	require.NoError(t, err)
+	// Reopening the completed setup step exercises the same worker again.
+	step, err := json.Marshal(InstallStep{ID: "models", Status: InstallPending})
+	require.NoError(t, err)
+	require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "setup.step.models", Value: step}))
+	require.Equal(t, InstallReady, runModelAccess(t, service, "custom-fast-absent").Status)
+	require.JSONEq(t, custom, agentSetting(t, service, "fast"))
+	binding, err := q.EffectiveInstallAgentModel(t.Context(), "app")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"protocol":"openai-responses","modelId":"gpt-5.1","credential":"OPENAI_API_KEY"}`, string(binding))
 }

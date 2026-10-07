@@ -186,3 +186,15 @@ func Clamp(owner, formula int) (int, error) {
 	}
 	return min(owner, formula), nil
 }
+
+// FreeDisk reads the runtime state volume again, rather than its startup profile.
+func (r *Runtime) FreeDisk(ctx context.Context) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	var stat unix.Statfs_t
+	if err := unix.Statfs(r.root, &stat); err != nil {
+		return 0, err
+	}
+	return int64(stat.Bavail) * int64(stat.Bsize), nil
+}

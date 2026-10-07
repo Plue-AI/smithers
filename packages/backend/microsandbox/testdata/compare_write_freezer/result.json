@@ -1,0 +1,40 @@
+{
+  "exit_code": 0,
+  "environment": "Supplemental Linux host; not the production guest",
+  "root": false,
+  "qualification": false,
+  "source_sha256": {
+    "queued-write.c": "88ac68f2e7f64494ef2b716c4b1863674f6796e85090327bd755700de2d4f724",
+    "probe.py": "7e3845463acd945d820e00f5fffc2bb4ad752f451f6f277c0f4336f74234e33e"
+  },
+  "limits": [
+    "Not production guest kernel",
+    "Queued poll and write only; not already executing direct I/O",
+    "No whole-patch or startup qualification"
+  ],
+  "results": [
+    {
+      "uid": 1000,
+      "kernel": "7.0.0-38-generic",
+      "mode": "ordinary",
+      "before": "original\n",
+      "after": "original\n",
+      "resumed": "outside-latest\n",
+      "events_while_frozen": "populated 1\nfrozen 1\n",
+      "writer_alive_while_frozen": true,
+      "held_until_thaw": true
+    },
+    {
+      "uid": 1000,
+      "kernel": "7.0.0-38-generic",
+      "mode": "sqpoll",
+      "before": "original\n",
+      "after": "original\n",
+      "resumed": "outside-latest\n",
+      "events_while_frozen": "populated 1\nfrozen 1\n",
+      "writer_alive_while_frozen": true,
+      "held_until_thaw": true
+    }
+  ],
+  "date": "2026-10-06"
+}

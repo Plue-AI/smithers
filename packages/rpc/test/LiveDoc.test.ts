@@ -5,6 +5,7 @@ import {
   decodeLiveDocBinary,
   encodeLiveDocBinary,
   LiveDocReply,
+  LiveDocAwareness,
   LiveDocWriteRefusal,
   parseLiveDocTopic
 } from "../src/LiveDoc.ts"
@@ -34,9 +35,16 @@ describe("document browser contract", () => {
   test("reviewed pins and fixture digest", () => {
     const manifest = JSON.parse(readFileSync(new URL("MANIFEST.json", root), "utf8"))
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
-    expect(manifest.pins).toEqual({ yjs: "13.6.32", yrs: "0.27.4" })
+    expect(manifest.pins).toEqual({ yjs: "13.6.32", yrs: "=0.27.4" })
     expect(pkg.dependencies.yjs).toBe("13.6.32")
     expect(createHash("sha256").update(fixture).digest("hex")).toBe(manifest.files["doc-browser.json"])
+    for (const [name, digest] of Object.entries(manifest.files)) {
+      expect(createHash("sha256").update(readFileSync(new URL(name, root))).digest("hex")).toBe(digest)
+    }
+    const daemon = JSON.parse(readFileSync(new URL("doc-daemon.json", root), "utf8"))
+    for (const frame of daemon.frames) {
+      expect(readFileSync(new URL(`doc-${frame.name}.bin`, root)).toString("hex")).toBe(frame.hex)
+    }
   })
   test("topics preserve branch and repository data", () => {
     expect(parseLiveDocTopic("doc:code:b:src/a:b.ts")).toEqual({ kind: "code", branch: "b", path: "src/a:b.ts" })
@@ -103,9 +111,44 @@ describe("document browser contract", () => {
       message: "Unavailable"
     })
     expect(LiveDocWriteRefusal.safeParse({ code: "stale", status: 200 }).success).toBe(false)
-    expect(LiveDocReply.safeParse({ t: "saved", id: 7, sv: "!", at: "2026-10-03T12:00:00Z" }).success).toBe(false)
+    expect(LiveDocReply.safeParse({ t: "saved", id: 7, sv: "!", seq: 1 }).success).toBe(false)
     const relay = new LiveDocRelay(["{\"t\":\"err\",\"id\":7,\"code\":\"unsupported\",\"actor\":\"forged\"}"])
     expect(() => relay.next()).toThrow()
     expect(() => relay.next()).toThrow()
   })
+})
+
+
+test("sequence receipts and outside/gone envelopes are strict", () => {
+  const by = { id: "ben", kind: "person", member_id: "ben", via: "ssh" }
+  for (const seq of [0, 1, Number.MAX_SAFE_INTEGER]) {
+    expect(LiveDocReply.parse({ t: "saved", id: 7, sv: "AA==", seq })).toEqual({ t: "saved", id: 7, sv: "AA==", seq })
+  }
+  for (const seq of [undefined, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    expect(LiveDocReply.safeParse({ t: "saved", id: 7, sv: "AA==", seq }).success).toBe(false)
+  }
+  for (const frame of [
+    { t: "outside", id: 7, data: { version: "burst-1", by } },
+    { t: "gone", id: 7, data: { kind: "deleted", by } },
+    { t: "gone", id: 7, data: { kind: "renamed", by, to: "src/new.ts" } }
+  ]) {
+    const relay = new LiveDocRelay([JSON.stringify(frame)])
+    expect(JSON.parse(relay.next() as string)).toEqual(frame)
+  }
+  for (const data of [{ kind: "renamed", by }, { kind: "deleted", by, to: "a" }, { deleted: true, by },
+    { kind: "renamed", by, to: "../escape" }]) {
+    expect(LiveDocReply.safeParse({ t: "gone", id: 7, data }).success).toBe(false)
+  }
+})
+
+test("fake host stamps awareness identity and colour while preserving relative selections", () => {
+  const actor = { id: "alice", kind: "person", member_id: "alice", via: "app" } as const
+  const principal = { actor, colour: "#336699" }
+  const position = { tname: "content", item: { client: 42, clock: 0 }, assoc: -1 }
+  const relay = new LiveDocRelay([])
+  expect(relay.awareness({ actor: { id: "forged" }, colour: "red", line: 2, anchor: position, head: position }, principal))
+    .toEqual({ actor, colour: "#336699", line: 2, anchor: position, head: position })
+  expect(relay.awareness({ line: 1 }, principal)).toEqual({ ...principal, line: 1 })
+  for (const line of [0, -1, 1.5]) expect(() => relay.awareness({ line }, principal)).toThrow()
+  expect(LiveDocAwareness.safeParse({ ...principal, line: 1, head: { item: { client: -1, clock: 0 } } }).success).toBe(false)
 })

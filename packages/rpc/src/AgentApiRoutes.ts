@@ -4,20 +4,6 @@
  * @since 1.0.0
  */
 
-/**
- * Route contract shared by the browser agent client and the server boundary, so the two
- * can never drift. Kept free of Node imports because the browser bundle imports it.
- * @since 1.0.0
- * @category constants
- */
-export const TURN_PATH = "/api/agent/turn"
-/**
- * The cancel route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const CANCEL_PATH = "/api/agent/turn/cancel"
 
 /** Read committed turn output without starting inference or spending another turn.
  * @since 1.0.0
@@ -36,11 +22,6 @@ export const CONVERSATIONS_PATH = "/api/agent/conversations"
  */
 export const CONVERSATION_REPLAY_PATH = "/api/agent/conversations/replay"
 
-/** Retire one accepted leg and erase its retained output.
- * @since 1.0.0
- * @category constants
- */
-export const TURN_RETIRE_PATH = "/api/agent/turn/retire"
 /** Delete-only capability endpoint, available after account sign-out.
  * @since 1.0.0
  * @category constants
@@ -349,20 +330,6 @@ export const JEV_PATH = "/api/jev"
  * main process serves these on http://127.0.0.1:<port> and the SPA streams
  * the same NDJSON AgentTurnFrames the native bridge used to carry.
  */
-/**
- * The chat turn route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const CHAT_TURN_PATH = "/api/chat/turn"
-/**
- * The chat cancel route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const CHAT_CANCEL_PATH = "/api/chat/cancel"
 /**
  * The health route shared by server and client.
  *

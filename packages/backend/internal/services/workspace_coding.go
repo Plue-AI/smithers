@@ -248,6 +248,13 @@ func (s *WorkspaceService) ApplyCodingOperation(ctx context.Context, workspaceID
 	_ = json.Unmarshal(raw, &request)
 	var result WorkspaceCodingResult
 	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+		// The native file installer has recovery copies, not qualified
+		// outside-writer exclusion or whole-patch rollback. It must not bypass
+		// the unavailable compare-write provider through the coding endpoint.
+		// Keep access checks before this refusal and start no guest execution.
+		if input.Operation == "apply_files" {
+			return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "authenticated atomic file mutation provider unavailable")
+		}
 		var err error
 		result, err = s.executeCoding(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, request)
 		if err == nil && result.Status == "accepted" {

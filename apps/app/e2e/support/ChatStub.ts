@@ -28,6 +28,10 @@ const lastUserMessage = (request: StartAgentTurnRequest): string => {
 }
 
 export const stubReply = (request: StartAgentTurnRequest): string => {
+  if (/^how do i put https in front\?$/i.test(lastUserMessage(request).trim())) {
+    const output = request.messages.find(message => "type" in message && message.type === "function_call_output")
+    if (output && "output" in output) return `docs.read quickstart: ${output.output}`
+  }
   if (request.instructions === TITLE_INSTRUCTIONS) return `Fast title for ${/holds (\d+) entries/.exec(lastUserMessage(request))?.[1] ?? "?"} entries.`
   return `stub: ${lastUserMessage(request)}`
 }
@@ -41,7 +45,8 @@ const STUB_TOOL = /^stub-tool (\S+)(?: ([\s\S]+))?$/
 
 const toolCall = (request: StartAgentTurnRequest): AgentTurnFrame | undefined => {
   if (request.messages.some((message) => "type" in message && message.type === "function_call_output")) return undefined
-  const match = STUB_TOOL.exec(lastUserMessage(request).trim())
+  const text = lastUserMessage(request).trim()
+  const match = STUB_TOOL.exec(/^how do i put https in front\?$/i.test(text) ? "stub-tool docs.read quickstart" : text)
   if (match === null) return undefined
   const [, name, args] = match
   return { runId: request.runId, type: "tool_call", call_id: `stub-call-${request.runId}`, name: "commands",
@@ -60,6 +65,19 @@ export const createChatStub = (publish: (frame: AgentTurnFrame) => void): CloudA
       const frames: ReadonlyArray<AgentTurnFrame> = call !== undefined
         ? [call, { runId: request.runId, type: "done", reason: "tool_call" }]
         : [
+          ...(["stub-context-preflight", "stub-wiki-preflight"].includes(lastUserMessage(request)) ? [
+            { runId: request.runId, type: "context.preflight" as const, phase: "completed" as const,
+              result: { context: lastUserMessage(request) === "stub-wiki-preflight"
+                ? [{ kind: "page" as const, label: "Retries", ref: "retries", revision: "4", reason: "Retry policy" }]
+                : [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts",
+                revision: "0123456789abcdef0123456789abcdef01234567", reason: "Retry implementation" }],
+                candidates: lastUserMessage(request) === "stub-wiki-preflight"
+                  ? [{ kind: "page" as const, label: "Retries", ref: "retries", revision: "4" }]
+                  : [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "0123456789abcdef0123456789abcdef01234567" }],
+                model: "owner-fast", durationMs: 12 } },
+            { runId: request.runId, type: "card" as const, card: { id: `run:${request.runId}`, kind: "run" as const,
+              title: "App agent", status: "active" as const, createdAt: 1, ordinal: 1, payload: { id: request.runId } } }
+          ] : []),
           { runId: request.runId, type: "delta", kind: "reasoning", text: "stub: thinking" },
           { runId: request.runId, type: "delta", kind: "text", text: stubReply(request) },
           { runId: request.runId, type: "done", reason: "stop" }

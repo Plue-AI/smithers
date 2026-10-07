@@ -56,3 +56,21 @@ it("scheduled run lifecycle histories retain the rotating seed and shrunk case",
   assert.equal(artifact.with["if-no-files-found"], "error")
   assert.notEqual(job["continue-on-error"], true)
 })
+
+it('durability runs nightly and reference execution refuses before branch tools', () => {
+  const workflow = parseWorkflow(readFileSync(join(root, '.github/workflows/reliability.yml'), 'utf8'))
+  const job = workflow.jobs['e2e-faults']
+  assert.deepEqual(job.strategy.matrix.host, ['linux', 'reference'])
+  assert.equal(job.strategy['fail-fast'], false)
+  const refusal = job.steps.findIndex((step) => step.name === 'Refuse unapproved reference-host execution')
+  const build = job.steps.findIndex((step) => step.name === 'Install native smithers-jj-export')
+  assert.ok(refusal >= 0 && refusal < build)
+  assert.match(job.steps[refusal].run, /C-SEC-02/)
+  assert.match(job.steps[refusal].run, /approved main-bundle provenance/)
+  const suite = job.steps.find((step) => step.name === 'Exclusive fault matrix')
+  assert.match(suite.run, /--jobs 1/)
+  assert.doesNotMatch(suite.run, /known-red/)
+  assert.doesNotMatch(JSON.stringify(job), /secrets\./)
+  const ci = parseWorkflow(readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
+  assert.equal(ci.jobs['e2e-faults'], undefined)
+})

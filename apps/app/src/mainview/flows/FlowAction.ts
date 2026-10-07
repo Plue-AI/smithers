@@ -12,7 +12,7 @@
  * goes through the `dynamic*` pair. The escape hatch is named on purpose: a
  * plain string at a call site is visible as one.
  */
-import type { CatalogTag } from "@smthrs/rpc/catalog/index"
+import type { CatalogTag } from "@smthrs/rpc/CatalogTags"
 import type { FlowName } from "./FlowName"
 
 /** The attributes that name the flow behind one affordance. */

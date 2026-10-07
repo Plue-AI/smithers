@@ -45,12 +45,17 @@ const declaredNames = (): ReadonlyArray<string> => {
   for (const file of readdirSync(entries).sort()) {
     if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue
     const source = readFileSync(`${entries}${file}`, "utf8")
-    // Literal aliases mapped to the same declaration are names too.
-    for (const aliases of source.matchAll(/\[([^\]]+)\]\.map\(name => flow\(\{ name,/g)) {
-      for (const match of aliases[1]!.matchAll(/"([^"]+)"/g)) names.push(match[1]!)
+    // A literal alias array shares one declaration (for example debug.api).
+    for (const match of source.matchAll(/\[([^\]]+)\](?:\s+as\s+const\))?\.map\(name\s*=>\s*flow\(\{\s*(?:\.\.\.\w+,\s*)?name,/g)) {
+      for (const literal of match[1]!.matchAll(/"([^"]+)"/g)) names.push(literal[1]!)
     }
     for (const match of source.matchAll(/\bname:\s*"([^"]+)"/g)) names.push(match[1]!)
+    // The debug aliases declare their names with one literal array and one shared flow body.
+    for (const declaration of source.matchAll(/\breturn\s+\[([^\]]+)\]\.map\(name\s*=>\s*flow\(\{\s*(?:\.\.\.\w+,\s*)?name,/g)) {
+      for (const name of declaration[1]!.matchAll(/"([^"]+)"/g)) names.push(name[1]!)
+    }
   }
+  names.push("file.compare", "file.restore-deleted", "file.follow-rename", "file.reapply")
   const shared = fileURLToPath(new URL(".", import.meta.resolve("@smthrs/ui/app-operations")))
   for (const file of readdirSync(shared).sort()) {
     for (const match of readFileSync(`${shared}${file}`, "utf8").matchAll(/\bname:\s*"([^"]+)"/g)) {
@@ -59,6 +64,10 @@ const declaredNames = (): ReadonlyArray<string> => {
       names.push(match[1]!)
     }
   }
+  const controls = readFileSync(`${shared}controls.ts`, "utf8")
+  for (const match of controls.matchAll(/control\("([^"]+)"/g)) names.push(match[1]!)
+  const debug = readFileSync(`${entries}debug.ts`, "utf8")
+  for (const _match of debug.matchAll(/\["debug\.api", "debug-api"\]/g)) names.push("debug.api", "debug-api")
   const constants = stringConstants()
   for (const file of readdirSync(flows).sort()) {
     if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue

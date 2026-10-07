@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/cookiejar"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -140,8 +141,8 @@ func TestJ1Rehearsal(t *testing.T) {
 	}
 	// The app agent reads the stack and one TODO with the TODO cards the
 	// person's /todo shows, and writes a TODO only as the person's private
-	// Draft, as the owner's browser session; every other command, and every
-	// token, runs none of them.
+	// Draft, as the owner's browser session. Person-only commands and scoped
+	// tokens cannot exercise that authority.
 	appAgentTodos := func() error {
 		if number <= 0 {
 			return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
@@ -179,13 +180,25 @@ func TestJ1Rehearsal(t *testing.T) {
 			"- /todo <Tn> — Open a TODO",
 			"- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)",
 		}, "\n")
-		// The instructions list exactly the commands the host runs for the owner's session.
+		// Keep the original commands as the shared catalog gains additional doors.
 		answer, _, terminal, err := r.ask("", "What can you run? (instructions)")
 		if err != nil {
 			return err
 		}
-		if !terminal || answer != owned {
-			return fmt.Errorf("the owner's instructions list %q, want %q", answer, owned)
+		if !terminal {
+			return fmt.Errorf("the owner's instructions did not finish")
+		}
+		for _, command := range strings.Split(owned, "\n") {
+			if !slices.Contains(strings.Split(answer, "\n"), command) {
+				return fmt.Errorf("the owner's instructions list %q, missing %q", answer, command)
+			}
+		}
+		for _, line := range strings.Split(answer, "\n") {
+			for _, name := range []string{"merge", "secrets.set", "approval.approve", "approval.deny", "todo.erase"} {
+				if strings.HasPrefix(line, "- /"+name+" ") {
+					return fmt.Errorf("the agent was offered forbidden command %s", name)
+				}
+			}
 		}
 		// /stack: each open TODO as its TODO card; the model reads the rows.
 		todoCard := func(frames []rehearsalTurnFrame, command string) bool {
@@ -226,7 +239,7 @@ func TestJ1Rehearsal(t *testing.T) {
 		}
 		// Merge asks the person and is not the host's; secrets are never the
 		// agent's; an unknown command does not exist. None runs anything.
-		for _, name := range []string{"merge", "secrets.set", "todo.erase"} {
+		for _, name := range []string{"merge", "approval.approve", "approval.deny", "secrets.set", "todo.erase"} {
 			answer, frames, terminal, err = r.ask("", fmt.Sprintf("Run /%s T%d", name, number))
 			if err != nil {
 				return err

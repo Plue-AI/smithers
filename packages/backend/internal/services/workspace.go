@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -19,6 +20,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -214,6 +216,7 @@ type WorkspaceResponse struct {
 	// belongs to (RFD-004).
 	AgentSessionID    string `json:"agent_session_id,omitempty"`
 	ProvisioningStage string `json:"provisioning_stage,omitempty"`
+	WaitPosition      int    `json:"wait_position,omitempty"`
 	IsFork            bool   `json:"is_fork"`
 	ParentWorkspaceID string `json:"parent_workspace_id,omitempty"`
 	VMID              string `json:"vm_id"`
@@ -454,6 +457,7 @@ type ForkWorkspaceInput struct {
 	UserID       int64
 	WorkspaceID  string
 	Name         string
+	Request      string
 }
 
 // CreateWorkspaceSnapshotInput is the input for taking a conditional snapshot from a workspace.
@@ -550,6 +554,9 @@ type WorkspaceQuerier interface {
 // lifecycle reconciliation around either a shared runtime or the legacy
 // sandbox transport during migration.
 type WorkspaceService struct {
+	// revisionFork delegates retained workspace Fork to the sole history writer.
+	revisionFork         func(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error)
+	credentialIssuer     *AuthService
 	commandJobs          *jobs.Store
 	commandCodec         flowhost.SecretCodec
 	provisionTasks       *workspaceProvisionTasks
@@ -560,6 +567,8 @@ type WorkspaceService struct {
 	billing               BillingPolicy
 	audit                 *AuditService
 	sourceReader          WorkspaceSourceReader
+	burstPool             *pgxpool.Pool
+	burstVersions         BurstVersionReader
 	refDeleter            WorkspaceRefDeleter
 	userRefs              UserRefHost
 	// branchHeads reads a scratch branch's head (WithBranchHeads).
@@ -569,6 +578,7 @@ type WorkspaceService struct {
 	// scoped advisory lock).
 	transactions                 RepositoryJobTransactions
 	branchMachineProviders       BranchMachineProviders
+	machineAdmission             *microsandbox.AdmissionProviders
 	sandbox                      SandboxVMClient
 	runtime                      workspaceapi.WorkspaceRuntime
 	runtimeIdentity              WorkspaceRuntimeIdentityResolver
@@ -611,7 +621,8 @@ type WorkspaceService struct {
 	headReporterRetryAt *sync.Map
 	// terminalCredentials are the signed-in terminals' delegated credentials
 	// by workspace session id (T-TRM-02).
-	terminalCredentials *sync.Map
+	terminalCredentials  *sync.Map
+	terminalCredentialMu *sync.Mutex
 	// runtimeGuestAccounts caches the account a sandboxed runtime runs each
 	// workspace's commands as (workspaceGuestLayout).
 	runtimeGuestAccounts *sync.Map
@@ -639,6 +650,12 @@ type WorkspaceService struct {
 
 // WorkspaceServiceOption configures optional dependencies.
 type WorkspaceServiceOption func(*WorkspaceService)
+
+// WithWorkspaceCredentialIssuer shares the install's member-checked issuer
+// with terminal minting and every renewal.
+func WithWorkspaceCredentialIssuer(issuer *AuthService) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.credentialIssuer = issuer }
+}
 
 // WorkspaceRuntimeIdentityResolver maps an already-authorized product
 // workspace request onto the tenant and principal identifiers an isolated
@@ -815,6 +832,7 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		boxHostActivity:              &sync.Map{},
 		headReporterRetryAt:          &sync.Map{},
 		terminalCredentials:          &sync.Map{},
+		terminalCredentialMu:         &sync.Mutex{},
 		runtimeGuestAccounts:         &sync.Map{},
 		launchSessionCleanup:         SafeGo,
 		sessionProvisionGrace:        workspaceSessionProvisionGrace,
@@ -1218,6 +1236,9 @@ func (s *WorkspaceService) toWorkspaceResponse(workspace db.Workspace) Workspace
 		LastActivityAt:     workspace.LastActivityAt,
 		CreatedAt:          workspace.CreatedAt,
 		UpdatedAt:          workspace.UpdatedAt,
+	}
+	if queue, ok := s.runtime.(workspaceMachineQueue); ok {
+		resp.WaitPosition, _ = machineQueuePlace(queue, machineQueueHolder(workspace.ID))
 	}
 	if workspace.ClientLeaseExpiresAt.Valid {
 		expires := workspace.ClientLeaseExpiresAt.Time

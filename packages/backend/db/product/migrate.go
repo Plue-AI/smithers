@@ -156,6 +156,20 @@ var migrationRegistry = []migrationSpec{
 	{118, "migrations/0118_repo_connection_repository_id.sql"},
 	{119, "migrations/0119_workspace_forked_from.sql"},
 	{120, "migrations/0120_plan_grant_concurrent_sandboxes.sql"},
+	{121, "migrations/0121_branch_conversations.sql"},
+	{122, "migrations/0122_member_unix_login.sql"},
+	{123, "migrations/0123_member_github_keys.sql"},
+	{124, "migrations/0124_person_confirmations.sql"},
+	{125, "migrations/0125_github_pull_facts.sql"},
+	{126, "migrations/0126_todo_position.sql"},
+	{127, "migrations/0127_wiki_live_cutover.sql"},
+	{128, "migrations/0128_github_main_health.sql"},
+	{129, "migrations/0129_learning_notes.sql"},
+	{130, "migrations/0130_model_usage_step.sql"},
+	{131, "migrations/0131_learning_receipts.sql"},
+	{132, "migrations/0132_github_comment_sources.sql"},
+	{133, "migrations/0133_machine_event_receipts.sql"},
+	{134, "migrations/0134_retire_app_timelines.sql"},
 }
 
 type migration struct {

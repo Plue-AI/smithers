@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Stream } from "effect"
+import { Effect } from "effect"
 import * as Y from "yjs"
 import {
   CloudWikiTransport,
@@ -55,52 +55,12 @@ describe("Plue Wiki Yjs-v1 contract", () => {
     expect(() => wikiPagePath("owner/repo", "../secret")).toThrow()
   })
 
-  test("the existing proxy receives bounded SSE chunks and per-page replay identity", async () => {
-    const frames = [
-      ": connected\n\nevent: wiki.up",
-      "date\nid: 7\ndata: {\"id\":7,\"page_id\":42,\"revision\":7,\"deleted\":false,\"slug\":\"new-name\"}\n\n"
-    ]
-    let request = ""
-    const transport = makeCloudWikiTransport({
-      baseUrl: "https://smithers.test",
-      http: async (url) => {
-        request = url
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              frames.forEach((frame) => controller.enqueue(new TextEncoder().encode(frame)))
-              controller.close()
-            }
-          }),
-          { headers: { "content-type": "text/event-stream" } }
-        )
-      }
-    })
-    const events = await Effect.runPromise(Stream.runCollect(transport.revisions("owner/repo", "old-name", 42, 6, "private")))
-    expect(request).toContain("/api/repos/owner/repo/wiki/old-name/stream?page_id=42&after=6&visibility=private")
-    expect(events).toEqual([{ id: 7, page_id: 42, revision: 7, deleted: false, slug: "new-name" }])
+  test("the snapshot transport exposes no edit or revision stream", () => {
+    const transport = makeCloudWikiTransport({ baseUrl: "", http: async () => { throw new Error("unexpected request") } })
+    expect("update" in transport).toBe(false)
+    expect("revisions" in transport).toBe(false)
   })
 
-  test("mismatched revision identity and revoked access fail instead of advancing the cursor", async () => {
-    for (
-      const frame of [
-        "event: wiki.update\nid: 8\ndata: {\"id\":7,\"page_id\":42,\"revision\":7,\"deleted\":false,\"slug\":\"home\"}\n\n",
-        "event: revoked\ndata: {}\n\n"
-      ]
-    ) {
-      const transport = makeCloudWikiTransport({
-        baseUrl: "",
-        http: async () =>
-          new Response(frame, {
-            headers: { "content-type": "text/event-stream" }
-          })
-      })
-      const result = await Effect.runPromise(
-        Effect.result(Stream.runCollect(transport.revisions("owner/repo", "home", 42, 6, "public")))
-      )
-      expect(result._tag).toBe("Failure")
-    }
-  })
 })
 
 describe("the wiki spaces transport (#1922)", () => {

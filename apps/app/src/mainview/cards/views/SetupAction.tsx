@@ -1,3 +1,4 @@
+import { addImagePackage } from "@smthrs/rpc/MachineJson"
 import { useId, useState } from "react"
 import type { Action, CardProps } from "@smthrs/rpc/CardAction"
 
@@ -6,7 +7,12 @@ export function SetupAction({ action, onAction, inline = false, choiceLabels = {
   const [input, setInput] = useState<Record<string, string>>({})
   const values = Object.fromEntries((action.input ?? []).map(field => [field.name, input[field.name] ?? field.value ?? field.choices?.[0] ?? ""]))
   const clearedInput = Object.fromEntries(Object.entries(input).filter(([name]) => action.input?.find(f => f.name === name)?.kind !== "secret"))
-  const submit = () => { if (!action.disabled) onAction(action.tag, { ...action.args, ...values }) }
+  const packageReason = (() => {
+    if (action.tag !== "image.add" || !values.name) return undefined
+    try { addImagePackage(undefined, values.name); return undefined }
+    catch (cause) { return cause instanceof Error ? cause.message : "Invalid Debian package name" }
+  })()
+  const submit = () => { if (!action.disabled && !packageReason) onAction(action.tag, { ...action.args, ...values }) }
   const stepper = ["capacity", "parallel", "todo_daily_admissions"].includes(action.args?.field ?? "")
   const minimum = Number(action.args?.min ?? "0")
   const maximum = Number(action.args?.max ?? "Infinity")
@@ -24,6 +30,7 @@ export function SetupAction({ action, onAction, inline = false, choiceLabels = {
       {field.name === "origins" && unencrypted?.includes(values[field.name]) && <span> · unencrypted</span>}
     </div>)}
     {stepper ? null : <button type="submit" data-flow={action.tag} data-primary={action.primary || undefined} disabled={!!action.disabled}>{action.label}</button>}
+    {packageReason && <span className="setup-error" role="alert">{packageReason}</span>}
     {action.disabled && <span className="setup-reason">{action.disabled.reason}</span>}
   </form>
 }

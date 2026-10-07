@@ -96,7 +96,7 @@ func requireTodoControl(t *testing.T, err error, status int, code string) {
 func TestTodoIssueBarredAndSuspendedWritersAreOutsiders(t *testing.T) {
 	f := newPublicationFixture(t, false)
 	ctx := context.Background()
-	_, err := f.pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint)) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, f.repoID)
+	_, err := f.pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint,'owner_login','rehearsal-owner','repository_name','app')) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, f.repoID)
 	require.NoError(t, err)
 	var writerID int64
 	err = f.pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email) VALUES('writer','writer','writer@example.test','writer@example.test') RETURNING id`).Scan(&writerID)
@@ -204,7 +204,7 @@ func (r todoIssueProvenanceTransport) RoundTrip(req *http.Request) (*http.Respon
 func TestTodoIssueOwnAppTextRequiresActiveMember(t *testing.T) {
 	f := newPublicationFixture(t, false)
 	ctx := context.Background()
-	_, err := f.pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint)) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, f.repoID)
+	_, err := f.pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint,'owner_login','rehearsal-owner','repository_name','app')) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, f.repoID)
 	require.NoError(t, err)
 	f.fake.SetCollaborator(8, "writer", "write")
 	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,github_id,permission) VALUES($1,$2,8,'write')`, f.repoID, f.userID)

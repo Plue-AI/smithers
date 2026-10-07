@@ -9,7 +9,7 @@ const importsAgentFromBridge = /import type \{[^}]*\bNativeAgent\b[^}]*\} from "
 describe("agent port placement", () => {
 
   test("every implementation binds the contract from the runtime module", () => {
-    for (const file of ["./Runtime.ts", "../native/WebAgent.ts"]) {
+    for (const file of ["./Runtime.ts", "../native/ConversationHistory.ts"]) {
       const implementation = source(file)
       expect(implementation).toContain("AgentPort")
       expect(implementation).not.toMatch(importsAgentFromBridge)

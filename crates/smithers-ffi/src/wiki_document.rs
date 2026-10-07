@@ -80,7 +80,7 @@ pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
             text.insert(&mut txn, 0, &markdown);
         }
     }
-    document_core::validate(&doc, "markdown", false)
+    document_core::validate(&doc, "markdown", true)
         .map_err(|_| invalid("wiki documents may contain only the Markdown text root"))?;
     let txn = doc.transact();
     let markdown = text.get_string(&txn);

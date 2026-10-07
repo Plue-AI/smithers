@@ -1,6 +1,6 @@
 //! Session reattachment on the shared object/session credit pipe (ADR 0004).
 //! The one-shot helper cannot retain byte offsets across host disconnects.
-use crate::credit::{INITIAL_CREDIT, ReadOutcome, Receiver, Sender};
+use crate::credit::{ReadOutcome, Receiver, Sender, INITIAL_CREDIT};
 use std::collections::VecDeque;
 use std::io::{self, Read};
 
@@ -82,6 +82,9 @@ impl SessionReceiver {
         let window = self.pipe.consumed(bytes)?;
         self.received = next;
         Ok(window)
+    }
+    pub fn reattach(&mut self, delivered_eof: bool) -> io::Result<()> {
+        self.pipe.reattach(delivered_eof)
     }
     pub fn received(&self) -> u64 {
         self.received
@@ -198,8 +201,10 @@ mod tests {
         assert!(receiver.eof().is_err());
         receiver.received = u64::MAX;
         assert!(receiver.consumed(1).is_err());
-        let mut sender = SessionSender::default();
-        sender.acknowledged = u64::MAX;
+        let mut sender = SessionSender {
+            acknowledged: u64::MAX,
+            ..SessionSender::default()
+        };
         assert!(sender.window(1).is_err());
     }
 }

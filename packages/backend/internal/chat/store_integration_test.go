@@ -34,17 +34,12 @@ const dbWait = 10 * time.Second
 
 var scopeID atomic.Int64
 
-var chatSuite = postgresfixture.Suite{Empty: true}
+// Author rechecks use the real install membership tables alongside the journal.
+var chatSuite = postgresfixture.Suite{}
 
 func TestMain(m *testing.M) {
 	os.Exit(chatSuite.Run(m, func(ctx context.Context, pool *pgxpool.Pool) error {
-		schema, err := Schema()
-		if err != nil {
-			return err
-		}
-		if _, err := pool.Exec(ctx, string(schema)); err != nil {
-			return err
-		}
+		var err error
 		testStore, err = NewStore(pool)
 		return err
 	}))
@@ -406,6 +401,11 @@ func authenticatedRoutes(handler *Handler, userID int64, owner string) http.Hand
 		})
 	})
 	handler.MountPublic(router)
+	// Historical-journal fixtures exercise the retained decoder/writer protocol;
+	// these routes are deliberately absent from the product mount.
+	router.Post(TurnPath, handler.Turn)
+	router.Post(CancelPath, handler.Cancel)
+	router.Post(RetirePath, handler.Retire)
 	handler.MountProducerCallbacks(router)
 	return router
 }

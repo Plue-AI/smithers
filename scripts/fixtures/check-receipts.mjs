@@ -1,9 +1,42 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, lstatSync, readdirSync, readlinkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { run } from '../issue-claim.mjs'
+
+// Stored ZIP fixtures use actual bytes and Unix modes, without a host zip binary.
+export const zipFixture = (directory, destination) => {
+  const local = []; const central = []; let offset = 0; let count = 0
+  const visit = (relative = '') => {
+    for (const entry of readdirSync(join(directory, relative))) {
+      const name = relative ? `${relative}/${entry}` : entry
+      const path = join(directory, name); const stat = lstatSync(path)
+      if (stat.isDirectory()) { visit(name); continue }
+      const data = stat.isSymbolicLink() ? Buffer.from(readlinkSync(path)) : readFileSync(path)
+      const encoded = Buffer.from(name)
+      let crc = 0xffffffff
+      for (const byte of data) {
+        crc ^= byte
+        for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
+      }
+      crc = (crc ^ 0xffffffff) >>> 0
+      const header = Buffer.alloc(30)
+      header.writeUInt32LE(0x04034b50); header.writeUInt16LE(20, 4)
+      header.writeUInt32LE(crc, 14); header.writeUInt32LE(data.length, 18); header.writeUInt32LE(data.length, 22); header.writeUInt16LE(encoded.length, 26)
+      local.push(header, encoded, data)
+      const record = Buffer.alloc(46)
+      record.writeUInt32LE(0x02014b50); record.writeUInt16LE(0x0314, 4); record.writeUInt16LE(20, 6)
+      record.writeUInt32LE(crc, 16); record.writeUInt32LE(data.length, 20); record.writeUInt32LE(data.length, 24); record.writeUInt16LE(encoded.length, 28)
+      record.writeUInt32LE((stat.mode << 16) >>> 0, 38); record.writeUInt32LE(offset, 42)
+      central.push(record, encoded); offset += header.length + encoded.length + data.length; count++
+    }
+  }
+  visit()
+  const index = Buffer.concat(central); const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(count, 8); end.writeUInt16LE(count, 10); end.writeUInt32LE(index.length, 12); end.writeUInt32LE(offset, 16)
+  writeFileSync(destination, Buffer.concat([...local, index, end]))
+}
 
 // Literal policy oracles from T-PRC-03 Tests / C-PRC-03 Pass when, not production data.
 export const fixture = () => {
@@ -29,9 +62,9 @@ Automation: \`smthrs test //fixture:canary\` · Runs in: CI
   const ci = (repo = 'o/r') => {
     if (cachedCi?.sha === sha && cachedCi.repo === repo) return cachedCi
     put('ci/results.json', JSON.stringify({ version: 1, results: [{ label: '//fixture:canary', status: 'ran', key: 'fixture' }] }))
-    rmSync(join(root, 'ci/artifact.zip'), { force: true })
-    execFileSync('/usr/bin/zip', ['-q', 'artifact.zip', 'results.json'], { cwd: join(root, 'ci') })
-    const bytes = readFileSync(join(root, 'ci/artifact.zip'))
+    rmSync(join(root, 'artifact.zip'), { force: true })
+    zipFixture(join(root, 'ci'), join(root, 'artifact.zip'))
+    const bytes = readFileSync(join(root, 'artifact.zip'))
     return cachedCi = { sha, repo, bytes, responses: {
       [`repos/${repo}/commits/${sha}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: sha, details_url: `https://github.com/${repo}/actions/runs/7/job/1` }] },
       [`repos/${repo}/actions/runs/7`]: { id: 7, head_sha: sha, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: repo }, status: 'completed', run_attempt: 1 },
@@ -96,13 +129,13 @@ globalThis.fetch = async (url) => {
     // A Git URL supplies recorder identity; git itself still uses our bare fixture.
     git('config', `url.${join(root, 'remote.git')}.insteadOf`, 'https://github.com/o/r.git')
     git('remote', 'set-url', 'origin', 'https://github.com/o/r.git')
-    put('transport.json', JSON.stringify({ responses: data.responses, zip: join(root, 'ci/artifact.zip'), writes: [] }))
+    put('transport.json', JSON.stringify({ responses: data.responses, zip: join(root, 'artifact.zip'), writes: [] }))
     if (status !== 'ran') {
       put('ci/results.json', JSON.stringify({ version: 1, results: [{ label: '//fixture:canary', status, key: 'fixture' }] }))
-      rmSync(join(root, 'ci/artifact.zip'))
-      execFileSync('/usr/bin/zip', ['-q', 'artifact.zip', 'results.json'], { cwd: join(root, 'ci') })
-      data.responses[`repos/o/r/actions/runs/7/artifacts?per_page=100`].artifacts[0].digest = hash(readFileSync(join(root, 'ci/artifact.zip')))
-      put('transport.json', JSON.stringify({ responses: data.responses, zip: join(root, 'ci/artifact.zip'), writes: [] }))
+      rmSync(join(root, 'artifact.zip'))
+      zipFixture(join(root, 'ci'), join(root, 'artifact.zip'))
+      data.responses[`repos/o/r/actions/runs/7/artifacts?per_page=100`].artifacts[0].digest = hash(readFileSync(join(root, 'artifact.zip')))
+      put('transport.json', JSON.stringify({ responses: data.responses, zip: join(root, 'artifact.zip'), writes: [] }))
     }
     return spawnSync(process.execPath, ['scripts/check-run.mjs', id, '--landed', sha], { cwd: root, encoding: 'utf8', env: transportEnv() })
   }
