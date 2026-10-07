@@ -11,6 +11,7 @@ const PENDING_WIRING: Record<string, string> = {
 // Committed inventory: a new View needs its own wiring receipt, rather than
 // becoming accepted just because the import walker can discover it.
 const WIRED_VIEWS = {
+  "ActLineView.tsx": { ticket: "T-APP-16", legacy: [] },
   "HomeView.tsx": { ticket: "T-APP-01", legacy: ["cards/StackCard.tsx", "cards/RepositoryHomeCard.tsx"] },
   "TodoView.tsx": { ticket: "T-APP-02", legacy: [] },
   "DraftView.tsx": { ticket: "T-APP-02", legacy: [] },
