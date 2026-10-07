@@ -212,14 +212,16 @@ export const MODEL_CATALOG_PATH = "/api/model/catalog"
  */
 export const MODEL_DEFAULT_PATH = "/api/model/default"
 /**
- * The model test route: `POST { model }` makes one real call and answers
- * `ModelTestResultSchema` with HTTP 200 for a pass and for a typed failure
- * alike. Only a refusal to run the test uses the refusal envelopes.
+ * The model test route: `POST { requestId, model }` persists one probe and
+ * answers HTTP 202. Read its receipt until terminal; completed results use
+ * `ModelTestResultSchema`. Retrying the same identity joins the original probe.
  *
  * @since 1.0.0
  * @category constants
  */
 export const MODEL_TEST_PATH = "/api/model/test"
+/** Durable owner probe receipt. @since 1.0.0 @category constants */
+export const MODEL_TEST_RECEIPT_PATH = "/api/model/test/receipt"
 
 /*
  * The public catalog and its read-only companions (apps/server

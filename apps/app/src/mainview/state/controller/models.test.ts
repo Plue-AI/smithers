@@ -33,3 +33,111 @@ test("a member read cannot issue the assignment write", async () => {
  await expect(assignInstallAgentModel(h.ctx, "reviewer", "model-b")).rejects.toThrow("Owner access required")
  expect(h.calls).toEqual(["http://install.test/api/agents"])
 })
+
+// Unit transport controls deliberately hold both admission and execution so
+// returning a launch acknowledgment cannot accidentally be treated as done.
+const probeHarness = (recovered?: { requestId: string; model: import("@smthrs/rpc/ConfiguredModel").ConfiguredModel }) => {
+ const model = { id: "probe", protocol: "openai-chat" as const, modelId: "probe-model", credential: "PROBE_KEY" }
+ const cards = new Map<string, any>([["agents", { id: "agents", kind: "agents", payload: { native: false, agents: [], ...(recovered ? { testing: ["probe"], testRequests: { probe: recovered } } : {}) } }]])
+ const listeners = new Set<() => void>()
+ Object.assign(cards, { subscribeChanges: (listener: () => void) => { listeners.add(listener); return { unsubscribe: () => listeners.delete(listener) } } })
+ const models = new Map([["probe", model]])
+ const posts: any[] = [], events: any[] = []
+ let received!: () => void
+ const posted = new Promise<void>(resolve => { received = resolve })
+ let resolveLaunch!: (value: Response) => void
+ const launch = new Promise<Response>(resolve => { resolveLaunch = resolve })
+ let toastWork: Promise<unknown> | undefined
+ let disposed = false
+ const ctx = { commandActor: "user", baseUrl: "http://install.test", accountEpoch: 1, get disposed() { return disposed },
+  store: { collections: { cards, models }, settled: async () => {}, dispatch: (event: any) => {
+   events.push(event)
+   if (event.type === "card.upsert") { cards.set(event.card.id, event.card); for (const listener of listeners) listener() }
+   return { isPersisted: { promise: Promise.resolve() } }
+  } },
+  http: async (path: string, init?: RequestInit) => {
+   if (path.endsWith("/api/agents")) return Response.json({ canAssign: true })
+   if (path.endsWith("/api/model/test")) { posts.push(JSON.parse(String(init?.body))); received(); return launch }
+   return Response.json({ state: "completed", result: { ok: true, latencyMs: 2, sample: "ok" } })
+  },
+  withToast: (_key: string, _start: string, _end: string, work: () => Promise<unknown>) => { toastWork = work(); return toastWork },
+  onDispose: () => undefined, errorMessageOf: async () => "Refused"
+ } as unknown as ControllerContext
+ const controller = createModelsController(ctx, { renderFlowForm: () => undefined, listAgents: async () => {} })
+ return { ctx, controller, cards, models, posts, events, posted, resolveLaunch, hydrated: () => { for (const listener of listeners) listener() }, finish: () => toastWork!, dispose: () => { disposed = true } }
+}
+
+test("a probe persists its identity and returns while admission is unresolved; duplicate input joins", async () => {
+ const h = probeHarness()
+ await h.controller.testModel("probe")
+ await h.controller.testModel("probe")
+ await h.posted
+ expect(h.posts).toHaveLength(1)
+ const request = h.cards.get("agents").payload.testRequests.probe
+ expect(h.posts[0]).toEqual({ requestId: request.requestId, model: request.model })
+ expect(request.model.modelId).toBe("probe-model")
+ expect(h.cards.get("agents").payload.testing).toEqual(["probe"])
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(0)
+ h.resolveLaunch(Response.json({ state: "accepted" }, { status: 202 }))
+ await h.finish()
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(1)
+ expect(h.cards.get("agents").payload.testing).toEqual([])
+ expect(h.cards.get("agents").payload.testRequests).toEqual({})
+})
+
+test("reload reconnects with the original probe and ignores a newly edited record", async () => {
+ const request = { requestId: "persisted-probe-request", model: { id: "probe", protocol: "openai-chat" as const, modelId: "old-model", credential: "PROBE_KEY" } }
+ const h = probeHarness(request)
+ await h.controller.testModel("probe")
+ await h.posted
+ expect(h.posts).toEqual([{ requestId: "persisted-probe-request", model: request.model }])
+ h.resolveLaunch(Response.json({}, { status: 202 }))
+ await h.finish()
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(0)
+})
+
+test("disposal retains the pending receipt for reload and refuses stale results", async () => {
+ const h = probeHarness()
+ await h.controller.testModel("probe")
+ await h.posted
+ h.dispose()
+ h.resolveLaunch(Response.json({}, { status: 202 }))
+ await h.finish()
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(0)
+ expect(h.cards.get("agents").payload.testRequests.probe.requestId).toBe(h.posts[0].requestId)
+})
+
+test("a lost admission response remains retryable with the same persisted probe identity", async () => {
+ const h = probeHarness()
+ const http = h.ctx.http
+ let reject = true
+ h.ctx.http = async (...args) => {
+  if (String(args[0]).endsWith("/api/model/test") && reject) throw new Error("Connection lost")
+  return http(...args)
+ }
+ await h.controller.testModel("probe")
+ await h.finish()
+ const request = h.cards.get("agents").payload.testRequests.probe
+ expect(h.cards.get("agents").payload.error).toBe("Connection lost")
+ expect(h.cards.get("agents").payload.testing).toEqual([])
+ reject = false
+ await h.controller.testModel("probe")
+ await h.posted
+ expect(h.posts[0].requestId).toBe(request.requestId)
+ h.resolveLaunch(Response.json({}, { status: 202 }))
+ await h.finish()
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(1)
+})
+
+test("a pending probe hydrated after controller construction reconnects automatically", async () => {
+ const h = probeHarness()
+ await Promise.resolve()
+ const card = h.cards.get("agents")
+ card.payload = { ...card.payload, testing: ["probe"], testRequests: { probe: { requestId: "late-hydrated-probe", model: h.models.get("probe") } } }
+ h.hydrated()
+ await h.posted
+ expect(h.posts[0].requestId).toBe("late-hydrated-probe")
+ h.resolveLaunch(Response.json({}, { status: 202 }))
+ await h.finish()
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(1)
+})
