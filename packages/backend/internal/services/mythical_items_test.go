@@ -1458,6 +1458,10 @@ func TestForeignPushFetchedWaitAndAcknowledgementAreAtomic(t *testing.T) {
 	item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "blocked", Checks: checks.encode(), IssueNumber: pgtype.Int8{Int64: 4, Valid: true}})
 	require.NoError(t, err)
 	require.True(t, inserted)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=4,owner_id=$2 WHERE id=$1`, item.ID, repo.UserID.Int64)
+	require.NoError(t, err)
+	item, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
 	item.PRNumber, item.PRState, item.PRHead = pgtype.Int8{Int64: 4, Valid: true}, "open", strings.Repeat("a", 40)
 	item.CandidateHead, item.CandidateVerified, item.Reason = strings.Repeat("b", 40), true, "retain failure reason"
 	item.PausedAt = pgtype.Timestamptz{Time: time.Unix(11, 0).UTC(), Valid: true}
@@ -1638,6 +1642,10 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 					state = "running"
 				}
 				item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: state, Checks: checks.encode()})
+				require.NoError(t, err)
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=4,owner_id=$2 WHERE id=$1`, item.ID, repo.UserID.Int64)
+				require.NoError(t, err)
+				item, err = q.GetMythicalItem(ctx, item.ID)
 				require.NoError(t, err)
 				item.PRHead, item.CandidateBase, item.CandidateHead, item.CandidateVerified = base, base, candidate, true
 				if pending != "" {
