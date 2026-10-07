@@ -1485,7 +1485,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 				continue
 			}
 		}
-		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
+		// Close acknowledgement needs an immediate fresh observation even if
+		// the previous proposal's regular poll is still scheduled in the future.
+		// That read fences queued pre-Drop snapshots before reopening is admitted.
+		needsDropRead := item.State == "cancelled" && mythicalReopenFollowed(item, step.now) && mythicalChecksOf(item).GitHubDropRead == nil
+		if !needsDropRead && item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
 			if retryAt, err := s.fetchInstallPullHint(ctx, item); !retryAt.IsZero() {
 				r.dueAt(retryAt)
 				if err != nil {
