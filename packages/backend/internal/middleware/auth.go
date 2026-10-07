@@ -496,6 +496,12 @@ var installMemberRoutes = []struct {
 	{http.MethodPut, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
+	// Retained review doors use their literal catalog actions; the service
+	// consumes the same bound decision when entered from this router.
+	{http.MethodPost, "review.ack", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/threads/[0-9]+/ack$`)},
+	{http.MethodPost, "review.done", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/threads/[0-9]+/done$`)},
+	{http.MethodPost, "review.reopen", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/threads/[0-9]+/reopen$`)},
+	{http.MethodPatch, "approval.deny", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+/reviews/[0-9]+$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},

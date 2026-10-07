@@ -69,8 +69,14 @@ func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, or
 	}
 	// A changeset lands member changes whoever wrote them; that decision is
 	// a person's.
-	if err := middleware.RequirePerson(ctx, "land a changeset"); err != nil {
-		return ChangesetResponse{}, err
+	var authorityErr error
+	if s.landingPolicy != nil && s.landingPolicy.installMainMirror {
+		authorityErr = s.landingPolicy.authorizeCatalogCommand(ctx, "merge", "land a changeset")
+	} else {
+		authorityErr = middleware.RequirePerson(ctx, "land a changeset")
+	}
+	if authorityErr != nil {
+		return ChangesetResponse{}, authorityErr
 	}
 	if actsAsAgent(ctx, actor) {
 		return ChangesetResponse{}, pkgerrors.Forbidden("an agent cannot land a changeset")
