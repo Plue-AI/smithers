@@ -110,6 +110,9 @@ func TestConflictWaitRetainsAttemptAndNativePaths(t *testing.T) {
 	}
 	require.Len(t, mythicalChecksOf(item).Waits, 1)
 	require.Equal(t, "needs_you", todoState(item))
+	update.Checkpoint.Run.PendingWaits[0].Token = "recovered-park"
+	mythicalProjectWaits(&item, mythicalProjection{Phase: "todo"}, update, "run", now)
+	require.Len(t, mythicalChecksOf(item).Waits, 1, "a new runtime park cannot duplicate the retained branch conflict")
 	update.Checkpoint.Run.PendingWaits = nil
 	mythicalProjectWaits(&item, mythicalProjection{Phase: "todo"}, update, "run", now)
 	require.Nil(t, mythicalChecksOf(item).Waits[0].SettledAt, "absence is not native conflict resolution")
