@@ -514,6 +514,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
 		roster := &machineRoster{pool: pool, client: options.Machined, branches: options.Machined.ConnectedBranches}
+		if runtime, ok := options.Workspace.(interface {
+			BindMemberRoster(microsandbox.MemberRoster)
+		}); ok {
+			runtime.BindMemberRoster(roster.withProvisioningRoster)
+			defer runtime.BindMemberRoster(nil)
+		}
 		options.Machined.BindRosterSync(roster.syncBranch)
 		stopRoster := roster.start(ctx, revocationBus)
 		defer func() {

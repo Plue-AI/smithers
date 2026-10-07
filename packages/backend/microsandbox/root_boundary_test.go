@@ -311,6 +311,7 @@ func TestMemberImageRootInputs(t *testing.T) {
 with tempfile.TemporaryDirectory() as directory:
  root=os.path.realpath(directory)
  usr=root+'/usr'; os.mkdir(usr); os.mkdir(usr+'/bin'); os.mkdir(usr+'/shared',0o2775)
+ os.chmod(usr,0o755); os.chmod(usr+'/bin',0o755)
  os.chmod(usr+'/shared',0o2775)
  for name in ('sudo','su','sshd','tool'):
   with open(usr+'/bin/'+name,'wb') as f: f.write(b'image fixture')
@@ -527,5 +528,66 @@ try:g.run_exec({'id':'fixture-session','user':'agent','payload':object()})
 except Observed:pass
 else:raise AssertionError('payload observation missing')
 assert calls==[('drop','agent'),('umask',0o002),('payload',)],calls
+`)
+}
+
+func TestMemberBootDefersHomeUntilFirstSession(t *testing.T) {
+	boundaryPython(t, `
+entry=types.SimpleNamespace(pw_uid=20001,pw_gid=20001,pw_dir='/home/ben',pw_shell='/bin/bash')
+g.pwd.getpwnam=lambda name:entry
+g.grp=types.SimpleNamespace(getgrnam=lambda name:types.SimpleNamespace(gr_gid=20000,gr_mem=['ben']),getgrall=lambda:[])
+g.safe_directory=lambda *args,**kwargs:(_ for _ in ()).throw(AssertionError('boot touched a home'))
+g.setup('ben',20001,[],create_home=False)
+calls=[]
+def child(identity, action, **kwargs):
+ assert identity.startswith('member-root-') and kwargs=={'privileged':True}
+ action(None)
+ return 0
+g.run_managed_child=child
+g.setup=lambda user,uid,dirs,**kwargs:calls.append((user,uid,dirs,kwargs))
+for mode in ('account','home'):
+ try:g.main(['setup-member','ben','20001',mode])
+ except SystemExit as e:assert e.code==0
+ assert calls.pop()==('ben',20001,[],{'create_home':mode=='home'})
+for login,uid,mode in (('root','20001','home'),('agent','19999','home'),('machined','20001','account'),('../ben','20001','home'),('ben','19999','home'),('ben','2147483648','home'),('ben','20001','other')):
+ try:g.main(['setup-member',login,uid,mode])
+ except SystemExit as e:assert e.code==3
+ else:raise AssertionError('invalid allocation accepted')
+assert calls==[]
+`)
+}
+
+func TestMemberPrimaryGroupAllocation(t *testing.T) {
+	boundaryPython(t, `
+import subprocess
+for uid in (20000,20001):
+ calls=[];accounts={};groups={'team':types.SimpleNamespace(gr_gid=20000,gr_name='team',gr_mem=[])}
+ def byname(name):return accounts[name]
+ def byuid(uid):raise KeyError(uid)
+ def groupuid(uid):
+  for group in groups.values():
+   if group.gr_gid==uid:return group
+  raise KeyError(uid)
+ g.pwd.getpwnam=byname;g.pwd.getpwuid=byuid
+ g.grp=types.SimpleNamespace(getgrnam=lambda name:groups[name],getgrgid=groupuid,getgrall=lambda:list(groups.values()))
+ def run(argv,**kwargs):
+  calls.append(argv)
+  assert kwargs=={'check':True,'env':{'PATH':'/usr/bin:/bin'}}
+  if argv[0]=='/usr/sbin/groupadd':
+   assert argv==['/usr/sbin/groupadd','--gid',str(uid),'--','ben']
+   groups['ben']=types.SimpleNamespace(gr_gid=uid,gr_name='ben',gr_mem=[])
+  else:
+   assert argv==['/usr/sbin/useradd','--uid',str(uid),'--gid',str(uid),'--groups','team','--no-create-home','--home-dir','/home/ben','--shell','/bin/bash','--','ben']
+   groups['team'].gr_mem.append('ben')
+   accounts['ben']=types.SimpleNamespace(pw_uid=uid,pw_gid=uid,pw_dir='/home/ben',pw_shell='/bin/bash')
+ subprocess.run=run
+ with tempfile.TemporaryDirectory() as directory:
+  g.safe_directory=lambda *args,**kwargs:os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
+  g.setup('ben',uid,[],create_home=False)
+  assert len(calls)==(1 if uid==20000 else 2)
+  assert os.listdir(directory)==[], 'boot created a home'
+  calls.clear()
+  g.setup('ben',uid,[],create_home=False)
+  assert calls==[], 'retained account was rewritten'
 `)
 }

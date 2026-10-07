@@ -1751,9 +1751,9 @@ def prepare_system_identity():
         fail(3, "invalid daemon account")
 
 
-def setup(user, uid, directories):
-    # Only the host's allocated identity may reach this function. The public
-    # setup command remains agent-only until roster and broker receipts exist.
+def setup(user, uid, directories, *, create_home=True):
+    # Only the host's allocated identity may reach this function. Account-only
+    # boot provisioning must not create a member home before their first session.
     if (not isinstance(user, str) or not re.fullmatch(r"[a-z0-9_-]{1,32}", user)
             or user in ("root", "machined") or type(uid) is not int
             or (uid != 19999 if user == "agent" else not 20000 <= uid <= 2147483647)):
@@ -1787,11 +1787,30 @@ def setup(user, uid, directories):
         # Parent ownership is checked before useradd can address the home.
         parent = safe_directory("/home", trusted=True)
         os.close(parent)
-        subprocess.run(["/usr/sbin/useradd", "--uid", str(uid), "--user-group",
+        # useradd --user-group may silently choose a different primary gid
+        # when uid 20000 meets the already allocated team gid. Bind it exactly.
+        if uid != 20000:
+            try:
+                primary = grp.getgrgid(uid)
+            except KeyError:
+                try:
+                    grp.getgrnam(user)
+                except KeyError:
+                    pass
+                else:
+                    fail(3, "allocated group name already exists")
+                subprocess.run(["/usr/sbin/groupadd", "--gid", str(uid), "--", user],
+                               check=True, env=environment)
+            else:
+                if primary.gr_name != user:
+                    fail(3, "allocated gid already exists")
+        subprocess.run(["/usr/sbin/useradd", "--uid", str(uid), "--gid", str(uid),
                         "--groups", "team", "--no-create-home", "--home-dir", home,
                         "--shell", "/bin/bash", "--", user], check=True, env=environment)
         entry = pwd.getpwnam(user)
     entry = assigned_identity(user, uid)
+    if not create_home:
+        return
     parent = safe_directory("/home", trusted=True)
     try:
         created = False
@@ -2320,6 +2339,18 @@ def main(args):
     if command == "sanitize-system" and len(args) == 1:
         sanitize_system_image()
         return
+    if command == "setup-member" and len(args) == 4:
+        # Root transport only; no repository request selects an allocation.
+        if (args[1] in ("root", "agent", "machined")
+                or not re.fullmatch(r"[a-z0-9_-]{1,32}", args[1])
+                or not re.fullmatch(r"[0-9]{5,10}", args[2])
+                or not 20000 <= int(args[2]) <= 2147483647
+                or args[3] not in ("account", "home")):
+            fail(3, "invalid member setup identity")
+        sys.exit(run_managed_child("member-root-" + secrets.token_hex(16),
+                                   lambda _entry: setup(args[1], int(args[2]), [],
+                                                        create_home=args[3] == "home"),
+                                   privileged=True))
     if command == "setup" and len(args) >= 3:
         if args[1] != "agent":
             fail(3, "member provisioning requires approved roster and broker")

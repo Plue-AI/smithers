@@ -6,9 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 )
 
 // machineRoster keeps member allocations authoritative across link partitions.
@@ -35,27 +37,8 @@ func (r *machineRoster) syncBranch(ctx context.Context, branch string) error {
 	if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT c.unix_login,c.unix_uid FROM collaborators c
- JOIN workspaces w ON w.repository_id=c.repository_id
- LEFT JOIN users u ON u.id=c.user_id
- WHERE w.id=$1::uuid AND c.suspended_at IS NULL
- AND (c.github_id IS NOT NULL OR c.user_id IS NOT NULL)
- AND c.permission IN ('admin','write') AND coalesce(u.prohibit_login,false)=false
- ORDER BY c.unix_uid`, branch)
+	members, err := readMachineMembers(ctx, tx, branch)
 	if err != nil {
-		return err
-	}
-	members := []machined.SessionUser{}
-	for rows.Next() {
-		var member machined.SessionUser
-		if err = rows.Scan(&member.Login, &member.UID); err != nil {
-			rows.Close()
-			return err
-		}
-		members = append(members, member)
-	}
-	rows.Close()
-	if err = rows.Err(); err != nil {
 		return err
 	}
 	// A restoration before event delivery must not preserve an old session.
@@ -181,4 +164,53 @@ func (r *machineRoster) start(ctx context.Context, bus *revocation.Bus) func() {
 		}
 	}()
 	return func() { unsubscribe(); cancel(); <-done }
+}
+
+func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machined.SessionUser, error) {
+	rows, err := tx.Query(ctx, `SELECT c.unix_login,c.unix_uid FROM collaborators c
+ JOIN workspaces w ON w.repository_id=c.repository_id
+ LEFT JOIN users u ON u.id=c.user_id
+ WHERE w.id=$1::uuid AND c.suspended_at IS NULL
+ AND (c.github_id IS NOT NULL OR c.user_id IS NOT NULL)
+ AND c.permission IN ('admin','write') AND coalesce(u.prohibit_login,false)=false
+ ORDER BY c.unix_uid`, branch)
+	if err != nil {
+		return nil, err
+	}
+	members := []machined.SessionUser{}
+	for rows.Next() {
+		var member machined.SessionUser
+		if err = rows.Scan(&member.Login, &member.UID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		members = append(members, member)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+// withProvisioningRoster holds the same owner lock as broker reconciliation,
+// so removal cannot commit between reading allocations and guest setup.
+func (r *machineRoster) withProvisioningRoster(ctx context.Context, branch string, visit func([]microsandbox.MemberIdentity) error) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
+		return err
+	}
+	members, err := readMachineMembers(ctx, tx, branch)
+	if err != nil {
+		return err
+	}
+	identities := make([]microsandbox.MemberIdentity, 0, len(members))
+	for _, member := range members {
+		identities = append(identities, microsandbox.MemberIdentity{Login: member.Login, UID: int(member.UID), Active: true})
+	}
+	return visit(identities)
 }
