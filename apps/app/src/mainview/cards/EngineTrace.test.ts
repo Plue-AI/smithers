@@ -100,7 +100,8 @@ describe("recorded engine evidence in the run trace", () => {
     ]
     const model = traceFromJournal(run, records)
     const native = model.root.children[0]!
-    expect(native).toMatchObject({ kind: "execution", label: "coding/ImplementPlan", status: "pending", startedAt: 101 })
+    expect(native).toMatchObject({ kind: "execution", label: "Implemented the plan", status: "pending", startedAt: 101 })
+    expect(native.detail.fields?.payload).toMatchObject({ state: { flowName: "coding/ImplementPlan" } })
     expect(native.children[0]).toMatchObject({ kind: "execution", label: "coding/Check", status: "completed", detail: { output: '{"passed":false,"target":"typecheck"}' } })
     const attempt = native.children[0]!.children[0]!
     expect(attempt).toMatchObject({ kind: "attempt", status: "completed", startedAt: 103, endedAt: 104 })
