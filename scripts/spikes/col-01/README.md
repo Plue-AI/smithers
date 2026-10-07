@@ -145,8 +145,13 @@ The bridge 4 KiB idle plateau tested as delayed ACK/Nagle: the existing guest
 helper omits TCP_NODELAY. `rtt` therefore also measures `bridge-nodelay`, a
 diagnostic third transport: `echo/bridge_nodelay.py` is the helper's `bridge`
 byte pipe copied with TCP_NODELAY on both sockets, run as a spike service on
-guest port 19003 against the same host listener. It is never chosen; it shows
-what the bridge delivers once T-COL-03 sets the option. The helper is unchanged.
+guest port 19003 against the same host listener. `bridge-nodelay-client`
+(19004), `bridge-nodelay-upstream` (19005) and `bridge-nodelay-none` (19006)
+run the same copy with the option on only the accepted guest socket, only the
+socket to `host.microsandbox.internal`, or neither, to attribute the stall one
+socket at a time; `none` must reproduce the shipped helper. Diagnostics are
+never chosen. Since #3749 the production helper sets the option on both
+sockets, so `bridge` itself measures the fix.
 ADR 0004 supports both topologies.
 
 Host load gates every run and RTT cell. A run starts only when the 1-minute

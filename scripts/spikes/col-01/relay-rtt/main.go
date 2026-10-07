@@ -47,10 +47,21 @@ const (
 	loadPoll        = 15 * time.Second
 	loadWaitLimit   = 3 * time.Hour
 	maxCellAttempts = 5
-	// nodelayPort is the guest loopback port of the spike-only TCP_NODELAY
-	// copy of the helper's bridge (echo/bridge_nodelay.py).
-	nodelayPort = 19003
 )
+
+// nodelayPorts maps each diagnostic transport to the guest loopback port of
+// one spike-only copy of the helper's bridge (echo/bridge_nodelay.py) and the
+// sockets that copy sets TCP_NODELAY on. Setting one socket at a time
+// attributes the 4 KiB stall; `none` must reproduce the shipped helper.
+var nodelayPorts = map[string]struct {
+	port    int
+	sockets string
+}{
+	"bridge-nodelay":          {19003, "both"},
+	"bridge-nodelay-client":   {19004, "client"},
+	"bridge-nodelay-upstream": {19005, "upstream"},
+	"bridge-nodelay-none":     {19006, "none"},
+}
 
 type harness struct {
 	ctx                  context.Context
@@ -291,8 +302,14 @@ func run() (retErr error) {
 		if err = runtime.WriteFile(ctx, h.id, "col01-bridge-nodelay.py", forwarder, 0755); err != nil {
 			return err
 		}
-		if _, err = runtime.StartService(ctx, h.id, workspace.ServiceSpec{Name: "spike-bridge-nodelay", Command: workspace.Command{Args: []string{"python3", "/workspace/col01-bridge-nodelay.py", strconv.Itoa(nodelayPort), strconv.Itoa(int(port(rttListener)))}}, ReadyAddress: fmt.Sprintf("127.0.0.1:%d", nodelayPort), ReadyTimeout: 30 * time.Second}); err != nil {
-			return err
+		for _, transport := range rttTransports {
+			forwarder, ok := nodelayPorts[transport]
+			if !ok {
+				continue
+			}
+			if _, err = runtime.StartService(ctx, h.id, workspace.ServiceSpec{Name: "spike-" + transport, Command: workspace.Command{Args: []string{"python3", "/workspace/col01-bridge-nodelay.py", strconv.Itoa(forwarder.port), strconv.Itoa(int(port(rttListener))), forwarder.sockets}}, ReadyAddress: fmt.Sprintf("127.0.0.1:%d", forwarder.port), ReadyTimeout: 30 * time.Second}); err != nil {
+				return err
+			}
 		}
 	}
 	if *mode == "all" || *mode == "rtt" {
@@ -358,9 +375,9 @@ func (h *harness) dial(transport, kind string) (net.Conn, error) {
 		listener = h.docBridge
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	if transport == "bridge-nodelay" {
+	if forwarder, ok := nodelayPorts[transport]; ok {
 		// Same host listener; the guest dials the spike's NODELAY forwarder.
-		port = nodelayPort
+		port = forwarder.port
 	}
 	ctx, cancel := context.WithCancel(h.ctx)
 	result := make(chan error, 1)
@@ -447,8 +464,8 @@ func payload(size, seq int) []byte {
 	return b
 }
 
-// rttTransports lists the two production transports and the NODELAY diagnostic.
-var rttTransports = []string{"relay", "bridge", "bridge-nodelay"}
+// rttTransports lists the two production transports and the NODELAY diagnostics.
+var rttTransports = []string{"relay", "bridge", "bridge-nodelay", "bridge-nodelay-client", "bridge-nodelay-upstream", "bridge-nodelay-none"}
 
 func (h *harness) rtt(dir string, cpus int) error {
 	f, err := os.OpenFile(filepath.Join(dir, "samples.csv"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -607,12 +624,12 @@ func (h *harness) rtt(dir string, cpus int) error {
 		gates[transport] = valid
 		// bridge-nodelay is a diagnostic of an unshipped helper change; only the
 		// two production transports can be chosen.
-		if transport != "bridge-nodelay" && valid && maxIdle < best {
+		if _, diagnostic := nodelayPorts[transport]; !diagnostic && valid && maxIdle < best {
 			chosen = transport
 			best = maxIdle
 		}
 	}
-	return writeJSON(filepath.Join(dir, "summary.json"), map[string]any{"cells": cells, "connection_setup": setups, "chosen_transport": chosen, "reason": "Choose the passing transport with the smaller worst idle p95; bridge wins a tie only by its measured number, no unmeasured choice.", "local_gate_passed": chosen != "", "gate_passed_by_transport": gates, "diagnostic_transports": map[string]string{"bridge-nodelay": "the guest helper's bridge byte pipe, copied with TCP_NODELAY on both sockets (echo/bridge_nodelay.py); tests the 4 KiB Nagle/delayed-ACK confounder, never chosen"}, "strict_status": "partial: see env for host profile and other VMs", "deviation": deviation})
+	return writeJSON(filepath.Join(dir, "summary.json"), map[string]any{"cells": cells, "connection_setup": setups, "chosen_transport": chosen, "reason": "Choose the passing transport with the smaller worst idle p95; bridge wins a tie only by its measured number, no unmeasured choice.", "local_gate_passed": chosen != "", "gate_passed_by_transport": gates, "diagnostic_transports": map[string]string{"bridge-nodelay": "the guest helper's bridge byte pipe, copied with TCP_NODELAY on both sockets (echo/bridge_nodelay.py); tests the 4 KiB Nagle/delayed-ACK confounder, never chosen", "bridge-nodelay-client": "the same copy with TCP_NODELAY on the accepted guest loopback socket only", "bridge-nodelay-upstream": "the same copy with TCP_NODELAY on the socket to host.microsandbox.internal only", "bridge-nodelay-none": "the same copy with no TCP_NODELAY; a control that must reproduce the shipped helper"}, "strict_status": "partial: see env for host profile and other VMs", "deviation": deviation})
 }
 
 func (h *harness) keystrokes(dir, transport, lan string, httpPort int, serveOnly bool) error {

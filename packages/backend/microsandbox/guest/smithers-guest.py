@@ -680,10 +680,14 @@ def bridge(port, host):
     listener.bind(("127.0.0.1", port))
     listener.listen(128)
 
+    # Both sockets disable Nagle. A frame forwarded in two sends otherwise
+    # waits for the peer's delayed ACK: 4 KiB frames stalled ~50 ms (#3749).
     def serve(client):
         try:
+            client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             upstream = socket.create_connection((host, port), timeout=10)
             upstream.settimeout(None)
+            upstream.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except OSError:
             client.close()
             return

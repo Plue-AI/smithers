@@ -37,7 +37,9 @@ the only thing `msb exec` runs:
   rules; `relay` carries a byte stream to a guest loopback port (managed-host
   HTTP clients, `DialWorkspacePort`, previews); `bridge` exposes the backend's
   own port at guest `127.0.0.1`, the only destination the VM's network policy
-  (`--no-net --net-rule allow@host:tcp:<port>`) allows.
+  (`--no-net --net-rule allow@host:tcp:<port>`) allows. Both bridge sockets
+  set `TCP_NODELAY`: with Nagle on, either one held a frame's second send for
+  the peer's delayed ACK, about 40 ms per direction (#3749).
 
 A managed host's program naming a file of `Config.Bundle` is planted under
 `/opt/smithers/bundle` and rewritten to that guest path before the host
