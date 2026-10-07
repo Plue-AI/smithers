@@ -30,6 +30,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -550,23 +551,7 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
 	home := t.TempDir()
-	browser := filepath.Join(home, "browser.mjs")
-	require.NoError(t, os.WriteFile(browser, []byte("#!/usr/bin/env node\n"+`
-const startURL = new URL(process.argv[2]);
-const start = await fetch(startURL, {redirect:'manual'});
-if(start.status!==302) throw Error(await start.text());
-const cookies = start.headers.getSetCookie().map(v=>v.split(';')[0]).join('; ');
-const github = new URL(start.headers.get('location'));
-const callback = new URL('/api/auth/github/callback',startURL);
-callback.search = new URLSearchParams({code:'fixture-code',state:github.searchParams.get('state')});
-const consent = await fetch(callback,{redirect:'manual',headers:{cookie:cookies}});
-if(consent.status!==302) throw Error(await consent.text());
-const loopback = new URL(consent.headers.get('location'));
-const values = Object.fromEntries(new URLSearchParams(loopback.hash.slice(1)));
-loopback.hash='';
-const settled = await fetch(loopback,{method:'POST',headers:{'content-type':'application/json',origin:loopback.origin},body:JSON.stringify(values)});
-if(settled.status!==200) throw Error(await settled.text());
-`), 0700))
+	browser := writeCLILoginBrowser(t, home, "fixture-code")
 	_, sourceFile, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../../.."))
 	cliCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
@@ -643,4 +628,30 @@ func liveAppTurnCredentialFixture(t *testing.T, pool *pgxpool.Pool, userID int64
  VALUES($1,$2,$1,'fixture','fixture','fixture','running',1,'fixture',NOW()+interval '1 hour')`, id, userID)
 	require.NoError(t, err)
 	return id
+}
+
+func writeCLILoginBrowser(t *testing.T, home, code string) string {
+	t.Helper()
+	browser := filepath.Join(home, "browser.mjs")
+	require.NoError(t, os.WriteFile(browser, []byte("#!/usr/bin/env node\n"+`
+import { writeFileSync } from 'node:fs';
+try {
+const startURL = new URL(process.argv[2]);
+const start = await fetch(startURL, {redirect:'manual'});
+if(start.status!==302) throw Error(await start.text());
+const cookies = start.headers.getSetCookie().map(v=>v.split(';')[0]).join('; ');
+const github = new URL(start.headers.get('location'));
+const callback = new URL('/api/auth/github/callback',startURL);
+callback.search = new URLSearchParams({code:`+strconv.Quote(code)+`,state:github.searchParams.get('state')});
+const consent = await fetch(callback,{redirect:'manual',headers:{cookie:cookies}});
+if(consent.status!==302) throw Error(await consent.text());
+const loopback = new URL(consent.headers.get('location'));
+const values = Object.fromEntries(new URLSearchParams(loopback.hash.slice(1)));
+loopback.hash='';
+const settled = await fetch(loopback,{method:'POST',headers:{'content-type':'application/json',origin:loopback.origin},body:JSON.stringify(values)});
+if(settled.status!==200) throw Error(await settled.text());
+} catch (error) { writeFileSync(new URL('./browser-error.txt', import.meta.url), String(error)); throw error; }
+`), 0700))
+
+	return browser
 }
