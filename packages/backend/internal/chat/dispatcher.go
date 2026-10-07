@@ -70,6 +70,9 @@ func (d *Dispatcher) Enqueue(candidate Candidate) bool {
 }
 
 func (d *Dispatcher) CancelRunning(turnID string) {
+	if d.metrics != nil {
+		d.metrics.latencies.stopped(turnID)
+	}
 	d.mu.Lock()
 	running, ok := d.running[turnID]
 	d.mu.Unlock()

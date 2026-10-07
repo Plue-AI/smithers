@@ -87,6 +87,7 @@ func NewRuntime(pool *pgxpool.Pool, host ports.ChatHost, producerBaseURL string,
 		return nil, err
 	}
 	dispatcher.logger = options.Logger
+	store.latencies = dispatcher.metrics.latencies
 	handler := &Handler{ContextRepository: options.ContextRepository, Store: store, Dispatcher: dispatcher, Sources: options.Sources, credentials: credentials, logger: options.Logger, metrics: dispatcher.metrics}
 	return &Runtime{Handler: handler, dispatcher: dispatcher, store: store, concurrency: options.Concurrency}, nil
 }

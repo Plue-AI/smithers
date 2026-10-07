@@ -15,10 +15,12 @@ type metrics struct {
 	failures       *prometheus.CounterVec
 	recoveryErrors prometheus.Counter
 	streamAborts   *prometheus.CounterVec
+	latencies      *turnLatencies
 }
 
 func newMetrics(queued func() float64) *metrics {
 	return &metrics{
+		latencies: newTurnLatencies(),
 		queued: prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "smithers_chat_turns_queued",
 			Help: "Admitted chat turns waiting in this process's dispatch queue.",
@@ -47,7 +49,7 @@ func newMetrics(queued func() float64) *metrics {
 }
 
 func (m *metrics) collectors() []prometheus.Collector {
-	return []prometheus.Collector{m.queued, m.running, m.claims, m.failures, m.recoveryErrors, m.streamAborts}
+	return []prometheus.Collector{m.queued, m.running, m.claims, m.failures, m.recoveryErrors, m.streamAborts, m.latencies.seconds, m.latencies.omitted}
 }
 
 // errorCode names a store error for logs and metric labels.

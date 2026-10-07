@@ -53,9 +53,10 @@ var schemaFS embed.FS
 func Schema() ([]byte, error) { return schemaFS.ReadFile("schema.sql") }
 
 type Store struct {
-	pool    *pgxpool.Pool
-	now     func() time.Time
-	signals turnSignals
+	pool      *pgxpool.Pool
+	now       func() time.Time
+	signals   turnSignals
+	latencies *turnLatencies
 	// afterReplayHead is a test seam that runs between the head read and the
 	// batch reads of Replay.
 	afterReplayHead func()
@@ -481,6 +482,7 @@ func (s *Store) Admit(ctx context.Context, input AdmitInput) (AdmitResult, error
 	if err = tx.Commit(ctx); err != nil {
 		return AdmitResult{}, err
 	}
+	s.latencies.admitted(turnID, time.Now())
 	return AdmitResult{Status: "accepted", Cursor: cursor, Terminal: false, TurnID: turnID}, nil
 }
 
@@ -551,6 +553,7 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 		if err = tx.Commit(ctx); err != nil {
 			return ProducerGrant{}, err
 		}
+		s.latencies.stopped(turn.ID)
 		s.signals.notify(turn.ID)
 		return ProducerGrant{}, ErrTerminal
 	}
@@ -565,6 +568,7 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 		if err = tx.Commit(ctx); err != nil {
 			return ProducerGrant{}, err
 		}
+		s.latencies.stopped(turn.ID)
 		s.signals.notify(turn.ID)
 		return ProducerGrant{}, ErrUncertain
 	}
@@ -1022,6 +1026,7 @@ func (s *Store) Commit(ctx context.Context, input CommitInput) (CommitResult, er
 	if err = tx.Commit(ctx); err != nil {
 		return CommitResult{}, err
 	}
+	s.latencies.committed(turn.ID, batch, time.Now())
 	s.signals.notify(turn.ID)
 	return CommitResult{Status: "committed", Batch: batch, Cursor: next}, nil
 }
@@ -1254,6 +1259,7 @@ func (s *Store) Cancel(ctx context.Context, scope Scope, runID string) (CancelRe
 		return CancelResult{}, err
 	}
 	for _, turnID := range result.TurnIDs {
+		s.latencies.stopped(turnID)
 		s.signals.notify(turnID)
 	}
 	return result, nil
@@ -1288,7 +1294,11 @@ func (s *Store) Retire(ctx context.Context, input ReplayInput) error {
 	if err = s.retireTurnTx(ctx, tx, turn); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.latencies.stopped(turn.ID)
+	return nil
 }
 
 // Erase is authorized only by the hash of a replay token. The proof cannot be
@@ -1338,7 +1348,13 @@ func (s *Store) Erase(ctx context.Context, runID, legID, proof string) error {
 	if err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	for _, turn := range turns {
+		s.latencies.stopped(turn.ID)
+	}
+	return nil
 }
 
 func (s *Store) retireTurnTx(ctx context.Context, tx pgx.Tx, turn turnRecord) error {
@@ -1488,6 +1504,7 @@ func (s *Store) stopProducerWith(ctx context.Context, grant ProducerGrant, code 
 	if err = tx.Commit(ctx); err != nil {
 		return false, err
 	}
+	s.latencies.stopped(turn.ID)
 	s.signals.notify(turn.ID)
 	return false, nil
 }
