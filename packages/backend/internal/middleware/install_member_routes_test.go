@@ -29,6 +29,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/user", "self"},
 		{http.MethodGet, "/api/repos/local-owner/demo/workspace/sessions", "branches.read"},
 		{http.MethodGet, "/api/repos/local-owner/demo/workspace/sessions/owned", "branch.read"},
+		{http.MethodGet, "/api/repos/local-owner/demo/workspace/sessions/owned/stream", "branch.read"},
+		{http.MethodGet, "/api/repos/local-owner/demo/workspaces/owned/stream", "branch.read"},
 		{http.MethodPost, "/api/workflow/rpc", "flow.relay"},
 		{http.MethodPost, "/api/workflow/provision", "box.resume"},
 		{http.MethodGet, "/api/workflow/rpc", ""},

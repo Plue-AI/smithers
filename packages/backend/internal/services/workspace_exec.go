@@ -276,14 +276,16 @@ func (s *WorkspaceService) authorizeInstallWorkspaceMetadata(ctx context.Context
 // is a read-level operation, so a read share (e.g. a pair viewer) is
 // sufficient; mutating and credential paths stay write-level.
 func (s *WorkspaceService) GetSession(ctx context.Context, sessionID string, repositoryID, userID int64) (WorkspaceSessionResponse, error) {
+	return readInstallWorkspaceMetadata(ctx, s, "branch.read", repositoryID, userID, func(ctx context.Context, scoped *WorkspaceService) (WorkspaceSessionResponse, error) {
+		return scoped.getSession(ctx, sessionID, repositoryID, userID)
+	})
+}
+
+func (s *WorkspaceService) getSession(ctx context.Context, sessionID string, repositoryID, userID int64) (WorkspaceSessionResponse, error) {
 	if s.q == nil {
 		return WorkspaceSessionResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
 
-	ctx, err := s.authorizeInstallWorkspaceMetadata(ctx, "branch.read", repositoryID, userID)
-	if err != nil {
-		return WorkspaceSessionResponse{}, err
-	}
 	session, err := s.loadWorkspaceSessionWithAccess(ctx, sessionID, repositoryID, userID, WorkspaceAccessRead)
 	if err != nil {
 		return WorkspaceSessionResponse{}, err
@@ -303,12 +305,16 @@ func (s *WorkspaceService) GetSession(ctx context.Context, sessionID string, rep
 
 // ListSessions returns paginated workspace sessions for a repository.
 func (s *WorkspaceService) ListSessions(ctx context.Context, repositoryID, userID int64, page, perPage int) ([]WorkspaceSessionResponse, int64, error) {
+	result, err := readInstallWorkspaceMetadata(ctx, s, "branches.read", repositoryID, userID, func(ctx context.Context, scoped *WorkspaceService) (workspaceMetadataPage[WorkspaceSessionResponse], error) {
+		rows, total, err := scoped.listSessions(ctx, repositoryID, userID, page, perPage)
+		return workspaceMetadataPage[WorkspaceSessionResponse]{rows, total}, err
+	})
+	return result.rows, result.total, err
+}
+
+func (s *WorkspaceService) listSessions(ctx context.Context, repositoryID, userID int64, page, perPage int) ([]WorkspaceSessionResponse, int64, error) {
 	if s.q == nil {
 		return nil, 0, pkgerrors.Internal("workspace store unavailable")
-	}
-	ctx, err := s.authorizeInstallWorkspaceMetadata(ctx, "branches.read", repositoryID, userID)
-	if err != nil {
-		return nil, 0, err
 	}
 	if page < 1 {
 		page = 1

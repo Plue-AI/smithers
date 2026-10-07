@@ -1061,6 +1061,12 @@ func (s *WorkspaceService) loadWorkspaceSessionWithAccess(ctx context.Context, s
 // GetWorkspace returns a first-class workspace by ID. Viewing status is a
 // read-level operation, so a read share  is sufficient.
 func (s *WorkspaceService) GetWorkspace(ctx context.Context, workspaceID string, repositoryID, userID int64) (WorkspaceResponse, error) {
+	return readInstallWorkspaceMetadata(ctx, s, "branch.read", repositoryID, userID, func(ctx context.Context, scoped *WorkspaceService) (WorkspaceResponse, error) {
+		return scoped.getWorkspace(ctx, workspaceID, repositoryID, userID)
+	})
+}
+
+func (s *WorkspaceService) getWorkspace(ctx context.Context, workspaceID string, repositoryID, userID int64) (WorkspaceResponse, error) {
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
@@ -1081,12 +1087,16 @@ func (s *WorkspaceService) GetWorkspace(ctx context.Context, workspaceID string,
 
 // ListWorkspaces returns paginated workspaces for a repository.
 func (s *WorkspaceService) ListWorkspaces(ctx context.Context, repositoryID, userID int64, page, perPage int) ([]WorkspaceResponse, int64, error) {
+	result, err := readInstallWorkspaceMetadata(ctx, s, "branches.read", repositoryID, userID, func(ctx context.Context, scoped *WorkspaceService) (workspaceMetadataPage[WorkspaceResponse], error) {
+		rows, total, err := scoped.listWorkspaces(ctx, repositoryID, userID, page, perPage)
+		return workspaceMetadataPage[WorkspaceResponse]{rows, total}, err
+	})
+	return result.rows, result.total, err
+}
+
+func (s *WorkspaceService) listWorkspaces(ctx context.Context, repositoryID, userID int64, page, perPage int) ([]WorkspaceResponse, int64, error) {
 	if s.q == nil {
 		return nil, 0, pkgerrors.Internal("workspace store unavailable")
-	}
-	ctx, err := s.authorizeInstallWorkspaceMetadata(ctx, "branches.read", repositoryID, userID)
-	if err != nil {
-		return nil, 0, err
 	}
 	if page < 1 {
 		page = 1

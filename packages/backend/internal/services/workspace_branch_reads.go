@@ -167,7 +167,7 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 	if err := s.authorizeWorkspaceReadBinding(ctx, row); err != nil {
 		return BranchMachineResponse{}, err
 	}
-	projected, err := s.GetWorkspace(ctx, row.ID, repositoryID, userID)
+	projected, err := s.getWorkspace(ctx, row.ID, repositoryID, userID)
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
