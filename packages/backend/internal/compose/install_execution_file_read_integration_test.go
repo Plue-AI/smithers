@@ -218,6 +218,61 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 			})
 		}
 	}
+	t.Run("production issuer replaces current run", func(t *testing.T) {
+		// Issuance and HTTP/native file reads are real. Only the source
+		// publisher's guest transport uses the existing controlled fixture.
+		_, err := f.pool.Exec(f.ctx, `UPDATE workspaces SET user_id=$2,status='running' WHERE id=$1`, ws.ID, f.owner.ID)
+		require.NoError(t, err)
+		defer func() {
+			_, err := f.pool.Exec(f.ctx, `UPDATE workspaces SET user_id=$2,status='suspended' WHERE id=$1`, ws.ID, machineOwner)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='file-run',attempt=1 WHERE id=$1`, itemID)
+			require.NoError(t, err)
+		}()
+		issuer := services.NewWorkspaceService(f.q, services.WithWorkspaceInstallAuthorization(f.q), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(&candidatePublisherRuntime{}), services.WithWorkspaceGitBaseURL("http://127.0.0.1:47199"))
+		issue := func() string {
+			t.Helper()
+			_, err := f.pool.Exec(f.ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, ws.ID)
+			require.NoError(t, err)
+			environment, err := issuer.PrepareBoxHost(f.ctx, "file-read-host", ws.ID, f.repoID, f.owner.ID)
+			require.NoError(t, err)
+			token := environment["SMITHERS_JJHUB_TOKEN"]
+			require.NotEmpty(t, token)
+			// Retained source reads use native repository bytes, without a guest.
+			_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, ws.ID)
+			require.NoError(t, err)
+			return token
+		}
+		read := func(token, workspace string, status int, commands []string) {
+			t.Helper()
+			req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/branches/"+workspace+"/files/history.txt", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			var decisions []string
+			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+			before := store.reads.Load()
+			out := httptest.NewRecorder()
+			router.ServeHTTP(out, req)
+			require.Equal(t, status, out.Code, out.Body.String())
+			require.Equal(t, commands, decisions)
+			if status == 200 {
+				require.Contains(t, out.Body.String(), "Recorded repository content")
+			} else {
+				require.NotContains(t, out.Body.String(), "Recorded repository content")
+				require.Equal(t, before, store.reads.Load())
+			}
+		}
+		old := issue()
+		defer issuer.RetireBoxHostCredential(f.ctx, "file-read-host", f.owner.ID)
+		read(old, ws.ID, 200, []string{"branch.read"})
+		read(old, otherWS.ID, 403, []string{"branch.read"})
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-file-run',attempt=2 WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		read(old, ws.ID, 403, []string{"branch.read"})
+		fresh := issue()
+		require.NotEqual(t, old, fresh)
+		read(old, ws.ID, 401, nil)
+		read(fresh, ws.ID, 200, []string{"branch.read"})
+	})
 	for _, change := range []struct {
 		name, sql string
 		status    int
