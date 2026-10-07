@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -19,6 +20,9 @@ import (
 
 func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	f.ctx = ctx
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "session"
@@ -73,7 +77,7 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 				req.Header.Set("X-CSRF-Token", "csrf")
 			}
 			var decisions []string
-			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+			req = req.WithContext(services.WithAuthorizationObserver(ctx, func(command string) { decisions = append(decisions, command) }))
 			out := httptest.NewRecorder()
 			router.ServeHTTP(out, req)
 			require.Equal(t, cell.status, out.Code, out.Body.String())

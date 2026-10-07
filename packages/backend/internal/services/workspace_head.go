@@ -767,6 +767,9 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	}
 	scoped := *s
 	scoped.q = q
+	// Head persistence must share the publisher fence transaction. Beginning
+	// on the pool would wait on the workspace row this transaction owns.
+	scoped.transactions = tx
 	result, err := scoped.reportWorkspaceHead(live, input)
 	if err != nil {
 		return WorkspaceResponse{}, err
