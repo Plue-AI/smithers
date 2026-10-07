@@ -31,12 +31,9 @@ test("C-J5-01 merged factory edit activates only for new TODO attempts", scenari
     const running = await f.read("Will", "/api/todos/2")
     expect(running.state).toBe("needs_you")
     expect(running.run.id).toEqual(expect.any(String))
-    expect(running.id).toMatch(/^[0-9a-f-]{36}$/)
-    const pin = () => f.sql(`SELECT attempt, flow_digest, checks->>'flowSource' AS source FROM mythical_items WHERE id = '${running.id}' AND checks->>'todo' = 'true'`)
-    const before = pin()
-    expect(before).toHaveLength(1)
-    expect(before[0].flow_digest).toBe(old.id)
-    expect(before[0].source).toMatch(/^[0-9a-f]{40}$/)
+    const before = { run: running.run.id, attempt: running.run.attempt, version: running.flow_version }
+    expect(before.version.digest).toBe(old.id)
+    expect(before.version.source_commit).toMatch(/^[0-9a-f]{40}$/)
     // Independently inspect the candidate on GitHub before authorizing its merge.
     const files = await f.github("Will", "GET", `/pulls/${change.pr.number}/files?per_page=100`) as any[]
     const patch = files.find(file => file.filename === "flows/todo/flow.ts")?.patch
@@ -57,13 +54,12 @@ test("C-J5-01 merged factory edit activates only for new TODO attempts", scenari
     await runSlash(page, "/flow todo")
     await expect(page.locator('.flow-view').last().locator(`[data-version="${proposed.id}"]`)).toHaveAttribute("data-state", "active")
     // Flow-load cannot change an existing attempt's execution identity.
-    expect(pin()).toEqual(before)
     const stillRunning = await f.read("Will", "/api/todos/2")
-    expect(stillRunning.run.id).toBe(running.run.id)
+    expect({ run: stillRunning.run.id, attempt: stillRunning.run.attempt, version: stillRunning.flow_version }).toEqual(before)
     expect(stillRunning.state).toBe("needs_you")
     expect((await flow()).versions.find((version: any) => version.id === old.id)?.state).toBe("previous")
     await createTodo(page, "Add FLOW-VERSION-NEW to README.md, run pnpm test, and update CHANGELOG.md.")
-    await expect.poll(async () => f.sql(`SELECT flow_digest FROM mythical_items WHERE number = 3 AND repository_id = (SELECT repository_id FROM mythical_items WHERE id = '${running.id}') AND checks->>'todo' = 'true'`)[0]?.flow_digest,
+    await expect.poll(async () => (await f.read("Will", "/api/todos")).find((todo: any) => todo.n === 3)?.flow_version?.digest,
       { timeout: 660_000 }).toBe(proposed.id)
     await expect.poll(async () => (await f.read("Will", "/api/todos/3")).state, { timeout: 660_000 }).toBe("in_review")
     const next = await f.read("Will", "/api/todos/3")
@@ -72,6 +68,6 @@ test("C-J5-01 merged factory edit activates only for new TODO attempts", scenari
     expect(nextFiles.some(file => file.filename === "CHANGELOG.md")).toBe(true)
     await openTodo(page, 3)
     await expect(todoCard(page, 3)).toContainText("pnpm test")
-    await attachJson(info, "flow-activation-pinning", { before, after: pin(), old: old.id, active: proposed.id, merged: pull.merge_commit_sha, next: next.number })
+    await attachJson(info, "flow-activation-pinning", { before, after: stillRunning.flow_version, old: old.id, active: proposed.id, merged: pull.merge_commit_sha, next: next.n })
   })
 })

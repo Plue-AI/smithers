@@ -92,11 +92,17 @@ referenceTest("C-UI-01 prepared install branch, stack, flow and monitor keyboard
     await page.keyboard.press("End")
     await runSlash(page, "/monitor")
     await expect(page.locator('.smithers-card[data-kind="monitor"]').last()).toBeVisible()
-    await runSlash(page, "/agent coding")
-    await journeyActivate(page.getByRole("button", { name: /^Model:/ }).last())
-    await journeyReach(page.getByRole("option").last())
-    await page.keyboard.press("Enter")
-    await page.keyboard.press("Escape")
+    // J11 model assignment is an owner act and targets the actual review role.
+    const ownerPage = f.members.Will.page
+    const cheaper = required("SMITHERS_AGENT_MODEL_B")
+    await runSlash(ownerPage, "/agent reviewer")
+    await journeyActivate(ownerPage.getByTestId("agent-model-reviewer"))
+    await journeyEnter(ownerPage.getByLabel("Model", { exact: true }).last(), cheaper)
+    const assigned = ownerPage.waitForResponse(response => response.request().method() === "PUT" &&
+      new URL(response.url()).pathname === "/api/agents/reviewer/model")
+    await journeyActivate(ownerPage.getByRole("button", { name: "Save", exact: true }).last())
+    expect((await assigned).status()).toBe(200)
+    await expect.poll(async () => (await f.read("Will", "/api/agents")).agents.find((agent: any) => agent.id === "reviewer")?.model.label).toBe(cheaper)
     // Ctrl+B pane movement and restoration must retain visible focus.
     await page.keyboard.press("Control+b")
     await page.keyboard.press("ArrowLeft")

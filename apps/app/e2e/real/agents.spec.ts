@@ -1,3 +1,4 @@
+import { keyboardInputFor, journeyActivate, journeyEnter } from "./support/keyboard-journey-input"
 import type { Page } from "@playwright/test"
 import { fillComposer } from "../playwright/composer"
 import { scenario } from "./coverage/types"
@@ -71,6 +72,12 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
  test.setTimeout(3_600_000)
  await withReference(browser, info, async f => {
   const page = f.members.Will.page
+  const prepareComposer = async (text: string) => {
+   if (!keyboardInputFor(page)) { await fillComposer(page, text); return }
+   const input = page.getByTestId("composer-input")
+   if (!await input.isVisible()) await page.keyboard.press("ControlOrMeta+k")
+   await journeyEnter(input, text)
+  }
   const modelA = required("SMITHERS_AGENT_MODEL_A")
   const modelB = required("SMITHERS_AGENT_MODEL_B")
   const modelF = required("SMITHERS_AGENT_MODEL_F")
@@ -89,7 +96,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   // Bind the answer and model receipt to this newly admitted turn, rather
   // than accepting any historical app run with the expected model.
   const ask = async (expectedModel = modelF, prompt = "What is this repository for? Answer in one sentence.") => {
-   await fillComposer(page, prompt)
+   await prepareComposer(prompt)
    const admission = page.waitForResponse(response =>
     new URL(response.url()).pathname === "/api/conversations/main/prompt" &&
     response.request().method() === "POST" && response.status() === 202)
@@ -133,12 +140,12 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   const bindingsBefore = f.sql("SELECT id,binding_id,runtime_artifact_digest FROM flow_runtime_host_bindings WHERE state='running' AND binding_kind='mythical-item' AND repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')")
   expect(bindingsBefore.length, "TODO X must already be working before the switch").toBeGreaterThan(0)
   await attachJson(info, "ongoing-todo-bindings-before-switch", bindingsBefore)
-  await page.getByTestId("agent-model-reviewer").press("Enter")
-  await page.getByLabel("Model", { exact: true }).last().fill(modelB)
+  await journeyActivate(page.getByTestId("agent-model-reviewer"))
+  await journeyEnter(page.getByLabel("Model", { exact: true }).last(), modelB)
   await expect(page.getByRole("button", { name: "Save", exact: true }).last()).toBeEnabled()
   const switchReceipt = page.waitForResponse(response =>
    new URL(response.url()).pathname === "/api/agents/reviewer/model" && response.request().method() === "PUT")
-  await page.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
+  await journeyActivate(page.getByRole("button", { name: "Save", exact: true }).last())
   const switchedResponse = await switchReceipt
   expect(switchedResponse.status()).toBe(200)
   expect(switchedResponse.request().postDataJSON().model.modelId).toBe(modelB)
@@ -221,7 +228,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   expect(fastCredential, "Use separate fast and coding keys for the removal journey").not.toBe(codingSetting[0].value.credential)
   await runSlash(page, "/settings")
   const removal = page.waitForResponse(response => new URL(response.url()).pathname === "/api/model/credential" && response.request().method() === "POST")
-  await page.getByTestId("settings-key-remove-fast").press("Enter")
+  await journeyActivate(page.getByTestId("settings-key-remove-fast"))
   const removed = await removal
   expect(removed.request().postDataJSON()).toMatchObject({ action: "remove", name: fastCredential })
   expect(removed.status()).toBe(200)
@@ -235,7 +242,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    return response.json()
   }
   const original = await readInstructions()
-  await page.locator('[data-agent="app"] [data-flow="files.read"]').press("Enter")
+  await journeyActivate(page.locator('[data-agent="app"] [data-flow="files.read"]'))
   await expect(page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true }).locator(".cm-line")).toHaveText(original.content.text.split("\n"))
   const beforeInstructions = await f.read("Will", "/api/todos")
   await ask(modelA, 'Update your instructions in .smithers/instructions/app.md to always end answers with the word DONE. Propose a TODO and wait for my confirmation.')
@@ -245,7 +252,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   expect((await f.read("Will", "/api/todos")).map((row: any) => row.n)).toEqual(beforeInstructions.map((row: any) => row.n))
   expect((await readInstructions()).content.text).toBe(original.content.text)
   await info.attach("instruction-proposal-before-confirmation", { body: await proposal.innerText(), contentType: "text/plain" })
-  await proposal.getByRole("button", { name: "Commit", exact: true }).press("Enter")
+  await journeyActivate(proposal.getByRole("button", { name: "Commit", exact: true }))
   let instructionTodos: any[] = []
   await expect.poll(async () => {
    instructionTodos = (await f.read("Will", "/api/todos")).filter((row: any) =>
@@ -269,7 +276,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    await expect(page.locator('.smithers-card[data-kind="commands"]').last().getByText(name, { exact: true })).toHaveCount(0)
   }
   await info.attach("owner-help", { body: await page.locator('.smithers-card[data-kind="commands"]').last().innerText(), contentType: "text/plain" })
-  await fillComposer(page, "/")
+  await prepareComposer("/")
   const palette = page.getByTestId("palette")
   await expect(palette).toBeVisible()
   await expect(palette).toContainText("help")
@@ -277,11 +284,11 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    await expect(palette.locator(`[data-flow="${name}"]`)).toHaveCount(0)
   }
   await info.attach("owner-palette", { body: await palette.innerText(), contentType: "text/plain" })
-  await fillComposer(page, "")
+  await prepareComposer("")
   await page.reload()
   await runSlash(page, "/agents")
   await expect(page.locator('[data-agent="reviewer"]')).toContainText(modelB)
-  await page.locator('[data-agent="app"] [data-flow="files.read"]').press("Enter")
+  await journeyActivate(page.locator('[data-agent="app"] [data-flow="files.read"]'))
   await expect(page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true }).locator(".cm-line")).toHaveText(activated.content.text.split("\n"))
  })
 })

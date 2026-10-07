@@ -148,3 +148,12 @@ the App's issue closure/comment, the other issue staying open, and the absence
 of an App merge call or Land approval. It consumes the production outbound
 GitHub audit log. Source collection is not execution or qualification; stale
 attention handling and the remaining J10 sync/push/network cases are separate.
+
+The prepared J11 continuation targets the owner-only `reviewer` model assignment
+and requires `SMITHERS_AGENT_MODEL_B`, a cheaper review model chosen beforehand
+by the operator. It uses Change model, the Model field and Save, with PUT and
+agent-card readback. `agents.spec.ts` also uses the shared physical-input doors
+when keyboard mode is enabled, retaining its detailed running/new model and
+instruction receipts. A generic coding-agent dropdown is not J11 evidence.
+The flow's review-step navigation and scratch Run composition remain separate
+pending behavior; neither pass substitutes for them.

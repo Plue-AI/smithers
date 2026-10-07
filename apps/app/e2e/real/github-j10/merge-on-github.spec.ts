@@ -19,11 +19,10 @@ test("C-J10-05 owner merge on GitHub updates Home and closes only the fixed issu
     const page = f.members.Ben.page
     const owner = await f.read("Will", "/api/user")
     const all = await f.read("Ben", "/api/todos")
-    expect(all.filter((todo: any) => todo.number < 7).every((todo: any) => todo.state === "merged")).toBe(true)
+    expect(all.filter((todo: any) => todo.n < 7).every((todo: any) => todo.state === "merged")).toBe(true)
     const first = await f.read("Ben", "/api/todos/7"), later = await f.read("Ben", "/api/todos/8")
     for (const todo of [first, later]) {
       expect(todo.state).toBe("in_review")
-      expect(todo.id).toMatch(/^[0-9a-f-]{36}$/)
       expect(todo.pr.head).toMatch(/^[0-9a-f]{40}$/)
       expect(todo.issue.number).toBeGreaterThan(0)
     }
@@ -84,7 +83,7 @@ test("C-J10-05 owner merge on GitHub updates Home and closes only the fixed issu
         expect(comments.find(comment => comment.body.includes(`/pull/${current.pr.number}`))?.user.type).toBe("Bot")
       }
       expect(merges().slice(beforeCalls)).toEqual([])
-      expect(f.sql(`SELECT checks->'land' AS land FROM mythical_items WHERE id = '${current.id}'`)).toEqual([{ land: null }])
+      expect(f.sql(`SELECT checks->'land' AS land FROM mythical_items WHERE issue_url = 'https://github.com/${f.repo}/issues/${issueNumber}'`)).toEqual([{ land: null }])
       receipts.push({ number, t0: new Date(started).toISOString(), sha: merged.sha, samples, pull, issue, comments })
     }
     await attachJson(info, "github-owner-merge", receipts)
