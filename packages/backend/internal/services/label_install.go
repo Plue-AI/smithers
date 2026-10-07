@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -81,7 +82,8 @@ func InstallLabelMutationSubject(repository int64, command string, id int64, inp
 
 func withInstallLabelMutation[T any](s *LabelService, ctx context.Context, actor *db.User, owner, name, command string, id int64, input any, effect func(*LabelService, context.Context) (T, error)) (T, error) {
 	var zero T
-	if actor == nil {
+	info := middleware.AuthInfoFromContext(ctx)
+	if actor == nil || info == nil || info.User == nil {
 		return zero, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
 	}
 	if s.install.pool == nil {
@@ -95,6 +97,9 @@ func withInstallLabelMutation[T any](s *LabelService, ctx context.Context, actor
 	q := db.New(tx)
 	installed, err := InstallRepositoryID(ctx, q)
 	if err != nil {
+		return zero, err
+	}
+	if err := lockInstallRepositoryAdminMutation(ctx, tx, installed); err != nil {
 		return zero, err
 	}
 	// Authenticate and serialize credential death before resolving a private
@@ -130,6 +135,11 @@ func withInstallLabelMutation[T any](s *LabelService, ctx context.Context, actor
 		if err != nil {
 			return zero, err
 		}
+	}
+	// Row-lock waits may cross the credential deadline even though revocation
+	// writes are serialized by the credential fence.
+	if err := guardInstallMemberCredential(ctx, tx, installed, actor.ID, false); err != nil {
+		return zero, err
 	}
 	scoped.installAdmitted = true
 	scoped.installRepository = &repository

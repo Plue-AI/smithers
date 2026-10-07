@@ -7433,6 +7433,160 @@
       }
     },
     {
+      "name": "protected-bookmarks.delete",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "protected-bookmarks.delete",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/repos/{owner}/{repo}/protected-bookmarks/{pattern}"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "protected-bookmarks.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "read:repository",
+      "agent": "never",
+      "summary": "protected-bookmarks.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/protected-bookmarks"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "protected-bookmarks.upsert",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "protected-bookmarks.upsert",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/protected-bookmarks"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string"
+            },
+            "require_review": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "require_human_approvals": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "require_agent_lgtm": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "require_status_checks": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "required_status_contexts": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "pattern"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "prs",
       "slash": null,
       "cli": null,

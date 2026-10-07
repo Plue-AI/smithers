@@ -80,6 +80,7 @@ func buildRouterCompat(
 	smithersMetrics *routes.SmithersMetrics,
 	optional ...any, // *routes.GitHubImportHandler, *routes.ProviderConnectionHandler, routerExtras
 ) http.Handler {
+	var protectedBookmarkHandler *routes.ProtectedBookmarkHandler
 	var repositoryJobHandler *routes.RepositoryJobHandler
 	var stackHandler *routes.StackHandler
 	var approvalsHandler *routes.ApprovalsHandler
@@ -90,6 +91,8 @@ func buildRouterCompat(
 	var extras []any
 	for _, handler := range optional {
 		switch h := handler.(type) {
+		case *routes.ProtectedBookmarkHandler:
+			protectedBookmarkHandler = h
 		case *routes.RepositoryJobHandler:
 			repositoryJobHandler = h
 		case *routes.StackHandler:
@@ -139,7 +142,7 @@ func buildRouterCompat(
 		providerConnectionHandler,
 		variableHandler,
 		nil, // billingHandler
-		nil, // protectedBookmarkHandler
+		protectedBookmarkHandler,
 		commitStatusHandler,
 		lfsHandler,
 		jjVCSHandler,

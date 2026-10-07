@@ -158,7 +158,9 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 		require.Positive(t, row.ID)
 		require.Equal(t, 1, decisions)
 		_, err = service.CreateLabel(f.ctx, &f.owner, "gate-owner", "app", services.CreateLabelInput{Name: "uncredentialed", Color: "123abc"})
-		require.Error(t, err)
+		var refusal *services.AccessError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, 401, refusal.Status)
 	})
 	t.Run("direct expired credential precedes private lookup and validation", func(t *testing.T) {
 		_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key=$1`, ownerHash)

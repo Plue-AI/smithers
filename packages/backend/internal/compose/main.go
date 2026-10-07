@@ -1397,9 +1397,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if billingCommerce != nil {
 		billingHandler = &routes.BillingHandler{Service: billingCommerce}
 	}
-	protectedBookmarkHandler := &routes.ProtectedBookmarkHandler{
-		Service: services.NewProtectedBookmarkService(queries),
+	protectedBookmarkService := services.NewProtectedBookmarkService(queries)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithProtectedBookmarkInstallAuthorization(pool)(protectedBookmarkService)
 	}
+	protectedBookmarkHandler := &routes.ProtectedBookmarkHandler{Service: protectedBookmarkService}
 	commitStatusHandler := &routes.CommitStatusHandler{
 		Service: commitStatusService,
 	}

@@ -103,6 +103,14 @@ func guardedRepoWrite(ctx context.Context, g RepoOwnershipGuard, repository db.R
 	return g.WithRepoOwnershipShared(ctx, repository, write)
 }
 
+// Configuration writers take this lock before credential rows. A competing
+// insert cannot wait on a uniqueness conflict after the live-credential check.
+// It grants no policy authority and does not change the ownership lock domain.
+func lockInstallRepositoryAdminMutation(ctx context.Context, tx pgx.Tx, repository int64) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('install_repository_admin:' || ($1::bigint)::text, 0))`, repository)
+	return err
+}
+
 // RepoPermQuerier is the minimal DB interface required for repository permission
 // resolution. All per-service querier interfaces must embed or satisfy this set.
 type RepoPermQuerier interface {

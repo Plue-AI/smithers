@@ -16,7 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-func admitInstallLabelMutation(w http.ResponseWriter, r *http.Request, q *db.Queries, command string, next http.Handler) {
+func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Queries, command string, next http.Handler) {
 	subject := services.InstallSubject{}
 	refuse := func(failure error) {
 		// Invalid input never gets a bound decision or reaches the handler.
@@ -27,12 +27,12 @@ func admitInstallLabelMutation(w http.ResponseWriter, r *http.Request, q *db.Que
 		writeConfirmationDispatchError(w, failure)
 	}
 	if q == nil {
-		refuse(pkgerrors.New(pkgerrors.CodeServiceUnavailable, "label store unavailable"))
+		refuse(pkgerrors.New(pkgerrors.CodeServiceUnavailable, "repository configuration store unavailable"))
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
 	if len(parts) < 5 || len(parts) > 6 {
-		refuse(pkgerrors.BadRequest("invalid label request"))
+		refuse(pkgerrors.BadRequest("invalid repository configuration request"))
 		return
 	}
 	owner, err := url.PathUnescape(parts[2])
@@ -50,24 +50,32 @@ func admitInstallLabelMutation(w http.ResponseWriter, r *http.Request, q *db.Que
 		if errors.Is(err, pgx.ErrNoRows) {
 			refuse(pkgerrors.NotFound("repository not found"))
 		} else {
-			refuse(pkgerrors.Internal("load label repository").WithCause(err))
+			refuse(pkgerrors.Internal("load configuration repository").WithCause(err))
 		}
 		return
 	}
 	subject.RepositoryID = repository.ID
 	var id int64
-	if len(parts) == 6 {
+	var pattern string
+	if len(parts) == 6 && strings.HasPrefix(command, "labels.") {
 		id, err = strconv.ParseInt(parts[5], 10, 64)
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid label id"))
 			return
 		}
 	}
+	if len(parts) == 6 && strings.HasPrefix(command, "protected-bookmarks.") {
+		pattern, err = url.PathUnescape(parts[5])
+		if err != nil {
+			refuse(pkgerrors.BadRequest("invalid bookmark pattern"))
+			return
+		}
+	}
 	var input any = struct{}{}
-	if command != "labels.delete" {
+	if command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 		if err != nil {
-			refuse(pkgerrors.BadRequest("invalid label body"))
+			refuse(pkgerrors.BadRequest("invalid configuration body"))
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
@@ -82,15 +90,23 @@ func admitInstallLabelMutation(w http.ResponseWriter, r *http.Request, q *db.Que
 			var value services.UpdateLabelInput
 			err = decoder.Decode(&value)
 			input = value
+		case "protected-bookmarks.upsert":
+			var value services.UpsertProtectedBookmarkInput
+			err = decoder.Decode(&value)
+			input, pattern = value, value.Pattern
 		default:
-			err = pkgerrors.BadRequest("invalid label command")
+			err = pkgerrors.BadRequest("invalid configuration command")
 		}
 		if err != nil || decoder.Decode(new(any)) != io.EOF {
-			refuse(pkgerrors.BadRequest("invalid label body"))
+			refuse(pkgerrors.BadRequest("invalid configuration body"))
 			return
 		}
 	}
-	subject, err = services.InstallLabelMutationSubject(repository.ID, command, id, input)
+	if strings.HasPrefix(command, "labels.") {
+		subject, err = services.InstallLabelMutationSubject(repository.ID, command, id, input)
+	} else {
+		subject, err = services.InstallProtectedBookmarkSubject(repository.ID, command, pattern, input)
+	}
 	if err != nil {
 		refuse(err)
 		return

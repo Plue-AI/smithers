@@ -126,3 +126,17 @@ test("external reads expose no raw transcript HTTP door", () => {
   expect(row.http).toBeNull()
   expect(httpProjections.some(row => row.http?.path === "/api/external/sessions")).toBe(false)
 })
+
+test("bookmark protection configuration remains owner-only with no agent door", () => {
+  const rows = generateCatalog()
+  for (const [name, method, path, credentialScope] of [
+    ["protected-bookmarks.read", "GET", "/api/repos/{owner}/{repo}/protected-bookmarks", "read:repository"],
+    ["protected-bookmarks.upsert", "POST", "/api/repos/{owner}/{repo}/protected-bookmarks", "write:repository"],
+    ["protected-bookmarks.delete", "DELETE", "/api/repos/{owner}/{repo}/protected-bookmarks/{pattern}", "write:repository"],
+  ]) {
+    expect(rows.find(row => row.name === name)).toMatchObject({
+      minimumRole: "owner", agent: "never", actors: ["person"], credentialScope,
+      visibility: "hidden", cli: null, slash: null, http: { method, path }
+    })
+  }
+})

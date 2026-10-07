@@ -123,14 +123,30 @@ type ProtectedBookmarkQuerier interface {
 }
 
 type ProtectedBookmarkService struct {
-	queries ProtectedBookmarkQuerier
+	install           *installProtectedBookmarkStore
+	installAdmitted   bool
+	installRepository *db.Repository
+	queries           ProtectedBookmarkQuerier
 }
 
-func NewProtectedBookmarkService(q ProtectedBookmarkQuerier) *ProtectedBookmarkService {
-	return &ProtectedBookmarkService{queries: q}
+type ProtectedBookmarkServiceOption func(*ProtectedBookmarkService)
+
+func NewProtectedBookmarkService(q ProtectedBookmarkQuerier, options ...ProtectedBookmarkServiceOption) *ProtectedBookmarkService {
+	s := &ProtectedBookmarkService{queries: q}
+	for _, option := range options {
+		if option != nil {
+			option(s)
+		}
+	}
+	return s
 }
 
 func (s *ProtectedBookmarkService) UpsertProtectedBookmark(ctx context.Context, actor *db.User, owner, repo string, input UpsertProtectedBookmarkInput) (ProtectedBookmarkResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallProtectedBookmark(s, ctx, actor, owner, repo, "protected-bookmarks.upsert", input.Pattern, input, func(scoped *ProtectedBookmarkService, bound context.Context) (ProtectedBookmarkResponse, error) {
+			return scoped.UpsertProtectedBookmark(bound, actor, owner, repo, input)
+		})
+	}
 	if actor == nil {
 		return ProtectedBookmarkResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -142,32 +158,9 @@ func (s *ProtectedBookmarkService) UpsertProtectedBookmark(ctx context.Context, 
 		return ProtectedBookmarkResponse{}, err
 	}
 
-	pattern := strings.TrimSpace(input.Pattern)
-	if pattern == "" {
-		return ProtectedBookmarkResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "ProtectedBookmark", Field: "pattern", Code: "missing_field"})
-	}
-	// pattern is stored in protected_bookmarks.pattern VARCHAR(255); reject
-	// over-length and NUL/invalid-UTF8 up front so an over-long or malformed value
-	// does not fail the INSERT (SQLSTATE 22001/22021) as an opaque 500.
-	if len(pattern) > 255 {
-		return ProtectedBookmarkResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "ProtectedBookmark", Field: "pattern", Code: "invalid"})
-	}
-	if err := validateSafeText("ProtectedBookmark", "pattern", pattern); err != nil {
+	pattern, contexts, err := validateProtectedBookmarkInput(input)
+	if err != nil {
 		return ProtectedBookmarkResponse{}, err
-	}
-	// RequireBookmarkNotProtected evaluates every stored pattern with
-	// path.Match on each push and bookmark mutation, and a malformed glob fails
-	// that check for the whole repository. Reject it here instead.
-	if _, err := path.Match(pattern, ""); err != nil {
-		return ProtectedBookmarkResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "ProtectedBookmark", Field: "pattern", Code: "invalid"})
-	}
-	if input.RequireHumanApprovals < 0 {
-		return ProtectedBookmarkResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "ProtectedBookmark", Field: "require_human_approvals", Code: "invalid"})
-	}
-
-	contexts := input.RequiredStatusContexts
-	if contexts == nil {
-		contexts = []string{}
 	}
 
 	row, err := s.queries.UpsertProtectedBookmark(ctx, db.UpsertProtectedBookmarkParams{
@@ -187,6 +180,11 @@ func (s *ProtectedBookmarkService) UpsertProtectedBookmark(ctx context.Context, 
 }
 
 func (s *ProtectedBookmarkService) ListProtectedBookmarks(ctx context.Context, viewer *db.User, owner, repo string, page, perPage int) ([]ProtectedBookmarkResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallProtectedBookmark(s, ctx, viewer, owner, repo, "protected-bookmarks.read", "", struct{}{}, func(scoped *ProtectedBookmarkService, bound context.Context) ([]ProtectedBookmarkResponse, error) {
+			return scoped.ListProtectedBookmarks(bound, viewer, owner, repo, page, perPage)
+		})
+	}
 	repository, err := s.resolveRepo(ctx, owner, repo)
 	if err != nil {
 		return nil, err
@@ -221,6 +219,12 @@ func (s *ProtectedBookmarkService) ListProtectedBookmarks(ctx context.Context, v
 }
 
 func (s *ProtectedBookmarkService) DeleteProtectedBookmark(ctx context.Context, actor *db.User, owner, repo, pattern string) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallProtectedBookmark(s, ctx, actor, owner, repo, "protected-bookmarks.delete", pattern, struct{}{}, func(scoped *ProtectedBookmarkService, bound context.Context) (struct{}, error) {
+			return struct{}{}, scoped.DeleteProtectedBookmark(bound, actor, owner, repo, pattern)
+		})
+		return err
+	}
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
@@ -247,6 +251,9 @@ func (s *ProtectedBookmarkService) DeleteProtectedBookmark(ctx context.Context, 
 }
 
 func (s *ProtectedBookmarkService) resolveRepo(ctx context.Context, owner, repo string) (db.Repository, error) {
+	if s.installAdmitted && s.installRepository != nil {
+		return *s.installRepository, nil
+	}
 	repository, err := s.queries.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{
 		Owner:     strings.ToLower(owner),
 		LowerName: strings.ToLower(repo),
@@ -258,6 +265,9 @@ func (s *ProtectedBookmarkService) resolveRepo(ctx context.Context, owner, repo 
 }
 
 func (s *ProtectedBookmarkService) requireAdminAccess(ctx context.Context, repository db.Repository, user *db.User) error {
+	if s.installAdmitted {
+		return nil
+	}
 	if user == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
@@ -291,4 +301,36 @@ func mapProtectedBookmark(row db.ProtectedBookmark) ProtectedBookmarkResponse {
 		RequireStatusChecks:    row.RequireStatusChecks,
 		RequiredStatusContexts: contexts,
 	}
+}
+
+func validateProtectedBookmarkInput(input UpsertProtectedBookmarkInput) (string, []string, error) {
+	pattern := strings.TrimSpace(input.Pattern)
+	if pattern == "" {
+		return "", nil, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "ProtectedBookmark", Field: "pattern", Code: "missing_field"})
+	}
+	// pattern is stored in protected_bookmarks.pattern VARCHAR(255); reject
+	// over-length and NUL/invalid-UTF8 up front so an over-long or malformed value
+	// does not fail the INSERT (SQLSTATE 22001/22021) as an opaque 500.
+	if len(pattern) > 255 {
+		return "", nil, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "ProtectedBookmark", Field: "pattern", Code: "invalid"})
+	}
+	if err := validateSafeText("ProtectedBookmark", "pattern", pattern); err != nil {
+		return "", nil, err
+	}
+	// RequireBookmarkNotProtected evaluates every stored pattern with
+	// path.Match on each push and bookmark mutation, and a malformed glob fails
+	// that check for the whole repository. Reject it here instead.
+	if _, err := path.Match(pattern, ""); err != nil {
+		return "", nil, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "ProtectedBookmark", Field: "pattern", Code: "invalid"})
+	}
+	if input.RequireHumanApprovals < 0 {
+		return "", nil, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "ProtectedBookmark", Field: "require_human_approvals", Code: "invalid"})
+	}
+
+	contexts := input.RequiredStatusContexts
+	if contexts == nil {
+		contexts = []string{}
+	}
+
+	return pattern, contexts, nil
 }

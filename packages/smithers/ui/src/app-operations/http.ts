@@ -24,15 +24,21 @@ const machine = (op: "sleep" | "wake") => operation({
   http: { method: "POST", path: "/api/branches/{branch}", defaults: { op } }
 })
 
-// Retained label administration keeps its existing owner-only person door.
-const labelWrite = (name: string, method: "POST" | "PATCH" | "DELETE", path: string, input: OperationPayload) =>
+// Retained repository administration keeps its existing owner-only person doors.
+const repositoryAdmin = (name: string, method: "GET" | "POST" | "PATCH" | "DELETE", path: string, input: OperationPayload) =>
   operation({ name, input, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
-    http: { method, path }, minimumRole: "owner", agent: "never", credentialScope: "write:repository", actors: ["person"] })
+    http: { method, path }, minimumRole: "owner", agent: "never", credentialScope: method === "GET" ? "read:repository" : "write:repository", actors: ["person"] })
 
 export const httpProjections = [
-  labelWrite("labels.create", "POST", "/api/repos/{owner}/{repo}/labels", Schema.Struct({ name: Schema.String, color: Schema.String, description: Schema.optional(Schema.String) })),
-  labelWrite("labels.update", "PATCH", "/api/repos/{owner}/{repo}/labels/{id}", Schema.Struct({ name: Schema.optional(Schema.String), color: Schema.optional(Schema.String), description: Schema.optional(Schema.String) })),
-  labelWrite("labels.delete", "DELETE", "/api/repos/{owner}/{repo}/labels/{id}", NoInput),
+  repositoryAdmin("protected-bookmarks.read", "GET", "/api/repos/{owner}/{repo}/protected-bookmarks", NoInput),
+  repositoryAdmin("protected-bookmarks.upsert", "POST", "/api/repos/{owner}/{repo}/protected-bookmarks", Schema.Struct({
+    pattern: Schema.String, require_review: Schema.optional(Schema.Boolean), require_human_approvals: Schema.optional(Schema.Number),
+    require_agent_lgtm: Schema.optional(Schema.Boolean), require_status_checks: Schema.optional(Schema.Boolean), required_status_contexts: Schema.optional(Schema.Array(Schema.String))
+  })),
+  repositoryAdmin("protected-bookmarks.delete", "DELETE", "/api/repos/{owner}/{repo}/protected-bookmarks/{pattern}", NoInput),
+  repositoryAdmin("labels.create", "POST", "/api/repos/{owner}/{repo}/labels", Schema.Struct({ name: Schema.String, color: Schema.String, description: Schema.optional(Schema.String) })),
+  repositoryAdmin("labels.update", "PATCH", "/api/repos/{owner}/{repo}/labels/{id}", Schema.Struct({ name: Schema.optional(Schema.String), color: Schema.optional(Schema.String), description: Schema.optional(Schema.String) })),
+  repositoryAdmin("labels.delete", "DELETE", "/api/repos/{owner}/{repo}/labels/{id}", NoInput),
   system("stack.candidate", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/stack/candidate", "write:repository", reservedStack),
   system("stack.propose", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/stack/propose", "write:repository", reservedStack),
   system("workspace.head", "POST", "/api/repos/{owner}/{repo}/workspaces/{id}/head", "write:repository", Schema.Struct({

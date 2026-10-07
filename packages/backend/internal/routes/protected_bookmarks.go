@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -100,6 +101,15 @@ func (h *ProtectedBookmarkHandler) DeleteProtectedBookmark(w http.ResponseWriter
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
+	}
+	// chi selects RawPath for escaped slashes. Otherwise its parameter is
+	// already decoded; decoding a literal percent a second time is incorrect.
+	if r.URL.RawPath != "" {
+		pattern, err = url.PathUnescape(pattern)
+		if err != nil {
+			errors.WriteError(w, errors.BadRequest("invalid bookmark pattern"))
+			return
+		}
 	}
 
 	if svcErr := h.Service.DeleteProtectedBookmark(r.Context(), actor, owner, repo, pattern); svcErr != nil {

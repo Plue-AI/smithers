@@ -80,8 +80,8 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
-			if strings.HasPrefix(command, "labels.") {
-				admitInstallLabelMutation(w, r, queries, command, next)
+			if strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "protected-bookmarks.") {
+				admitInstallRepositoryAdmin(w, r, queries, command, next)
 				return
 			}
 			if command == "branch.archive" {
