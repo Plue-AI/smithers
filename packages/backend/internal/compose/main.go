@@ -1831,6 +1831,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 	}
 	var gitHubAppSetup *routes.GitHubAppSetupHandler
+	var appManifestService *services.GitHubAppManifestService
 	if config.IsSingleOwner(cfg.Auth) {
 		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs, SyncHealth: gitHubMainPullService.SyncHealth, GitHubBudget: gitHubBudgetTracker}
 		installSetup.CodingDefaults = func(ctx context.Context, slug string) error {
@@ -1869,10 +1870,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if err := installSetup.Initialize(ctx); err != nil {
 			return fmt.Errorf("initialize install setup: %w", err)
 		}
+		authService.InstallSetup.Setup = installSetup
+		appManifestService = services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins, services.WithGitHubAppManifestBudget(gitHubBudgetTracker))
+
 		gitHubAppSetup = &routes.GitHubAppSetupHandler{
 			SetTodoPreapprovalDefault: mythicalService.SetTodoPreapprovalDefault,
 			Setup:                     installSetup,
-			Service:                   services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins, services.WithGitHubAppManifestBudget(gitHubBudgetTracker)),
+			Service:                   appManifestService,
 			Store:                     gitHubAppStore, Owners: queries, Roster: queries,
 			Origins:  installAddress.Origins,
 			Sessions: authService.InstallSetup,
@@ -2218,6 +2222,22 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "install-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, Operations: []string{"install.setup.address", "install.setup.sign_in", "install.setup.repository", "install.setup.models", "install.setup.source", "install.setup.machine"}}, installSetup.Handle)
 			if err != nil && workerCtx.Err() == nil {
 				slog.Error("install setup worker stopped", "error", err)
+			}
+		})
+	}
+	if appManifestService != nil {
+		launchWorker(func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for workerCtx.Err() == nil {
+				if err := appManifestService.ReconcileConversion(workerCtx); err != nil && workerCtx.Err() == nil && !errors.Is(err, jobs.ErrNoWork) {
+					slog.ErrorContext(workerCtx, "reconcile App setup", "error", err)
+				}
+				select {
+				case <-workerCtx.Done():
+					return
+				case <-ticker.C:
+				}
 			}
 		})
 	}

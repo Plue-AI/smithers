@@ -32,6 +32,18 @@ func (store *Store) Claim(ctx context.Context, workerID string, lease time.Durat
 // host typed handlers without allowing a Flow worker to consume unrelated
 // product work.
 func (store *Store) ClaimForOperations(ctx context.Context, workerID string, lease time.Duration, operations []string) (Claim, error) {
+	return store.claim(ctx, workerID, lease, operations, "")
+}
+
+// ClaimOperation claims one admitted identity through the same fenced queue.
+func (store *Store) ClaimOperation(ctx context.Context, workerID string, lease time.Duration, operationID string) (Claim, error) {
+	if _, err := uuid.Parse(operationID); err != nil {
+		return Claim{}, err
+	}
+	return store.claim(ctx, workerID, lease, nil, operationID)
+}
+
+func (store *Store) claim(ctx context.Context, workerID string, lease time.Duration, operations []string, operationID string) (Claim, error) {
 	if workerID == "" {
 		return Claim{}, errors.New("jobs: worker ID is required")
 	}
@@ -63,6 +75,7 @@ func (store *Store) ClaimForOperations(ctx context.Context, workerID string, lea
 			  AND dispatch.next_attempt_at <= clock_timestamp()
 			  AND request.state IN ('accepted', 'running', 'waiting')
 			  AND (cardinality($4::text[]) = 0 OR request.operation = ANY($4::text[]))
+              AND ($5::text = '' OR request.id::text=$5)
 			ORDER BY dispatch.next_attempt_at, dispatch.operation_id
 			FOR UPDATE OF dispatch SKIP LOCKED
 			LIMIT 1
@@ -85,7 +98,7 @@ func (store *Store) ClaimForOperations(ctx context.Context, workerID string, lea
 		       claimed.lease_expires_at, claimed.reconcile_required,
 		       request.cancellation_requested
 		FROM claimed JOIN product_job_requests request ON request.id=claimed.operation_id`,
-		token, workerID, leaseMilliseconds, operations).Scan(
+		token, workerID, leaseMilliseconds, operations, operationID).Scan(
 		&claim.OperationID, &claim.Scope.TenantID, &claim.Scope.PrincipalID,
 		&claim.Operation, &claim.RequestID, &claim.Payload, &claim.AuthorizationContext,
 		&claim.EffectPolicy, &claim.EffectKey, &claim.ExternalReceipt,

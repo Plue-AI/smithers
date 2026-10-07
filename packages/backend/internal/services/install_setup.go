@@ -27,6 +27,7 @@ var InstallStepIDs = [...]string{"address", "app_manifest", "sign_in", "reposito
 // InstallStep is the sole setup projection; operation identity and fencing stay
 // in settings, while delivery and external receipts stay in the shared jobs store.
 type InstallStep struct {
+	Digest      string                 `json:"digest,omitempty"`
 	ID          string                 `json:"id"`
 	Status      InstallStepState       `json:"status"`
 	OperationID string                 `json:"operation_id,omitempty"`
@@ -286,6 +287,13 @@ func (s *InstallSetupService) readStep(ctx context.Context, q *db.Queries, id st
 				return step, err
 			}
 			if err == nil && state.UsedAt.Valid {
+				checkpointed, err := q.InstallAppConversionCheckpointed(ctx, step.OperationID)
+				if err != nil {
+					return step, err
+				}
+				if checkpointed {
+					return step, nil
+				}
 				step.Status = InstallFailed
 				step.Error = &InstallReadinessError{Code: "outcome_unknown", Class: "user", Message: "Recover the existing GitHub App credentials"}
 			}
