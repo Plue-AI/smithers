@@ -7,10 +7,10 @@ const unavailable: Refusal = { code: null, rawCode: "not_available", fault: "inf
   origin: "client", retryAfter: null, message: "Not available yet" }
 export const pendingControlFlows = (actions: CommandActions) => bind(pendingControls.map(operation => operation.name === "todo.takeover"
   ? { ...operation, grammar: parseTodoArgs(), form: { submitLabel: "Take over", args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) } } : operation.name === "branch.bring-in"
-  ? { ...operation, grammar: (args: string | undefined) => args?.trim() ? carriedPayload(operation.name)(args) : { payload: {} }, confirm: "bring in this outside push", confirmArgs: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }
+  ? { ...operation, grammar: (args: string | undefined) => args?.trim() ? carriedPayload(operation.name)(args) : { payload: {} }, form: { args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }, confirm: "bring in this outside push", confirmArgs: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }
   : operation.name === "branch.discard-foreign"
   ? { ...operation, grammar: (args: string | undefined) => args?.trim() ? carriedPayload(operation.name)(args) : { payload: {} },
-      confirm: "discard this outside push", confirmArgs: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }
+      form: { args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }, confirm: "discard this outside push", confirmArgs: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }
     : operation.name === "learning.accept" || operation.name === "learning.dismiss"
     ? { ...operation, grammar: carriedPayload(operation.name),
         form: { submitLabel: operation.summary, args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) },
