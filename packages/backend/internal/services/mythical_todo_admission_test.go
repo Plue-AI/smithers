@@ -646,7 +646,8 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	// nothing hands a result over for it.
 	early := o.laneResult(item.WorkspaceID, tip, map[string]string{"EARLY.md": "x\n"}, "✨ feat: early")
 	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: tip, Source: early, RequestRunID: "todo-run", Summary: "✨ feat: early"})
-	require.ErrorContains(t, err, "not waiting for a validated result")
+	require.ErrorContains(t, err, "the result does not come from this lane's current request on its tip")
+	require.Equal(t, item, o.byID(id), "early delivery cannot mutate the unbound attempt")
 
 	startWorker()
 	require.Eventually(t, func() bool { return todoState(o.byID(id)) == "working" }, 10*time.Second, 10*time.Millisecond)
