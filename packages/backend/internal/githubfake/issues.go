@@ -110,7 +110,7 @@ func (s *Server) LabelIssue(repo string, number int64, login, label string) int6
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := issueKey(repo, number)
-	if s.opened[key] == nil {
+	if _, pull := s.pulls[key]; s.opened[key] == nil && !pull {
 		return 0
 	}
 	if !slices.Contains(s.labels[key], label) {
@@ -124,7 +124,7 @@ func (s *Server) UnlabelIssue(repo string, number int64, login, label string) in
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := issueKey(repo, number)
-	if s.opened[key] == nil || !slices.Contains(s.labels[key], label) {
+	if _, pull := s.pulls[key]; (s.opened[key] == nil && !pull) || !slices.Contains(s.labels[key], label) {
 		return 0
 	}
 	s.labels[key] = slices.DeleteFunc(s.labels[key], func(value string) bool { return value == label })
@@ -339,6 +339,9 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 	opened := s.opened[key]
 	switch {
 	case len(path) == 2 && r.Method == http.MethodGet:
+		if pull, ok := s.pulls[key]; opened == nil && ok {
+			return 200, s.pullIssueJSON(pull), true
+		}
 		if opened == nil {
 			status, response := failure(404, "issue not found")
 			return status, response, true

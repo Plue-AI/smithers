@@ -13,13 +13,24 @@ import (
 )
 
 func TestMythicalAutomergeLabelAuthenticatedInstallIntake(t *testing.T) {
+	for _, pullLabel := range []bool{false, true} {
+		t.Run(fmt.Sprintf("pull=%t", pullLabel), func(t *testing.T) {
+			testMythicalAutomergeLabelAuthenticatedInstallIntake(t, pullLabel)
+		})
+	}
+}
+
+func testMythicalAutomergeLabelAuthenticatedInstallIntake(t *testing.T, pullLabel bool) {
 	h := newMergeHarness(t)
-	n, head, _ := h.first("Label approval")
+	n, head, pr := h.first("Label approval")
 	h.freezeClock()
 	// The candidate is published normally; fixture linkage supplies an existing
 	// issue TODO while the behavior under test starts at GitHub's label door.
 	issue := h.fake.OpenIssue("rehearsal-owner/app", "rehearsal-owner", "Label approval", "Merge when ready")
 	h.exec(`UPDATE mythical_items SET issue_number=$2 WHERE repository_id=$1 AND number=$3`, h.repoID, issue, n)
+	if pullLabel {
+		issue = pr
+	}
 	h.fake.RequireCheck("unit")
 	h.fake.SetCheck("rehearsal-owner/app", head, "unit", "in_progress", "")
 	synced, row := configureInboundPullPolling(t, h.publicationFixture)
