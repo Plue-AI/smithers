@@ -46,6 +46,7 @@ type sleepCountRuntime struct {
 	reads       atomic.Int32
 	stops       atomic.Int32
 	stop        func() error
+	read        func(string)
 	unreachable atomic.Bool
 	unconfirmed atomic.Bool
 	stopped     atomic.Bool
@@ -89,7 +90,11 @@ func (r *sleepCountRuntime) StartWorkspace(ctx context.Context, id string) (work
 }
 func (r *sleepCountRuntime) ReadFile(ctx context.Context, id, path string) ([]byte, error) {
 	r.reads.Add(1)
-	return r.WorkspaceRuntime.ReadFile(ctx, id, path)
+	contents, err := r.WorkspaceRuntime.ReadFile(ctx, id, path)
+	if err == nil && r.read != nil {
+		r.read(path)
+	}
+	return contents, err
 }
 func (r *sleepCountRuntime) ListFiles(ctx context.Context, id, path string) ([]workspace.FileEntry, error) {
 	r.reads.Add(1)
@@ -353,6 +358,27 @@ func branchSleepInstall(t *testing.T, scenario string) {
 			require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/"+path, 200), &file))
 			require.Equal(t, text, file.Content.Text)
 		}
+		// Lose the authenticated retained ref after preflight, while the guest
+		// reads a valid completed checkout receipt. Guest objects alone cannot
+		// clear the recovery markers after this loss.
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='pending',disk_reclaimed_at=NOW(),branch_archived_at=NOW() WHERE id=$1`, id)
+		require.NoError(t, err)
+		lost := false
+		counted.read = func(path string) {
+			if path == ".git/smithers-workspace-initialization.json" {
+				git("--git-dir", hostGit, "update-ref", "-d", repohost.BranchHeadRef(id))
+				lost = true
+			}
+		}
+		resume(503)
+		counted.read = nil
+		require.True(t, lost, "ref disappears during completed checkout replay")
+		refused, err = q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.True(t, refused.DiskReclaimedAt.Valid)
+		require.True(t, refused.BranchArchivedAt.Valid)
+		git("--git-dir", hostGit, "update-ref", repohost.BranchHeadRef(id), head)
+		resume(200)
 		return
 	}
 	counted.stopped.Store(false)

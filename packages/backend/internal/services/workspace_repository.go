@@ -69,6 +69,12 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepository(ctx context.Context,
 	if !row.DiskReclaimedAt.Valid {
 		return nil
 	}
+	// Provisioning and receipt replay involve guest calls. A retained ref lost
+	// during those calls must leave reconstruction pending, even if the guest
+	// still possesses the source objects from an earlier successful checkout.
+	if err := s.verifyReclaimedWorkspaceSource(ctx, row); err != nil {
+		return err
+	}
 	// Only a fully receipted checkout discharges reconstruction. A crash before
 	// commit retries the same capture, including an already initialized clone.
 	tx, err := s.transactions.Begin(ctx)

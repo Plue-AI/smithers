@@ -5,7 +5,7 @@ import { Node } from "@smthrs/plan"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { deliverSignal } from "@smthrs/agent/AgentSession"
+import { deliverSignal, drainRecordedSignals } from "@smthrs/agent/AgentSession"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import { Control } from "@smthrs/control/Control"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
@@ -216,7 +216,12 @@ test("fifty TODO waits survive cold restart and staggered Resume without replayi
         return Option.isSome(waiting) && waiting.value.token !== null
       })))
       await host.runPromise(signal(id, "pause#1"))
-      await host.runPromise(TestDatabase.until(parked(id)))
+      // Admission can win the engine's wait-publication CAS. Production
+      // retries its durable inbox; this fixture must drive that same drain.
+      await host.runPromise(TestDatabase.until(Effect.gen(function*() {
+        yield* drainRecordedSignals
+        return yield* parked(id)
+      })))
     }
     assert.equal(before.size, 50); assert.equal(second.size, 50); assert.equal(after.size, 0)
     await host.dispose()
@@ -235,6 +240,7 @@ test("fifty TODO waits survive cold restart and staggered Resume without replayi
         await host.runPromise(signal(id, "resume#1"))
         await host.runPromise(signal(id, "resume#1"))
         await host.runPromise(TestDatabase.until(Effect.gen(function*() {
+          yield* drainRecordedSignals
           return (yield* (yield* RunStore.RunStore).get(run(id))).status === "completed"
         })))
       }
