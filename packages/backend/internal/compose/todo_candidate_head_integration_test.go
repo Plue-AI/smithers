@@ -152,6 +152,8 @@ func testCandidateHeadReportComposedInstall(t *testing.T, installAuthority bool)
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	router := githubAppSetupComposeRouter(cfg, pool, nil, &routes.WorkspaceHandler{Service: service})
 	report := func(head string, authenticated bool) *httptest.ResponseRecorder {
+		bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 		request := httptest.NewRequest("POST", cfg.Server.PublicURL+"/api/repos/candidate-owner/app/workspaces/"+workspaceID+"/head", strings.NewReader(fmt.Sprintf(`{"change_id":%q,"commit_id":%q,"ahead":1,"behind":0}`, runtime.change, head)))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", cfg.Server.PublicURL)
@@ -160,9 +162,10 @@ func testCandidateHeadReportComposedInstall(t *testing.T, installAuthority bool)
 		if authenticated {
 			request.Header.Set("Authorization", "Bearer "+machineToken)
 		}
-		request = request.WithContext(ctx)
+		request = request.WithContext(bounded)
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
+		require.NoError(t, bounded.Err(), "candidate observation must share the publisher transaction")
 		return response
 	}
 	state := func() (bool, int64, string) {
