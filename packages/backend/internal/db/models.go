@@ -1875,15 +1875,16 @@ type ProductJobDispatch struct {
 }
 
 type ProductJobEvent struct {
-	TenantID    string          `json:"tenant_id"`
-	PrincipalID string          `json:"principal_id"`
-	Sequence    int64           `json:"sequence"`
-	EventID     string          `json:"event_id"`
-	OperationID string          `json:"operation_id"`
-	EventType   string          `json:"event_type"`
-	State       string          `json:"state"`
-	Data        json.RawMessage `json:"data"`
-	RecordedAt  time.Time       `json:"recorded_at"`
+	TenantID           string          `json:"tenant_id"`
+	PrincipalID        string          `json:"principal_id"`
+	Sequence           int64           `json:"sequence"`
+	EventID            string          `json:"event_id"`
+	OperationID        string          `json:"operation_id"`
+	EventType          string          `json:"event_type"`
+	State              string          `json:"state"`
+	Data               json.RawMessage `json:"data"`
+	RecordedAt         time.Time       `json:"recorded_at"`
+	RepositorySequence pgtype.Int8     `json:"repository_sequence"`
 }
 
 type ProductJobRequest struct {
