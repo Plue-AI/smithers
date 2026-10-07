@@ -57,9 +57,10 @@ for prompt declarations, the renderer's source. It supplies an unresolved
 renders a prompt. Repository declarations must still be inspected in their
 guest, because building a graph calls their plan-time bodies.
 
-Inspect `diagnostics` before publishing the steps. A body that computes on its
+Inspect `diagnostics` before interpreting the steps. A body that computes on its
 input can require a real payload; inspection reports `declaration_requires_input`
-without declaring the flow unloadable. Use `Graph.build(flow, payload)` to plan
+and shows the declaration as one opaque flow boundary, without declaring it
+unloadable or borrowing another version’s steps. Use `Graph.build(flow, payload)` to plan
 that invocation. Symbolic inputs have the same restrictions as planned step
 results: use node combinators for branching, not JavaScript truthiness or
 reference comparisons. Prompt source is code for inspection, not a rendered

@@ -243,7 +243,7 @@ export default Flow.make("prompted", {
       // Input-dependent prompt construction is still a runnable declaration;
       // symbolic inspection refuses it rather than rendering invented input.
       assert.equal(atEdited[0].inspection?.diagnostics[0]?.code, "declaration_requires_input")
-      assert.equal(atEdited[0].steps, undefined)
+      assert.deepEqual(atEdited[0].steps, [{ id: "root", label: "todo" }])
       // The edit loads as a new version.
       assert.equal(atEdited.length, 1)
       assert.equal(atEdited[0].status, "loaded")
