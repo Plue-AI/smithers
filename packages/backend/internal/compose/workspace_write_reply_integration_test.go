@@ -146,6 +146,9 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			if string(changes[0].Content) == "offline" {
 				return machined.WriteResult{}, machined.ErrNotReady
 			}
+			if string(changes[0].Content) == "wrong-receipt" {
+				return machined.WriteResult{Applied: []machined.AppliedFile{{Path: "daemon.txt", PostDigest: helloDigest}}}, nil
+			}
 			if changes[0].BaseDigest != nil {
 				current := otherDigest
 				return machined.WriteResult{Stale: &machined.StaleFile{Path: "daemon.txt", CurrentDigest: &current}}, nil
@@ -154,16 +157,20 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			return machined.WriteResult{Applied: []machined.AppliedFile{{Path: "daemon.txt", PostDigest: helloDigest}}, Raced: []machined.RacedFile{{Path: "daemon.txt", DisplacedDigest: otherDigest}}}, nil
 		}}}
 		for _, item := range []struct {
+			query    string
 			request  string
 			status   int
 			fragment string
 		}{
-			{`{"content":"hello","base_digest":"absent"}`, 200, `"version":"` + otherDigest + `"`},
-			{`{"content":"hello","base_digest":"` + helloDigest + `"}`, 409, `"current_digest":"` + otherDigest + `"`},
-			{`{"content":"hello"}`, 400, "base_digest"},
-			{`{"content":"offline","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
+			{"?path=daemon.txt", `{"content":"hello","base_digest":"absent"}`, 200, `"version":"` + otherDigest + `"`},
+			{"?path=daemon.txt", `{"content":"hello","base_digest":"` + helloDigest + `"}`, 409, `"current_digest":"` + otherDigest + `"`},
+			{"?path=daemon.txt", `{"content":"hello"}`, 400, "base_digest"},
+			{"?path=daemon.txt", `{"content":"offline","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
+			{"?path=daemon.txt", `{"content":"wrong-receipt","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
+			{"", `{"changes":[{"path":"daemon.txt","content":"hello","base_digest":"absent"},{"path":"second.txt","content":"hello","base_digest":"absent"}]}`, 503, `"code":"service_unavailable"`},
+			{"", `{"changes":[{"path":"daemon.txt","content":null,"base_digest":"` + helloDigest + `"}]}`, 503, `"code":"service_unavailable"`},
 		} {
-			req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=daemon.txt", strings.NewReader(item.request))
+			req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content"+item.query, strings.NewReader(item.request))
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Origin", origin)
@@ -178,6 +185,8 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			require.Equal(t, item.status, response.StatusCode, string(body))
 			require.Contains(t, string(body), item.fragment)
 		}
-		require.Equal(t, 3, calls)
+		// Unsupported transactions and deletions must refuse before the first
+		// remote write. Sequential WriteFiles receipts cannot qualify a patch.
+		require.Equal(t, 4, calls)
 	})
 }
