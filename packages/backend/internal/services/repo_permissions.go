@@ -427,7 +427,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 		return authorizeExecutionTodoRead(ctx, q, subject)
 	}
 	if command == "branch.read" && InstallExecutionCredential(ctx) {
-		if subject.Resource != "files" || subject.WorkspaceID == "" {
+		if (subject.Resource != "files" && subject.Resource != "diff") || subject.WorkspaceID == "" {
 			return InstallAuthorization{}, confirmationPermission()
 		}
 		return authorizeExecutionTodoRead(ctx, q, subject)

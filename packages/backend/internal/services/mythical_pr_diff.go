@@ -102,9 +102,14 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 	if s == nil || s.store == nil || s.host == nil {
 		return BranchDiff{}, &mythicalPRUnavailable{}
 	}
-	authorization, err := Authorize(ctx, s.queries(), "branch.read")
-	if err != nil {
-		return BranchDiff{}, err
+	var authorization InstallAuthorization
+	var err error
+	execution := InstallExecutionCredential(ctx)
+	if !execution {
+		authorization, err = Authorize(ctx, s.queries(), "branch.read")
+		if err != nil {
+			return BranchDiff{}, err
+		}
 	}
 	repository, err := InstallRepositoryID(ctx, s.queries())
 	if err != nil {
@@ -114,6 +119,31 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 	if err != nil {
 		return BranchDiff{}, &BranchError{http.StatusBadRequest, "invalid_branch", "user", "Invalid branch"}
 	}
+	var binding InstallSubject
+	if execution {
+		binding, err = InstallExecutionBranchReadSubject(ctx, s.queries(), repository, branch, "diff")
+		if err != nil {
+			return BranchDiff{}, err
+		}
+	}
+	if execution {
+		authorization, err = Authorize(ctx, s.queries(), "branch.read", binding)
+		if err != nil {
+			return BranchDiff{}, err
+		}
+	}
+	ctx = WithInstallAuthorization(ctx, "branch.read", authorization, binding)
+	var result BranchDiff
+	err = withInstallExecutionBranchRead(ctx, s.store, binding.WorkspaceID, repository, authorization.UserID, "diff", func(ctx context.Context) error {
+		var err error
+		result, err = s.todoBranchDiff(ctx, branch, repository, authorization.UserID)
+		return err
+	})
+	return result, err
+}
+
+func (s *MythicalService) todoBranchDiff(ctx context.Context, branch string, repository, actor int64) (BranchDiff, error) {
+	var err error
 	subject := branch
 	// Branch cards dispatch the durable workspace id; slash commands may
 	// name its bookmark. Resolve only within this install repository before
@@ -167,7 +197,7 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 		if !ok {
 			return BranchDiff{}, &mythicalPRUnavailable{}
 		}
-		head, err = reader.CapturedHead(ctx, lane.ID, repository, authorization.UserID)
+		head, err = reader.CapturedHead(ctx, lane.ID, repository, actor)
 		if err != nil {
 			return BranchDiff{}, err
 		}

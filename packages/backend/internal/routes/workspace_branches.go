@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -321,7 +320,7 @@ func InstallBranchReadSubject(r *http.Request, q *db.Queries) (services.InstallS
 		}
 		return services.InstallExecutionFileSubject(r.Context(), q, row.ID, workspace)
 	}
-	if len(parts) < 4 || parts[1] != "branches" || parts[3] != "files" {
+	if len(parts) < 4 || parts[1] != "branches" || (parts[3] != "files" && (parts[3] != "diff" || len(parts) != 4)) {
 		return services.InstallSubject{}, nil
 	}
 	query := r.URL.Query()
@@ -336,16 +335,9 @@ func InstallBranchReadSubject(r *http.Request, q *db.Queries) (services.InstallS
 	if err != nil {
 		return services.InstallSubject{}, err
 	}
-	workspace := branch
-	if _, err := uuid.Parse(branch); err != nil {
-		row, err := q.GetBranchWorkspace(r.Context(), db.GetBranchWorkspaceParams{RepositoryID: repository, TargetBookmark: branch})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return services.InstallSubject{}, nil
-		}
-		if err != nil {
-			return services.InstallSubject{}, err
-		}
-		workspace = row.ID
+	resource := "files"
+	if parts[3] == "diff" {
+		resource = "diff"
 	}
-	return services.InstallExecutionFileSubject(r.Context(), q, repository, workspace)
+	return services.InstallExecutionBranchReadSubject(r.Context(), q, repository, branch, resource)
 }

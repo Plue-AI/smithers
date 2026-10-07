@@ -11,6 +11,30 @@ import (
 // InstallExecutionFileSubject resolves the stored lane before admitting an
 // execution read. A commit selector or arbitrary workspace grants no authority.
 func InstallExecutionFileSubject(ctx context.Context, q *db.Queries, repository int64, workspace string) (InstallSubject, error) {
+	return installExecutionReadSubject(ctx, q, repository, workspace, "files")
+}
+
+// InstallExecutionBranchReadSubject resolves only the current bound workspace,
+// never main or an arbitrary commit selector.
+func InstallExecutionBranchReadSubject(ctx context.Context, q *db.Queries, repository int64, branch, resource string) (InstallSubject, error) {
+	if branch == "main" || branch == "" {
+		return InstallSubject{}, nil
+	}
+	workspace := branch
+	if !mythicalWorkspaceID.MatchString(branch) {
+		row, err := q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repository, TargetBookmark: branch})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return InstallSubject{}, nil
+		}
+		if err != nil {
+			return InstallSubject{}, err
+		}
+		workspace = row.ID
+	}
+	return installExecutionReadSubject(ctx, q, repository, workspace, resource)
+}
+
+func installExecutionReadSubject(ctx context.Context, q *db.Queries, repository int64, workspace, resource string) (InstallSubject, error) {
 	subject, err := ResolveInstallExecutionSubject(ctx, q, repository)
 	if err != nil {
 		var refusal *AccessError
@@ -20,7 +44,7 @@ func InstallExecutionFileSubject(ctx context.Context, q *db.Queries, repository 
 		subject = InstallSubject{RepositoryID: repository}
 	}
 	subject.WorkspaceID = workspace
-	subject.Resource = "files"
+	subject.Resource = resource
 	return subject, nil
 }
 
@@ -28,13 +52,22 @@ func InstallExecutionFileSubject(ctx context.Context, q *db.Queries, repository 
 // reads. Hold those facts through the read so a later removal cannot disclose
 // bytes from an earlier bound authorization decision.
 func (s *WorkspaceService) withInstallExecutionFileRead(ctx context.Context, workspace string, repository, actor int64, read func(context.Context) error) error {
-	if !InstallExecutionCredential(ctx) || s.installQueries == nil {
+	if s.installQueries == nil {
 		return read(ctx)
 	}
-	if s.transactions == nil {
+	return withInstallExecutionBranchRead(ctx, s.transactions, workspace, repository, actor, "files", read)
+}
+
+func withInstallExecutionBranchRead(ctx context.Context, transactions interface {
+	Begin(context.Context) (pgx.Tx, error)
+}, workspace string, repository, actor int64, resource string, read func(context.Context) error) error {
+	if !InstallExecutionCredential(ctx) {
+		return read(ctx)
+	}
+	if transactions == nil {
 		return confirmationPermission()
 	}
-	tx, err := s.transactions.Begin(ctx)
+	tx, err := transactions.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -43,7 +76,7 @@ func (s *WorkspaceService) withInstallExecutionFileRead(ctx context.Context, wor
 		return err
 	}
 	q := db.New(tx)
-	subject, err := InstallExecutionFileSubject(ctx, q, repository, workspace)
+	subject, err := installExecutionReadSubject(ctx, q, repository, workspace, resource)
 	if err != nil {
 		return err
 	}
