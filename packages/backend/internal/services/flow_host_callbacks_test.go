@@ -43,7 +43,7 @@ func TestFlowHostCallbacksAuthorizeTheBoxHost(t *testing.T) {
 	lease, err := store.Acquire(ctx, flowhost.Authority{
 		Target:       flowruntime.Target{TenantID: "repository:1", PrincipalID: "user:1", BindingKind: "browser-flow", BindingID: "o/r"},
 		RepositoryID: repo, UserID: user, WorkspaceID: workspace, CatalogKey: flowhost.CatalogCoding, SourceRevision: strings.Repeat("a", 40),
-	}, flowhost.Catalog{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/opt/smithers/coding", ArtifactDigest: strings.Repeat("b", 64), ServiceName: "coding"})
+	}, flowhost.Catalog{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/opt/smithers/coding", ArtifactDigest: strings.Repeat("b", 64), ServiceName: "coding", SystemFlows: []string{"coding"}})
 	require.NoError(t, err)
 	_, err = lease.PrepareStart(ctx, false)
 	require.NoError(t, err)
