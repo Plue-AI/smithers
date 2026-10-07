@@ -611,7 +611,9 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       return { status: "failed", error: `/${nameOf(target)} requires a person's confirmation.` }
     }
 
-    const authorizeTarget = async (): Promise<CommandOutcome | undefined> => {
+    // personOnly: the target refuses agents whatever the host decides, so a
+    // required approval must not park the run for a grant that cannot help.
+    const authorizeTarget = async (personOnly = false): Promise<CommandOutcome | undefined> => {
       if (invocation !== undefined && invocation.authorized !== Cell.declarationDigest(target.binding.descriptor)) {
         const decision = await Effect.runPromise(Effect.result(invocation.authorize.authorize({
           name: nameOf(target),
@@ -619,6 +621,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
           slot: invocation.slot
         })), { signal: invocation.signal })
         if (decision._tag === "Failure") {
+          if (personOnly && decision.failure.code === "approval_required") return undefined
           invocation.refused(decision.failure)
           return { status: "failed", error: commandFailureSentence(nameOf(target), decision.failure) }
         }
@@ -627,7 +630,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     if (invoker === "agent" && !modelInvocable(target)) {
       // Host authority takes precedence over the person-only policy. Neither
       // decision invokes the binding or opens a card.
-      const denied = await authorizeTarget()
+      const denied = await authorizeTarget(true)
       return denied ?? { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
     }
     // A user-only flow refuses every non-person actor, automatic `system` calls

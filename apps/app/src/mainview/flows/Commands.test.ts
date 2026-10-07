@@ -499,14 +499,18 @@ describe("Commands catalog through the production dispatcher (T-UI-14)", () => {
 
 // Test-only host contract until T-CAT-01 supplies live scope/role decisions.
 describe("debug.api delegated authority precedence", () => {
-  for (const message of ["Token scope does not allow this operation", "Member role required", undefined]) {
-    test(message ?? "eligible authority reaches the person-only refusal", async () => {
+  // A required approval cannot help a person-only flow, so it never parks the run.
+  for (const message of ["Token scope does not allow this operation", "Member role required", "approval_required", undefined]) {
+    test(message === undefined ? "eligible authority reaches the person-only refusal" : message === "approval_required" ? "a required approval reaches the person-only refusal without parking" : message, async () => {
       let transport = 0, decisions = 0
       const fixture = await freshController(undefined, {
         debugApiGates: () => ({ catalog: true, authorizer: true, view: true }),
         fetchImpl: async () => { transport++; throw new Error("unexpected API effect") }
       })
-      const refusal = message === undefined ? undefined : new Authorize.AuthorizeError({ code: "denied", message })
+      const refusal = message === undefined ? undefined : message === "approval_required"
+        ? new Authorize.AuthorizeError({ code: "approval_required", message: "Approve /debug.api" })
+        : new Authorize.AuthorizeError({ code: "denied", message })
+      const approval = refusal?.code === "approval_required"
       const refused: unknown[] = []
       try {
         for (const args of ["get_api_todos", '{"intent":"send","operationId":"get_api_todos"}', undefined]) {
@@ -523,11 +527,11 @@ describe("debug.api delegated authority precedence", () => {
             ? await fixture.controller.commands.submit({ name: "debug.api", actor: "agent", payload: { intent: "send", operationId: "get_api_todos" }, invocation })
             : await fixture.controller.commands.runForAgent("debug.api", args, invocation)
           expect(result.status).toBe("failed")
-          if (result.status === "failed") expect(result.error).toContain(message === undefined
+          if (result.status === "failed") expect(result.error).toContain(message === undefined || approval
             ? "raw API bypasses flow typing and approvals; agents use flows" : "Smithers isn't allowed to run /debug.api here.")
         }
         expect(decisions).toBe(3)
-        expect(refused).toEqual(refusal === undefined ? [] : [refusal, refusal, refusal])
+        expect(refused).toEqual(refusal === undefined || approval ? [] : [refusal, refusal, refusal])
         expect(fixture.store.collections.cards.has("debug-api")).toBe(false)
         expect(transport).toBe(0)
       } finally { await fixture.controller.dispose() }
