@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,4 +152,132 @@ func TestFaultK4HostChild(t *testing.T) {
 	require.NoError(t, err)
 	runK4Dispatch(t, pool, os.Getenv("SMITHERS_K4_BRANCH"), os.Getenv("SMITHERS_K4_STORE"), Event{Seq: 1, EventID: id, Payload: payload}, true)
 	t.Fatal("K4 failed to exit before acknowledgement")
+}
+
+// This qualifies only the host reconnect boundary of K4b. The queued events
+// are fixture-authored, not a guest watcher/outbox, so no full-matrix pass is
+// implied. Ten repetitions retain the real outage; -short excludes the campaign.
+func TestFaultK4bHostConnectionCut(t *testing.T) {
+	if testing.Short() {
+		t.Skip("K4b requires a real 30-second connection outage")
+	}
+	for run := 1; run <= 10; run++ {
+		t.Run(fmt.Sprint(run), testFaultK4bHostConnectionCut)
+	}
+}
+
+func testFaultK4bHostConnectionCut(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	var user, repository int64
+	var branch string
+	require.NoError(t, pool.QueryRow(ctx, "INSERT INTO users(username,lower_username) VALUES('fault','fault') RETURNING id").Scan(&user))
+	require.NoError(t, pool.QueryRow(ctx, "INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'fault','fault') RETURNING id", user).Scan(&repository))
+	require.NoError(t, pool.QueryRow(ctx, "INSERT INTO workspaces(repository_id,user_id,name) VALUES($1,$2,'fault') RETURNING id", repository, user).Scan(&branch))
+	store := filepath.Join(t.TempDir(), "store.git")
+	out, err := hostexec.Git(ctx, "init", "--bare", store).CombinedOutput()
+	require.NoError(t, err, "%s", out)
+	git := func(input string, args ...string) string {
+		cmd := hostexec.Git(ctx, append([]string{"-c", "core.hooksPath=/dev/null", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "-C", store}, args...)...)
+		cmd.Stdin = strings.NewReader(input)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return strings.TrimSpace(string(out))
+	}
+	decode := func(s string) []byte { b, e := hex.DecodeString(s); require.NoError(t, e); return b }
+	registry := new(Registry)
+	authority, err := registry.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	ingestor := &Ingestor{Pool: pool, Bursts: &BurstIngest{Pool: pool,
+		Objects: GitBurstObjects{Resolve: func(_ context.Context, b string) (string, error) {
+			if b != branch {
+				return "", ErrUnauthorized
+			}
+			return store, nil
+		}},
+		ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+			return json.RawMessage(`{"id":"outside","kind":"outside"}`), nil
+		},
+	}}
+	start := func() (*Link, net.Conn, <-chan error, context.CancelFunc) {
+		link, peer := connectTest(t, registry, branch, authority)
+		require.NoError(t, link.Reconciled())
+		dispatchCtx, cancel := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() { done <- ingestor.Dispatch(dispatchCtx, link, branch) }()
+		return link, peer, done, cancel
+	}
+	link, peer, done, cancel := start()
+	require.NoError(t, peer.Close())
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatcher did not notice connection cut")
+	}
+	cancel()
+	require.NoError(t, link.Close())
+	cutAt := time.Now()
+	type expected struct {
+		event                                          Event
+		burst                                          uuid.UUID
+		path, before, after, versions, content, digest string
+	}
+	queued := make([]expected, 0, 50)
+	for n := 0; n < 50; n++ {
+		path := fmt.Sprintf("outage-%02d.ts", n)
+		content := fmt.Sprintf("acknowledged outage write %02d\n", n)
+		before := git("before\n", "hash-object", "-w", "--stdin")
+		after := git(content, "hash-object", "-w", "--stdin")
+		a := git("100644 blob "+before+"\t"+path+"\n", "mktree")
+		b := git("100644 blob "+after+"\t"+path+"\n", "mktree")
+		tree := git("040000 tree "+a+"\ta\n040000 tree "+b+"\tb\n", "mktree")
+		versions := git("versions\n", "commit-tree", tree)
+		digest := sha256.Sum256([]byte(content))
+		burst, eventID := uuid.New(), uuid.New()
+		files := append(wire.U16(1), wire.Struct(wire.Field(1, wire.String(path)), wire.Field(2, []byte{2}), wire.Field(4, decode(before)), wire.Field(5, decode(after)), wire.Field(6, digest[:]))...)
+		payload := wire.Union(1, wire.Field(1, burst[:]), wire.Field(2, wire.Union(4)), wire.Field(3, files), wire.Field(4, decode(versions)))
+		queued = append(queued, expected{Event{Seq: uint64(n + 1), EventID: eventID, Payload: payload}, burst, path, before, after, versions, content, hex.EncodeToString(digest[:])})
+	}
+	// Keep the outage real, rather than advancing a fixture clock.
+	timer := time.NewTimer(time.Until(cutAt.Add(30 * time.Second)))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM machine_event_receipts").Scan(&count))
+	require.Zero(t, count)
+	link, peer, done, cancel = start() // same registry, boot and host service; no restart
+	defer func() { cancel(); require.ErrorIs(t, <-done, context.Canceled) }()
+	for replay := 0; replay < 3; replay++ {
+		for _, e := range queued {
+			sendConsumerEvent(t, peer, e.event)
+			outcome := AckApplied
+			if replay > 0 {
+				outcome = AckDuplicate
+			}
+			readConsumerAck(t, peer, e.event.Seq, outcome)
+		}
+	}
+	for _, table := range []string{"product_job_events", "burst_files", "machine_event_receipts"} {
+		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
+		require.Equal(t, 50, count, table)
+	}
+	git("", "gc", "--prune=now")
+	for _, e := range queued {
+		var before, after, digest string
+		require.NoError(t, pool.QueryRow(ctx, "SELECT before_blob,after_blob,post_digest FROM burst_files WHERE path=$1", e.path).Scan(&before, &after, &digest))
+		require.Equal(t, e.before, before)
+		require.Equal(t, e.after, after)
+		require.Equal(t, e.digest, digest)
+		ref := "refs/smithers/branches/" + branch + "/bursts/" + e.burst.String()
+		require.Equal(t, e.versions, git("", "rev-parse", ref))
+		require.Equal(t, "before", git("", "show", ref+":a/"+e.path))
+		require.Equal(t, strings.TrimSpace(e.content), git("", "show", ref+":b/"+e.path))
+		t.Logf("K4b branch=%s event=%s burst=%s path=%s versions=%s after_sha256=%s", branch, uuid.UUID(e.event.EventID), e.burst, e.path, e.versions, e.digest)
+	}
+	t.Logf("K4b outage=%s events=50 files=50 receipts=50 duplicate_replays=2 host_restarts=0 scope=host-boundary", time.Since(cutAt))
 }
