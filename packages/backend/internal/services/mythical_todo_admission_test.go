@@ -978,7 +978,7 @@ func TestTodoAdmissionStartsAnIssueTodoFromItsDraft(t *testing.T) {
 	for _, event := range events.Events {
 		types = append(types, event.Type)
 	}
-	require.Equal(t, []string{"todo.created", "todo.run_updated"}, types)
+	require.Equal(t, []string{"todo.created", "todo.started", "todo.run_updated"}, types)
 
 	labeled := db.MythicalItem{Source: "issue", IssueTitle: "Say goodbye", Revisions: []byte(`[{"text":"Say goodbye\n\nEnd with a farewell.","acceptance":[]}]`)}
 	require.True(t, mythicalTodo(labeled))
