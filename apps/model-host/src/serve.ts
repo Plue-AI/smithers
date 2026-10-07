@@ -95,19 +95,21 @@ const normalize = async (request: Request): Promise<Response> => {
   }
 }
 const MAX_BODY_BYTES = 2 * 1024 * 1024
+// One escaped framed record plus its bounded receipt checkpoint.
+const MAX_TRANSCRIPT_BODY_BYTES = 8 * 1024 * 1024
 const refuse = (outgoing: ServerResponse, status: number, code: string): void => {
   if (!outgoing.headersSent) outgoing.writeHead(status, { "content-type": "application/json", connection: "close" })
   outgoing.end(`${JSON.stringify({ status: "error", code })}\n`)
 }
 /** Buffers the request body, or resolves `undefined` once it exceeds the limit
  * without destroying the socket, so the caller still receives the refusal. */
-const readBody = (incoming: IncomingMessage): Promise<Buffer<ArrayBuffer> | undefined> =>
+const readBody = (incoming: IncomingMessage, limit: number): Promise<Buffer<ArrayBuffer> | undefined> =>
   new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
     const collect = (chunk: Buffer): void => {
       size += chunk.byteLength
-      if (size <= MAX_BODY_BYTES) {
+      if (size <= limit) {
         chunks.push(chunk)
         return
       }
@@ -131,7 +133,10 @@ const server = createServer({
   })
   try {
     const declared = Number(incoming.headers["content-length"] ?? "0")
-    const bytes = declared > MAX_BODY_BYTES ? undefined : await readBody(incoming)
+    const transcript = incoming.method === "POST" &&
+      new URL(incoming.url ?? "/", "http://127.0.0.1").pathname === "/v1/transcript/normalize"
+    const limit = transcript ? MAX_TRANSCRIPT_BODY_BYTES : MAX_BODY_BYTES
+    const bytes = declared > limit ? undefined : await readBody(incoming, limit)
     if (bytes === undefined) {
       refuse(outgoing, 413, "request_invalid")
       return

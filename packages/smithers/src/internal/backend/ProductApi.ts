@@ -552,6 +552,42 @@ export type AdminCreditGrantReceipt = {
   duplicate: boolean
 }
 
+export type ImportedConversationMessage = {
+  id: string
+  authorLogin?: string
+  authorName?: string
+  origin: "external"
+  agent_kind: "codex" | "claude-code"
+  format_version: string
+  source_id: string
+  session_id: string
+  participant_id: string
+  actor: {
+    kind: "person" | "agent"
+    id?: string
+    login?: string
+    name?: string
+    agent?: "codex" | "claude-code"
+    session_id?: string
+    avatar_url: string
+    color_index: number
+    for_member?: {
+      login: string
+      name: string
+      avatar_url: string
+    }
+  }
+  read_only: true
+  role: "user" | "smithers"
+  text: string
+  reasoning?: string
+  act?: string
+  correlation_id?: string
+  status: "complete" | "failed"
+  createdAt: number
+  ordinal: number
+}
+
 export type SavedConversationCursor = {
   version: 1
   runId: string
@@ -1339,7 +1375,7 @@ export const postApiAgentConversationsReplay = (transport: Transport, input: Pos
 
 export type GetApiConversationResponse = {
   id: string
-  entries: Array<{
+  entries: Array<ImportedConversationMessage | {
     id: string
     author: number
     runId: string
@@ -5022,6 +5058,32 @@ export interface PostApiReposOwnerRepoWorkspacesIdHeadInput {
 /** POST /api/repos/{owner}/{repo}/workspaces/{id}/head */
 export const postApiReposOwnerRepoWorkspacesIdHead = (transport: Transport, input: PostApiReposOwnerRepoWorkspacesIdHeadInput): Promise<PostApiReposOwnerRepoWorkspacesIdHeadResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/head`) as Promise<PostApiReposOwnerRepoWorkspacesIdHeadResponse>
+
+export type PostApiReposOwnerRepoWorkspacesIdStackOperationBody = {
+  requestId: string
+  generation?: number
+  source?: {
+    change_id: string
+    commit_id: string
+    tree_id: string
+    parent_commit_ids: Array<string>
+  }
+}
+
+export type PostApiReposOwnerRepoWorkspacesIdStackOperationResponse = {
+  generation: number
+  base?: string
+  head: string
+}
+
+export interface PostApiReposOwnerRepoWorkspacesIdStackOperationInput {
+  readonly path: { readonly owner: string; readonly repo: string; readonly id: string; readonly operation: "candidate" | "propose" }
+  readonly body: PostApiReposOwnerRepoWorkspacesIdStackOperationBody
+}
+
+/** POST /api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}: Run a reserved stack operation */
+export const postApiReposOwnerRepoWorkspacesIdStackOperation = (transport: Transport, input: PostApiReposOwnerRepoWorkspacesIdStackOperationInput): Promise<PostApiReposOwnerRepoWorkspacesIdStackOperationResponse | null> =>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/stack/${segment(input.path.operation)}`, input.body) as Promise<PostApiReposOwnerRepoWorkspacesIdStackOperationResponse | null>
 
 export type PostApiReposOwnerRepoWorkspacesIdOperationsOpIdUndoResponse = AnyJSON
 

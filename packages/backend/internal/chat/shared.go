@@ -23,18 +23,21 @@ type SharedContextPreflight struct {
 
 type SharedTurn struct {
 	*ExternalDraft
-	ID          string                  `json:"id"`
-	Title       string                  `json:"title"`
-	Tone        string                  `json:"tone"`
-	Author      int64                   `json:"author"`
-	AuthorLogin string                  `json:"authorLogin"`
-	AuthorName  string                  `json:"authorName,omitempty"`
-	RunID       string                  `json:"runId"`
-	Prompt      string                  `json:"prompt"`
-	State       State                   `json:"state"`
-	Frames      []json.RawMessage       `json:"frames"`
-	Context     *[]json.RawMessage      `json:"context,omitempty"`
-	Preflight   *SharedContextPreflight `json:"preflight,omitempty"`
+	ID              string                  `json:"id"`
+	Title           string                  `json:"title"`
+	Tone            string                  `json:"tone"`
+	Author          int64                   `json:"author"`
+	AuthorLogin     string                  `json:"authorLogin"`
+	AuthorName      string                  `json:"authorName,omitempty"`
+	RunID           string                  `json:"runId"`
+	Prompt          string                  `json:"prompt"`
+	State           State                   `json:"state"`
+	Frames          []json.RawMessage       `json:"frames"`
+	Context         *[]json.RawMessage      `json:"context,omitempty"`
+	Preflight       *SharedContextPreflight `json:"preflight,omitempty"`
+	externalActor   map[string]any
+	externalAt      int64
+	externalOrdinal int
 }
 type SharedConversation struct {
 	ID      string       `json:"id"`
@@ -113,6 +116,26 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 		}
 		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorLogin); err != nil {
 			return result, err
+		}
+		if entry.ExternalDraft != nil {
+			owner, err := db.New(tx).GetUserByID(ctx, turn.UserID)
+			if err != nil {
+				return result, err
+			}
+			var color int
+			// Match the shared member roster's owner-first, admission order. The
+			// history keeps a removed author's portrait without granting access.
+			err = tx.QueryRow(ctx, `SELECT coalesce((SELECT color FROM (
+ SELECT c.user_id, ((row_number() OVER (ORDER BY coalesce(c.user_id=o.user_id,false) DESC,c.id)-1)%6)::int AS color
+ FROM collaborators c CROSS JOIN self_host_owners o
+ WHERE c.repository_id=$1 AND (c.user_id IS NOT NULL OR c.github_id IS NOT NULL)
+ ) roster WHERE user_id=$2 LIMIT 1),0)`, scope.RepositoryID, turn.UserID).Scan(&color)
+			if err != nil {
+				return result, err
+			}
+			entry.externalActor = externalActor(owner, *entry.ExternalDraft, color)
+			entry.externalAt = turn.CreatedAt.UnixMilli()
+			entry.externalOrdinal = len(result.Entries)
 		}
 		cursor := initialCursor(acceptance)
 		var preflight sharedPreflight
