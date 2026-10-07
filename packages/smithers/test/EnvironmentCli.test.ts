@@ -17,7 +17,8 @@ const fixture = async () => {
     HOME: root,
     XDG_CONFIG_HOME: join(root, "config"),
     PATH: process.env.PATH ?? "",
-    SMITHERS_DISABLE_SYSTEM_KEYRING: "1"
+    SMITHERS_DISABLE_SYSTEM_KEYRING: "1",
+    NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE
   }
   const cli = (args: string[]) =>
     spawnSync(process.execPath, [bin, ...args], { cwd: root, env, encoding: "utf8", timeout: 20_000 })
@@ -120,17 +121,20 @@ describe("environment CLI process boundary", () => {
     expect(executed.args).not.toContain("dev")
   })
 
-  it("rejects missing transport, conflicting transport and invalid forwarding ports", async () => {
+  it.each([
+    { name: "missing transport", remote: false, args: ["environment", "add", "dev", "--directory", "$root"] },
+    { name: "conflicting transport", remote: false, args: ["environment", "add", "dev", "--local", "--ssh", "host", "--directory", "$root"] },
+    { name: "zero local forwarding port", remote: true, args: ["environment", "forward", "remote", "--local-port", "0", "--remote-port", "22"] },
+    { name: "oversized remote forwarding port", remote: true, args: ["environment", "forward", "remote", "--local-port", "22", "--remote-port", "65536"] }
+  ])("rejects $name", async ({ remote, args }) => {
     const { root, cli } = await fixture()
-    expect(cli(["environment", "add", "remote", "--ssh", "fixture", "--directory", root]).status).toBe(0)
-    for (
-      const args of [
-        ["environment", "add", "dev", "--directory", root],
-        ["environment", "add", "dev", "--local", "--ssh", "host", "--directory", root],
-        ["environment", "forward", "remote", "--local-port", "0", "--remote-port", "22"],
-        ["environment", "forward", "remote", "--local-port", "22", "--remote-port", "65536"]
-      ]
-    ) expect(cli(args).status, args.join(" ")).not.toBe(0)
+    if (remote) {
+      expect(cli(["environment", "add", "remote", "--ssh", "fixture", "--directory", root]).status).toBe(0)
+    }
+    const argv = args.map(arg => arg === "$root" ? root : arg)
+    const result = cli(argv)
+    expect(result.status, argv.join(" ")).not.toBe(0)
+    expect(result.error).toBeUndefined()
   })
 })
 
