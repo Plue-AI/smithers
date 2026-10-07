@@ -59,6 +59,8 @@ export interface SecretsSeamOptions {
   }
   readonly install?: boolean
   readonly live?: Pick<LiveChannel, "subscribe" | "getSnapshot">
+  /** Current shared viewer authority; cached roster rows cannot admit a write. */
+  readonly canWrite?: () => boolean
   readonly onDispose?: (stop: () => void) => void
 }
 
@@ -177,7 +179,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   const writesUnavailable = () => {
     if (!options.install) return false
     const snapshot = options.live?.getSnapshot("secrets")
-    return !snapshot || !!snapshot.error || !SecretsCardSchema.safeParse(snapshot.data).success
+    return !snapshot || !!snapshot.error || !SecretsCardSchema.safeParse(snapshot.data).success || options.canWrite?.() !== true
   }
   const secretUrl = (repo: string, name?: string) => options.install
     ? `${ctx.baseUrl}/api/secrets${name === undefined ? "" : `/${encodeURIComponent(name)}`}`

@@ -38,8 +38,11 @@ test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete
     this_mac: { memory_gb: 32, disk_free_gb: 200, capacity: 4 }, github: { signed_in: true, app_installed: true }, models: [], chatgpt: false, capacity: 4
   } }))
   let role = "owner"
+  let rosterUnavailable = false
   const roster = () => ({ members: [{ login: "canary-owner", name: "Owner", role, avatar_url: "https://example.test/avatar.png", color_index: 0, needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/acme/app/settings/access" })
-  await page.route("**/api/members", route => route.fulfill({ json: roster() }))
+  await page.route("**/api/members", route => route.fulfill(rosterUnavailable
+    ? { status: 503, json: { class: "infra", code: "unavailable", message: "Members unavailable" } }
+    : { json: roster() }))
   let rows: { name: string; scope: string; hosts: string[]; actions: never[] }[] = []
   const notices = new Map<string, () => void>()
   let cursor = 1
@@ -136,6 +139,13 @@ test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete
   await row.getByRole("button", { name: "Delete", exact: true }).press("Enter")
   await expect(row).toHaveCount(0)
   expect(writes.length).toBe(6)
+  rosterUnavailable = true; notices.get("members")!()
+  await expect(card.getByRole("button")).toHaveCount(0)
+  await expect(card.getByLabel("Value", { exact: true })).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+  expect(writes.length).toBe(6)
+  rosterUnavailable = false; notices.get("members")!()
+  await expect(card.getByRole("button", { name: "Add", exact: true })).toBeVisible()
   topicUnavailable = true; notices.get("secrets")!()
   await expect(card.getByRole("button")).toHaveCount(0)
   await expect(card.getByLabel("Value", { exact: true })).toHaveCount(0)
