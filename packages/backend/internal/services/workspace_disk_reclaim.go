@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -13,10 +14,11 @@ import (
 // Candidates are hints only. WithFinalCapture must re-read settlement, lane
 // binding, retained objects and terminal/service inventory, and fence admission
 // and all writers until remove returns. No authority means no disk deletion.
-// Scratch archive timestamps and TODO settlements share this same authority.
+// Acquire the supplied runtime lock after writer exclusion and hold it through
+// archive decision and removal. Scratch and TODO settlements share this authority.
 type WorkspaceDiskReclaimAuthority interface {
 	Candidates(context.Context) ([]string, error)
-	WithFinalCapture(context.Context, db.Workspace, func(WorkspaceDiskReclaimCapture) error) error
+	WithFinalCapture(context.Context, db.Workspace, func() func(), func(WorkspaceDiskReclaimCapture) error) error
 }
 
 // WorkspaceDiskReclaimCapture names the verified, complete retained capture.
@@ -58,11 +60,8 @@ func (s *WorkspaceService) CleanupStoppedAgentWorkspaceDisks(ctx context.Context
 
 func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id string) error {
 	unlock := s.lockRuntimeWorkspace(id)
-	defer unlock()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	row, err := s.q.GetWorkspace(ctx, id)
+	unlock()
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -86,7 +85,7 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 	if !ok {
 		return nil
 	}
-	return s.diskReclaimAuthority.WithFinalCapture(ctx, row, func(capture WorkspaceDiskReclaimCapture) error {
+	return s.diskReclaimAuthority.WithFinalCapture(ctx, row, func() func() { return s.lockRuntimeWorkspace(id) }, func(capture WorkspaceDiskReclaimCapture) error {
 		// The lifecycle lock covers this re-read and runtime removal; the authority
 		// keeps settlement/binding and quiet inventory fenced across the callback.
 		current, err := s.q.GetWorkspace(ctx, id)
@@ -96,17 +95,49 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 		if err != nil {
 			return err
 		}
-		if current.DeletedAt.Valid || (current.Status != "suspended" && current.Status != "stopped") {
+		if len(current.CapturePending) != 0 || current.DeletedAt.Valid || (current.Status != "suspended" && current.Status != "stopped") {
 			return nil
 		}
-		if current.VmID != row.VmID || current.RepositoryID != row.RepositoryID || current.UserID != row.UserID {
+		if current.VmID != row.VmID || current.RepositoryID != row.RepositoryID || current.UserID != row.UserID || current.TargetBookmark != row.TargetBookmark {
 			return nil
 		}
 		if !capture.Settled || !capture.Quiet || !capture.BindingVerified || !capture.CaptureComplete || !capture.InventoryCurrent || capture.WorkspaceID != id || capture.CaptureID == "" ||
 			capture.CandidateHead == "" || capture.CandidateHead != current.HeadCommitID || capture.RetainedHead != capture.CandidateHead {
 			return nil
 		}
-		return reclaimer.ReclaimWorkspaceDisk(ctx, id)
+		// Re-check TODO binding even for injected capture authorities. Scratch
+		// workspaces have no lane and rely on the transactional archive authority.
+		if store, ok := s.q.(interface {
+			GetMythicalLane(context.Context, string) (db.MythicalLane, error)
+			GetMythicalItem(context.Context, pgtype.UUID) (db.MythicalItem, error)
+		}); ok {
+			lane, err := store.GetMythicalLane(ctx, id)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err == nil {
+				item, err := store.GetMythicalItem(ctx, lane.ItemID)
+				if err != nil {
+					return err
+				}
+				if lane.WorkspaceID != id || lane.RepositoryID != current.RepositoryID || item.ID != lane.ItemID || item.RepositoryID != current.RepositoryID || item.WorkspaceID != id || item.PausedAt.Valid {
+					return nil
+				}
+				switch item.State {
+				case "landed", "cancelled", "rejected", "declined", "skipped", "dropped":
+				default:
+					return nil
+				}
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		operationCtx, err := s.workspaceRuntimeContext(ctx, current, current.UserID, workspaceLifecycleOperation(current, "reclaim"))
+		if err != nil {
+			return err
+		}
+		return reclaimer.ReclaimWorkspaceDisk(operationCtx, id)
 	})
 }
 
