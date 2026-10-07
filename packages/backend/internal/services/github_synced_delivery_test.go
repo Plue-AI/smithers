@@ -118,6 +118,38 @@ func TestGitHubFetchedBatchCommitsCacheAndDeliveryTogether(t *testing.T) {
 	require.Equal(t, 3, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
 }
 
+// A worker can lock an existing request before requesting its stream head.
+// Refreshing a batch containing a new issue followed by that old issue must
+// not wait for the worker while retaining the same stream's head lock.
+func TestGitHubFetchedRefreshJoinsLockedDelivery(t *testing.T) {
+	s, pool, row := newFetchedFixture(t)
+	allowFetched(s)
+	ctx := t.Context()
+	require.NoError(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst)}))
+	worker, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer worker.Rollback(ctx)
+	var id string
+	require.NoError(t, worker.QueryRow(ctx, `UPDATE product_job_requests SET state='dispatching' WHERE operation='github.fetched.consume' RETURNING id`).Scan(&id))
+	refresh, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer refresh.Rollback(ctx)
+	_, err = lockFetchedRepo(ctx, refresh, row.ID)
+	require.NoError(t, err)
+	require.NoError(t, s.commitFetchedIssue(ctx, refresh, row, "issues", nil, json.RawMessage(fetchedSecond)))
+	_, err = refresh.Exec(ctx, `SET LOCAL lock_timeout='500ms'`)
+	require.NoError(t, err)
+	require.NoError(t, s.commitFetchedIssue(ctx, refresh, row, "issues", nil, json.RawMessage(fetchedFirst)), "unchanged delivery must not wait on the worker's request lock")
+	require.NoError(t, refresh.Commit(ctx))
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='operation.accepted'`))
+	require.NoError(t, worker.Rollback(ctx))
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET payload=jsonb_set(payload,'{number}','99'::jsonb) WHERE id=$1`, id)
+	require.NoError(t, err)
+	require.ErrorIs(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst)}), jobs.ErrPayloadConflict, "an existing key with different input must still refuse")
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events`))
+}
+
 func TestGitHubFetchedConsumerRecoveryIsAtomicAndOrdered(t *testing.T) {
 	s, pool, row := newFetchedFixture(t)
 	allowFetched(s)
