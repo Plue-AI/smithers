@@ -88,3 +88,11 @@ func TestWorkspaceRuntimeFailedOwnerWakeCancelsPersonOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkspaceWorkWaitsForFinalCapture(t *testing.T) {
+	row := sampleDBWorkspace("releasing")
+	row.Status = "releasing"
+	service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceRuntime(&admissionWorkspaceRuntime{}))
+	_, err := service.ensureRuntimeWorkspaceRunningLocked(t.Context(), row, row.UserID)
+	require.ErrorContains(t, err, "branch is releasing")
+}

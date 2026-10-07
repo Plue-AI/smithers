@@ -62,6 +62,7 @@ type WorkspaceCommandRun struct {
 	State       jobs.State              `json:"state"`
 	Result      *WorkspaceCommandResult `json:"result,omitempty"`
 	Error       string                  `json:"error,omitempty"`
+	Machine     *WorkspaceResponse      `json:"machine,omitempty"`
 }
 
 // PostgreSQL JSONB cannot contain NUL. Byte fields use base64 in durable
@@ -176,6 +177,13 @@ func (s *WorkspaceService) workspaceCommandRun(ctx context.Context, workspaceID 
 	if err != nil {
 		return operation, err
 	}
+	if operation.Operation == "branch.sleep" || operation.Operation == "branch.wake" {
+		var input branchMachineRequest
+		if json.Unmarshal(operation.Payload, &input) != nil || input.Branch != workspaceID || input.Repository != repositoryID || input.Actor != userID {
+			return jobs.Operation{}, pkgerrors.NotFound("command not found")
+		}
+		return operation, nil
+	}
 	var input workspaceCommandPayload
 	if json.Unmarshal(operation.Payload, &input) != nil || operation.Operation != workspaceCommandOperation || input.WorkspaceID != workspaceID || input.RepositoryID != repositoryID || input.UserID != userID {
 		return jobs.Operation{}, pkgerrors.NotFound("command not found")
@@ -185,6 +193,21 @@ func (s *WorkspaceService) workspaceCommandRun(ctx context.Context, workspaceID 
 
 func commandRunReceipt(operation jobs.Operation) (WorkspaceCommandRun, error) {
 	run := WorkspaceCommandRun{OperationID: operation.ID, State: operation.State}
+	if operation.Operation == "branch.sleep" || operation.Operation == "branch.wake" {
+		switch operation.State {
+		case jobs.StateCompleted:
+			var machine WorkspaceResponse
+			if err := json.Unmarshal(operation.TerminalReceipt, &machine); err != nil {
+				return run, err
+			}
+			run.Machine = &machine
+		case jobs.StateFailed:
+			run.Error = "Branch request failed"
+		case jobs.StateUncertain:
+			run.Error = "Branch request outcome is unknown"
+		}
+		return run, nil
+	}
 	if operation.State == jobs.StateCompleted {
 		var result workspaceCommandStoredResult
 		if err := json.Unmarshal(operation.TerminalReceipt, &result); err != nil {
@@ -242,8 +265,13 @@ func (s *WorkspaceService) RunWorkspaceCommandWorker(ctx context.Context, config
 	if s.commandJobs == nil || s.commandCodec == nil {
 		return errors.New("workspace command store unavailable")
 	}
-	config.Operations = []string{workspaceCommandOperation}
-	return s.commandJobs.RunWorker(ctx, config, s.handleWorkspaceCommand)
+	config.Operations = []string{workspaceCommandOperation, "branch.sleep", "branch.wake"}
+	return s.commandJobs.RunWorker(ctx, config, func(ctx context.Context, lease *jobs.Lease) error {
+		if lease.Claim().Operation == workspaceCommandOperation {
+			return s.handleWorkspaceCommand(ctx, lease)
+		}
+		return s.handleBranchMachineRequest(ctx, lease)
+	})
 }
 
 // Recheck account, repository and workspace authority after admission. Runtime
