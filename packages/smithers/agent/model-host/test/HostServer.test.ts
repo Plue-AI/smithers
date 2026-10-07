@@ -153,6 +153,43 @@ const streamPost = (body: unknown) =>
     body: JSON.stringify(body)
   })
 
+test.each(["http://127.0.0.1:4567", "https://mini.example:8443", "http://[::1]:4001"])(
+  "carries a validated backend install origin through the authenticated grant (%s)",
+  async (installOrigin) => {
+    const resolve = vi.fn<ModelTurnResolver>((accepted) => {
+      expect(accepted.installOrigin).toBe(installOrigin)
+      expect(accepted.producerBaseUrl).toBe(grant.producerBaseUrl)
+      return Effect.fail(new ResolveFailed({ message: "stop after grant validation" }))
+    })
+    const response = await createModelTurnHandler({ ...options, resolve })(
+      post(JSON.stringify({ ...grant, installOrigin }))
+    )
+    expect(response.status).toBe(502)
+    expect(resolve).toHaveBeenCalledOnce()
+  }
+)
+
+test.each([
+  "ftp://mini.example",
+  "https://user@mini.example",
+  "https://:pass@mini.example",
+  "https://mini.example/path",
+  "https://mini.example?q=1",
+  "https://mini.example#fragment",
+  "/relative",
+  ""
+])(
+  "refuses an invalid backend install origin before model work (%s)",
+  async (installOrigin) => {
+    const resolve = vi.fn(options.resolve)
+    const response = await createModelTurnHandler({ ...options, resolve })(
+      post(JSON.stringify({ ...grant, installOrigin }))
+    )
+    expect(response.status).toBe(400)
+    expect(resolve).not.toHaveBeenCalled()
+  }
+)
+
 test("the model stream rejects non-POST requests before resolving a model", async () => {
   const resolve = vi.fn(options.resolve)
   const response = await createModelTurnHandler({ ...options, resolve })(

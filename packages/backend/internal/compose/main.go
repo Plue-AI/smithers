@@ -1426,9 +1426,16 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			flowWorker = newCriticalWorker()
 		}
 	}
+	var installAddress *services.InstallAddress
 	chatSizing, err := chatRuntimeOptions(cfg.Chat, options.topology.hosted(), slog.Default())
 	if err != nil {
 		return fmt.Errorf("initialize chat runtime: %w", err)
+	}
+	chatSizing.InstallOrigin = func() string {
+		if installAddress != nil {
+			return installAddress.Public()
+		}
+		return publicBaseURL
 	}
 	if config.IsSingleOwner(cfg.Auth) {
 		// Context and file tools share the install's source/member boundary.
@@ -1623,7 +1630,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		modelStreamHandler = routes.NewModelStreamHandler(modelStreamHost)
 	}
 	var installSetup *services.InstallSetupService
-	var installAddress *services.InstallAddress
 	if config.IsSingleOwner(cfg.Auth) {
 		// The install's known origins: configuration's, then the Address the
 		// owner saved in setup step 0 (M-28), which the setup URLs, the App's

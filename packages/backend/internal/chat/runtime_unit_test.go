@@ -66,7 +66,7 @@ func TestChatRuntimeUnitOptionsComposeIndependentlyWithoutLaunchingWork(t *testi
 		for _, concurrency := range []int{0, 3} {
 			for _, lease := range []time.Duration{0, time.Nanosecond} {
 				for _, explicitLogger := range []bool{false, true} {
-					options := RuntimeOptions{QueueSize: queue, Concurrency: concurrency, Lease: lease}
+					options := RuntimeOptions{QueueSize: queue, Concurrency: concurrency, Lease: lease, InstallOrigin: func() string { return "https://install.invalid:8443" }}
 					wantedLogger := slog.Default()
 					if explicitLogger {
 						options.Logger, wantedLogger = logger, logger
@@ -91,6 +91,7 @@ func TestChatRuntimeUnitOptionsComposeIndependentlyWithoutLaunchingWork(t *testi
 					require.Same(t, runtime.store, runtime.Handler.Store)
 					require.Same(t, runtime.dispatcher, runtime.Handler.Dispatcher)
 					require.Equal(t, "https://callback.invalid/prefix/", runtime.dispatcher.host.(PortHost).ProducerBaseURL)
+					require.Equal(t, "https://install.invalid:8443", runtime.dispatcher.host.(PortHost).InstallOrigin())
 					registry := prometheus.NewRegistry()
 					for _, collector := range runtime.Collectors() {
 						require.NoError(t, registry.Register(collector))
@@ -142,6 +143,29 @@ func TestChatRuntimeUnitPortHostForwardsGrantContextAndExactFailure(t *testing.T
 	require.Same(t, failure, host.RunTurn(ctx, grant))
 	require.Equal(t, 1, calls)
 	require.Equal(t, "https://untrusted.invalid", grant.ProducerBaseURL, "caller grant is not rewritten")
+}
+
+func TestChatRuntimeUnitPortHostUsesCurrentConfiguredInstallOrigin(t *testing.T) {
+	grant := chatHostUnitGrant()
+	grant.InstallOrigin = "https://untrusted.invalid"
+	origin := "http://127.0.0.1:4567"
+	var received []string
+	host := PortHost{
+		ProducerBaseURL: "http://127.0.0.1:5678",
+		InstallOrigin:   func() string { return origin },
+		Host: chatRuntimeUnitHost(func(_ context.Context, got ProducerGrant) error {
+			require.Equal(t, "http://127.0.0.1:5678", got.ProducerBaseURL)
+			received = append(received, got.InstallOrigin)
+			return nil
+		}),
+	}
+	require.NoError(t, host.RunTurn(t.Context(), grant))
+	origin = "https://mini.example:8443"
+	require.NoError(t, host.RunTurn(t.Context(), grant))
+	host.InstallOrigin = nil
+	require.NoError(t, host.RunTurn(t.Context(), grant))
+	require.Equal(t, []string{"http://127.0.0.1:4567", "https://mini.example:8443", ""}, received)
+	require.Equal(t, "https://untrusted.invalid", grant.InstallOrigin, "the caller's grant is not mutated")
 }
 
 func TestChatDispatcherUnitAdmissionAndQueueSaturation(t *testing.T) {

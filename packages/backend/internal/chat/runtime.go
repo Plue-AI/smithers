@@ -39,6 +39,9 @@ type RuntimeOptions struct {
 	// API issues and revokes generation-bound credentials for public API calls;
 	// nil offers no API commands.
 	API CommandAPI
+	// InstallOrigin is read for each turn so Settings address changes apply
+	// without restarting the dispatcher or exposing a callback listener.
+	InstallOrigin func() string
 }
 
 type Runtime struct {
@@ -79,7 +82,7 @@ func NewRuntime(pool *pgxpool.Pool, host ports.ChatHost, producerBaseURL string,
 		return nil, err
 	}
 	credentials := newTurnCredentials()
-	dispatcher, err := NewDispatcher(store, PortHost{Host: host, ProducerBaseURL: callback.String(), Sources: options.Sources, API: options.API, credentials: credentials, logger: options.Logger}, options.QueueSize, options.Lease)
+	dispatcher, err := NewDispatcher(store, PortHost{Host: host, ProducerBaseURL: callback.String(), InstallOrigin: options.InstallOrigin, Sources: options.Sources, API: options.API, credentials: credentials, logger: options.Logger}, options.QueueSize, options.Lease)
 	if err != nil {
 		return nil, err
 	}

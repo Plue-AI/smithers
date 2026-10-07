@@ -258,6 +258,9 @@ type ChatTurnGrant struct {
 	ExpiresAt       time.Time       `json:"expiresAt"`
 	Request         json.RawMessage `json:"request"`
 	ProducerBaseURL string          `json:"producerBaseUrl"`
+	// InstallOrigin is the current public origin for API forwarding through
+	// the private callback listener; it is supplied by backend composition.
+	InstallOrigin string `json:"installOrigin,omitempty"`
 	// Source is present only when the turn's author can read a mirrored
 	// main; the model host offers its source read tool only then.
 	Source *ChatTurnSource `json:"source,omitempty"`

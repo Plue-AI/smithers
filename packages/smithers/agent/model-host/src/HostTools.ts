@@ -14,6 +14,8 @@
  * @since 1.0.0-rc.0
  */
 
+import { type CatalogDescriptor, catalogDescriptors } from "@smthrs/cli/Catalog"
+import { type CatalogHttpRequest, catalogRequest } from "@smthrs/cli/CatalogRequest"
 import type * as Model from "@smthrs/model/Model"
 import type { ModelError } from "@smthrs/model/ModelError"
 import {
@@ -39,8 +41,6 @@ import {
 } from "@smthrs/rpc/AgentInstructions"
 import { boundToolResult, MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import type { Card } from "@smthrs/rpc/Cards"
-import { type CatalogDescriptor, catalogDescriptors } from "@smthrs/cli/Catalog"
-import { type CatalogHttpRequest, catalogRequest } from "@smthrs/cli/CatalogRequest"
 import { fileListCard, FILES_LIST_COMMAND, parseFileListArgs } from "@smthrs/rpc/FileList"
 import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc/FileRead"
 import { FlowCardSchema } from "@smthrs/rpc/FlowCard"
@@ -256,6 +256,7 @@ export const apiCaller =
         const method = request?.method ?? "GET"
         if (method !== "GET" && !request?.idempotencyKey) return { code: "call_refused" }
         const token = grant.api.token
+        const installOrigin = new URL(grant.installOrigin ?? callbackBaseUrl)
         const response = await fetchImpl(target, {
           method,
           ...(method === "GET" ? {} : { body: JSON.stringify(request?.body ?? {}) }),
@@ -266,7 +267,8 @@ export const apiCaller =
           headers: {
             authorization: `Bearer ${token}`,
             "Smithers-Via": "smithers",
-            "X-Forwarded-Host": new URL(grant.installOrigin ?? callbackBaseUrl).host,
+            "X-Forwarded-Host": installOrigin.host,
+            "X-Forwarded-Proto": installOrigin.protocol.slice(0, -1),
             ...(method === "GET"
               ? {}
               : { "Content-Type": "application/json", "Idempotency-Key": request!.idempotencyKey! })

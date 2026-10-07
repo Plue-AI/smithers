@@ -16,6 +16,7 @@ import (
 type PortHost struct {
 	Host            ports.ChatHost
 	ProducerBaseURL string
+	InstallOrigin   func() string
 	// Sources names the mirrored repository a turn may read. Without one, or
 	// when the turn's admitting credential cannot read it now, the grant
 	// carries no source and the model host offers no source tool.
@@ -29,6 +30,10 @@ type PortHost struct {
 
 func (h PortHost) RunTurn(ctx context.Context, grant ProducerGrant) (result error) {
 	grant.ProducerBaseURL = h.ProducerBaseURL
+	grant.InstallOrigin = ""
+	if h.InstallOrigin != nil {
+		grant.InstallOrigin = h.InstallOrigin()
+	}
 	key := turnKey{userID: grant.OwnerID, runID: grant.RunID, legID: grant.LegID}
 	credential, _ := h.credentials.credential(key)
 	if h.API != nil {

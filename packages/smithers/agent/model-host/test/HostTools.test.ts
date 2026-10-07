@@ -1205,6 +1205,23 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     expect(await Effect.runPromise(call("/api/flows"))).toEqual({ status: 200, body: { ok: true } })
   })
 
+  test.each(["http://127.0.0.1:4567", "https://mini.example:8443", "http://[::1]:4001"])(
+    "API forwarding preserves the install origin without moving its credential off the private callback (%s)",
+    async (installOrigin) => {
+      const publicOrigin = new URL(installOrigin)
+      const call = apiCaller("http://127.0.0.1:5678", { ...install, installOrigin }, async (url, init) => {
+        expect(String(url)).toBe("http://127.0.0.1:5678/api/flows")
+        const headers = new Headers(init?.headers)
+        expect(headers.get("x-forwarded-host")).toBe(publicOrigin.host)
+        expect(headers.get("x-forwarded-proto")).toBe(publicOrigin.protocol.slice(0, -1))
+        expect(headers.get("authorization")).toBe(`Bearer ${install.api!.token}`)
+        expect(init?.redirect).toBe("manual")
+        return Response.json({ ok: true })
+      })
+      expect(await Effect.runPromise(call("/api/flows"))).toEqual({ status: 200, body: { ok: true } })
+    }
+  )
+
   test("flow arguments reject malformed input and resolve named flows outside the list", async () => {
     const journal = producer(
       (path) => file(path, JOURNEY),
