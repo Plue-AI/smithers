@@ -2,6 +2,7 @@ import type { FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { describe, expect, test } from "vitest"
 import {
   durationWords,
+  inspectLabel,
   isTraceFilter,
   phaseBandGeometry,
   phaseExtent,
@@ -564,6 +565,18 @@ test("identified same-flow calls settle in reverse order; unidentified output ca
     ["call-1", "a", "A", 5],
     ["call-2", "b", "B", 4]
   ])
+})
+
+test("a call span keeps its journaled flow name beside the display label, for known, historical and absent names", () => {
+  const model = traceFromJournal(RUN, [
+    at(1, "control.agent.cell-call-started", { flowName: "read", callId: "r", input: "a" }, 1),
+    at(2, "control.agent.cell-call-started", { flowName: "legacy.retired-tool", callId: "h", input: "b" }, 2),
+    at(3, "control.agent.cell-call-started", { callId: "n", input: "c" }, 3)
+  ])
+  const calls = model.rows.filter((row) => row.kind === "call")
+  expect(calls.map((row) => row.detail.flowName)).toEqual(["read", "legacy.retired-tool", undefined])
+  expect(calls[0]!.label).toBe(inspectLabel("read"))
+  expect("flowName" in calls[2]!.detail).toBe(false)
 })
 
 test("native call facts upgrade telemetry through the gateway's shared normalization without a second span", () => {

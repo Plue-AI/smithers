@@ -81,6 +81,13 @@ export interface SpanDetail {
   readonly source?: string | undefined
   /** What a cell printed for the next model turn. */
   readonly printed?: string | undefined
+  /**
+   * A call's flow name exactly as journaled. The span's `label` is its
+   * display form; read call semantics from this field, never from the label.
+   *
+   * @since 1.0.0
+   */
+  readonly flowName?: string | undefined
   /** A call's input, as journaled. */
   readonly input?: unknown | undefined
   /** A call's settled value, a model's text, or a resolved text. */
@@ -1393,9 +1400,11 @@ const foldStep = (state: FoldState, record: JournalRecord): void => {
       }
       case "control.agent.cell-call-started": {
         calls += 1
-        const flowName = asString(payload.flowName) ?? `call-${calls}`
+        const recordedName = asString(payload.flowName)
+        const flowName = recordedName ?? `call-${calls}`
         const span = builder(`call-${calls}`, "call", inspectLabel(flowName), "running", at, {
           ...opened,
+          ...(recordedName === undefined ? {} : { flowName: recordedName }),
           input: payload.input,
           fields: restOf(payload, ["flowName", "input"])
         })
