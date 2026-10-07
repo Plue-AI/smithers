@@ -1,3 +1,4 @@
+import { githubArgs } from "./GitHubPayload"
 /*
  * THE FORM LAW at the door (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1):
  * a flow invoked without its required input — by the agent or by a typed
@@ -536,17 +537,18 @@ test("GitHub installation choice forms at the slash door and refuses the agent d
       repo, installationId, installed: true, configured: true, installUrl: null, rateLimit: null
     } }).isPersisted.promise
   }
-  const slash = await controller.commands.run("github.app.choose")
+  const slash = await controller.commands.run("github", githubArgs("app-choose"))
   expect(slash.status).toBe("form")
-  const fields = formOf(store, "github.app.choose")?.payload.fields.map(field => ({
+  const fields = formOf(store, "github")?.payload.fields.map(field => ({
     ...field, options: [...(field.options ?? [])].sort((a, b) => a.value.localeCompare(b.value))
   }))
   expect(fields).toEqual([
     { name: "installationId", label: "Installation", kind: "select", required: true,
       options: [{ value: "42", label: "ada" }, { value: "99", label: "acme" }] }
   ])
-  expect(await execute(controller, "github.app.choose")).toStartWith("failed: /github.app.choose is user-only")
-  expect(formOf(store, "github.app.choose")?.payload.via).toBe("user")
+  expect(await execute(controller, "github", githubArgs("app-choose", "42"))).toBe("failed: this command runs on the conversation host")
+  expect(await controller.commands.runAsAgent("github", githubArgs("app-choose", "42"))).toMatchObject({ status: "failed", error: "Only a person can change the GitHub App" })
+  expect(formOf(store, "github")?.payload.via).toBe("user")
   await controller.dispose()
 })
 

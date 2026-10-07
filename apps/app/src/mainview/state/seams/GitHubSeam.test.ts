@@ -1262,7 +1262,7 @@ describe("GitHub setup account ownership", () => {
     await store.dispatch(identity("will")).isPersisted.promise
     await store.dispatch(identity("other")).isPersisted.promise
     await seam.openInstall()
-    const form = store.collections.cards.get("form-github.app.choose")
+    const form = store.collections.cards.get("form-github")
     expect(form?.kind === "flow-form" ? form.payload.fields[0]?.options : undefined).toEqual([{ value: "1", label: "one" }, { value: "2", label: "two" }])
     rows = [{ fullName: "two/old", installationId: 2, pushedAt: "2026-01-01" }, { fullName: "two/new", installationId: 2, pushedAt: "2026-02-01" }]
     expect(await seam.chooseInstallation("2")).toBeUndefined()

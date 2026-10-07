@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type CatalogTag = RegisteredCatalogTag | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
+export type CatalogTag = RegisteredCatalogTag | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
 
 /**
  * An action form field.
@@ -47,6 +47,8 @@ export type FormField = z.infer<typeof FormFieldSchema>
  * @since 1.0.0
  * @category schemas
  */
+const historicalGitHub = ["github.retry", "github.app", "github.app.open", "github.app.choose", "github.reconcile"] as const
+const githubOperation = (tag: string): string => tag === "github.retry" ? "retry" : tag === "github.app.open" ? "app-open" : tag === "github.app.choose" ? "app-choose" : tag === "github.reconcile" ? "reconcile" : "app-status"
 const historicalSettings = ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup", "settings.fast-model"] as const
 const recordedSecretArgs = (tag: string, args: Readonly<Record<string, string>> = {}): Record<string, string> => {
   const { value: _value, key: _key, token: _token, ...publicArgs } = args
@@ -56,13 +58,15 @@ const recordedSecretArgs = (tag: string, args: Readonly<Record<string, string>> 
   } : {}) }
 }
 export const ActionSchema = z.object({
-  tag: z.union([CatalogTagSchema, z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
+  tag: z.union([CatalogTagSchema, z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
   label: z.string(),
   args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
   disabled: z.object({ reason: z.string() }).optional(),
   input: z.array(FormFieldSchema).optional()
-}).overwrite(action => historicalSettings.some(tag => tag === action.tag)
+}).overwrite(action => historicalGitHub.some(tag => tag === action.tag)
+  ? { ...action, tag: "github" as const, args: { ...action.args, operation: githubOperation(action.tag) } }
+  : historicalSettings.some(tag => tag === action.tag)
   ? { ...action, tag: "settings" as const, args: { ...action.args, operation: action.tag.slice("settings.".length) } }
   : ["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"].some(tag => tag === action.tag) ? { ...action, tag: "secrets" as const, args: recordedSecretArgs(action.tag, action.args) } : action.tag === "context.inspect" ? { ...action, tag: "run.inspect" as const } : { ...action, tag: CatalogTagSchema.parse(action.tag) })
 
@@ -156,7 +160,7 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @category models
  */
 /** Historical tags are decodable data; no new typed command can use them. */
-export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
+export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
 
 interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
@@ -210,8 +214,7 @@ interface CurrentCardCommandInput {
   readonly "flow.new": { readonly name: string }
   readonly "runs": undefined
   readonly "run": { readonly id: string }
-  readonly "github": undefined
-  readonly "github.retry": undefined
+  readonly "github": undefined | { readonly operation?: "retry" | "app-open" | "app-choose" | "reconcile" | "app-status"; readonly repo?: string; readonly installationId?: string }
   readonly "monitor": undefined
   readonly "runs.trace.view": { readonly runId: string; readonly sourceCard?: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools"; readonly state?: { readonly selected?: string; readonly at?: number; readonly tab?: string } }
   readonly "run.inspect": { readonly id: string } | { readonly branch: string; readonly answer: string }

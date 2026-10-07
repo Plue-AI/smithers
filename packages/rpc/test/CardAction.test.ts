@@ -30,3 +30,10 @@ it("saved secret controls retain their operation and discard private values", ()
     expect(saved).toEqual({ tag: "secrets", label: "Saved", args: { name: "KEY", operation, ...(operation === "scope" ? { scope: "all_branches" } : {}) } })
   }
 })
+
+
+it("saved GitHub controls retain their operation on the canonical door", () => {
+  for (const [tag, operation] of [["github.retry", "retry"], ["github.app", "app-status"], ["github.app.open", "app-open"], ["github.app.choose", "app-choose"], ["github.reconcile", "reconcile"]]) {
+    expect(ActionSchema.parse({ tag, label: "Saved", args: { repo: "owner/repo" } })).toEqual({ tag: "github", label: "Saved", args: { repo: "owner/repo", operation } })
+  }
+})

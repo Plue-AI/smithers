@@ -26,7 +26,7 @@ import type { IdentitySession } from "../state/AppState"
 import { homeLine } from "../ShellRail"
 import { useHome, type HomeAnswer } from "./HomeContainer"
 import type { GitHubSyncHealth } from "../state/seams/GitHubSyncSeam"
-const allowed = new Set<CatalogTag>(["settings", "todo.new", "github.retry", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
+const allowed = new Set<CatalogTag>(["settings", "todo.new", "github", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
   let props!: HomeViewProps
   const calls: unknown[] = []
@@ -78,16 +78,16 @@ test("order OK is a maintainer's: a member sees neither the order row nor its co
 })
 
 test("the mounted Home admission holds Answer, order OK and Reset, so those rows keep their one action", () => {
-  for (const tag of ["todo.answer", "order.ok", "main.reset-to-github", "branch", "merge", "github.retry"] as const) expect(HOME_TAGS.has(tag)).toBe(true)
+  for (const tag of ["todo.answer", "order.ok", "main.reset-to-github", "branch", "merge", "github"] as const) expect(HOME_TAGS.has(tag)).toBe(true)
 })
 
 test("sync Retry recovers stale and refused health while limited sync waits", () => {
   const base = Object.values(fixtures)[0]!.model
   const tags = (health: string) => mount({ ...base, main: { ...base.main, health, last_success_at: new Date(Date.now() - (health === "stale" ? 121_000 : 0)).toISOString() } }).props.actions.map(action => action.tag)
   expect(tags("fresh")).toEqual(["todo.new"])
-  expect(tags("stale")).toEqual(["todo.new", "github.retry"])
+  expect(tags("stale")).toEqual(["todo.new", "github"])
   expect(tags("limited")).toEqual(["todo.new"])
-  expect(tags("refused")).toEqual(["todo.new", "github.retry", "settings"])
+  expect(tags("refused")).toEqual(["todo.new", "github", "settings"])
 })
 
 for (const role of ["owner", "maintainer", "member"] as const) test(`a refused main sync keeps Fix and lets ${role} Retry once through the shared flow`, async () => {
@@ -102,15 +102,15 @@ for (const role of ["owner", "maintainer", "member"] as const) test(`a refused m
     expect(fix.textContent).toBe("Fix")
     await act(async () => fix.click())
     expect(calls).toEqual([["settings", undefined]])
-    const retries = host.querySelectorAll<HTMLButtonElement>('button[data-flow="github.retry"]')
+    const retries = host.querySelectorAll<HTMLButtonElement>('button[data-flow="github"]')
     expect(retries.length).toBe(1)
     expect(retries[0]!.textContent).toBe("Retry")
     await act(async () => retries[0]!.click())
-    expect(calls).toEqual([["settings", undefined], ["github.retry", undefined]])
+    expect(calls).toEqual([["settings", undefined], ["github", { operation: "retry" }]])
     // Admission retains authority even for the recovery door.
     await act(async () => root.render(<HomeContainer model={fixtures.refused.model} role={role} allowed={new Set(["settings"])}
       dispatch={(tag, input) => calls.push([tag, input])} view={{ maximized: false }} onView={() => {}} />))
-    expect(host.querySelector('button[data-flow="github.retry"]')).toBeNull()
+    expect(host.querySelector('button[data-flow="github"]')).toBeNull()
     expect(host.querySelector('button[data-flow="settings"]')).not.toBeNull()
   } finally { await act(async () => root.unmount()); await GlobalRegistrator.unregister() }
 })
@@ -366,7 +366,7 @@ test("sync health ages at 120 seconds and preserves refused and limited facts", 
       Date.now = () => synced + age
       const h = mount({ ...base, main: { ...base.main, last_success_at: "2026-10-04T00:00:00Z", health: "fresh" } })
       expect(h.props.model.main.health).toBe(expected)
-      expect(h.props.actions.map(action => action.tag)).toEqual(expected === "fresh" ? ["todo.new"] : ["todo.new", "github.retry"])
+      expect(h.props.actions.map(action => action.tag)).toEqual(expected === "fresh" ? ["todo.new"] : ["todo.new", "github"])
     }
     for (const health of ["refused", "limited"] as const) {
       const main = { ...base.main, health, cause: "GitHub denied", retry_at: "2026-10-04T01:00:00Z" }
@@ -409,7 +409,7 @@ test("a mounted Home turns stale on its local clock without another snapshot", a
     now += 1000
     await act(async () => { for (const tick of ticks) tick() })
     expect(props.model.main.health).toBe("stale")
-    expect(props.actions.map(action => action.tag)).toEqual(["todo.new", "github.retry"])
+    expect(props.actions.map(action => action.tag)).toEqual(["todo.new", "github"])
   } finally {
     await act(async () => root.unmount())
     Date.now = originalNow
@@ -450,23 +450,23 @@ test("an install's main row reads its GitHub sync over an unavailable stack: syn
   let markup = render()
   expect(markup).toContain("synced 40 s ago")
   expect(markup).not.toContain("Stack unavailable")
-  expect(markup).not.toContain('data-flow="github.retry"')
+  expect(markup).not.toContain('data-flow="github"')
   health = { state: "fresh", last_success_at: new Date(Date.now() - 6 * 60_000).toISOString() }
   markup = render()
   expect(markup).toContain("synced 6 min ago")
   expect(markup).toContain('data-health="stale"')
-  expect(markup).toContain('data-flow="github.retry"')
+  expect(markup).toContain('data-flow="github"')
   health = { state: "refused", last_success_at: null, cause: "not_installed" }
   markup = render()
   expect(markup).toContain('data-health="refused"')
   expect(markup).toContain("GitHub App not installed")
-  expect(markup).toContain('data-flow="github.retry"')
+  expect(markup).toContain('data-flow="github"')
   // Initial failures still carry authoritative health and a Retry door.
   for (const state of ["stale", "limited"] as const) {
     health = { state, last_success_at: null, ...(state === "limited" ? { retry_at: new Date(Date.now() + 60_000).toISOString() } : {}) }
     markup = render()
     expect(markup).toContain(`data-health="${state}"`)
-    if (state === "stale") expect(markup).toContain('data-flow="github.retry"')
+    if (state === "stale") expect(markup).toContain('data-flow="github"')
     else expect(markup).toContain("retries at")
     expect(markup).not.toContain("Stack unavailable")
     expect(markup).not.toContain("synced")
@@ -583,11 +583,11 @@ test("over the rows GET /api/todos serves, main's row is the install's GitHub sy
     expect(markup).toContain("First local TODO")
     expect(markup).toContain("synced 6 min ago")
     expect(markup).toContain('data-health="stale"')
-    expect(markup).toContain('data-flow="github.retry"')
+    expect(markup).toContain('data-flow="github"')
     health = { state: "fresh", last_success_at: new Date(Date.now() - 12_000).toISOString() }
     markup = render()
     expect(markup).toContain("synced 12 s ago")
-    expect(markup).not.toContain('data-flow="github.retry"')
+    expect(markup).not.toContain('data-flow="github"')
     health = undefined
     expect(render()).not.toContain("synced")
   } finally { controller.design.dispose() }

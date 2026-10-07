@@ -3,6 +3,7 @@ import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "github": NonNullable<import("@smthrs/rpc/CardAction").CardCommandInput["github"]>
   readonly "background.retry": { readonly id: string }
   readonly "background.dismiss": { readonly id: string }
   readonly "approval.approve": { readonly cardId: string }
@@ -215,6 +216,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
+  "github": payload => JSON.stringify(payload),
   "secrets": payload => JSON.stringify(publicSecretInput(payload)),
   "issues.close": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.reopen": payload => line(token(payload, "number"), token(payload, "repo")),

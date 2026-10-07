@@ -338,7 +338,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
             .filter(card => card.kind === "run-trace")
             .map(card => ({ value: card.kind === "run-trace" ? card.payload.runId : "", label: card.title })) }
         : field)
-    if (request.name === "github.app.choose") {
+    if (request.name === "github" && fields.some(field => field.name === "installationId")) {
       const installed = new Map<number, string>()
       for (const row of collections.githubAppStatuses.values()) {
         if (row.installed && row.configured && row.installationId !== null) installed.set(row.installationId, row.repo.split("/")[0]!)

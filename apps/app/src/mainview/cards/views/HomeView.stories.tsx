@@ -26,7 +26,7 @@ const active: StoryAction[] = [
 ]
 const oracles: Record<keyof typeof fixtures, StoryAction[]> = {
   fresh: [{ tag: "todo.new", label: "New TODO" }],
-  stale: [{ tag: "github.retry", label: "Retry" }, { tag: "todo.new", label: "New TODO" }],
+  stale: [{ tag: "github", label: "Retry", args: { operation: "retry" } }, { tag: "todo.new", label: "New TODO" }],
   limited: [{ tag: "todo.new", label: "New TODO" }],
   refused: [{ tag: "settings", label: "Fix" }],
   active,

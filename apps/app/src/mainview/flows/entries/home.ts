@@ -85,14 +85,33 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "background.dismiss", http: { method: "POST", path: "/api/runs/{id}", defaults: { op: "dismiss" } }, agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Dismiss a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
     handler: ({ id }) => actions.backgroundRun(id, "dismiss") }),
-  flow({ name: "github",   slash: "/github", cli: ["github"], journey: ["J10"], group: "GitHub", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/github/sync"}, summary: "Show sync status and retry", agent: "run", input: NoPayload,
-    handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
-  flow({ name: "github.retry", agent: "run", minimumRole: "member", actors: ["person", "app_agent", "external_agent"], visibility: "in-card", http: { method: "POST", path: "/api/github/sync" }, summary: "Retry GitHub sync", hidden: true, input: NoPayload,
-    /*
-     * The install's sync (POST /api/github/sync) where this host serves it, else the Cloud's door (GitHubSeam
-     * `github.reconcile`); MOCK SEAM: the seed's sync otherwise.
-     */
-    handler: async () => await actions.retryGitHubSync() ?? (actions.bootstrap !== undefined && hasCapability(actions.bootstrap, "cloud")
-      ? actions.githubReconcile()
-      : result(actions.design.syncRetry())) })
+  flow({ name: "github", slash: "/github", cli: ["github"], journey: ["J10"], group: "GitHub", visibility: "core",
+    actors: ["person", "app_agent", "external_agent"], minimumRole: "member",
+    http: { method: "GET", path: "/api/github/sync", query: {} }, summary: "Show sync status and retry", agent: "run",
+    grammar: args => {
+      if (!args?.trim()) return { payload: {} }
+      try { const payload: unknown = JSON.parse(args); return payload && typeof payload === "object" && !Array.isArray(payload)
+        ? { payload: payload as Record<string, unknown> } : { error: "Enter a JSON object" } } catch { return { error: "Enter a JSON object" } }
+    },
+    input: Schema.Struct({ operation: Schema.optional(Schema.Literals(["retry", "app-open", "app-choose", "reconcile", "app-status"])),
+      repo: Schema.optional(Schema.String), installationId: Schema.optional(Schema.String) }),
+    form: { args: input => JSON.stringify(input), requires: input => input.operation === "app-choose" ? ["installationId"] : [],
+      fields: { operation: { hidden: true }, installationId: { label: "Installation", kind: "select" } } },
+    preflight: (input, actor) => {
+      if (!input.operation || input.operation === "retry" || input.operation === "app-status") return
+      if (actor !== "user") return "Only a person can change the GitHub App"
+      return actions.snapshot().viewerRole === "owner" ? undefined : "Owner required"
+    },
+    handler: async input => {
+      switch (input.operation) {
+        case "app-open": return actions.githubOpenInstall(input.repo)
+        case "app-choose": return actions.githubChooseInstallation(Schema.decodeUnknownSync(Schema.String)(input.installationId))
+        case "app-status": return actions.githubApp(input.repo)
+        case "reconcile": return actions.githubReconcile(input.repo)
+        case "retry": return await actions.retryGitHubSync() ?? (actions.bootstrap !== undefined && hasCapability(actions.bootstrap, "cloud")
+          ? actions.githubReconcile() : result(actions.design.syncRetry()))
+        default: return result(openDesignHome(actions.design, actions.design.viewer()))
+      }
+    }
+  })
 ]

@@ -18,37 +18,6 @@ export const namespace: Namespace = { id: "github", label: "GitHub", summary: "T
 export const githubFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
 
   flow({
-    /* The card's Install button — browser mechanics the human clicks. */
-    name: "github.app.open",
-    summary: "Open the GitHub App's install page",
-    hidden: true,
-    runtime: ["cloud"],
-    args: "[owner/repo]",
-    requires: ["signed-in"],
-    input: RepoTarget,
-    handler: ({ repo }) => actions.githubOpenInstall(repo)
-  }),
-  flow({
-    name: "github.app.choose",
-    summary: "Choose a GitHub App installation",
-    hidden: true,
-    runtime: ["cloud"],
-    args: "<installationId>",
-    requires: ["signed-in"],
-    input: GitHubInstallationInput,
-    form: GitHubInstallationForm,
-    handler: ({ installationId }) => actions.githubChooseInstallation(installationId)
-  }),
-  flow({
-    name: "github.reconcile",
-    summary: "Re-derive the GitHub App's wiring, then re-read the status",
-    runtime: ["cloud"],
-    args: "[owner/repo]",
-    requires: ["signed-in"],
-    input: RepoTarget,
-    handler: ({ repo }) => actions.githubReconcile(repo)
-  }),
-  flow({
     name: "github.mirror-sync", visibility: "hidden",
     summary: "Sync the repository to GitHub",
     runtime: ["cloud"],

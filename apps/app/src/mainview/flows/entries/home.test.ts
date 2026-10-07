@@ -1,3 +1,4 @@
+import { githubInput, githubArgs } from "../GitHubPayload"
 /*
  * The Home card's flows through the production command dispatcher: `/stack`,
  * Move up/down, Merge, a background run's Retry and Dismiss, and main's sync
@@ -34,12 +35,11 @@ const stack = (h: Harness) => h.controller.design.world().repo.stack
 test("the Home doors register, and every one has an agent door (a merge only ever opens the person's card)", async () => {
   const h = await boot()
   try {
-    const entries = h.controller.commands.entries().filter(entry => ["stack", "stack.move", "merge", "background.retry", "background.dismiss", "github", "github.retry"].includes(nameOf(entry)))
-    expect(entries.find(entry => nameOf(entry) === "github.retry")?.metadata).toMatchObject({ agent: "run", minimumRole: "member", visibility: "in-card", http: { method: "POST", path: "/api/github/sync" } })
-    expect(entries.map(nameOf).sort()).toEqual(["background.dismiss", "background.retry", "github", "github.retry", "merge", "stack", "stack.move"])
-    expect(Object.fromEntries(entries.map(entry => [nameOf(entry), modelInvocable(entry)]))).toEqual({
-      "stack": true, "stack.move": true, "merge": true, "background.retry": true, "background.dismiss": true, "github": true, "github.retry": true
-    })
+    const entries = h.controller.commands.entries().filter(entry => ["stack", "stack.move", "merge", "background.retry", "background.dismiss", "github"].includes(nameOf(entry)))
+    expect(entries.find(entry => nameOf(entry) === "github")?.metadata).toMatchObject({ agent: "run", minimumRole: "member", http: { method: "GET", path: "/api/github/sync", query: {} } })
+    expect(entries.map(nameOf).sort()).toEqual(["background.dismiss", "background.retry", "github", "merge", "stack", "stack.move"])
+    expect(entries.every(modelInvocable)).toBe(true)
+    expect(h.controller.commands.find("github.retry")).toBeUndefined()
   } finally { h.controller.dispose() }
 })
 
@@ -127,7 +127,7 @@ test("main's sync Retry syncs now and clears a refused or limited health", async
     const before = h.controller.design.world().repo
     expect(await slash(h, "github")).toEqual({ status: "executed", value: "Opened the stack" })
     expect(h.controller.design.world().repo).toEqual(before)
-    expect(await button(h, "github.retry", {})).toEqual({ status: "executed", value: "Synced" })
+    expect(await button(h, "github", githubInput("retry", {}))).toEqual({ status: "executed", value: "Synced" })
     expect(h.controller.design.world().repo.syncedAgo).toBe(3)
     expect(h.controller.design.world().repo.mainHealth).toBeUndefined()
   } finally { h.controller.dispose() }
@@ -142,7 +142,7 @@ test("on a host that serves GitHub sync, Retry calls that door (github.reconcile
     await h.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "acme/api", org: "acme", name: "api", ownerKind: "org", head: null }] }).isPersisted.promise
     await h.store.dispatch({ type: "repo.selected", actor: "user", id: "acme/api" }).isPersisted.promise
     h.controller.design.patch("repo", "repo", current => ({ ...current, syncedAgo: 400, mainHealth: { state: "limited", cause: "GitHub rate limit" } }))
-    await h.controller.runCommandForResult("github.retry")
+    await h.controller.runCommandForResult("github", githubArgs("retry"))
     expect(h.requests).toContain("POST /api/repos/acme/api/github/reconcile")
     expect(h.controller.design.world().repo).toMatchObject({ syncedAgo: 400, mainHealth: { state: "limited", cause: "GitHub rate limit" } })
   } finally { h.controller.dispose() }
@@ -160,7 +160,7 @@ test("on an install, Retry asks its GitHub sync (POST /api/github/sync) and leav
   try {
     await waitFor(() => h.controller.githubSyncSnapshots.get()?.state === "stale")
     const before = h.controller.design.world().repo
-    expect(await button(h, "github.retry", {})).toEqual({ status: "executed", value: "Sync requested" })
+    expect(await button(h, "github", githubInput("retry", {}))).toEqual({ status: "executed", value: "Sync requested" })
     expect(posts).toHaveLength(1)
     expect(new Headers(posts[0]!.headers).get("Idempotency-Key")).toBeTruthy()
     expect(h.requests).not.toContain("POST /api/repos/acme/api/github/reconcile")
@@ -458,4 +458,19 @@ test("an install reconnects its persisted running reset after controller restart
     const recovered = await createAppStore({ kind: "localStorage", storage })
     expect(recovered.session().githubSyncRequest).toBeUndefined()
   } finally { controller.dispose() }
+})
+
+
+test("a member cannot change App wiring through the status flow", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null }
+  const h = await boot({ bootstrap, fetch: url => new URL(url, "http://local.test").pathname === "/api/members" ? Response.json({
+    members: [{ login: "maya", name: "Maya", avatar_url: "https://example.com/maya.png", color_index: 0, role: "member", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/owner/repo/settings/access"
+  }) : undefined })
+  try {
+    await waitFor(() => h.controller.commands.state().viewerRole === "member")
+    for (const operation of ["app-open", "app-choose", "reconcile"]) {
+      expect(await h.controller.commands.run("github", JSON.stringify({ operation, installationId: "42", repo: "owner/repo" }))).toMatchObject({ status: "failed", error: "Owner required" })
+    }
+    expect(h.requests.filter(request => request.startsWith("POST "))).toEqual([])
+  } finally { h.controller.dispose() }
 })

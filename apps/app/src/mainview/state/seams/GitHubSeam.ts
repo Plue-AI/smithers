@@ -393,12 +393,12 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       })
     }
     if (installationId === undefined && installations.size > 1) {
-      const id = "form-github.app.choose"
+      const id = "form-github"
       const existing = ctx.store.collections.cards.get(id)
       await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: {
         id, kind: "flow-form", title: "Choose a GitHub App installation", status: "active",
         createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? ctx.nextOrdinal(),
-        payload: { flow: "github.app.choose", via: ctx.actor() === "smithers" ? "agent" : "user", given: {}, draft: {},
+        payload: { flow: "github", via: ctx.actor() === "smithers" ? "agent" : "user", given: { operation: "app-choose" }, draft: {},
           fields: formFieldsFor(GitHubInstallationInput, GitHubInstallationForm).map(field => ({ ...field,
             options: [...installations].map(([id, owner]) => ({ value: String(id), label: owner })) })) }
       } }).isPersisted.promise

@@ -5019,13 +5019,53 @@
       "summary": "Show sync status and retry",
       "http": {
         "method": "GET",
-        "path": "/api/github/sync"
+        "path": "/api/github/sync",
+        "query": {}
       },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
-          "additionalProperties": false
+          "properties": {
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "retry",
+                    "app-open",
+                    "app-choose",
+                    "reconcile",
+                    "app-status"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "installationId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
         },
         "definitions": {}
       }
@@ -5053,76 +5093,6 @@
         "schema": {
           "type": "object",
           "additionalProperties": false
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "github.app.choose",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Choose a GitHub App installation",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "installationId": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "installationId"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "github.app.open",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Open the GitHub App's install page",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
         },
         "definitions": {}
       }
@@ -5203,72 +5173,6 @@
             "ref"
           ],
           "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "github.reconcile",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Re-derive the GitHub App's wiring, then re-read the status",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "github.retry",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent",
-        "external_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Retry GitHub sync",
-      "http": {
-        "method": "POST",
-        "path": "/api/github/sync"
-      },
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "additionalProperties": false
         },
         "definitions": {}
       }

@@ -130,7 +130,6 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "flow.source",
     "flows",
     "github",
-    "github.retry",
     "issue",
     "issue.comment",
     "issue.new",

@@ -80,8 +80,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "branches",
   "files.list",
   "files.read",
-  "github.app.open",
-  "github.reconcile",
   "github.mirror-sync",
   "github.mirror.retry-ref",
   "repos.import.retry",

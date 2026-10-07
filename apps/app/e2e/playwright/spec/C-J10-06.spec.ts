@@ -14,6 +14,7 @@ test("C-J10-06: sync age and Retry stay honest while Chat remains usable", async
     access_url: "https://github.com/smithers-mvp-canary/node/settings/access"
   } }))
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { toasts_hidden: false, global_toasts_hidden: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/todos", route => route.fulfill({ json: [] }))
   const base = Date.parse("2026-10-06T12:00:00Z")
@@ -62,6 +63,8 @@ test("C-J10-06: sync age and Retry stay honest while Chat remains usable", async
     await expect(page.getByTestId("composer-input")).toBeEditable()
     await expect(sync).toHaveAttribute("data-health", "stale")
     await expect(page.getByRole("button", { name: "Confirm", exact: true })).toHaveCount(0)
+    // The shared progress stack intentionally debounces for 300 ms; advance the virtual clock.
+    await page.clock.runFor(300)
     await expect(page.getByText("Syncing GitHub", { exact: true }).last()).toBeVisible()
     release()
     await expect.poll(() => accepted).toBe(true)
@@ -76,6 +79,8 @@ test("C-J10-06: sync age and Retry stay honest while Chat remains usable", async
     await page.clock.runFor(10_100)
     await expect(sync).toHaveAttribute("data-health", "refused")
     await expect(sync).toContainText("GitHub App not installed")
-    await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
+    // A person can retry after restoring App access outside Smithers.
+    await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(1)
+    await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveAttribute("data-flow", "github")
   } finally { release() }
 })
