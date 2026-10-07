@@ -753,6 +753,11 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	if repository != subject.RepositoryID {
 		return WorkspaceResponse{}, confirmationPermission()
 	}
+	// Publication and head observation take the stack fence before the
+	// workspace fence. Keep persistence in this same credential transaction.
+	if _, err := tx.Exec(live, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, subject.RepositoryID); err != nil {
+		return WorkspaceResponse{}, err
+	}
 	// Rotation/deletion of the recorded publisher and the report serialize on
 	// the workspace row. This is a live subject fence, not a second decision.
 	if _, err := tx.Exec(live, `SELECT 1 FROM workspaces WHERE id=$1 FOR UPDATE`, subject.WorkspaceID); err != nil {
@@ -767,6 +772,7 @@ func (s *WorkspaceService) ReportWorkspaceHead(ctx context.Context, input Report
 	}
 	scoped := *s
 	scoped.q = q
+	scoped.transactions = tx
 	result, err := scoped.reportWorkspaceHead(live, input)
 	if err != nil {
 		return WorkspaceResponse{}, err
