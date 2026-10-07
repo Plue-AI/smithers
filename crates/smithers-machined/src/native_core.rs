@@ -1,7 +1,7 @@
 //! Native repository operations mounted on the existing daemon RPC dispatcher.
 use crate::{
     conn::{self, field, structure_bytes},
-    hooks::{self, Actor, Core, EventSink, Oid},
+    hooks::{self, Actor, Core, Oid},
     lock::LockCx,
     outbox::Refs,
 };
@@ -46,6 +46,47 @@ impl crate::capture::Repository for Capture<'_> {
     }
 }
 impl NativeCore {
+    fn finish_wake(&self, settlement: &crate::wake_journal::Settlement) -> hooks::Result<()> {
+        let acknowledged = self.git.acknowledged().map_err(hook)?;
+        if acknowledged != Some(settlement.old) && acknowledged != Some(settlement.head) {
+            return Err(hook(io::Error::other(
+                "wake settlement acknowledgement changed",
+            )));
+        }
+        let paths = self
+            .native
+            .conflict_paths(settlement.result)
+            .map_err(hook)?;
+        let outcome = if paths.is_empty() {
+            crate::reconcile::Outcome::Moved(settlement.result)
+        } else {
+            crate::reconcile::Outcome::Conflict(paths)
+        };
+        self.events
+            .append_keyed(
+                settlement.event_id,
+                &outcome.event(settlement.old, settlement.head)?,
+                settlement.result,
+            )
+            .map_err(hook)?;
+        self.git
+            .clone()
+            .acknowledge_and_sync(settlement.head)
+            .map_err(hook)
+    }
+    fn require_settled_wake(&self) -> hooks::Result<()> {
+        if self
+            .native
+            .wake_journal()
+            .map_err(hook)?
+            .pending()
+            .map_err(hook)?
+            .is_some()
+        {
+            return Err(crate::freeze::pending_error());
+        }
+        Ok(())
+    }
     fn validate_head(&self, onto: Oid) -> hooks::Result<()> {
         if self.native.contains(onto).map_err(hook)? {
             Ok(())
@@ -63,16 +104,34 @@ impl Core for NativeCore {
         self.native.current().map(|_| ()).map_err(hook)
     }
     fn validate_rebase(&self, onto: Oid) -> hooks::Result<()> {
+        self.require_settled_wake()?;
         self.validate_head(onto)?;
         self.native.validate_rebase(onto).map_err(hook)
     }
     fn capture_local(&self, cx: &mut LockCx) -> hooks::Result<()> {
+        self.require_settled_wake()?;
         crate::capture::local(cx, &mut Capture(self))?;
         self.native.settled().map_err(hook)?;
-        self.native.checkpoint().map_err(hook)
+        self.native
+            .checkpoint_with_ack(self.git.acknowledged().map_err(hook)?)
+            .map_err(hook)
     }
     fn restore_rewrite(&self, _: &mut LockCx) -> hooks::Result<()> {
-        self.native.restore().map_err(hook)
+        if let Some(settlement) = self
+            .native
+            .wake_journal()
+            .map_err(hook)?
+            .pending()
+            .map_err(hook)?
+        {
+            // The native mutation and its immutable result already committed.
+            // Finish its identity/acknowledgement, keeping even post-thaw edits.
+            self.finish_wake(&settlement)
+        } else {
+            self.native
+                .restore_with_ack(self.git.acknowledged().map_err(hook)?)
+                .map_err(hook)
+        }
     }
     fn rebase(&self, _: &mut LockCx, onto: Oid) -> hooks::Result<Oid> {
         self.native.rebase(onto).map_err(hook)
@@ -94,6 +153,7 @@ impl Core for NativeCore {
                 Ok(structure_bytes(&fields))
             }
             4 => {
+                self.require_settled_wake()?;
                 let captured = crate::capture::local(cx, &mut Capture(self))?;
                 Ok(structure_bytes(&[
                     field(1, captured.head),
@@ -105,8 +165,22 @@ impl Core for NativeCore {
                 let f = conn::fields("args5", args).map_err(|_| hooks::Error::unsupported())?;
                 let head: Oid = f[0].1.try_into().map_err(|_| hooks::Error::unsupported())?;
                 self.validate_head(head)?;
+                if !cx.rewrite_pending
+                    && self
+                        .native
+                        .wake_journal()
+                        .map_err(hook)?
+                        .pending()
+                        .map_err(hook)?
+                        .is_some()
+                {
+                    // A crash may follow barrier removal but precede journal
+                    // cleanup. Re-enter settlement without rewriting files.
+                    cx.begin_rewrite()?;
+                }
                 if cx.rewrite_pending {
                     crate::freeze::restore(cx, &Actor::Outside)?;
+                    self.native.settled().map_err(hook)?;
                 }
                 let old = self.git.acknowledged().map_err(hook)?;
                 if old.is_none() || old == Some(head) {
@@ -143,10 +217,20 @@ impl Core for NativeCore {
                     } else {
                         crate::reconcile::Outcome::Conflict(paths)
                     };
-                    self.events
-                        .append(&outcome.event(old, head)?, Some(moved))?;
-                    let mut git = self.git.clone();
-                    git.acknowledge_and_sync(head).map_err(hook)?;
+                    let settlement =
+                        crate::wake_journal::Settlement::new(old, head, moved).map_err(hook)?;
+                    // Persist objects, then commit the chosen result and event
+                    // identity before publishing either the event or new base.
+                    self.git
+                        .clone()
+                        .pin_and_sync(settlement.event_id, moved)
+                        .map_err(hook)?;
+                    self.native
+                        .wake_journal()
+                        .map_err(hook)?
+                        .save(&settlement)
+                        .map_err(hook)?;
+                    self.finish_wake(&settlement)?;
                     Ok(outcome)
                 })?;
                 self.native.settled().map_err(hook)?;
@@ -210,6 +294,9 @@ mod tests {
             broker: Arc::new(Flushed),
             ..Default::default()
         });
+        call_in(&mut cx, method, fields)
+    }
+    fn call_in(cx: &mut LockCx, method: u8, fields: &[Vec<u8>]) -> Frame {
         rpc::dispatch(
             &Frame {
                 kind: 1,
@@ -222,7 +309,7 @@ mod tests {
                     ],
                 ),
             },
-            &mut cx,
+            cx,
         )
         .unwrap()
     }
@@ -360,6 +447,282 @@ mod tests {
             fs::read(root.join("conflict")).unwrap(),
             b"both versions resolved\n"
         );
+    }
+    struct ReconcileFails;
+    impl Documents for ReconcileFails {
+        fn flush_all(&self, _: &mut LockCx) -> hooks::Result<u16> {
+            Ok(0)
+        }
+        fn reconcile_all(&self, _: &mut LockCx, _: &Actor) -> hooks::Result<()> {
+            Err(hooks::Error::unsupported())
+        }
+    }
+    struct ThawFails;
+    impl Broker for ThawFails {
+        fn freeze(&self, _: std::time::Duration) -> hooks::Result<Option<u32>> {
+            Ok(None)
+        }
+        fn thaw(&self) -> hooks::Result<()> {
+            Err(hooks::Error::unsupported())
+        }
+    }
+    fn dirty_wake_fixture() -> (tempfile::TempDir, Arc<NativeCore>, Oid, Oid) {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("base"), b"original\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "host changed");
+        fs::write(root.join("host"), b"host version\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(base).unwrap();
+        core.git.clone().acknowledge_and_sync(base).unwrap();
+        fs::write(root.join("local"), b"local version\n").unwrap();
+        (dir, core, base, onto)
+    }
+    fn recovery_hooks(
+        core: Arc<NativeCore>,
+        documents: Arc<dyn Documents>,
+        broker: Arc<dyn Broker>,
+    ) -> Hooks {
+        Hooks {
+            events: core.events.clone(),
+            core,
+            documents,
+            broker,
+            watcher: Arc::new(Flushed),
+            ..Default::default()
+        }
+    }
+    fn reopened_core(core: &NativeCore, dir: &std::path::Path) -> Arc<NativeCore> {
+        let owner = rustix::process::geteuid().as_raw();
+        let outbox = crate::outbox::Outbox::open(
+            crate::outbox_store::Store::open(&dir.join("state/outbox"), owner).unwrap(),
+            owner,
+            core.git.clone(),
+        )
+        .unwrap();
+        Arc::new(NativeCore {
+            native: core.native.clone(),
+            git: core.git.clone(),
+            events: Arc::new(Events::new(outbox, core.git.clone(), || Ok(1)).unwrap()),
+            sessions: Arc::new(Disabled),
+        })
+    }
+    #[test]
+    fn wake_restart_after_document_or_thaw_failure_keeps_both_sides() {
+        for fail_documents in [false, true] {
+            let (dir, core, _, onto) = dirty_wake_fixture();
+            let root = dir.path().join("workspace");
+            let (documents, broker): (Arc<dyn Documents>, Arc<dyn Broker>) = if fail_documents {
+                (Arc::new(ReconcileFails), Arc::new(Flushed))
+            } else {
+                (Arc::new(Flushed), Arc::new(ThawFails))
+            };
+            let journal =
+                || crate::rewrite_journal::Journal::open(&dir.path().join("state")).unwrap();
+            let mut cx =
+                LockCx::recovering(recovery_hooks(core.clone(), documents, broker), journal())
+                    .unwrap();
+            let response = call_in(&mut cx, 5, &[field(1, onto)]);
+            assert_eq!(
+                conn::fields("response", &response.payload[1..]).unwrap()[1].1[0],
+                255
+            );
+            assert!(cx.rewrite_pending);
+            assert_eq!(core.git.acknowledged().unwrap(), Some(onto));
+            let depth = core.events.depth().unwrap();
+            let response = call_in(&mut cx, 5, &[field(1, onto)]);
+            assert_eq!(
+                conn::fields("response", &response.payload[1..]).unwrap()[1].1[0],
+                255
+            );
+            assert!(cx.rewrite_pending);
+            assert_eq!(core.events.depth().unwrap(), depth);
+            drop(cx);
+            let core = reopened_core(&core, dir.path());
+            let mut restarted = LockCx::recovering(
+                recovery_hooks(core.clone(), Arc::new(Flushed), Arc::new(Flushed)),
+                journal(),
+            )
+            .unwrap();
+            assert!(restarted.rewrite_pending);
+            wake_result(&call_in(&mut restarted, 5, &[field(1, onto)]));
+            assert!(!restarted.rewrite_pending);
+            assert_eq!(fs::read(root.join("local")).unwrap(), b"local version\n");
+            assert_eq!(fs::read(root.join("host")).unwrap(), b"host version\n");
+            assert_eq!(
+                core.events.depth().unwrap(),
+                depth,
+                "recovery must not publish a second reconciliation"
+            );
+            assert!(!dir.path().join("state/rewrite.operation").exists());
+            assert!(core
+                .native
+                .wake_journal()
+                .unwrap()
+                .pending()
+                .unwrap()
+                .is_none());
+        }
+    }
+    #[test]
+    fn wake_recovery_refuses_unknown_or_changed_acknowledgements_without_mutation() {
+        for phase in [
+            "legacy",
+            "changed before selection",
+            "changed after selection",
+        ] {
+            let (dir, core, base, onto) = dirty_wake_fixture();
+            let root = dir.path().join("workspace");
+            let mut cx = LockCx::recovering(
+                recovery_hooks(core.clone(), Arc::new(Flushed), Arc::new(Flushed)),
+                crate::rewrite_journal::Journal::open(&dir.path().join("state")).unwrap(),
+            )
+            .unwrap();
+            core.capture_local(&mut cx).unwrap();
+            cx.begin_rewrite().unwrap();
+            let snapshot = core.native.current().unwrap().0;
+            let result = core.native.rebase_delta(snapshot, base, onto).unwrap();
+            let checkpoint = dir.path().join("state/rewrite.operation");
+            if phase == "legacy" {
+                let value: serde_json::Value =
+                    serde_json::from_slice(&fs::read(&checkpoint).unwrap()).unwrap();
+                fs::write(&checkpoint, value["operation"].as_str().unwrap()).unwrap();
+            } else if phase == "changed after selection" {
+                let settlement = crate::wake_journal::Settlement::new(base, onto, result).unwrap();
+                core.native
+                    .wake_journal()
+                    .unwrap()
+                    .save(&settlement)
+                    .unwrap();
+            }
+            // Valid repository object, but unrelated to this checkpoint's authority.
+            let acknowledged = if phase == "changed after selection" {
+                snapshot
+            } else {
+                onto
+            };
+            core.git.clone().acknowledge_and_sync(acknowledged).unwrap();
+            let bytes = fs::read(&checkpoint).unwrap();
+            let depth = core.events.depth().unwrap();
+            let response = call_in(&mut cx, 5, &[field(1, onto)]);
+            assert_eq!(
+                conn::fields("response", &response.payload[1..]).unwrap()[1].1[0],
+                255,
+                "{phase}"
+            );
+            assert!(cx.rewrite_pending);
+            assert_eq!(core.git.acknowledged().unwrap(), Some(acknowledged));
+            assert_eq!(core.native.current().unwrap().0, result);
+            assert_eq!(core.events.depth().unwrap(), depth);
+            assert_eq!(fs::read(&checkpoint).unwrap(), bytes);
+            assert_eq!(fs::read(root.join("local")).unwrap(), b"local version\n");
+            assert_eq!(fs::read(root.join("host")).unwrap(), b"host version\n");
+        }
+    }
+    #[test]
+    fn wake_restart_at_each_publication_boundary_finishes_one_selected_result() {
+        for phase in ["before selection", "selected", "published", "thawed"] {
+            let (dir, core, base, onto) = dirty_wake_fixture();
+            let root = dir.path().join("workspace");
+            let journal =
+                || crate::rewrite_journal::Journal::open(&dir.path().join("state")).unwrap();
+            let mut cx = LockCx::recovering(
+                recovery_hooks(core.clone(), Arc::new(Flushed), Arc::new(Flushed)),
+                journal(),
+            )
+            .unwrap();
+            core.capture_local(&mut cx).unwrap();
+            cx.begin_rewrite().unwrap();
+            let snapshot = core.native.current().unwrap().0;
+            let result = core.native.rebase_delta(snapshot, base, onto).unwrap();
+            let settlement = crate::wake_journal::Settlement::new(base, onto, result).unwrap();
+            if phase != "before selection" {
+                core.git
+                    .clone()
+                    .pin_and_sync(settlement.event_id, result)
+                    .unwrap();
+                core.native
+                    .wake_journal()
+                    .unwrap()
+                    .save(&settlement)
+                    .unwrap();
+            }
+            if matches!(phase, "published" | "thawed") {
+                core.events
+                    .append_keyed(
+                        settlement.event_id,
+                        &crate::reconcile::Outcome::Moved(result)
+                            .event(base, onto)
+                            .unwrap(),
+                        result,
+                    )
+                    .unwrap();
+                assert!(
+                    core.events
+                        .append_keyed(
+                            settlement.event_id,
+                            &crate::reconcile::Outcome::Moved(result)
+                                .event(onto, base)
+                                .unwrap(),
+                            result
+                        )
+                        .is_err(),
+                    "same identity cannot change payload"
+                );
+            }
+            if phase == "thawed" {
+                crate::freeze::restore(&mut cx, &Actor::Outside).unwrap();
+                assert!(!cx.rewrite_pending);
+                // A crash between barrier removal and journal cleanup must not
+                // rewind writes that outside sessions made after thaw.
+                fs::write(root.join("after-thaw"), b"later work\n").unwrap();
+            }
+            drop(cx);
+            let core = reopened_core(&core, dir.path());
+            let mut restarted = LockCx::recovering(
+                recovery_hooks(core.clone(), Arc::new(Flushed), Arc::new(Flushed)),
+                journal(),
+            )
+            .unwrap();
+            let refused = call_in(&mut restarted, 4, &[]);
+            assert_eq!(
+                conn::fields("response", &refused.payload[1..]).unwrap()[1].1[0],
+                255,
+                "ordinary capture is not recovery"
+            );
+            wake_result(&call_in(&mut restarted, 5, &[field(1, onto)]));
+            assert!(!restarted.rewrite_pending);
+            assert_eq!(core.git.acknowledged().unwrap(), Some(onto));
+            assert_eq!(fs::read(root.join("local")).unwrap(), b"local version\n");
+            assert_eq!(fs::read(root.join("host")).unwrap(), b"host version\n");
+            if phase == "thawed" {
+                assert_eq!(fs::read(root.join("after-thaw")).unwrap(), b"later work\n");
+            }
+            assert_eq!(
+                core.events.depth().unwrap(),
+                2,
+                "{phase}: capture plus one reconciliation"
+            );
+            let owner = rustix::process::geteuid().as_raw();
+            let store =
+                crate::outbox_store::Store::open(&dir.path().join("state/outbox"), owner).unwrap();
+            let event = conn::Durable::decode(&store.read(2, owner).unwrap()).unwrap();
+            assert_eq!(event.event[0], 3);
+            if phase != "before selection" {
+                assert_eq!(event.id, settlement.event_id);
+            }
+            assert!(!dir.path().join("state/rewrite.operation").exists());
+            assert!(core
+                .native
+                .wake_journal()
+                .unwrap()
+                .pending()
+                .unwrap()
+                .is_none());
+            wake_result(&call_in(&mut restarted, 5, &[field(1, onto)]));
+            assert_eq!(core.events.depth().unwrap(), 2);
+        }
     }
     struct FlushWrite(std::path::PathBuf);
     impl Documents for FlushWrite {

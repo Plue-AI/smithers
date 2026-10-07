@@ -5,13 +5,14 @@ use crate::hooks::Oid;
 use jj_lib::{
     backend::CommitId,
     commit::Commit,
+    commit_builder::DetachedCommitBuilder,
     config::{ConfigLayer, ConfigSource, StackedConfig},
     default_backend_factories::{default_backend_factories, default_working_copy_factories},
     merge::Merge,
     merged_tree::MergedTree,
     object_id::ObjectId,
-    repo::{ReadonlyRepo, Repo},
-    rewrite::rebase_commit,
+    repo::{MutableRepo, ReadonlyRepo, Repo},
+    rewrite::{rebase_commit, CommitRewriter},
     settings::UserSettings,
     workspace::Workspace,
 };
@@ -38,6 +39,72 @@ fn oid(bytes: &[u8]) -> io::Result<Oid> {
     bytes
         .try_into()
         .map_err(|_| invalid("requires Git SHA-1 backing store"))
+}
+// Restoring an operation retains already-written objects in the index. A
+// replay can produce the exact same immutable commit (including its timestamp).
+// Reuse it without recording it as a new predecessor or manufacturing metadata.
+fn write_reconciled(
+    repo: &mut MutableRepo,
+    source: &Commit,
+    builder: DetachedCommitBuilder,
+) -> io::Result<Commit> {
+    let candidate = builder.write_hidden().block_on().map_err(invalid)?;
+    if repo.index().has_id(candidate.id()).map_err(invalid)? {
+        if candidate.id() != source.id() {
+            // A descendant cannot replace its own ancestor without a cycle.
+            if repo
+                .index()
+                .is_ancestor(source.id(), candidate.id())
+                .block_on()
+                .map_err(invalid)?
+            {
+                return Err(invalid(
+                    "recovered reconciliation would create an ancestry cycle",
+                ));
+            }
+            repo.add_head(&candidate).block_on().map_err(invalid)?;
+            repo.set_rewritten_commit(source.id().clone(), candidate.id().clone());
+        }
+        Ok(candidate)
+    } else {
+        builder.write(repo).block_on().map_err(invalid)
+    }
+}
+// Descendant rewrites can also replay a previously indexed commit. Let jj
+// compute their parents and merged trees, then use the same replay-safe writer.
+fn reconcile_descendants(repo: &mut MutableRepo, source: &Commit) -> io::Result<()> {
+    repo.transform_descendants(vec![source.id().clone()], async |mut rewriter| {
+        if rewriter.parents_changed() {
+            let old = rewriter.old_commit().clone();
+            let parents = rewriter.new_parents().to_vec();
+            let repo = rewriter.repo_mut();
+            let builder = CommitRewriter::new(repo, old.clone(), parents)
+                .rebase()
+                .await?
+                .detach();
+            write_reconciled(repo, &old, builder)
+                .map_err(|e| jj_lib::backend::BackendError::Other(e.into()))?;
+        }
+        Ok(())
+    })
+    .block_on()
+    .map_err(invalid)?;
+    // Finish the library's rewrite-reference bookkeeping.
+    repo.rebase_descendants().block_on().map_err(invalid)?;
+    Ok(())
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Checkpoint {
+    version: u8,
+    operation: String,
+    #[serde(deserialize_with = "deserialize_acknowledgement")]
+    acknowledged: Option<Oid>,
+}
+fn deserialize_acknowledgement<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Oid>, D::Error> {
+    <Option<Oid> as serde::Deserialize>::deserialize(deserializer)
 }
 pub struct Repository {
     root: PathBuf,
@@ -114,7 +181,8 @@ impl Repository {
         Ok((oid(commit.id().as_bytes())?, oid(tree.as_bytes())?))
     }
     pub fn snapshot(&self) -> io::Result<(Oid, Oid)> {
-        flows_jj::ops::snapshot(&self.root, None).map_err(invalid)?;
+        flows_jj::ops::snapshot(&self.root, None)
+            .map_err(|e| invalid(format!("native snapshot: {e}")))?;
         self.current()
     }
     pub fn contains(&self, head: Oid) -> io::Result<bool> {
@@ -153,35 +221,62 @@ impl Repository {
             })
             .collect()
     }
-    /// Save the exact operation before a rewrite. Failure never truncates a
-    /// previous checkpoint. fsync orders it before the shared rewrite fence.
-    pub fn checkpoint(&self) -> io::Result<()> {
+    /// Save the operation and the acknowledgement that made rollback safe.
+    pub(crate) fn checkpoint_with_ack(&self, acknowledged: Option<Oid>) -> io::Result<()> {
         let (_, repo) = self.load()?;
+        let record = Checkpoint {
+            version: 1,
+            operation: repo.op_id().hex(),
+            acknowledged,
+        };
+        self.write_checkpoint(&serde_json::to_vec(&record).map_err(invalid)?)
+    }
+    #[cfg(test)]
+    fn checkpoint(&self) -> io::Result<()> {
+        let (_, repo) = self.load()?;
+        self.write_checkpoint(repo.op_id().hex().as_bytes())
+    }
+    fn write_checkpoint(&self, bytes: &[u8]) -> io::Result<()> {
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(self.state.join("rewrite.operation"))?;
-        file.write_all(repo.op_id().hex().as_bytes())?;
+        file.write_all(bytes)?;
         file.sync_all()?;
         File::open(&self.state)?.sync_all()
     }
-    pub fn restore(&self) -> io::Result<()> {
-        let mut file = OpenOptions::new()
+    fn read_checkpoint(&self) -> io::Result<(String, Option<Option<Oid>>)> {
+        let file = OpenOptions::new()
             .read(true)
-            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+            .custom_flags(
+                (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32,
+            )
             .open(self.state.join("rewrite.operation"))?;
         let metadata = file.metadata()?;
         if !metadata.is_file()
             || metadata.nlink() != 1
             || metadata.uid() != rustix::process::geteuid().as_raw()
             || metadata.mode() & 0o7777 != 0o600
-            || metadata.len() != 128
+            || metadata.len() > 1024
         {
             return Err(invalid("invalid native rewrite checkpoint"));
         }
-        let mut operation = String::new();
-        (&mut file).take(129).read_to_string(&mut operation)?;
+        let mut bytes = String::new();
+        file.take(1025).read_to_string(&mut bytes)?;
+        if bytes.len() > 1024 {
+            return Err(invalid("oversized native rewrite checkpoint"));
+        }
+        let (operation, acknowledged) =
+            if bytes.len() == 128 && bytes.bytes().all(|b| b.is_ascii_hexdigit()) {
+                (bytes, None) // Legacy history remains readable, but lacks rollback authority.
+            } else {
+                let record: Checkpoint = serde_json::from_str(&bytes).map_err(invalid)?;
+                if record.version != 1 || record.acknowledged == Some([0; 20]) {
+                    return Err(invalid("invalid native rewrite checkpoint version or head"));
+                }
+                (record.operation, Some(record.acknowledged))
+            };
         if operation.len() != 128
             || !operation
                 .bytes()
@@ -189,7 +284,29 @@ impl Repository {
         {
             return Err(invalid("invalid native operation ID"));
         }
-        flows_jj::ops::op_restore(&self.root, &operation).map_err(invalid)
+        Ok((operation, acknowledged))
+    }
+    pub fn restore(&self) -> io::Result<()> {
+        let (operation, _) = self.read_checkpoint()?;
+        self.restore_operation(&operation)
+    }
+    pub(crate) fn restore_with_ack(&self, acknowledged: Option<Oid>) -> io::Result<()> {
+        let (operation, before) = self.read_checkpoint()?;
+        if before != Some(acknowledged) {
+            // Old daemons could publish an acknowledgement before settling the
+            // rewrite. Never silently rewind files behind that published head.
+            return Err(invalid(
+                "rewrite checkpoint lacks matching acknowledgement; recovery retained",
+            ));
+        }
+        self.restore_operation(&operation)
+    }
+    fn restore_operation(&self, operation: &str) -> io::Result<()> {
+        flows_jj::ops::op_restore(&self.root, operation)
+            .map_err(|e| invalid(format!("native restore: {e}")))
+    }
+    pub(crate) fn wake_journal(&self) -> io::Result<crate::wake_journal::Journal> {
+        crate::wake_journal::Journal::open(&self.state)
     }
     /// Keep recovery retryable until document reconciliation and thaw succeed.
     pub fn settled(&self) -> io::Result<()> {
@@ -198,6 +315,7 @@ impl Repository {
             Err(error) if error.kind() == io::ErrorKind::NotFound => (),
             Err(error) => return Err(error),
         }
+        self.wake_journal()?.clear()?;
         File::open(&self.state)?.sync_all()
     }
     pub fn move_to(&self, head: Oid) -> io::Result<Oid> {
@@ -300,31 +418,27 @@ impl Repository {
             ],
         ))
         .block_on()
-        .map_err(invalid)?;
+        .map_err(|e| invalid(format!("native delta: {e}")))?;
         let mut tx = repo.start_transaction();
-        let rebased = tx
+        let builder = tx
             .repo_mut()
             .rewrite_commit(&snapshot)
             .set_parents(head.parent_ids().to_vec())
             .set_tree(tree)
-            .write()
-            .block_on()
-            .map_err(invalid)?;
+            .detach();
+        let rebased = write_reconciled(tx.repo_mut(), &snapshot, builder)?;
         tx.repo_mut()
             .set_wc_commit(workspace.workspace_name().to_owned(), rebased.id().clone())
-            .map_err(invalid)?;
-        tx.repo_mut()
-            .rebase_descendants()
-            .block_on()
-            .map_err(invalid)?;
+            .map_err(|e| invalid(format!("native delta: {e}")))?;
+        reconcile_descendants(tx.repo_mut(), &snapshot)?;
         let updated = tx
             .commit("machined reconcile local delta")
             .block_on()
-            .map_err(invalid)?;
+            .map_err(|e| invalid(format!("native delta: {e}")))?;
         workspace
             .check_out(updated.op_id().clone(), Some(&snapshot.tree()), &rebased)
             .block_on()
-            .map_err(invalid)?;
+            .map_err(|e| invalid(format!("native delta: {e}")))?;
         oid(rebased.id().as_bytes())
     }
 }
@@ -345,6 +459,52 @@ pub(crate) mod tests {
         fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
         let repo = Repository::open(&root, &state).unwrap();
         (dir, repo)
+    }
+    #[test]
+    fn restored_reconciliation_reuses_the_identical_indexed_commit() {
+        let (_dir, native) = fixture();
+        fs::write(native.root.join("base"), b"base\n").unwrap();
+        let base = native.snapshot().unwrap().0;
+        child(&native, base, "local change");
+        fs::write(native.root.join("local"), b"local\n").unwrap();
+        let local = native.snapshot().unwrap().0;
+        child(&native, base, "host change");
+        fs::write(native.root.join("host"), b"host\n").unwrap();
+        let host = native.snapshot().unwrap().0;
+        native.move_to(local).unwrap();
+        native.checkpoint().unwrap();
+        let first = native.rebase_delta(local, base, host).unwrap();
+        native.restore().unwrap();
+        let (mut workspace, repo) = native.load().unwrap();
+        let source = Repository::commit(&repo, local).unwrap();
+        let expected = Repository::commit(&repo, first).unwrap();
+        assert!(repo.index().has_id(expected.id()).unwrap());
+        let mut tx = repo.start_transaction();
+        let builder = tx
+            .repo_mut()
+            .rewrite_commit(&source)
+            .set_parents(expected.parent_ids().to_vec())
+            .set_tree(expected.tree())
+            .set_author(expected.author().clone())
+            .set_committer(expected.committer().clone())
+            .detach();
+        let result = write_reconciled(tx.repo_mut(), &source, builder).unwrap();
+        assert_eq!(result.id(), expected.id());
+        assert_eq!(result.change_id(), source.change_id());
+        tx.repo_mut()
+            .set_wc_commit(workspace.workspace_name().to_owned(), result.id().clone())
+            .unwrap();
+        tx.repo_mut().rebase_descendants().block_on().unwrap();
+        let updated = tx
+            .commit("recover identical reconciliation")
+            .block_on()
+            .unwrap();
+        workspace
+            .check_out(updated.op_id().clone(), Some(&source.tree()), &result)
+            .block_on()
+            .unwrap();
+        assert_eq!(fs::read(native.root.join("local")).unwrap(), b"local\n");
+        assert_eq!(fs::read(native.root.join("host")).unwrap(), b"host\n");
     }
     pub(crate) fn child(repo: &Repository, parent: Oid, description: &str) -> Oid {
         repo.move_to(parent).unwrap();
@@ -456,6 +616,50 @@ pub(crate) mod tests {
         fs::write(repo.state.join("rewrite.operation"), b"bad").unwrap();
         assert!(repo.restore().is_err());
         assert!(repo.state.join("rewrite.operation").exists());
+    }
+    #[test]
+    fn versioned_checkpoint_requires_exact_acknowledgement_and_retains_legacy_history() {
+        for before in [None, Some([1; 20])] {
+            let (_dir, repo) = fixture();
+            fs::write(repo.root.join("file"), b"before\n").unwrap();
+            repo.snapshot().unwrap();
+            repo.checkpoint_with_ack(before).unwrap();
+            let path = repo.state.join("rewrite.operation");
+            let bytes = fs::read(&path).unwrap();
+            fs::write(repo.root.join("file"), b"after\n").unwrap();
+            repo.snapshot().unwrap();
+            assert!(repo.restore_with_ack(Some([2; 20])).is_err());
+            assert_eq!(fs::read(repo.root.join("file")).unwrap(), b"after\n");
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+            for invalid in [
+                "missing ack",
+                "version",
+                "operation",
+                "zero ack",
+                "extra field",
+            ] {
+                let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                match invalid {
+                    "missing ack" => {
+                        value.as_object_mut().unwrap().remove("acknowledged");
+                    }
+                    "version" => value["version"] = 2.into(),
+                    "operation" => value["operation"] = "bad".into(),
+                    "zero ack" => value["acknowledged"] = serde_json::to_value([0u8; 20]).unwrap(),
+                    _ => value["extra"] = true.into(),
+                }
+                fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+                assert!(repo.restore_with_ack(before).is_err(), "{invalid}");
+                assert_eq!(fs::read(repo.root.join("file")).unwrap(), b"after\n");
+            }
+            fs::write(&path, &bytes).unwrap();
+            repo.restore_with_ack(before).unwrap();
+            assert_eq!(fs::read(repo.root.join("file")).unwrap(), b"before\n");
+            let (operation, _) = repo.read_checkpoint().unwrap();
+            fs::write(&path, operation.as_bytes()).unwrap();
+            assert!(repo.restore_with_ack(before).is_err());
+            repo.restore().unwrap(); // Explicit native history restore still decodes old records.
+        }
     }
     #[test]
     fn installed_adapter_refuses_other_identities() {

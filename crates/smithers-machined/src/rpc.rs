@@ -26,7 +26,9 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
     }
     let (id, method, args) = frame.request()?;
     let hooks: Hooks = cx.hooks.clone();
-    let result = if cx.rewrite_pending && !matches!(method, 1 | 2 | 8 | 9 | 14 | 16) {
+    // wake_reconcile is the owner's recovery entry; ordinary mutations remain
+    // barred until its native checkpoint or committed settlement finishes.
+    let result = if cx.rewrite_pending && !matches!(method, 1 | 2 | 5 | 8 | 9 | 14 | 16) {
         Err(crate::freeze::pending_error())
     } else {
         match method {

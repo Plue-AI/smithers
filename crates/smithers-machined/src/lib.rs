@@ -9,11 +9,11 @@ pub mod freeze;
 pub mod hooks;
 pub mod local_stream;
 pub mod lock;
+pub mod moved_off;
 pub mod msg;
 pub mod outbox_store;
 pub mod rpc;
 pub mod session_stream;
-pub mod moved_off;
 pub mod stream;
 pub mod transcript;
 
@@ -58,3 +58,5 @@ pub mod watcher_store;
 pub mod installed;
 pub mod native_core;
 pub mod session_environment;
+
+mod wake_journal;

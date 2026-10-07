@@ -49,11 +49,43 @@ impl<R: Refs> Outbox<R> {
         })
     }
     pub fn append(&mut self, event: &[u8], pin: Option<Oid>) -> io::Result<(u64, [u8; 16])> {
-        if self.poisoned {
-            return Err(invalid());
-        }
         let mut id = [0; 16];
         getrandom::fill(&mut id).map_err(|e| io::Error::other(e.to_string()))?;
+        self.append_new(id, event, pin)
+    }
+    /// A private durable settlement owns this identity and immutable pin.
+    /// Reopening and replaying it must reuse an existing queued envelope.
+    pub(crate) fn append_keyed(
+        &mut self,
+        id: [u8; 16],
+        event: &[u8],
+        pin: Option<Oid>,
+    ) -> io::Result<(u64, [u8; 16])> {
+        if self.poisoned || id == [0; 16] {
+            return Err(invalid());
+        }
+        self.store.next_sequence()?; // A failed write requires reopening, even for replay.
+        for seq in self.store.sequences() {
+            let previous =
+                Durable::decode(&self.store.read(seq, self.owner)?).map_err(|_| invalid())?;
+            if previous.id == id {
+                if previous.event != event {
+                    return Err(invalid());
+                }
+                return Ok((seq, id));
+            }
+        }
+        self.append_new(id, event, pin)
+    }
+    fn append_new(
+        &mut self,
+        id: [u8; 16],
+        event: &[u8],
+        pin: Option<Oid>,
+    ) -> io::Result<(u64, [u8; 16])> {
+        if self.poisoned || id == [0; 16] {
+            return Err(invalid());
+        }
         let seq = self.store.next_sequence()?;
         let envelope = Durable {
             seq,

@@ -48,6 +48,14 @@ impl<R: Refs, B: Bundles> Events<R, B> {
         })
     }
 
+    pub(crate) fn append_keyed(&self, id: [u8; 16], event: &[u8], pin: Oid) -> io::Result<()> {
+        self.state
+            .lock()
+            .map_err(|_| io::Error::other("event state poisoned"))?
+            .outbox
+            .append_keyed(id, event, Some(pin))
+            .map(|_| ())
+    }
     pub fn next_sequence(&self) -> io::Result<u64> {
         self.state
             .lock()
