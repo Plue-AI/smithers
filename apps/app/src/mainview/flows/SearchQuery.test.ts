@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test"
 import type { SearchItem } from "@smthrs/rpc/Cards"
 import type { CommandActions } from "./Flows"
 import { baseFlows } from "./Flows"
+import { nameOf } from "./registry"
 import { actionsFor, frecency, heads, matchTier, parseQuery, PREFIXES, rankItems, RECENCY_WINDOW_MS, TIER } from "./SearchQuery"
 
 /** Every controller call answers with nothing: registration never invokes a handler. */
@@ -145,6 +146,9 @@ describe("§2 actions: every action is a registered flow whose input the ref fil
     const actions = actionsFor({ kind: "file", ref: "src/index.ts", title: "src/index.ts" }, entries)
     expect(actions[0]).toEqual({ flow: "files.read", args: "src/index.ts", label: "Read a file from a repository", role: "open" })
     const names = actions.map((action) => action.flow)
+    for (const name of ["code.hover", "code.definition", "code.diagnostics"]) {
+      expect(entries.find(entry => nameOf(entry) === name)?.metadata.visibility).toBe("hidden")
+    }
     expect(names).not.toContain("code.diagnostics")
     expect(names).toContain("files.list")
     // code.hover needs a line and a column the ref cannot supply.
