@@ -3,7 +3,6 @@
 Stage S2 · Size M · Depends on T-APP-16, T-APP-09 · Unblocks T-AGT-02 · Issue: [#3621](https://github.com/smithersai/smithers/issues/3621)
 Spec: spec.md §9.6.6, §14.5.5, §21.1 · Delta: delta.md §9 · Product: mvp.md M-38, M-34
 Ready: 2026-10-03 smithers-8a sha256:29aa84c2e61e
-Landed: 2026-10-06 smithers-8a (backfill audit, #3738) 23e03c2cc1, 34eb33b712
 
 ## Goal
 

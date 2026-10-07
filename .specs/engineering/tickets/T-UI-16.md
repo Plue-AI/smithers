@@ -3,7 +3,6 @@
 Stage S2 · Size S · Depends on T-UI-01, T-APP-15 · Unblocks T-APP-11 · Issue: [#3580](https://github.com/smithersai/smithers/issues/3580)
 Spec: spec.md §14.2.1, §14.3 (File, Diff), §9.2.3, §9.2.6, §9.3.5 · Delta: delta.md §9 · Product: mvp.md J3.4, §6.8 · Props: ui-components.md § T-APP-15 File (read-only) and Diff
 Ready: 2026-10-03 smithers-8a sha256:04caefbc0073
-Landed: 2026-10-06 smithers-8a (backfill audit, #3738) 65d7fcde1e, e5ede7da9d, 97be21cbe7
 
 ## Goal
 

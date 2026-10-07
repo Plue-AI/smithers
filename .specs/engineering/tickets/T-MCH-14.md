@@ -3,7 +3,6 @@
 Stage S1 · Size S · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-FLW-11, T-GH-03, T-GH-04, T-STK-05, T-STK-06 · Issue: [#3526](https://github.com/smithersai/smithers/issues/3526)
 Spec: spec.md §8.4, §10.4.1, §10.7.3, §10.7.4, §8.12, §15.2 · Delta: delta.md §3, §6 · Product: mvp.md J10.2, M-31
 Ready: 2026-10-03 smithers-8a sha256:fa45ca96e8af
-Landed: 2026-10-06 smithers-8a (backfill audit, #3738) ceb4b75d80, 24e794f2d3
 
 ## Goal
 A TODO's working copy and its waiting `todo` run survive days in review, so a GitHub review steer resumes the same run on the same files.

@@ -3,7 +3,6 @@
 Stage S3 · Size S · Depends on T-UI-01, T-UI-04, T-UI-06 · Unblocks T-FLW-06 · Issue: [#3590](https://github.com/smithersai/smithers/issues/3590)
 Spec: spec.md §14.2.1, §13, §14.3 (Proposal) · Delta: delta.md §9 · Product: mvp.md J5.5, J8.1, §4.1, M-15 · Props: written by this ticket when S3 starts
 Ready: 2026-10-03 smithers-8a sha256:e4a49a8b6b0d
-Landed: 2026-10-06 smithers-8a (backfill audit, #3738) e1ad78547d
 
 ## Goal
 

@@ -3,7 +3,6 @@
 Stage S1 · Size M · Depends on T-FLW-03, T-FLW-04, T-FLW-08, T-APP-16, T-APP-15, T-APP-02, T-APP-04, T-UI-10, T-FLW-01, T-FLW-11, T-INS-02, T-SEC-01, T-CAT-01, T-STK-01, T-APP-22 · Unblocks T-AGT-04, T-FLW-05, T-REL-02 · Issue: [#3499](https://github.com/smithersai/smithers/issues/3499)
 Spec: spec.md §4.3, §7.2 (`flows`), §10.4.1a, §11.1, §11.3, §11.4.3, §11.5, §11.5a, §14.2, §14.3 (Flow), §15.1.5 · Delta: delta.md §8 (Reuse flow edit), §9 (Reshape card files and actions) · Product: mvp.md J5.2–J5.4, J11.2–J11.4, §6.12 Flow card, §6.14 Write flows, M-04, M-30, Appendix A `/flow`, `/flow.edit`, `/flow.source`, `/flow.plan`
 Ready: 2026-10-03 smithers-8a sha256:ac1b2f104f4f
-Landed: 2026-10-06 smithers-8a (backfill audit, #3738) 395fd7e6bd, 437c08f987, b81eb427c2, ea6ca51805
 
 ## Goal
 `/flow todo` shows the TODO flow's steps and tells its versions apart (Active, Proposed with its TODO, "Merged · active after sync", "Merged · not active" with the load error), so a lead sees which version new TODOs use and asks for a change from the card.
