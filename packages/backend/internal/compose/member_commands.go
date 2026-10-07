@@ -552,6 +552,10 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 			input.Payload, _ = json.Marshal(body)
 		}
 	}
+	if command == "flow.edit" {
+		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/flows/"), "/edit")
+		input.Subject, _ = json.Marshal(map[string]string{"kind": "flow", "ref": name})
+	}
 	if command == "wiki.delete" {
 		parts := strings.Split(r.URL.EscapedPath(), "/")
 		if len(parts) != 7 {

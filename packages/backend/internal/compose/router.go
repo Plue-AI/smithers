@@ -1113,10 +1113,12 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			var proposals services.FlowProposalReader
+			var edits routes.FlowEditService
 			if extras.Mythical != nil {
 				proposals, _ = extras.Mythical.Service.(services.FlowProposalReader)
+				edits, _ = extras.Mythical.Service.(routes.FlowEditService)
 			}
-			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals, Runs: extras.FlowRuns})
+			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals, Runs: extras.FlowRuns, Edits: edits})
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/runs/{id}", (&routes.HomeBackgroundHandler{Queries: queries, Service: extras.Background}).Control)
 			r.With(middleware.RequireAuth).Get("/runs/{id}/background-status", (&routes.HomeBackgroundHandler{Queries: queries, Service: extras.Background}).Status)
 			if smithersMetrics != nil && queries != nil {
@@ -2270,6 +2272,7 @@ func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
 	r.Post("/flows", flows.Run)
 	r.Post("/flows/{name}/run", flows.Run)
 	r.Get("/flows/runs/{id}", flows.RunStatus)
+	r.Post("/flows/{name}/edit", flows.Edit)
 	r.Get("/flows", flows.List)
 	r.Get("/flows/{name}", flows.Show)
 }
