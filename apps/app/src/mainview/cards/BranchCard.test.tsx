@@ -242,6 +242,16 @@ test("scratch Resolve binds each retained path and cannot retarget a file", () =
     .filter(action => action.label === "Resolve")).toEqual([])
 })
 
+test("moved-off controls retain the displayed branch and item despite click-time substitutions", () => {
+  const model = { ...definitionsOf(make(), "b-retry").model, name: "scratch/ben/old",
+    moved_off: { item: 2, by: { kind: "outside" as const, color_index: 7 as const } } }
+  const { calls, dispatch } = recorder()
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["todo.return-to-item", "todo.keep-moved"])))
+  bindings.onAction("todo.return-to-item", { branch: "smithers/different-item", n: "99" })
+  bindings.onAction("todo.keep-moved", { branch: "smithers/different-item", n: "99" })
+  expect(calls).toEqual([["todo.return-to-item", { n: 2, branch: "scratch/ben/old" }], ["todo.keep-moved", { n: 2, branch: "scratch/ben/old" }]])
+})
+
 test("scratch Done requires both retained conflict identities and its rebase provider", () => {
   const model = { ...definitionsOf(make(), "b-retry").model, item: undefined,
     scratch: { forked_from: { kind: "main" as const } },

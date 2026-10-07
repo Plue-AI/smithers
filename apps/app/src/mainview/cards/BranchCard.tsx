@@ -62,8 +62,8 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
     if (model.machine.state === "asleep") definitions.push({ tag: "box.resume", label: "Wake", command_input: { branch: model.name } })
     if (model.scratch) definitions.push({ tag: "branch.add-to-stack", label: "Add to stack", command_input: { text: model.name } })
     if (model.moved_off) definitions.push(
-      { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item } },
-      { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item } }
+      { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item, branch: model.name }, resolve_input: () => ({ n: model.moved_off!.item, branch: model.name }) },
+      { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item, branch: model.name }, resolve_input: () => ({ n: model.moved_off!.item, branch: model.name }) }
     )
     if (model.scratch && model.rebase?.state === "conflict") {
       for (const path of model.rebase.paths) definitions.push({
