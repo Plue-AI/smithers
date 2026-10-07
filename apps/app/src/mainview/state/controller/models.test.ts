@@ -67,13 +67,17 @@ const probeHarness = (recovered?: { requestId: string; model: import("@smthrs/rp
  return { ctx, controller, cards, models, posts, events, posted, resolveLaunch, hydrated: () => { for (const listener of listeners) listener() }, finish: () => toastWork!, dispose: () => { disposed = true } }
 }
 
-test("a probe persists its identity and returns while admission is unresolved; duplicate input joins", async () => {
+test("a plain-HTTP probe persists its identity and returns while admission is unresolved; duplicate input joins", async () => {
+ const randomUUID = Object.getOwnPropertyDescriptor(crypto, "randomUUID")
+ Object.defineProperty(crypto, "randomUUID", { configurable: true, value: undefined })
+ try {
  const h = probeHarness()
  await h.controller.testModel("probe")
  await h.controller.testModel("probe")
  await h.posted
  expect(h.posts).toHaveLength(1)
  const request = h.cards.get("agents").payload.testRequests.probe
+ expect(request.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
  expect(h.posts[0]).toEqual({ requestId: request.requestId, model: request.model })
  expect(request.model.modelId).toBe("probe-model")
  expect(h.cards.get("agents").payload.testing).toEqual(["probe"])
@@ -83,6 +87,10 @@ test("a probe persists its identity and returns while admission is unresolved; d
  expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(1)
  expect(h.cards.get("agents").payload.testing).toEqual([])
  expect(h.cards.get("agents").payload.testRequests).toEqual({})
+ } finally {
+  if (randomUUID) Object.defineProperty(crypto, "randomUUID", randomUUID)
+  else delete (crypto as Partial<Crypto>).randomUUID
+ }
 })
 
 test("reload reconnects with the original probe and ignores a newly edited record", async () => {
