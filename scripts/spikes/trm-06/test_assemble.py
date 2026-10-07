@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,28 @@ class BundleAssembly(unittest.TestCase):
                     "files": [{"path": "bin/smithers-backend", "sha256": assemble.digest(backend), "mode": 0o755, "stage": "backend"}]}
         (base / "manifest.json").write_text(json.dumps(manifest))
         return base, manifest
+
+    def test_supervisor_requires_static_arm64_elf(self):
+        for mode in ("valid", "x86", "interpreter", "truncated", "table", "endian", "no-headers"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "supervisor"
+                header = bytearray(64)
+                header[:7] = b"\x7fELF\x02\x01\x01"
+                struct.pack_into("<HHI", header, 16, 2, 183, 1)
+                struct.pack_into("<Q", header, 32, 64)
+                struct.pack_into("<HHH", header, 52, 64, 56, 1)
+                entry = bytearray(56)
+                struct.pack_into("<I", entry, 0, 1)
+                if mode == "x86": struct.pack_into("<H", header, 18, 62)
+                if mode == "interpreter": struct.pack_into("<I", entry, 0, 3)
+                if mode == "table": struct.pack_into("<Q", header, 32, 4096)
+                if mode == "endian": header[5] = 2
+                if mode == "no-headers": struct.pack_into("<H", header, 56, 0)
+                path.write_bytes(header + entry if mode != "truncated" else header[:32])
+                if mode == "valid":
+                    assemble.validate_supervisor(path)
+                else:
+                    with self.assertRaises(ValueError): assemble.validate_supervisor(path)
 
     def test_overlay_retains_base_and_records_exact_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:

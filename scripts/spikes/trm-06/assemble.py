@@ -3,7 +3,7 @@
 Never installs, signs approvals, executes a prototype or writes to the current
 system installation. The install owner's existing release installer remains the
 only installation path. Run from a Mac release builder with the Linux ARM64
-Rust target/linker installed. Missing security approval keeps activation closed.
+Rust musl target installed; uses the Rust toolchain’s bundled linker. Missing security approval keeps activation closed.
 """
 import argparse
 import hashlib
@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import struct
 import subprocess
 import tarfile
 import tempfile
@@ -101,6 +102,38 @@ def add_artifact(root, manifest, relative, source, mode):
 
 
 
+def validate_supervisor(path):
+    # A static Linux ARM64 binary needs no guest-selected dynamic interpreter.
+    # Check the built bytes before staging, independently of Cargo's target name.
+    regular(path)
+    with path.open("rb") as source:
+        header = source.read(64)
+        if len(header) != 64 or header[:7] != b"\x7fELF\x02\x01\x01":
+            raise ValueError("supervisor must be ELF64 little-endian")
+        kind, machine, version = struct.unpack_from("<HHI", header, 16)
+        offset = struct.unpack_from("<Q", header, 32)[0]
+        header_size, entry_size, count = struct.unpack_from("<HHH", header, 52)
+        size = os.fstat(source.fileno()).st_size
+        if kind not in (2, 3) or machine != 183 or version != 1 or header_size != 64 or entry_size != 56 or not 0 < count <= 128 or offset < 64 or offset + count * entry_size > size:
+            raise ValueError("invalid Linux ARM64 supervisor headers")
+        source.seek(offset)
+        for _ in range(count):
+            entry = source.read(entry_size)
+            if struct.unpack_from("<I", entry)[0] == 3:
+                raise ValueError("supervisor must not use a guest dynamic interpreter")
+
+
+def supervisor_build_environment():
+    sysroot = Path(subprocess.check_output(["rustc", "--print", "sysroot"], text=True).strip())
+    metadata = subprocess.check_output(["rustc", "-vV"], text=True)
+    hosts = [line.removeprefix("host: ") for line in metadata.splitlines() if line.startswith("host: ")]
+    if len(hosts) != 1 or "/" in hosts[0] or hosts[0] in ("", ".", ".."):
+        raise ValueError("invalid Rust host triple")
+    linker = sysroot / "lib/rustlib" / hosts[0] / "bin/rust-lld"
+    regular(linker)
+    return dict(os.environ, CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=str(linker))
+
+
 def assemble(repo, base, output, review_key):
     if os.geteuid() == 0:
         raise ValueError("release builds must be unprivileged")
@@ -124,8 +157,12 @@ def assemble(repo, base, output, review_key):
         environment = dict(os.environ, GOOS="darwin", GOARCH="arm64", CGO_ENABLED="0")
         gateway = build / "trm06-gateway"
         subprocess.run(["go", "build", "-trimpath", "-o", str(gateway), "./scripts/spikes/trm-06/gateway"], cwd=source, env=environment, check=True)
-        subprocess.run(["cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-gnu", "--manifest-path", str(source / SPIKE / "supervisor/Cargo.toml")], cwd=source, check=True)
-        supervisor = source / SPIKE / "supervisor/target/aarch64-unknown-linux-gnu/release/trm06-supervisor"
+        subprocess.run(["cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-musl", "--manifest-path", str(source / SPIKE / "supervisor/Cargo.toml")], cwd=source, env=supervisor_build_environment(), check=True)
+        # Cargo hardlinks its top-level executable to deps. Stage a private
+        # single-link copy before applying the release artifact invariant.
+        supervisor = build / "trm06-supervisor"
+        shutil.copyfile(source / SPIKE / "supervisor/target/aarch64-unknown-linux-musl/release/trm06-supervisor", supervisor)
+        validate_supervisor(supervisor)
         shutil.copytree(base, output, symlinks=True)
         try:
             add_artifact(output, manifest, "bin/trm06-gateway", gateway, 0o755)
