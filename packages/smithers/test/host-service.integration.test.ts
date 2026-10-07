@@ -153,7 +153,7 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
         headers: { Cookie: cookies }, signal: AbortSignal.timeout(5000)
       })
       expect(response.status, "the original setup session must survive service recovery").toBe(200)
-      return await response.json() as { steps: Array<{ id: string; status: string }> }
+      return await response.json() as { steps: Array<{ id: string; state: string }> }
     }
     const csrf = cookies.split("; ").find((value) => value.startsWith("__csrf="))?.slice("__csrf=".length)
     expect(!!csrf, "exchange must issue CSRF authority").toBe(true)
@@ -166,11 +166,11 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     expect(address.status, "complete a setup step through the real install flow").toBe(202)
     let initialSteps = (await installForSession()).steps
     const addressDeadline = Date.now() + 60_000
-    while (initialSteps.find((step) => step.id === "address")?.status !== "done" && Date.now() < addressDeadline) {
+    while (initialSteps.find((step) => step.id === "address")?.state !== "done" && Date.now() < addressDeadline) {
       await new Promise((done) => setTimeout(done, 500))
       initialSteps = (await installForSession()).steps
     }
-    expect(initialSteps.find((step) => step.id === "address")?.status,
+    expect(initialSteps.find((step) => step.id === "address")?.state,
       "the address must actually finish before testing recovery").toBe("done")
     expect(initialSteps.length).toBeGreaterThan(0)
     assertSilence()
