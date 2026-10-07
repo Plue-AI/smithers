@@ -409,6 +409,12 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if !ok {
 			return p, confirmationUnavailable()
 		}
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repository); err != nil {
+			return p, err
+		}
+		if _, err := db.New(tx).LockMythicalStackOrder(ctx, repository); err != nil {
+			return p, err
+		}
 		workspace, err := branchAddWorkspace(ctx, db.New(tx), repository, subject.Ref)
 		if err != nil {
 			return p, confirmationResolved()

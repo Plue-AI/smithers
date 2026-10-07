@@ -28,13 +28,17 @@ import (
 // Real native mirror, PostgreSQL, snapshot reader, admission and install HTTP.
 // Trusted-process admission is test-only; no VM/root qualification is claimed.
 func TestBranchAddComposedInstall(t *testing.T) {
-	for _, remove := range []string{"", "confirm-after", "confirm-default", "confirm-steered-after", "confirm-steered-before", "membership", "authorize", "lane", "microvm", "identity", "capture", "awake"} {
+	for _, remove := range []string{"", "confirm-after", "confirm-default", "confirm-steered-after", "confirm-steered-before", "capture-lock", "membership", "authorize", "lane", "microvm", "identity", "capture", "awake"} {
 		t.Run("provider-"+remove, func(t *testing.T) { runBranchAddComposed(t, remove) })
 	}
 }
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
 	placement := "before"
+	captureLock := remove == "capture-lock"
+	if captureLock {
+		remove = ""
+	}
 	steered := strings.HasPrefix(remove, "confirm-steered-")
 	if strings.HasPrefix(remove, "confirm-") {
 		placement = strings.TrimPrefix(strings.TrimPrefix(remove, "confirm-"), "steered-")
@@ -218,6 +222,34 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	require.Equal(t, 401, call(`{"text":"Keep scratch"}`, "unauth", "").Code)
 	invalid := call(`{"text":"Keep scratch","after":1,"before":2}`, "both", cookie)
 	require.Equal(t, 400, invalid.Code, invalid.Body.String())
+	if captureLock {
+		// A concurrent capture owns the stack fence. Add must wait there,
+		// leaving the workspace free for capture's next lock.
+		capture, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer capture.Rollback(context.WithoutCancel(ctx))
+		_, err = capture.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repo.ID)
+		require.NoError(t, err)
+		response := make(chan *httptest.ResponseRecorder, 1)
+		go func() { response <- call(`{"text":"Keep scratch"}`, "adopt", cookie) }()
+		require.Eventually(t, func() bool {
+			var waits int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%mythical_stacks%'`).Scan(&waits)
+			return err == nil && waits > 0
+		}, 10*time.Second, 10*time.Millisecond)
+		probe, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		_, err = probe.Exec(ctx, `SELECT 1 FROM workspaces WHERE id=$1 FOR UPDATE NOWAIT`, workspace.ID)
+		require.NoError(t, err, "Add must not hold the workspace while waiting on capture's stack fence")
+		require.NoError(t, probe.Rollback(ctx))
+		require.NoError(t, capture.Commit(ctx))
+		select {
+		case result := <-response:
+			require.Equal(t, 202, result.Code, result.Body.String())
+		case <-time.After(10 * time.Second):
+			t.Fatal("Add did not resume after capture released its fence")
+		}
+	}
 	for range 2 {
 		response := call(`{"text":"Keep scratch"}`, "adopt", cookie)
 		require.Equal(t, 202, response.Code, response.Body.String())
