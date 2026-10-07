@@ -218,12 +218,12 @@
     },
     "C-GH-07": {
       "status": "pending-owner",
-      "reason": "Absent: scripts/perf/github-freshness.ts",
+      "reason": "Runner present: scripts/perf/github-freshness.ts; requires aggregate check/review projections, two-phase reference-host evidence and owner-approved argv/host",
       "ticket": "T-GH-02"
     },
     "C-GH-08": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/github_sync_integration_test.go",
+      "reason": "Production composition tests present in packages/backend/internal/compose/github_polling_integration_test.go; native/unprivileged reference-host evidence and owner-approved argv/host remain required",
       "ticket": "T-GH-02"
     },
     "C-GH-09": {
