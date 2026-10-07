@@ -196,6 +196,7 @@ impl Kernel {
                 if libc::setsid() < 0 {
                     return Err(io::Error::last_os_error());
                 }
+                crate::confinement::prepare_mounts(&home_scope)?;
                 identity::drop_child(user)?;
                 crate::confinement::restrict(&home_scope)?;
                 if kind == Kind::Pty && libc::ioctl(0, libc::TIOCSCTTY, 0) < 0 {

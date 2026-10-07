@@ -194,8 +194,12 @@ python3 scripts/spikes/trm-06/assemble.py --base /path/to/main-bundle --output /
 ```
 
 This archives the exact fetched `origin/main`, builds Darwin ARM64 gateway and
-Linux ARM64 supervisor, and stages scripts from that archive. The builder needs
-Go and the Linux ARM64 Rust target/linker; these cross-builds remain unrun here.
+static Linux ARM64 supervisor, and stages scripts from that archive. The builder
+needs Go and the `aarch64-unknown-linux-musl` Rust target (`rustup target add
+aarch64-unknown-linux-musl`); it selects the toolchain’s bundled `rust-lld`.
+The assembler checks ELF64 ARM64 headers and refuses a dynamic interpreter.
+Cross-building does not replace execution or release acceptance on the reference
+host.
 It uses the existing release manifest's `host` stage and refuses mismatched base
 revisions, replaced/unmanifested files and spike destination symlinks. It never
 installs or generates a key/approval. Supply the complete artifact map to the
@@ -216,3 +220,15 @@ cgroup parent before init restart. It requires an explicit device-envelope or
 startup-log refusal and unchanged outside/member-canary samples. These controls
 are implemented but unrun; they do not supply accepted root receipts. Unsupported
 Landlock and the complete artifact/cgroup race matrix remain unfinished.
+
+Session children create a private mount namespace before dropping credentials:
+all mounts become read-only, with writable top-level bind mounts only for the
+fixed workspace and identity's home. Nested mounts remain read-only. Landlock
+still confines data writes; the mount view also denies metadata mutations that
+Landlock does not handle. Unsupported namespace/mount syscalls refuse spawn.
+A local unprivileged user-namespace regression exercises actual kernel writes,
+chmod and the installed OpenSSH SFTP SETSTAT protocol. This is supplemental;
+the installed root/session campaign and reference-host measurements remain
+required. OpenSSH maps read-only EROFS to SFTP failure (4), while DAC/Landlock
+permission denial maps to 3; neither response replaces independent sentinel
+bytes, owner and mode samples.

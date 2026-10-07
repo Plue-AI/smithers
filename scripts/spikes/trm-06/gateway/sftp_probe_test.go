@@ -14,7 +14,7 @@ import (
 // Exercise the campaign through actual SSH subsystem framing. The peer is a
 // test-only protocol fake; this is not installed confinement or root evidence.
 func TestSFTPCampaignRejectsSuccessfulOutsideMutations(t *testing.T) {
-	for _, accepted := range []uint32{0, 20, 21, 22, 23} {
+	for _, accepted := range []uint32{0, 20, 21, 22, 23, 100} {
 		t.Run(string(rune('a'+accepted)), func(t *testing.T) {
 			_, private, err := ed25519.GenerateKey(rand.Reader)
 			if err != nil {
@@ -83,6 +83,9 @@ func TestSFTPCampaignRejectsSuccessfulOutsideMutations(t *testing.T) {
 						reply = append(reply, ssh.Marshal(struct{ Handle string }{"fixture"})...)
 					} else {
 						code := uint32(3)
+						if accepted == 100 {
+							code = 4 // actual OpenSSH EROFS mapping
+						}
 						if id == 2 || id == 3 || id == accepted {
 							code = 0
 						}
@@ -111,7 +114,7 @@ func TestSFTPCampaignRejectsSuccessfulOutsideMutations(t *testing.T) {
 			}
 			err = sftpFixture(client)
 			client.Close()
-			if (err == nil) != (accepted == 0) {
+			if (err == nil) != (accepted == 0 || accepted == 100) {
 				t.Fatalf("accepted outside mutation %d: %v", accepted, err)
 			}
 			if err := <-done; err != nil {

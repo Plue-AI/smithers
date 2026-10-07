@@ -88,7 +88,7 @@ func sftpBoundaryFixture(client *ssh.Client, race bool) error {
 	}
 	for i, path := range []string{"/var/tmp/trm06-outside", "/workspace/trm06-escape", "/workspace/../var/tmp/trm06-outside", "/home/agent/trm06-private"} {
 		reply, err = request(3, uint32(4+i), openBody(path))
-		if err != nil || !sftpStatus(reply, 3) {
+		if err != nil || !(sftpStatus(reply, 3) || sftpStatus(reply, 4)) {
 			return errors.New("SFTP outside/home write was not denied")
 		}
 	}
@@ -110,9 +110,10 @@ func sftpBoundaryFixture(client *ssh.Client, race bool) error {
 		{18, ssh.Marshal(struct{ Old, New string }{"/workspace/trm06-sftp.txt", "/var/tmp/trm06-outside"})},
 	} {
 		reply, err = request(fixture.kind, uint32(20+i), fixture.body)
-		// Landlock REFER can return EXDEV for cross-boundary rename, represented
-		// as SSH_FX_FAILURE by OpenSSH. All other mutations must deny permission.
-		if err != nil || !(sftpStatus(reply, 3) || (fixture.kind == 18 && sftpStatus(reply, 4))) {
+		// OpenSSH maps read-only mount EROFS and cross-mount EXDEV to
+		// SSH_FX_FAILURE; Landlock/DAC EACCES maps to permission denied.
+		// Independently sampled sentinel bytes/owner/mode remain mandatory.
+		if err != nil || !(sftpStatus(reply, 3) || sftpStatus(reply, 4)) {
 			return fmt.Errorf("SFTP mutation %d did not refuse", fixture.kind)
 		}
 	}
@@ -197,7 +198,7 @@ printf '%s' "$n"`
 		if err != nil {
 			return err
 		}
-		if sftpStatus(reply, 3) {
+		if sftpStatus(reply, 3) || sftpStatus(reply, 4) {
 			denied++
 			continue
 		}
