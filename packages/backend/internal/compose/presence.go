@@ -279,6 +279,11 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			if err != nil {
 				return nil, err
 			}
+			// Older fork rows may predate retained source metadata.
+			// Preserve their main fallback without overwriting a recorded source.
+			if projected.Kind == "scratch" && projected.ForkedFrom == nil {
+				model["scratch"] = map[string]any{"forked_from": map[string]any{"kind": "main"}}
+			}
 			if projected.Kind == "scratch" && projected.ForkedFrom != nil {
 				from := projected.ForkedFrom
 				origin := map[string]any{"kind": from.Kind}
@@ -311,20 +316,6 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		}
 		if len(moved) != 0 {
 			model["moved_off"] = moved
-		}
-		if current.IsFork {
-			from := map[string]any{"kind": "main"}
-			if current.ForkedFromItem.Valid {
-				item, err := p.queries.GetMythicalItem(ctx, current.ForkedFromItem)
-				if err != nil {
-					return nil, err
-				}
-				if item.RepositoryID != repository || !item.Number.Valid {
-					return nil, errors.New("scratch source item unavailable")
-				}
-				from = map[string]any{"kind": "item", "n": item.Number.Int64, "title": item.IssueTitle}
-			}
-			model["scratch"] = map[string]any{"forked_from": from}
 		}
 		if position, waiting := p.branches.MachinePlace(current); waiting {
 			model["machine"] = map[string]any{"state": "waiting", "position": position}

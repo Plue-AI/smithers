@@ -45,7 +45,7 @@ func TestBranchTerminalCardComposedInstall(t *testing.T) {
 }
 
 func TestBranchAddCardComposedInstall(t *testing.T) {
-	for _, origin := range []string{"main", "item", "branch"} {
+	for _, origin := range []string{"main", "item", "branch", "agent"} {
 		t.Run(origin, func(t *testing.T) { runBranchAddComposed(t, "app-card-"+origin) })
 	}
 }
@@ -194,7 +194,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
 		require.NoError(t, err)
 		command := exec.CommandContext(ctx, "bun", "run", script)
-		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+origin, "SMITHERS_BRANCH_CARD_ID="+workspace.ID, "SMITHERS_BRANCH_CARD_COOKIE=smithers_session="+cookie, "SMITHERS_BRANCH_CARD_LOGIN="+owner.Username, "SMITHERS_BRANCH_CARD_SUBJECT="+workspace.TargetBookmark, "SMITHERS_BRANCH_CARD_TERMINAL="+map[bool]string{true: "1", false: "0"}[remove == "app-card-terminal"], "SMITHERS_BRANCH_CARD_FORK="+map[bool]string{true: "1", false: "0"}[remove == "app-card-fork"], "SMITHERS_BRANCH_CARD_ADD=1", "SMITHERS_BRANCH_CARD_ADD_N="+strconv.FormatInt(addedNumber, 10), "SMITHERS_BRANCH_CARD_FORK_ORIGIN="+string(forkJSON))
+		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+origin, "SMITHERS_BRANCH_CARD_ID="+workspace.ID, "SMITHERS_BRANCH_CARD_COOKIE=smithers_session="+cookie, "SMITHERS_BRANCH_CARD_LOGIN="+owner.Username, "SMITHERS_BRANCH_CARD_SUBJECT="+workspace.TargetBookmark, "SMITHERS_BRANCH_CARD_TERMINAL="+map[bool]string{true: "1", false: "0"}[remove == "app-card-terminal"], "SMITHERS_BRANCH_CARD_FORK="+map[bool]string{true: "1", false: "0"}[remove == "app-card-fork"], "SMITHERS_BRANCH_CARD_AGENT="+map[bool]string{true: "1", false: "0"}[remove == "app-card-agent"], "SMITHERS_BRANCH_CARD_ADD=1", "SMITHERS_BRANCH_CARD_ADD_N="+strconv.FormatInt(addedNumber, 10), "SMITHERS_BRANCH_CARD_FORK_ORIGIN="+string(forkJSON))
 		output, err := command.CombinedOutput()
 		require.NoError(t, err, string(output))
 		t.Log(string(output))

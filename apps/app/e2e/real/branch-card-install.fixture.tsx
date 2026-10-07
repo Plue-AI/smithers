@@ -7,6 +7,7 @@ const branch = process.env.SMITHERS_BRANCH_CARD_ID!
 const movedChoice = process.env.SMITHERS_BRANCH_MOVED_CHOICE
 const scratchFork = process.env.SMITHERS_BRANCH_CARD_FORK === "1"
 const newTerminal = process.env.SMITHERS_BRANCH_CARD_TERMINAL === "1"
+const agentAdd = process.env.SMITHERS_BRANCH_CARD_AGENT === "1"
 const addToStack = process.env.SMITHERS_BRANCH_CARD_ADD === "1"
 assert.ok(origin && branch)
 const NativeSocket = WebSocket, nativeFetch = fetch
@@ -22,6 +23,7 @@ const { memoryStorage, unavailableAgent, applicationIdentityFromFetch } = await 
 const { LiveChannel } = await import("../../src/mainview/runtime/LiveChannel")
 const { createRoot } = await import("react-dom/client")
 const { ControllerTestProvider } = await import("../../src/mainview/ControllerContext")
+const { TranscriptMessage } = await import("../../src/mainview/TranscriptMessage")
 const { CARD_RENDERERS } = await import("../../src/mainview/cards/CardRenderers")
 const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
 const requests: Array<{ path: string; method: string; body?: unknown; status: number; key?: string; refusal?: unknown }> = []
@@ -94,11 +96,28 @@ try {
     await waitFor(() => host.querySelector('[data-flow="branch.add-to-stack"]') !== null)
     const snapshot = live.getSnapshot(`branch:${branch}`)?.data as { scratch: { forked_from: unknown } }
     assert.deepEqual(snapshot.scratch.forked_from, JSON.parse(process.env.SMITHERS_BRANCH_CARD_FORK_ORIGIN!))
-    await act(async () => (host.querySelector('[data-flow="branch.add-to-stack"]') as HTMLButtonElement).click())
+    if (agentAdd) {
+      const before = requests.length
+      const proposed = await controller.commands.submit({ name: "branch.add-to-stack", payload: { branch: "scratch/ben/try", text: "Confirmed scratch work" }, actor: "agent" })
+      assert.equal(proposed.status, "executed", JSON.stringify(proposed))
+      await waitFor(() => [...store.collections.messages.values()].some(message => message.action?.flow === "branch.add-to-stack"))
+      const message = [...store.collections.messages.values()].find(message => message.action?.flow === "branch.add-to-stack")!
+      assert.deepEqual(JSON.parse(message.action!.args!), { branch: "scratch/ben/try", text: "Confirmed scratch work" })
+      assert.ok(requests.slice(before).every(request => request.method === "GET"), "agent proposal causes no mutation")
+      assert.deepEqual(await controller.commands.confirm(message.id, "wrong-revision"), { status: "failed", error: "Confirmation is stale." })
+      assert.ok(requests.slice(before).every(request => request.method === "GET"), "stale confirmation causes no mutation")
+      await act(async () => root.render(<ControllerTestProvider controller={controller}>
+        {CARD_RENDERERS.branch.render(card, actions)}
+        <TranscriptMessage entry={{ kind: "message", message }} />
+      </ControllerTestProvider>))
+      await act(async () => (host.querySelector('.message-cta[data-flow="branch.add-to-stack"]') as HTMLButtonElement).click())
+    } else {
+      await act(async () => (host.querySelector('[data-flow="branch.add-to-stack"]') as HTMLButtonElement).click())
+    }
     const path = `/api/branches/${encodeURIComponent(process.env.SMITHERS_BRANCH_CARD_SUBJECT!)}/add-to-stack`
     await waitFor(() => requests.some(request => request.method === "POST" && request.path === path))
     const added = requests.find(request => request.method === "POST" && request.path === path)!
-    assert.deepEqual(added.body, { text: process.env.SMITHERS_BRANCH_CARD_SUBJECT })
+    assert.deepEqual(added.body, { text: agentAdd ? "Confirmed scratch work" : process.env.SMITHERS_BRANCH_CARD_SUBJECT })
     assert.equal(added.status, 202, JSON.stringify(added))
     assert.match(added.key!, /^[0-9a-f-]{36}$/)
     await waitFor(() => store.session().branchRequests?.some(request => request.operation === "add" && request.state === "completed" && request.n === Number(process.env.SMITHERS_BRANCH_CARD_ADD_N)) === true)
