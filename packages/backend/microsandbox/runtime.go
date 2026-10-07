@@ -152,13 +152,14 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
-	machined  machined.Registry
-	cli       *cli
-	config    Config
-	root      string
-	owner     string
-	holder    string
-	semaphore chan struct{}
+	memberRoster MemberRoster
+	machined     machined.Registry
+	cli          *cli
+	config       Config
+	root         string
+	owner        string
+	holder       string
+	semaphore    chan struct{}
 
 	environments *environments
 	codingHelper codingHelperCache
@@ -737,6 +738,9 @@ func (r *Runtime) prepareGuest(ctx context.Context, ws *workspace) error {
 	}
 	if _, err := r.guest(ctx, ws.Machine, nil, "setup", guestUser, strconv.Itoa(guestUID), guestRoot, guestHome, guestStateDir, guestTempDir); err != nil {
 		return fmt.Errorf("prepare workspace guest: %w", err)
+	}
+	if err := r.prepareMembers(ctx, ws, nil); err != nil {
+		return fmt.Errorf("prepare workspace members: %w", err)
 	}
 	if err := r.installGuestJJ(ctx, ws.Machine); err != nil {
 		return fmt.Errorf("prepare workspace guest jj: %w", err)

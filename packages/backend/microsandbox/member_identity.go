@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -85,4 +86,70 @@ func (r *Runtime) EnsureMember(ctx context.Context, workspaceID string, member M
 		return SessionIdentity{}, err
 	}
 	return SessionIdentity{}, fmt.Errorf("%w: member provisioning requires approved roster, image and broker receipts", ErrUnavailable)
+}
+
+// MemberRoster holds the authoritative roster lock while visiting current
+// allocations. Implementations must scope the roster to the workspace repository.
+// Nothing is persisted in runtime metadata or copied from a previous boot.
+type MemberRoster func(context.Context, string, func([]MemberIdentity) error) error
+
+// BindMemberRoster is called by single-owner composition before serving work.
+func (r *Runtime) BindMemberRoster(roster MemberRoster) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.memberRoster = roster
+}
+
+func (r *Runtime) prepareMembers(ctx context.Context, ws *workspace, requested *MemberIdentity) error {
+	r.mu.Lock()
+	roster := r.memberRoster
+	r.mu.Unlock()
+	if roster == nil {
+		if requested == nil {
+			return nil
+		}
+		return fmt.Errorf("%w: current member roster unavailable", ErrUnavailable)
+	}
+	// Member provisioning must never plant branch-built privileged helper bytes.
+	if r.config.Bundle == nil {
+		return fmt.Errorf("%w: member provisioning requires an approved installed bundle", ErrUnavailable)
+	}
+	return roster(ctx, ws.ID, func(members []MemberIdentity) error {
+		return r.provisionMembers(ctx, ws.Machine, members, requested)
+	})
+}
+
+// provisionMembers validates the entire snapshot before the first VM effect.
+// Boot creates accounts only; the first-session path creates one private home.
+func (r *Runtime) provisionMembers(ctx context.Context, machine string, members []MemberIdentity, requested *MemberIdentity) error {
+	logins, uids := map[string]bool{}, map[int]bool{}
+	found := requested == nil
+	for _, member := range members {
+		if _, err := member.SessionIdentity(); err != nil {
+			return err
+		}
+		if logins[member.Login] || uids[member.UID] {
+			return fmt.Errorf("%w: duplicate member allocation", ErrUnavailable)
+		}
+		logins[member.Login], uids[member.UID] = true, true
+		if requested != nil && member == *requested {
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("%w: member is no longer active in the current roster", ErrUnavailable)
+	}
+	for _, member := range members {
+		mode := "account"
+		if requested != nil {
+			if member != *requested {
+				continue
+			}
+			mode = "home"
+		}
+		if _, err := r.guest(ctx, machine, nil, "setup-member", member.Login, strconv.Itoa(member.UID), mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
