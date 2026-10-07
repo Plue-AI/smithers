@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // BranchReadService is the workspace service's branch projection.
@@ -45,6 +46,10 @@ type BranchRebaseService interface {
 	RebaseBranch(context.Context, int64, int64, string, services.BranchRebaseInput) (services.TodoControlReceipt, error)
 }
 
+type BranchMachineControl interface {
+	RequestBranchMachine(context.Context, string, int64, int64, string, string) (jobs.RequestReceipt, error)
+}
+
 // BranchHandler serves the install's branches (spec §6.3 /api/branches):
 // reads of the workspace projection and Fork, which the stack service
 // performs. Authorize decides the command for the request's person and
@@ -58,6 +63,7 @@ type BranchHandler struct {
 	Archives  BranchArchiveService
 	Adds      BranchAddService
 	Rebases   BranchRebaseService
+	Machines  BranchMachineControl
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -80,6 +86,25 @@ func (h *BranchHandler) Answer(w http.ResponseWriter, r *http.Request) {
 	body, command, err := DecodeBranchCommand(http.MaxBytesReader(w, r.Body, 64<<10))
 	if err != nil {
 		writeBranchError(w, r, err)
+		return
+	}
+	if body.Op == "sleep" || body.Op == "wake" {
+		repository, user, err := h.authorize(r, command, h.Machines != nil)
+		if err != nil {
+			writeBranchError(w, r, err)
+			return
+		}
+		branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+		if err != nil {
+			writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch request"))
+			return
+		}
+		receipt, err := h.Machines.RequestBranchMachine(r.Context(), branch, repository, user, body.Op, r.Header.Get("Idempotency-Key"))
+		if err != nil {
+			writeBranchError(w, r, err)
+			return
+		}
+		pkgerrors.WriteJSON(w, http.StatusAccepted, receipt)
 		return
 	}
 	if command == "branch.rebase" || command == "branch.rebase-now" {
