@@ -20,6 +20,7 @@ import {
   symlinkSync,
   writeFileSync
 } from "node:fs"
+import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -123,10 +124,26 @@ const keyless = (cwd: string, args: ReadonlyArray<string>) =>
 
 const refusal = "smithers run/serve needs AI_GATEWAY_API_KEY,"
 
+const freePort = (): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      if (address === null || typeof address === "string") {
+        server.close()
+        reject(new Error("expected a TCP test server"))
+        return
+      }
+      server.close((error) => error === undefined ? resolve(address.port) : reject(error))
+    })
+  })
+
 describe("keyless host startup", processBudget, () => {
   it("boots the real serve entry without a gateway key", async () => {
+    const port = await freePort()
     const cwd = mkdtempSync(temporaryDirectoryPrefix)
-    const child = spawn(process.execPath, ["--no-warnings", executable, "serve", "--port", "5308"], {
+    const child = spawn(process.execPath, ["--no-warnings", executable, "serve", "--port", String(port)], {
       cwd,
       env: {
         HOME: cwd,
@@ -144,7 +161,7 @@ describe("keyless host startup", processBudget, () => {
       for (let attempt = 0; attempt < 240; attempt++) {
         if (child.exitCode !== null) throw new Error(`host exited: ${child.exitCode}`)
         try {
-          ready = (await fetch("http://127.0.0.1:5308/health")).ok
+          ready = (await fetch(`http://127.0.0.1:${port}/health`)).ok
         } catch { /* still starting */ }
         if (ready) break
         await new Promise((resolve) => setTimeout(resolve, 500))
