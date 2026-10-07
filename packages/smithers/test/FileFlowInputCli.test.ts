@@ -1,6 +1,6 @@
 /** File-flow payload failures are refused before durable plan or run admission. */
 import { execFile } from "node:child_process"
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -10,10 +10,11 @@ import { expect, it } from "vitest"
 
 const execute = promisify(execFile)
 const bin = fileURLToPath(new URL("../src/bin.ts", import.meta.url))
+const preload = fileURLToPath(new URL("./fixtures/scripted-native-host.ts", import.meta.url))
 const modules = fileURLToPath(new URL("../node_modules", import.meta.url))
 
 it("rejects invalid file-flow payloads before creating plans or runs and accepts valid input", async () => {
-  const root = await mkdtemp(join(tmpdir(), "smithers-file-input-cli-"))
+  const root = await realpath(await mkdtemp(join(tmpdir(), "smithers-file-input-cli-")))
   try {
     await mkdir(join(root, "flows", "echo"), { recursive: true })
     await symlink(modules, join(root, "node_modules"), "dir")
@@ -39,34 +40,54 @@ export default Flow.make("echo", {
 `
     )
     const command = async (args: ReadonlyArray<string>) => {
-      const result = await execute(process.execPath, ["--no-warnings", bin, ...args, "--root", root, "--json"], {
+      const result = await execute(process.execPath, [
+        "--no-warnings",
+        "--import",
+        preload,
+        bin,
+        ...args,
+        "--root",
+        root,
+        "--json"
+      ], {
         cwd: root,
         env: {
           PATH: process.env["PATH"],
           HOME: join(root, "home"),
           XDG_CONFIG_HOME: join(root, "config"),
-          SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]
+          SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"],
+          SMITHERS_FFI_LIBRARY_PATH: process.env["SMITHERS_FFI_LIBRARY_PATH"],
+          SMITHERS_BACKEND: "sqlite"
         },
         timeout: 60_000
       }).then(
         (result) => ({ ...result, code: 0 }),
         (error) => ({ stdout: error.stdout, stderr: error.stderr, code: error.code })
       )
-      return { ...result, json: JSON.parse(result.stdout) }
+      return { ...result, json: result.stdout.trim() === "" ? undefined : JSON.parse(result.stdout) }
     }
-    const catalogShown = await command(["flow", "show", "echo"])
-    const catalogListed = await command(["flow", "list"])
-    expect(catalogShown.code, catalogShown.stdout + catalogShown.stderr).toBe(0)
+    // Local authoring uses the project catalog; install flow commands use the backend.
+    const catalogListed = await command(["ls"])
     expect(catalogListed.code, catalogListed.stdout + catalogListed.stderr).toBe(0)
     await expect(access(join(root, "module-evaluated.txt"))).rejects.toThrow()
     for (const input of [{}, { value: 42 }, { value: null }, { value: false }, { value: ["hello"] }]) {
       for (const verb of ["plan", "start"]) {
-        const result = await command(["flow", verb, "echo", "--data", JSON.stringify(input)])
+        const result = await command([
+          ...(verb === "plan" ? ["plan"] : ["flow", "start"]),
+          "echo",
+          "--data",
+          JSON.stringify(input)
+        ])
         expect(result.code, result.stdout).not.toBe(0)
-        expect(result.json, `${verb} ${JSON.stringify(input)}: ${result.stdout} ${result.stderr}`).toMatchObject({
-          code: "InvalidInput"
-        })
-        expect(result.json.message).toContain("value")
+        if (verb === "plan") {
+          // Retained local planning prints typed failures on stderr.
+          expect(result.stdout).toBe("")
+          expect(result.stderr).toContain("InvalidInput:")
+          expect(result.stderr).toContain("[\"value\"]")
+        } else {
+          expect(result.json, result.stderr).toMatchObject({ code: "InvalidInput" })
+          expect(result.json.message).toContain("value")
+        }
         expect(result.stdout).not.toContain("\"planId\"")
         expect(result.stdout).not.toContain("\"runId\"")
       }
@@ -81,19 +102,31 @@ export default Flow.make("echo", {
       )
     )
     await rm(join(root, "module-evaluated.txt"), { force: true })
-    const refined = await command(["flow", "show", "echo"])
+    const refined = await command(["ls"])
     expect(refined.code, refined.stdout + refined.stderr).toBe(0)
-    expect(refined.json.inputSchema).toBeUndefined()
+    expect(refined.json.items.find((item: { flowId: string }) => item.flowId === "echo")).toBeDefined()
+    expect(refined.json.items.find((item: { flowId: string }) => item.flowId === "echo").inputSchema).toBeUndefined()
     await expect(access(join(root, "module-evaluated.txt"))).rejects.toThrow()
     for (const verb of ["plan", "start"]) {
-      const refused = await command(["flow", verb, "echo", "--data", "{\"value\":\"x\"}"])
+      const refused = await command([
+        ...(verb === "plan" ? ["plan"] : ["flow", "start"]),
+        "echo",
+        "--data",
+        "{\"value\":\"x\"}"
+      ])
       expect(refused.code, refused.stdout + refused.stderr).not.toBe(0)
-      expect(refused.json).toMatchObject({ code: "InvalidInput" })
-      expect(refused.json.message).toContain("value")
+      if (verb === "plan") {
+        expect(refused.stdout).toBe("")
+        expect(refused.stderr).toContain("InvalidInput:")
+        expect(refused.stderr).toContain("[\"value\"]")
+      } else {
+        expect(refused.json, refused.stderr).toMatchObject({ code: "InvalidInput" })
+        expect(refused.json.message).toContain("value")
+      }
       expect(refused.stdout).not.toMatch(/"(?:planId|runId)"/u)
     }
     await writeFile(file, original)
-    const listed = await command(["runs", "list"])
+    const listed = await command(["ps"])
     expect(listed.json.items).toEqual([])
     const db = new DatabaseSync(join(root, ".flows", "control.db"), { readOnly: true })
     try {
@@ -101,7 +134,7 @@ export default Flow.make("echo", {
     } finally {
       db.close()
     }
-    const planned = await command(["flow", "plan", "echo", "--data", "{\"value\":\"\"}"])
+    const planned = await command(["plan", "echo", "--data", "{\"value\":\"\"}"])
     expect(planned.code, planned.stdout).toBe(0)
     expect(planned.json).toMatchObject({ flowId: "echo", inputSummary: "{\"value\":\"\"}" })
     expect(planned.json.nodes.length).toBeGreaterThan(0)
@@ -109,21 +142,16 @@ export default Flow.make("echo", {
     const started = await command(["flow", "start", "echo", "--data", "{\"value\":\"valid\"}", "--wait"])
     expect(started.code, started.stdout).toBe(0)
     expect(started.json).toMatchObject({ _tag: "Accepted", runId: expect.any(String) })
-    const shown = await command(["runs", "show", started.json.runId])
-    expect(shown.json).toMatchObject({ status: "completed" })
-    expect(shown.json.diagnosis.nativeResolution.result.text).toBe("valid")
-    await expect(access(join(root, "executed.txt"))).resolves.toBeUndefined()
-    for (
-      const [verb, flow] of [
-        ["show", catalogShown.json],
-        ["list", catalogListed.json.items.find((item: { flowId: string }) => item.flowId === "echo")]
-      ]
-    ) {
-      expect.soft(flow, `flow ${verb} input metadata`).toMatchObject({
-        flowId: "echo",
-        inputSchema: { schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] } }
-      })
-    }
+    const shown = await command(["status", started.json.runId])
+    expect(shown.json).toMatchObject({
+      _tag: "runs",
+      items: [{ runId: started.json.runId, flowId: "echo", status: "completed" }]
+    })
+    expect(await readFile(join(root, "executed.txt"), "utf8")).toBe("valid")
+    expect(catalogListed.json.items.find((item: { flowId: string }) => item.flowId === "echo")).toMatchObject({
+      flowId: "echo",
+      inputSchema: { schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] } }
+    })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
