@@ -232,6 +232,69 @@
       }
     },
     {
+      "name": "agent.edit",
+      "slash": "/agent.edit",
+      "cli": [
+        "agent",
+        "edit"
+      ],
+      "journey": [
+        "J11"
+      ],
+      "group": "Advanced",
+      "visibility": "advanced",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "confirm",
+      "summary": "Propose an instruction change",
+      "http": {
+        "method": "POST",
+        "path": "/api/agents/{name}/edit"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "planner",
+                "implementer",
+                "reviewer",
+                "app"
+              ]
+            },
+            "request": {
+              "type": "string",
+              "minLength": 1
+            },
+            "diff": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "request"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "agent.turn",
       "slash": null,
       "cli": null,

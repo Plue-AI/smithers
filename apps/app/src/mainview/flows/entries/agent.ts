@@ -3,6 +3,7 @@
  * flow here touches no other flow module, and Flows.ts registers each block in
  * the aggregator order.
  */
+import { agentEditTodoInput } from "@smthrs/rpc/FlowEdit"
 import { Schema } from "effect"
 import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
@@ -43,6 +44,14 @@ export const agentFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     agent: "run", input: NoPayload,
     handler: () => actions.listAgents()
   }),
+  flow({ name: "agent.edit", summary: "Propose an instruction change", args: "<name> <request>", slash: "/agent.edit", cli: ["agent", "edit"],
+    group: "Advanced", journey: ["J11"], visibility: "advanced", actors: ["person", "app_agent", "external_agent"], minimumRole: "member", agent: "confirm",
+    http: { method: "POST", path: "/api/agents/{name}/edit" },
+    input: Schema.Struct({ name: Schema.Literals(["planner", "implementer", "reviewer", "app"]), request: Schema.NonEmptyString, diff: Schema.optional(Schema.String) }),
+    grammar: args => { if (args?.trim().startsWith("{")) { try { return { payload: JSON.parse(args) } } catch { return { error: "Invalid instruction edit" } } }
+      const [name, ...words] = (args ?? "").trim().split(/\s+/); return { payload: { ...(name ? { name } : {}), ...(words.length ? { request: words.join(" ") } : {}) } } },
+    confirm: "change these instructions", form: { fields: { diff: { hidden: true } }, args: payload => JSON.stringify(payload) },
+    handler: ({ name, request, diff }) => actions.newTodo(agentEditTodoInput(name, request, diff)!) }),
   ...launchFlows.map(({ name, agent, label, capability }) => flow({
     /* Launching a harness is consequential: the agent's call renders the confirm card and the person's press starts it. */
     name,

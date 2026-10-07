@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
@@ -130,10 +131,9 @@ func agentProfiles(ctx context.Context, q *db.Queries, sources ...workspaceapi.S
 		if model.ModelID == "" {
 			model.ModelID = "unconfigured"
 		}
-		path := "flows/todo/flow.ts"
+		path, _ := services.AgentInstructionsPath(role)
 		label := strings.ToUpper(role[:1]) + role[1:] + " agent"
 		if role == "app" {
-			path = ".smithers/instructions/app.md"
 			label = "App agent"
 		}
 		runs := []db.AgentModelRun{}

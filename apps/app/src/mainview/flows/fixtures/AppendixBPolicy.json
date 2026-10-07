@@ -758,7 +758,8 @@
     {
       "section": "B.2",
       "ids": [
-        "agent"
+        "agent",
+        "agent.edit"
       ],
       "status": "keep",
       "who": "P, A, X; model changes: Owner only"
@@ -1271,6 +1272,7 @@
     "ssh",
     "sign-in",
     "sign-out",
-    "theme"
+    "theme",
+    "agent.edit"
   ]
 }
