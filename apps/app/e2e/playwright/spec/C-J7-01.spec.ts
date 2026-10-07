@@ -71,6 +71,7 @@ test("C-J7-01: insert precedes T3 and amend retains T2", async ({ page }) => {
   expect(new Set(writes.map(write => write.key)).size).toBe(2)
   await expect(page.getByRole("region", { name: "Notifications" }).getByText("Amended", { exact: true })).toBeVisible({ timeout: 30_000 })
   await page.reload()
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible({ timeout: 60_000 })
   await say(page, "/stack")
   await expect(page.getByRole("list", { name: "Stack", exact: true }).last()).toContainText(/J7 TODO 1[\s\S]*J7 TODO 2[\s\S]*Add jitter[\s\S]*J7 TODO 3/)
   expect(writes).toHaveLength(2)
