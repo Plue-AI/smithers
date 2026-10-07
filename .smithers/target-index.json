@@ -37588,7 +37588,23 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/docs/context-preflight.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/docs/flow-edit.md"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/docs/lsp-wire.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/docs/machine-json.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/docs/run-card.md"
       },
       {
         "kind": "file",
@@ -37625,6 +37641,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/docs/concepts/repository-intake.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/docs/guides/catalog.md"
       },
       {
         "kind": "file",
@@ -38197,6 +38217,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/model-host/README.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/model-host/docs/host-tools.md"
       },
       {
         "kind": "file",
