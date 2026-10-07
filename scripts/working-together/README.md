@@ -1,9 +1,13 @@
 # Working-together fault evidence
 
 `smthrs test //scripts:workingTogetherComponents` executes the existing Rust
-versions, outbox, capture, reconcile, barrier, documents and rebase suites with
+versions, outbox, capture, reconcile, barrier, documents, rebase, link and
+moved-off suites with
 `testing,killpoints`. K1/K2's process-exit test repeats ten times per point.
-These suites include real temporary disk/process boundaries and test-only
+The authenticated link K3b/K5b/K5c process-exit test also repeats ten times
+per point. The runner requires explicit successful receipts for both process-kill
+tests; suites compiled without those tests cannot qualify. Moved-off metadata
+fixtures run in the same campaign. These suites include real temporary disk/process boundaries and test-only
 service fixtures. They do not qualify the integrated C-DUR-04 matrix.
 
 `smthrs test //scripts:workingTogetherFaults` runs the same components, records

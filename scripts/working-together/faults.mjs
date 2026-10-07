@@ -7,13 +7,22 @@ import { pathToFileURL } from 'node:url'
 
 // Component evidence never qualifies C-DUR-04's integrated kill matrix.
 export const points = ['K1', 'K2', 'K3', 'K3b', 'K4', 'K4b', 'K5a', 'K5b', 'K5c', 'K6', 'K7a', 'K7b', 'K7c', 'K7d', 'K7e', 'K8']
-export const suites = ['versions', 'outbox', 'capture', 'reconcile', 'barrier', 'documents', 'rebase']
+export const suites = ['versions', 'outbox', 'capture', 'reconcile', 'barrier', 'documents', 'rebase', 'link', 'moved_off']
+export const componentKillTests = {
+  versions: ['k1_k2_process_exit_recovery_ten_runs_each'],
+  link: ['authenticated_delivery_killpoints_replay_ten_runs_each']
+}
 export function verdict(code, logs) {
   if (code !== 0) return 'failed'
   for (const suite of suites) {
     const section = logs.split(`Running tests/${suite}.rs`)[1]?.split(/\n\s*Running /)[0]
     const match = section?.match(/test result: ok\. (\d+) passed; 0 failed/)
     if (!match || Number(match[1]) === 0) return 'failed'
+    for (const name of componentKillTests[suite] || []) {
+      // A green suite built without kill hooks cannot qualify fault evidence.
+      const receipts = section.split('\n').filter(line => line.trim() === `test ${name} ... ok`)
+      if (receipts.length !== 1) return 'failed'
+    }
   }
   return 'component-passed'
 }

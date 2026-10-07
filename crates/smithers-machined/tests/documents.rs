@@ -2286,6 +2286,9 @@ mod dispatcher {
             ..Default::default()
         })
         .unwrap();
+        // Initialize the worker at time zero before advancing the frozen clock.
+        // Otherwise it may start at 200 ms and never observe a timer interval.
+        executor.lock.run_blocking("started", |_| ()).unwrap();
         clock.0.store(200, Ordering::Relaxed);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while disk.0.lock().unwrap().files["a.rs"] != b"after disconnect" {
