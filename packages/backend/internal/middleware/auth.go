@@ -490,6 +490,8 @@ var installMemberRoutes = []struct {
 	// the write; this route marker grants no workspace authority by itself.
 	{http.MethodPut, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
+	// The dispatcher resolves the concrete answer command from the body.
+	{http.MethodPost, "branch.answer", regexp.MustCompile(`^/api/branches/[^/]+$`)},
 	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPost, "members.add", regexp.MustCompile(`^/api/members$`)},
