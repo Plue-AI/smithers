@@ -287,6 +287,9 @@ a Nix environment installs Nix in place of the package manager and the
 interpreters, and runs the install and every target step inside
 `nix develop` of the declared environment.
 
+Every checkout renders `persist-credentials: false`, so the job token is not
+left in `.git/config` for the job's targets to read.
+
 | Name           | Type                  | Default  | Renders                                                                                                                                                                                                   |
 | -------------- | --------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `submodules`   | `boolean`             | `false`  | `actions/checkout@v4` with `submodules: recursive`.                                                                                                                                                       |

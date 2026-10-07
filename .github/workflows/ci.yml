@@ -18,6 +18,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - name: "Validate GitHub Actions workflows"
         uses: "docker://rhysd/actionlint@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f"
         with:
@@ -152,6 +154,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - name: "Install Go"
         uses: "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"
         with:
@@ -464,6 +468,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - name: "Install Go"
         uses: "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"
         with:
@@ -603,6 +609,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
       - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
@@ -650,6 +658,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
       - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
@@ -772,6 +782,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
       - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
@@ -831,6 +843,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
       - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
@@ -887,6 +901,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
       - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
@@ -931,6 +947,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
       - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
@@ -987,6 +1005,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
       - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
@@ -1034,6 +1054,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - name: "Install Go"
         uses: "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"
         with:
@@ -1158,6 +1180,8 @@ jobs:
         run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
         shell: "bash"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - name: "Install Go"
         uses: "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"
         with:

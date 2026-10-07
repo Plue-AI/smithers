@@ -180,6 +180,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.sourceRef != '' && inputs.sourceRef || inputs.releaseTag != '' && inputs.releaseTag || github.ref }}
+          persist-credentials: "false"
       - name: Verify explicit dry-run source
         run: |
           if [ -z "$SOURCE_REF" ]; then exit 0; fi

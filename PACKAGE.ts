@@ -441,7 +441,9 @@ const driftCi = Smithers.GithubCiGen({
     id: "drift",
     name: "Per-commit drift",
     runsOn: ubuntu,
-    timeoutMinutes: 10,
+    // A clean run takes 7-10 minutes on ubuntu-latest; a 10-minute cap
+    // cancelled runs before //:driftCi and //:ci, leaving a SHA with no verdict.
+    timeoutMinutes: 20,
     toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun] }),
     steps: [
       { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },

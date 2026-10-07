@@ -35,7 +35,7 @@ test('drift job concurrency group includes github.sha and runs only drift gates'
   const main = YAML.parse(await readFile(ciPath, 'utf8'))
   assert.equal(workflow.name, 'Drift')
   assert.deepEqual(Object.keys(workflow.jobs), ['drift'])
-  assert.equal(workflow.jobs.drift['timeout-minutes'], 10)
+  assert.equal(workflow.jobs.drift['timeout-minutes'], 20, 'a clean run takes 7-10 minutes; a 10-minute cap cancels the last gates')
   assert.equal(workflow.concurrency['cancel-in-progress'], false)
   for (const part of ['github.workflow', 'github.event_name', 'github.ref', 'github.sha']) {
     assert.ok(workflow.concurrency.group.includes(part), `drift concurrency must include ${part}`)
@@ -59,6 +59,10 @@ test('drift job concurrency group includes github.sha and runs only drift gates'
   assert.ok(steps.some((step) => step.uses?.startsWith('pnpm/action-setup@')))
   const setup = steps.find((step) => step.id === 'setup')
   assert.equal(setup.run, 'pnpm install --frozen-lockfile --ignore-scripts')
+  const checkout = steps.find((step) => step.uses?.startsWith('actions/checkout@'))
+  assert.equal(checkout?.with?.['persist-credentials'], 'false', 'gate steps must not read the job token from .git/config')
+  assert.deepEqual(workflow.permissions, { contents: 'read' })
+  assert.ok(steps.every((step) => !JSON.stringify(step).includes('secrets.')), 'drift gates need no secrets')
   assert.ok(steps.every((step) => !/sudo|apt-get|sysctl/.test(step.run ?? '')), 'privileged branch setup remains disabled')
   assert.ok(steps.every((step) => !/cargo|rustup|foundry|docker|postgres|smthrs (test|docs)\b/i.test(`${step.name ?? ''} ${step.run ?? ''} ${step.uses ?? ''}`)), 'drift avoids heavy setup and broad gates')
   const setupCommands = [
@@ -116,7 +120,7 @@ test('standalone root drift target owns the generated workflow', async () => {
   assert.match(drift, /workflowName:\s*['"]Drift['"]/)
   assert.match(drift, /output:\s*['"]\.github\/workflows\/drift\.yml['"]/)
   assert.match(drift, /concurrency:\s*['"]commit['"]/)
-  assert.match(drift, /timeoutMinutes:\s*10/)
+  assert.match(drift, /timeoutMinutes:\s*20/)
   assert.match(drift, /knownRed:\s*['"]\.github\/ci-known-red\.json['"]/, 'the generator must retain known-red when drift.yml is refreshed')
 })
 

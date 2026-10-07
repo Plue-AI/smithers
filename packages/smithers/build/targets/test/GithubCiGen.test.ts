@@ -266,6 +266,8 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
       - uses: "${actions.checkout}"
+        with:
+          "persist-credentials": "false"
       - name: "Validate GitHub Actions workflows"
         uses: "${actionlintImages["1.7.11"]}"
         with:
@@ -294,6 +296,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: "${actions.checkout}"
+        with:
+          "persist-credentials": "false"
       - uses: "${actions.setupPnpm}"
       - uses: "${actions.setupNode}"
         with:
@@ -311,6 +315,7 @@ jobs:
       - uses: "${actions.checkout}"
         with:
           "submodules": "recursive"
+          "persist-credentials": "false"
       - uses: "${actions.setupPnpm}"
       - uses: "${actions.setupNode}"
         with:
@@ -1036,7 +1041,7 @@ describe("render", () => {
     // `Smithers.gitDiff("origin/main")` then dies at plan time with
     // `bad revision`, taking every target in the same invocation with it. The
     // job that runs those targets declares the depth it needs; every other job
-    // keeps the bare checkout it had.
+    // keeps the default single-commit depth.
     const withDepth = render(attrsOf({
       ...goldenAttrs,
       gates: [],
@@ -1052,6 +1057,7 @@ describe("render", () => {
       `      - uses: "${actions.checkout}"
         with:
           "fetch-depth": "0"
+          "persist-credentials": "false"
 `
     )
     expect(withDepth).toContain("        run: \"pnpm exec smthrs test '//...' --verbose\"\n")
@@ -1071,6 +1077,7 @@ describe("render", () => {
         with:
           "submodules": "recursive"
           "fetch-depth": "50"
+          "persist-credentials": "false"
 `
     )
 
@@ -1086,6 +1093,8 @@ describe("render", () => {
     }))
     expect(bare).not.toContain("fetch-depth")
     expect(bare).toContain(`      - uses: "${actions.checkout}"
+        with:
+          "persist-credentials": "false"
       - uses: "${actions.setupPnpm}"
 `)
   })

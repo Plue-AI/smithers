@@ -845,16 +845,15 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
   const needs = job.toolchain
   // The checkout `with:` map is assembled from the declared requirements, in a
   // fixed key order, so two jobs asking for the same thing render the same
-  // bytes. A job that asks for neither renders a bare `uses:` step, exactly as
-  // before this map existed.
+  // bytes. `actions/checkout` otherwise writes the job token into
+  // `.git/config`, where every target the job runs could read it; no
+  // generated step uses git credentials after the checkout, so none is kept.
   const checkoutWith: Record<string, string> = {
     ...(needs.submodules ? { submodules: "recursive" } : {}),
-    ...(needs.fetchDepth === undefined ? {} : { "fetch-depth": String(needs.fetchDepth) })
+    ...(needs.fetchDepth === undefined ? {} : { "fetch-depth": String(needs.fetchDepth) }),
+    "persist-credentials": "false"
   }
-  const steps: Array<RenderedStep> = [{
-    uses: actions.checkout,
-    ...(Object.keys(checkoutWith).length === 0 ? {} : { with: checkoutWith })
-  }]
+  const steps: Array<RenderedStep> = [{ uses: actions.checkout, with: checkoutWith }]
   if (needs.workflowLint !== undefined) {
     steps.push({
       name: "Validate GitHub Actions workflows",
