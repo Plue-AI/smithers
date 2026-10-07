@@ -54,7 +54,7 @@ function Line({ line, inView, onView, onAction }: { line: TimelineLine; inView: 
     </span>
       <span className="tl-text"><b>{zoom?.written ? <Sparkles size={11} className="written" aria-hidden="true" /> : null}{line.title}</b>
         {zoom ? <span className="tl-zoom">{zoom.count} entries{span ? <> · <time>{span.text}</time></> : null}</span>
-          : line.summary === undefined ? null : <span>{line.summary}</span>}</span>
+          : line.summary === undefined ? null : <span data-summary aria-label="Summary">{line.summary}</span>}</span>
     </button>
     {action ? <span className="tl-actions"><Button size="sm" variant="outline" data-flow={action.tag} disabled={Boolean(action.disabled)} onClick={event => { event.stopPropagation(); onAction(action.tag, action.args ?? {}) }}>{action.label}</Button>
       {action.disabled ? <span>{action.disabled.reason}</span> : null}</span> : null}
