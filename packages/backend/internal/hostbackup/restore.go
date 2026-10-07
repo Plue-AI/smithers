@@ -195,6 +195,9 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 			return at, err
 		}
 	}
+	if err = root.Remove(stagingName); err != nil {
+		return at, err
+	}
 	if err = live.Sync(); err != nil {
 		return at, err
 	}
@@ -205,7 +208,14 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 		return at, err
 	}
 	if err = cfg.Authority.StartRestored(ctx); err != nil {
-		return at, err
+		// A failed restart must not turn the next ordinary start into a successful
+		// recovery claim. Reinstall the guard and retain the old trees.
+		marker, e := root.OpenFile(".upgrade-incomplete", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if e == nil {
+			_, e = fmt.Fprintln(marker, cfg.Backup)
+			e = errors.Join(e, marker.Sync(), marker.Close(), live.Sync())
+		}
+		return at, errors.Join(err, e)
 	}
 	return manifest.QuiesceTime, nil
 }
