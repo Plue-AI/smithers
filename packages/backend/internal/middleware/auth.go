@@ -422,6 +422,8 @@ var installMemberRoutes = []struct {
 	method, command string
 	path            *regexp.Regexp
 }{
+	{http.MethodPost, "terminal", regexp.MustCompile(`^/api/terminals$`)},
+	{http.MethodGet, "terminal.watch", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace/sessions/[^/]+/terminal$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
@@ -676,6 +678,12 @@ func loadTokenAuthByHash(ctx context.Context, queries AuthLoaderQuerier, tokenHa
 	if err != nil {
 		if !stdErrors.Is(err, pgx.ErrNoRows) {
 			return nil, err
+		}
+		if lookup, ok := ctx.Value(terminalTokenLookupKey{}).(TerminalTokenLookup); ok && lookup != nil {
+			info, err := lookup(ctx, tokenHash)
+			if err != nil || info != nil {
+				return info, err
+			}
 		}
 		return loadOAuth2TokenAuth(ctx, queries, tokenHash)
 	}
