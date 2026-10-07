@@ -84,6 +84,17 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     return backend!.pid
   }
   const tokens: string[] = []
+  const assertSilence = () => {
+    const output = launchctl("print", `${domain}/sh.smithers.host`)
+    const surfaces = [readFileSync(join(state, "logs/host.log"), "utf8"), output.stdout, output.stderr]
+    for (const surface of surfaces) {
+      expect(/setup\?token=/.test(surface), "service or launchctl output contains a setup URL").toBe(false)
+      for (const token of tokens) {
+        expect(surface.includes(token), "service or launchctl output contains a setup token").toBe(false)
+        expect(surface.includes(encodeURIComponent(token)), "service or launchctl output contains an encoded setup token").toBe(false)
+      }
+    }
+  }
   const tokenOf = (output: string) => {
     const data = JSON.parse(output)
     expect(Object.keys(data)).toEqual(["setup_urls"])
@@ -103,6 +114,25 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     expect(started.status, started.stderr).toBe(0)
     expect(Date.now() - startedAt, "first start must print setup URLs within 60 seconds").toBeLessThanOrEqual(60_000)
     const firstToken = tokenOf(started.stdout), pid = backendPID()
+    const exchange = await fetch(`http://localhost:4000/setup?token=${encodeURIComponent(firstToken)}`, {
+      redirect: "manual", signal: AbortSignal.timeout(5000)
+    })
+    expect(exchange.status).toBe(303)
+    expect(exchange.headers.get("location")).toBe("/")
+    const cookies = exchange.headers.getSetCookie().map((value) => value.split(";", 1)[0]).join("; ")
+    expect(cookies.includes("smithers_setup_session="), "exchange must issue a setup-session cookie").toBe(true)
+    // Cookies are authority too; scan their bytes without recording them.
+    for (const cookie of exchange.headers.getSetCookie()) tokens.push(cookie.split(";", 1)[0].slice(cookie.indexOf("=") + 1))
+    const installForSession = async () => {
+      const response = await fetch("http://localhost:4000/api/install", {
+        headers: { Cookie: cookies }, signal: AbortSignal.timeout(5000)
+      })
+      expect(response.status, "the original setup session must survive service recovery").toBe(200)
+      return await response.json() as { steps: Array<{ id: string; status: string }> }
+    }
+    const initialSteps = (await installForSession()).steps
+    expect(initialSteps.length).toBeGreaterThan(0)
+    assertSilence()
     const socket = statSync(join(state, "run/host.sock"))
     expect(socket.isSocket()).toBe(true)
     expect(socket.mode & 0o777).toBe(0o600)
@@ -112,6 +142,7 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     expect(repeated.status).toBe(0)
     expect(tokenOf(repeated.stdout)).toBe(firstToken)
     expect(backendPID()).toBe(pid)
+    assertSilence()
     expect(run("status", "--json").status).toBe(0)
     const plist = readFileSync(join(home, "Library/LaunchAgents/sh.smithers.host.plist"), "utf8")
     expect(plist).toContain("<string>--setup-handoff=socket</string>")
@@ -139,6 +170,8 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     expect(createHash("sha256").update(tokenOf(restarted.stdout)).digest("hex"))
       .not.toBe(createHash("sha256").update(firstToken).digest("hex"))
     expect(backendPID()).not.toBe(pid)
+    expect((await installForSession()).steps).toEqual(initialSteps)
+    assertSilence()
     expect(run("stop").status).toBe(0)
     const remaining = spawnSync("/bin/ps", ["-p", servicePIDs.join(","), "-o", "pid="], { encoding: "utf8" }).stdout
       .trim()
@@ -149,12 +182,16 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     expect(resumed.status, resumed.stderr).toBe(0)
     tokenOf(resumed.stdout)
     const resumedPID = backendPID()
+    expect((await installForSession()).steps).toEqual(initialSteps)
+    assertSilence()
     const other = join(home, "relocated-bundle")
     cpSync(ownedBundle, other, { recursive: true, verbatimSymlinks: true })
     const relocated = run("start", "--bundle", other)
     expect(relocated.status, relocated.stderr).toBe(0)
     tokenOf(relocated.stdout)
     expect(backendPID()).not.toBe(resumedPID)
+    expect((await installForSession()).steps).toEqual(initialSteps)
+    assertSilence()
     const before = readFileSync(join(home, "Library/LaunchAgents/sh.smithers.host.plist"), "utf8")
     expect(before).toContain(`${other}/bin/smithers-server`)
     const broken = join(home, "broken-bundle")
@@ -164,11 +201,21 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
     writeFileSync(msb, "tampered")
     expect(run("start", "--bundle", broken).status).not.toBe(0)
     expect(readFileSync(join(home, "Library/LaunchAgents/sh.smithers.host.plist"), "utf8")).toBe(before)
-    for (const token of tokens) {
-      const log = readFileSync(join(state, "logs/host.log"), "utf8")
-      expect(log.includes(token), "service log contains a setup token").toBe(false)
-      expect(log.includes(encodeURIComponent(token)), "service log contains an encoded setup token").toBe(false)
-    }
+    // Disable the real runtime's execute permission, keeping its bytes and
+    // manifest metadata consistent. This is distinct from hash tampering and
+    // does not substitute a fake msb executable.
+    cpSync(join(other, "bin/msb"), msb)
+    chmodSync(msb, 0o644)
+    const disabledManifest = JSON.parse(readFileSync(join(broken, "manifest.json"), "utf8"))
+    disabledManifest.files.find((entry: { path: string }) => entry.path === "bin/msb").mode = 0o644
+    writeFileSync(join(broken, "manifest.json"), JSON.stringify(disabledManifest))
+    const beforeDisabledPID = backendPID()
+    const disabled = run("start", "--bundle", broken)
+    expect(disabled.status).not.toBe(0)
+    expect(disabled.stdout + disabled.stderr).toContain("Bundle executable missing: bin/msb")
+    expect(readFileSync(join(home, "Library/LaunchAgents/sh.smithers.host.plist"), "utf8")).toBe(before)
+    expect(backendPID(), "disabled runtime refusal must leave the existing service intact").toBe(beforeDisabledPID)
+    assertSilence()
     writeFileSync(join(receipt, "launchctl-print.txt"), launchctl("print", `${domain}/sh.smithers.host`).stdout)
     renameSync(other, other + ".moved")
     const missing = run("status")
@@ -188,8 +235,7 @@ it.skipIf(!enabled && !required)("C-INS-06 real CLI, launchd and bundled launche
         not_run: [
           "login after reboot",
           "owner claim",
-          "real msb disabled refusal",
-          "all PostgreSQL/flow-host UID evidence"
+          "flow-host UID evidence"
         ]
       })
     )
