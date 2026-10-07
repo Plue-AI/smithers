@@ -23,6 +23,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -33,8 +34,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This proves the mounted legacy File-card doors with a real host store. Final
-// capture and the branch-route matrix remain dependent on the daemon lane.
+// Real host storage and authenticated install routes, with a test guest.
+// This is not reference-host qualification of native working-copy capture.
 type sleepCountRuntime struct {
 	workspace.WorkspaceRuntime
 	workspace.WorkspaceManagedHosts
@@ -93,7 +94,22 @@ func (r *sleepCountRuntime) ListFiles(ctx context.Context, id, path string) ([]w
 	return r.WorkspaceRuntime.ListFiles(ctx, id, path)
 }
 
-func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
+func TestBranchSleepCapturedReadsNeverWake(t *testing.T) {
+	branchSleepInstall(t, "reads")
+}
+
+func TestBranchSleepCaptureFailureKeepsRunning(t *testing.T) {
+	branchSleepInstall(t, "failure")
+}
+
+func TestBranchSleepUnavailableProviders(t *testing.T) {
+	for _, provider := range []string{"capture", "binding", "runtime", "identity"} {
+		t.Run(provider, func(t *testing.T) { branchSleepInstall(t, "missing_"+provider) })
+	}
+}
+
+func branchSleepInstall(t *testing.T, scenario string) {
+	t.Helper()
 	_, _, pool := splitProcessDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
@@ -195,14 +211,25 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.NoError(t, err)
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
-	registry := buildRehearsalCodingHost(t, node, root)
+	flowRegistry := buildRehearsalCodingHost(t, node, root)
 	exporter := rehearsalJJExport(root, os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
 	require.NotEmpty(t, exporter)
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", exporter)
 	capture := sleepCaptureFunc(func(context.Context, string) (machined.CaptureResult, error) {
 		return machined.CaptureResult{}, errors.New("undrained")
 	})
-	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchCapture: sleepCaptureFunc(func(ctx context.Context, id string) (machined.CaptureResult, error) { return capture(ctx, id) }), BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
+	var captureProvider services.BranchCapture = sleepCaptureFunc(func(ctx context.Context, id string) (machined.CaptureResult, error) { return capture(ctx, id) })
+	switch scenario {
+	case "missing_capture":
+		captureProvider = nil
+	case "missing_binding":
+		providers.LaneBinding = nil
+	case "missing_runtime":
+		providers.MicroVM = nil
+	case "missing_identity":
+		providers.SessionIdentity = nil
+	}
+	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchCapture: captureProvider, BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &flowRegistry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 
 	server.Start()
 	defer server.Close()
@@ -257,6 +284,11 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.Equal(t, "running", row.Status)
 	assertHeadToken(true)
 	require.Zero(t, counted.stops.Load())
+	if strings.HasPrefix(scenario, "missing_") {
+		require.Equal(t, head, row.HeadCommitID)
+		require.Zero(t, counted.starts.Load())
+		return
+	}
 	counted.unreachable.Store(true)
 	sleep(503)
 	row, err = q.GetWorkspace(ctx, id)
@@ -327,6 +359,9 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.Equal(t, "running", row.Status, "stop acknowledgment is not observed sleep")
 	assertHeadToken(true)
 	counted.unconfirmed.Store(false)
+	if scenario == "failure" {
+		return
+	}
 	sleep(200)
 	row, err = q.GetWorkspace(ctx, id)
 	require.NoError(t, err)
@@ -641,6 +676,59 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		readPath(endpoint, 403)
 	}
 	credential = ""
+	// A native capture response alone is not a sleep receipt. Exercise the
+	// production Registry through the install route while delivery is pending.
+	registry := new(machined.Registry)
+	authority, err := registry.MintBoot(id, "capture-vm")
+	require.NoError(t, err)
+	link, daemon := externalTranscriptLink(t, registry, id, authority)
+	require.NoError(t, link.Reconciled())
+	require.NoError(t, daemon.SetDeadline(time.Now().Add(10*time.Second)))
+	capture = registry.Capture
+	counted.stopped.Store(false)
+	headToken, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: machineOwner, Name: "sleep-drain-head", TokenHash: strings.Repeat("b", 64), TokenLastEight: "bbbbbbbb", SystemIssued: true, Scopes: "write:repository"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running',head_push_token_id=$2 WHERE id=$1`, id, headToken.ID)
+	require.NoError(t, err)
+	stopsBeforeDrain := counted.stops.Load()
+	draining := control("sleep-registry-drain")
+	requestFrame := func(method wire.Method) uint32 {
+		t.Helper()
+		frame, err := wire.Read(daemon)
+		require.NoError(t, err)
+		request, got, _, err := frame.Request()
+		require.NoError(t, err)
+		require.Equal(t, byte(method), got)
+		return request
+	}
+	respond := func(request uint32, method wire.Method, fields ...[]byte) {
+		t.Helper()
+		require.NoError(t, wire.Write(daemon, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(request)), wire.Field(2, wire.Union(byte(method), fields...)))}))
+	}
+	headBytes, err := hex.DecodeString(head)
+	require.NoError(t, err)
+	treeBytes, err := hex.DecodeString(git("-C", seed, "rev-parse", head+"^{tree}"))
+	require.NoError(t, err)
+	respond(requestFrame(wire.Capture), wire.Capture, wire.Field(1, headBytes), wire.Field(2, treeBytes), wire.Field(3, wire.U16(0)))
+	statusFields := func(depth uint32) [][]byte {
+		return [][]byte{wire.Field(1, []byte{3}), wire.Field(2, wire.U16(2)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(depth)), wire.Field(5, headBytes), wire.Field(6, wire.U16(0))}
+	}
+	respond(requestFrame(wire.Status), wire.Status, statusFields(2)...)
+	statusRequest := requestFrame(wire.Status)
+	require.Equal(t, stopsBeforeDrain, counted.stops.Load())
+	assertHeadToken(true)
+	var drainingProjection services.BranchMachineResponse
+	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &drainingProjection))
+	require.Equal(t, "releasing", drainingProjection.State)
+	respond(statusRequest, wire.Status, statusFields(0)...)
+	require.Eventually(t, func() bool {
+		operation, err := jobStore.Get(ctx, scope, draining.OperationID)
+		return err == nil && operation.State == jobs.StateCompleted
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Equal(t, stopsBeforeDrain+1, counted.stops.Load())
+	assertHeadToken(false)
+	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &drainingProjection))
+	require.Equal(t, "asleep", drainingProjection.State)
 	// A changed ref cannot serve stale or unrelated bytes.
 	var captured struct{ Content struct{ Kind, Text string } }
 	for file, expected := range map[string]string{"hostile.sh": hostile, ".hooks/post-checkout": hostile, ".env": "SNAPSHOT_FIXTURE=visible\n"} {
