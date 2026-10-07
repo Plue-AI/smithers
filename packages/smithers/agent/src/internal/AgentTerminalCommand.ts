@@ -42,6 +42,32 @@ export interface CommandPort {
 /** Streaming VT removal with bounded state, including split CSI/OSC/DCS. */
 class Capture {
   private readonly decoder = new TextDecoder()
+  private utf8Remaining = 0
+  private utf8Min = 0x80
+  private utf8Max = 0xbf
+
+  // PTYs can emit both UTF-8 and raw ECMA-48 C1 bytes. Normalize only
+  // standalone C1 controls; a continuation byte inside valid UTF-8 is data.
+  private ansiBytes(bytes: Uint8Array): Uint8Array {
+    const normalized: number[] = []
+    for (const byte of bytes) {
+      const continuation = this.utf8Remaining > 0 && byte >= this.utf8Min && byte <= this.utf8Max
+      if (continuation) {
+        this.utf8Remaining--
+        this.utf8Min = 0x80
+        this.utf8Max = 0xbf
+      } else {
+        this.utf8Remaining = byte >= 0xc2 && byte <= 0xdf ? 1
+          : byte >= 0xe0 && byte <= 0xef ? 2
+          : byte >= 0xf0 && byte <= 0xf4 ? 3 : 0
+        this.utf8Min = byte === 0xe0 ? 0xa0 : byte === 0xf0 ? 0x90 : 0x80
+        this.utf8Max = byte === 0xed ? 0x9f : byte === 0xf4 ? 0x8f : 0xbf
+      }
+      if (!continuation && byte >= 0x80 && byte <= 0x9f) normalized.push(0xc2)
+      normalized.push(byte)
+    }
+    return Uint8Array.from(normalized)
+  }
   private state: "text" | "escape" | "csi" | "string" | "stringEscape" = "text"
   private cr = false
   private tail = ""
@@ -50,7 +76,7 @@ class Capture {
 
   write(bytes: Uint8Array, final = false): void {
     let plain = ""
-    for (const char of this.decoder.decode(bytes, { stream: !final })) {
+    for (const char of this.decoder.decode(this.ansiBytes(bytes), { stream: !final })) {
       if (this.state === "stringEscape") {
         this.state = char === "\\" ? "text" : char === "\x1b" ? "stringEscape" : "string"
       } else if (this.state === "string") {

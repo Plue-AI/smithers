@@ -39,6 +39,38 @@ function deferred<T>() {
 }
 
 describe("registered terminal command result contract", () => {
+  it("strips raw eight-bit ANSI controls across PTY frames", async () => {
+    const data = new Uint8Array([0x9b, 0x33, 0x31, 0x6d, 0x6f, 0x6b, 0x9b, 0x30, 0x6d,
+      0x9d, 0x31, 0x33, 0x33, 0x3b, 0x44, 0x3b, 0x30, 0x9c, 0x80, 0x0a])
+    for (const chunks of [[data], [...data].map(byte => new Uint8Array([byte]))]) {
+      const frames: CommandFrame[] = chunks.map(bytes => ({ kind: "output", bytes }))
+      frames.push({ kind: "exit", code: 7 })
+      expect(await fixture(frames).commands.run(input, controller().signal)).toEqual(expected("ok\n", 7))
+    }
+  })
+
+  it.each([
+    ["two byte", [0xc2, 0xa1], "¡"],
+    ["three byte lower bound", [0xe0, 0xa0, 0x80], "ࠀ"],
+    ["surrogate boundary", [0xed, 0x9f, 0xbf], "퟿"],
+    ["C1 continuation", [0xe9, 0x9b, 0xaa], "雪"],
+    ["four byte", [0xf0, 0x9f, 0x98, 0x80], "😀"],
+    ["four byte middle", [0xf1, 0x80, 0x80, 0x80], "\u{40000}"],
+    ["Unicode upper bound", [0xf4, 0x8f, 0xbf, 0xbf], "\u{10ffff}"],
+    ["broken two byte", [0xc2, 0x61], "�a"],
+    ["overlong three byte", [0xe0, 0x80, 0x61], "�a"],
+    ["surrogate", [0xed, 0xa0, 0x80, 0x61], "��a"],
+    ["overlong four byte", [0xf0, 0x80, 0x61], "�a"],
+    ["beyond Unicode", [0xf4, 0x90, 0x61, 0x9c, 0x62], "�b"],
+    ["invalid leading byte", [0xf5, 0x80, 0x61], "�a"]
+  ] as const)("preserves UTF-8 while stripping standalone C1 controls: %s", async (_name, data, text) => {
+    for (const chunks of [[new Uint8Array(data)], data.map(byte => new Uint8Array([byte]))]) {
+      const frames: CommandFrame[] = chunks.map(bytes => ({ kind: "output", bytes }))
+      frames.push(status)
+      expect(await fixture(frames).commands.run(input, controller().signal)).toEqual(expected(text))
+    }
+  })
+
   it("preserves the implicit Bash timeout in the typed failure", async () => {
     vi.useFakeTimers()
     try {
