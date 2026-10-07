@@ -1,7 +1,5 @@
 //go:build cgo
 
-// Package livedocument owns persistent native Yrs handles for the host document
-// service. It never claims a disk/database save; the caller owns durability.
 package livedocument
 
 /*
@@ -34,16 +32,6 @@ import (
 	"fmt"
 	"sync"
 	"unsafe"
-)
-
-var ErrRefused = errors.New("live document update refused")
-var ErrClosed = errors.New("live document closed")
-
-type Kind uint32
-
-const (
-	Code Kind = iota
-	Wiki
 )
 
 // Library must outlive every Document. Load fails closed on missing I5 symbols.
