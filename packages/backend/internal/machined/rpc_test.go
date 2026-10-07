@@ -304,3 +304,60 @@ func TestRegistryRosterFailureCannotAdmit(t *testing.T) {
 	require.ErrorIs(t, <-done, failure)
 	require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
 }
+
+// Exercise the authenticated transport boundary, with a peer that must receive
+// no frame when any member of the caller's batch is malformed.
+func TestRegistryWriteFilesValidatesEveryBaseBeforeDispatch(t *testing.T) {
+	for _, invalid := range []string{"bad", strings.Repeat("ab", 31), strings.Repeat("ab", 33)} {
+		t.Run(invalid, func(t *testing.T) {
+			r, _, peer := rpcFixture(t)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			result, err := r.WriteFiles(ctx, "a", []byte("host-author"), []FileChange{
+				{Path: "first", Content: []byte("first")},
+				{Path: "second", BaseDigest: &invalid, Content: []byte("second")},
+			})
+			require.ErrorIs(t, err, wire.BadValue)
+			require.Empty(t, result.Applied)
+			require.Empty(t, result.Raced)
+			require.Nil(t, result.Stale)
+			require.NoError(t, peer.SetReadDeadline(time.Now().Add(20*time.Millisecond)))
+			var probe [1]byte
+			n, err := peer.Read(probe[:])
+			require.Zero(t, n)
+			var timeout net.Error
+			require.ErrorAs(t, err, &timeout)
+			require.True(t, timeout.Timeout(), "malformed batch emitted a write frame")
+		})
+	}
+}
+
+func TestRegistryWriteFilesValidatesEveryFrameBeforeDispatch(t *testing.T) {
+	for _, scenario := range []string{"path-size", "path-utf8", "content-size"} {
+		t.Run(scenario, func(t *testing.T) {
+			r, _, peer := rpcFixture(t)
+			second := FileChange{Path: "second", Content: []byte("second")}
+			switch scenario {
+			case "path-size":
+				second.Path = strings.Repeat("x", 4097)
+			case "path-utf8":
+				second.Path = string([]byte{255})
+			case "content-size":
+				second.Content = make([]byte, wire.MaxWorkspaceFileBytes+1)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			result, err := r.WriteFiles(ctx, "a", []byte("host-author"), []FileChange{{Path: "first", Content: []byte("first")}, second})
+			require.Error(t, err)
+			require.NotErrorIs(t, err, context.DeadlineExceeded)
+			require.Empty(t, result.Applied)
+			require.NoError(t, peer.SetReadDeadline(time.Now().Add(20*time.Millisecond)))
+			var probe [1]byte
+			n, err := peer.Read(probe[:])
+			require.Zero(t, n)
+			var timeout net.Error
+			require.ErrorAs(t, err, &timeout)
+			require.True(t, timeout.Timeout())
+		})
+	}
+}

@@ -94,7 +94,11 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 	if len(changes) == 0 || len(changes) > 256 {
 		return result, wire.BadValue
 	}
-	for _, change := range changes {
+	// Validate the complete request before dispatching its first write. The
+	// wire exposes ordered writes, so malformed later arguments must not leave
+	// an earlier file applied merely because decoding was interleaved with RPC.
+	requests := make([][][]byte, len(changes))
+	for index, change := range changes {
 		base := wire.Union(2)
 		if change.BaseDigest != nil {
 			digest, err := hex.DecodeString(*change.BaseDigest)
@@ -103,7 +107,13 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 			}
 			base = wire.Union(1, wire.Field(1, digest))
 		}
-		fields, err := l.call(ctx, branch, wire.WriteFile, wire.Field(1, wire.String(change.Path)), wire.Field(2, base), wire.Field(3, wire.Bytes(change.Content)), wire.Field(4, principal(actor)))
+		requests[index] = [][]byte{wire.Field(1, wire.String(change.Path)), wire.Field(2, base), wire.Field(3, wire.Bytes(change.Content)), wire.Field(4, principal(actor))}
+		if _, err := wire.RequestFrame(1, wire.WriteFile, requests[index]...); err != nil {
+			return result, err
+		}
+	}
+	for index, change := range changes {
+		fields, err := l.call(ctx, branch, wire.WriteFile, requests[index]...)
 		if err != nil {
 			if refusal, ok := err.(*SessionError); ok && refusal.Code == "stale" {
 				stale := &StaleFile{Path: change.Path}
