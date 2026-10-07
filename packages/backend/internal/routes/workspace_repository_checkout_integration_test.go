@@ -104,25 +104,26 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	require.NoError(t, err)
 	commandCodec, err := webhook.NewSecretCodec("checkout-command-secret")
 	require.NoError(t, err)
+	// Checkout and command persistence use the real process runtime. Its
+	// isolation/guest identity are explicitly outside this transport fixture;
+	// retain the production membership, command and lane-binding providers.
+	providers := services.HostedBranchMachineProviders(runtime)
+	membership, authorize := providers.Membership, providers.Authorize
+	providers.Membership = func(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64) error {
+		require.Equal(t, repo.ID, repositoryID)
+		require.Equal(t, user.ID, actorID)
+		return membership(ctx, tx, repositoryID, actorID)
+	}
+	providers.Authorize = func(ctx context.Context, tx pgx.Tx, action string, repositoryID int64, branch string, actorID int64) error {
+		require.Contains(t, []string{"branch.join", "branch.read"}, action)
+		require.Equal(t, repo.ID, repositoryID)
+		require.Equal(t, user.ID, actorID)
+		return authorize(ctx, tx, action, repositoryID, branch, actorID)
+	}
+	providers.MicroVM = func(context.Context) error { return nil }
+	providers.SessionIdentity = func(context.Context) error { return nil }
 	workspaceService := services.NewWorkspaceService(queries,
-		services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.BranchMachineProviders{
-			// These checkout tests exercise real Git/HTTP/storage and process
-			// execution. MicroVM and session qualification are test-only contracts;
-			// their production enforcement is covered by the branch-machine tests.
-			Membership: func(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64) error {
-				require.Equal(t, repo.ID, repositoryID)
-				require.Equal(t, user.ID, actorID)
-				return nil
-			},
-			Authorize: func(ctx context.Context, tx pgx.Tx, action string, repositoryID int64, branch string, actorID int64) error {
-				require.Contains(t, []string{"branch.join", "branch.read"}, action)
-				require.Equal(t, repo.ID, repositoryID)
-				require.Equal(t, user.ID, actorID)
-				return nil
-			},
-			LaneBinding: func(context.Context, pgx.Tx, int64, string, string) error { return nil },
-			MicroVM:     func(context.Context) error { return nil }, SessionIdentity: func(context.Context) error { return nil },
-		}),
+		services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers),
 		services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL(server.URL), services.WithWorkspaceCommandJobs(commandJobs, commandCodec))
 	workspaceHandler.Service = workspaceService
 	cookie := processWorkspaceCreateSessionCookie(t, queries, user)

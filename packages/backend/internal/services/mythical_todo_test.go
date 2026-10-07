@@ -650,7 +650,8 @@ func TestMythicalLegacyAutomergeLabelNeverAuthorizesMerge(t *testing.T) {
 		o.wake()
 		item := o.item(75)
 		assert.Equal(t, "proposed", item.State, status)
-		assert.Equal(t, "Waiting for merge readiness integration", item.Reason, status)
+		assert.Nil(t, mythicalChecksOf(item).Land, "a label cannot record a person approval: %s", status)
+		assert.Empty(t, item.PendingOp, "a label cannot admit a merge operation: %s", status)
 		assert.Empty(t, o.github.merges, "a legacy label is not a person's reviewed-head approval")
 		assert.Equal(t, main, o.hostRef("refs/heads/main"))
 	}
@@ -1036,10 +1037,14 @@ func TestMythicalReviewUsesTheAvailableLane(t *testing.T) {
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 312, Title: "Second", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	o.wake()
+	// Retirement is persisted before a later pass reuses the lane.
+	require.Equal(t, "queued", o.item(312).State, "the second TODO cannot overtake the review handoff")
+	o.wake()
 	first := o.item(311)
 	assert.True(t, mythicalChecksOf(first).reviewing(first), "311's review relaunched on the one lane")
 	assert.Equal(t, "queued", o.item(312).State, "312 waits for the lane")
 	o.answerReviews(`"request-changes"`)
+	o.wake() // admit after the finished review machine has been retired
 	assert.Equal(t, "running", o.item(312).State, "the lane is free once the review answered")
 
 	// Two available lanes admit the request and review concurrently.

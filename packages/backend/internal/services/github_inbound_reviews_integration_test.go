@@ -46,9 +46,7 @@ func newReviewConsumer(t *testing.T) (*mythicalOrchestration, *GitHubSyncedRepoS
 	item.State = "proposed"
 	item.Attempt = ready.Attempt
 	item.RequestRunID = ready.RequestRunID
-	workspace, err := db.New(pool).CreateWorkspace(t.Context(), db.CreateWorkspaceParams{
-		RepositoryID: o.repoID, UserID: o.userID, Status: "running", TargetBookmark: "smithers/review",
-	})
+	workspace, err := db.New(pool).CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: o.repoID, UserID: o.userID, Name: "review-input", Kind: "container", Status: "running", TargetBookmark: "smithers/review"})
 	require.NoError(t, err)
 	item.WorkspaceID = workspace.ID
 	item.FlowDigest = ready.FlowDigest
