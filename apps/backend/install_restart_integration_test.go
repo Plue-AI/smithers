@@ -51,11 +51,15 @@ func TestInstallSetupStartupFailureReturns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestInstallSetupCompiledHostRestart$/^owner_claim$", "-test.count=1", "-test.timeout=40s")
-	command.Env = append(os.Environ(), "SMITHERS_FFI_LIBRARY_PATH="+filepath.Join(t.TempDir(), "missing.dylib"))
+	command.Env = append(os.Environ(),
+		"SMITHERS_FFI_LIBRARY_PATH="+filepath.Join(t.TempDir(), "unused.dylib"),
+		"SMITHERS_TEST_INSTALL_STARTUP_REFUSAL=1",
+	)
 	output, err := command.CombinedOutput()
-	require.Error(t, err, "a missing native library must refuse startup")
+	require.Error(t, err, "a missing flow manifest must refuse startup")
 	require.NoError(t, ctx.Err(), "startup refusal must not strand the harness")
 	require.Contains(t, string(output), "compiled host startup failed")
+	require.Contains(t, string(output), "SMITHERS_FLOW_HOST_MANIFEST is required")
 	require.NotContains(t, string(output), "test timed out")
 }
 
@@ -100,6 +104,11 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		"SMITHERS_MODEL_HOST_BUNDLE":  filepath.Join(root, "model-host"), "SMITHERS_NODE_BINARY": nodeFixture,
 		"SMITHERS_FEATURE_FLAGS_WORKFLOWS": "false", "SMITHERS_FEATURE_FLAGS_SANDBOXES": "true",
 		"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": filepath.Join(filepath.Dir(os.Getenv("SMITHERS_FFI_LIBRARY_PATH")), "smithers-jj-export"),
+	}
+	// The parent refusal test selects a real startup error without depending on
+	// native initialization. This hook exists only in the test fixture.
+	if os.Getenv("SMITHERS_TEST_INSTALL_STARTUP_REFUSAL") == "1" {
+		environment["SMITHERS_FLOW_HOST_MANIFEST"] = ""
 	}
 	if boundary == "app conversion consumed" {
 		github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
