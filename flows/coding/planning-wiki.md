@@ -125,12 +125,17 @@ see `wiki-check.md` for the source, replay and catalog identity contracts.
 
 ## Captured planning citations
 
-Revision citations are disabled until the trusted host supplies
-`MemoryOptions.wikiCitations` and `wikiProvider`. The provider uses the shared
-wiki-only preflight selector and repository-scoped run relay reads. Its
-`authorize` refuses unavailable pinned config, selector, attempt evidence or
-renderer, disabled wiki and invalid run credentials; it refuses non-machine
-execution with `isolation_required`. No production adapter is bound here.
+Revision citations are on when the delivered project configuration sets
+`wikiCitations: true`. The coding host binds `wikiProvider`
+(`boundRelayWikiProvider`) from the provisioned workspace binding and its run
+credential; repository configuration cannot supply a provider. Selection is
+`POST /api/repos/{owner}/{repo}/wiki/selection`, which runs the shared
+wiki-only preflight selector on the owner's fast role; reads are
+`GET /api/repos/{owner}/{repo}/wiki/{slug}`. The backend authorizes both as
+`wiki.read` only for the run's own live TODO attempt. A host whose binding the
+machine did not provision refuses with `isolation_required`; a missing
+provider, pinned `pages` declaration or selector, a disabled wiki gate and a
+refused credential refuse with `unavailable`, never an empty vault.
 
 Selected pages are read once, capturing page ID, slug, revision, Markdown and
 SHA-256 together. Digest mismatches are omitted. Generated pages also pass the

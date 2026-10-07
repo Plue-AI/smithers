@@ -1,5 +1,5 @@
 /** Private staged /usr/local/bin/smithers-coding-host entry for an owning Plue workspace. */
-import { Effect, FileSystem, Layer } from "effect"
+import { Effect, FileSystem, Layer, Redacted } from "effect"
 import type { HttpClient } from "effect/unstable/http"
 import { mkdirSync } from "node:fs"
 import { resolve } from "node:path"
@@ -17,6 +17,7 @@ import { consumeInstallProject } from "./install-project.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
 import { nativeLayer } from "./native.ts"
+import { boundRelayWikiProvider } from "./planning-wiki-provider.ts"
 import { loadProject } from "./project-config.ts"
 import { resolveRuntimeBridgeIdentity } from "./runtime-bridge.ts"
 import * as CodingState from "./state.ts"
@@ -191,7 +192,19 @@ if (parsed.values.version) {
                   flowSourceRoot,
                   flowSourceRevision,
                   ...models,
-                  planning,
+                  // Plans read and cite wiki revisions through the host API with
+                  // the provisioned run credential (T-FLW-10). Only the machine's
+                  // own root-provisioned binding counts as isolated.
+                  planning: landing === undefined ? planning : {
+                    ...planning,
+                    wikiProvider: boundRelayWikiProvider({
+                      apiBaseUrl: landing.apiBaseUrl,
+                      repositorySlug: landing.repositorySlug,
+                      runCredential: Redacted.value(landing.token),
+                      isolated: process.env.SMITHERS_WORKSPACE_CODING_CONFIG === undefined &&
+                        options.sourcePublication !== "local-only"
+                    })
+                  },
                   ...(landing === undefined ? {} : {
                     nativeRepositoryToken: landing.token,
                     landing: Landing.layer(landing).pipe(Layer.provide(http), Layer.orDie),

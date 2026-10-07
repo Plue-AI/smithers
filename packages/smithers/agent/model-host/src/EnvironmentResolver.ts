@@ -55,7 +55,11 @@ const refusingRedirects = (base: typeof globalThis.fetch): typeof globalThis.fet
  * @category constructors
  * @since 1.0.0-rc.0
  */
-export const environmentModelResolver = (options: EnvironmentModelResolverOptions): ModelTurnResolver => (grant) => {
+export const environmentModelResolver = (options: EnvironmentModelResolverOptions): ModelTurnResolver =>
+(
+  grant,
+  selection
+) => {
   const credentials = hostModelCredentials(options.env)
   const configured = planModelBinding(options.binding, credentials, { kind: "generation" })
   // The wire may carry null for an absent model, as the Go resolver reads it.
@@ -87,8 +91,10 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
             ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens })
           }
         }
-        if (grant.request.sharedConversation !== true) return resolved
-        const input = yield* Effect.tryPromise({
+        // A selection-only request brings its own host-read input; a chat
+        // turn's preflight reads authorized SharedEntries through the callback.
+        if (grant.request.sharedConversation !== true && selection === undefined) return resolved
+        const input = selection !== undefined ? selection : yield* Effect.tryPromise({
           try: async (signal) => {
             const response = await refusingRedirects(options.fetchImpl ?? globalThis.fetch)(
               new URL("/internal/chat/context", grant.producerBaseUrl),

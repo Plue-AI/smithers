@@ -7,11 +7,14 @@
 import type * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import { AgentTurnCursorSchema } from "@smthrs/rpc/AgentTurnJournal"
+import { ContextPreflightInputSchema } from "@smthrs/rpc/ContextPreflight"
 import type { ContextPreflightInput } from "@smthrs/rpc/ContextPreflight"
+import type { DocsPage } from "@smthrs/rpc/DocsPages"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Cause, Effect, Exit, Metric, Option } from "effect"
 import { createHash, timingSafeEqual } from "node:crypto"
 import { z } from "zod"
+import { runContextPreflight } from "./ContextPreflight.ts"
 import { runDurableChatTurn } from "./DurableChatProducer.ts"
 import type { DurableChatGrant } from "./DurableChatProducer.ts"
 import { boundedJson } from "./internal/BoundedJson.ts"
@@ -38,6 +41,13 @@ export const MODEL_HOST_TURN_PATH = "/v1/chat/turn"
  * @since 1.0.0-rc.0
  */
 export const MODEL_HOST_STREAM_PATH = "/v1/model/stream"
+/** The authenticated selection-only endpoint: the shared context preflight
+ * selector without a chat turn, as a TODO plan step uses it over wiki pages.
+ *
+ * @category protocol
+ * @since 1.0.0
+ */
+export const MODEL_HOST_CONTEXT_SELECT_PATH = "/v1/context/select"
 /** The protocol identity endpoint.
  *
  * @category protocol
@@ -92,11 +102,16 @@ export interface ModelTurnResolution {
 
 /** Resolves the owner's configured provider inside the trusted host process.
  * Provider credentials stay in this result and never cross the Go grant wire.
+ * `selection` is the selection-only endpoint's validated input; a chat turn
+ * never supplies one, so its preflight always reads authorized SharedEntries.
  *
  * @category models
  * @since 1.0.0-rc.0
  */
-export type ModelTurnResolver = (grant: DurableChatGrant) => Effect.Effect<ModelTurnResolution, ResolveFailed>
+export type ModelTurnResolver = (
+  grant: DurableChatGrant,
+  selection?: ContextPreflightInput
+) => Effect.Effect<ModelTurnResolution, ResolveFailed>
 
 /**
  * Dependencies for the authenticated model host request handler.
@@ -111,6 +126,8 @@ export interface ModelTurnHandlerOptions {
   readonly callbackBaseUrl: string
   readonly resolve: ModelTurnResolver
   readonly fetchImpl?: FetchLike
+  /** The in-app docs pages this host's build bundles; host-owned turns read them through `docs`. */
+  readonly docs?: ReadonlyArray<DocsPage>
 }
 
 const normalizedBaseUrl = (raw: string): string => {
@@ -169,6 +186,15 @@ const decodeGrant = (value: unknown, callbackBaseUrl: string): DurableChatGrant 
     ...(wire.api === undefined ? {} : { api: wire.api })
   }
 }
+
+/** A selection-only request carries host-read candidates, never a transcript. */
+const SelectionRequestSchema = z.object({
+  runId: Identity,
+  ownerId: z.number().int().positive(),
+  instructions: z.literal(""),
+  messages: z.array(z.never()).max(0),
+  contextSelection: ContextPreflightInputSchema
+}).strict()
 
 const streamRequest = (value: unknown): StartAgentTurnRequest | undefined => {
   if (typeof value !== "object" || value === null) return undefined
@@ -324,6 +350,41 @@ export const createModelTurnHandler = (options: ModelTurnHandlerOptions): (reque
         return Response.json({ status: "error", code: "stream_failed" }, { status: 502 })
       }
     }
+    if (url.pathname === MODEL_HOST_CONTEXT_SELECT_PATH) {
+      if (request.method !== "POST") return new Response("Method not allowed", { status: 405 })
+      if (!authorized(request)) {
+        return Response.json({ status: "error", code: "forbidden" }, { status: 401 })
+      }
+      const body = SelectionRequestSchema.safeParse(await boundedJson(request))
+      if (!body.success) return Response.json({ status: "error", code: "request_invalid" }, { status: 400 })
+      const { runId, ownerId, contextSelection } = body.data
+      const grant: DurableChatGrant = {
+        turnId: `context-selection-${runId}`,
+        ownerId,
+        runId,
+        legId: runId,
+        generation: 1,
+        token: "context_selection_context_selection_12",
+        cursor: { version: 1, runId, legId: runId, batch: 0, position: 0, hash: "0".repeat(64) },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        request: { runId, instructions: "", messages: [] },
+        producerBaseUrl: callbackBaseUrl
+      }
+      const exit = await Effect.runPromiseExit(
+        options.resolve(grant, contextSelection).pipe(
+          Effect.flatMap(({ preflight }) =>
+            preflight === undefined
+              ? Effect.fail(
+                new ModelError({ code: "invalid_provider_output", message: "context selector is unavailable" })
+              )
+              : runContextPreflight(contextSelection, preflight.model, preflight.options)
+          )
+        ),
+        { signal: request.signal }
+      )
+      if (Exit.isSuccess(exit)) return Response.json(exit.value.result)
+      return Response.json({ status: "error", code: classify(exit.cause).response }, { status: 502 })
+    }
     if (url.pathname !== MODEL_HOST_TURN_PATH) return new Response("Not found", { status: 404 })
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 })
     if (!authorized(request)) {
@@ -341,7 +402,8 @@ export const createModelTurnHandler = (options: ModelTurnHandlerOptions): (reque
             modelOptions,
             callbackBaseUrl,
             options.fetchImpl,
-            preflight
+            preflight,
+            options.docs
           )
         )
       ),
