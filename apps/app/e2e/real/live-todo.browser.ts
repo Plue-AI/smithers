@@ -92,6 +92,15 @@ try {
       Data: { from: "queued", to: "dropped", n: Number(subscription.topic.split(":")[1]), card: { state: "dropped" } }
     })
   }
+  const home = subscriptions.slice(before).filter(s => s.topic === "home")
+  expect(home).toHaveLength(1)
+  expect(home[0]!.cursor).toBeDefined()
+  const aggregate = frames.slice(beforeFrames).filter(frame => frame.id === home[0]!.id && frame.t === "delta")
+  expect(aggregate).toHaveLength(2)
+  expect(aggregate[0]!.cursor).toBeGreaterThan(home[0]!.cursor!)
+  expect(aggregate[1]!.cursor).toBeGreaterThan(aggregate[0]!.cursor!)
+  expect(aggregate[0]!.data).toMatchObject({ Type: "todo.dropped", Data: { n: 1, home: { counts: { queued: 1, dropped: 1 } } } })
+  expect(aggregate[1]!.data).toMatchObject({ Type: "todo.dropped", Data: { n: 2, home: { items: [], counts: { queued: 0, dropped: 2 } } } })
   expect(frames.filter(frame => frame.t === "gap")).toHaveLength(0)
   console.log("PASS live install: production commands, committed TODO cards, ten-second outage and cursor replay")
   unblock = undefined
