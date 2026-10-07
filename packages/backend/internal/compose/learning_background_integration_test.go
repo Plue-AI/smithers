@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -66,6 +67,8 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 		return receipt.OperationID
 	}
 	operation := admit("learning-one", target, 1)
+	_, err = q.EnsureMythicalWiki(ctx, repo)
+	require.NoError(t, err)
 	// A payload cannot borrow an item from a different tenant or TODO.
 	wrong := target
 	wrong.TenantID = "repository:999"
@@ -80,6 +83,10 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	hubCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(hubCtx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	topics := &liveTopics{queries: q, todos: service}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{Live: handler, Mythical: &routes.MythicalHandler{Service: service}})
@@ -87,9 +94,23 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 		router.ServeHTTP(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: &owner, SessionHash: "fixture-person"})))
 	})
 	server.Start()
-	for _, row := range []struct{ stored, visible string }{{"accepted", "queued"}, {"dispatching", "queued"}, {"running", "running"}, {"waiting", "waiting"}, {"failed", "failed"}, {"uncertain", "failed"}, {"completed", ""}, {"cancelled", ""}} {
+	for _, row := range []struct {
+		stored, visible, wikiStored, wikiVisible string
+		requested                                bool
+	}{
+		{"accepted", "queued", "idle", "queued", true},
+		{"dispatching", "queued", "off", "", false},
+		{"running", "running", "running", "running", false},
+		{"waiting", "waiting", "idle", "", false},
+		{"failed", "failed", "failed", "failed", false},
+		{"uncertain", "failed", "failed", "failed", false},
+		{"completed", "", "idle", "", false},
+		{"cancelled", "", "off", "", false},
+	} {
 		t.Run(row.stored, func(t *testing.T) {
 			_, err := pool.Exec(ctx, `UPDATE product_job_requests SET state=$2,terminal_receipt=CASE WHEN $2 IN ('failed','uncertain','completed','cancelled') THEN '{}'::jsonb ELSE NULL END WHERE id=$1`, operation, row.stored)
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE mythical_wikis SET state=$2,requested=$3,run_id='wiki-run-1',error='Page review failed' WHERE repository_id=$1`, repo, row.wikiStored, row.requested)
 			require.NoError(t, err)
 			readCtx, done := context.WithTimeout(ctx, 10*time.Second)
 			defer done()
@@ -114,11 +135,18 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 				require.NoError(t, json.Unmarshal(frame.Data, &home))
 				require.Empty(t, home.Items)
 				require.Equal(t, 1, home.Counts["merged"])
-				if row.visible == "" {
-					require.Empty(t, home.Runs)
-				} else {
-					require.Equal(t, []map[string]any{{"id": operation, "title": "Learning · T1", "state": row.visible, "actions": []any{}}}, home.Runs)
+				expected := []map[string]any{}
+				if row.visible != "" {
+					expected = append(expected, map[string]any{"id": operation, "title": "Learning · T1", "state": row.visible, "actions": []any{}})
 				}
+				if row.wikiVisible != "" {
+					wiki := map[string]any{"id": "wiki-run-1", "title": "Refresh wiki", "state": row.wikiVisible, "actions": []any{}}
+					if row.wikiVisible == "failed" {
+						wiki["detail"] = "Page review failed"
+					}
+					expected = append(expected, wiki)
+				}
+				require.Equal(t, expected, home.Runs)
 				break
 			}
 		})
