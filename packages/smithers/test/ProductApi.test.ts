@@ -119,6 +119,7 @@ describe("the generated product API client", () => {
     // the mounted native stack candidate/proposal transport (#3533),
     // and durable install flow admission, launch and receipt reads (#3438).
     expect(expected).toHaveLength(543)
+    expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty("post.parameters.3.schema.enum", ["candidate", "propose"])
     expect(spec.paths["/api/agents/{name}"]).toHaveProperty("get.operationId", "get_api_agents_name")
     expect(spec.paths["/api/model/test/receipt"]).toHaveProperty("get.operationId", "get_api_model_test_receipt")
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.operationId", "post_api_stack_attention_id")
