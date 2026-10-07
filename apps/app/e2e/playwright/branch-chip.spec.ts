@@ -10,7 +10,7 @@ test("a demo host with refused live topics opens the Branch card from its chip",
     if (frame.t === "sub") socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unknown_topic" }))
   }))
   await page.goto("/?as=maya")
-  const chip = page.locator(".mvp-home .mvp-stack-row", { hasText: "T10" }).locator("button.mvp-branch-chip")
+  const chip = page.locator(".home .stack-row", { hasText: "T10" }).locator("button.branch-chip")
   await expect(chip).toHaveText("fix-checkout-race")
   // The button reaches the shared branch flow through keyboard activation too.
   await chip.focus()

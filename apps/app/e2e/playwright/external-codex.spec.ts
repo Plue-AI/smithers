@@ -44,7 +44,7 @@ for (const width of [1280, 390]) {
 test("the rail lists the session's prompts, answers, acts and diffs, and a line jumps to its entry", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto(`/?codex=${SESSION}`)
-  const rail = page.locator(".mvp-timeline")
+  const rail = page.locator(".timeline")
   await expect(rail.locator("li", { hasText: "“Make the password reset link expire after 30 minutes”" })).toBeVisible()
   await expect(rail.locator("li", { hasText: "Ran 2 commands · 1 failed" })).toBeVisible()
   await expect(rail.locator("li", { hasText: "Diff · reset-token.ts" })).toBeVisible()
@@ -68,7 +68,7 @@ test("a long session's timeline zooms out with distance from the band, and a far
   await page.goto(`/?codex=${LONG}`)
   const transcript = page.getByTestId("transcript")
   await expect(transcript.getByText("Turn 59 done: retries now cover store.ts.")).toBeVisible()
-  const rail = page.locator(".mvp-timeline > ol > li")
+  const rail = page.locator(".timeline > ol > li")
   const levels = async () => (await rail.evaluateAll(items => items.map(item => Number((item as HTMLElement).dataset.zoom ?? 0))))
   // Hundreds of entries, a few dozen lines: fine at the band (the end), coarser toward the start.
   await expect.poll(async () => (await levels()).length).toBeLessThan(80)
@@ -76,7 +76,7 @@ test("a long session's timeline zooms out with distance from the band, and a far
   expect(atEnd.at(-1)).toBe(0)
   expect(atEnd[0]).toBeGreaterThanOrEqual(3)
   expect(Math.max(...atEnd)).toBeGreaterThanOrEqual(3)
-  await expect(page.locator(".mvp-timeline li[data-in-view]").last()).not.toHaveAttribute("data-zoom", /.*/)
+  await expect(page.locator(".timeline li[data-in-view]").last()).not.toHaveAttribute("data-zoom", /.*/)
 
   // The first line stands for the opening of the session; a click jumps there and the zoom turns around.
   const first = rail.first()
@@ -95,17 +95,17 @@ test("the fast model titles a long session's folded lines, marked as written, an
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto(`/?codex=${LONG}`)
   await expect(page.getByTestId("transcript").getByText("Turn 59 done: retries now cover store.ts.")).toBeVisible()
-  const folded = page.locator(".mvp-timeline > ol > li[data-zoom]")
+  const folded = page.locator(".timeline > ol > li[data-zoom]")
   await expect.poll(async () => folded.count()).toBeGreaterThan(3)
   // The T1 host's stub model answers "Fast title for <N> entries." for a run of N; every folded line takes its own.
-  await expect.poll(async () => folded.locator(".mvp-written").count(), { timeout: 15_000 }).toBe(await folded.count())
+  await expect.poll(async () => folded.locator(".written").count(), { timeout: 15_000 }).toBe(await folded.count())
   for (const item of await folded.all()) {
-    const count = /^(\d+) entries/.exec(await item.locator(".mvp-tl-zoom").innerText())![1]
-    await expect(item.locator(".mvp-tl-text b")).toHaveText(`Fast title for ${count} entries`)
+    const count = /^(\d+) entries/.exec(await item.locator(".tl-zoom").innerText())![1]
+    await expect(item.locator(".tl-text b")).toHaveText(`Fast title for ${count} entries`)
   }
   // Lines near the band are not folded: they keep their own titles and no mark.
-  await expect(page.locator(".mvp-timeline > ol > li:not([data-zoom]) .mvp-written")).toHaveCount(0)
-  await expect(page.locator(".mvp-timeline > ol > li:not([data-zoom])", { hasText: "Turn 59 done: retries now cover store.ts." })).toBeVisible()
+  await expect(page.locator(".timeline > ol > li:not([data-zoom]) .written")).toHaveCount(0)
+  await expect(page.locator(".timeline > ol > li:not([data-zoom])", { hasText: "Turn 59 done: retries now cover store.ts." })).toBeVisible()
 })
 
 test("below 1,180 px, where the timeline is hidden, no title is asked of the model (#3732)", async ({ page }) => {

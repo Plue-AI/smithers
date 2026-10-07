@@ -63,7 +63,7 @@ test("an unpinned page leaves disclosure readable without an active card action"
   const host = document.createElement("div"), root = createRoot(host)
   flushSync(() => root.render(<ContextLine count={1} expanded={true} onView={() => {}} {...actions} />))
   expect(host.querySelectorAll("button")).toHaveLength(1)
-  expect(host.querySelector(".context-chip")?.tagName).toBe("SPAN")
+  expect(host.querySelector(".context-text")?.tagName).toBe("SPAN")
   expect(host.textContent).toContain("Retries")
   flushSync(() => root.unmount())
 })

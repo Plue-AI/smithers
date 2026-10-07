@@ -36,7 +36,7 @@ const show = async (page: Page, n: number) => {
 const state = async (page: Page, n: number, expected: string) => {
   await expect.poll(async () => (await todo(page, n)).state, { timeout: 8 * 60_000, intervals: [1000] }).toBe(expected)
   await show(page, n)
-  await expect(card(page, n).locator("header .mvp-state")).toHaveAttribute("data-state", expected)
+  await expect(card(page, n).locator("header .state")).toHaveAttribute("data-state", expected)
 }
 const create = async (page: Page, title: string, prompt: string, before?: number) => {
   await say(page, "/todo.new")
@@ -83,7 +83,7 @@ const writes = async (page: Page): Promise<{ method: string; path: string; statu
 }
 const firstActive = async (page: Page) => (await todos(page)).find(item => !["merged", "dropped"].includes(item.state))?.n
 const home = (page: Page) => page.locator('[data-keyboard-pane="Stack"]').last()
-const row = (page: Page, n: number) => home(page).locator("li.mvp-stack-row").filter({ has: page.locator(".mvp-ref", { hasText: new RegExp(`^T${n}$`) }) })
+const row = (page: Page, n: number) => home(page).locator("li.stack-row").filter({ has: page.locator(".ref", { hasText: new RegExp(`^T${n}$`) }) })
 
 // Playwright lists setup, stack, team alphabetically: use the already installed owner.
 // Ben is not added until the later team walk; no dependency on its private helpers.
@@ -151,7 +151,7 @@ test("J7 Before placement; GitHub refusal is visible; main merge rebases the nex
   const last = await create(page, "Stack walk last", "[PR] [FILE w47-last.md] Add a greeting to w47-last.md", tail)
   const inserted = await create(page, "Stack walk insert", "[PR] [FILE w47-insert.md] Add a greeting to w47-insert.md", last)
   await say(page, "/stack")
-  await expect(home(page).locator("li.mvp-stack-row .mvp-ref")).toHaveText([
+  await expect(home(page).locator("li.stack-row .ref")).toHaveText([
     `T${first}`, `T${inserted}`, `T${last}`, ...(await todos(page)).filter(item => ![first, inserted, last].includes(item.n) && !["merged", "dropped"].includes(item.state)).map(item => `T${item.n}`)
   ])
   for (const n of [first, inserted, last]) await state(page, n, "in_review")

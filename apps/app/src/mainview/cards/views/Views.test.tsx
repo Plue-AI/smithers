@@ -1871,7 +1871,7 @@ test("Branch SSH copies the supplied host line without a flow", async () => {
     await act(async () => root.render(<BranchView {...branchFixtures.awake} onAction={onAction} onView={onView} />))
     expect(host.querySelector(".branch-ssh code")!.getAttribute("title")).toBe("ssh -p 2222 todo-12@mac-mini.local")
     expect(host.querySelector(".branch-presence")).toBeNull()
-    expect(host.textContent).not.toContain("Nobody here")
+    expect(host.querySelector("p.branch-muted")!.textContent).toBe("Nobody here")
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Copy SSH line"]')!.click())
     expect(writeText.mock.calls).toEqual([["ssh -p 2222 todo-12@mac-mini.local"]])
     expect(onAction).toHaveBeenCalledTimes(0); expect(onView).toHaveBeenCalledTimes(0)
