@@ -347,6 +347,12 @@ export const start = async (input?: string, address: { readonly bind?: string; r
   const result = await setupURLs(stateDir)
   return address.bind && !address.origins?.length ? { ...result, warning: "LAN browsers need --origin" } : result
 }
+/** One terminal rendering for the registered CLI and the bundled host door. */
+export const startText = (value: unknown): string => {
+  const row = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  return Array.isArray(row.setup_urls) ? [...row.setup_urls, ...(row.warning ? [row.warning] : [])].join("\n") : String(row.message ?? "")
+}
+
 export const status = async () => {
   const system = launchd(), bundle = installedBundle(system)
   const verified = verifyBundle(bundle)
