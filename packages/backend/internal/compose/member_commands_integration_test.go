@@ -114,20 +114,20 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		{"GET", "/api/install"}, {"GET", "/api/user/repos"},
 		{"GET", "/api/repos/maya/demo/mythical"}, {"GET", "/api/repos/maya/demo/mythical/events"}, {"GET", "/api/repos/maya/demo/mythical/items/T1"},
 		{"GET", "/api/github/sync"}, {"POST", "/api/github/sync"}, {"GET", "/api/live"},
-		{"GET", "/api/user/orgs"}, {"GET", "/api/user/workspaces"}, {"POST", "/api/telemetry/errors"},
+		{"GET", "/api/user/tokens"}, {"GET", "/api/user/orgs"}, {"GET", "/api/user/workspaces"}, {"POST", "/api/telemetry/errors"},
 		{"POST", "/api/agent/turn"}, {"POST", "/api/conversations/1/prompt"}, {"POST", "/api/agent/turn/replay"},
 		{"GET", "/api/agent/conversations"}, {"POST", "/api/agent/conversations/replay"},
 		{"GET", "/api/issues"}, {"GET", "/api/issues/2"},
 		{"GET", "/api/todos"}, {"GET", "/api/todos/1"}, {"POST", "/api/todos"}, {"POST", "/api/todos/1"}, {"POST", "/api/todos/1/answer"},
 		{"GET", "/api/members"}, {"POST", "/api/todos/1/merge"}, {"POST", "/api/members"}, {"PATCH", "/api/members/alice"}, {"DELETE", "/api/members/alice"},
 		// Outside the member table: the owner's alone.
-		{"POST", "/api/install/setup/models"}, {"GET", "/api/user/tokens"}, {"POST", "/api/agent/turn/erase"},
+		{"POST", "/api/install/setup/models"}, {"POST", "/api/agent/turn/erase"},
 	}
 	for _, route := range routes {
 		router.MethodFunc(route.method, route.path, served)
 	}
 	router.Put("/api/repos/maya/demo/mythical/lanes", served)
-	ownerOnly := map[string]bool{"GET /api/install": true, "POST /api/install/setup/models": true, "GET /api/user/tokens": true, "POST /api/agent/turn/erase": true}
+	ownerOnly := map[string]bool{"GET /api/install": true, "POST /api/install/setup/models": true, "POST /api/agent/turn/erase": true}
 	maintainerOnly := map[string]bool{"POST /api/todos/1/merge": true, "POST /api/members": true, "PATCH /api/members/alice": true, "DELETE /api/members/alice": true}
 	call := func(method, path, cookie, bearer string, supplied ...string) (int, map[string]any) {
 		var body *strings.Reader
@@ -158,6 +158,10 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			want := http.StatusOK
 			switch {
 			case who == "owner":
+			// Mapped routes reject the revoked session; the unmapped owner-only
+			// route still refuses at its installation boundary.
+			case who == "suspended" && key != "POST /api/agent/turn/erase":
+				want = http.StatusUnauthorized
 			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
 				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
@@ -178,6 +182,9 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			}
 			if want == http.StatusForbidden && who == "member token" && !ownerOnly[key] {
 				message := "Insufficient credential scope"
+				if key == "GET /api/user/tokens" {
+					message = "Not available"
+				}
 				require.Equal(t, message, envelope["message"], key)
 			}
 		}
@@ -286,6 +293,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	// Suspending Ben refuses his very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
-	status, _ = call("GET", "/api/install", cookies["maintainer"], "")
-	require.Equal(t, http.StatusForbidden, status)
+	status, envelope = call("GET", "/api/install", cookies["maintainer"], "")
+	require.Equal(t, http.StatusUnauthorized, status)
+	require.Equal(t, "unauthenticated", envelope["code"])
 }
