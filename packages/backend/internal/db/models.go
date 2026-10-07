@@ -437,6 +437,10 @@ type ChatTurn struct {
 	CreatedAt              time.Time          `json:"created_at"`
 	UpdatedAt              time.Time          `json:"updated_at"`
 	ConversationID         pgtype.Text        `json:"conversation_id"`
+	EntrySeq               int64              `json:"entry_seq"`
+	Summary                pgtype.Text        `json:"summary"`
+	SummaryRev             int64              `json:"summary_rev"`
+	SummaryPendingSince    pgtype.Timestamptz `json:"summary_pending_since"`
 }
 
 type ChatTurnBatch struct {
@@ -2382,6 +2386,15 @@ type RevocationEvent struct {
 	ActorID        pgtype.Int8 `json:"actor_id"`
 	CreatedAt      time.Time   `json:"created_at"`
 	KeyFingerprint string      `json:"key_fingerprint"`
+}
+
+type RunSummary struct {
+	RunID     string    `json:"run_id"`
+	Attempt   int64     `json:"attempt"`
+	Target    string    `json:"target"`
+	Text      string    `json:"text"`
+	Rev       int64     `json:"rev"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type SandboxEgressDailyUsage struct {
