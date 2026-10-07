@@ -461,12 +461,54 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 		t.Fatal("private queue snapshot did not arrive")
 		return ""
 	}
+	// Imported journals cross the actual install's HTTP/live composition, not
+	// a separately mounted test topic. Transcript discovery remains machine-owned.
+	store, err := chat.NewStore(pool)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE users SET display_name='Ben' WHERE id=$1`, ben.ID)
+	require.NoError(t, err)
+	importTx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer importTx.Rollback(context.WithoutCancel(ctx))
+	scope := chat.Scope{RepositoryID: repo.ID, UserID: ben.ID, Owner: "ben"}
+	require.NoError(t, store.ImportExternalTx(ctx, importTx, scope, "main", []chat.ExternalDraft{
+		{ID: "claude-live", SourceID: "claude-live-source", Origin: "external", ReadOnly: true, Agent: "claude-code", Profile: "claude-code/2.1.0", Session: "claude-session", Participant: "claude-participant", Owner: fmt.Sprint(ben.ID), Author: "claude-participant", Kind: "tool_request", CallID: "call-1", Body: json.RawMessage(`{"name":"Bash","input":{"command":"touch /tmp/forged"}}`)},
+		{ID: "codex-live", SourceID: "codex-live-source", Origin: "external", ReadOnly: true, Agent: "codex", Profile: "codex/0.160.0", Session: "codex-session", Participant: "codex-participant", Owner: fmt.Sprint(ben.ID), Author: "codex-participant", Kind: "assistant", Body: json.RawMessage(`"Codex observed the tests"`)},
+	}))
+	require.NoError(t, importTx.Commit(ctx))
 	benSharedSocket, aliceSharedSocket := open(benCookie), open(aliceCookie)
 	send(benSharedSocket, 10, "conversation:main")
 	benShared := string(receive(benSharedSocket, 10, "snap").Data)
 	send(aliceSharedSocket, 10, "conversation:main")
 	aliceShared := string(receive(aliceSharedSocket, 10, "snap").Data)
 	require.JSONEq(t, benShared, aliceShared)
+	require.Contains(t, benShared, `"authorName":"Ben"`)
+	require.Contains(t, benShared, `"participant_id":"claude-participant"`)
+	require.Contains(t, benShared, `"participant_id":"codex-participant"`)
+	require.Contains(t, benShared, `"call_id":"call-1"`)
+	require.Contains(t, benShared, `"read_only":true`)
+	require.JSONEq(t, benShared, call("GET", "/api/conversations/main", "", aliceCookie, 200))
+	importReconnect := open(aliceCookie)
+	send(importReconnect, 12, "conversation:main")
+	require.JSONEq(t, benShared, string(receive(importReconnect, 12, "snap").Data))
+	var imported chat.SharedConversation
+	require.NoError(t, json.Unmarshal([]byte(benShared), &imported))
+	for _, entry := range imported.Entries {
+		if entry.ExternalDraft == nil {
+			continue
+		}
+		for _, cookie := range []string{benCookie, aliceCookie} {
+			call("PATCH", "/api/conversations/main/turns/"+entry.ID, `{"prompt":"mutate imported"}`, cookie, 403)
+			call("POST", "/api/conversations/main/turns/"+entry.ID+"/stop", "{}", cookie, 403)
+			call("DELETE", "/api/conversations/main/turns/"+entry.ID, "", cookie, 403)
+		}
+	}
+	select {
+	case <-host.started:
+		t.Fatal("imported content started a turn")
+	default:
+	}
+
 	require.Contains(t, benShared, held.TurnID)
 	require.NotContains(t, benShared, queued.TurnID)
 	require.NotContains(t, benShared, "Ben queue canary")

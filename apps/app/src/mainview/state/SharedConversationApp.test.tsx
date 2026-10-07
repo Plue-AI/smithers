@@ -272,10 +272,11 @@ test("private host theme instructions use the typed flow once and never cross me
 
 test("install conversation binds imported snapshots through the shared renderer and replaces replay", async () => {
   const { default: imported } = await import("./testdata/external-conversations.json")
+  const { default: journal } = await import("./testdata/external-journal-conversations.json")
   const storage = memoryStorage()
   writeLegacyCollection(storage, "app-messages", imported)
   const store = await createAppStore({ kind: "localStorage", storage })
-  let entries: unknown[] = imported
+  let entries: unknown[] = journal
   let available = true
   let reads = 0
   const topics = new Map<string, Set<() => void>>()
@@ -309,8 +310,8 @@ test("install conversation binds imported snapshots through the shared renderer 
     expect(host.querySelectorAll('article[data-origin="external"]')).toHaveLength(4)
     expect(starts).toBe(0)
     // Each incomplete identity refuses the entire delivery, never a Smithers fallback.
-    for (const field of ["origin", "agent_kind", "format_version", "source_id", "session_id", "participant_id", "actor", "read_only"]) {
-      const invalid = { ...imported[0] } as Record<string, unknown>; delete invalid[field]
+    for (const field of ["origin", "agent", "source_format_version", "source_id", "session_id", "participant_id", "owner_id", "author_id", "author", "authorLogin", "read_only"]) {
+      const invalid = { ...journal[0] } as Record<string, unknown>; delete invalid[field]
       entries = [invalid]
       await controller.sharedConversation!.read()
       await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 0)

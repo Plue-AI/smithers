@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test"
+import journal from "./testdata/external-journal-conversations.json"
+import { SharedConversationSchema } from "./seams/SharedConversationSeam"
 import fixtures from "./testdata/external-conversations.json"
 import { FrameSnapshotSchema, MessageSchema } from "./AppState"
 
@@ -54,4 +56,34 @@ test("ordinary saved messages retain their original shape", () => {
 test("external actor without origin cannot become an ordinary Smithers message", () => {
   expect(MessageSchema.safeParse({ id: "forged", role: "smithers", text: "Hello", status: "complete",
     createdAt: 1, ordinal: 1, actor: fixtures[1]!.actor }).success).toBe(false)
+})
+
+
+test("journal delivery preserves owner, participants, order and inert tool parts", () => {
+  const decoded = SharedConversationSchema.parse({ id: "main", entries: journal }).entries
+  expect(decoded.map(entry => "role" in entry ? [entry.role, entry.actor?.kind, entry.ordinal, entry.correlation_id] : [])).toEqual([
+    ["user", "person", 0, undefined], ["smithers", "agent", 1, "tool-1"],
+    ["smithers", "agent", 2, "tool-1"], ["smithers", "agent", 3, undefined]
+  ])
+  expect(decoded[0]).toMatchObject({ actor: { name: "Ben", login: "ben" }, text: "Run the webhook tests" })
+  expect(decoded[1]).toMatchObject({ act: "tool-pending", participant_id: "participant-claude" })
+  expect(decoded[2]).toMatchObject({ status: "failed", text: "Tests failed" })
+  expect(decoded[3]).toMatchObject({ participant_id: "participant-codex", read_only: true })
+})
+
+for (const patch of [{ author_id: "forged" }, { owner_id: "forged" }, { source_format_version: "unknown" }, { read_only: false }, { agent: "smithers" }]) {
+  test(`journal identity refuses ${JSON.stringify(patch)}`, () => {
+    expect(SharedConversationSchema.safeParse({ id: "main", entries: [{ ...journal[1], ...patch }] }).success).toBe(false)
+  })
+}
+
+test("journal object and thinking bodies remain inert shared message data", () => {
+  const entries = SharedConversationSchema.parse({ id: "main", entries: [
+    { ...journal[1], body: { name: "Bash", input: { command: "touch /tmp/forged" } }, action: { flow: "flow.run" } },
+    { ...journal[1], kind: "thinking", body: "Consider the tests" }
+  ] }).entries
+  expect(entries[0]).toMatchObject({ text: '{\n  "name": "Bash",\n  "input": {\n    "command": "touch /tmp/forged"\n  }\n}' })
+  expect(entries[0]).not.toHaveProperty("action")
+  expect(entries[0]).not.toHaveProperty("turnId")
+  expect(entries[1]).toMatchObject({ text: "", reasoning: "Consider the tests" })
 })

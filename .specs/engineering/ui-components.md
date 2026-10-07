@@ -360,6 +360,8 @@ Private entries show the Draft "Only you" lock chip. A tombstone shows only the 
 
 [S2, M-38] T-AGT-03 supplies existing chat components with normalized message/tool/error parts plus `origin: "external"`, `agent_kind: "claude-code" | "codex"`, `format_version: string`, `source_id: string`, `session_id: string`, `participant_id: string`, `actor: Actor` and `read_only: true`. Assistant/tool actors match the agent kind, session and participant id and include the acting-for member; prompt actors name the owner. Missing metadata rejects the record rather than decoding it as Smithers. Durable snapshots preserve these fields. Tool calls/results retain their correlation id; edit reports retain path and reported outcome. Mutation action lists are empty. Copy, disclosure and navigation use existing handlers. smithers-06 owns presentation in T-UI-07 and T-UI-01; smithers-b8 owns binding. No new View or card is introduced. Check: C-AGT-02.
 
+The authenticated conversation HTTP and live projection delivers T-AGT-02 journal drafts (`agent`, `source_format_version`, `kind`, `body`, `owner_id`, `author_id`) with `author`, `authorLogin` and the owner's `authorName`. The shared conversation seam validates the pinned profile and owner/participant identity, then maps to the message contract above. Object bodies remain text, thinking remains a disclosure, and journal order supplies message ordinals. Persisted browser messages and design fixtures retain their existing contract.
+
 ```ts
 // Open branches only; a closed branch's conversation opens from its merged TODO.
 // "earlier" is the single read-only node for legacy per-member conversations (spec §14.1.5).

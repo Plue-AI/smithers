@@ -1,12 +1,14 @@
 import { expect, test } from "../browserTest"
 import { installCloudFixture } from "../cloudFixture"
 import { say } from "./j1-fixtures"
-import imported from "../../../src/mainview/state/testdata/external-conversations.json"
+import imported from "../../../src/mainview/state/testdata/external-journal-conversations.json"
 
 // Mounted install app with a contract fake. Real broker, authenticated refusal,
 // Ben/Maya sessions and latency remain T-AGT-02/Mac mini qualification evidence.
 for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
   test(`C-AGT-02: imported branch snapshot ${theme} ${width}`, async ({ page }) => {
+    // This check reloads once for each required identity field, plus recovery.
+    test.setTimeout(180_000)
     await page.setViewportSize({ width, height: 900 })
     await installCloudFixture(page, { capabilities: ["install", "identity", "agent"] })
     let entries: unknown[] = imported
@@ -29,7 +31,7 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     const rows = page.locator('article[data-origin="external"]')
     await expect(rows).toHaveCount(4)
     for (const label of ["Claude Code for Ben", "Codex for Ben"]) await expect(rows.getByRole("img", { name: label, exact: true }).last()).toBeVisible()
-    for (const label of ["Run the webhook tests", "Tests failed"]) await expect(page.getByText(label, { exact: true }).last()).toBeVisible()
+    for (const label of ["Run the webhook tests", "Tests failed"]) await expect(rows.getByText(label, { exact: true }).last()).toBeVisible()
     expect(await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-participant-id")))).toEqual(["participant-claude", "participant-claude", "participant-claude", "participant-codex"])
     for (const name of ["Edit", "Resend", "Answer", "Approve", "Retry", "Stop", "Steer"]) await expect(rows.getByRole("button", { name, exact: true })).toHaveCount(0)
     expect(admitted.size).toBe(0)
@@ -40,7 +42,7 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     await expect(page.getByText("Run the webhook tests", { exact: true })).toHaveCount(1)
     await say(page, "Hello Smithers")
     await expect.poll(() => admitted.size).toBe(1)
-    for (const field of ["origin", "agent_kind", "format_version", "source_id", "session_id", "participant_id", "actor", "read_only"]) {
+    for (const field of ["origin", "agent", "source_format_version", "source_id", "session_id", "participant_id", "owner_id", "author_id", "author", "authorLogin", "read_only"]) {
       const invalid = { ...imported[0] } as Record<string, unknown>; delete invalid[field]
       entries = [invalid]
       await page.reload()

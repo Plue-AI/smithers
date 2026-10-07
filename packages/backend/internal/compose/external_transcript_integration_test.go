@@ -36,7 +36,7 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
 	user := func(login string) db.User {
-		u, err := q.CreateUser(ctx, db.CreateUserParams{Username: login, LowerUsername: login, DisplayName: login})
+		u, err := q.CreateUser(ctx, db.CreateUserParams{Username: login, LowerUsername: login, DisplayName: strings.ToUpper(login[:1]) + login[1:]})
 		require.NoError(t, err)
 		return u
 	}
@@ -180,6 +180,8 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	require.Contains(t, shared, `"The answer is 42"`)
 	require.Contains(t, shared, `"origin":"external"`)
 	require.Contains(t, shared, `"read_only":true`)
+	require.Contains(t, shared, `"authorName":"Ben"`)
+	require.Contains(t, shared, `"authorLogin":"ben"`)
 	require.JSONEq(t, shared, call("GET", "/api/conversations/"+branch.ID, "", aliceCookie, 200))
 	var conversation chat.SharedConversation
 	require.NoError(t, json.Unmarshal([]byte(shared), &conversation))

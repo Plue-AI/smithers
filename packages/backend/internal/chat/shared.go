@@ -28,6 +28,7 @@ type SharedTurn struct {
 	Tone        string                  `json:"tone"`
 	Author      int64                   `json:"author"`
 	AuthorLogin string                  `json:"authorLogin"`
+	AuthorName  string                  `json:"authorName,omitempty"`
 	RunID       string                  `json:"runId"`
 	Prompt      string                  `json:"prompt"`
 	State       State                   `json:"state"`
@@ -106,6 +107,9 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 				return result, ErrCorrupt
 			}
 			entry.ExternalDraft = &request.External
+			if err := tx.QueryRow(ctx, `SELECT display_name FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorName); err != nil {
+				return result, err
+			}
 		}
 		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorLogin); err != nil {
 			return result, err
