@@ -813,6 +813,115 @@ mod tests {
     }
 
     #[test]
+    fn event_service_replays_real_bundle_and_waits_for_authenticated_receipt() {
+        use crate::hooks::EventSink;
+        use std::sync::{
+            atomic::{AtomicU32, Ordering},
+            Arc,
+        };
+        let source = Fixture::new();
+        let destination = Fixture::new();
+        let head = source.commit();
+        let ids = Arc::new(AtomicU32::new(10));
+        let allocator = ids.clone();
+        let events = crate::event_service::Events::new(
+            source.outbox(),
+            source.repository.clone(),
+            move || Ok(allocator.fetch_add(1, Ordering::SeqCst)),
+        )
+        .unwrap();
+        events.ready().unwrap();
+        let (seq, event_id) = events
+            .append(&outbox::captured(head, [2; 20], [3; 20]), Some(head))
+            .unwrap();
+        let first = events.poll().unwrap().remove(0);
+        assert_eq!((first.kind, first.stream), (6, 10));
+        assert_eq!(first.payload[..2], [1, 0]);
+        assert_eq!(source.repository.clone().pending().unwrap(), [event_id]);
+        // An early close cannot certify import or delete the durable entry.
+        assert!(events
+            .frame(&Frame {
+                kind: 6,
+                stream: 10,
+                payload: vec![7]
+            })
+            .is_err());
+        events.reconnect().unwrap();
+        let mut bundle = Vec::new();
+        loop {
+            let frames = events.poll().unwrap();
+            assert_eq!(frames.len(), 1);
+            let frame = &frames[0];
+            assert_eq!((frame.kind, frame.stream), (6, 11));
+            if frame.payload[0] == 2 {
+                break;
+            }
+            assert_eq!(&frame.payload[..2], &[1, 0]);
+            bundle.extend_from_slice(&frame.payload[2..]);
+            let mut window = vec![6];
+            window.extend(((frame.payload.len() - 2) as u32).to_be_bytes());
+            assert!(events
+                .frame(&Frame {
+                    kind: 6,
+                    stream: 11,
+                    payload: window
+                })
+                .unwrap()
+                .is_none());
+        }
+        let incoming = destination
+            .repository
+            .receive(&bundle[..], 4 * 1024 * 1024)
+            .unwrap();
+        destination.repository.import(&incoming, head).unwrap();
+        assert!(destination.repository.contains(head).unwrap());
+        assert_eq!(
+            destination
+                .repository
+                .command(&["show", &format!("{}:file", hex(&head))])
+                .unwrap(),
+            fs::read(source.root.join("blob")).unwrap(),
+        );
+        let durable = events
+            .frame(&Frame {
+                kind: 6,
+                stream: 11,
+                payload: vec![7],
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            crate::conn::Durable::decode(&durable.payload).unwrap().seq,
+            seq
+        );
+        assert!(events.poll().unwrap().is_empty());
+        assert_eq!(source.repository.clone().pending().unwrap(), [event_id]);
+        assert!(events
+            .frame(&Frame {
+                kind: 2,
+                stream: 0,
+                payload: conn::tagged(
+                    3,
+                    &[conn::field(1, (seq + 1).to_be_bytes()), conn::field(2, [1]),]
+                ),
+            })
+            .is_err());
+        assert_eq!(source.repository.clone().pending().unwrap(), [event_id]);
+        assert_eq!(source.repository.acknowledged().unwrap(), None);
+        events
+            .frame(&Frame {
+                kind: 2,
+                stream: 0,
+                payload: conn::tagged(3, &[conn::field(1, seq.to_be_bytes()), conn::field(2, [1])]),
+            })
+            .unwrap();
+        assert!(events.poll().unwrap().is_empty());
+        assert!(source.repository.clone().pending().unwrap().is_empty());
+        assert_eq!(source.repository.acknowledged().unwrap(), Some(head));
+        assert_eq!(ids.load(Ordering::SeqCst), 12);
+    }
+
+    #[test]
     fn invalid_or_oversized_incoming_never_advances_a_ref_and_removes_spool() {
         let fixture = Fixture::new();
         assert!(fixture.repository.receive(&b"12345"[..], 4).is_err());

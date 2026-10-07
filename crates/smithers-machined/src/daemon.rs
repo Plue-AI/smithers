@@ -44,6 +44,11 @@ impl Daemon {
     pub fn serve(&self, mut connection: crate::link::Authenticated) -> Result<(), ProtocolError> {
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.roster.store(false, Ordering::Release);
+        self.executor
+            .lock
+            .run_blocking("event_reconnect", |cx| cx.hooks.events.reconnect())
+            .map_err(|_| ProtocolError::Truncated)?
+            .map_err(|_| ProtocolError::Truncated)?;
         let writer = Arc::new(Mutex::new(
             connection
                 .stream()
@@ -56,8 +61,12 @@ impl Daemon {
         let lock = self.executor.lock.clone();
         let session_reconciled = self.reconciled.clone();
         let session_roster = self.roster.clone();
+        let responder_generation = self.generation.clone();
         let responder = std::thread::spawn(move || {
             loop {
+                if responder_generation.load(Ordering::Acquire) != generation {
+                    break;
+                }
                 match rx.recv_timeout(std::time::Duration::from_millis(25)) {
                     Ok(receipt) => {
                         let receipt: crate::lock::Receipt<Result<Option<Frame>, ProtocolError>> =
@@ -78,11 +87,16 @@ impl Daemon {
                 }
                 let reconciled = session_reconciled.clone();
                 let roster = session_roster.clone();
+                let current = responder_generation.clone();
                 let frames = match lock.run_blocking(
                     "stream_tick",
                     move |cx| -> crate::hooks::Result<Vec<Frame>> {
+                        if current.load(Ordering::Acquire) != generation {
+                            return Ok(vec![]);
+                        }
                         let mut frames = cx.hooks.documents.clone().poll(cx)?;
                         if reconciled.load(Ordering::Acquire) && roster.load(Ordering::Acquire) {
+                            frames.extend(cx.hooks.events.poll()?);
                             cx.hooks.sessions.ready()?;
                             frames.extend(cx.hooks.sessions.poll()?);
                         }
@@ -113,22 +127,36 @@ impl Daemon {
                     .map_err(|_| ProtocolError::Truncated)?;
                 continue;
             }
-            if matches!(frame.kind, 0 | 2 | 3 | 6) {
+            if matches!(frame.kind, 0 | 3) {
                 return Err(ProtocolError::HandshakeOrder);
             }
             let state = self.reconciled.clone();
             let roster = self.roster.clone();
+            let current = self.generation.clone();
             let receipt = self
                 .executor
                 .lock
                 .enqueue("host_rpc", move |cx| {
+                    if current.load(Ordering::Acquire) != generation {
+                        return Err(ProtocolError::HandshakeOrder);
+                    }
                     if frame.kind != 1 {
                         if !(state.load(Ordering::Acquire) && roster.load(Ordering::Acquire)) {
+                            if matches!(frame.kind, 2 | 6) {
+                                return Err(ProtocolError::HandshakeOrder);
+                            }
                             return Ok(Some(Frame {
                                 kind: frame.kind,
                                 stream: frame.stream,
                                 payload: conn::tagged(255, &not_ready().fields()),
                             }));
+                        }
+                        if matches!(frame.kind, 2 | 6) {
+                            return cx
+                                .hooks
+                                .events
+                                .frame(&frame)
+                                .map_err(|_| ProtocolError::BadValue);
                         }
                         return rpc::dispatch_input(&frame, cx);
                     }

@@ -36,6 +36,7 @@ pub mod link;
 pub mod objects;
 pub mod oplog;
 pub mod outbox;
+pub mod event_service;
 pub mod reconcile;
 pub mod rewrite_journal;
 

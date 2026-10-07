@@ -192,6 +192,17 @@ pub trait Broker: Send + Sync {
     }
 }
 pub trait EventSink: Send + Sync {
+    /// The authenticated link owns reconnect and receipts; append never waits
+    /// for a network write on the mutation executor.
+    fn reconnect(&self) -> Result<()> {
+        Ok(())
+    }
+    fn poll(&self) -> Result<Vec<Frame>> {
+        Ok(vec![])
+    }
+    fn frame(&self, _frame: &Frame) -> Result<Option<Frame>> {
+        Err(Error::unsupported())
+    }
     /// Report readiness only after this provider's real dependencies are ready.
     /// Implementing an operation alone must not activate a partial daemon.
     fn ready(&self) -> Result<()> {
