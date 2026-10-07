@@ -1,3 +1,10 @@
+import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
+import * as DurableWriter from "@smthrs/database/DurableWriter"
+import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
+import { Node } from "@smthrs/plan"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { deliverSignal } from "@smthrs/agent/AgentSession"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import { Control } from "@smthrs/control/Control"
@@ -13,16 +20,16 @@ import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as Migrations from "@smthrs/engine-store/Migrations"
 import * as OwnerIdentity from "@smthrs/engine-store/OwnerIdentity"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { Action, DurableDeferred, FlowRuntime, Interpreter, WaitFor } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter, WaitFor } from "@smthrs/flow"
 import * as Jj from "../../packages/smithers/flows/jj/src/index.ts"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
 import * as AttemptStore from "@smthrs/run-store/AttemptStore"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import * as CacheStore from "../../packages/smithers/flows/step-cache/src/CacheStore.ts"
-import { Effect, Layer, Option } from "effect"
+import { Effect, Layer, ManagedRuntime, Option, Schema, Scope } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { TodoBoundary, TodoPauseRequested, todoResumeLayer } from "../coding/todo-pause.ts"
+import { TodoBoundary, TodoPauseRequested, todoResumeLayer, todoPauseLayer } from "../coding/todo-pause.ts"
 
 const database = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }),
   RunStore.layer, AttemptStore.layer, CacheStore.layer, DurableEngineState.layer).pipe(
@@ -83,4 +90,67 @@ for (const generation of [null, 1, 2]) test(`TODO boundary journals pause cycle 
     yield* TodoBoundary.execute({}, { executionId: run })
     assert.equal(observations, 1)
   }).pipe(Effect.provide(layer), Effect.scoped))
+})
+
+// A real root composition observes the admitted inbox, then survives a complete
+// host shutdown while parked. The second host must replay completed work and
+// settle the same durable wait rather than starting another attempt.
+test("TODO pause survives a cold SQLite host restart without repeating finished work", { timeout: 30_000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "todo-pause-cold-"))
+  let release!: () => void
+  const running = new Promise<void>(resolve => { release = resolve })
+  let entered = 0, finished = 0
+  const Before = Action.make("test/todo-before", { payload: {}, success: Schema.Void })
+  const After = Action.make("test/todo-after", { payload: {}, success: Schema.Void })
+  const Todo = Flow.make("todo", { payload: {}, success: Schema.Void,
+    error: TodoBoundary.errorSchema,
+    body: () => Before.call({}).pipe(Node.andThen(TodoBoundary.call({})), Node.andThen(After.call({}))) })
+  const open = () => {
+    const sqlite = DurableWriter.layer().pipe(Layer.provideMerge(NodeDatabase.layer({ filename: join(directory, "engine.db") })))
+    const persistence = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }),
+      RunStore.layer, AttemptStore.layer, CacheStore.layer, DurableEngineState.layer).pipe(
+      Layer.provideMerge(Layer.effectDiscard(Migrations.run)), Layer.provideMerge(Layer.merge(sqlite, NodeCrypto.layer)))
+    const engine = Layer.mergeAll(Interpreter.layer(Todo), Interpreter.layer(TodoBoundary), WaitFor.layer, todoPauseLayer,
+      Before.toLayer(() => Effect.promise(async () => { entered++; await running })),
+      After.toLayer(() => Effect.sync(() => { finished++ }))).pipe(
+      Layer.provideMerge(Layer.succeed(ModuleOwner, { rootId: "cold-todo", flowId: "todo" })),
+      Layer.provideMerge(SqlControlRuntime.layer({}).pipe(Layer.orDie)),
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(EngineStore.layer({ owner: { hostId: "cold-host" }, journalSource: "cold-host", isAlive: () => Effect.succeed(false) })),
+      Layer.provideMerge(Layer.mergeAll(StepBoundary.layerTest(), Layer.succeed(Jj.Jj, jj), OwnerIdentity.layer)),
+      Layer.provideMerge(persistence))
+    return ManagedRuntime.make(Layer.merge(engine, plane).pipe(Layer.provideMerge(engine), Layer.provide(Layer.effect(Scope.Scope)(Effect.scope))))
+  }
+  const parked = Effect.gen(function*() {
+    const summary = yield* (yield* ControlRuntime).getRun("cold-todo")
+    return summary.pendingWaits?.some(wait => wait.name === "resume" && wait.attempt === 1) === true
+  })
+  let host = open()
+  try {
+    await host.runPromise(Todo.execute({}, { executionId: "cold-todo", discard: true }))
+    await host.runPromise(TestDatabase.until(Effect.sync(() => entered === 1)))
+    await host.runPromise(Effect.gen(function*() {
+      yield* (yield* Control).signal({ runId: "cold-todo", signal: { name: "pause", payload: 1 }, idempotencyKey: "stop-cold" })
+    }))
+    release()
+    // The host inbox poll normally reconciles the admitted rendezvous.
+    await host.runPromise(TestDatabase.until(Effect.gen(function*() {
+      const control = yield* Control
+      yield* control.signal({ runId: "cold-todo", signal: { name: "pause", payload: 1 }, idempotencyKey: "stop-cold" })
+      return yield* parked
+    })))
+    assert.equal(finished, 0)
+    await host.dispose()
+    host = open()
+    assert.equal(await host.runPromise(parked), true)
+    await host.runPromise(Todo.resume("cold-todo"))
+    assert.equal(entered, 1)
+    assert.equal(finished, 0)
+    await host.runPromise(Effect.gen(function*() {
+      yield* (yield* Control).signal({ runId: "cold-todo", signal: { name: "resume#1", payload: 1 }, idempotencyKey: "resume-cold" })
+      yield* TestDatabase.until(Effect.gen(function*() { return (yield* (yield* RunStore.RunStore).get("cold-todo")).status === "completed" }))
+    }))
+    assert.equal(entered, 1)
+    assert.equal(finished, 1)
+  } finally { release(); await host.dispose(); await rm(directory, { recursive: true, force: true }) }
 })
