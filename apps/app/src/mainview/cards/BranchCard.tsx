@@ -92,6 +92,7 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
       input: [{ name: "text", label: "Steer the coding agent", kind: "text", required: true, multiline: true }],
       command_input: { n, text: "" }, resolve_input: input => ({ n, text: input.text ?? "" }) })
   }
+  if (model.scratch && model.machine.state !== "closed") definitions.push({ tag: "branch.add-to-stack", label: "Add to stack", primary: true, command_input: { text: model.name } })
   // The current Fork provider accepts main or a TODO. A scratch branch must not silently fork main.
   if (n !== undefined || model.name === "main") definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from: n === undefined ? "main" : `T${n}` } })
   return definitions.filter(definition => providers.has(definition.tag))
@@ -165,10 +166,10 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   const controls = controller.branchControls
   if (controls?.available("sleep")) providers.add("box.suspend")
   if (controls?.available("wake")) providers.add("box.resume")
-  if (controls?.available("add-to-stack")) providers.add("branch.add-to-stack")
   if (controls?.available("rebase")) { providers.add("branch.rebase-now"); providers.add("branch.rebase") }
   if (controls?.available("return-to-item")) providers.add("todo.return-to-item")
   if (controls?.available("keep-moved")) providers.add("todo.keep-moved")
+  if (controller.addBranchToStack) providers.add("branch.add-to-stack")
   if (typeof controller.answerTodo === "function" && questionWait !== undefined) providers.add("todo.answer")
   if (typeof controller.steerTodo === "function") providers.add("todo.steer")
   const dispatch: CardCommandDispatch = (tag, input) => controller.commands.submit({
