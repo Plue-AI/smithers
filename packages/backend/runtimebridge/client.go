@@ -463,6 +463,9 @@ func (c *Client) Steer(ctx context.Context, request flowruntime.FlowRuntimeSteer
 		"applicationRequestId": request.ApplicationRequestID, "ownerGeneration": request.OwnerGeneration,
 		"runId": request.RunID, "messageId": request.MessageID, "createdAt": request.CreatedAt, "steer": steer,
 	}
+	if request.InputVersion > 0 {
+		input["version"] = request.InputVersion
+	}
 	if len(request.Attribution) > 0 {
 		input["attribution"] = request.Attribution
 	}
