@@ -243,6 +243,28 @@
             "branch": {
               "type": "string"
             },
+            "conflict_change": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "onto_revision": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
