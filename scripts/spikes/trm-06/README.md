@@ -1,93 +1,90 @@
-# T-TRM-06 protocol probes
+# T-TRM-06 disposable session probe
 
-**INCOMPLETE; activation refused.** No C-SPK-08 or C-SEC-02 passing result,
-recording, revocation timing, RSS measurement or accepted security receipt exists
-in this lane. Issue #3554 remains open under the lead's claim. Ready identity:
-`sha256:0f0689e4c249`.
+**Incomplete; activation refused.** No real C-SPK-08 result, VS Code recording,
+revocation/RSS measurement or accepted root-validation receipt has been produced.
+The lead holds #3554. No product registration exists. Delete this directory when
+T-TRM-07 records the validated result.
 
-`run.sh`, `revoke.sh` and `flow.sh` exit 78 with
-`unavailable/prototype_authority_unavailable` before any external command.
-Arguments, receipt paths and environment flags cannot enable them. Go and Rust
-entry points also refuse; they bind no listener and perform no setup, cleanup,
-spawn or relay. No branch-built probe is installed or executed by root, and no
-branch-built gateway is run on the host. Unit test binaries run unprivileged.
-An authenticated installed-artifact/receipt provider is still absent; a file
-containing `accepted: true` is not authority. This directory has no product
-startup registration.
+`run.sh`, `revoke.sh`, `flow.sh` and the gateway executable still exit 78 before
+root setup, relay or listening. Arguments, files containing `accepted: true`,
+PATH, import paths and environment switches cannot enable them. The supervisor
+also refuses root startup. Its fixed TCP worker mode checks the already dropped
+Ben/agent UID, GID and supplementary team group before connecting to guest
+loopback; it cannot start as root or as another user.
 
-## Built probe contracts
+## Built adapters
 
-- Rust frames: `data`, `eof`, `resize`, `signal`, `exit`, `exit_signal`,
-  `window`, `close`. Four-byte big-endian length followed by strict tagged JSON;
-  65,536-byte envelope, 8,192-byte data payload (byte arrays), 262,144-byte
-  per-direction replay/credit bound. Stream 0 is stdin, 1 stdout, 2 stderr.
-  Exit signal is a separate probe variant; this is not an ADR 0004 amendment.
-- Rust replay retains only unacknowledged bytes, rejects impossible or stale
-  offsets, and refuses writes without credit. It is a pure accounting probe;
-  it is not connected to process pipes, SSH windows or a reconnect timer.
-- Linux startup cleanup walks fixed root-owned, non-writable ancestors without
-  following symlinks, requires cgroup v2, opens child cgroups by held descriptor,
-  writes every `cgroup.kill` before polling, and requires exact `populated 0`
-  under one shared two-second deadline. It is compiled, not run on real cgroups.
-  The guest helper is a design reference, never a cleanup subprocess or oracle.
-  The inline polling loop is replaced by a shared policy tested with deterministic
-  clock/kernel faults: all kills precede reads, every child is observed, one
-  deadline includes descriptor resolution, and kill/read errors refuse admission.
-- Dormant Linux child identity drop pins Ben 20001 or agent 19999, supplementary
-  team group 20000, matching primary GID, and umask 002. It sets real/effective/
-  saved GID and UID, verifies all credentials, and returns an error at the first
-  failed operation. It is not called by a process launcher; account provisioning
-  and real before-payload identity observations remain unimplemented. Mac tests
-  inject syscall failures; Linux code is cross-compiled, not executed.
-- The dormant Go channel adapter pumps real SSH channels into length-prefixed
-  frames: numeric byte arrays match Rust, stdin half-close is preserved, stdout
-  and stderr remain separate, and exit status/signals use SSH messages. Input
-  credit is capped at 256 KiB; output credit is returned only after the SSH
-  channel write finishes. Unknown/malformed guest envelopes, duplicate fields, trailing JSON and null/non-integer byte elements refuse before SSH output.
-  A real SSH dispatch regression confirms an ambiguous guest exit closes the
-  channel without emitting an SSH exit status. Channel
-  dispatch supports session and loopback direct-tcpip only. Missing session
-  authority rejects both channel kinds before acceptance. PTY open requests
-  retain the terminal name and encoded modes alongside dimensions. An installed
-  authenticated session opener must supply each stream; entrypoints still refuse.
-  A real loopback SSH test exercises binary stdin, EOF, split output, returned
-  credit and exit 7 against a synthetic guest stream, not the production relay. Another real SSH
-  boundary test preserves PTY settings and refuses session/direct-tcpip without
-  an opener; it does not start a guest PTY or establish installed authority.
-- Go maps shell/exec/PTY/SFTP/direct-tcpip and resize/signal/exit requests, refuses
-  agent and remote forwarding, restricts TCP to literal guest loopback targets,
-  and returns fixed fresh-only `DefaultImage` configuration with nil environments
-  and artifacts. Its transport seam calls existing `DialWorkspacePort` at port
-  970. No direct guest-test dial or host execution fallback is present.
+- Frames: strict tagged JSON behind a four-byte big-endian length; `data`,
+  `eof`, `resize`, `signal`, `exit`, `exit_signal`, `window`, `close`. Envelopes
+  are at most 65,536 bytes; data at most 8,192 bytes, encoded as numeric arrays.
+  Stream 0 is stdin, 1 stdout, 2 stderr. Fatal exit signals do not expand the
+  admitted host signal list.
+- `control.rs` dispatches authenticated open/attach/close/kill/restart operations.
+  Member requests cannot select uid, cgroup, run, environment or cwd. The boot
+  provider must mutually authenticate the installed relay before dispatch.
+- The owned registry admits at most 256 sessions. Closed execs and foreground
+  exits retain cgroup ownership for lingering children. Failed drain does not
+  forget ownership; failed startup/restart refuses new admission. Disconnect
+  grace is 30 seconds and repeated disconnects cannot extend it.
+- Linux cgroups are created exclusively under a held root-owned cgroup-v2 parent.
+  Children join through an already opened descriptor before fixed group/GID/UID
+  drop and umask 002. Startup kills every old child before observing any, requires
+  populated 0 under a shared two-second deadline, then removes the empty groups.
+  Revocation drains all selected groups under a shared five-second deadline.
+  These are policy bounds, **not measured restart or revocation results**.
+- The Linux launch adapter starts PTY/exec, the fixed installed-image SFTP server
+  `/usr/lib/openssh/sftp-server`, or an installed supervisor TCP worker. All
+  executable/member filesystem/network operations occur after drop. PTY terminal
+  name, RFC 4254 modes, size, resize and permitted process-group signals are wired.
+  Account provisioning is fresh-image-only, validates fixed account bindings,
+  refuses existing homes, initializes private homes/workspace and cgroup parents.
+- A Landlock ABI 3 write boundary confines dropped processes to workspace/home,
+  with only fixed kernel sink devices `/dev/null`, `/dev/zero`, `/dev/tty` excepted.
+  Unsupported kernels refuse. This additional prerequisite and device policy
+  need reference-host/root-boundary review; no product decision is implied.
+- Live process pipes stop reading at 256 KiB of unacknowledged output, with an
+  additional 8,192-record metadata cap. Replay preserves each data stream and
+  retained frame order. Input credit is returned after pipe writes. First-process
+  exit does not wait for background descendants to close inherited output pipes.
+- The Go listener fixes authentication to Ben's key and username, caps concurrent
+  connections at 128, owns stalled handshakes, rejects agent/remote forwarding,
+  and maps session and literal loopback direct-tcpip channels to guest frames.
+  The installed relay opener uses `DialWorkspacePort(970)` only, after provider
+  boot authentication, with no direct dial or local executable fallback.
+- Reattachment retains at most 256 KiB of stdin, resends only unaccepted bytes,
+  skips previously delivered output EOF, and restores lost input credit. The
+  probe attach reply includes accepted input (`received`), consumed input
+  (`written`) and `input_eof`. Those extra snapshot fields are needed to resolve
+  lost WINDOW/EOF ambiguity; they are a proposed amendment, not an accepted wire
+  contract. Unacknowledged signal requests are not replayed.
 
-Host PTY wrappers and host SSH viewers have no guest session-frame or cgroup
-lifecycle. These disposable additions replace no product path. Delete this
-entire directory when T-TRM-07 records validated results.
+## Local validation
 
-## Validation and remaining work
-
-Run unprivileged from the repository root:
+Run unprivileged, with the lane toolchain and `$HOME/.cargo/bin` on PATH:
 
 ```sh
 python3 scripts/spikes/trm-06/test_launcher.py
-go test ./scripts/spikes/trm-06/gateway
-go build -o /tmp/trm06-gateway ./scripts/spikes/trm-06/gateway
+go test ./scripts/spikes/trm-06/gateway -timeout 10s
 go vet ./scripts/spikes/trm-06/gateway
 cargo test --locked --manifest-path scripts/spikes/trm-06/supervisor/Cargo.toml
-cargo check --locked --target aarch64-unknown-linux-musl --all-targets --manifest-path scripts/spikes/trm-06/supervisor/Cargo.toml
+cargo clippy --locked --all-targets --manifest-path scripts/spikes/trm-06/supervisor/Cargo.toml -- -D warnings
 ```
 
-The launcher regression is refusal-only (18 entry-point/argument combinations
-with poisoned PATH/import/environment and unchanged outside sentinel). It is
-**not** either root-validation subcheck: it lacks the installed positive control,
-real init/start/restart and authenticated SSH/relay dispatch.
+SSH listener/channel tests use synthetic guest streams. Reconnect tests use
+synthetic relay peers. Rust live-pipe and framed TCP tests start literal
+unprivileged host fixtures. None uses real cgroups, fixed guest identities,
+installed authority, init or `DialWorkspacePort`; none is a passing C-SPK-08
+root-validation receipt. The launcher test is refusal-only (18 combinations).
 
-Still required in #3554: authenticated installed-main provenance and accepted
-T-SEC-01 R1–R3 receipts; fixed account provisioning and process-launch integration
-of the dormant privilege drop; guest PTY/exec/SFTP/TCP execution and owned cgroup registry; authenticated multiplexed
-control/data dispatch; SSH listener/authentication and installed channel-adapter wiring; close,
-revocation and restart operations; live flow control/reattachment; both real
-root-validation matrices; the nine C-SPK-08 steps on the reference host with
-VS Code on a second Mac; raw samples and screen recording. No result for
-T-TRM-07 can be accepted until those run. The five-second and two-second bounds
-remain requirements, not measured claims.
+## Pending install/reference-host work
+
+The installed-main artifact and accepted-receipt authority provider is absent.
+It must supply trusted listener/key/boot bindings, pin all prototype and base
+SFTP executable bytes, provision a fresh `DefaultImage` with nil environments,
+and invoke the installed supervisor/init and real relay adapters. No test fake
+may authorize activation. The launcher and executable main wiring remain
+unavailable until that provider exists.
+
+Use [reference-host.md](reference-host.md) for the nine steps, both actual root
+validation matrices and independent samples. A Mac mini with a microVM runtime
+is required; VS Code Remote recording requires a person on a second Mac.
