@@ -275,6 +275,9 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			if err != nil {
 				return nil, err
 			}
+			if err = projectTerminalAgents(terminals, presence); err != nil {
+				return nil, err
+			}
 			model["terminals"] = terminals
 		}
 		moved, err := p.queries.WorkspaceMovedOff(ctx, current.ID)
