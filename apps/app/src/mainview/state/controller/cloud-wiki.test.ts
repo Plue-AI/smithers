@@ -55,11 +55,10 @@ const fixture = async (storage = memory()) => {
   await signIn(store)
   const doc = new Y.Doc()
   doc.getText("markdown").insert(0, "# Page\n\nStart")
-  let revision = 1
+  const revision = 1
   const slug = "home"
   let pageId = 42
   const posts: string[] = []
-  const patches: unknown[] = []
   const bootstrap = () => ({
     page: {
       id: pageId,
@@ -76,7 +75,7 @@ const fixture = async (storage = memory()) => {
   })
   const connect = (store: AppStore) => {
     const services: AppServices = {
-      fetchImpl: async (input, init) => {
+      fetchImpl: async (input) => {
         const url = String(input)
         // Every wiki request carries its space (#1922); the fixture answers by route, not by the query.
         if (!/[?&]visibility=(public|private)(&|$)/.test(url)) throw new Error(`Wiki request without a space: ${url}`)
@@ -84,14 +83,6 @@ const fixture = async (storage = memory()) => {
         if (/\/(updates|stream)$/.test(path)) {
           posts.push(path)
           return new Response(null, { status: 404 })
-        }
-        if (init?.method === "PATCH") {
-          const input = JSON.parse(String(init.body))
-          patches.push(input)
-          if (input.expected_revision !== revision) return Response.json({ message: "Wiki page changed", code: "conflict" }, { status: 409 })
-          doc.transact(() => { const text = doc.getText("markdown"); text.delete(0, text.length); text.insert(0, input.body) })
-          revision++
-          return Response.json(bootstrap().page)
         }
         if (path.endsWith("/document")) return Response.json(bootstrap())
         throw new Error(`Unexpected Wiki request ${url}`)
@@ -116,8 +107,6 @@ const fixture = async (storage = memory()) => {
     ctx,
     wiki,
     posts,
-    patches,
-    advance: () => { revision++ },
     services,
     bootstrap,
     doc,
@@ -261,48 +250,24 @@ for (const staleResult of ["success", "lost acknowledgement"] as const) {
 }
 
 describe("Wiki live transport admission", () => {
-  test("the S2 edit door waits for admission and uses the displayed revision", async () => {
+  test("the production edit door refuses while chat and real page reads remain available", async () => {
     const f = await fixture()
     const { controller, admissions } = commandsFor(f)
     cleanup.push(() => controller.dispose())
     await controller.openCloudWiki(repo, "home")
+    expect(f.store.collections.worldDocuments.get(id)?.cloud?.phase).toBe("cached")
     const before = f.store.collections.worldDocuments.get(id)!.body
-    const command = controller.commands.run("wiki.edit", `${id} ${JSON.stringify("# App decision")}`)
+    const command = controller.commands.run("wiki.edit", `${id} ${JSON.stringify("# refused draft")}`)
     await f.store.settled?.()
     expect(f.store.collections.worldDocuments.get(id)!.body).toBe(before)
-    expect(f.patches).toEqual([])
+    expect(f.posts).toHaveLength(0)
+    const unrelated = await controller.openCloudWiki(repo, "home")
+    expect(unrelated).toHaveProperty("value")
     admissions[0]!.resolve()
-    await command
-    expect(f.patches).toEqual([{ body: "# App decision", expected_revision: 1 }])
-    expect(f.store.collections.worldDocuments.get(id)!.body).toBe("# App decision")
-    expect(f.store.collections.worldDocuments.get(id)!.cloud?.remoteRevision).toBe(2)
-    expect(f.posts).toEqual([])
-  })
-
-  test("a stale S2 edit preserves the displayed page", async () => {
-    const f = await fixture()
-    await f.wiki.openCloudWiki(repo, "home")
-    const before = f.store.collections.worldDocuments.get(id)!.body
-    f.advance()
-    expect(await f.wiki.editCloudWiki(id, "# stale")).toBe("Wiki page changed")
+    const answer = await command
+    expect(JSON.stringify(answer)).toContain("Live Wiki editing is unavailable.")
     expect(f.store.collections.worldDocuments.get(id)!.body).toBe(before)
-    expect(f.patches).toEqual([{ body: "# stale", expected_revision: 1 }])
-    expect(f.posts).toEqual([])
-  })
-
-  test.each(["retained", "deleted", "account", "branch"])("S2 refuses a %s document without replacing it", async kind => {
-    const f = await fixture()
-    await f.wiki.openCloudWiki(repo, "home")
-    const row = f.store.collections.worldDocuments.get(id)!
-    await f.store.dispatch({ type: "world.document.upserted", actor: "system", document: { ...row, cloud: { ...row.cloud!,
-      ...(kind === "retained" ? { pending: [{ updateId: "00000000-0000-4000-8000-000000000001", update: "", actor: "user" as const, admitted: false }] } : {}),
-      ...(kind === "deleted" ? { phase: "deleted" as const } : {}),
-      ...(kind === "account" ? { accountLogin: "other" } : {}),
-      ...(kind === "branch" ? { branchId: "other" } : {})
-    } } }).isPersisted.promise
-    expect(await f.wiki.editCloudWiki(id, "# replacement")).toBe("Refresh this Wiki page before editing it. Its recorded text has been preserved.")
-    expect(f.store.collections.worldDocuments.get(id)!.body).toBe(row.body)
-    expect(f.patches).toEqual([])
+    expect(f.posts).toHaveLength(0)
   })
 
   test("opening and refreshing never acknowledge retained edits, including after reload", async () => {
