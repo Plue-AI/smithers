@@ -12,6 +12,7 @@ import (
 // into coverage. Admin analytics counts runs,
 // whereas this fold counts distinct TODOs and attributed lifecycle sources.
 type scorecardTODO struct {
+	Repository string
 	ID         string
 	Owner      string
 	Accepted   time.Time
@@ -29,8 +30,8 @@ type scorecardPresence struct {
 	From, To           time.Time
 }
 type scorecardLearning struct {
-	ID, TODO, Signature string
-	Accepted, Merged    time.Time
+	ID, TODO, Signature, Repository string
+	Accepted, Merged                time.Time
 }
 type scorecardFacts struct {
 	// Coverage is set only by the owning source reader after its contract is
@@ -48,6 +49,9 @@ type scorecardFacts struct {
 
 func aggregateScorecard(window ScorecardWindow, facts scorecardFacts) Scorecard {
 	out := unavailableScorecard(window)
+	if facts.IncompleteStates == nil {
+		facts.IncompleteStates = make(map[string]bool)
+	}
 	inWindow := func(at time.Time) bool { return !at.Before(window.From) && at.Before(window.To) }
 	set := func(name string, value any, verdict string) {
 		m := out.Measures[name]
@@ -274,7 +278,7 @@ func aggregateScorecard(window ScorecardWindow, facts scorecardFacts) Scorecard 
 		}
 		before, after := []scorecardTODO{}, []scorecardTODO{}
 		for _, todo := range ordered {
-			if todo.ID == learning.TODO {
+			if todo.ID == learning.TODO || todo.Repository != learning.Repository {
 				continue
 			}
 			if todo.Accepted.Before(learning.Merged) {
@@ -284,6 +288,16 @@ func aggregateScorecard(window ScorecardWindow, facts scorecardFacts) Scorecard 
 			}
 		}
 		if len(before) < 5 || len(after) < 5 {
+			continue
+		}
+		complete := true
+		for _, item := range append(before[len(before)-5:], after[:5]...) {
+			if item.Signatures == nil {
+				complete = false
+			}
+		}
+		if !complete {
+			facts.IncompleteStates["self_improvement"] = true
 			continue
 		}
 		failures := func(items []scorecardTODO) int {

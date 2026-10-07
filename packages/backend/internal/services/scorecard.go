@@ -117,7 +117,23 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 			if (state == "merged" || state == "dropped" || state == "failed") && (decodeErr != nil || stateAt.IsZero()) {
 				facts.IncompleteStates[state] = true
 			}
-			facts.TODOs = append(facts.TODOs, scorecardTODO{ID: row.ID, Owner: fmt.Sprint(row.Owner), Accepted: row.Accepted, State: state, StateAt: stateAt})
+			var signatures map[string]bool
+			var checks mythicalChecks
+			if json.Unmarshal(row.Checks, &checks) == nil && len(checks.Attempts) > 0 {
+				completeAttempts := true
+				for _, attempt := range checks.Attempts {
+					if attempt.RunID == "" || attempt.Outcome == "" {
+						completeAttempts = false
+					}
+				}
+				if completeAttempts {
+					signatures = make(map[string]bool)
+					for _, failure := range learningFailures(checks) {
+						signatures[failure.Signature] = true
+					}
+				}
+			}
+			facts.TODOs = append(facts.TODOs, scorecardTODO{Repository: row.RepositoryID, Signatures: signatures, ID: row.ID, Owner: fmt.Sprint(row.Owner), Accepted: row.Accepted, State: state, StateAt: stateAt})
 		}
 		facts.Coverage["T-STK-01"] = complete
 		mergedCoverage, err := queries.ScorecardMergeCoverage(ctx)
@@ -222,6 +238,33 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 		}
 		facts.Coverage["T-COL-06"] = complete
 	}
+	if present["memory_notes"] && present["mythical_items"] {
+		rows, err := queries.ScorecardLearnings(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		complete := len(rows) > 0
+		for _, row := range rows {
+			var note LearningProposalNote
+			if json.Unmarshal([]byte(row.ProvenanceJson), &note) != nil ||
+				!learningNoteBound(note, row.Repository) || !row.StatusAtMs.Valid {
+				complete = false
+				continue
+			}
+			for _, todo := range facts.TODOs {
+				if todo.ID == row.TodoID {
+					var merged time.Time
+					if todo.State == "merged" {
+						merged = todo.StateAt
+					}
+					facts.Learnings = append(facts.Learnings, scorecardLearning{ID: row.ID,
+						TODO: row.TodoID, Repository: fmt.Sprint(row.RepositoryID), Signature: note.Signature,
+						Accepted: time.UnixMilli(row.StatusAtMs.Int64), Merged: merged})
+				}
+			}
+		}
+		facts.Coverage["T-FLW-06"] = complete
+	}
 	out := aggregateScorecard(window, facts)
 	if err := tx.Commit(ctx); err != nil {
 		return Scorecard{}, err
@@ -258,6 +301,6 @@ func unavailableScorecard(window ScorecardWindow) Scorecard {
 	add("outside_work", "diagnostic", "over 50% of changes to main", []string{"github_synced_repos", "mythical_items"}, []string{"T-GH-02", "T-STK-01"})
 	add("multiplayer", "at least 3 sessions per week with two members on one branch", "zero sessions in week 2", []string{"audit_log"}, []string{"T-COL-06"})
 	add("retention", "at least 10 accepted TODOs in week 3", "fewer than 3 accepted TODOs in week 3", todoTables, []string{"T-STK-01"})
-	add("self_improvement", "at least one merged learning proposal reduces its signature rate over the next 5 TODOs versus the previous 5", "no accepted proposal in two weeks", []string{"mythical_items"}, []string{"T-FLW-06", "T-STK-01", "T-STK-04"})
+	add("self_improvement", "at least one merged learning proposal reduces its signature rate over the next 5 TODOs versus the previous 5", "no accepted proposal in two weeks", []string{"mythical_items", "memory_notes"}, []string{"T-FLW-06", "T-STK-01", "T-STK-04"})
 	return out
 }

@@ -140,6 +140,56 @@ func (q *Queries) ScorecardInstallStart(ctx context.Context) ([]json.RawMessage,
 	return items, nil
 }
 
+const scorecardLearnings = `-- name: ScorecardLearnings :many
+SELECT n.id, n.provenance_json, n.status_at_ms,
+       i.id::text AS todo_id, i.repository_id,
+       (u.username || '/' || r.name)::text AS repository
+FROM memory_notes n
+JOIN mythical_items i ON n.accepted_todo = i.number::text
+ AND n.namespace_id = 'learning:' || i.repository_id::text
+JOIN repositories r ON r.id=i.repository_id
+JOIN users u ON u.id=r.user_id
+WHERE n.namespace_kind='flow' AND n.status='accepted'
+`
+
+type ScorecardLearningsRow struct {
+	ID             string      `json:"id"`
+	ProvenanceJson string      `json:"provenance_json"`
+	StatusAtMs     pgtype.Int8 `json:"status_at_ms"`
+	TodoID         string      `json:"todo_id"`
+	RepositoryID   int64       `json:"repository_id"`
+	Repository     string      `json:"repository"`
+}
+
+// Accepted learning notes are bound to the repository and TODO created by
+// the existing learning accept writer. Provenance remains quoted JSON data.
+func (q *Queries) ScorecardLearnings(ctx context.Context) ([]ScorecardLearningsRow, error) {
+	rows, err := q.db.Query(ctx, scorecardLearnings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardLearningsRow{}
+	for rows.Next() {
+		var i ScorecardLearningsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProvenanceJson,
+			&i.StatusAtMs,
+			&i.TodoID,
+			&i.RepositoryID,
+			&i.Repository,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const scorecardMergeCoverage = `-- name: ScorecardMergeCoverage :one
 SELECT (count(*) > 0 AND bool_and(COALESCE(
   receipt.event_type = 'todo.github_merged' AND receipt.data->>'source' = 'github', false)))::boolean AS covered
@@ -219,7 +269,7 @@ SELECT source.name::text AS name,
               AND table_name = 'chat_turns' AND column_name = 'conversation_id')))::boolean AS present
 FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
                  'chat_turns', 'chat_turn_batches', 'burst_files', 'audit_log',
-                 'workflow_definitions']) AS source(name)
+                 'workflow_definitions', 'memory_notes']) AS source(name)
 `
 
 type ScorecardSourceRelationsRow struct {
@@ -251,7 +301,7 @@ func (q *Queries) ScorecardSourceRelations(ctx context.Context) ([]ScorecardSour
 }
 
 const scorecardTODOs = `-- name: ScorecardTODOs :many
-SELECT i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
+SELECT i.repository_id::text AS repository_id, i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
        i.state::text AS state, i.checks, i.paused_at,
        (SELECT COALESCE(jsonb_object_agg(receipt.state, receipt.since), '{}'::jsonb)
         FROM (SELECT DISTINCT ON (transition.state) transition.state, transition.recorded_at AS since
@@ -271,14 +321,15 @@ GROUP BY i.id
 `
 
 type ScorecardTODOsRow struct {
-	ID         string             `json:"id"`
-	Owner      int64              `json:"owner"`
-	State      string             `json:"state"`
-	Checks     json.RawMessage    `json:"checks"`
-	PausedAt   pgtype.Timestamptz `json:"paused_at"`
-	StateTimes json.RawMessage    `json:"state_times"`
-	Accepted   time.Time          `json:"accepted"`
-	Covered    bool               `json:"covered"`
+	RepositoryID string             `json:"repository_id"`
+	ID           string             `json:"id"`
+	Owner        int64              `json:"owner"`
+	State        string             `json:"state"`
+	Checks       json.RawMessage    `json:"checks"`
+	PausedAt     pgtype.Timestamptz `json:"paused_at"`
+	StateTimes   json.RawMessage    `json:"state_times"`
+	Accepted     time.Time          `json:"accepted"`
+	Covered      bool               `json:"covered"`
 }
 
 // Creation receipts, not row creation times, establish stack acceptance.
@@ -293,6 +344,7 @@ func (q *Queries) ScorecardTODOs(ctx context.Context) ([]ScorecardTODOsRow, erro
 	for rows.Next() {
 		var i ScorecardTODOsRow
 		if err := rows.Scan(
+			&i.RepositoryID,
 			&i.ID,
 			&i.Owner,
 			&i.State,

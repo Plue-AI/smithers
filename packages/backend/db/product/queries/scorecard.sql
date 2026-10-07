@@ -13,12 +13,12 @@ SELECT source.name::text AS name,
               AND table_name = 'chat_turns' AND column_name = 'conversation_id')))::boolean AS present
 FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
                  'chat_turns', 'chat_turn_batches', 'burst_files', 'audit_log',
-                 'workflow_definitions']) AS source(name);
+                 'workflow_definitions', 'memory_notes']) AS source(name);
 
 -- Creation receipts, not row creation times, establish stack acceptance.
 -- Deduplicate repeated deliveries by the TODO identity.
 -- name: ScorecardTODOs :many
-SELECT i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
+SELECT i.repository_id::text AS repository_id, i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
        i.state::text AS state, i.checks, i.paused_at,
        (SELECT COALESCE(jsonb_object_agg(receipt.state, receipt.since), '{}'::jsonb)
         FROM (SELECT DISTINCT ON (transition.state) transition.state, transition.recorded_at AS since
@@ -92,3 +92,16 @@ WHERE e.event_type='branch.burst';
 -- name: ScorecardBurstTODOs :many
 SELECT id::text AS id, repository_id::text AS tenant_id, workspace_id
 FROM mythical_items WHERE workspace_id <> '' AND (source='todo' OR checks->>'todo'='true');
+
+-- Accepted learning notes are bound to the repository and TODO created by
+-- the existing learning accept writer. Provenance remains quoted JSON data.
+-- name: ScorecardLearnings :many
+SELECT n.id, n.provenance_json, n.status_at_ms,
+       i.id::text AS todo_id, i.repository_id,
+       (u.username || '/' || r.name)::text AS repository
+FROM memory_notes n
+JOIN mythical_items i ON n.accepted_todo = i.number::text
+ AND n.namespace_id = 'learning:' || i.repository_id::text
+JOIN repositories r ON r.id=i.repository_id
+JOIN users u ON u.id=r.user_id
+WHERE n.namespace_kind='flow' AND n.status='accepted';

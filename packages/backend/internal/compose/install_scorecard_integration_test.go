@@ -402,4 +402,59 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 		})
 	}
 
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='' WHERE id=$1::uuid`, item)
+	require.NoError(t, err)
+	// T-FLW-06's accepted note and durable attempt evidence now feed the
+	// production scorecard. Never infer a clean attempt from missing checks.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{attempts}',
+ '[{"attempt":1,"run_id":"proposal-run","outcome":"completed","items":[]}]') WHERE id=$1::uuid`, item)
+	require.NoError(t, err)
+	var number int64
+	var repositoryName string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT i.number,u.username||'/'||r.name FROM mythical_items i JOIN repositories r ON r.id=i.repository_id JOIN users u ON u.id=r.user_id WHERE i.id=$1::uuid`, item).Scan(&number, &repositoryName))
+	for n := 0; n < 10; n++ {
+		created, err := service.FileTodo(person, repo, owner, services.MythicalTodoInput{Title: fmt.Sprintf("Evidence %d", n), Prompt: "Update flow", Request: fmt.Sprintf("scorecard-evidence-%d", n)})
+		require.NoError(t, err)
+		var id string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT id::text FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo, created.Number).Scan(&id))
+		at := "2026-10-04T07:00:00Z"
+		if n >= 5 {
+			at = "2026-10-04T09:00:00Z"
+		}
+		failures := []map[string]string{}
+		if n < 3 {
+			failures = append(failures, map[string]string{"signature": "check:unit@check", "text": "Check unit failed."})
+		}
+		attempts, err := json.Marshal([]map[string]any{{"attempt": 1, "run_id": fmt.Sprintf("evidence-%d", n), "outcome": "completed", "items": []any{}, "failures": failures}})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{attempts}',$2::jsonb) WHERE id=$1::uuid`, id, attempts)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE product_job_events SET recorded_at=$2::timestamptz WHERE principal_id=$1 AND event_type='todo.created'`, "todo:"+id, at)
+		require.NoError(t, err)
+	}
+	note, err := json.Marshal(services.LearningProposalNote{Repository: repositoryName, Run: "learning-run", LearningProposal: services.LearningProposal{Signature: "check:unit@check", Title: "Run unit checks", Prompt: "Update todo flow", Diff: "flows/todo/flow.ts"}})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memory_notes(id,namespace_kind,namespace_id,text,tags_json,provenance_json,status,created_at_ms,status_at_ms,accepted_todo) VALUES('scorecard-learning','flow',$1,'Run unit checks','[]',$2,'accepted',1791097200000,1791097200000,$3)`, fmt.Sprintf("learning:%d", repo), string(note), fmt.Sprint(number))
+	require.NoError(t, err)
+	helped := readState()
+	require.Equal(t, float64(1), helped.Measures["self_improvement"].Value)
+	require.Equal(t, "pass", helped.Measures["self_improvement"].Verdict)
+	require.Empty(t, helped.Measures["self_improvement"].MissingTickets)
+	// The same signature persisting in three of the next five is not help.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{attempts,0,failures}','[{"signature":"check:unit@check","text":"Check unit failed."}]') WHERE repository_id=$1 AND issue_title IN ('Evidence 5','Evidence 6','Evidence 7')`, repo)
+	require.NoError(t, err)
+	notHelped := readState()
+	require.Equal(t, float64(0), notHelped.Measures["self_improvement"].Value)
+	require.Equal(t, "between", notHelped.Measures["self_improvement"].Verdict)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=checks-'attempts' WHERE repository_id=$1 AND issue_title='Evidence 9'`, repo)
+	require.NoError(t, err)
+	require.Equal(t, "source_missing", readState().Measures["self_improvement"].Verdict)
+	_, err = pool.Exec(ctx, `ALTER TABLE memory_notes RENAME TO scorecard_missing_notes`)
+	require.NoError(t, err)
+	missingNotes := readState()
+	require.Equal(t, "source_missing", missingNotes.Measures["self_improvement"].Verdict)
+	require.Equal(t, helped.Measures["merged"], missingNotes.Measures["merged"])
+	_, err = pool.Exec(ctx, `ALTER TABLE scorecard_missing_notes RENAME TO memory_notes`)
+	require.NoError(t, err)
+
 }
