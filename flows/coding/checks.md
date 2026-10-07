@@ -252,5 +252,5 @@ The trusted first-run projection binds that credential to the stored TODO run; i
 existing pending capture. The stack worker consumes that capture under its own
 claim, rebases retained bytes if their prefix moved, pins before recording a generation, and launches the separate verify
 lane. Candidate acknowledgments reuse the immutable head when its prefix and
-live tree are equal. Proposal acknowledgments name only the generation that the
+live tree are equal and its verification is valid or still running. An observed invalidation requests fresh checks even if the next snapshot has equal bytes. Proposal acknowledgments name only the generation that the
 same worker has published; changed trees and stale generations refuse.

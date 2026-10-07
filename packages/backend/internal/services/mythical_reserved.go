@@ -129,6 +129,9 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return empty, 0, err
 	}
 	if command == "stack.candidate" {
+		// Equal bytes can reuse a verified candidate or its still-running
+		// checks. An observed invalidation requires a fresh generation.
+		reusable := item.CandidateVerified || item.State == "verifying" && item.VerifyOutcome == ""
 		if input.Source.TreeID != tree {
 			return empty, 0, pkgerrors.Conflict("candidate is no longer the live revision")
 		}
@@ -146,6 +149,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			if previous != tree {
 				return empty, 0, pkgerrors.Conflict("candidate prefix changed")
 			}
+			return ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead}, 200, tx.Commit(live)
 		}
 		if _, err := machine.reportRetainedSource(live, row, ReportWorkspaceHeadInput{RetainSource: input.Source}); err != nil {
 			return empty, 0, err
@@ -155,16 +159,17 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			if err != nil {
 				return empty, 0, err
 			}
-			if previous == tree && mythicalChecksOf(item).Capture == nil {
+			if previous == tree && reusable && mythicalChecksOf(item).Capture == nil {
 				return ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead}, 200, tx.Commit(live)
 			}
 		}
-		// Replays while verification runs acknowledge the same immutable candidate.
+		// An exact sealed-source replay returns its recorded generation without
+		// reviving invalidated verification or allocating another generation.
 		if item.CandidateHead == input.Source.CommitID && item.CandidateBase == prefix && mythicalChecksOf(item).Capture == nil {
 			return ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead}, 200, tx.Commit(live)
 		}
 		pending := mythicalChecksOf(item).Capture
-		if pending != nil && pending.Head == input.Source.CommitID || len(item.PendingOp) > 0 || item.State == "verifying" {
+		if pending != nil && pending.Head == input.Source.CommitID || len(item.PendingOp) > 0 || item.State == "verifying" && item.VerifyOutcome == "" {
 			if _, err := q.RequestMythicalStack(live, repository); err != nil {
 				return empty, 0, err
 			}

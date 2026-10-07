@@ -313,6 +313,47 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.Equal(t, before, runtime.calls)
 	})
 
+	t.Run("equal bytes after invalidation request fresh verification", func(t *testing.T) {
+		// The previous case observed a change and then a reversion. That
+		// cannot revive verification merely by returning the old generation.
+		beforeReplay, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		call(t, token, "candidate", string(raw), 200)
+		replayed, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		require.Equal(t, beforeReplay.Version, replayed.Version)
+		require.False(t, replayed.CandidateVerified, "sealed-source replay does not revive its old verification")
+		fresh := source
+		fresh.CommitID = strings.Repeat("e", 40)
+		body, err := json.Marshal(services.ReservedStackInput{RequestID: "55555555-5555-4555-8555-555555555555", Source: &fresh})
+		require.NoError(t, err)
+		call(t, token, "candidate", string(body), 202)
+		item, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		require.False(t, item.CandidateVerified)
+		require.EqualValues(t, 7, item.Generation, "the owning worker allocates the next generation")
+		var checks struct {
+			Capture *services.MachineCapturePending `json:"capture"`
+		}
+		require.NoError(t, json.Unmarshal(item.Checks, &checks))
+		require.NotNil(t, checks.Capture)
+		require.Equal(t, fresh.CommitID, checks.Capture.Head)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET checks=checks-'capture',state='verifying',verify_outcome='' WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, row.ID)
+		require.NoError(t, err)
+		// Running checks already own this equal candidate; replay does not
+		// consume another generation or schedule a second capture.
+		before, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		call(t, token, "candidate", string(raw), 200)
+		after, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		require.Equal(t, before.Version, after.Version)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='integrating' WHERE id=$1`, itemID)
+		require.NoError(t, err)
+	})
+
 	t.Run("changed candidate waits for owning claim before generation allocation", func(t *testing.T) {
 		runtime.head = strings.Repeat("e", 40)
 		runtime.tree = strings.Repeat("f", 40)

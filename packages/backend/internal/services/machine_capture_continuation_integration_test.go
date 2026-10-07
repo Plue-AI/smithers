@@ -208,13 +208,15 @@ func TestCapturedContinuationChecksSnapshotBeforeLaunch(t *testing.T) {
 // launch checks; no candidate head is accepted by the HTTP admission write.
 func TestReservedSourceCaptureContinuesUnderOwningClaim(t *testing.T) {
 	for _, moved := range []bool{false, true} {
-		t.Run(fmt.Sprintf("prefix_moved_%t", moved), func(t *testing.T) {
-			testReservedSourceCapture(t, moved)
-		})
+		for _, equal := range []bool{false, true} {
+			t.Run(fmt.Sprintf("prefix_moved_%t_equal_tree_%t", moved, equal), func(t *testing.T) {
+				testReservedSourceCapture(t, moved, equal)
+			})
+		}
 	}
 }
 
-func testReservedSourceCapture(t *testing.T, moved bool) {
+func testReservedSourceCapture(t *testing.T, moved, equal bool) {
 	f := newRebaseFixture(t)
 	item := f.candidate("Reserved snapshot", f.main, "AGENT.md", "agent work\n")
 	pool := f.pool.(*pgxpool.Pool)
@@ -226,7 +228,13 @@ func testReservedSourceCapture(t *testing.T, moved bool) {
 	})})
 	require.NoError(t, err)
 	f.service.SetLauncher(dispatcher)
-	head := f.commit("reserved capture", "MEMBER.md", "reserved bytes\n")
+	head := item.CandidateHead
+	if equal {
+		f.git(f.work, "commit", "-q", "--allow-empty", "-m", "seal equal native snapshot")
+		head = f.git(f.work, "rev-parse", "HEAD")
+	} else {
+		head = f.commit("reserved capture", "MEMBER.md", "reserved bytes\n")
+	}
 	tree := f.git(f.work, "rev-parse", head+"^{tree}")
 	ref := "refs/smithers/workspaces/" + item.WorkspaceID + "/sources/" + head
 	f.git(f.work, "push", "-q", f.hostDir, head+":"+ref)
@@ -248,7 +256,12 @@ func testReservedSourceCapture(t *testing.T, moved bool) {
 	onto := item.CandidateBase
 	if moved {
 		f.git(f.work, "checkout", "-q", f.main)
-		onto = f.commit("prefix advances", "PREFIX.md", "prefix bytes\n")
+		if equal {
+			f.git(f.work, "commit", "-q", "--allow-empty", "-m", "prefix metadata advances")
+			onto = f.git(f.work, "rev-parse", "HEAD")
+		} else {
+			onto = f.commit("prefix advances", "PREFIX.md", "prefix bytes\n")
+		}
 		f.git(f.work, "push", "-q", f.hostDir, onto+":refs/heads/main", onto+":refs/smithers/mythical/keep/"+onto)
 		_, err = pool.Exec(t.Context(), `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, f.repoID, onto)
 		require.NoError(t, err)
@@ -270,7 +283,9 @@ func testReservedSourceCapture(t *testing.T, moved bool) {
 	require.Equal(t, onto, next.CandidateBase)
 	if moved {
 		require.NotEqual(t, head, next.CandidateHead)
-		require.Equal(t, "prefix bytes", strings.TrimSpace(f.git(f.hostDir, "show", next.CandidateHead+":PREFIX.md")))
+		if !equal {
+			require.Equal(t, "prefix bytes", strings.TrimSpace(f.git(f.hostDir, "show", next.CandidateHead+":PREFIX.md")))
+		}
 	} else {
 		require.Equal(t, head, next.CandidateHead)
 	}
@@ -279,7 +294,12 @@ func testReservedSourceCapture(t *testing.T, moved bool) {
 	var count int
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&count))
 	require.Equal(t, 1, count)
-	require.Equal(t, "reserved bytes", strings.TrimSpace(f.git(f.hostDir, "show", next.CandidateHead+":MEMBER.md")))
+	if equal {
+		require.Equal(t, tree, f.git(f.hostDir, "rev-parse", next.CandidateHead+"^{tree}"))
+		require.Equal(t, "agent work", strings.TrimSpace(f.git(f.hostDir, "show", next.CandidateHead+":AGENT.md")))
+	} else {
+		require.Equal(t, "reserved bytes", strings.TrimSpace(f.git(f.hostDir, "show", next.CandidateHead+":MEMBER.md")))
+	}
 	f.wake()
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&count))
 	require.Equal(t, 1, count)
