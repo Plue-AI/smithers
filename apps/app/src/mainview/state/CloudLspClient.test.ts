@@ -204,7 +204,7 @@ const sessionRoute = (answers: ReadonlyArray<Response> = []) => {
 
 const client = (
   server: Harness,
-  extra: { readonly http?: (input: string, init?: RequestInit) => Promise<Response>; readonly requestTimeoutMs?: number; readonly retry?: { maxAttempts: number; defaultDelayMs: number } } = {}
+  extra: { readonly http?: (input: string, init?: RequestInit) => Promise<Response>; readonly requestTimeoutMs?: number; readonly idleTimeoutMs?: number; readonly retry?: { maxAttempts: number; defaultDelayMs: number } } = {}
 ): { readonly lsp: CloudLspClient; readonly events: Array<CloudLspEvent>; readonly posts: ReturnType<typeof sessionRoute>["posts"]; readonly dials: Array<string> } => {
   const route = sessionRoute()
   const dials: Array<string> = []
@@ -216,6 +216,7 @@ const client = (
     },
     socketProtocol: () => "smithers.local.test",
     requestTimeoutMs: extra.requestTimeoutMs ?? 5_000,
+    idleTimeoutMs: extra.idleTimeoutMs,
     retry: extra.retry ?? { maxAttempts: 3, defaultDelayMs: 10 },
     reconnectMs: 10
   })
@@ -754,4 +755,42 @@ test("dispose before a silent upgrade deadline settles shared callers as dispose
   lsp.dispose()
   expect(await promptly(Promise.all([hover, definition]))).toEqual([closing, closing])
   expect(closeCount).toBe(1)
+})
+
+
+test("idle closes the session connection; another request acquires and initializes again", async () => {
+  const server = serve()
+  const { lsp, posts, events } = client(server, { idleTimeoutMs: 80 })
+  expect(await lsp.hover(DOC, { line: 3, character: 7 })).toHaveProperty("ok")
+  await until(() => events.some(event => event.type === "closed" && event.reason === "language_server_idle"))
+  await until(() => server.live() === 0)
+  expect(posts).toHaveLength(1)
+  expect(await lsp.hover(DOC, { line: 3, character: 7 })).toHaveProperty("ok")
+  expect(posts).toHaveLength(2)
+  expect(server.initializes()).toBe(2)
+})
+
+test("requests reset idle but unsolicited diagnostics do not", async () => {
+  const server = serve()
+  const { lsp, posts, events } = client(server, { idleTimeoutMs: 160 })
+  await lsp.hover(DOC, { line: 3, character: 7 })
+  await Bun.sleep(100)
+  await lsp.definition(DOC, { line: 3, character: 7 })
+  await Bun.sleep(100)
+  expect(events.filter(event => event.type === "closed")).toEqual([])
+  expect(posts).toHaveLength(1)
+  server.sockets()[0]!.send(JSON.stringify({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri: cloudDocumentUri(DOC.path), version: 1, diagnostics: [] } }))
+  await until(() => events.some(event => event.type === "closed"))
+})
+
+test("idle settles pending requests and disposal cancels the idle notification", async () => {
+  const server = serve({ silentHoverUris: [cloudDocumentUri(DOC.path)] })
+  const { lsp, events } = client(server, { idleTimeoutMs: 60 })
+  expect(await lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "close_1000", sentence: "The workspace language server closed." } })
+  const other = client(serve(), { idleTimeoutMs: 60 })
+  await other.lsp.hover(DOC, { line: 3, character: 7 })
+  other.lsp.dispose()
+  await Bun.sleep(100)
+  expect(other.events.filter(event => event.type === "closed")).toEqual([])
+  expect(events.filter(event => event.type === "closed")).toHaveLength(1)
 })

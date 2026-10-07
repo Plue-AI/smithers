@@ -148,9 +148,14 @@ test("install code intelligence uses the selected branch File card and daemon ex
   const branch = "scratch/maya/intelligence"
   const opens: unknown[] = []
   const methods: string[] = []
+  let liveSockets = 0
+  let snapshot: import("../runtime/LiveChannel").TopicSnapshot = { topic: `branch:${branch}`, data: { id: "machine-1", name: branch, machine: { state: "running" } } }
+  const listeners = new Set<() => void>()
+  const update = (next: typeof snapshot) => { snapshot = next; for (const listener of [...listeners]) listener() }
+  const waitClosed = async () => { for (let n = 0; liveSockets && n < 100; n++) await Bun.sleep(5); expect(liveSockets).toBe(0) }
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
     fetch: (request, server) => server.upgrade(request) ? undefined : new Response("No", { status: 400 }),
-    websocket: { message: (socket, raw) => {
+    websocket: { open: () => { liveSockets++ }, close: () => { liveSockets-- }, message: (socket, raw) => {
       const message = JSON.parse(String(raw))
       methods.push(message.method)
       if (message.method === "initialize") {
@@ -164,6 +169,7 @@ test("install code intelligence uses the selected branch File card and daemon ex
   })
   const app = controller(store, agent, {
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    live: { subscribe: (topic, changed) => { if (topic === snapshot.topic) listeners.add(changed); return () => { listeners.delete(changed) } }, getSnapshot: topic => topic === snapshot.topic ? snapshot : undefined },
     socketProtocols: () => ["smithers.local.test"],
     daemonLsp: {
       ready: () => true,
@@ -198,6 +204,17 @@ test("install code intelligence uses the selected branch File card and daemon ex
     expect(defined.payload.line).toBe(3)
     expect(JSON.stringify(await app.commands.submit({ name: "code.diagnostics", payload: { path: "retry.ts" }, actor: "user" }))).toContain("literal daemon diagnostic")
     expect(opens).toHaveLength(1)
+    update({ topic: snapshot.topic, data: { id: "machine-1", name: branch, machine: { state: "asleep" } } })
+    await waitClosed()
+    expect(JSON.stringify(await app.commands.submit({ name: "code.hover", payload: { path: "retry.ts", line: 1, column: 14 }, actor: "user" }))).toContain("The branch is asleep.")
+    expect(opens).toHaveLength(1)
+    update({ topic: snapshot.topic, data: { id: "machine-1", name: branch, machine: { state: "running" } } })
+    expect((await app.commands.submit({ name: "code.hover", payload: { path: "retry.ts", line: 1, column: 14 }, actor: "user" })).status).toBe("executed")
+    expect(opens).toHaveLength(2)
+    update({ topic: snapshot.topic, error: "forbidden" })
+    await waitClosed()
+    expect((await app.commands.submit({ name: "code.hover", payload: { path: "retry.ts", line: 1, column: 14 }, actor: "user" })).status).toBe("failed")
+    expect(opens).toHaveLength(2)
   } finally { await app.dispose(); await server.stop(true) }
 })
 

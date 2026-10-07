@@ -1552,7 +1552,7 @@ export const createAppController = (
       ? (path, repo, anchor, branch) => select(filesSeam).branchFiles.open(path, branch ?? repo, anchor?.line)
       : select(filesSeam.readFile),
     validatedGuestExecution: () => services.daemonLsp?.ready() === true,
-    ...(installHost ? { branchScope: branchFileOptions!.scope } : {}),
+    ...(installHost ? { branchScope: branchFileOptions!.scope, subscribeBranch: (branch: string, changed: () => void) => services.live?.subscribe(`branch:${branch}`, changed) ?? (() => {}) } : {}),
     ...(createCloudLsp === undefined ? {} : { createCloudLsp })
   }))
   ctx.onDispose(codeIntelSeam.dispose)

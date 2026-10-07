@@ -57,6 +57,7 @@ export interface CodeIntelSeam {
 export interface CodeIntelSeamOptions {
   /** Host-owned T-INS-02 isolation and T-SEC-01 guest validation receipt. Absent fails closed. */
   readonly validatedGuestExecution?: () => boolean
+  readonly subscribeBranch?: (branch: string, changed: () => void) => () => void
   readonly branchScope?: (branch?: string) => { branch: string; member: string; revision: number; sleeping: boolean } | null
   /**
    * Creates one workspace language-server client per account owner. The seam
@@ -160,6 +161,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     unwatch: undefined as (() => void) | undefined,
     client: undefined as CloudLspClient | undefined,
     current: undefined as (() => boolean) | undefined,
+    branches: new Map<string, { current: () => boolean; stop: () => void }>(),
     disposed: false,
     subscriptions: undefined as Array<{ unsubscribe(): void }> | undefined,
     pending: new Map<string, { readonly value: string }>(),
@@ -192,6 +194,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     cloudWatch.unwatch = undefined
     cloudWatch.client = undefined
     cloudWatch.current = undefined
+    for (const branch of cloudWatch.branches.values()) branch.stop()
+    cloudWatch.branches.clear()
     cloudWatch.pending.clear()
     cloudWatch.hovers.clear()
     cloudWatch.documents.clear()
@@ -205,13 +209,23 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       ctx.store.collections.cloudSessions.subscribeChanges(checkOwner)
     ]
   }
-  const watchCloud = (): CloudLspClient => {
+  const watchCloud = (branch: string): CloudLspClient => {
     requireGuestExecution()
     if (cloudWatch.current?.() === false) retire()
+    if (options.branchScope && !cloudWatch.branches.has(branch)) {
+      const admitted = options.branchScope(branch)
+      const current = () => {
+        const next = options.branchScope!(branch)
+        return admitted !== null && next !== null && !next.sleeping
+          && next.branch === admitted.branch && next.member === admitted.member && next.revision === admitted.revision
+      }
+      const stop = options.subscribeBranch?.(branch, () => { if (!current()) retire() }) ?? (() => {})
+      cloudWatch.branches.set(branch, { current, stop })
+    }
     if (cloudWatch.client !== undefined) return cloudWatch.client
     const owner = captureCloudOwner(ctx, options.branchScope === undefined)
     const client = options.createCloudLsp!()
-    const current = () => !cloudWatch.disposed && cloudWatch.client === client && owner()
+    const current = () => !cloudWatch.disposed && cloudWatch.client === client && owner() && [...cloudWatch.branches.values()].every(branch => branch.current())
     cloudWatch.client = client
     cloudWatch.current = current
     cloudWatch.unwatch = client.subscribe((event) => {
@@ -351,7 +365,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       if (canPresent()) patch(id, { intel: { state: "unavailable", note: refusal } })
       return refusal
     }
-    const client = watchCloud()
+    const client = watchCloud(workspace.id)
     return {
       client,
       current,

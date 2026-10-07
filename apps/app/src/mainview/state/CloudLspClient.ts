@@ -131,6 +131,8 @@ export interface CloudLspClientOptions {
    * default delay stands only when the refusal named none this app could read.
    */
   readonly retry?: { readonly maxAttempts: number; readonly defaultDelayMs: number }
+  /** Ten minutes without a person request closes the owned connection. */
+  readonly idleTimeoutMs?: number
   /** The delay before a 1001 / 1006 redial; default 1000 ms. */
   readonly reconnectMs?: number
 }
@@ -232,6 +234,7 @@ interface Connection extends EventScope {
   /** Abnormal drops redialed since the last healthy answer. */
   reconnects: number
   reconnect: ReturnType<typeof setTimeout> | undefined
+  idle: ReturnType<typeof setTimeout> | undefined
 }
 
 export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspClient => {
@@ -289,6 +292,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
         fragments: null,
         retried1011: false,
         reconnects: 0,
+        idle: undefined,
         reconnect: undefined
       }
       connections.set(key, conn)
@@ -528,6 +532,21 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     socket.close()
   }
 
+  const touch = (conn: Connection): void => {
+    clearTimeout(conn.idle)
+    conn.idle = setTimeout(() => {
+      conn.idle = undefined
+      clearTimeout(conn.reconnect)
+      conn.reconnect = undefined
+      conn.failDial?.(1000, "language_server_idle")
+      rejectPending(conn, closeRefusal(1000, "language_server_idle"))
+      if (conn.socket !== undefined) releaseSocket(conn, conn.socket)
+      conn.sessionId = undefined
+      emit({ ...scopeOf(conn), type: "closed", code: 1000, reason: "language_server_idle", paths: [...conn.documents.keys()] })
+    }, options.idleTimeoutMs ?? 600_000)
+    ;(conn.idle as { unref?: () => void }).unref?.()
+  }
+
   /**
    * Dial one socket and run `initialize` on it. Settles `{ ok }` once the
    * server answered and `initialized` went out; `{ close }` with the code and
@@ -749,6 +768,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     const conn = connection(document)
     await ensureReady(conn)
     assertActive()
+    touch(conn)
     const opened = sync(conn, document)
     const answer = await request(conn, method, { textDocument: { uri: opened.uri }, position: { line: position.line - 1, character: position.character - 1 } })
     // A healthy answer earns a fresh redial budget.
@@ -799,6 +819,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
       const conn = connection(document)
       await ensureReady(conn)
       assertActive()
+      touch(conn)
       const opened = sync(conn, document)
       if (!opened.awaiting && opened.latest !== null) return opened.latest
       return new Promise<CloudLspDiagnosticsAnswer>((resolve) => {
@@ -826,6 +847,8 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     disposed = true
     lifetime.abort()
     for (const conn of connections.values()) {
+      clearTimeout(conn.idle)
+      conn.idle = undefined
       if (conn.reconnect !== undefined) clearTimeout(conn.reconnect)
       conn.reconnect = undefined
       conn.failDial?.(0, closing.sentence)
