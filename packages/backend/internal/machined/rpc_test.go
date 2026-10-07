@@ -188,7 +188,7 @@ func TestRegistryRPCRefusesWrongReplyAndCancelledContext(t *testing.T) {
 }
 
 func TestRegistryAdmissionRequiresActualReady(t *testing.T) {
-	for _, state := range []byte{2, 3} {
+	for _, state := range []byte{1, 2, 3} {
 		t.Run(string(rune('0'+state)), func(t *testing.T) {
 			r := new(Registry)
 			bindFixtureExporter(r)
@@ -204,8 +204,12 @@ func TestRegistryAdmissionRequiresActualReady(t *testing.T) {
 			answer(t, peer, wire.SetRoster)
 			require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
 			answer(t, peer, wire.Status, wire.Field(1, []byte{state}), wire.Field(2, wire.U16(1)), wire.Field(3, wire.String("guest")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0)))
+			if state == 2 {
+				require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
+				answer(t, peer, wire.Status, wire.Field(1, []byte{3}), wire.Field(2, wire.U16(1)), wire.Field(3, wire.String("guest")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0)))
+			}
 			err = <-done
-			if state == 3 {
+			if state != 1 {
 				require.NoError(t, err)
 				require.NoError(t, link.RequireReady("a"))
 			} else {

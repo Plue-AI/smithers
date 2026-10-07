@@ -3,7 +3,7 @@
 use crate::{
     attrib::Sample,
     broker::control::SocketpairBroker,
-    conn,
+    conn::{self, field, structure_bytes, tagged},
     doc::{
         disk::{LinuxDisk, Versions},
         host::{Gates, Host},
@@ -26,6 +26,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 type Events = crate::event_service::Events<crate::git::Repository, crate::git::Repository>;
+fn bytes(value: &str) -> Vec<u8> {
+    let mut b = (value.len() as u16).to_be_bytes().to_vec();
+    b.extend(value.as_bytes());
+    b
+}
 fn private(path: &Path) -> io::Result<File> {
     match fs::create_dir(path) {
         Ok(()) => fs::set_permissions(path, fs::Permissions::from_mode(0o700))?,
@@ -55,6 +60,7 @@ struct Ports {
     store: crate::watcher_store::Store,
     workspace: File,
     saved: Arc<Mutex<Vec<(String, Actor, [u8; 32])>>>,
+    paths: BTreeMap<u32, String>,
 }
 impl Objects for Ports {
     type Blob = Oid;
@@ -176,7 +182,26 @@ impl Provider<Actor> for Ports {
             .map_err(crate::watch::provider_error)
     }
     fn where_file(&mut self, session: u32, path: &str) -> io::Result<()> {
-        hooks::Sessions::where_file(&*self.broker, session, path)
+        let entries = self
+            .broker
+            .registry()
+            .map_err(crate::watch::provider_error)?;
+        if !entries.iter().any(|e| e.id == session) || !crate::doc::disk::valid_path(path) {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        self.paths
+            .retain(|id, _| entries.iter().any(|e| e.id == *id));
+        self.paths.insert(session, path.into());
+        let mut list = (entries.len() as u16).to_be_bytes().to_vec();
+        for entry in entries {
+            let mut fields = vec![field(1, entry.id.to_be_bytes())];
+            if let Some(path) = self.paths.get(&entry.id) {
+                fields.push(field(2, bytes(path)));
+            }
+            list.extend(structure_bytes(&fields));
+        }
+        self.events
+            .presence(&tagged(1, &[field(1, list)]))
             .map_err(crate::watch::provider_error)
     }
     fn saved_writes(&mut self) -> Vec<(String, Actor, [u8; 32])> {
@@ -340,6 +365,7 @@ pub fn run() -> io::Result<()> {
                 store,
                 workspace,
                 saved,
+                paths: BTreeMap::new(),
             },
             checkpoint,
             &mut cx,

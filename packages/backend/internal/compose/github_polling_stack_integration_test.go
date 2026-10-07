@@ -116,9 +116,11 @@ func TestInstallPollingTenPullsThroughStackWorker(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, f.stack.PollOnce(ctx))
 	}
-	// PostgreSQL stamps fixture rows after migrations and bootstrap. Align the
-	// injected clock with those rows before measuring the 45-second cadence.
-	f.clock.Store(time.Now().Unix() + 2)
+	// Seeding can outlast the initial fixture clock on a busy install host.
+	// Start cadence assertions after every database-owned scheduling timestamp.
+	var seededAt time.Time
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&seededAt))
+	f.clock.Store(seededAt.Unix() + 2)
 	pass()
 	assertReads := func(want int) {
 		for i := 1; i <= 10; i++ {

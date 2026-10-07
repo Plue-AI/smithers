@@ -3,6 +3,7 @@ package machined
 import (
 	"context"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"time"
 )
 
 // AdmitReady transfers the host head before wake while its event dispatcher
@@ -31,12 +32,25 @@ func (r *Registry) AdmitReady(ctx context.Context, branch, head string, members 
 			return err
 		}
 	}
-	fields, err := link.call(ctx, branch, wire.Status)
-	if err != nil {
-		return err
+	// Wake settles before its durable event receipt. Admission waits for the
+	// actual drained daemon status while the event pump commits concurrently.
+	wait, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	for {
+		fields, err := link.call(wait, branch, wire.Status)
+		if err != nil {
+			return err
+		}
+		if fields[1][0] == 3 {
+			return link.Reconciled()
+		}
+		if fields[1][0] != 2 {
+			return ErrNotReady
+		}
+		select {
+		case <-wait.Done():
+			return wait.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
-	if fields[1][0] != 3 {
-		return ErrNotReady
-	}
-	return link.Reconciled()
 }

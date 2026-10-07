@@ -103,8 +103,12 @@ func (h *machineHost) dispatch(ctx context.Context, link *machined.Link, branch 
 			if err = bursts.DispatchBurst(ctx, link, scope, event); err != nil {
 				return err
 			}
-		case 2:
-			ack, err := ingest.Commit(ctx, link.Connection, branch, event)
+		case 2, 3:
+			selected := ingest
+			if event.Payload[0] == 3 {
+				selected = &machined.Ingestor{Pool: h.pool, Write: machined.WriteReconciliation}
+			}
+			ack, err := selected.Commit(ctx, link.Connection, branch, event)
 			if err != nil {
 				return err
 			}
