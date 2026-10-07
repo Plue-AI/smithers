@@ -349,6 +349,18 @@ func TestInstallContextItemCandidateBindingAndInvalidation(t *testing.T) {
 	raw, err := read()
 	require.NoError(t, err)
 	require.Contains(t, string(raw), "JOURNEY.md")
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET source='issue',revisions='[{"text":"Retry three times","reason":"from-issue"}]' WHERE id=$1`, item)
+	require.NoError(t, err)
+	raw, err = read()
+	require.NoError(t, err, "an admitted issue TODO has the same verified branch context")
+	require.Contains(t, string(raw), "JOURNEY.md")
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET revisions='[]' WHERE id=$1`, item)
+	require.NoError(t, err)
+	raw, err = read()
+	require.ErrorIs(t, err, ErrSourceForbidden, "historical issue intake is not an admitted TODO")
+	require.Nil(t, raw)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET source='todo' WHERE id=$1`, item)
+	require.NoError(t, err)
 	for _, test := range []struct {
 		name, sql string
 		want      error

@@ -94,5 +94,32 @@ func TestTodoFromIssueCLIComposedInstall(t *testing.T) {
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT checks->'issue_context' FROM mythical_items WHERE issue_number=$1`, number).Scan(&contextJSON))
 	require.Contains(t, string(contextJSON), "Original issue body")
 	require.NotContains(t, string(contextJSON), "Later issue body")
+	// The real worker admits this issue TODO to the same pinned composition
+	// as a manually filed TODO, rather than the retired coding/request door.
+	require.Eventually(t, func() bool {
+		var launch []byte
+		err := r.pool.QueryRow(r.ctx, `SELECT payload FROM product_job_requests
+		  WHERE request_id LIKE 'mythical:' || (SELECT id::text FROM mythical_items WHERE issue_number=$1) || ':%'
+		  AND payload->>'flowId'='todo' LIMIT 1`, number).Scan(&launch)
+		if err != nil {
+			return false
+		}
+		var envelope struct {
+			Pin struct {
+				Flow            string `json:"flow"`
+				SourceCommit    string `json:"sourceCommit"`
+				ExecutionDigest string `json:"executionDigest"`
+			} `json:"pin"`
+		}
+		if json.Unmarshal(launch, &envelope) != nil {
+			return false
+		}
+		return envelope.Pin.Flow == "todo" && len(envelope.Pin.SourceCommit) == 40 && len(envelope.Pin.ExecutionDigest) == 64
+	}, time.Minute, 100*time.Millisecond, "approved issue TODO must admit a pinned todo launch")
+	var legacy int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests
+	  WHERE request_id LIKE 'mythical:' || (SELECT id::text FROM mythical_items WHERE issue_number=$1) || ':%'
+	  AND payload->>'flowId'='coding/request'`, number).Scan(&legacy))
+	require.Zero(t, legacy)
 	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "cli-draft.json"), output, 0600))
 }

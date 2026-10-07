@@ -143,7 +143,7 @@ func (s InstallContext) branchRevision(ctx context.Context, row db.Workspace, re
 	if err != nil {
 		return "", err
 	}
-	if item.RepositoryID != repositoryID || item.WorkspaceID != row.ID || item.Source != "todo" || !item.Number.Valid {
+	if item.RepositoryID != repositoryID || item.WorkspaceID != row.ID || !mythicalTodo(item) || !item.Number.Valid {
 		return "", ErrSourceForbidden
 	}
 	if !item.CandidateVerified || item.CandidateHead == "" {

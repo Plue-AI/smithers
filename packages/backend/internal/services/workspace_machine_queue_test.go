@@ -338,3 +338,29 @@ func TestTodoMachineOwnershipRefusesUnknownRelease(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, held)
 }
+
+func TestIssueTodoMachineOrderFollowsTheStack(t *testing.T) {
+	svc, q := machineQueueService(t, "manual", "issue", "historical", "chat")
+	queue := svc.runtime.(workspaceMachineQueue)
+	for _, id := range []string{"manual", "issue", "historical", "chat"} {
+		_, err := queue.Request("todo", machineQueueHolder(id), "run", "machine")
+		require.NoError(t, err)
+	}
+	lanes := &workspaceMythicalLanes{workspaces: svc}
+	lanes.OrderTodoMachines([]db.MythicalItem{
+		{Source: "issue", WorkspaceID: "historical", Revisions: []byte(`[]`)},
+		{Source: "chat", WorkspaceID: "chat"},
+		{Source: "issue", WorkspaceID: "issue", Revisions: []byte(`[{"text":"Frozen issue"}]`)},
+		{Source: "todo", WorkspaceID: "manual"},
+	})
+	position, waiting := svc.MachinePlace(q.row("issue"))
+	require.True(t, waiting)
+	require.Equal(t, 3, position)
+	position, waiting = svc.MachinePlace(q.row("manual"))
+	require.True(t, waiting)
+	require.Equal(t, 4, position)
+	position, _ = svc.MachinePlace(q.row("historical"))
+	require.Equal(t, 1, position, "historical intake is excluded from stack reorder")
+	position, _ = svc.MachinePlace(q.row("chat"))
+	require.Equal(t, 2, position, "chat demand is excluded from stack reorder")
+}

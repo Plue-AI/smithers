@@ -993,7 +993,7 @@ func TestTodoLabelAdmissionSharesPinnedFlowAndAllowance(t *testing.T) {
 	o, session := newTodoAdmission(t)
 	ctx := t.Context()
 	require.NoError(t, db.New(o.pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: todoDailyAdmissionsSetting, Value: []byte("1")}))
-	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return "", errors.New("pinned flow unavailable") })
+	// A missing provider must not fall back to the retired coding/request.
 	issue := mythicalIssue{Number: 77, Title: "Label greeting", Body: "Add a greeting", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
 	o.github.mu.Lock()
 	o.github.issues = append(o.github.issues, issue)
@@ -1005,7 +1005,7 @@ func TestTodoLabelAdmissionSharesPinnedFlowAndAllowance(t *testing.T) {
 	o.wake()
 	held := o.byID(uuidString(item.ID))
 	require.Equal(t, "queued", held.State)
-	require.Contains(t, held.Reason, "pinned flow unavailable")
+	require.NotEmpty(t, held.Reason)
 	require.Zero(t, held.Attempt)
 	require.Empty(t, o.lanes.created)
 	require.Empty(t, o.launcher.requests)

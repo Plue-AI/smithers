@@ -2267,7 +2267,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
-	if mythicalTodo(item) && s != nil && (item.FlowDigest.Valid || (s.todoFlow != nil && item.Attempt == 0)) {
+	if mythicalTodo(item) && (item.Source == "issue" || (s != nil && (item.FlowDigest.Valid || (s.todoFlow != nil && item.Attempt == 0)))) {
 		return st.startPinned(ctx, item)
 	}
 	if s == nil || r == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid || !s.todoAdmission {
@@ -2395,10 +2395,10 @@ func (s *MythicalService) reusesLane(ctx context.Context, r *mythicalRun, item d
 
 // keepsLane reports whether a TODO's fresh attempt runs on the lane it holds:
 // a TODO's lane is its own branch machine, so a retry reuses it while it is
-// bound to the TODO, unretired and on the placement's machine. An issue item's
-// fresh attempt always opens a new lane.
+// bound to the TODO, unretired and on the placement's machine. Historical
+// issue intake without an admitted revision always opens a new lane.
 func (s *MythicalService) keepsLane(ctx context.Context, r *mythicalRun, item db.MythicalItem, placement MythicalPlacement) (bool, error) {
-	if item.Source != "todo" || item.WorkspaceID == "" {
+	if !mythicalTodo(item) || item.WorkspaceID == "" {
 		return false, nil
 	}
 	bound, err := s.queries().GetMythicalLane(ctx, item.WorkspaceID)
