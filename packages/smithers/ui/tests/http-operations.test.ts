@@ -37,3 +37,17 @@ test("Bring in requires the displayed wait and head on the shared branch route",
   expect(decode(input)).toEqual(input)
   expect(() => decode({ branch: input.branch, revision: input.revision })).toThrow()
 })
+
+
+test("both system rebase doors encode the typed branch POST without a caller-selected target", async () => {
+  const { catalogRequest } = await import("../../src/CatalogRequest")
+  const rows = generateCatalog()
+  for (const name of ["branch.rebase", "branch.rebase-now"]) {
+    const row = rows.find(row => row.name === name)!
+    expect(row.agent).toBe("run")
+    expect(row.minimumRole).toBe("member")
+    expect(catalogRequest(row, { branch: "scratch/ben/work" })).toEqual({
+      method: "POST", path: "/api/branches/scratch%2Fben%2Fwork", body: { rebase: true }
+    })
+  }
+})
