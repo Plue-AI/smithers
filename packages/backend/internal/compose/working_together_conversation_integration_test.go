@@ -341,6 +341,7 @@ func TestHostTurnPrivateContext(t *testing.T) {
 // or adding the unrelated preflight benchmark's 500-file workload.
 func conversationContextSource(t *testing.T, local *localChat) services.InstallContext {
 	t.Helper()
+	configureNativeInstallFixture(t)
 	library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	require.NotEmpty(t, library, "native repository library required")
 	cfg := repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "w17-source", FFILibraryPath: library}
