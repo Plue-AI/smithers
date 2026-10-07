@@ -194,9 +194,11 @@ export class Commands {
       timeout = true
       controller.abort()
     }, limitMillis)
+    let frames: AsyncIterator<CommandFrame> | undefined
+    let releaseRequested = false
     try {
       const capture = new Capture()
-      const frames = this.port.execute(input, controller.signal)[Symbol.asyncIterator]()
+      frames = this.port.execute(input, controller.signal)[Symbol.asyncIterator]()
       while (true) {
         const next = await Promise.race([frames.next(), aborted])
         if (next.done) {
@@ -214,6 +216,7 @@ export class Commands {
           }
           // A generator can hold its subscription or command lock until its
           // finally block runs. Release it before admitting the next command.
+          releaseRequested = true
           const released = await Promise.race([frames.return?.(), aborted])
           if (released !== undefined && released.done !== true) {
             throw new StdError({ code: "command_failed", message: "Agent terminal subscription still open" })
@@ -223,6 +226,7 @@ export class Commands {
           if (!Number.isInteger(frame.signal) || frame.signal < 1 || frame.signal > 64) {
             throw new StdError({ code: "command_failed", message: "Invalid command signal" })
           }
+          releaseRequested = true
           const released = await Promise.race([frames.return?.(), aborted])
           if (released !== undefined && released.done !== true) {
             throw new StdError({ code: "command_failed", message: "Agent terminal subscription still open" })
@@ -236,6 +240,17 @@ export class Commands {
       // A cancellation, timeout or broken framing ends this run. Never queue
       // another command into a shell whose previous children may still exist.
       await this.kill()
+      if (!releaseRequested && frames?.return !== undefined) {
+        // Request disposal after confirmed process cleanup. An iterator stuck
+        // in next() may queue return() indefinitely, so it cannot be the kill
+        // receipt or delay cancellation. Observe both sync and async failures;
+        // the command is already failed and this run cannot be reused.
+        try {
+          void Promise.resolve(frames.return()).catch(() => undefined)
+        } catch {
+          // A broken subscription cannot undo the confirmed run kill.
+        }
+      }
       throw error instanceof StdError
         ? error
         : new StdError({ code: "command_failed", message: "Agent terminal transport failed" })

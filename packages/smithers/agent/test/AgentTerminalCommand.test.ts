@@ -416,6 +416,94 @@ describe("registered terminal command result contract", () => {
     expect(f.kills()).toBe(1)
   })
 
+  it.each([
+    { kind: "exit", code: -1 },
+    { kind: "signal", signal: 0 },
+    { kind: "output", bytes: new Uint8Array(65_537) }
+  ] as CommandFrame[])("disposes a failed frame subscription after confirmed kill: %j", async (frame) => {
+    const killing = deferred<void>()
+    const killed = deferred<void>()
+    let released = false
+    const commands = new Commands({
+      execute: async function*() {
+        try {
+          yield frame
+        } finally {
+          released = true
+        }
+      },
+      killRun: async () => {
+        killing.resolve()
+        await killed.promise
+      }
+    })
+    const result = commands.run(input, controller().signal).catch((error) => error)
+    await killing.promise
+    expect(released).toBe(false)
+    killed.resolve()
+    expect(await result).toMatchObject({ code: "command_failed" })
+    expect(released).toBe(true)
+    await expect(commands.run(input, controller().signal)).rejects.toMatchObject({ code: "provider_unavailable" })
+  })
+
+  it("requests disposal on cancellation without awaiting an unresponsive iterator", async () => {
+    const entered = deferred<void>()
+    const killing = deferred<void>()
+    const killed = deferred<void>()
+    let released = 0
+    const commands = new Commands({
+      execute: () => ({
+        [Symbol.asyncIterator]: () => ({
+          next: () => {
+            entered.resolve()
+            return new Promise<IteratorResult<CommandFrame>>(() => {})
+          },
+          return: () => {
+            released++
+            return new Promise<IteratorResult<CommandFrame>>(() => {})
+          }
+        })
+      }),
+      killRun: async () => {
+        killing.resolve()
+        await killed.promise
+      }
+    })
+    const abort = controller()
+    const result = commands.run(input, abort.signal).catch((error) => error)
+    await entered.promise
+    abort.abort()
+    await killing.promise
+    expect(released).toBe(0)
+    killed.resolve()
+    expect(await result).toMatchObject({ code: "command_failed", message: "Agent terminal command cancelled" })
+    expect(released).toBe(1)
+    await commands.end()
+  })
+
+  it.each(["throw", "reject"])("observes failed disposal without replacing command failure: %s", async (failure) => {
+    let released = 0
+    const commands = new Commands({
+      execute: () => ({
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: false as const, value: { kind: "exit" as const, code: -1 } }),
+          return: () => {
+            released++
+            if (failure === "throw") throw new Error("dispose failed")
+            return Promise.reject(new Error("dispose failed"))
+          }
+        })
+      }),
+      killRun: async () => {}
+    })
+    await expect(commands.run(input, controller().signal)).rejects.toMatchObject({
+      code: "command_failed",
+      message: "Invalid command status"
+    })
+    expect(released).toBe(1)
+    await commands.end()
+  })
+
   it("fails closed when transport or cleanup fails", async () => {
     const commands = new Commands({
       execute: () => {
