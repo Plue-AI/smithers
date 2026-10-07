@@ -150,7 +150,6 @@ export const wikiOperations = [
     // Appendix B: the agent asks; only the person answers the existing dialog.
     visibility: "in-card",
     summary: `Delete a ${WIKI_DISPLAY_NAME} note`,
-    visibility: "in-card",
     agent: "confirm",
     http: { method: "DELETE", path: "/api/repos/{owner}/{repo}/wiki/{documentId}", query: { visibility: "visibility" } },
     args: "<documentId>",
