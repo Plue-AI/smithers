@@ -205,7 +205,7 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 			command.Dir = root
 			command.Env = append(os.Environ(), "SMITHERS_PERF_ORIGIN="+server.URL,
 				"SMITHERS_PERF_OWNER_COOKIE="+credential, "SMITHERS_PERF_TOKEN=",
-				"SMITHERS_PERF_MEMBER_A=", "SMITHERS_PERF_ARTIFACT_ROOT="+output)
+				"SMITHERS_PERF_MEMBER_A=", "SMITHERS_PERF_PAGE=", "SMITHERS_PERF_ARTIFACT_ROOT="+output)
 			bytes, err := command.CombinedOutput()
 			var exit *exec.ExitError
 			require.ErrorAs(t, err, &exit, string(bytes))
@@ -231,6 +231,7 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 			}
 			if credential == "session="+cookies[0] {
 				require.Contains(t, string(summary.Host), `"perf_cores":10`, string(bytes))
+				require.Contains(t, summary.Budgets[0].Reason, "same-origin main conversation page required", "first-token adapter refuses before browser or prompt launch")
 			}
 			require.NotContains(t, string(bytes), credential)
 		}

@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { publicOrigin, readHost, validateHost } from './lib/host.mjs'
 import { writeRun } from './lib/artifact.mjs'
 import { summarize } from './lib/stats.mjs'
+import { configuration as agentConfiguration, run as agentRun } from './agent-first-token.mjs'
 import { configuration as projectionConfiguration, run as projectionRun } from './projection-delta.mjs'
 
 // Literal release budgets, not derived from spec text or implementation policy.
@@ -17,7 +18,16 @@ export const budgets = [
   { check: 'C-PERF-06', name: 'rebase-hold', minimum: 100, thresholdsMs: { writeHold: 2000 }, tickets: ['T-STK-08', 'T-GH-07'] }
 ]
 
-const productionProviders = {
+export const productionProviders = {
+  'C-PERF-01': {
+    available(env, { origin }) {
+      const config = agentConfiguration(env)
+      if (config.origin !== origin) throw new Error('configured measurement origin differs from run')
+      if (process.platform !== 'darwin') throw new Error('second Mac required')
+    },
+    async measure(env) { return (await agentRun(env, { persist: false })).result },
+    fields: { firstToken: 'firstTokenMs', answerWithCards: 'answerWithCardsMs' }
+  },
   'C-PERF-02': {
     available(env, { origin }) {
       const config = projectionConfiguration(env)
@@ -69,6 +79,11 @@ export async function run({ env = process.env, providers = productionProviders, 
       if (result.status !== 'passed') throw new Error(result.error ?? 'measurement failed')
       if (result.commit !== commit || result.origin !== usedOrigin) throw new Error('measurement commit/origin differs from run')
       entry.browser = result.browser
+      // Preserve the driver's cross-checks alongside raw samples. Credentials
+      // and operator environment never enter the evidence.
+      for (const key of ['models', 'questionOrder', 'preflightSummary', 'wakesBefore', 'wakesAfter', 'member', 'clock']) {
+        if (result[key] !== undefined) entry[key] = result[key]
+      }
       entry.stats = summarize(entry.samples, Object.values(provider.fields), budget.minimum)
       for (const [name, limit] of Object.entries(budget.thresholdsMs)) {
         const field = provider.fields[name]

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, mkdir, symlink, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { run } from '../run.mjs'
+import { run, productionProviders } from '../run.mjs'
 import { publicOrigin, validateHost, readHost } from './host.mjs'
 
 const host = { profile: { memory_bytes: 68719476736, perf_cores: 10, physical_cores: 12, disk_free_bytes: 200000000000, macos_version: '15.7', hypervisor: true }, limits: { capacity: 5 } }
@@ -155,3 +155,21 @@ test('origin or provider refusal prevents mutation; execution errors fail the fu
     assert.match(result.summary.budgets[1].reason, /socket disconnected/)
   })
 })
+
+ test('first-token production adapter refuses incomplete member fixtures before launch', async () => {
+  assert.deepEqual(productionProviders['C-PERF-01'].fields, { firstToken: 'firstTokenMs', answerWithCards: 'answerWithCardsMs' })
+  await temporary(async root => {
+    const result = await run({ ...options, root, check: 'C-PERF-01', providers: productionProviders, env: { SMITHERS_PERF_ORIGIN: options.origin } })
+    assert.equal(result.exit, 2)
+    assert.equal(result.summary.budgets[0].status, 'skipped')
+    assert.match(result.summary.budgets[0].reason, /same-origin main conversation page required/)
+    assert.deepEqual(result.summary.budgets[0].samples, [])
+  })
+})
+test('first-token runner keeps model and no-wake cross-check evidence', async () => temporary(async root => {
+  const evidence = { models: [{ role: 'fast', provider: 'fixture', model: 'fixture' }], wakesBefore: 0, wakesAfter: 0, preflightSummary: { durationMs: { p95: 10 } }, questionOrder: ['fixture'], member: { id: 'A' }, clock: 'fixture monotonic' }
+  const result = await run({ ...options, root, check: 'C-PERF-01', providers: { 'C-PERF-01': { available() {}, fields: productionProviders['C-PERF-01'].fields, async measure() { return { ...passing(), ...evidence, samples: samples.map(s => ({ ...s, firstTokenMs: 100, answerWithCardsMs: 500 })) } } } } })
+  assert.equal(result.exit, 0)
+  const saved = JSON.parse(await readFile(join(root, '.artifacts/checks/C-PERF-01', options.timestamp, 'summary.json'), 'utf8'))
+  for (const [key, value] of Object.entries(evidence)) assert.deepEqual(saved.budgets[0][key], value)
+}))
