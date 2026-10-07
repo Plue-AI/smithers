@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
@@ -199,4 +200,58 @@ func TestFlowLoadProjectionRollsBackWithActivation(t *testing.T) {
 	versions, err := h.q.ListFlowVersions(ctx, h.repoID)
 	require.NoError(t, err)
 	require.Empty(t, versions)
+}
+
+func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
+	h := newMergeHarness(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(h.work, "flows/todo"), 0700))
+	ctx := t.Context()
+	item := h.todo("Change flow", "Change the TODO flow", h.main, "flows/todo/flow.ts", "export default 'candidate'\n")
+	store, err := jobs.NewStore(h.pool.(*pgxpool.Pool))
+	require.NoError(t, err)
+	before, err := store.Head(ctx, FlowLiveScope(h.repoID))
+	require.NoError(t, err)
+	record := func() {
+		t.Helper()
+		tx, err := h.pool.Begin(ctx)
+		require.NoError(t, err)
+		defer tx.Rollback(ctx)
+		_, err = h.service.recordTodoFact(ctx, tx, item, uuid.NewString(), "todo.run_updated", todoState(item), json.RawMessage(`{}`))
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
+	}
+	record()
+	head, err := store.Head(ctx, FlowLiveScope(h.repoID))
+	require.NoError(t, err)
+	require.Equal(t, before+1, head)
+	record()
+	unchanged, err := store.Head(ctx, FlowLiveScope(h.repoID))
+	require.NoError(t, err)
+	require.Equal(t, head, unchanged, "unrelated TODO facts cannot advance the flows cursor")
+	item.State = "cancelled"
+	item, err = h.q.SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	record()
+	page, err := store.Replay(ctx, FlowLiveScope(h.repoID), before, 100)
+	require.NoError(t, err)
+	require.Len(t, page.Events, 2)
+	for i, event := range page.Events {
+		var data struct {
+			Card []FlowCard `json:"card"`
+		}
+		require.NoError(t, json.Unmarshal(event.Data, &data))
+		proposed := []int64{}
+		for _, card := range data.Card {
+			for _, version := range card.Versions {
+				if version.State == "proposed" {
+					proposed = append(proposed, version.Todo)
+				}
+			}
+		}
+		if i == 0 {
+			require.Equal(t, []int64{item.Number.Int64}, proposed)
+		} else {
+			require.Empty(t, proposed)
+		}
+	}
 }

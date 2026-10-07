@@ -62,5 +62,14 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 	if err != nil {
 		return jobs.Event{}, err
 	}
-	return jobs.RecordProjectedFactInTx(ctx, tx, todoOperationScope(item), operation, kind, state, raw, data)
+	event, err := jobs.RecordProjectedFactInTx(ctx, tx, todoOperationScope(item), operation, kind, state, raw, data)
+	if err != nil {
+		return jobs.Event{}, err
+	}
+	// Proposed flow versions belong to the same committed candidate transition.
+	// Unrelated TODO changes leave the flow cursor unchanged.
+	if err := s.recordFlowFact(ctx, tx, item.RepositoryID); err != nil {
+		return jobs.Event{}, err
+	}
+	return event, nil
 }
