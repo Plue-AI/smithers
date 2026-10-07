@@ -19,8 +19,8 @@ const count = (field: string): Grammar => args => args?.trim().startsWith("{") ?
     ? { payload: { [field]: Number(args.trim()) } } : { error: "Enter a number" }
 const key: Grammar = args => {
   const parsed = object(args)
-  if ("payload" in parsed) { const { role, provider, model } = parsed.payload; return { payload: {
-    ...(role === undefined ? {} : { role }), ...(provider === undefined ? {} : { provider }), ...(model === undefined ? {} : { model })
+  if ("payload" in parsed) { const { role, provider, model, action } = parsed.payload; return { payload: {
+    ...(role === undefined ? {} : { role }), ...(provider === undefined ? {} : { provider }), ...(model === undefined ? {} : { model }), ...(action === undefined ? {} : { action })
   } } }
   return parsed
 }
@@ -53,12 +53,12 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     handler: ({ path }) => actions.setInstallObsidian(path) }),
   flow({ name: "settings.model-key", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change model key", hidden: true, agentReason: "Install controls require the owner’s person session",
     grammar: key, args: "<role> <provider>",
-    input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String, model: Schema.optional(Schema.String), value: Schema.optional(Schema.String) }),
-    form: { submitLabel: "Save", args: input => JSON.stringify({ role: input.role, provider: input.provider }), fields: {
+    input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String, model: Schema.optional(Schema.String), action: Schema.optional(Schema.Literal("remove")), value: Schema.optional(Schema.String) }),
+    form: { submitLabel: "Save", args: input => JSON.stringify({ role: input.role, provider: input.provider, ...(input.action ? { action: input.action } : {}) }), requires: input => input.action === "remove" ? [] : ["value"], fields: {
       role: { label: "Role", kind: "select" }, provider: { label: "Provider", kind: "text" },
-      value: { label: "Key", kind: "write-only", required: true }
+      value: { label: "Key", kind: "write-only", required: false }
     } },
-    handler: ({ role, provider, model }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider, ...(model ? { model } : {}) }, gesture) }),
+    handler: ({ role, provider, model, action }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider, ...(model ? { model } : {}), ...(action ? { action } : {}) }, gesture) }),
   flow({ name: "settings.setup", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Continue setup", hidden: true, agentReason: "Install controls require the owner’s person session",
     grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS),
       owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) }),

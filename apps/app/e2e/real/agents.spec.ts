@@ -195,8 +195,7 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
    return agents.agents.find((row: any) => row.id === "reviewer").runs.some((run: any) =>
     run.model === modelB && run.id === itemY[0].id)
   }, { timeout: 780_000, intervals: [2000, 5000] }).toBe(true)
-  // Exercise the existing owner credential boundary. The Settings removal
-  // gesture remains a separate pending reference-host observation.
+  // Remove through the same Settings flow a person uses on the install.
   const fastSetting = f.sql("SELECT value FROM install_settings WHERE key='agent:fast'")
   expect(fastSetting).toHaveLength(1)
   const fastCredential = fastSetting[0].value.credential
@@ -205,11 +204,14 @@ test("C-J11-03 install roles, owner switch and merged app instructions", scenari
   const codingSetting = f.sql("SELECT value FROM install_settings WHERE key='agent:coding'")
   expect(codingSetting).toHaveLength(1)
   expect(fastCredential, "Use separate fast and coding keys for the removal journey").not.toBe(codingSetting[0].value.credential)
-  const removed = await f.members.Will.context.request.post("/api/model/credential", {
-   data: { action: "remove", requestId: `c-j11-03-remove-fast-${Date.now()}`, name: fastCredential }
-  })
+  await runSlash(page, "/settings")
+  const removal = page.waitForResponse(response => new URL(response.url()).pathname === "/api/model/credential" && response.request().method() === "POST")
+  await page.getByTestId("settings-key-remove-fast").press("Enter")
+  const removed = await removal
+  expect(removed.request().postDataJSON()).toMatchObject({ action: "remove", name: fastCredential })
   expect(removed.status()).toBe(200)
   expect((await removed.json()).ok).toBe(true)
+  await expect(page.getByTestId("settings-key-remove-fast")).toHaveCount(0)
   await attachJson(info, "fast-credential-removal", await removed.json())
   expect((await ask(modelA)).trim()).not.toMatch(/\bDONE[.!]?$/)
   const readInstructions = async () => {

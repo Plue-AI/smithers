@@ -32,7 +32,7 @@ export interface InstallSeamOptions {
 }
 export interface InstallAddress { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
 export interface SetupInput { readonly step: InstallStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
-export interface ModelKeyInput { readonly role: "fast" | "coding" | "jev"; readonly provider: string; readonly model?: string }
+export interface ModelKeyInput { readonly role: "fast" | "coding" | "jev"; readonly provider: string; readonly model?: string; readonly action?: "remove" }
 const error = (code: string, message: string, fault: InstallError["class"] = "infra"): InstallError => ({ code, class: fault, message })
 const permission = error("owner_required", "Owner access required", "permission")
 /** GET /api/install found no install route on this host (see quietWithoutInstall). */
@@ -365,7 +365,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   const saveInstallModelKey = (input: ModelKeyInput, gesture?: CommandGesture) => {
     let value = gesture?.takeWriteOnly?.("value")
     gesture?.release()
-    if (!value) return "Enter a key"
+    if (!value && input.action !== "remove") return "Enter a key"
     if (!shared.snapshot.model?.github.signed_in) { value = undefined; publish({ error: permission }); return serviceFailureSentence(permission) }
     const name = input.role === "jev" ? "AI_GATEWAY_API_KEY" : input.provider.toUpperCase().replace(/[ -]/g, "_") + "_API_KEY"
     const credential = MODEL_CREDENTIALS.find(credential => credential.name === name)
@@ -379,14 +379,14 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       if (model) publish({ ...shared.snapshot, model: { ...model, models: model.models.map(role => role.role !== input.role ? role
         : { role: role.role, provider: input.provider, key, ...(reason === undefined ? {} : { error: reason }) }) } })
     }
-    return background(`key:${input.role}`, "Saving key", async () => {
+    return background(`key:${input.role}`, input.action === "remove" ? "Removing key" : "Saving key", async () => {
       if (!current()) { value = undefined; return false }
       // A key is Validating while its one request is in flight; only the authoritative read below marks it Saved.
       mark("validating")
       // Values live only until the one HTTP request is constructed, never in install/card state.
       const requestId = randomUuid()
-      const request = ModelCredentialRequestSchema.safeParse({ requestId, name: credential.name, value,
-        ...(rotate ? { action: "rotate" } : { action: "enroll", origin: credential.origins[0] }) })
+      const request = ModelCredentialRequestSchema.safeParse({ requestId, name: credential.name, ...(input.action === "remove" ? {} : { value }),
+        ...(input.action === "remove" ? { action: "remove" } : rotate ? { action: "rotate" } : { action: "enroll", origin: credential.origins[0] }) })
       value = undefined
       if (!request.success) { publish({ ...shared.snapshot, error: error("invalid_key", "Key refused", "user") }); return "Key refused" }
       const body = JSON.stringify(request.data)
@@ -398,7 +398,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
         if (!current()) return false
         const payload: unknown = await response.json().catch(() => undefined)
         const receipt = ModelCredentialResultSchema.safeParse(payload)
-        if (!response.ok || !receipt.success || !receipt.data.ok || receipt.data.credential.name !== credential.name || !receipt.data.credential.present) {
+        if (!response.ok || !receipt.success || !receipt.data.ok || receipt.data.credential.name !== credential.name || receipt.data.credential.present !== (input.action !== "remove")) {
           const parsed = InstallErrorSchema.safeParse(payload)
           // The provider's own refusal, when the host relays one, is the reason the role shows.
           const refusal = receipt.success && !receipt.data.ok && receipt.data.failure.code === "host_refused" ? receipt.data.failure.refusal : null
@@ -409,7 +409,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           mark("failed", serviceFailureSentence(failure)); publish({ ...shared.snapshot, error: failure })
           return serviceFailureSentence(failure)
         }
-        if (input.role === "coding" && input.model) {
+        if (input.action !== "remove" && input.role === "coding" && input.model) {
           const protocol = input.provider.toLowerCase() === "anthropic" ? "anthropic-messages"
             : input.provider.toLowerCase() === "openai" ? "openai-responses" : "openai-chat"
           const baseUrl = protocol === "openai-chat" ? CHAT_BASE_URLS[credential.name] : undefined

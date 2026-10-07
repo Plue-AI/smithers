@@ -785,3 +785,44 @@ test("the owner default posts the requested value and preserves it in Settings",
   expect(h.seam.snapshots.get().model?.todo_preapprove_default).toBe(true)
   h.seam.dispose()
 })
+
+
+describe("Settings key removal", () => {
+ test("removal coalesces while pending and waits for the authoritative role read", async () => {
+  const pending = deferred<Response>()
+  let removed = false
+  const h = await harness((path) => path === "/api/model/credential" ? pending.promise : Response.json({
+   ...installFixture(), models: installFixture().models.map(role => role.role === "fast" && removed ? { ...role, key: "none" } : role)
+  }))
+  await h.seam.readInstall()
+  expect(h.seam.saveInstallModelKey({ role: "fast", provider: "Cerebras", action: "remove" })).toEqual({ value: "Requested" })
+  h.seam.saveInstallModelKey({ role: "fast", provider: "Cerebras", action: "remove" })
+  await tick()
+  const writes = h.requests.filter(request => request.path === "/api/model/credential")
+  expect(writes).toHaveLength(1)
+  expect(JSON.parse(String(writes[0]!.init!.body))).toEqual({ action: "remove", name: "CEREBRAS_API_KEY", requestId: expect.any(String) })
+  expect(h.toasts[0]?.outcome).toBeUndefined()
+  removed = true
+  pending.resolve(Response.json({ ok: true, credential: { ...credentialReceipt("CEREBRAS_API_KEY").credential, present: false } }))
+  await h.idle()
+  expect(h.seam.snapshots.get().model?.models.find(role => role.role === "fast")?.key).toBe("none")
+  expect(h.seam.snapshots.get().model?.models.find(role => role.role === "coding")?.key).toBe("saved")
+  expect(h.toasts[0]?.outcome).toBe(true)
+  h.seam.dispose()
+ })
+ test.each([403, 500])("a refused removal stays visible and can be retried (%s)", async status => {
+  let attempts = 0
+  const h = await harness(path => path === "/api/model/credential" ? ++attempts === 1
+   ? Response.json({ code: "refused", class: status === 403 ? "permission" : "infra", message: "Removal refused" }, { status })
+   : Response.json({ ok: true, credential: { ...credentialReceipt("CEREBRAS_API_KEY").credential, present: false } })
+   : Response.json(installFixture()))
+  await h.seam.readInstall()
+  h.seam.saveInstallModelKey({ role: "fast", provider: "Cerebras", action: "remove" }); await h.idle()
+  expect(h.seam.snapshots.get().error?.message).toBe("Removal refused")
+  expect(h.toasts[0]?.outcome).not.toBe(true)
+  h.seam.saveInstallModelKey({ role: "fast", provider: "Cerebras", action: "remove" }); await h.idle()
+  expect(attempts).toBe(2)
+  expect(h.toasts[1]?.outcome).toBe(true)
+  h.seam.dispose()
+ })
+})

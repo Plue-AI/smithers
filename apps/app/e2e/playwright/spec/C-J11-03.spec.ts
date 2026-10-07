@@ -200,3 +200,53 @@ test("C-J11-03: Settings reads the install roles and refreshes them after reload
  await expect(settings.getByTestId("settings-model-fast")).toHaveText("model-f")
  expect(writes).toEqual([])
 })
+
+
+test("C-J11-03: the owner removes the fast key in Settings without blocking Chat", async ({ page }) => {
+ await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
+ await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [] } }))
+ let removed = false
+ await page.route("**/api/install", route => route.fulfill({ json: {
+  ...installFixture(), models: [
+   { role: "fast", provider: "Cerebras", key: removed ? "none" : "saved", model: "model-f" },
+   { role: "coding", provider: "OpenAI", key: "saved", model: "model-a" },
+   { role: "jev", provider: "AI Gateway", key: "saved", model: "model-j" }
+  ]
+ } }))
+ const requests: any[] = []
+ let release!: () => void
+ const receipt = new Promise<void>(resolve => { release = resolve })
+ await page.route("**/api/model/credential", async route => {
+  requests.push(route.request().postDataJSON())
+  if (requests.length === 1) {
+   await route.fulfill({ status: 500, json: { code: "vault_unavailable", class: "infra", message: "Removal refused" } })
+   return
+  }
+  await receipt
+  removed = true
+  await route.fulfill({ json: { ok: true, credential: { name: "CEREBRAS_API_KEY", present: false, managed: true, origins: ["https://api.cerebras.ai"] } } })
+ })
+ await page.goto("/smithersai/smithers")
+ await say(page, "/settings")
+ const remove = page.getByTestId("settings-key-remove-fast")
+ await expect(remove).toHaveAttribute("data-flow", "settings.model-key")
+ await remove.press("Enter")
+ await expect.poll(() => requests.length).toBe(1)
+ await expect(page.getByText("Key not accepted", { exact: true }).first()).toBeVisible()
+ await expect(remove).toBeVisible()
+ await remove.press("Enter")
+ await expect.poll(() => requests.length).toBe(2)
+ expect(requests[0]).toEqual({ action: "remove", name: "CEREBRAS_API_KEY", requestId: expect.any(String) })
+ await expect(page.getByTestId("settings-key-remove-coding")).toBeVisible()
+ await say(page, "/help")
+ await expect(page.getByRole("textbox").last()).toBeEnabled()
+ expect(removed).toBe(false)
+ release()
+ await say(page, "/settings")
+ await expect(remove).toHaveCount(0)
+ await expect(page.getByTestId("settings-key-remove-coding")).toBeVisible()
+ await page.reload()
+ await say(page, "/settings")
+ await expect(remove).toHaveCount(0)
+ expect(requests).toHaveLength(2)
+})
