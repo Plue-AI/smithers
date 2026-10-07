@@ -1,3 +1,4 @@
+import { randomUuid } from "../../runtime/RandomUuid"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import type { CommandResult } from "../../flows/entries/Declare"
 import type { SeamContext } from "./SeamContext"
@@ -29,7 +30,7 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
       }
       if (!available(operation)) return "Branch unavailable"
       const response = await ctx.http(`${ctx.baseUrl}/api/branches/${encodeURIComponent(branch)}`, {
-        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "Idempotency-Key": randomUuid() },
         body: JSON.stringify({ op: operation, ...input })
       })
       const body = await response.json() as { message?: string; state?: string }
