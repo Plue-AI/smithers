@@ -123,6 +123,12 @@ emit('ev_transcript_bad_utf8',2,durable(12,transcript({record:Buffer.from([255])
 emit('ev_transcript_partial',2,durable(12,transcript({record:Buffer.from('one\ntwo')}),eid(0xf1)),0,'bad_value','daemon-to-host');
 // One violated bound each; every other field is ev_transcript's.
 for(const [i,[name,change]] of Object.entries({version:{version:2},session_zero:{session:0},session_over:{session:0x80000000},participant_zero:{participant:Buffer.alloc(16)},source_zero:{source:Buffer.alloc(16)},profile_empty:{profile:''},generation_zero:{generation:0},end_not_after_start:{start:16,end:16},span:{end:17}}).entries())emit('bad_value_transcript_'+name,2,durable(12,transcript(change),eid(0xf2+i)),0,'bad_value','daemon-to-host');
+// Ruling 2's record bounds (8a at 02fe2e50a2): 1 byte to 1 MiB, UTF-8 without
+// NUL. Each span is valid, so each frame violates only its named bound.
+emit('bad_value_transcript_record_empty',2,durable(12,transcript({record:Buffer.alloc(0)}),eid(0xd0)),0,'bad_value','daemon-to-host');
+emit('ev_transcript_record_at_limit',2,durable(12,transcript({record:Buffer.alloc(1048576,0x61)}),eid(0xd1)),0,'ok','daemon-to-host');
+emit('bad_value_transcript_record_over_1mib',2,durable(12,transcript({record:Buffer.alloc(1048577,0x61)}),eid(0xd2)),0,'bad_value','daemon-to-host');
+emit('ev_transcript_bad_utf8_nul',2,durable(12,transcript({record:Buffer.from('a\0b')}),eid(0xd3)),0,'bad_utf8','daemon-to-host');
 emit('hint_file_written',2,un(2,f(1,un(1,f(1,str('a')),f(2,actor),f(3,digest)))),0,'ok','daemon-to-host');
 emit('presence_snapshot',3,un(1,f(1,list(st(f(1,num(1,4)),f(2,str('a'))),st(f(1,num(2,4)))))),0,'ok','daemon-to-host');
 for(const [v,name,fs]of [[1,'applied',[]],[2,'duplicate',[]],[3,'missing_objects',[f(3,list(oid)),f(5,list(oid2))]],[4,'rejected',[f(4,st(f(1,[11])))]],[5,'stale_base',[]]])emit('ack_'+name,2,un(3,f(1,num(7,8)),f(2,[v]),...fs));
@@ -143,8 +149,8 @@ emit('bad_actor_variant_from_host',1,req(3,...args[2].slice(0,3),f(4,un(4))),0,'
 emit('bad_unordered_field',1,req(2,f(2,oid),f(1,str('a'))),0,'unordered_field');
 emit('bad_missing_field',1,req(2),0,'missing_field');
 emit('bad_utf8_path',1,req(2,f(1,cat(num(1,2),[255]))),0,'bad_utf8');
-emit('local_write_with_actor',1,req(3,...args[2]),0,'unknown_field','local',true);
-emit('local_write_without_actor',1,req(3,...args[2].slice(0,3)),0,'ok','local',true);
+emit('local_write_with_actor',1,req(3,...args[2]),0,'unknown_field','host-to-daemon',true);
+emit('local_write_without_actor',1,req(3,...args[2].slice(0,3)),0,'ok','host-to-daemon',true);
 raw('bad_truncated_header',Buffer.from([0,0]),'truncated');
 raw('bad_truncated_payload',cat(num(4,4),[1],num(0,4),[1]),'truncated');
 raw('bad_oversized_control',cat(num(1114113,4),[1],num(0,4)),'frame_too_large');
@@ -216,6 +222,23 @@ emit('req_delete_files',1,batchReq(f(1,deletion),f(2,batchActor)));
 emit('local_delete_files',1,batchReq(f(1,deletion)),0,'ok','host-to-daemon',true);
 emit('res_delete_files',1,batchRes(f(1,list(st(f(1,un(2)))))),0,'ok','daemon-to-host');
 emit('req_move_files',1,batchReq(f(1,list(st(f(1,str('a')),f(2,un(1,f(1,sha('before'))))),st(f(1,str('b')),f(2,un(2)),f(3,bytes(Buffer.from('before')))))),f(2,batchActor)));
+// #3562 committed these bytes by hand (moved_off tag 4 `returned`, and
+// ev_transcript's event_id); generated here so --check covers them.
+emit('ev_moved_off_returned',2,durable(11,un(4,f(1,un(2,f(1,num(7,4)))),f(2,num(2,8)),f(3,Buffer.from('1234567890abcdef1234567890abcdef12345678','hex')),f(4,[1])),id),0,'ok','daemon-to-host');
+// A move's receipts: absent for the source deletion, the written digest for
+// the destination (ADR:549-554).
+emit('res_move_files',1,batchRes(f(1,list(st(f(1,un(2))),st(f(1,un(1,f(1,sha('before')))))))),0,'ok','daemon-to-host');
+// Traversal is the engine's refusal, not the decoder's (ADR:204, :495, :505):
+// these decode, and the answer is a preflight invalid_path with no receipts.
+const deleteAt=path=>batchReq(f(1,list(st(f(1,str(path)),f(2,un(1,f(1,sha('before'))))))),f(2,batchActor));
+emit('req_delete_files_dotdot',1,deleteAt('../a'));
+emit('req_delete_files_absolute',1,deleteAt('/etc/passwd'));
+emit('res_write_files_invalid_path',1,batchRes(f(1,list()),f(2,batchFailure(0,1,6))),0,'ok','daemon-to-host');
+// A method-17 path is a str (ADR:68): NUL is bad_utf8, 4,097 bytes bad_value.
+emit('bad_utf8_write_files_path_nul',1,batchReq(f(1,list(st(f(1,cat(num(3,2),Buffer.from('a\0b'))),f(2,un(1,f(1,sha('before'))))))),f(2,batchActor)),0,'bad_utf8');
+emit('bad_value_write_files_path_over_4096',1,deleteAt('a'.repeat(4097)),0,'bad_value');
+// Busy during deletion is an application failure, never a stale no-op (ADR:560).
+emit('res_write_files_busy',1,batchRes(f(1,list()),f(2,batchFailure(0,0,9,f(4,num(1,4))))),0,'ok','daemon-to-host');
 const previous=JSON.parse(readFileSync(dir+'MANIFEST.json','utf8'));
 // Sequence steps name their connection (ADR 0004 ruling 4); `a` unless given.
 const steps=(...names)=>names.map(n=>typeof n==='string'?{conn:'a',frame:n}:n);
@@ -236,6 +259,10 @@ const sequences={
   // challenge on b's boot (fresh nonce, valid proof), presents a's older
   // credential and is refused.
   seq_newer_boot:[...on('a',...handshake),...on('b','hello_challenge_b','hello_host_proof_b','hello_machine_b','hello_welcome'),...on('a','goodbye_superseded'),...on('c','hello_challenge_c','hello_host_proof_c','hello_machine','goodbye_auth_failed')],
+  seq_move_files:steps('req_move_files','res_move_files'),
+  seq_delete_dotdot:steps('req_delete_files_dotdot','res_write_files_invalid_path'),
+  seq_delete_absolute:steps('req_delete_files_absolute','res_write_files_invalid_path'),
+  seq_delete_busy:steps('req_delete_files','res_write_files_busy'),
   seq_wake_objects:steps('obj_host_data','obj_host_eof','obj_host_close','req_wake_reconcile'),
 };
 // Handshake refusals only a handshake state machine detects. `by` names the

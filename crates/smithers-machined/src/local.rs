@@ -108,7 +108,7 @@ fn unified_cgroup(groups: &str) -> Option<&str> {
     Some(path)
 }
 pub fn serve(
-    mut socket: UnixStream,
+    socket: UnixStream,
     ready: Arc<dyn Fn() -> bool + Send + Sync>,
     sessions: &dyn Sessions,
     lock: &Lock,
@@ -127,7 +127,20 @@ pub fn serve(
     std::fs::File::open(format!("/proc/{}/cgroup", peer.pid.as_raw_nonzero()))?
         .take(4097)
         .read_to_string(&mut groups)?;
-    let run = admission_for_peer(peer.uid.as_raw(), &groups, sessions)
+    serve_peer(socket, peer.uid.as_raw(), groups, ready, sessions, lock, files)
+}
+/// Everything after the kernel credential read: `uid` and `groups` are the
+/// peer's `SO_PEERCRED` uid and `/proc/<pid>/cgroup` text.
+pub(crate) fn serve_peer(
+    mut socket: UnixStream,
+    uid: u32,
+    groups: String,
+    ready: Arc<dyn Fn() -> bool + Send + Sync>,
+    sessions: &dyn Sessions,
+    lock: &Lock,
+    files: Arc<Files>,
+) -> io::Result<()> {
+    let run = admission_for_peer(uid, &groups, sessions)
         .map_err(|_| io::ErrorKind::PermissionDenied)?;
     let admitted_epoch = lock.epoch();
     let frame = Frame::read_envelope(&mut socket).map_err(io::Error::other)?;
@@ -159,7 +172,7 @@ pub fn serve(
             // Recheck after queueing: revocation can happen while this request waits
             // behind a capture or rewrite. The original cgroup grants no lease.
             if !ready()
-                || admission_for_peer(peer.uid.as_raw(), &groups, &*cx.hooks.sessions)
+                || admission_for_peer(uid, &groups, &*cx.hooks.sessions)
                     .ok()
                     .as_ref()
                     != Some(&run)
@@ -243,4 +256,89 @@ pub fn serve(
                     == Some(&stream_run)
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{broker::sessions::Admission, hooks::Hooks, lock::Executor};
+    use std::{
+        io::Write,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+    /// Counts every session-provider action the local socket could take.
+    struct Runs(AtomicUsize);
+    impl Sessions for Runs {
+        fn admission_of_cgroup(&self, path: &str) -> Option<Admission> {
+            (path == "/smithers/sessions/7").then(|| Admission {
+                principal: [7; 16],
+                run: Some("run-7".into()),
+            })
+        }
+        fn open_local(&self, _: &str, _: &[u8]) -> crate::hooks::Result<Vec<u8>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(Error::unsupported())
+        }
+        fn call(&self, _: u8, _: &[u8]) -> crate::hooks::Result<Vec<u8>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(Error::unsupported())
+        }
+    }
+    fn corpus(name: &str) -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+                "../../packages/backend/internal/compose/testdata/cocontracts/{name}.bin"
+            )),
+        )
+        .unwrap()
+    }
+    /// Production local dispatch after the kernel credential read: returns the
+    /// reply bytes, the provider actions and the mutation jobs it ran.
+    fn exchange(request: &[u8]) -> (Vec<u8>, usize, u64) {
+        let runs = Arc::new(Runs(AtomicUsize::new(0)));
+        let executor = Executor::start(Hooks {
+            sessions: runs.clone(),
+            ..Hooks::default()
+        })
+        .unwrap();
+        let workspace = std::fs::File::open(env!("CARGO_MANIFEST_DIR")).unwrap();
+        let files = Arc::new(Files::fixture(workspace, Arc::new(crate::hooks::Disabled)));
+        let (mut caller, server) = UnixStream::pair().unwrap();
+        caller.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let lock = executor.lock.clone();
+        let sessions = runs.clone();
+        let worker = std::thread::spawn(move || {
+            serve_peer(
+                server,
+                19999,
+                "0::/smithers/sessions/7\n".into(),
+                Arc::new(|| true),
+                &*sessions,
+                &lock,
+                files,
+            )
+        });
+        caller.write_all(request).unwrap();
+        let mut reply = vec![];
+        caller.read_to_end(&mut reply).unwrap();
+        let _ = worker.join().unwrap();
+        let jobs = executor.lock.run_blocking("probe", |cx| cx.completed).unwrap();
+        executor.shutdown().unwrap();
+        (reply, runs.0.load(Ordering::SeqCst), jobs)
+    }
+    /// ADR 0004 §durable session admission (8a, 2026-10-07): a local request
+    /// carrying admission fields decodes, and the daemon answers it with
+    /// exactly `Error{unauthorized}` (control error 11) without acting.
+    #[test]
+    fn local_open_with_admission_fields_answers_unauthorized_without_acting() {
+        let (reply, actions, jobs) = exchange(&corpus("local_open_session_admitted"));
+        // Both carry req_id 42: the reply is the corpus error frame byte for byte.
+        assert_eq!(reply, corpus("err_unauthorized"));
+        // Response{42, Error{1 code: 11}} and no other Error field.
+        assert!(reply.ends_with(&[255, 0, 0, 0, 2, 1, 11]));
+        assert_eq!((actions, jobs), (0, 0));
+        // Control: the same dispatch without tags 5/6 does reach the provider.
+        let (_, actions, jobs) = exchange(&corpus("local_open_session"));
+        assert_eq!((actions, jobs), (1, 1));
+    }
 }

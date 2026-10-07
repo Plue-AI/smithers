@@ -736,6 +736,34 @@
       "sha256": "26975d99feac20df6052ff78ddff0fed5ecf5e8ed6e7dc3f13e70bc90f4a1148"
     },
     {
+      "name": "bad_value_transcript_record_empty",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "00be9f425f5fb001d0718a7b62439f39ded598f7183d9f924a5b466b40b06ce3"
+    },
+    {
+      "name": "ev_transcript_record_at_limit",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "cafac020df5b5dfcda986a427aa07645fdf759e2c27e931eae4319a80f3e639d"
+    },
+    {
+      "name": "bad_value_transcript_record_over_1mib",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "0abae2ac16955d78bff7c4b7963db0c8ca68b582c718041f3339faf6916164ad"
+    },
+    {
+      "name": "ev_transcript_bad_utf8_nul",
+      "direction": "daemon-to-host",
+      "expected": "bad_utf8",
+      "local": false,
+      "sha256": "a2124b7bda50d2d4e67222bcfbdc4bd171bb2e901087253ceb651c08daf7b24a"
+    },
+    {
       "name": "hint_file_written",
       "direction": "daemon-to-host",
       "expected": "ok",
@@ -1003,14 +1031,14 @@
     },
     {
       "name": "local_write_with_actor",
-      "direction": "local",
+      "direction": "host-to-daemon",
       "expected": "unknown_field",
       "local": true,
       "sha256": "6370b84a7db93cc1593d28a0603bcbe5ee99b6f65182cd5b8d6e6d829ba20d27"
     },
     {
       "name": "local_write_without_actor",
-      "direction": "local",
+      "direction": "host-to-daemon",
       "expected": "ok",
       "local": true,
       "sha256": "52e803acd66ee407b48492c37a305018e877f596bf7758963e5117128f9b3b78"
@@ -1518,6 +1546,55 @@
       "expected": "ok",
       "local": false,
       "sha256": "295a138387fe2874b341d9cc139ded79ef6e5b3ca2e421a62bd87463f6aa93a4"
+    },
+    {
+      "name": "res_move_files",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "2d3e1d18a0a58bd2384f7230e0d25973db37a1e5b66db062f6d07cee50820511"
+    },
+    {
+      "name": "req_delete_files_dotdot",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "f0b460a668805b6acbd3b37597344303ce2b8d732862f00580e1eb539a6feed2"
+    },
+    {
+      "name": "req_delete_files_absolute",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "0a70dbc68d4814a2d835211e4666e6aa3b2567933dce95a0f3ec971604f0d3cd"
+    },
+    {
+      "name": "res_write_files_invalid_path",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "d505b56d4578689a79ae07280b387ad58ac75ed56d05fcd9ce2a300a5e84d7cf"
+    },
+    {
+      "name": "bad_utf8_write_files_path_nul",
+      "direction": "host-to-daemon",
+      "expected": "bad_utf8",
+      "local": false,
+      "sha256": "b4cc45a054733d1bed3ebd4cae8f0b966483b9927392ec35c81d3f148db8b103"
+    },
+    {
+      "name": "bad_value_write_files_path_over_4096",
+      "direction": "host-to-daemon",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "fcea10c723fd67a520f0fe5fc19901ac84140426036f50cac37d2d62d4f892db"
+    },
+    {
+      "name": "res_write_files_busy",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "db65ad1ab33be5a674a7e89d1fdfd628288bc668a689a06c1bcea3cd6c636693"
     }
   ],
   "sequences": {
@@ -1737,6 +1814,46 @@
       {
         "conn": "c",
         "frame": "goodbye_auth_failed"
+      }
+    ],
+    "seq_move_files": [
+      {
+        "conn": "a",
+        "frame": "req_move_files"
+      },
+      {
+        "conn": "a",
+        "frame": "res_move_files"
+      }
+    ],
+    "seq_delete_dotdot": [
+      {
+        "conn": "a",
+        "frame": "req_delete_files_dotdot"
+      },
+      {
+        "conn": "a",
+        "frame": "res_write_files_invalid_path"
+      }
+    ],
+    "seq_delete_absolute": [
+      {
+        "conn": "a",
+        "frame": "req_delete_files_absolute"
+      },
+      {
+        "conn": "a",
+        "frame": "res_write_files_invalid_path"
+      }
+    ],
+    "seq_delete_busy": [
+      {
+        "conn": "a",
+        "frame": "req_delete_files"
+      },
+      {
+        "conn": "a",
+        "frame": "res_write_files_busy"
       }
     ],
     "seq_wake_objects": [
