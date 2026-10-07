@@ -305,7 +305,7 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 			return err
 		}
 		data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "operation": op, "from": todoState(item), "to": todoState(saved), "merge_commit": saved.PRMergeCommit})
-		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.github_operation_settled", todoState(saved), data); err != nil {
+		if _, err = st.s.recordTodoTransitionFact(ctx, tx, saved, uuid.NewString(), "todo.github_operation_settled", todoState(saved), data); err != nil {
 			return err
 		}
 		var live bool

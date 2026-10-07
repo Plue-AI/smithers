@@ -345,7 +345,7 @@ func TestTodoMergeCrashThroughRoute(t *testing.T) {
 				mergeFaultPress(t, server.URL, f.number, f.head)
 			}
 			_, err = f.pool.Exec(ctx, `CREATE SEQUENCE fault_merge_attempts;
-CREATE FUNCTION fault_refuse_merge_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.merged' THEN PERFORM nextval('fault_merge_attempts'); RAISE EXCEPTION 'fault merge fact refused'; END IF; RETURN NEW; END $$;
+CREATE FUNCTION fault_refuse_merge_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.github_operation_settled' THEN PERFORM nextval('fault_merge_attempts'); RAISE EXCEPTION 'fault merge fact refused'; END IF; RETURN NEW; END $$;
 CREATE TRIGGER fault_merge_fact BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION fault_refuse_merge_fact()`)
 			require.NoError(t, err)
 			workerCtx, cancel := context.WithCancel(ctx)
@@ -402,7 +402,7 @@ CREATE TRIGGER fault_merge_fact BEFORE INSERT ON product_job_events FOR EACH ROW
 			for _, event := range replay.Events {
 				if event.State == "merged" {
 					mergedEvents++
-					require.Equal(t, "todo.merged", event.Type)
+					require.Equal(t, "todo.github_operation_settled", event.Type)
 					var fact map[string]any
 					require.NoError(t, json.Unmarshal(event.Data, &fact))
 					require.Equal(t, "merged", fact["card"].(map[string]any)["state"])
