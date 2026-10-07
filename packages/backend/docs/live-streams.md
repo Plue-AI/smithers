@@ -30,7 +30,7 @@ owner, as another account and anonymously through the composed backend.
 | `GET /api/repos/{owner}/{repo}/workspaces/{id}/stream` | SSE | the workspace's owner and share members | live status; no replay | opens |
 | `GET /api/repos/{owner}/{repo}/workspace/sessions/{id}/stream` | SSE | the session's owner | live status; no replay | opens |
 | `GET /api/repos/{owner}/{repo}/workspace/sessions/{id}/terminal` | WebSocket | the session's owner with repository write | interactive terminal; no replay | refused 500: no sandbox machine backs the seeded workspace; `TestWorkspaceRuntimeProcessRequestPath` opens one |
-| `GET /api/repos/{owner}/{repo}/workspace/sessions/{id}/lsp` | WebSocket | the session's owner with repository write | interactive language server; no replay | refused 500: no sandbox machine backs the seeded workspace |
+| `GET /api/branches/{b}/lsp/{id}` | WebSocket | admitted install branch members | interactive language server; no replay | refused 404: install-only; branch LSP integration tests exercise admission |
 
 Byte relays are not streams of their own: the workspace desktop relay, workspace
 previews and the model provider proxy forward the upstream connection.

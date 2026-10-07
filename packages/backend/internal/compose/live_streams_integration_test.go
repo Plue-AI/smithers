@@ -262,7 +262,6 @@ func TestLiveStreamInventoryMatchesTheRouter(t *testing.T) {
 type liveStreamFixture struct {
 	alice, bob isolationTenant
 	session    string
-	lspSession string
 	importJob  string
 }
 
@@ -289,8 +288,6 @@ func liveStreamPath(f liveStreamFixture, pattern string) string {
 		switch {
 		case param == "id" && strings.Contains(pattern, "/agent/sessions/"):
 			return f.alice.agentSession.ID
-		case param == "id" && strings.HasSuffix(pattern, "/lsp"):
-			return f.lspSession
 		case param == "id" && strings.Contains(pattern, "/workspace/sessions/"):
 			return f.session
 		case param == "id" && strings.Contains(pattern, "/github/import/"):
@@ -324,7 +321,9 @@ var liveStreamRecipes = map[string]liveStreamRecipe{
 	"get /api/repos/{owner}/{repo}/workspaces/{id}/stream":           {request: liveStreamGet("/api/repos/{owner}/{repo}/workspaces/{id}/stream")},
 	"get /api/repos/{owner}/{repo}/workspace/sessions/{id}/stream":   {request: liveStreamGet("/api/repos/{owner}/{repo}/workspace/sessions/{id}/stream")},
 	"get /api/repos/{owner}/{repo}/workspace/sessions/{id}/terminal": {request: liveStreamGet("/api/repos/{owner}/{repo}/workspace/sessions/{id}/terminal")},
-	"get /api/repos/{owner}/{repo}/workspace/sessions/{id}/lsp":      {request: liveStreamGet("/api/repos/{owner}/{repo}/workspace/sessions/{id}/lsp")},
+	"get /api/branches/{b}/lsp/{id}": {request: func(liveStreamFixture) liveStreamRequest {
+		return liveStreamRequest{path: "/api/branches/branch/lsp/session"}
+	}},
 }
 
 // liveChatRecipes need a composed chat host, which the multitenant product
@@ -437,8 +436,6 @@ func TestLiveStreamsServeOnlyTheirSubscribersPostgres(t *testing.T) {
 	session, err := db.New(pool).CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{RepositoryID: f.alice.repo.ID, UserID: f.alice.user.ID, Cols: 80, Rows: 24, WorkspaceID: f.alice.workspace.ID})
 	require.NoError(t, err)
 	f.session = session.ID
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace_sessions(workspace_id, repository_id, user_id, kind, language) VALUES ($1, $2, $3, 'lsp', 'go') RETURNING id::text`,
-		f.alice.workspace.ID, f.alice.repo.ID, f.alice.user.ID).Scan(&f.lspSession))
 	_, err = pool.Exec(ctx, `UPDATE workspace_sessions SET status = 'running' WHERE workspace_id = $1`, f.alice.workspace.ID)
 	require.NoError(t, err)
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO import_jobs(user_id, github_owner, github_repo, status, error) VALUES ($1, 'octo', $2, 'failed', 'stopped') RETURNING id::text`,

@@ -2322,6 +2322,42 @@ paths:
           description: Bootstrap document available
         '405':
           description: Method not allowed
+  /api/ssh:
+    get:
+      x-composition: install
+      summary: Read branch SSH connection details
+      operationId: get_api_ssh
+      tags:
+        - Branches
+      parameters:
+        - in: query
+          name: branch
+          required: true
+          schema:
+            type: string
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Connection details for an accessible branch
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [branch, host, port, value]
+                properties:
+                  branch: {type: string}
+                  host: {type: string}
+                  port: {type: integer, const: 2222}
+                  value: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503':
+          description: Branch services unavailable
   /api/branches:
     get:
       x-composition: install

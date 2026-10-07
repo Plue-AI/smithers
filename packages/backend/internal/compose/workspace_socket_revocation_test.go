@@ -29,8 +29,10 @@ func TestBuildRouter_WorkspaceSocketsSubscribeBeforeRequireAuth(t *testing.T) {
 	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	// SetRevocationSource subscribes the process relay registry itself.
 	source.subscriptions.Store(0)
+	cfg := testCORSConfig()
+	cfg.Auth.Mode = "selfhost"
 	router := buildRouterCompat(
-		testCORSConfig(),
+		cfg,
 		nil,
 		nil,
 		&routes.RepoHandler{},
@@ -69,11 +71,16 @@ func TestBuildRouter_WorkspaceSocketsSubscribeBeforeRequireAuth(t *testing.T) {
 		nil,                                // featureFlagHandler
 		nil,                                // oauth2Handler
 		nil,                                // smithersMetrics
+		routerExtras{LanguageServers: &routes.BranchLSPHandler{}},
 	)
 	for _, endpoint := range []string{"terminal", "lsp"} {
 		t.Run(endpoint, func(t *testing.T) {
 			source.subscriptions.Store(0)
-			request := httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/workspace/sessions/session-1/"+endpoint, nil)
+			path := "/api/repos/alice/demo/workspace/sessions/session-1/terminal"
+			if endpoint == "lsp" {
+				path = "/api/branches/branch/lsp/session-1"
+			}
+			request := httptest.NewRequest(http.MethodGet, path, nil)
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, request)
 			require.Equal(t, http.StatusUnauthorized, response.Code)
