@@ -16,6 +16,7 @@ const RunSummaryOperation = "run.summary"
 
 // RunSummarySource is the monitor provider's authenticated, persisted snapshot.
 // ReadSummaryRun locks the persisted source revision in the supplied transaction.
+// It also serializes inspection ownership with event/admission writes.
 // Every source event advances that revision. It owns deterministic phases and the inspection
 // lease. Repository payloads and client input cannot implement this authority.
 type RunSummarySource interface {
@@ -71,13 +72,18 @@ func (s *ConversationSummaries) AdmitRun(ctx context.Context, tx pgx.Tx, runID s
 		}
 		var since, now time.Time
 		var revision int64
-		if err = tx.QueryRow(ctx, `INSERT INTO run_summaries(run_id,attempt,target,text,rev,updated_at,pending_since) VALUES($1,$2,$3,'',0,clock_timestamp(),clock_timestamp())
- ON CONFLICT(run_id,attempt,target) DO UPDATE SET pending_since=CASE WHEN run_summaries.rev<$4 THEN coalesce(run_summaries.pending_since,clock_timestamp()) ELSE run_summaries.pending_since END
- RETURNING rev,coalesce(pending_since,clock_timestamp()),clock_timestamp()`, runID, attempt, fmt.Sprintf("phase:%d", phase.Number), run.Revision).Scan(&revision, &since, &now); err != nil {
+		var pendingKey *string
+		if err = tx.QueryRow(ctx, `INSERT INTO run_summaries(run_id,attempt,target,text,rev,updated_at,pending_since,pending_key) VALUES($1,$2,$3,'',0,clock_timestamp(),clock_timestamp(),gen_random_uuid())
+ ON CONFLICT(run_id,attempt,target) DO UPDATE SET pending_since=CASE WHEN run_summaries.rev<$4 THEN coalesce(run_summaries.pending_since,clock_timestamp()) ELSE run_summaries.pending_since END,
+ pending_key=CASE WHEN run_summaries.rev<$4 THEN coalesce(run_summaries.pending_key,gen_random_uuid()) ELSE run_summaries.pending_key END
+ RETURNING rev,coalesce(pending_since,clock_timestamp()),clock_timestamp(),pending_key::text`, runID, attempt, fmt.Sprintf("phase:%d", phase.Number), run.Revision).Scan(&revision, &since, &now, &pendingKey); err != nil {
 			return err
 		}
 		if revision >= run.Revision {
 			continue
+		}
+		if pendingKey == nil {
+			return errors.New("missing summary pending key")
 		}
 		available := now
 		if phase.Live {
@@ -91,7 +97,7 @@ func (s *ConversationSummaries) AdmitRun(ctx context.Context, tx pgx.Tx, runID s
 			return err
 		}
 		if _, err = s.Jobs.AdmitInTx(ctx, tx, jobs.Admission{Scope: jobs.Scope{TenantID: fmt.Sprint(run.RepositoryID), PrincipalID: "conversation-summary"}, Operation: RunSummaryOperation,
-			RequestID: fmt.Sprintf("%s:%d:%d:%d", runID, attempt, run.Revision, phase.Number), Payload: payload, EffectPolicy: jobs.EffectIdempotent, AvailableAt: available}); err != nil {
+			RequestID: fmt.Sprintf("%s:%d:%d:%d:%s", runID, attempt, run.Revision, phase.Number, *pendingKey), Payload: payload, EffectPolicy: jobs.EffectIdempotent, AvailableAt: available}); err != nil {
 			return err
 		}
 	}
@@ -110,6 +116,9 @@ func (s *ConversationSummaries) handleRun(ctx context.Context, lease *jobs.Lease
 	if json.Unmarshal(lease.Claim().Payload, &job) != nil {
 		return lease.Fail(ctx, json.RawMessage(`{"status":"invalid"}`))
 	}
+	if job.RepositoryID <= 0 || lease.Claim().Scope.TenantID != fmt.Sprint(job.RepositoryID) {
+		return lease.Fail(ctx, json.RawMessage(`{"status":"forbidden"}`))
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -122,8 +131,22 @@ func (s *ConversationSummaries) handleRun(ctx context.Context, lease *jobs.Lease
 	if err != nil {
 		return err
 	}
-	if !validSummaryRun(run, job.RunID, job.Attempt) || run.RepositoryID != job.RepositoryID || run.OwnerID != job.OwnerID || run.Revision != job.Revision || !run.InspectionUntil.After(time.Now()) {
+	if !validSummaryRun(run, job.RunID, job.Attempt) || run.RepositoryID != job.RepositoryID || run.OwnerID != job.OwnerID || run.Revision != job.Revision {
 		return settle()
+	}
+	// A closed inspection ends this pending period, not the source revision.
+	// Reopening can then backfill exactly once with a fresh durable request key.
+	finishPeriod := func() error {
+		if _, err := tx.Exec(ctx, `UPDATE run_summaries SET pending_since=NULL,pending_key=NULL WHERE run_id=$1 AND attempt=$2 AND target=$3 AND rev<$4`, job.RunID, job.Attempt, fmt.Sprintf("phase:%d", job.Phase), job.Revision); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return lease.Complete(ctx, json.RawMessage(`{"status":"not_summarized"}`))
+	}
+	if !run.InspectionUntil.After(time.Now()) {
+		return finishPeriod()
 	}
 	var phase *SummaryPhase
 	for i := range run.Phases {
@@ -137,7 +160,7 @@ func (s *ConversationSummaries) handleRun(ctx context.Context, lease *jobs.Lease
 	}
 	model, err := db.New(tx).EffectiveInstallAgentModel(ctx, "fast")
 	if errors.Is(err, pgx.ErrNoRows) {
-		return settle()
+		return finishPeriod()
 	}
 	if err != nil {
 		return err
@@ -216,7 +239,7 @@ func (s *ConversationSummaries) handleRun(ctx context.Context, lease *jobs.Lease
 			continue
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO run_summaries(run_id,attempt,target,text,rev,updated_at) VALUES($1,$2,$3,$4,$5,clock_timestamp())
- ON CONFLICT(run_id,attempt,target) DO UPDATE SET text=EXCLUDED.text,rev=EXCLUDED.rev,updated_at=EXCLUDED.updated_at,pending_since=NULL WHERE run_summaries.rev<EXCLUDED.rev`, job.RunID, job.Attempt, target, text, job.Revision); err != nil {
+ ON CONFLICT(run_id,attempt,target) DO UPDATE SET text=EXCLUDED.text,rev=EXCLUDED.rev,updated_at=EXCLUDED.updated_at,pending_since=NULL,pending_key=NULL WHERE run_summaries.rev<EXCLUDED.rev`, job.RunID, job.Attempt, target, text, job.Revision); err != nil {
 			return err
 		}
 	}
