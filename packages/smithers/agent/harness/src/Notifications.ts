@@ -207,7 +207,34 @@ export const make = (
   Effect.gen(function*() {
     const queue = yield* NotificationQueue.NotificationQueue
     return Steering.make({
-      read: () => Effect.succeed(Steering.empty()),
+      read: () =>
+        queue.pending(options.runId).pipe(
+          Effect.mapError(mapFailure),
+          Effect.flatMap((pending) =>
+            Effect.try({
+              try: () => {
+                const notes = pending.filter((notification) => {
+                  const payload = notification.payload
+                  return typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
+                    (payload as Readonly<Record<string, unknown>>).kind === "outside_change" &&
+                    notification.targetLineageId === options.lineageId
+                })
+                const drain = drainOf({ notifications: notes, boundary: "pending", duplicate: false }, options)
+                return drain.inserts.length === 0 ? Steering.empty() : Object.freeze({
+                  items: Object.freeze(drain.inserts.map((message): Steering.Item =>
+                    Object.freeze({
+                      _tag: "Insert",
+                      delivery: "steer",
+                      admittedAt: 0,
+                      message
+                    })
+                  ))
+                })
+              },
+              catch: mapFailure
+            })
+          )
+        ),
       drain: (input) =>
         queue.drain({
           runId: options.runId,

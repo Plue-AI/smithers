@@ -2923,6 +2923,7 @@ const evaluate = (
   sandbox: Sandbox.Sandbox,
   realm: Sandbox.Realm,
   opened: Option.Option<EngineLike.Observation>,
+  steering: Steering.Source,
   emit: (event: AgentEvent.AgentEvent) => Effect.Effect<void>
 ): Effect.Effect<Evaluated, HarnessError | Sandbox.SandboxError> =>
   Effect.gen(function*() {
@@ -2964,7 +2965,31 @@ const evaluate = (
         replaying,
         emit
       )
-      return handle(invocation).pipe(
+      const pending = engine.record({
+        name: "steering-before-call",
+        identity: {
+          session: state.session,
+          frame: state.frame,
+          boundary: `steering-before-call:${cell.digest}:${invocation.ordinal}`
+        },
+        success: Schema.Boolean,
+        execute: steering.read().pipe(Effect.map((queue) => queue.items.some((item) => item.delivery === "steer")))
+      })
+      // A change during a running call holds all subsequent dispatches. The
+      // cell may finish, then its existing close drain inserts the note. No
+      // notification is inserted into an executing cell or promoted twice.
+      return pending.pipe(
+        Effect.flatMap((blocked) =>
+          blocked
+            ? Effect.succeed(
+              new Cell.CallResult({
+                outcome: "failure",
+                value: null,
+                message: "Outside changes are pending; finish this cell and re-read the changed files in the next turn."
+              })
+            )
+            : handle(invocation)
+        ),
         Effect.tap((result) =>
           Effect.sync(() => {
             const rendered = result.outcome === "success"
@@ -3486,6 +3511,31 @@ const frame = (
       })
     )
 
+    // A committed outside change can arrive while the model is producing this
+    // cell. Probe only after it settles; never interrupt a model turn. Journal
+    // the probe as well as the drain, so replay cannot execute a discarded cell
+    // merely because the live notification queue has since been consumed.
+    const pendingBeforeTool = yield* engine.record({
+      name: "steering-before-tool",
+      identity: { session: state.session, frame: state.frame, boundary: `steering-before-tool:${cell.digest}` },
+      success: Schema.Boolean,
+      execute: steering.read().pipe(Effect.map((queue) => queue.items.some((item) => item.delivery === "steer")))
+    })
+    if (pendingBeforeTool) {
+      if (!Frame.hasNextFrame(state)) {
+        return yield* new HarnessError({
+          code: "engine_failed",
+          message: "Outside changes require another model turn before tools can run"
+        })
+      }
+      const beforeTool = settling(`before-tool:${cell.digest}`, "", {}, { mutated: false, checks: [] })
+      const drained = yield* drain(beforeTool, false)
+      if (carries(drained)) {
+        const step = yield* resumed(beforeTool, drained, {}, "", deadCellEcho)
+        return yield* finish(beforeTool, step)
+      }
+    }
+
     // The prior close predates the model wait. Measure again before this
     // frame so another worker's edits neither reuse stale reads nor count as
     // this frame's own mutations. A missing or bounded observer stays so.
@@ -3501,6 +3551,7 @@ const frame = (
       sandbox,
       realm,
       opened,
+      steering,
       emit
     )
     const outcome = yield* Cell.decodeOutcome(ran.frame.outcome)

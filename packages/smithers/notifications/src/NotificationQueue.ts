@@ -709,7 +709,22 @@ export const layerWith = (
               if (Option.isSome(prior)) return yield* replayed(prior.value, loaded.admissions)
 
               const cutoff = input.cutoffSeq ?? loaded.cursor ?? 0
-              const steers = NotificationState.promoteSteers(loaded.state, cutoff, input.targetLineageId)
+              // The existing coding park ladder waits for a person's answer.
+              // System facts must remain pending there: promoting them would
+              // make the harness treat an outside edit as an answered question.
+              // Filtering this projection changes only promoted IDs; the journal
+              // fold retains every held admission and its original sequence.
+              const promotionState = /^\d+:[a-f0-9]{64}:park:\d+$/.test(input.boundary)
+                ? {
+                  ...loaded.state,
+                  items: loaded.state.items.filter((item) => {
+                    const payload = item.notification.payload
+                    return !(typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
+                      (payload as Readonly<Record<string, unknown>>).kind === "outside_change")
+                  })
+                }
+                : loaded.state
+              const steers = NotificationState.promoteSteers(promotionState, cutoff, input.targetLineageId)
               const queued = input.wouldIdle && steers.promoted.length === 0
                 ? NotificationState.promoteQueued(steers.state, input.targetLineageId)
                 : { state: steers.state, promoted: [] }
