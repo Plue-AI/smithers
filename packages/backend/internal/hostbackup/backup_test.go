@@ -52,6 +52,38 @@ func (a *backupAuthorityFixture) Reopen(context.Context, string) error { return 
 
 type backupCopyFixture struct{ fail bool }
 
+type drainingBackupFixture struct {
+	backupAuthorityFixture
+	renewed chan string
+}
+
+func (a *drainingBackupFixture) Renew(_ context.Context, op string) error {
+	a.renewed <- op
+	return nil
+}
+func (a *drainingBackupFixture) Freeze(ctx context.Context, op string) (time.Time, error) {
+	select {
+	case renewed := <-a.renewed:
+		if renewed != op {
+			return time.Time{}, errors.New("renewed another operation")
+		}
+		return a.at, nil
+	case <-ctx.Done():
+		return time.Time{}, context.Cause(ctx)
+	}
+}
+
+func TestBackupRenewsWhileInitialDrainIsOutstanding(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	a := &drainingBackupFixture{backupAuthorityFixture: backupAuthorityFixture{at: time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)}, renewed: make(chan string, 1)}
+	directory, err := Backup(ctx, BackupConfig{State: t.TempDir(), Version: Version{"1.2.3", 2, 18}, Authority: a, Cloner: backupCopyFixture{}})
+	require.NoError(t, err)
+	_, err = VerifySnapshot(directory)
+	require.NoError(t, err)
+	require.Equal(t, "reopen", a.calls[len(a.calls)-1])
+}
+
 func (c backupCopyFixture) CloneAt(src *os.File, name string, dst *os.File, target string) error {
 	if c.fail {
 		return errors.New("capture failed")
