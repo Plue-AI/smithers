@@ -909,6 +909,196 @@ mod dispatcher {
             .unwrap(),
         }
     }
+    fn open(cx: &mut LockCx) -> u32 {
+        let reply = rpc::dispatch(
+            &control(
+                13,
+                &[
+                    conn::field(1, [0, 4, b'a', b'.', b'r', b's']),
+                    conn::field(
+                        2,
+                        conn::actor_bytes(&hooks::Actor::Principal(b"host".to_vec())),
+                    ),
+                ],
+            ),
+            cx,
+        )
+        .unwrap();
+        let result = conn::fields("response", &reply.payload[1..]).unwrap()[1].1;
+        assert_eq!(result[0], 13);
+        u32::from_be_bytes(
+            conn::fields("result13", &result[1..]).unwrap()[0]
+                .1
+                .try_into()
+                .unwrap(),
+        )
+    }
+    fn sync(cx: &mut LockCx, id: u32) -> Vec<u8> {
+        let reply = rpc::dispatch(
+            &input(id, 0, "host", SyncMessage::SyncStep1(Default::default())),
+            cx,
+        )
+        .unwrap();
+        let sync = Document::decode_v2(&reply.payload).unwrap();
+        let SyncMessage::SyncStep2(state) = SyncMessage::decode_v1(&sync.data).unwrap() else {
+            panic!("sync2")
+        };
+        state
+    }
+    fn setup() -> (
+        Shared,
+        Arc<Clock>,
+        Arc<Service<Shared>>,
+        LockCx,
+        u32,
+        Document,
+    ) {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("abc"))));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Arc::new(Service::new(
+            Host::new(disk.clone(), gates(), ids()),
+            clock.clone(),
+        ));
+        let mut cx = LockCx::new(hooks::Hooks {
+            documents: service.clone(),
+            clock: clock.clone(),
+            ..Default::default()
+        });
+        let id = open(&mut cx);
+        let output = service.poll(&mut cx).unwrap();
+        let epoch = Document::decode_v2(&output[0].payload).unwrap();
+        (disk, clock, service, cx, id, epoch)
+    }
+    #[test]
+    #[allow(non_snake_case)]
+    fn DocumentDispatchFailsClosed() {
+        let fields: [fn(&mut Gates); 12] = [
+            |g| g.codec = false,
+            |g| g.dispatcher = false,
+            |g| g.envelopes = false,
+            |g| g.saved_epoch = false,
+            |g| g.authenticated_machine = false,
+            |g| g.mutation_lock = false,
+            |g| g.capture_rewrite = false,
+            |g| g.attribution = false,
+            |g| g.versions = false,
+            |g| g.topology = false,
+            |g| g.kernel = false,
+            |g| g.non_root_machine = false,
+        ];
+        for disable in fields {
+            let disk = Shared(Arc::new(Mutex::new(Model::with("abc"))));
+            let mut g = gates();
+            disable(&mut g);
+            let service = Arc::new(Service::new(
+                Host::new(disk.clone(), g, ids()),
+                Arc::new(hooks::SystemClock),
+            ));
+            let mut cx = LockCx::new(hooks::Hooks {
+                documents: service.clone(),
+                ..Default::default()
+            });
+            let request = control(
+                13,
+                &[
+                    conn::field(1, [0, 4, b'a', b'.', b'r', b's']),
+                    conn::field(
+                        2,
+                        conn::actor_bytes(&hooks::Actor::Principal(b"host".to_vec())),
+                    ),
+                ],
+            );
+            let reply = rpc::dispatch(&request, &mut cx).unwrap();
+            let result = conn::fields("response", &reply.payload[1..]).unwrap()[1].1;
+            assert_eq!(result, &[255, 0, 0, 0, 2, 1, 2]);
+            let reply = rpc::dispatch(
+                &input(1, 1, "host", SyncMessage::Update(vec![0, 0])),
+                &mut cx,
+            )
+            .unwrap();
+            assert_eq!(reply.payload[0], 255);
+            assert_eq!(service.flush_all(&mut cx).unwrap_err().code, 2);
+            assert_eq!(
+                service
+                    .write_through(
+                        &mut cx,
+                        "a.rs",
+                        &hooks::Base::Digest(digest(b"abc")),
+                        b"changed",
+                        &hooks::Actor::Outside
+                    )
+                    .unwrap()
+                    .unwrap_err()
+                    .code,
+                2
+            );
+            assert!(service.poll(&mut cx).is_err());
+            let disk = disk.0.lock().unwrap();
+            assert!(disk.log.is_empty());
+            assert!(disk.records.is_empty());
+            assert_eq!(disk.files["a.rs"], b"abc");
+        }
+    }
+    #[test]
+    fn dispatch_faults_withhold_receipts_and_restart_recovers_same_epoch() {
+        for fault in ["record", "swap", "displaced"] {
+            let (disk, clock, service, mut cx, id, epoch) = setup();
+            let peer = editor(&sync(&mut cx, id), epoch.client_id as u64);
+            let before = peer.transact().state_vector();
+            peer.get_or_insert_text("content")
+                .insert(&mut peer.transact_mut(), 3, " 🦀");
+            let update = peer.transact().encode_state_as_update_v1(&before);
+            assert_eq!(
+                rpc::dispatch(
+                    &input(id, 1, "host", SyncMessage::Update(update.clone())),
+                    &mut cx
+                )
+                .unwrap()
+                .payload[0],
+                3
+            );
+            disk.0.lock().unwrap().fail = Some(fault);
+            clock.0.store(200, Ordering::Relaxed);
+            assert!(service.poll(&mut cx).is_err());
+            assert!(!service.all_flushed());
+            disk.0.lock().unwrap().fail = None;
+            let outputs = service.poll(&mut cx).unwrap();
+            let saved = outputs
+                .iter()
+                .map(|f| Document::decode_v2(&f.payload).unwrap())
+                .find(|d| d.msg == 6)
+                .unwrap();
+            assert_eq!(saved.through_seq, 1);
+            assert_eq!(disk.0.lock().unwrap().files["a.rs"], "abc 🦀".as_bytes());
+            drop(cx);
+            drop(service);
+            let recovered = Arc::new(Service::new(Host::new(disk.clone(), gates(), ids()), clock));
+            let mut cx = LockCx::new(hooks::Hooks {
+                documents: recovered.clone(),
+                ..Default::default()
+            });
+            let id = open(&mut cx);
+            let outputs = recovered.poll(&mut cx).unwrap();
+            let reopened = Document::decode_v2(&outputs[0].payload).unwrap();
+            assert_eq!(reopened.epoch, epoch.epoch);
+            assert_eq!(
+                rpc::dispatch(&input(id, 1, "host", SyncMessage::Update(update)), &mut cx)
+                    .unwrap()
+                    .payload[0],
+                3
+            );
+            let doc = editor(&sync(&mut cx, id), 999);
+            assert_eq!(
+                doc.get_or_insert_text("content")
+                    .get_string(&doc.transact()),
+                "abc 🦀"
+            );
+            assert_eq!(
+                authors::entries(&doc).unwrap()[&epoch.client_id.to_string()],
+                "host"
+            );
+        }
+    }
     #[test]
     fn unopened_text_write_compares_creates_and_reports_displaced_bytes() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
