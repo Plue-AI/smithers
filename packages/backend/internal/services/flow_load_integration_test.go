@@ -211,6 +211,8 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 	require.NoError(t, err)
 	before, err := store.Head(ctx, FlowLiveScope(h.repoID))
 	require.NoError(t, err)
+	todoBefore, err := store.Head(ctx, todoOperationScope(item))
+	require.NoError(t, err)
 	record := func() {
 		t.Helper()
 		tx, err := h.pool.Begin(ctx)
@@ -221,6 +223,14 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 		require.NoError(t, tx.Commit(ctx))
 	}
 	record()
+	todoPage, err := store.Replay(ctx, todoOperationScope(item), todoBefore, 100)
+	require.NoError(t, err)
+	require.Len(t, todoPage.Events, 1)
+	var todoProjection struct {
+		Card map[string]any `json:"card"`
+	}
+	require.NoError(t, json.Unmarshal(todoPage.Events[0].Data, &todoProjection))
+	require.Equal(t, todoState(item), todoProjection.Card["state"], "flow publication retains the committed TODO card")
 	head, err := store.Head(ctx, FlowLiveScope(h.repoID))
 	require.NoError(t, err)
 	require.Equal(t, before+1, head)

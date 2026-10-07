@@ -67,9 +67,9 @@ func (s *MythicalService) saveFlowLoadFact(ctx context.Context, next db.FlowLoad
 }
 
 // recordTodoFlowFact publishes proposed versions in the candidate's transaction.
-// Keep the TODO source contract unchanged until its own provider adds projections.
+// Preserve the committed TODO card through its existing durable provider.
 func (s *MythicalService) recordTodoFlowFact(ctx context.Context, tx pgx.Tx, item db.MythicalItem, operation, kind, state string, raw json.RawMessage) (jobs.Event, error) {
-	event, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), operation, kind, state, raw)
+	event, err := s.recordTodoFact(ctx, tx, item, operation, kind, state, raw)
 	if err != nil {
 		return jobs.Event{}, err
 	}
