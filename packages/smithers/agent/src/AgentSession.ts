@@ -2474,6 +2474,16 @@ export const deliverSignal = (
   DurableEngineState.DurableEngineState | FlowRuntime.FlowRuntime
 > =>
   Effect.gen(function*() {
+    // A watcher note is never an answer to WaitFor, even when a flow uses
+    // the reserved name. Keep it dark until the pinned notification consumer
+    // verifies committed facts and daemon stale-write enforcement; matching a
+    // question's token is not proof of those capabilities.
+    const payload = input.signal.payload
+    if (
+      input.signal.name === "outside_change" ||
+      (typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
+        (payload as Readonly<Record<string, unknown>>).kind === "outside_change")
+    ) return "refused" as const
     const state = yield* DurableEngineState.DurableEngineState
     const control = yield* Effect.serviceOption(ControlRuntime)
     // The answer is what asks for the re-drive, and this is the asking. Two

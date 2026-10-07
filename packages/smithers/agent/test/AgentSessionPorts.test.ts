@@ -245,6 +245,37 @@ describe("AgentSession.requestCancel", () => {
 })
 
 describe("AgentSession.deliverSignal", () => {
+  it.each([
+    { name: "outside_change", payload: { id: "burst-1", files: ["retry.ts"] } },
+    { name: "approval", payload: { kind: "outside_change", id: "burst-1", files: ["retry.ts"] } }
+  ])("never answers a matching question with an unqualified outside note ($name)", async (signal) => {
+    const observed = await run(Effect.gen(function*() {
+      const state = yield* DurableEngineState.DurableEngineState
+      const runtime = yield* ControlRuntime
+      const runId = yield* startControlRun
+      yield* parkedRun(runId, signal.name)
+      const before = yield* state.waiting(runId)
+      yield* runtime.admitSignal("outside-note", runId, signal)
+      const command = (yield* runtime.signalCommand("outside-note"))!
+      const delivery = yield* AgentSession.deliverSignal(command)
+      // Restart replay uses the same executor and must preserve the question.
+      yield* AgentSession.drainRecordedSignals
+      yield* AgentSession.drainRecordedSignals
+      return {
+        delivery,
+        before,
+        after: yield* state.waiting(runId),
+        pending: yield* runtime.pendingResumes,
+        pendingSignals: yield* runtime.pendingSignals
+      }
+    }))
+    expect(observed.delivery).toBe("refused")
+    expect(Option.isSome(observed.before)).toBe(true)
+    expect(observed.after).toEqual(observed.before)
+    expect(observed.pending).toEqual([])
+    expect(observed.pendingSignals).toEqual([])
+  })
+
   it("completes the wait point the parked run declared and settles the run", async () => {
     const observed = await run(Effect.gen(function*() {
       const state = yield* DurableEngineState.DurableEngineState
