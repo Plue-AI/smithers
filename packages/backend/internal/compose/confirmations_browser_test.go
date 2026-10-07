@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -39,6 +40,14 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	defer cancel()
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
+	// Live refuses without the production revocation stream. Compose the same
+	// PostgreSQL bus the install uses; never qualify private delivery with a
+	// permissive test-only revocation source.
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
+
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "maya", LowerUsername: "maya", DisplayName: "Maya"})
 	require.NoError(t, err)
 	other, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben", DisplayName: "Ben"})
@@ -59,23 +68,29 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	binding := []byte(fmt.Sprintf(`{"owner_login":"maya","repository_name":"demo","repository_id":%d}`, repo.ID))
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(fmt.Sprintf(`{"owner_login":"maya","repository_name":"demo","repository_id":%d,"last_access_check_at":"%s"}`, repo.ID, time.Now().UTC().Format(time.RFC3339Nano)))}))
-	token := "smithers_" + strings.Repeat("c", 40)
-	sum := sha256.Sum256([]byte(token))
-	hash := hex.EncodeToString(sum[:])
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "browser-test-codex", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], Scopes: "read:repository,write:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	// Use the install issuer, including its active-member and issuer-bound via
+	// checks, rather than inserting a bearer that production could not mint.
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	issuer := services.NewAuthService(q, cfg.Auth, nil, nil)
+	issuer.Members = &services.Members{Pool: pool}
+	credential, err := issuer.CreateToken(ctx, owner.ID, services.CreateTokenRequest{
+		Name: "browser-test-claude-code", Via: "claude-code", Scopes: []string{"repo", "user"},
+	})
 	require.NoError(t, err)
+	token := credential.Token
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
-	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
 	cfg.Server.PublicURL, cfg.Server.AllowedOrigins = origin, []string{origin}
 	todos := services.NewMythicalService(pool, nil)
-	topics := &liveTopics{queries: q, todos: todos}
+	members := &services.Members{Pool: pool}
+	topics := &liveTopics{queries: q, todos: todos, members: members}
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, nil,
 		&routes.UserHandler{ProfileService: services.NewUserService(q)},
 		&routes.ApprovalsHandler{Service: services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))},
-		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Live: liveHandler})
+		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 	api := withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{install: true, identity: true, redirectAuth: true}), cors.Options{})
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
