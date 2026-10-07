@@ -192,13 +192,13 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 	// the owner; administrator status cannot substitute for install ownership.
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "parallel", Value: []byte(`2`)}))
 	for _, credential := range []struct {
-		name, scopes string
-		issued       bool
+		name, scopes, class string
+		issued              bool
 	}{
-		{"delegated", "write:repository,via:cli", true},
-		{"run", "write:repository", true},
-		{"machine", "credential:sync", true},
-		{"personal", "all", false},
+		{"delegated", "write:repository,via:cli", "never", true},
+		{"run", "write:repository", "permission", true},
+		{"machine", "credential:sync", "permission", true},
+		{"personal", "all", "never", false},
 	} {
 		t.Run(credential.name, func(t *testing.T) {
 			seed := sha256.Sum256([]byte("parallel-" + credential.name))
@@ -208,7 +208,8 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 			require.NoError(t, err)
 			denied := request("PUT", "/api/install", raw, `{"parallel":8}`)
 			require.Equal(t, 403, denied.Code, denied.Body.String())
-			require.Contains(t, denied.Body.String(), `"class":"permission"`)
+			require.Contains(t, denied.Body.String(), `"class":"`+credential.class+`"`)
+			require.Contains(t, denied.Body.String(), `"code":"`+credential.class+`"`)
 			saved, err := q.GetInstallParallel(ctx)
 			require.NoError(t, err)
 			require.JSONEq(t, `2`, string(saved))
