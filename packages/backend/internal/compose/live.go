@@ -401,7 +401,7 @@ func (t *liveTopics) externalSession(ctx context.Context, topic, rest string) (l
 // every state counted, a machine per TODO branch that is awake or waking,
 // and main's row from the install's GitHub sync. Last look and role filter
 // stay in the browser (§7.2.2).
-func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (json.RawMessage, error) {
+func (t *liveTopics) home(ctx context.Context, repository int64, slug string, member int64) (json.RawMessage, error) {
 	todos, err := t.todos.Todos(ctx, repository)
 	if err != nil {
 		return nil, err

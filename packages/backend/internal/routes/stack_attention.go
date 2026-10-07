@@ -10,7 +10,7 @@ import (
 // Each provider owns its revision codec and refuses another attention kind.
 type StackAttentionHandler struct {
 	Order *TodoHandler
-	Reset *MainResetHandler
+	Reset http.Handler
 }
 
 func (h *StackAttentionHandler) Answer(w http.ResponseWriter, r *http.Request) {
@@ -31,5 +31,5 @@ func (h *StackAttentionHandler) Answer(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, nil)
 		return
 	}
-	h.Reset.Reset(w, r)
+	h.Reset.ServeHTTP(w, r)
 }

@@ -1266,7 +1266,8 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		if library == "" {
 			t.Skip("SMITHERS_FFI_LIBRARY_PATH required for native composed diff")
 		}
-		local, err := nativeRepository.OpenLocal(nativeRepository.Config{StoragePath: t.TempDir(), AuthToken: "composed-item-diff", FFILibraryPath: library})
+		storage := t.TempDir()
+		local, err := nativeRepository.OpenLocal(nativeRepository.Config{StoragePath: storage, AuthToken: "composed-item-diff", FFILibraryPath: library})
 		require.NoError(t, err)
 		defer local.Shutdown(ctx)
 		native := local.Client()
@@ -1282,11 +1283,12 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		git("init", "-q", "--initial-branch=main")
 		git("config", "user.name", "Fixture")
 		git("config", "user.email", "fixture@example.test")
-		require.NoError(t, native.WithLocalGitStore(ctx, owner.Username, repo.Name, func(path string) error {
+		require.NoError(t, func() error {
+			path := filepath.Join(storage, owner.Username, repo.Name, ".jj", "repo", "store", "git")
 			git("fetch", "-q", path, "refs/heads/main")
 			git("checkout", "-q", "-B", "main", "FETCH_HEAD")
 			return nil
-		}))
+		}())
 		require.NoError(t, os.WriteFile(filepath.Join(work, "FIRST.txt"), []byte("first\n"), 0600))
 		git("add", "FIRST.txt")
 		git("commit", "-qm", "first")
@@ -1296,7 +1298,12 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		git("commit", "-qm", "second")
 		head := git("rev-parse", "HEAD")
 		var store string
-		require.NoError(t, native.WithLocalGitStore(ctx, owner.Username, repo.Name, func(path string) error { store = path; git("push", "-q", path, "HEAD:refs/heads/main"); return nil }))
+		require.NoError(t, func() error {
+			path := filepath.Join(storage, owner.Username, repo.Name, ".jj", "repo", "store", "git")
+			store = path
+			git("push", "-q", path, "HEAD:refs/heads/main")
+			return nil
+		}())
 		require.NoError(t, native.ImportRefs(ctx, owner.Username, repo.Name))
 		service := services.NewMythicalService(pool, native)
 		item, err := service.FileTodo(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: ownerSession}), repo.ID, owner.ID, services.MythicalTodoInput{Title: "Native diff", Prompt: "second", Request: "native-diff"})

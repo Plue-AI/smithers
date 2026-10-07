@@ -1081,14 +1081,12 @@ func buildRouter(
 		if config.IsSingleOwner(cfg.Auth) {
 			// Any signed-in person reads the sync's health and retries it.
 			sync := &routes.GitHubSyncHandler{Service: extras.GitHubSync}
-			resetService, _ := extras.GitHubSync.(routes.MainResetRouteService)
-			reset := &routes.MainResetHandler{Queries: queries, Service: resetService}
 			var order *routes.TodoHandler
 			if extras.Mythical != nil {
 				service, _ := extras.Mythical.Service.(routes.TodoRouteService)
 				order = &routes.TodoHandler{Queries: queries, Service: service}
 			}
-			attention := &routes.StackAttentionHandler{Order: order, Reset: reset}
+			attention := &routes.StackAttentionHandler{Order: order}
 			r.With(middleware.RequireAuth).Post("/stack/attention/{id}", attention.Answer)
 			r.With(middleware.RequireAuth).Get("/github/sync", sync.Status)
 			r.With(middleware.RequireAuth).Post("/github/sync", sync.Retry)
