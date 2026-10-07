@@ -64,7 +64,7 @@ func readState(path string, limit int64) ([]byte, error) {
 		}
 		fd = next
 		var stat unix.Stat_t
-		if err = unix.Fstat(fd, &stat); err != nil || !installbundle.TrustedOwnership(stat.Uid, stat.Mode) {
+		if err = unix.Fstat(fd, &stat); err != nil || !installbundle.TrustedOwnership(stat.Uid, uint32(stat.Mode)) {
 			unix.Close(fd)
 			return nil, errAuthority
 		}
@@ -355,7 +355,7 @@ func lockRun(root string) (*os.File, error) {
 	}
 	file := os.NewFile(uintptr(fd), "run.lock")
 	var stat unix.Stat_t
-	if err = unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || !installbundle.TrustedOwnership(stat.Uid, stat.Mode) || stat.Nlink != 1 {
+	if err = unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || !installbundle.TrustedOwnership(stat.Uid, uint32(stat.Mode)) || stat.Nlink != 1 {
 		file.Close()
 		return nil, errAuthority
 	}
