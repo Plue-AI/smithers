@@ -34,14 +34,30 @@ for (const capture of cases) {
   })
 }
 
-test("C-AGT-01: unsupported semantic content stops the import visibly", async ({ page }) => {
+for (const payload of [
+  { type: "future_semantic_event" },
+  { type: "item_completed", item: { type: "AgentMessage", content: [{ type: "future_body", text: "must not disappear" }] } },
+  { type: "item_completed", item: { type: "UserMessage", content: "changed shape" } }
+]) test(`C-AGT-01: unsupported content stops the import visibly: ${JSON.stringify(payload)}`, async ({ page }) => {
   const session = cases[0]!.session
   const text = JSON.stringify({ type: "session_meta", payload: { id: session, cli_version: "0.160.0", cwd: "/repo" } }) + "\n"
-    + JSON.stringify({ type: "event_msg", payload: { type: "future_semantic_event" } }) + "\n"
+    + JSON.stringify({ type: "event_msg", payload }) + "\n"
   await page.route("**/api/external/sessions?**", route => route.fulfill({ json: {
     agent: "codex", session_id: session, owner: { login: "ben", name: "Ben Ito" },
     offset: 0, next: Buffer.byteLength(text), text, eof: true
   } }))
   await page.goto(`/?codex=${session}`)
   await expect(page.getByTestId("transcript").getByText("Session transcript line 2 could not be read.")).toBeVisible()
+})
+
+test("C-AGT-01: malformed Claude content stops the import visibly", async ({ page }) => {
+  const session = cases[1]!.session
+  const text = JSON.stringify({ type: "user", uuid: "source-record", version: "2.1.290", sessionId: session,
+    message: { role: "user", content: { changed: "shape" } } }) + "\n"
+  await page.route("**/api/external/sessions?**", route => route.fulfill({ json: {
+    agent: "claude-code", session_id: session, owner: { login: "ben", name: "Ben Ito" },
+    offset: 0, next: Buffer.byteLength(text), text, eof: true
+  } }))
+  await page.goto(`/?claude=${session}`)
+  await expect(page.getByTestId("transcript").getByText("Session transcript line 1 could not be read.")).toBeVisible()
 })

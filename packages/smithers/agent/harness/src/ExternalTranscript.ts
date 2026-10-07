@@ -481,7 +481,45 @@ export const decodeCodex = (state: CodexState, chunk: string): Result.Result<Dec
     if (payload["type"] === "item_completed") {
       const started = payload["started_at_ms"], completed = payload["completed_at_ms"]
       const took = typeof started === "number" && typeof completed === "number" ? completed - started : 0
-      const part = itemPart(record(payload["item"]), Number.isFinite(took) && took > 0 ? took : 0)
+      const completedItem = record(payload["item"])
+      if (completedItem["type"] === "UserMessage" || completedItem["type"] === "AgentMessage") {
+        const content = completedItem["content"]
+        if (!Array.isArray(content)) {
+          return Result.fail(
+            new ExternalTranscriptError({
+              code: "malformed_record",
+              message: "Codex message content must be a list.",
+              line
+            })
+          )
+        }
+        // Ciphertext replaces the whole body, including any adjacent body parts.
+        if (!content.some((value) => record(value)["type"] === "encrypted_content")) {
+          const expectedType = completedItem["type"] === "UserMessage" ? "text" : "Text"
+          for (const value of content) {
+            const block = record(value)
+            if (block["type"] !== expectedType) {
+              return Result.fail(
+                new ExternalTranscriptError({
+                  code: "unsupported_record",
+                  message: `Unsupported Codex message part: ${text(block["type"]) || "unnamed"}.`,
+                  line
+                })
+              )
+            }
+            if (typeof block["text"] !== "string") {
+              return Result.fail(
+                new ExternalTranscriptError({
+                  code: "malformed_record",
+                  message: "Codex text part must contain text.",
+                  line
+                })
+              )
+            }
+          }
+        }
+      }
+      const part = itemPart(completedItem, Number.isFinite(took) && took > 0 ? took : 0)
       if (part?.part.type === "error") {
         return Result.fail(
           new ExternalTranscriptError({ code: "unsupported_record", message: part.part.message, line })
@@ -783,6 +821,12 @@ export const decodeClaude = (
     const found: Array<{ readonly role: Entry["role"]; readonly part: Part }> = []
     const said = (part: Part) => found.push({ role: "assistant", part })
     const message = record(row["message"])
+    if (
+      (row["type"] === "user" || row["type"] === "assistant") && typeof message["content"] !== "string" &&
+      !Array.isArray(message["content"])
+    ) {
+      return fail("malformed_record", "Claude Code message content must be text or a block list.")
+    }
     switch (row["type"]) {
       case "user": {
         const blocks = blocksOf(message["content"])

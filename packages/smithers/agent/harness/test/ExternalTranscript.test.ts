@@ -584,10 +584,23 @@ describe("ExternalTranscript", () => {
         "commentary",
         { type: "text", text: "one\ntwo", final: false }
       ],
-      ["no content and no phase", [], undefined, { type: "text", text: "", final: false }],
-      ["content that is not a list", "plain", "final_answer", { type: "text", text: "", final: true }]
+      ["no content and no phase", [], undefined, { type: "text", text: "", final: false }]
     ])("reads an AgentMessage with %s", (_, content, phase, part) => {
       expect(partOf({ type: "AgentMessage", content, phase })).toEqual(part)
+    })
+
+    it.each(["UserMessage", "AgentMessage"])("rejects changed %s content shapes and unknown semantic parts", (type) => {
+      const rejected = (content: unknown) => failure(jsonl(session(), item({ type, content })))
+      expect(rejected("plain")).toMatchObject({ code: "malformed_record", line: 2 })
+      expect(rejected([{ type: "future_part", text: "never silently discarded" }])).toMatchObject({
+        code: "unsupported_record",
+        line: 2
+      })
+      expect(rejected([null])).toMatchObject({ code: "unsupported_record", line: 2 })
+      expect(rejected([{ type: type === "UserMessage" ? "text" : "Text", text: 42 }])).toMatchObject({
+        code: "malformed_record",
+        line: 2
+      })
     })
 
     it("preserves encrypted reasoning as a placeholder", () => {
@@ -596,10 +609,9 @@ describe("ExternalTranscript", () => {
       })
     })
 
-    it("joins the text of every UserMessage content part, and reads content that is not a list as empty", () => {
+    it("joins the text of every UserMessage content part", () => {
       expect(partOf({ type: "UserMessage", content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] }))
         .toEqual({ type: "prompt", text: "a\nb" })
-      expect(partOf({ type: "UserMessage", content: "a" })).toEqual({ type: "prompt", text: "" })
     })
 
     it("reads a Reasoning summary and skips Reasoning without one", () => {

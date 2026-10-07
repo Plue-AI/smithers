@@ -924,8 +924,7 @@ describe("ExternalTranscript Claude Code", () => {
         assistant([{ type: "text", text: "" }]),
         assistant([{ type: "thinking", thinking: "", signature: "sig" }]),
         assistant([{ type: "thinking", signature: "sig" }]),
-        assistant([{ type: "redacted_thinking", data: "opaque" }]),
-        assistant(undefined)
+        assistant([{ type: "redacted_thinking", data: "opaque" }])
       )).toEqual([{ type: "text", text: "plain answer", final: true }])
     })
 
@@ -958,6 +957,13 @@ describe("ExternalTranscript Claude Code", () => {
     ])("rejects unknown system and attachment semantics: %s", (value) => {
       expect(failure(jsonl(value))).toMatchObject({ code: "unsupported_record", line: 1 })
     })
+
+    it.each([user({ text: "changed" }), assistant(null), assistant(undefined)])(
+      "rejects changed conversation message content shapes: %s",
+      (value) => {
+        expect(failure(jsonl(value))).toMatchObject({ code: "malformed_record", line: 1 })
+      }
+    )
 
     it("reads Claude Code's API error message, falling back to its error code", () => {
       expect(partsOf(
@@ -1027,8 +1033,7 @@ describe("ExternalTranscript Claude Code", () => {
       ["a local command's errors", "<local-command-stderr>failed</local-command-stderr>", {}],
       ["a shell command's output", "<bash-stdout>ok</bash-stdout><bash-stderr></bash-stderr>", {}],
       ["only an image", [{ type: "image", source: {} }], {}],
-      ["empty text", "", {}],
-      ["content of another shape", { text: "x" }, {}]
+      ["empty text", "", {}]
     ])("skips %s", (_, content, fields) => {
       expect(decodeRows(user(content, fields))).toEqual([])
     })

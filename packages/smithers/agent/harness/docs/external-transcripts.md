@@ -76,7 +76,7 @@ The current public-export tests cover deterministic chunk replay, incomplete
 records, errors, inert content and both recorded formats. Decoder-only coverage
 does not establish package-wide §21.1 evidence or owner sign-off.
 
-Unknown Codex record/event types and completed items, and unknown Claude
+Unknown Codex record/event types, completed items and message parts, and unknown Claude
 conversation records/content blocks, return `unsupported_record` without a
 partial batch. Known Codex metadata and model-facing duplicate records are
 explicit skips; Claude context attachments and system status records retain
