@@ -433,6 +433,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 			return row, pkgerrors.Internal("update workspace status: " + updateErr.Error())
 		}
 		row = updated
+		s.recordTerminalAwake(ctx, row, requesterID)
 		s.meterWorkspaceUsage(ctx, row, "running")
 		s.notifyWorkspace(ctx, row.ID, "running")
 	}

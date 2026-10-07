@@ -1111,7 +1111,13 @@ func TestAdmissionMachineMetricsFollowRuntimeQueueAndBoots(t *testing.T) {
 	r.cli = &cli{binary: binary, home: root}
 	ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "stopped"}, root)
 	r.workspaces["A"] = ws
-	_, err = r.StartWorkspace(WithAdmissionHolder(t.Context(), "workspace:A"), "A")
+	var observedKinds []string
+	var observedFailures []bool
+	wakeContext := workspaceapi.WithWakeObserver(WithAdmissionHolder(t.Context(), "workspace:A"), func(kind string, failed bool) {
+		observedKinds = append(observedKinds, kind)
+		observedFailures = append(observedFailures, failed)
+	})
+	_, err = r.StartWorkspace(wakeContext, "A")
 	require.Error(t, err)
 	families, err := registry.Gather()
 	require.NoError(t, err)
@@ -1148,12 +1154,14 @@ func TestAdmissionMachineMetricsFollowRuntimeQueueAndBoots(t *testing.T) {
 	require.True(t, seenDuration)
 	// Already awake and invalid requests do not count as boot attempts.
 	ws.State = "running"
-	_, err = r.StartWorkspace(t.Context(), "A")
+	_, err = r.StartWorkspace(wakeContext, "A")
 	require.NoError(t, err)
-	_, err = r.CreateWorkspace(t.Context(), workspaceapi.WorkspaceSpec{ID: "A"})
+	_, err = r.CreateWorkspace(wakeContext, workspaceapi.WorkspaceSpec{ID: "A"})
 	require.NoError(t, err)
-	_, err = r.StartWorkspace(t.Context(), "missing")
+	_, err = r.StartWorkspace(wakeContext, "missing")
 	require.Error(t, err)
+	require.Equal(t, []string{"warm"}, observedKinds)
+	require.Equal(t, []bool{true}, observedFailures)
 	families, err = registry.Gather()
 	require.NoError(t, err)
 	for _, f := range families {

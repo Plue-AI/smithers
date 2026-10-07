@@ -96,12 +96,20 @@ func (s *WorkspaceService) openMemberTerminal(ctx context.Context, branch string
 	if err = tx.Commit(ctx); err != nil {
 		return WorkspaceSessionResponse{}, err
 	}
-	provisionCtx, cancel := context.WithTimeout(context.WithoutCancel(personMachineDemand(ctx)), workspaceProvisionTimeout)
+	admittedCtx := ctx
+	var span *terminalWakeSpan
+	if via == "terminal" {
+		admittedCtx, span = beginTerminalWakeObservation(ctx, request, strings.TrimSpace(branch))
+	}
+	provisionCtx, cancel := context.WithTimeout(context.WithoutCancel(personMachineDemand(admittedCtx)), workspaceProvisionTimeout)
 	done := s.trackProvision()
 	go func() {
 		defer done()
 		defer cancel()
-		_, _ = s.finishWorkspaceSessionProvisioning(provisionCtx, session, row, CreateWorkspaceSessionInput{WorkspaceID: row.ID, RepositoryID: repository, UserID: member, SourceBookmark: row.TargetBookmark, Kind: WorkspaceSessionKindTerminal}, 80, 24)
+		response, err := s.finishWorkspaceSessionProvisioning(provisionCtx, session, row, CreateWorkspaceSessionInput{WorkspaceID: row.ID, RepositoryID: repository, UserID: member, SourceBookmark: row.TargetBookmark, Kind: WorkspaceSessionKindTerminal}, 80, 24)
+		if span != nil {
+			span.complete(err == nil && response.Status == "running")
+		}
 	}()
 	return toWorkspaceSessionResponse(session), nil
 }

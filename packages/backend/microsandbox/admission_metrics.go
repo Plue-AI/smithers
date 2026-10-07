@@ -1,9 +1,11 @@
 package microsandbox
 
 import (
+	"context"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // machineMetrics reads the same holders that admission grants. It never
@@ -68,7 +70,7 @@ func (m *machineMetrics) Collect(ch chan<- prometheus.Metric) {
 
 type machineWakeStarted struct{}
 
-func (r *Runtime) observeMachineWake(kind string, started time.Time, err error) {
+func (r *Runtime) observeMachineWake(ctx context.Context, kind string, started time.Time, err error) {
 	m := r.MachineMetrics().(*machineMetrics)
 	outcome := "success"
 	if err != nil {
@@ -76,4 +78,5 @@ func (r *Runtime) observeMachineWake(kind string, started time.Time, err error) 
 	}
 	m.wakes.WithLabelValues(kind, outcome).Inc()
 	m.duration.WithLabelValues(kind, outcome).Observe(time.Since(started).Seconds())
+	workspaceapi.ObserveWake(ctx, kind, err != nil)
 }

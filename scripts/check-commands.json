@@ -212,6 +212,11 @@
       "reason": "Absent: packages/backend/internal/machined/fault_test.go, crates/smithers-machined",
       "ticket": "T-COL-03"
     },
+    "C-DUR-05": {
+      "status": "pending-owner",
+      "reason": "T-COL-13 outbox version compatibility requires owner-approved executable mapping and authenticated evidence",
+      "ticket": "T-COL-13"
+    },
     "C-FM-01": {
       "status": "pending-owner",
       "reason": "Requires smithers-22 approved target and authenticated qualification evidence.",
@@ -665,7 +670,7 @@
     },
     "C-PERF-05": {
       "status": "pending-owner",
-      "reason": "Runner present: scripts/perf/warm-wake.mjs; requires production terminal admission, qualified lifecycle and reference host and owner-approved evidence",
+      "reason": "Runner and terminal host observations present: scripts/perf/warm-wake.mjs; requires qualified lifecycle, reference host, real 100-sample evidence and owner-approved evidence",
       "ticket": "T-MCH-06"
     },
     "C-PERF-06": {

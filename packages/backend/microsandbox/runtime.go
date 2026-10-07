@@ -626,7 +626,7 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 	attempted := false
 	defer func() {
 		if attempted {
-			r.observeMachineWake("cold", started, resultErr)
+			r.observeMachineWake(ctx, "cold", started, resultErr)
 		}
 	}()
 	id, err := validWorkspaceID(spec.ID)
@@ -868,7 +868,7 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (result workspa
 	kind := "warm"
 	defer func() {
 		if attempted {
-			r.observeMachineWake(kind, started, resultErr)
+			r.observeMachineWake(ctx, kind, started, resultErr)
 		}
 	}()
 	r.mu.Lock()

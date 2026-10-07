@@ -182,11 +182,18 @@ shared artifact writer to both performance and C-PERF-05 check directories.
 Credentials are excluded. Failed runs attempt to close their last terminal;
 an unsuccessful cleanup records the remaining session ID.
 
-This driver is not a passing receipt. The current S2 terminal route refuses
-startup, its successful session-ID response still needs integration with
-T-TRM-01, and the acceptance/state-write host observer export is not yet
-implemented. Those must be supplied before a reference-host run can pass;
-a client stopwatch or wake histogram cannot substitute for the host log.
+The composed terminal service emits `machine wake observation` JSON log
+records after provisioning settles. Acceptance starts after the request is
+persisted and before admission grants capacity; the endpoint is the committed
+awake state. The existing runtime supplies cold/warm classification, and guest
+inspection supplies the working head. Missing, failed or repeated observations
+remain failures. Requests recovered after a host restart have no local timing.
+Point `SMITHERS_PERF_HOST_WAKE_LOG` at the backend's JSONL log export.
+
+This driver is not a passing receipt. Qualified fresh/retained lifecycle and
+root-layer evidence, a reference Mac and the real 100-sample workload remain
+required. A client stopwatch or wake histogram cannot substitute for the host
+log.
 Run offline validation with `node --test scripts/perf/warm-wake.test.mjs`.
 
 `agent-first-token.mjs` drives the main conversation on the second Mac. It uses
