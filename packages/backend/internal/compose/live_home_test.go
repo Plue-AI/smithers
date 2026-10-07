@@ -55,13 +55,13 @@ func TestLiveHomeIsTheAppsHome(t *testing.T) {
 		} `json:"machines"`
 	}
 	require.NoError(t, json.Unmarshal(got, &home))
-	// Merged and dropped TODOs are counted, never listed.
+	// Merged and dropped TODOs are neither counted nor listed.
 	var listed []int64
 	for _, item := range home.Items {
 		listed = append(listed, item.N)
 	}
 	require.Equal(t, []int64{1, 2, 3, 4, 6}, listed)
-	require.Equal(t, map[string]int{"queued": 1, "starting": 0, "working": 0, "needs_you": 1, "paused": 1, "failed": 1, "in_review": 1, "merged": 1, "dropped": 1}, home.Counts)
+	require.Equal(t, map[string]int{"queued": 1, "starting": 0, "working": 0, "needs_you": 1, "paused": 1, "failed": 1, "in_review": 1, "merged": 0, "dropped": 0}, home.Counts)
 	// T2's lane is awake and T6's waking: two machines in use.
 	require.Equal(t, 2, home.Machines.InUse)
 	tags := func(i int) (out []string) {
@@ -158,11 +158,11 @@ func TestLiveHomeInvariantsOverRandomCards(t *testing.T) {
 		counts, inUse := map[string]int{}, 0
 		for _, card := range cards {
 			state := card["state"].(string)
-			if slices.Contains(homeStates, state) {
-				counts[state]++
-			}
 			if state == "merged" || state == "dropped" {
 				continue
+			}
+			if slices.Contains(homeStates, state) {
+				counts[state]++
 			}
 			open = append(open, card)
 			if branch, ok := card["branch"].(map[string]any); ok {
