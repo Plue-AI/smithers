@@ -82,6 +82,49 @@ const park = (runId: string, reason?: string) =>
   })
 
 describe("live steering", () => {
+  it("replaces a pending comment but leaves a consumed steer and its replay intact", async () => {
+    await run(Effect.gen(function*() {
+      const control = yield* Control
+      const queue = yield* NotificationQueue.NotificationQueue
+      const runId = yield* start("edited-comment")
+      const submit = (version: number, body: string) =>
+        control.steer({
+          runId,
+          version,
+          idempotencyKey: `github:42:${version}`,
+          message: {
+            runId,
+            principal,
+            createdAt: version,
+            messageId: "github-comment-42",
+            body,
+            attribution: { person: "ben" }
+          }
+        })
+      yield* submit(1, "original")
+      yield* submit(2, "edited")
+      expect((yield* queue.pending(runId)).map((input) => input.payload)).toEqual([{ kind: "Message", body: "edited" }])
+      const boundary = { runId, targetLineageId: runId, boundary: "turn-1", wouldIdle: false }
+      expect((yield* queue.drain(boundary)).notifications.map((input) => input.payload)).toEqual([{
+        kind: "Message",
+        body: "edited"
+      }])
+      expect(yield* submit(3, "after consumption")).toMatchObject({ inputConsumed: true, inputBody: "edited" })
+      expect(yield* submit(3, "after consumption")).toMatchObject({
+        _tag: "AlreadyApplied",
+        inputConsumed: true,
+        inputBody: "edited"
+      })
+      expect(yield* queue.pending(runId)).toEqual([])
+      expect((yield* queue.drain(boundary)).notifications.map((input) => input.payload)).toEqual([{
+        kind: "Message",
+        body: "edited"
+      }])
+      const events = yield* control.watch({ runId, follow: false }).pipe(Stream.runCollect)
+      expect(events.filter((event) => event.kind === "control.steer.enqueued")).toHaveLength(2)
+    }))
+  })
+
   it("retains producer attribution separately from the authenticated source", async () => {
     const observed = await run(Effect.gen(function*() {
       const queue = yield* NotificationQueue.NotificationQueue
