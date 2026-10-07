@@ -13,7 +13,14 @@ import (
 
 // The native CLI uses the existing installing-user socket, never a browser
 // session or a delegated token. Missing providers refuse before writing a freeze.
-func startInstallMaintenanceHandoff(ctx context.Context, stateDir string, pool *pgxpool.Pool, emit func(context.Context, io.Writer) error) (func() error, error) {
-	h := &routes.InstallQuiesceHandler{Owners: db.New(pool), Service: services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: stateDir})}
+func startInstallMaintenanceHandoff(ctx context.Context, stateDir string, pool *pgxpool.Pool, emit func(context.Context, io.Writer) error, coordinated ...*services.InstallQuiesce) (func() error, error) {
+	var service *services.InstallQuiesce
+	if len(coordinated) == 1 {
+		service = coordinated[0]
+	}
+	if service == nil {
+		service = services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: stateDir})
+	}
+	h := &routes.InstallQuiesceHandler{Owners: db.New(pool), Service: service}
 	return services.StartInstallSetupHandoff(ctx, stateDir, emit, http.HandlerFunc(h.HandleInstallingOwner))
 }

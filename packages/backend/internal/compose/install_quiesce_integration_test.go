@@ -77,7 +77,8 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 	}
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
-	cfg.Install.QuiesceEnabled = true
+	// A real install enforces recovery even with the legacy switch off.
+	cfg.Install.QuiesceEnabled = false
 	cfg.Install.StateDir = t.TempDir()
 	cfg.Server.PublicURL = "http://localhost:4000"
 	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}

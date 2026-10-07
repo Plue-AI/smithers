@@ -39,6 +39,7 @@ func apiBodyLimit(r *http.Request) int64 {
 }
 
 type routerExtras struct {
+	InstallQuiesce *services.InstallQuiesce
 	// Confirmations requires the private browser View and qualified consumers.
 	Confirmations       *services.ApprovalsService
 	Members             *routes.MembersHandler
@@ -375,8 +376,14 @@ func buildRouter(
 		r.Use(middleware.SetupSessionBoundary(extras.GitHubAppSetup.Sessions.Validate))
 	}
 	r.Use(chiMiddleware.RequestID)
-	quiesce := &services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir}
-	routes.MountInstallQuiesce(r, cfg.Install.QuiesceEnabled, quiesce, nil)
+	quiesceService := extras.InstallQuiesce
+	if quiesceService == nil {
+		quiesceService = services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir})
+	}
+	// Persisted freezes remain enforced on installs even when maintenance
+	// execution is unavailable. A configuration flag cannot bypass recovery.
+	quiesceEnabled := cfg.Install.QuiesceEnabled || (config.IsSingleOwner(cfg.Auth) && cfg.Install.StateDir != "")
+	routes.MountInstallQuiesce(r, quiesceEnabled, quiesceService.Gate, nil)
 	// Derive the client IP from X-Forwarded-For using a trusted-hop count
 	// (SMITHERS_SERVER_TRUSTED_PROXY_HOPS: 1 behind GCLB in prod, 0 = keep
 	// the socket address elsewhere). Replaces chi's RealIP, which trusted
@@ -1102,8 +1109,8 @@ func buildRouter(
 			}
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/branches/{b}/files/*", restore.Restore)
 		}
-		if cfg.Install.QuiesceEnabled {
-			h := &routes.InstallQuiesceHandler{Owners: queries, Service: services.NewInstallQuiesce(quiesce)}
+		if quiesceEnabled {
+			h := &routes.InstallQuiesceHandler{Owners: queries, Service: quiesceService}
 			r.Post("/install/quiesce", h.Handle)
 			r.Delete("/install/quiesce", h.Handle)
 		}
