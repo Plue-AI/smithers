@@ -184,9 +184,23 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 		require.NoError(t, err)
 		tokens[kind] = raw
 	}
-	for _, body := range []string{`{"rebase":true}`, `{"op":"rebase"}`, `{"conflict_change":"change","onto_revision":"onto"}`, `{"op":"rebase","conflict_change":"change","onto_revision":"onto"}`} {
+	for _, tc := range []struct {
+		body      string
+		malformed bool
+	}{
+		{`{"rebase":true}`, false},
+		{`{"op":"rebase"}`, false},
+		{`{"conflict_change":"change","onto_revision":"onto"}`, false},
+		{`{"op":"rebase","conflict_change":"change","onto_revision":"onto"}`, false},
+		{`{"op":"rebase","conflict_change":"","onto_revision":""}`, true},
+		{`{"op":"rebase","conflict_change":null,"onto_revision":null}`, true},
+		{`{"op":"rebase","conflict_change":null}`, true},
+	} {
 		for _, principal := range []string{"person", "anonymous", "run", "machine"} {
-			request, err := http.NewRequest("POST", origin+"/api/branches/scratch%2Fben%2Fwork", strings.NewReader(body))
+			if tc.malformed && principal != "person" {
+				continue
+			}
+			request, err := http.NewRequest("POST", origin+"/api/branches/scratch%2Fben%2Fwork", strings.NewReader(tc.body))
 			require.NoError(t, err)
 			if principal == "person" {
 				request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
@@ -204,7 +218,10 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 			var result map[string]any
 			require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
 			response.Body.Close()
-			if principal == "person" {
+			if tc.malformed {
+				require.Equal(t, 400, response.StatusCode, result)
+				require.Equal(t, "bad_request", result["code"])
+			} else if principal == "person" {
 				require.Equal(t, 503, response.StatusCode, result)
 				require.Equal(t, "rebase_execution_unavailable", result["code"])
 			} else if principal == "anonymous" {
