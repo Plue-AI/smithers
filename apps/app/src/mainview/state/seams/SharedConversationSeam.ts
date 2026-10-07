@@ -67,12 +67,19 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
       const response = await ctx.boundedFetch(`${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}`, { credentials: "same-origin" })
       if (!response.ok) throw new SharedConversationFailure({ sentence: "Conversation unavailable" })
       const conversation = SharedConversationSchema.parse(await response.json())
-      if (valid(revision)) publish({ ...snapshot, conversation, error: undefined })
+      // The first view restores the transcript; publish its entries with it
+      // so that restoration cannot unmount an already-open Context disclosure.
+      const initial = snapshot.view === undefined
+      if (!initial && valid(revision)) publish({ ...snapshot, conversation, error: undefined })
       const viewResponse = await ctx.boundedFetch(`${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}/view-state`, { credentials: "same-origin" })
       if (viewResponse.ok) {
         const view = ConversationViewSchema.parse(await viewResponse.json())
-        if (valid(revision) && viewing === viewRevision) { publish({ ...snapshot, view, queue: view.queue }); applyInstructions(view, revision) }
-      }
+        if (valid(revision) && viewing === viewRevision) { publish({ ...snapshot, conversation, view, queue: view.queue, error: undefined }); applyInstructions(view, revision) }
+        else if (initial) {
+          await saving
+          if (valid(revision)) publish({ ...snapshot, conversation, error: undefined })
+        }
+      } else if (initial && valid(revision)) publish({ ...snapshot, conversation, error: undefined })
     } catch { if (valid(revision)) publish({ error: "Conversation unavailable" }) }
     finally { reading = false; if (again) { again = false; void read() } }
   }
