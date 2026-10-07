@@ -117,6 +117,40 @@ func TestInstallSystemTodoReadLiteralCellsPostgres(t *testing.T) {
 	var access *services.AccessError
 	require.ErrorAs(t, err, &access)
 	require.Equal(t, 403, access.Status)
+
+	t.Run("current sponsor reads a retained former-owner machine", func(t *testing.T) {
+		former, err := q.CreateUser(ctx, db.CreateUserParams{Username: "former-owner", LowerUsername: "former-owner"})
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write');`, f.row.RepositoryID, former.ID)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, f.row.ID, former.ID)
+		require.NoError(t, err)
+		for _, credential := range []string{run, machine} {
+			status, body, commands := call("/api/todos/1", credential)
+			require.Equal(t, 200, status, body)
+			require.Equal(t, []string{"todo.read"}, commands)
+		}
+		old := *info
+		old.User = &former
+		_, err = services.Authorize(services.WithInstallTodoSubject(middleware.ContextWithAuthInfo(ctx, &old), 1), q, "todo.read")
+		var access *services.AccessError
+		require.ErrorAs(t, err, &access)
+		require.Equal(t, 403, access.Status, "the creator does not inherit the new sponsor's read")
+		var commands []string
+		ctx := services.WithAuthorizationObserver(services.WithInstallTodoSubject(middleware.ContextWithAuthInfo(ctx, info), 1), func(command string) { commands = append(commands, command) })
+		decision, err := services.Authorize(ctx, q, "todo.read")
+		require.NoError(t, err)
+		ctx = services.WithInstallAuthorization(ctx, "todo.read", decision)
+		changed, err := q.GetMythicalItemByNumber(ctx, f.row.RepositoryID, 1)
+		require.NoError(t, err)
+		changed.OwnerID.Int64 = former.ID
+		_, err = q.SaveMythicalItem(ctx, changed)
+		require.NoError(t, err)
+		_, err = todos.Todo(ctx, f.row.RepositoryID, 1)
+		require.ErrorAs(t, err, &access)
+		require.Equal(t, 403, access.Status, "a bound role decision cannot disclose a changed owner's row")
+		require.Equal(t, []string{"todo.read"}, commands)
+	})
 }
 
 func TestInstallSystemTodoReadOpenAPI(t *testing.T) {

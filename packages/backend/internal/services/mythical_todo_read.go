@@ -50,6 +50,13 @@ func (s *MythicalService) Todo(ctx context.Context, repositoryID, number int64) 
 	if err != nil {
 		return nil, err
 	}
+	if systemRead {
+		// Role authorization stays bound; the row actually being disclosed
+		// must still belong to this run and sponsor after a concurrent takeover.
+		if _, err := authorizeInstallSystemTodoRead(ctx, s.queries(), info, item); err != nil {
+			return nil, err
+		}
+	}
 	card, err := s.todoCard(ctx, item, nil)
 	if err != nil {
 		return nil, err

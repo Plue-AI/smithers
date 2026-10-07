@@ -730,7 +730,7 @@ func authorizeInstallWorkspace(ctx context.Context, q *db.Queries, command strin
 
 // A system read is singular and bound to the current stored TODO lane. A run
 // also names the current run; a machine can read only its own workspace's TODO.
-func authorizeInstallSystemTodoRead(ctx context.Context, q *db.Queries, info *middleware.AuthInfo) (InstallAuthorization, error) {
+func authorizeInstallSystemTodoRead(ctx context.Context, q *db.Queries, info *middleware.AuthInfo, items ...db.MythicalItem) (InstallAuthorization, error) {
 	refuse := func() (InstallAuthorization, error) {
 		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
 	}
@@ -749,12 +749,22 @@ func authorizeInstallSystemTodoRead(ctx context.Context, q *db.Queries, info *mi
 	if len(paths) > 0 && (len(paths) != 1 || paths[0] != "**") {
 		return refuse()
 	}
-	item, err := q.GetMythicalItemByNumber(ctx, repository, number)
-	if stdErrors.Is(err, pgx.ErrNoRows) {
+	var item db.MythicalItem
+	if len(items) == 1 {
+		item = items[0]
+		if item.RepositoryID != repository || !item.Number.Valid || item.Number.Int64 != number {
+			return refuse()
+		}
+	} else if len(items) == 0 {
+		item, err = q.GetMythicalItemByNumber(ctx, repository, number)
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			return refuse()
+		}
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+	} else {
 		return refuse()
-	}
-	if err != nil {
-		return InstallAuthorization{}, err
 	}
 	if !item.OwnerID.Valid || item.OwnerID.Int64 != info.User.ID || item.WorkspaceID == "" || item.RequestRunID == "" || item.Attempt <= 0 {
 		return refuse()
@@ -785,7 +795,9 @@ func authorizeInstallSystemTodoRead(ctx context.Context, q *db.Queries, info *mi
 	if err != nil {
 		return InstallAuthorization{}, err
 	}
-	if workspace.RepositoryID != repository || workspace.UserID != info.User.ID {
+	// Takeover preserves the machine and its creator. The current TODO
+	// owner above is the run sponsor; the creator has no continuing grant.
+	if workspace.RepositoryID != repository {
 		return refuse()
 	}
 	role, err := InstallRoleOf(ctx, q, info.User.ID)
