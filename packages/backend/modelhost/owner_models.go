@@ -25,9 +25,10 @@ import (
 // OwnerModels is the Go host for the existing /api/model credential catalog.
 // It is mounted by the common backend assembly for local and hosted roles.
 type OwnerModels struct {
-	Pool   *pgxpool.Pool
-	Codec  webhook.SecretCodec
-	Tester ModelTester
+	Pool              *pgxpool.Pool
+	Codec             webhook.SecretCodec
+	Tester            ModelTester
+	FastModelCallback string
 }
 
 type credentialRow struct {

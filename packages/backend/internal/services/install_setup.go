@@ -950,6 +950,11 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		}
 	}
 	result := map[string]any{"ssh_host": sshHost, "ssh_line": "ssh -p 2222 <branch>@" + sshHost, "address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": chatgpt, "capacity": capacity}
+	fastStatus, err := (InstallFastModelAccess{Pool: s.Pool}).Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result["fast_model"] = fastStatus
 	result["todo_preapprove_default"] = false
 	if setting, err := q.GetInstallSetting(ctx, todoPreapprovalDefaultKey); err == nil {
 		var approval *mythicalLand

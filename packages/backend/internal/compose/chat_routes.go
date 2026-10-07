@@ -67,6 +67,7 @@ func mountChatPublic(router chi.Router, runtime *chat.Runtime, queries *db.Queri
 }
 
 func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *db.Queries, cfg *config.Config, sources ...workspaceapi.SourceFiles) {
+	models.FastModelCallback = strings.TrimRight(cfg.Server.PublicURL, "/") + "/api/model/fast/return"
 	router.Group(func(r chi.Router) {
 		r.Use(cors.Handler(apiCORSOptions(cfg)))
 		r.Use(middleware.JSONAllowContentType("application/json"))
@@ -91,6 +92,11 @@ func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *
 		r.Group(func(writes chi.Router) {
 			writes.Use(middleware.RequireScope(middleware.ScopeWriteUser))
 			writes.Post("/api/model/credential", models.Credential)
+			if config.IsSingleOwner(cfg.Auth) {
+				writes.Post("/api/model/fast/sign-in", models.FastModelSignIn)
+				writes.Get("/api/model/fast/return", models.FastModelReturn)
+				writes.Delete("/api/model/fast", models.FastModelSignOut)
+			}
 			writes.Put("/api/model/default", models.SetDefault)
 			writes.Post("/api/model/test", models.Test)
 			writes.Get("/api/model/test/receipt", models.TestReceipt)
