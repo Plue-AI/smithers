@@ -56,13 +56,13 @@ func (m *TerminalSessionManager) HasBranchTerminal(repository int64, branch stri
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for pending := range m.starting {
-		if pending.principal.RepositoryID == repository && pending.principal.WorkspaceID == branch {
+		if (repository == 0 || pending.principal.RepositoryID == repository) && pending.principal.WorkspaceID == branch {
 			return true
 		}
 	}
 	for _, session := range m.sessions {
 		session.mu.Lock()
-		held := !session.dead && session.principal.RepositoryID == repository && session.principal.WorkspaceID == branch
+		held := (!session.dead || session.ownerSession) && (repository == 0 || session.principal.RepositoryID == repository) && session.principal.WorkspaceID == branch
 		session.mu.Unlock()
 		if held {
 			return true
@@ -112,6 +112,7 @@ func (m *TerminalSessionManager) OpenOwned(ctx context.Context, id string, princ
 	}
 	var session *terminalSession
 	session = newTerminalSession(id, client, backend, stdin, stdout, stderr, m.ringBufferBytes, m.idleTimeout, 0, func() { m.removeSession(id, session) })
+	session.ownerSession = true
 	session.setPrincipal(principal)
 	m.mu.Lock()
 	if ctx.Err() != nil || m.sessions[id] != nil {
@@ -128,4 +129,28 @@ func (m *TerminalSessionManager) OpenOwned(ctx context.Context, id string, princ
 	go func() { wait <- backend.Wait() }()
 	session.startWithWait(wait)
 	return nil
+}
+
+// OwnsSubject includes admission in progress so the host can mint the delegated
+// credential before the shell starts. No caller-supplied identity is trusted.
+func (m *TerminalSessionManager) OwnsSubject(member, repository int64, branch, id string) bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	matches := func(p revocation.Principal) bool {
+		return p.UserID == member && p.RepositoryID == repository && p.WorkspaceID == branch
+	}
+	for pending := range m.starting {
+		if pending.sessionID == id && matches(pending.principal) {
+			return true
+		}
+	}
+	if session := m.sessions[id]; session != nil {
+		session.mu.Lock()
+		defer session.mu.Unlock()
+		return !session.dead && matches(session.principal)
+	}
+	return false
 }

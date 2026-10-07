@@ -35,6 +35,7 @@ func terminalCredentialName(sessionID string) string { return "terminal-session-
 
 // terminalCredential is one terminal session's delegated credential.
 type terminalCredential struct {
+	ownerUID     uint32
 	registry     *sync.Map
 	issuer       *AuthService
 	tokens       accessTokenStore
