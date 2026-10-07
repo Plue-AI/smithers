@@ -277,6 +277,8 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		stored string
 	}{
 		{name: "timeout", err: context.DeadlineExceeded, stored: head},
+		{name: "undrained outbox", err: errors.New("authenticated delivery has unacknowledged events"), stored: head},
+		{name: "missing object", err: errors.New("host rejected missing captured object"), stored: head},
 		{name: "unprojected", result: machined.CaptureResult{Head: base, Tree: base}, stored: head},
 		{name: "ref mismatch", result: machined.CaptureResult{Head: base, Tree: base}, stored: base},
 	} {
@@ -288,6 +290,11 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 			row, err := q.GetWorkspace(ctx, id)
 			require.NoError(t, err)
 			require.Equal(t, "running", row.Status)
+			require.Equal(t, fault.stored, row.HeadCommitID, "failed capture preserves the last projected head")
+			assertHeadToken(true)
+			var projected services.BranchMachineResponse
+			require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &projected))
+			require.Equal(t, "awake", projected.State)
 			require.Zero(t, counted.stops.Load())
 		})
 	}
