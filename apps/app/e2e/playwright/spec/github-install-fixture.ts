@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { resolve, join } from "node:path"
 
-type Host = { origin: string; number: number; phase: string; cookies: Array<{ name: string; value: string; url: string }> }
+type Host = { origin: string; number: number; fixingIssue?: number; referenceIssue?: number; phase: string; cookies: Array<{ name: string; value: string; url: string }> }
 interface Fixture {
   phase: (name: string) => Promise<Host>
   open: (host: Host) => Promise<void>

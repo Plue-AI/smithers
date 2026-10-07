@@ -40,7 +40,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J10-02 | [C-J10-02.spec.ts](C-J10-02.spec.ts) | fixme-before-implementation | T-GH-04 |
 | C-J10-03 | [C-J10-03.spec.ts](C-J10-03.spec.ts), [install Discard cases](C-UI-12-todo-install.spec.ts) | Passing Chromium install HTTP seam: stale Discard refresh, displayed wait/SHA binding, person confirmation, independent question, pending toast, usable Chat and reload; machine Bring in ancestry and full reference-host journey pending | T-GH-06 |
 | C-J10-04 | [C-J10-04.spec.ts](C-J10-04.spec.ts) | fixme-before-implementation | T-STK-08 |
-| C-J10-05 | [C-J10-05.spec.ts](C-J10-05.spec.ts) | fixme-before-implementation | T-GH-03 |
+| C-J10-05 | [C-J10-05.spec.ts](C-J10-05.spec.ts) | composed-install: merged cards and fixes_issue true/false through production polling/completion; accepted-tree fixture, guest qualification pending | T-GH-03 |
 | C-J10-06 | [C-J10-06.spec.ts](C-J10-06.spec.ts) | passed: install HTTP seam, 120 s boundary, pending/deduplicated Retry, usable Chat, recovery and installation refusal; backend/reference-host qualification separate | T-GH-07 |
 | C-J10-07 | [C-J10-07.spec.ts](C-J10-07.spec.ts) | fixme-before-implementation | T-GH-07, T-ACC-03 |
 | C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | composed-install Chromium: close, reopen, merge and reload; reference guest qualification pending | T-GH-03, T-STK-05, T-MCH-14 |

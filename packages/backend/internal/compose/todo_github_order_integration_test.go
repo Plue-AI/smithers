@@ -114,6 +114,15 @@ func TestTODOGitHubOrderAndShapeComposedInstall(t *testing.T) {
 	if os.Getenv("SMITHERS_GH03_BROWSER_PHASE") == "shape" {
 		return // Publication and diff have their own browser check; order runs separately.
 	}
+	var fixingIssue, referenceIssue int64
+	if os.Getenv("SMITHERS_GH03_BROWSER_PHASE") == "issue_merge" {
+		fixingIssue = r.fake.OpenIssue("rehearsal-owner/app", "rehearsal-owner", "Fix first", "first")
+		referenceIssue = r.fake.OpenIssue("rehearsal-owner/app", "rehearsal-owner", "Reference second", "second")
+		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET issue_number=$2,fixes_issue=$3 WHERE number=$1`, items[0].number, fixingIssue, true)
+		require.NoError(t, err)
+		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET issue_number=$2,fixes_issue=$3 WHERE number=$1`, items[1].number, referenceIssue, false)
+		require.NoError(t, err)
+	}
 	second := items[1]
 	r.fake.UpdatePull("rehearsal-owner/app", second.pull, func(p *githubfake.Pull) { p.Draft = false })
 	pull := callFake("GET", fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", second.pull), "")
@@ -126,6 +135,42 @@ func TestTODOGitHubOrderAndShapeComposedInstall(t *testing.T) {
 		err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items WHERE number=ANY($1) AND state='landed'`, []int64{items[0].number, second.number}).Scan(&count)
 		return err == nil && count == 2
 	}, 90*time.Second, 100*time.Millisecond)
+	if fixingIssue != 0 {
+		require.Eventually(t, func() bool {
+			fixed, ok := r.fake.Issue("rehearsal-owner/app", fixingIssue)
+			return ok && fixed.State == "closed"
+		}, 60*time.Second, 100*time.Millisecond)
+		referenced, ok := r.fake.Issue("rehearsal-owner/app", referenceIssue)
+		require.True(t, ok)
+		require.Equal(t, "open", referenced.State)
+		// The install issue door reads GitHub through its real provider.
+		for issueNumber, expected := range map[int64]string{fixingIssue: "closed", referenceIssue: "open"} {
+			code, raw, err := r.request("GET", fmt.Sprintf("/api/issues/%d", issueNumber), "")
+			require.NoError(t, err)
+			require.Equal(t, 200, code, string(raw))
+			var thread services.InstallIssueThread
+			require.NoError(t, json.Unmarshal(raw, &thread))
+			require.Equal(t, expected, thread.Issue.State)
+			if issueNumber == fixingIssue {
+				require.Len(t, thread.Comments, 1, "one durable completion comment")
+			}
+		}
+		githubLifecycleBrowserPhase(t, r, second.number, "issue_merge", map[string]any{"fixingIssue": fixingIssue, "referenceIssue": referenceIssue})
+		closes, mergeWrites := 0, 0
+		for _, write := range r.fake.Writes() {
+			if write.Method == "PATCH" && write.Path == fmt.Sprintf("/repos/rehearsal-owner/app/issues/%d", fixingIssue) {
+				closes++
+			}
+			require.NotContains(t, write.Path, "/reviews", "completion never creates approvals")
+			if write.Method == "PUT" {
+				mergeWrites++
+				require.Equal(t, fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", second.pull), write.Path, "only the person's external merge")
+			}
+		}
+		require.Equal(t, 1, closes)
+		require.Equal(t, 1, mergeWrites)
+		return
+	}
 	socket, err := r.openLive(r.jar)
 	require.NoError(t, err)
 	_, err = socket.subscribe("home")

@@ -290,7 +290,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 
 // The browser observes only the real card. The test pauses between committed
 // lifecycle phases; its acknowledgment never mutates product state.
-func githubLifecycleBrowserPhase(t *testing.T, r *rehearsal, number int64, phase string) {
+func githubLifecycleBrowserPhase(t *testing.T, r *rehearsal, number int64, phase string, facts ...map[string]any) {
 	path := os.Getenv("SMITHERS_GH03_BROWSER_HARNESS")
 	if path == "" || os.Getenv("SMITHERS_GH03_BROWSER_PHASE") != "" && os.Getenv("SMITHERS_GH03_BROWSER_PHASE") != phase {
 		return
@@ -301,7 +301,13 @@ func githubLifecycleBrowserPhase(t *testing.T, r *rehearsal, number int64, phase
 	for _, cookie := range r.jar.Cookies(origin) {
 		cookies = append(cookies, map[string]string{"name": cookie.Name, "value": cookie.Value, "url": r.origin})
 	}
-	data, err := json.Marshal(map[string]any{"origin": r.origin, "number": number, "phase": phase, "cookies": cookies})
+	metadata := map[string]any{"origin": r.origin, "number": number, "phase": phase, "cookies": cookies}
+	for _, extra := range facts {
+		for key, value := range extra {
+			metadata[key] = value
+		}
+	}
+	data, err := json.Marshal(metadata)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path+".tmp", data, 0600))
 	require.NoError(t, os.Rename(path+".tmp", path))
