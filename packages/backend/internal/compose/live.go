@@ -85,6 +85,9 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 		member = user.ID
 	}
 	return func(ctx context.Context, topic string) (live.Source, string) {
+		if strings.HasPrefix(topic, "run:") {
+			return t.runSource(ctx, strings.TrimPrefix(topic, "run:"), repository, member)
+		}
 		if topic == "secrets" {
 			if _, err := services.Authorize(r.Context(), t.queries, "secrets.read"); err != nil {
 				return live.Source{}, live.Forbidden
@@ -231,7 +234,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}
 		key := "conversation:" + strconv.FormatInt(repository, 10) + ":" + identity.ID + ":member:" + strconv.FormatInt(member, 10)
 		return live.Source{Key: key, Every: liveRefreshEvery, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) { return t.conversation(ctx, member, identity.ID) }}, ""
-	case "branch", "run":
+	case "branch":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
