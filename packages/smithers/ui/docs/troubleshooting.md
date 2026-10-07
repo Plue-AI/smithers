@@ -126,12 +126,12 @@ drops modules it cannot parse. Bundle in a fresh subprocess instead.
 **Symptom.** Clicking copy on `CodeBlock`, `Snippet`, or `SecretField` does
 nothing visible.
 
-**Cause.** One of two failure codes. `clipboard-unavailable` means no `onCopy`
-was supplied and the host has no `navigator.clipboard.writeText`, which is the
-case outside a secure context. `clipboard-write-failed` means the write was
-attempted and rejected.
+**Cause.** `clipboard-unavailable` means neither the host/native write nor the
+DOM fallback succeeded. The original rejection or fallback exception is in
+`cause`. Older recorded results may use `clipboard-write-failed`.
 
-**Fix.** Serve over HTTPS or `localhost`, or supply your own `onCopy`. The
+**Fix.** Allow clipboard writes or the DOM copy command, or supply a working
+`onCopy`. Plain HTTP uses the DOM fallback after an absent or refused native write. The
 copied state is set only after the write fulfills, so a control that says
 "Copied" copied something. See
 [Failure codes and limits](./reference/contracts.md).
