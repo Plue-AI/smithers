@@ -228,6 +228,7 @@ export const APP_TRANSITION_TYPES = {
   "coding.provider.requests.changed": true,
   "stack.wiki.requests.changed": true,
   "github.sync.request.changed": true,
+  "terminal.requests.changed": true,
   "wiki.saves.changed": true,
   "install.requests.changed": true,
   "repository.imports.changed": true,
@@ -2161,6 +2162,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "stack.wiki.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.wikiRequests = transition.requests })
+          break
+        }
+        case "terminal.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.terminalRequests = transition.requests })
           break
         }
         case "wiki.saves.changed": {

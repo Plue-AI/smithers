@@ -847,6 +847,10 @@ export const SessionSchema = z.object({
   sharedPrompts: z.array(SharedPromptSchema).optional(),
   uiInstructionsSeen: z.array(z.string()).optional(),
   branchNavigation: BranchNavigationSchema.optional(),
+  terminalRequests: z.array(z.object({
+    id: z.string(), owner: z.string(), repo: z.string(), branch: z.string(), branchId: z.string().optional(), session: z.string().optional(), uncertain: z.boolean().optional(),
+    state: z.enum(["requested", "running", "completed", "failed"]), error: z.string().optional()
+  })).optional(),
   wikiSaves: z.array(z.object({
     id: z.string(), owner: z.string(), branch: z.string(), repo: z.string(), space: z.enum(["public", "private"]),
     name: z.string(), text: z.string(), state: z.enum(["requested", "completed", "failed"]), error: z.string().optional()
@@ -1351,6 +1355,7 @@ export type AppTransition =
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "github.sync.request.changed"; actor: Actor; request?: Session["githubSyncRequest"] }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
+  | { type: "terminal.requests.changed"; actor: Actor; requests: NonNullable<Session["terminalRequests"]> }
   | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
   | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }

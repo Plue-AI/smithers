@@ -202,7 +202,7 @@ test("On an install Fork is POST /api/branches {from, name}: the value is the ne
   } finally { await controller.dispose() }
 })
 
-test("non-install bootstrap keeps the design terminal doors while install bootstrap refuses them", async () => {
+test("non-install bootstrap keeps design terminals while installs require a known repository", async () => {
   for (const install of [false, true]) {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const profile = signupProfileFetch(async () => new Response("{}", { status: 404 }))
@@ -288,4 +288,30 @@ test("an unanswered live SSH provider keeps the off-install seed available", asy
   try {
     expect(await submit(h, "ssh", { branch: "retry-webhooks" })).toEqual({ status: "executed", value: "ssh -p 2222 retry-webhooks@maya-mini.tail1234.ts.net" })
   } finally { h.controller.dispose() }
+})
+
+
+test("the installed terminal flow acknowledges unresolved launch through button, slash and agent doors", async () => {
+ const store = await createAppStore({kind:"localStorage",storage:memoryStorage()})
+ const launch=Promise.withResolvers<Response>();let posts=0
+ const profile=signupProfileFetch(async(input,init)=>{
+  if(String(input).endsWith("/api/terminals")&&init?.method==="POST"){posts++;return launch.promise}
+  return new Response("{}",{status:404})
+ })
+ const controller=createAppController(store,unavailableAgent,{fetchImpl:profile.fetchImpl,bootstrap:{apiVersion:1,host:"local",version:"test",buildSha:"test",capabilities:["install"],authFlow:"none",sandbox:null}})
+ await store.dispatch({type:"identity.session.loaded",actor:"system",state:"signed-in",login:"maya",admin:false,scopesPlain:null}).isPersisted.promise
+ await store.dispatch({type:"repository.entry.changed",actor:"system",entry:{requestId:"install-repository",repo:"maya/app",phase:"pending"}}).isPersisted.promise
+ try {
+  expect(await controller.submitCommand({name:"terminal",payload:{branch:"scratch/maya/work"},actor:"user"})).toMatchObject({status:"executed",value:"Requested"})
+  expect(await controller.runCommandForResult("terminal","scratch/maya/work")).toMatchObject({status:"executed",value:"Requested"})
+  expect(await controller.commands.runAsAgent("terminal","scratch/maya/work")).toMatchObject({status:"executed",value:"Requested"})
+  for(let i=0;i<100&&posts===0;i++)await new Promise(resolve=>setTimeout(resolve,10))
+  expect(posts).toBe(1);expect(store.session().terminalRequests).toHaveLength(1)
+  controller.changeDraft("Chat remains usable")
+  await store.settled?.()
+  expect(store.session().draft).toBe("Chat remains usable")
+  expect(store.session().phase).toBe("idle")
+  expect(controller.design.world().terminals).toEqual([])
+  expect([...store.collections.cards.values()].some(card=>card.kind==="terminal")).toBe(false)
+ } finally {launch.resolve(new Response("{}",{status:503}));await controller.dispose()}
 })

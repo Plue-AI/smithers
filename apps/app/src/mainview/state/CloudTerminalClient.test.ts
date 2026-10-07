@@ -1,6 +1,6 @@
 /* The cloud-workspace terminal transport against a real WebSocket server. */
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test"
-import { createCloudTerminalClient, pageCloudSocketUrl } from "./CloudTerminalClient"
+import { createCloudTerminalClient, pageCloudSocketUrl, awaitTerminalReady } from "./CloudTerminalClient"
 import type { CloudTerminalClient } from "./CloudTerminalClient"
 
 // Real sockets on a loaded CI runner: the per-test ceiling follows the wait helper's.
@@ -473,4 +473,26 @@ test("a socket that cannot authorize or open prints a product line, never the th
     expect(output.join("")).toContain(failure === "authorize" ? "[the terminal connection could not be authorized]" : "[the terminal connection could not open]")
     expect(output.join("")).not.toContain("secret-")
   }
+})
+
+
+test("readiness follows a real upgrade even without output and reuses an attached terminal", async () => {
+ const server=serve(),terminal=client(server),signal=new AbortController().signal
+ const detach=terminal.attach("owner/repo","session-1",{onOutput:()=>{}})
+ await awaitTerminalReady(terminal,"owner/repo","session-1",signal)
+ expect(server.live()).toBe(1)
+ await awaitTerminalReady(terminal,"owner/repo","session-1",signal)
+ expect(server.live()).toBe(1)
+ detach()
+})
+test("a canceled readiness request never opens a terminal", async () => {
+ const server=serve(),terminal=client(server),lifetime=new AbortController()
+ lifetime.abort()
+ await expect(awaitTerminalReady(terminal,"owner/repo","session-1",lifetime.signal)).rejects.toThrow("Terminal request ended")
+ expect(server.live()).toBe(0)
+})
+test("readiness reports an unavailable authentication provider", async () => {
+ const server=serve(),terminal=track(createCloudTerminalClient({auth:"subprotocol",socketUrl:()=>server.url,socketProtocol:()=>undefined}))
+ await expect(awaitTerminalReady(terminal,"owner/repo","session-1",new AbortController().signal)).rejects.toThrow("could not be authorized")
+ expect(server.live()).toBe(0)
 })

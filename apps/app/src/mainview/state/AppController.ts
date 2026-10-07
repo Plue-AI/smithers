@@ -56,7 +56,7 @@ import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, MAIN_TAB_ID, rootFrameId } fro
 import type { AppStore } from "./AppStore"
 import { createCloudLspClient } from "./CloudLspClient"
 import type { CloudTerminalClient } from "./CloudTerminalClient"
-import { createCloudTerminalClient,pageCloudSocketUrl } from "./CloudTerminalClient"
+import { createCloudTerminalClient,pageCloudSocketUrl,awaitTerminalReady } from "./CloudTerminalClient"
 import { selectFirstRunRepository } from "./BootRepositoryTarget"
 import type { InputMode } from "./InputMode"
 import { cardAvailable } from "./CardAvailability"
@@ -85,6 +85,7 @@ import { TOAST_SUPERSEDED, createFailureController,humanCommandText } from "./co
 import type { FormFocusHandoff, FormsController } from "./controller/forms"
 import { createFormsController } from "./controller/forms"
 import { createFramesController } from "./controller/frames"
+import { createTerminalRequests } from "./controller/terminal-requests"
 import { createHealthStatusController } from "./controller/health-status"
 import { createInputModeController } from "./controller/inputMode"
 import { createIssueFlowsController,type IssueFlowsController } from "./controller/issueFlows"
@@ -375,6 +376,7 @@ export interface AppController extends IssueFlowsController {
   readonly dismissCard: FormsController["dismissCard"]
   /** Lane citc: the cloud-workspace terminal transport (one socket per workspace session). */
   /** T-APP-12 stays dark until the owner-only machine provider supplies this scope. */
+  readonly openBranchTerminal?: (branch: string) => Promise<import("../flows/entries/Declare").CommandResult>
   readonly terminalCards?: TerminalCardSource
   readonly cloudTerminal: CloudTerminalClient
   /* The admin dev-tools panel + debug reads (§2b/§2d; admin registry only). */
@@ -1546,7 +1548,10 @@ export const createAppController = (
       const subscription = store.collections.identitySessions.subscribeChanges(listener)
       return () => subscription.unsubscribe()
     },
-    repo: () => store.session().repositoryEntry?.repo ?? "",
+    repo: () => {
+      const repository = installSeam.snapshots.get().model?.repository
+      return repository ? `${repository.owner}/${repository.name}` : store.session().repositoryEntry?.repo ?? ""
+    },
     viewer: () => {
       const identity = store.collections.identitySessions.get("identity")
       return identity?.state === "signed-in" ? identity.login ?? undefined : undefined
@@ -1554,6 +1559,16 @@ export const createAppController = (
     http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init)
   }) : undefined
   if (terminalProvider) ctx.onDispose(terminalProvider.dispose)
+  const openBranchTerminal = installHost ? actors.pair(ctx, (context, select) => createTerminalRequests(context, {
+    repo: () => {
+      const repository = installSeam.snapshots.get().model?.repository
+      return repository ? `${repository.owner}/${repository.name}` : store.session().repositoryEntry?.repo ?? ""
+    },
+    observe: branch => terminalProvider?.observe(branch),
+    available: id => terminalProvider?.source.branch(id) !== undefined,
+    open: async id => { await select(presentBranchCard)("terminal", id, "Terminal") },
+    ready: (repo, id, signal) => awaitTerminalReady(cloudTerminal, repo, id, signal)
+  })).openTerminal : undefined
 
   const createCloudLsp = services.daemonLsp === undefined ? undefined
     : () => createCloudLspClient({
@@ -2108,6 +2123,7 @@ export const createAppController = (
     presentRun,
     presentFlow,
     presentSubject,
+    openBranchTerminal: installHost ? openBranchTerminal : undefined,
     presentBranchCard,
     showSetup: installSeam.showSetup, showSettings: installSeam.showSettings, setupStep: installSeam.setupStep,
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
@@ -2648,6 +2664,7 @@ export const createAppController = (
     contextRun,
     presentRun,
     presentFlow,
+    openBranchTerminal: installHost ? openBranchTerminal : undefined,
     presentBranchCard,
     stackSnapshots: stackSeam.snapshots,
     wikiIndexes,

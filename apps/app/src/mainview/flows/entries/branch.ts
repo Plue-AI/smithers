@@ -80,6 +80,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "terminal",   slash: "/terminal", cli: null, journey: ["J3","J6"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent"], minimumRole: "member", http: null, summary: "Open a terminal on a branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), agent: "run", input: BranchInput,
       handler: async ({ branch }) => {
+        if (actions.openBranchTerminal) return actions.openBranchTerminal(branch)
         if (actions.bootstrap?.capabilities.includes("install") || (!actions.bootstrap && actions.live)) return "Terminal unavailable"
         const target = branchOf(branch)
         if (target === undefined) return `No branch ${branch}`

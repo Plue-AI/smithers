@@ -12,6 +12,8 @@
 
 export interface CloudTerminalAttachment {
   readonly onOutput: (data: string) => void
+  readonly onReady?: () => void
+  readonly onUnavailable?: (message: string) => void
 }
 
 export interface CloudTerminalClient {
@@ -173,6 +175,7 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
   }
 
   const say = (conn: Connection, note: string): void => {
+    for (const listener of conn.listeners) listener.onUnavailable?.(note)
     for (const listener of conn.listeners) listener.onOutput(`\r\n[${note}]\r\n`)
   }
 
@@ -214,8 +217,11 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
     if (disposed || conn.socket !== undefined || conn.opening !== undefined) return
     const rawUrl = options.socketUrl(entry.repo, sessionId)
     const protocol = options.auth === "subprotocol" ? options.socketProtocol?.() : undefined
-    if (rawUrl === undefined || (options.auth === "subprotocol" && protocol === undefined)) return
-    if (options.auth === "ticket" && options.authorizeSocket === undefined) return
+    if (rawUrl === undefined) { for (const listener of conn.listeners) listener.onUnavailable?.("Terminal unavailable"); return }
+    if ((options.auth === "subprotocol" && protocol === undefined) || (options.auth === "ticket" && options.authorizeSocket === undefined)) {
+      for (const listener of conn.listeners) listener.onUnavailable?.("the terminal connection could not be authorized")
+      return
+    }
     const opening = new AbortController()
     conn.opening = opening
     void (async () => {
@@ -255,6 +261,7 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
     opened.onopen = () => {
       if (conn.socket !== opened) return
       openedAt = Date.now()
+      for (const listener of conn.listeners) listener.onReady?.()
       for (const frame of conn.pending) {
         opened.send(frame.kind === "input" ? new TextEncoder().encode(frame.data) : frame.frame)
       }
@@ -368,6 +375,7 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
     }
     entry.conn.listeners.add(attachment)
     ensureSocket(sessionId, entry)
+    if (entry.conn.socket?.readyState === WebSocket.OPEN) attachment.onReady?.()
     return () => {
       const current = connections.get(sessionId)
       if (current === undefined) return
@@ -452,4 +460,24 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
   }
 
   return { attach, input, resize, dispose }
+}
+
+/** Upgrade follows the server's admitted process receipt, not its launch acknowledgment. */
+export function awaitTerminalReady(client: CloudTerminalClient, repo: string, id: string, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let detach = () => {}, settled = false
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      signal.removeEventListener("abort", abort)
+      queueMicrotask(() => detach())
+      if (error) reject(error); else resolve()
+    }
+    const abort = () => finish(new Error("Terminal request ended"))
+    const timer = setTimeout(() => finish(new Error("Terminal unavailable")), 60_000)
+    signal.addEventListener("abort", abort, { once: true })
+    if (signal.aborted) { abort(); return }
+    detach = client.attach(repo, id, { onOutput: () => {}, onReady: () => finish(), onUnavailable: message => finish(new Error(message)) })
+  })
 }
