@@ -115,7 +115,8 @@ export const modelAnswersOf = (
 
 const generation = (
   planned: Extract<LocalPlanned, { ok: true }>,
-  input: Extract<ModelCallInput, { kind: "generation" }>
+  input: Extract<ModelCallInput, { kind: "generation" }>,
+  bounded = true
 ): Effect.Effect<Outcome, unknown, KernelHttpClient.HttpClient> =>
   Effect.gen(function*() {
     const http = yield* KernelHttpClient.HttpClient
@@ -130,7 +131,7 @@ const generation = (
         messages: [{ role: "user", content: [{ type: "text", text: input.prompt }] }],
         tools: [],
         params: {
-          maxTokens: input.maxTokens,
+          ...(bounded ? { maxTokens: input.maxTokens } : {}),
           ...(input.temperature === undefined ? {} : { temperature: input.temperature })
         }
       })))
@@ -189,7 +190,7 @@ export const createModelProbe = (options: ModelProbeOptions): ModelProbe => {
     if (request.kind !== planned.plan.kind) return failed({ code: "invalid", field: "protocol" })
     const http = manualRedirects(options.fetch)
     const exit = await Effect.runPromiseExit(
-      (request.kind === "decision" ? decision(planned, deadlineMs, request) : generation(planned, request)).pipe(
+      (request.kind === "decision" ? decision(planned, deadlineMs, request) : generation(planned, request, input !== undefined || planned.plan.protocol !== "openai-responses-chatgpt")).pipe(
         Effect.catch((error) => Effect.succeed<Outcome>({ failure: modelFailureOf(error, deadlineMs) })),
         Effect.timeoutOrElse({
           duration: deadlineMs,

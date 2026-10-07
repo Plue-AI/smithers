@@ -574,7 +574,7 @@ const InstallFastModel = `{"protocol":"openai-chat","modelId":"gpt-oss-120b","cr
 const installDecisionModel = `{"protocol":"evaluation","modelId":"typesafe-ai/jev","credential":"AI_GATEWAY_API_KEY"}`
 
 // ModelProviderNames are the built-in keys' providers in product words.
-var ModelProviderNames = map[string]string{"OPENAI_API_KEY": "OpenAI", "ANTHROPIC_API_KEY": "Anthropic", "CEREBRAS_API_KEY": "Cerebras", "OPENROUTER_API_KEY": "OpenRouter", "AI_GATEWAY_API_KEY": "AI Gateway"}
+var ModelProviderNames = map[string]string{"OPENAI_API_KEY": "OpenAI", "ANTHROPIC_API_KEY": "Anthropic", "CEREBRAS_API_KEY": "Cerebras", "OPENROUTER_API_KEY": "OpenRouter", "AI_GATEWAY_API_KEY": "AI Gateway", InstallSubscriptionCredential: "ChatGPT"}
 
 // installModelFailure is one role's failed key test. Digest is the sealed
 // key's md5 at test time, so a key saved since then reads as saved again.
@@ -682,7 +682,19 @@ func (s *InstallSetupService) modelKeyDigests(ctx context.Context, ownerID int64
 		}
 		digests[name] = digest
 	}
-	return digests, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	// Release the rows before another query: installs may use a one-connection pool.
+	rows.Close()
+	digest, err := InstallSubscriptionDigest(ctx, s.Pool, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	if digest != "" {
+		digests[InstallSubscriptionCredential] = digest
+	}
+	return digests, nil
 }
 
 // runModelTest sends the role's binding as POST /api/model/test's record.

@@ -228,3 +228,12 @@ test.each([65532, 65533])("selector limit includes a buffered credential-prefix 
     if (result._tag === "Failure") expect(result.failure).toMatchObject({ code: "invalid_provider_output" })
   }
 })
+
+test("subscription fallback selects context without sending an unsupported output-token limit", async () => {
+  const requests: ModelRequest[] = []
+  const answer = await Effect.runPromise(runContextPreflight(input, fake("[{\"index\":0,\"reason\":\"Retry implementation\"}]", requests), { modelId: "subscription-coding", outputTokenLimitSupported: false }))
+  expect(requests).toHaveLength(1)
+  expect(requests[0]?.params.maxTokens).toBeUndefined()
+  expect(answer.result.model).toBe("subscription-coding")
+  expect(answer.result.context[0]?.ref).toBe("src/webhooks/retry.ts")
+})

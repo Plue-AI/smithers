@@ -45,8 +45,11 @@ func validModelTestRecord(raw json.RawMessage) bool {
 		return false
 	}
 	switch model.Protocol {
-	case "anthropic-messages", "openai-responses", "openai-chat", "evaluation":
+	case "anthropic-messages", "openai-responses", "openai-responses-chatgpt", "openai-chat", "evaluation":
 	default:
+		return false
+	}
+	if (model.Protocol == "openai-responses-chatgpt") != (model.Credential == "CHATGPT_SUBSCRIPTION") {
 		return false
 	}
 	for _, field := range []*string{model.BaseURL, model.Path} {
