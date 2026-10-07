@@ -14,6 +14,7 @@ import { share } from "../../coding/host-modules.ts"
 import { systemFlowsFromEnv } from "../../coding/host.ts"
 import { bindRepositoryRegistry, repositoryCatalog } from "../../repository/registry.ts"
 
+assert.ok(process.getuid && process.getuid() > 0, "repository canary requires an unprivileged guest")
 const systemFlows = systemFlowsFromEnv(process.env)
 share()
 const root = resolve(process.argv[2] ?? ".")
@@ -71,6 +72,7 @@ export default Flow.make("merge", {
     })
     return {
       receipt: "flow-isolation-canary",
+      uid: process.getuid!(),
       home: process.env.HOME,
       planned,
       refused: catalog.refused.map(({ flow, code }) => ({ flow, code }))
