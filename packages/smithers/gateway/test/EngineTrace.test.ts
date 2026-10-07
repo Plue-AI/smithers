@@ -594,3 +594,17 @@ test("a trace retains nested children when the ancestor's own parent is absent",
   expect(model).toHaveLength(1)
   expect(model[0]?.children[0]?.label).toBe("coding/Check")
 })
+
+test("declared graph pages merge within one execution generation and reject malformed nodes", () => {
+  const read = { id: "read", kind: "action", tier: "sealed", dependsOn: [], action: "agent/opening-instructions" }
+  const check = { id: "check", kind: "action", tier: "sealed", dependsOn: ["read"], action: "coding/check-command" }
+  const rows = [
+    wrap(1, "native", "flows.engine.plan-recorded", { graph: { nodes: [read] } }),
+    wrap(2, "native", "flows.engine.subgraph-appended", { graph: { nodes: [check] } }),
+    wrap(3, "native", "flows.engine.subgraph-appended", { graph: { nodes: [{ id: "bad" }] } }),
+    wrap(4, "native", "flows.engine.plan-recorded", { graph: { nodes: [check] } }, 1)
+  ]
+  const evidence = engineExecutionEvidence(rows)
+  expect(evidence.map(row => [row.generation, row.graph?.nodes])).toEqual([[0, [read, check]], [1, [check]]])
+  expect(engineExecutionEvidence(rows)).toEqual(evidence)
+})
