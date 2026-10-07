@@ -15,7 +15,7 @@ export class SharedConversationFailure extends Data.TaggedError("SharedConversat
 // Imports reuse the durable message decoder and cannot decode as executable turns.
 const SharedTurnSchema = z.object({
   origin: z.literal("smithers").optional(),
-  id: z.string(), title: z.string().optional(), tone: ToneSchema.optional(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
+  sequence: z.number().int().positive().optional(), id: z.string(), title: z.string().optional(), tone: ToneSchema.optional(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
   state: z.enum(["accepted", "running", "completed", "failed", "cancelled", "uncertain"]),
   frames: z.array(AgentTurnFrameSchema), context: z.array(ContextItemSchema).optional(), preflight: ContextPreflightResultSchema.optional()
 }).strict()
@@ -140,7 +140,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
       if (!response.ok) throw new SharedConversationFailure({ sentence: "View unavailable" })
       const { queue: _queue, instructions: _instructions, ...previous } = ConversationViewSchema.parse(await response.json())
       if (!valid(revision)) return
-      const written = await ctx.boundedFetch(path, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...previous, ...patch }) })
+      const written = await ctx.boundedFetch(path, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...previous, ...patch, ...(patch.last_seen_seq === undefined ? {} : { last_seen_seq: Math.max(previous.last_seen_seq ?? 0, patch.last_seen_seq) }) }) })
       if (!written.ok) throw new SharedConversationFailure({ sentence: "View unavailable" })
       const view = ConversationViewSchema.parse(await written.json())
       if (valid(revision)) publish({ ...snapshot, view, queue: snapshot.queue, error: snapshot.error === "View unavailable" ? undefined : snapshot.error })

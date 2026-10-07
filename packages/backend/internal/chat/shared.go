@@ -23,6 +23,7 @@ type SharedContextPreflight struct {
 
 type SharedTurn struct {
 	*ExternalDraft
+	Sequence int64 `json:"sequence"`
 	ID              string                  `json:"id"`
 	Title           string                  `json:"title"`
 	Tone            string                  `json:"tone"`
@@ -75,7 +76,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 	if !active {
 		return result, ErrForbidden
 	}
-	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE repository_id=$1 AND conversation_id=$2 AND producer_generation>0 AND state NOT IN ('queued','retired') AND request_payload->>'sharedConversation'='true' ORDER BY created_at,id`, scope.RepositoryID, branch)
+	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE repository_id=$1 AND conversation_id=$2 AND producer_generation>0 AND state NOT IN ('queued','retired') AND request_payload->>'sharedConversation'='true' ORDER BY entry_seq,id`, scope.RepositoryID, branch)
 	if err != nil {
 		return result, err
 	}
@@ -113,6 +114,9 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 			if err := tx.QueryRow(ctx, `SELECT display_name FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorName); err != nil {
 				return result, err
 			}
+		}
+		if err := tx.QueryRow(ctx, `SELECT entry_seq FROM chat_turns WHERE id=$1`, turn.ID).Scan(&entry.Sequence); err != nil {
+			return result, err
 		}
 		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorLogin); err != nil {
 			return result, err
