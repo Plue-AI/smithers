@@ -15,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/ports"
@@ -608,6 +609,39 @@ func TestExternalImportUnavailable(t *testing.T) {
 			require.Zero(t, entries)
 		})
 	}
+	t.Run("composed-install-pump", func(t *testing.T) {
+		// Use exactly the event consumer mounted by install main.go. An
+		// authenticated transcript must refuse before receipt preparation while
+		// discovery/reader/source providers are absent, including after replay.
+		registry := new(machined.Registry)
+		authority, err := registry.MintBoot(branch.ID, "vm-import-pump")
+		require.NoError(t, err)
+		host := repohost.NewLocalClient(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Error("unavailable transcript reached repository host")
+		}), "transcript-unavailable")
+		stop, err := bindMachineEvents(t.Context(), registry, pool, host, nil, nil)
+		require.NoError(t, err)
+		t.Cleanup(stop)
+		event := machined.Event{Seq: 1, EventID: [16]byte{13}, Payload: payload}
+		for attempt := 0; attempt < 2; attempt++ {
+			link, peer := externalTranscriptLink(t, registry, branch.ID, authority)
+			require.NoError(t, peer.SetDeadline(time.Now().Add(3*time.Second)))
+			require.NoError(t, wire.Write(peer, transcriptEventFrame(event)))
+			_, err = wire.Read(peer)
+			require.Error(t, err, "uncomposed transcript was acknowledged")
+			select {
+			case <-link.Done():
+			case <-time.After(3 * time.Second):
+				t.Fatal("install consumer did not close refused transcript link")
+			}
+			var receipts, entries int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&entries))
+			require.Zero(t, receipts)
+			require.Zero(t, entries)
+		}
+	})
+
 }
 
 func (a *checkpointTestAdapter) NormalizeExternalTranscript(_ context.Context, input chat.ExternalNormalizeInput) (chat.ExternalNormalized, error) {
