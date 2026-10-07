@@ -2,13 +2,16 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -124,6 +127,30 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	rows, err = h.q.ListFlowVersions(ctx, h.repoID)
 	require.NoError(t, err)
 	require.Len(t, rows, 5)
+
+	// A fresh provider replays the exact committed transitions, including an
+	// earlier failure after a later success, without rebuilding today's card.
+	restarted, err := jobs.NewStore(h.pool.(*pgxpool.Pool))
+	require.NoError(t, err)
+	page, err := restarted.Replay(ctx, FlowLiveScope(h.repoID), 0, 1000)
+	require.NoError(t, err)
+	var sawFirstFailure, sawNewest bool
+	for _, event := range page.Events {
+		var projection struct {
+			Card []FlowCard `json:"card"`
+		}
+		require.NoError(t, json.Unmarshal(event.Data, &projection))
+		require.NotEmpty(t, projection.Card)
+		versions := states(projection.Card[0])
+		if slices.Contains(versions, "merged-failed "+strings.Repeat("2", 64)+": flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.") && projection.Card[0].Versions[0].ID == d1 {
+			sawFirstFailure = true
+		}
+		if projection.Card[0].Versions[0].ID == strings.Repeat("5", 64) {
+			sawNewest = true
+		}
+	}
+	require.True(t, sawFirstFailure, "replay must retain the first Active beside its failed replacement")
+	require.True(t, sawNewest, "replay must include the new Active")
 }
 
 func TestFlowLoadProposalsUseCandidateDiffNotWorkingCopy(t *testing.T) {
@@ -151,4 +178,25 @@ func TestFlowLoadProposalsUseCandidateDiffNotWorkingCopy(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, proposals["todo"], 1)
 	require.Equal(t, helper.Number.Int64, proposals["todo"][0].Todo)
+}
+
+func TestFlowLoadProjectionRollsBackWithActivation(t *testing.T) {
+	h := newMergeHarness(t)
+	ctx := t.Context()
+	store, err := jobs.NewStore(h.pool.(*pgxpool.Pool))
+	require.NoError(t, err)
+	tx, err := h.pool.Begin(ctx)
+	require.NoError(t, err)
+	digest := strings.Repeat("a", 64)
+	_, err = persistFlowVersions(ctx, db.New(tx), h.repoID, strings.Repeat("1", 40), []FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: digest, Status: "loaded"}})
+	require.NoError(t, err)
+	require.NoError(t, h.service.recordFlowFact(ctx, tx, h.repoID))
+	require.NoError(t, tx.Rollback(ctx))
+	page, err := store.Replay(ctx, FlowLiveScope(h.repoID), 0, 100)
+	require.NoError(t, err)
+	require.Empty(t, page.Events)
+	require.Zero(t, page.Head)
+	versions, err := h.q.ListFlowVersions(ctx, h.repoID)
+	require.NoError(t, err)
+	require.Empty(t, versions)
 }
