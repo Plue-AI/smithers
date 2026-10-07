@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 )
@@ -136,7 +137,35 @@ func (r *Registry) Capture(ctx context.Context, branch string) (CaptureResult, e
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	return CaptureResult{hex.EncodeToString(fields[1]), hex.EncodeToString(fields[2]), binary.BigEndian.Uint16(fields[3])}, nil
+	result := CaptureResult{hex.EncodeToString(fields[1]), hex.EncodeToString(fields[2]), binary.BigEndian.Uint16(fields[3])}
+	// The native RPC snapshots and queues delivery under the mutation lock.
+	// Sleep needs its durable host acknowledgement AND all earlier events
+	// drained. Poll outside that lock, keeping the original authenticated link:
+	// a replacement boot cannot certify this capture's completion.
+	drain, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	tick := time.NewTicker(25 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		status, err := l.call(drain, branch, wire.Status)
+		if err != nil {
+			return CaptureResult{}, err
+		}
+		if status[1][0] != 3 { // ready, reconciled and roster installed
+			return CaptureResult{}, ErrNotReady
+		}
+		if binary.BigEndian.Uint32(status[4]) == 0 {
+			if hex.EncodeToString(status[5]) != result.Head {
+				return CaptureResult{}, fmt.Errorf("capture head was not acknowledged")
+			}
+			return result, nil
+		}
+		select {
+		case <-drain.Done():
+			return CaptureResult{}, drain.Err()
+		case <-tick.C:
+		}
+	}
 }
 func (r *Registry) WakeReconcile(ctx context.Context, branch, head string) (ReconcileResult, error) {
 	l, err := r.Current(branch)

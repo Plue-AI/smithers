@@ -86,6 +86,7 @@ func TestRegistryAdmissionRPC(t *testing.T) {
 	results := make(chan error, 1)
 	go func() { _, err := r.Capture(t.Context(), "a"); results <- err }()
 	answer(t, peer, wire.Capture, wire.Field(1, headBytes), wire.Field(2, headBytes), wire.Field(3, wire.U16(2)))
+	answerCaptureStatus(t, peer, 3, 0, headBytes)
 	require.NoError(t, <-results)
 	for _, test := range []struct {
 		value   []byte
@@ -111,6 +112,59 @@ func TestRegistryAdmissionRPC(t *testing.T) {
 	go func() { _, err := r.ReturnToItem(t.Context(), "a", []byte("actor")); results <- err }()
 	answer(t, peer, wire.ReturnToItem, wire.Field(1, headBytes))
 	require.NoError(t, <-results)
+}
+
+func answerCaptureStatus(t *testing.T, peer net.Conn, state byte, depth uint32, head []byte) {
+	t.Helper()
+	fields := [][]byte{wire.Field(1, []byte{state}), wire.Field(2, wire.U16(2)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(depth)), wire.Field(6, wire.U16(0))}
+	if head != nil {
+		fields = append(fields[:4], append([][]byte{wire.Field(5, head)}, fields[4:]...)...)
+	}
+	answer(t, peer, wire.Status, fields...)
+}
+
+func TestRegistryCaptureRequiresAuthenticatedDrain(t *testing.T) {
+	for _, outcome := range []string{"drained", "cancelled", "replaced", "missing_ack", "wrong_head", "not_ready"} {
+		t.Run(outcome, func(t *testing.T) {
+			r, _, peer := rpcFixture(t)
+			require.NoError(t, peer.SetDeadline(time.Now().Add(5*time.Second)))
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			head, _ := hex.DecodeString(strings.Repeat("ab", 20))
+			result := make(chan error, 1)
+			go func() { _, err := r.Capture(ctx, "a"); result <- err }()
+			answer(t, peer, wire.Capture, wire.Field(1, head), wire.Field(2, head), wire.Field(3, wire.U16(0)))
+			answerCaptureStatus(t, peer, 3, 2, head)
+			select {
+			case err := <-result:
+				t.Fatalf("capture completed with pending events: %v", err)
+			default:
+			}
+			switch outcome {
+			case "drained":
+				answerCaptureStatus(t, peer, 3, 1, head)
+				answerCaptureStatus(t, peer, 3, 0, head)
+				require.NoError(t, <-result)
+			case "cancelled":
+				cancel()
+				require.ErrorIs(t, <-result, context.Canceled)
+			case "replaced":
+				_, err := r.MintBoot("a", "replacement")
+				require.NoError(t, err)
+				require.Error(t, <-result)
+			case "missing_ack":
+				answerCaptureStatus(t, peer, 3, 0, nil)
+				require.ErrorContains(t, <-result, "not acknowledged")
+			case "wrong_head":
+				other, _ := hex.DecodeString(strings.Repeat("cd", 20))
+				answerCaptureStatus(t, peer, 3, 0, other)
+				require.ErrorContains(t, <-result, "not acknowledged")
+			case "not_ready":
+				answerCaptureStatus(t, peer, 2, 0, head)
+				require.ErrorIs(t, <-result, ErrNotReady)
+			}
+		})
+	}
 }
 func TestRegistryDocumentRPC(t *testing.T) {
 	r, _, peer := rpcFixture(t)
