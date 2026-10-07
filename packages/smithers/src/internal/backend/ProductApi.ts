@@ -5814,13 +5814,27 @@ export const postApiRepoConnection = (transport: Transport): Promise<PostApiRepo
 export const deleteApiRepoConnection = (transport: Transport): Promise<void> =>
   transport.request("DELETE", `/api/repo-connection`).then(() => undefined)
 
+export type PostApiReviewsResponse = ConfirmationReceipt | {
+  repository_id: number
+  requester_id: number
+  author_id: number
+  number: number
+  base: string
+  head: string
+  url: string
+  pin: Record<string, unknown>
+  operationId?: string
+  state?: string
+  conversation: string
+}
+
 export interface PostApiReviewsInput {
   readonly headers: { readonly "Idempotency-Key": string }
 }
 
 /** POST /api/reviews: Request review of a GitHub pull request */
-export const postApiReviews = (transport: Transport, input: PostApiReviewsInput): Promise<void> =>
-  transport.request("POST", `/api/reviews`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+export const postApiReviews = (transport: Transport, input: PostApiReviewsInput): Promise<PostApiReviewsResponse> =>
+  transport.request("POST", `/api/reviews`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiReviewsResponse>
 
 export type GetApiReviewsIdResponse = AnyJSON
 

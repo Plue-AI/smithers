@@ -20316,7 +20316,26 @@ paths:
             type: string
       responses:
         '202':
-          description: Review request admitted
+          description: Review request admitted or awaiting the requester’s confirmation
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/ConfirmationReceipt'
+                  - type: object
+                    required: [repository_id, requester_id, author_id, number, base, head, url, pin, conversation]
+                    properties:
+                      repository_id: {type: integer, format: int64}
+                      requester_id: {type: integer, format: int64}
+                      author_id: {type: integer, format: int64}
+                      number: {type: integer, format: int64}
+                      base: {type: string}
+                      head: {type: string}
+                      url: {type: string}
+                      pin: {type: object, additionalProperties: true}
+                      operationId: {type: string}
+                      state: {type: string}
+                      conversation: {type: string}
         '400':
           description: Invalid review request
         '401':
