@@ -106,7 +106,7 @@ func TestRequiredHeaderIsSentPerCall(t *testing.T) {
 	place := apiclient.PostAPITodosBodyPlace{Mode: "append"}
 	accepted, err := client.PostAPITodos(context.Background(), "draft-7", apiclient.PostAPITodosBody{Title: "One", Prompt: "Change README", Place: &place})
 	require.NoError(t, err)
-	assert.Equal(t, apiclient.PostAPITodosResponse{State: "accepted", N: 4, Rev: 1}, accepted)
+	assert.JSONEq(t, `{"state":"accepted","n":4,"rev":1}`, string(accepted), "202 is accepted or a confirmation receipt, so the client returns the raw body")
 	_, err = client.PostAPITodos(context.Background(), "draft-8", apiclient.PostAPITodosBody{Title: "Two", Prompt: "Change README"})
 	require.NoError(t, err)
 	assert.Equal(t, "draft-7", (*requests)[0].IdempotencyKey)
@@ -135,10 +135,10 @@ func TestTodoReadsDecodeTheCard(t *testing.T) {
 
 func TestUntypedBodyIsOptional(t *testing.T) {
 	client, requests := server(t, http.StatusOK, "application/json", `{"ok":true}`)
-	out, err := client.PostAPIAgentTurnCancel(context.Background(), nil)
+	out, err := client.PostAPIAgentTurnErase(context.Background(), nil)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"ok":true}`, string(out))
-	_, err = client.PostAPIAgentTurnCancel(context.Background(), map[string]string{"turn": "t1"})
+	_, err = client.PostAPIAgentTurnErase(context.Background(), map[string]string{"turn": "t1"})
 	require.NoError(t, err)
 	assert.Empty(t, (*requests)[0].Body)
 	assert.Empty(t, (*requests)[0].ContentType)
@@ -190,8 +190,8 @@ func TestTransportAndEncodingFailures(t *testing.T) {
 	client := &apiclient.Client{BaseURL: "http://smithers.test", HTTPClient: failingDoer{err: refused}}
 	_, err := client.GetAPIStatus(context.Background())
 	require.ErrorIs(t, err, refused)
-	_, err = client.PostAPIAgentTurnCancel(context.Background(), make(chan int))
-	require.ErrorContains(t, err, "POST /api/agent/turn/cancel: encode body")
+	_, err = client.PostAPIAgentTurnErase(context.Background(), make(chan int))
+	require.ErrorContains(t, err, "POST /api/agent/turn/erase: encode body")
 	_, err = (&apiclient.Client{BaseURL: "://bad"}).GetAPIStatus(context.Background())
 	require.Error(t, err)
 }
