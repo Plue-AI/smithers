@@ -15,7 +15,7 @@ import (
 // PostgreSQL serialization proof for the existing claimed proposal path.
 // Packaged guest dispatch and real-microVM acceptance remain separate checks.
 func TestCandidatePushRevalidatesUnderOwningClaim(t *testing.T) {
-	for _, change := range []string{"none", "version", "verification", "prefix", "main", "claim", "expired"} {
+	for _, change := range []string{"none", "version", "verification", "prefix", "main", "claim", "expired", "merge fence", "closed", "attempt", "pending push"} {
 		t.Run(change, func(t *testing.T) {
 			f := newMythicalServiceFixture(t)
 			ctx := t.Context()
@@ -34,6 +34,14 @@ func TestCandidatePushRevalidatesUnderOwningClaim(t *testing.T) {
 			require.NoError(t, err)
 			step := &mythicalItemStep{s: f.service, r: &mythicalRun{row: row, mainTip: main}}
 			switch change {
+			case "merge fence":
+				_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET pending_op=jsonb_build_object('kind','merge','target','1','desired',$2::text,'state','intended') WHERE id=$1`, id, item.CandidateHead)
+			case "closed":
+				_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='landed' WHERE id=$1`, id)
+			case "attempt":
+				_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET attempt=attempt+1 WHERE id=$1`, id)
+			case "pending push":
+				_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET pending_op=jsonb_build_object('kind','push','target','smithers/other','desired',$2::text,'state','intended') WHERE id=$1`, id, item.CandidateHead)
 			case "version":
 				_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET version=version+1 WHERE id=$1`, id)
 			case "verification":
