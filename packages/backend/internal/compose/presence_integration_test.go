@@ -141,7 +141,8 @@ func presenceInstall(t *testing.T) presenceInstallFixture {
 	require.NoError(t, err)
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
 	branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers))
-	p := &branchPresence{visits: &presenceVisits{audit: services.NewAuditService(q), now: time.Now}, queries: q, branches: branches, dispatcher: presenceBridgeFixture{realPresenceBridge(t)}, members: &services.Members{Pool: pool}}
+	hosts, _ := presenceHostBinding(t, pool, row, user.ID)
+	p := &branchPresence{hosts: hosts, visits: &presenceVisits{audit: services.NewAuditService(q), now: time.Now}, queries: q, branches: branches, dispatcher: presenceBridgeFixture{realPresenceBridge(t)}, members: &services.Members{Pool: pool}}
 	bus := revocation.NewBus(pool, q)
 	require.NoError(t, bus.Start(ctx))
 	routes.SetRevocationSource(bus)

@@ -1762,6 +1762,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		presence.publicOrigin = installAddress.Public
 		if flow != nil {
 			presence.dispatcher = flow.dispatcher
+			presence.hosts = flow.bindings
 		}
 		stopPresence := presence.consumeDaemons(ctx, options.Machined)
 		defer stopPresence()

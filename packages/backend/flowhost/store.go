@@ -9,12 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 )
 
 type Store struct {
@@ -28,6 +30,36 @@ func NewStore(pool *pgxpool.Pool, codec SecretCodec) (*Store, error) {
 		return nil, errors.New("flow host store requires PostgreSQL and a secret codec")
 	}
 	return &Store{pool: pool, codec: codec, newCredential: generateCredential}, nil
+}
+
+// ExistingCodingTarget locates the person who owns an already-running coding
+// host. Machine ownership is not host ownership. This is routing metadata only:
+// callers must authorize their request first and pass the returned target through
+// the ordinary resolver and AcquireExisting, which recheck access and identity.
+// It neither reads credentials nor creates or starts a host.
+func (store *Store) ExistingCodingTarget(ctx context.Context, repository int64, workspaceID, slug string) (flowruntime.Target, error) {
+	if store == nil || store.pool == nil || repository <= 0 {
+		return flowruntime.Target{}, ErrHostNotRunning
+	}
+	if id, err := uuid.Parse(workspaceID); err != nil || id.String() != workspaceID {
+		return flowruntime.Target{}, ErrHostNotRunning
+	}
+	var tenant, principal string
+	var user int64
+	err := store.pool.QueryRow(ctx, `SELECT tenant_id, principal_id, user_id
+		FROM flow_runtime_host_bindings
+		WHERE repository_id=$1 AND workspace_id=$2 AND catalog_key=$3 AND state='running'`,
+		repository, workspaceID, CatalogCoding).Scan(&tenant, &principal, &user)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return flowruntime.Target{}, ErrHostNotRunning
+	}
+	if err != nil {
+		return flowruntime.Target{}, err
+	}
+	if user <= 0 || tenant != "repository:"+strconv.FormatInt(repository, 10) || principal != "user:"+strconv.FormatInt(user, 10) {
+		return flowruntime.Target{}, ErrHostIdentityConflict
+	}
+	return flowruntime.Target{TenantID: tenant, PrincipalID: principal, WorkspaceID: workspaceID, BindingKind: "browser-flow", BindingID: slug}, nil
 }
 
 func generateCredential() (string, error) {

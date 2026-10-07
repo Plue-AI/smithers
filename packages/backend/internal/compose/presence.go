@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -20,6 +20,7 @@ import (
 )
 
 type branchPresence struct {
+	hosts        *flowhost.Store
 	queries      *db.Queries
 	branches     *services.WorkspaceService
 	dispatcher   browserFlowDispatcher
@@ -50,10 +51,14 @@ type leaseParticipant struct {
 func (p *branchPresence) call(ctx context.Context, row db.Workspace, slug, procedure string, fields map[string]any) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	// The branch's one existing host belongs to the workspace owner. Caller
-	// membership was checked before selecting it; this does not grant host RPC
-	// access to the caller or start a machine for a heartbeat.
-	target := flowruntime.Target{TenantID: "repository:" + strconv.FormatInt(row.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(row.UserID, 10), WorkspaceID: row.ID, BindingKind: "browser-flow", BindingID: slug}
+	// Membership is checked before this call. Resolve the existing host's
+	// durable principal, which may differ from the branch machine's owner.
+	// The dispatcher still rechecks current access and host identity; this
+	// lookup never creates a host or grants the caller host credentials.
+	target, err := p.hosts.ExistingCodingTarget(ctx, row.RepositoryID, row.ID, slug)
+	if err != nil {
+		return nil, err
+	}
 	fields["branchId"] = row.ID
 	if procedure == "Branch.PresenceOn" {
 		fields["sourcesReady"] = p.sourcesReady != nil && p.sourcesReady(ctx, row)
