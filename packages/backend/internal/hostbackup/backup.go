@@ -79,7 +79,9 @@ func backup(ctx context.Context, cfg BackupConfig, retainFreeze bool) (directory
 		return "", err
 	}
 	op := fmt.Sprintf("backup-%d", time.Now().UTC().UnixNano())
-	since, err := cfg.Authority.Freeze(ctx, op)
+	work, stopRenewal := renewLease(ctx, cfg.Authority, op)
+	defer stopRenewal()
+	since, err := cfg.Authority.Freeze(work, op)
 	if err != nil {
 		return "", err
 	}
@@ -93,29 +95,6 @@ func backup(ctx context.Context, cfg BackupConfig, retainFreeze bool) (directory
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		err = errors.Join(err, cfg.Authority.Reopen(cleanup, op))
-	}()
-	work, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
-	renewDone := make(chan struct{})
-	defer func() { cancel(nil); <-renewDone }()
-	go func() {
-		defer close(renewDone)
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-work.Done():
-				return
-			case <-ticker.C:
-				renewal, stop := context.WithTimeout(work, 5*time.Second)
-				e := cfg.Authority.Renew(renewal, op)
-				stop()
-				if e != nil {
-					cancel(e)
-					return
-				}
-			}
-		}
 	}()
 	// Validate the backup ancestor using the pinned STATE root before creating
 	// secrets. A symlink at backups is never followed, even if confined.
