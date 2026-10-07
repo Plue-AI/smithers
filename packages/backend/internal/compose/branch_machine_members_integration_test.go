@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -28,15 +29,15 @@ import (
 // Composed install HTTP, real sessions and PostgreSQL. The retained machine
 // is a fixture; this verifies member admission and removal, not VM isolation.
 func TestBranchMachineMemberAccessAndRevocationInstall(t *testing.T) {
-	branchMachineMemberInstall(t, false, false, false)
+	branchMachineMemberInstall(t, false, false, false, "")
 }
 
 func TestBranchMachineMemberErasureInstall(t *testing.T) {
-	branchMachineMemberInstall(t, true, false, false)
+	branchMachineMemberInstall(t, true, false, false, "")
 }
 
 func TestBranchMachineConcurrentJoinHTTP(t *testing.T) {
-	branchMachineMemberInstall(t, false, true, false)
+	branchMachineMemberInstall(t, false, true, false, "")
 }
 
 // Real-machine receipt for concurrent joins and erasure of a member. Guest
@@ -48,7 +49,25 @@ func TestBranchMachineConcurrentJoinRealMicroVM(t *testing.T) {
 		}
 		t.Skip("real microVM opt-in absent")
 	}
-	branchMachineMemberInstall(t, true, true, true)
+	branchMachineMemberInstall(t, true, true, true, "")
+}
+
+// Supplemental composed HTTP evidence only: the process runtime is a file
+// fixture, never an install execution fallback. C-MCH-01 still requires Ben's
+// terminal and the agent's tool on a real microVM with provisioned identities.
+func TestBranchMachineSharedWorkingCopy(t *testing.T) {
+	t.Run("HTTP file bytes survive member erasure", func(t *testing.T) {
+		branchMachineMemberInstall(t, true, false, false, "")
+	})
+}
+
+// Supplemental fail-closed evidence: without root-input qualification the
+// production join route must not grant access or create another workspace.
+// Fresh/retained real-VM R1-R5 qualification remains a reference-host check.
+func TestBranchMachineRootInputsValidated(t *testing.T) {
+	for _, gate := range []string{"microvm", "identity"} {
+		t.Run(gate, func(t *testing.T) { branchMachineMemberInstall(t, false, false, false, gate) })
+	}
 }
 
 // Runtime inspection is an external effect sentinel. Holding it unresolved
@@ -73,7 +92,7 @@ func (r *pendingBranchInspection) InspectWorkspace(ctx context.Context, _ string
 	}
 }
 
-func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine bool) {
+func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine bool, qualification string) {
 	t.Cleanup(func() {
 		require.Nil(t, revocationChecker, "install shutdown releases the revoked member identities before another install starts")
 	})
@@ -131,6 +150,14 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine boo
 		options.InstallBranchMachines = true
 	} else {
 		options.BranchMachines = rehearsalBranchMachines(pool)
+		if qualification != "" {
+			production := services.InstallBranchMachineProviders(nil, runtime)
+			if qualification == "microvm" {
+				options.BranchMachines.MicroVM = production.MicroVM
+			} else {
+				options.BranchMachines.SessionIdentity = production.SessionIdentity
+			}
+		}
 	}
 	server.Config.Handler = startSplitProcess(t, options)
 	server.Start()
@@ -149,11 +176,18 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine boo
 		require.NoError(t, err)
 		require.NoError(t, vm.WriteFile(operation, machine.ID, "shared.txt", []byte("ben\n"), 0664))
 	}
+	if !realMachine && !concurrent {
+		_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: machine.ID})
+		require.NoError(t, err)
+		require.NoError(t, runtime.WriteFile(ctx, machine.ID, "shared.txt", []byte("ben\n"), 0664))
+		_, err = runtime.StartWorkspace(ctx, machine.ID)
+		require.NoError(t, err)
+	}
 	item, _, err := q.InsertMythicalChatItem(ctx, db.MythicalItem{RepositoryID: repo.ID, IssueTitle: "shared TODO"})
 	require.NoError(t, err)
 	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{RepositoryID: repo.ID, ItemID: item.ID, WorkspaceID: machine.ID, Name: "shared lane"})
 	require.NoError(t, err)
-	if !concurrent {
+	if !concurrent && qualification == "" {
 		for _, u := range []db.User{ben, alice} {
 			_, err := q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: machine.ID, OwnerUserID: machineOwner, GranteeUserID: u.ID, Level: "write"})
 			require.NoError(t, err)
@@ -178,6 +212,30 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine boo
 		require.NoError(t, err)
 		require.Equal(t, expected, res.StatusCode, string(raw))
 		return string(raw)
+	}
+
+	if qualification != "" {
+		for _, cookie := range []string{benCookie, aliceCookie, ownerCookie} {
+			call("POST", "/api/repos/owner/demo/workspaces", `{"source_bookmark":"mythical"}`, cookie, 503)
+		}
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, repo.ID).Scan(&count))
+		require.Equal(t, 1, count)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspace_shares WHERE workspace_id=$1`, machine.ID).Scan(&count))
+		require.Zero(t, count)
+		bytes, err := runtime.ReadFile(ctx, machine.ID, "shared.txt")
+		require.NoError(t, err)
+		require.Equal(t, "ben\n", string(bytes))
+		return
+	}
+	assertSharedBytes := func() {
+		var file services.WorkspaceFileContent
+		require.NoError(t, json.Unmarshal([]byte(call("GET", "/api/repos/owner/demo/workspaces/"+machine.ID+"/files/content?path=shared.txt", "", aliceCookie, 200)), &file))
+		require.Equal(t, "ben\n", file.Content)
+		require.Equal(t, "shared.txt", file.Path)
+	}
+	if !concurrent {
+		assertSharedBytes()
 	}
 
 	// Listing is roster-authorized, including before a member joins. The
@@ -295,6 +353,10 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine boo
 		require.Equal(t, "ben\n", string(bytes))
 		require.Contains(t, call("GET", "/api/repos/owner/demo/workspaces/"+machine.ID+"/files/content?path=shared.txt", "", aliceCookie, 200), "ben")
 	}
+	if !concurrent {
+		assertSharedBytes()
+	}
+
 	// Ben never owns the repository or machine. Direct erasure of a current
 	// member and roster removal each leave Alice's machine row intact.
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, machine.ID, machineOwner).Scan(&machines))
