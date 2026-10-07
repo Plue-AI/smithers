@@ -152,13 +152,16 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
-	machined  machined.Registry
-	cli       *cli
-	config    Config
-	root      string
-	owner     string
-	holder    string
-	semaphore chan struct{}
+	// terminalHold reads the install's in-process terminal manager.
+	terminalHold func(string) bool
+	memberRoster MemberRoster
+	machined     machined.Registry
+	cli          *cli
+	config       Config
+	root         string
+	owner        string
+	holder       string
+	semaphore    chan struct{}
 
 	environments *environments
 	codingHelper codingHelperCache
