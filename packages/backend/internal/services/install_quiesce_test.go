@@ -50,6 +50,11 @@ func TestQuiesceLeaseLapse(t *testing.T) {
 			}
 			s := &memoryFreeze{row: &QuiesceFreeze{Op: "backup", LeaseUntil: time.Now().Add(-time.Second)}}
 			g := &QuiesceGate{Store: s, StateDir: dir}
+			calls := []string{}
+			service := NewInstallQuiesce(g)
+			service.Host = quiesceSteps{calls: &calls}
+			service.Admission = quiesceSteps{calls: &calls}
+			service.Barriers = barrierFixtures(&calls, "")
 			err := g.Admit(t.Context(), "POST")
 			if (err != nil) != marker || (s.row != nil) != marker {
 				t.Fatalf("marker %v: %v row %v", marker, err, s.row)
@@ -295,5 +300,40 @@ func TestQuiesceCompositionRecoversPersistedLease(t *testing.T) {
 	want := []string{"resume", "resume-T-SEC-01", "resume-T-TRM-07", "resume-T-GH-09", "resume-T-COL-09", "resume-T-COL-08", "resume-T-STK-04", "resume"}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("resume order: %v", calls)
+	}
+}
+
+func TestQuiesceRecoveryMissingProvidersPreservesFreeze(t *testing.T) {
+	for _, missing := range []string{"unbound", "host", "admission", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+		t.Run(missing, func(t *testing.T) {
+			store := &memoryFreeze{row: &QuiesceFreeze{Op: "persisted", Ready: true, LeaseUntil: time.Now().Add(-time.Second)}}
+			gate := &QuiesceGate{Store: store, StateDir: t.TempDir()}
+			calls := []string{}
+			service := NewInstallQuiesce(gate)
+			service.Host = quiesceSteps{calls: &calls}
+			service.Admission = quiesceSteps{calls: &calls}
+			service.Barriers = barrierFixtures(&calls, "")
+			switch missing {
+			case "unbound":
+				gate = &QuiesceGate{Store: store, StateDir: gate.StateDir}
+			case "host":
+				service.Host = nil
+			case "admission":
+				service.Admission = nil
+			default:
+				delete(service.Barriers, missing)
+			}
+			if err := gate.Admit(t.Context(), "POST"); err == nil || store.row == nil {
+				t.Fatalf("expiry lost freeze: %v", err)
+			}
+			if missing != "unbound" {
+				if err := service.Reopen(t.Context(), "persisted"); err == nil || store.row == nil {
+					t.Fatalf("reopen lost freeze: %v", err)
+				}
+			}
+			if len(calls) != 0 {
+				t.Fatalf("partial resume: %v", calls)
+			}
+		})
 	}
 }

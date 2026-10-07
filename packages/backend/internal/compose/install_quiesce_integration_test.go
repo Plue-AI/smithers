@@ -151,6 +151,21 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"code":"install_quiesced"`)
 	require.Contains(t, w.Body.String(), `"retry_at":`)
 	require.Equal(t, 200, request("GET", "/api/install", "quiesceowner-session", "").Code)
-	require.Equal(t, 204, request("DELETE", "/api/install/quiesce", "quiesceowner-session", "").Code)
+	// Restarted composition has no runtime resume provider. Neither an explicit
+	// owner reopen nor lease expiry can claim recovery or discard the freeze.
+	w = request("DELETE", "/api/install/quiesce", "quiesceowner-session", "")
+	require.Equal(t, 503, w.Code)
+	require.Contains(t, w.Body.String(), "T-FLW-01 required")
+	expired := fmt.Sprintf(`{"op":"persisted","by":%d,"since":"2026-01-01T00:00:00Z","lease_until":"2026-01-01T00:00:30Z","ready":true}`, owner.ID)
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "quiesce", Value: []byte(expired)}))
+	w = request("PUT", "/api/install", "quiesceowner-session", `{}`)
+	require.Equal(t, 503, w.Code)
+	require.Contains(t, w.Body.String(), "T-FLW-01 required")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&count))
+	require.Equal(t, 1, count)
+	require.Equal(t, 200, request("GET", "/api/install", "quiesceowner-session", "").Code)
+	// Remove only this test's synthetic fixture to retain the unfrozen control.
+	_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='quiesce'`)
+	require.NoError(t, err)
 	require.Equal(t, before, request("PUT", "/api/install", "quiesceowner-session", `{}`).Code)
 }
