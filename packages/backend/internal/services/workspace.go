@@ -994,9 +994,18 @@ func (s *WorkspaceService) loadOwnedWorkspaceSnapshot(ctx context.Context, snaps
 		// Check if the requester has write access to the snapshot's workspace.
 		if snapshot.WorkspaceID != "" {
 			if err := s.requireWorkspaceAccess(ctx, snapshot.WorkspaceID, snapshot.UserID, userID, WorkspaceAccessWrite); err != nil {
+				if s.installQueries != nil {
+					var denied *pkgerrors.APIError
+					if errors.As(err, &denied) && denied.Code == pkgerrors.CodeForbidden {
+						return db.WorkspaceSnapshot{}, confirmationPermission()
+					}
+				}
 				return db.WorkspaceSnapshot{}, err
 			}
 		} else {
+			if s.installQueries != nil {
+				return db.WorkspaceSnapshot{}, confirmationPermission()
+			}
 			return db.WorkspaceSnapshot{}, pkgerrors.Forbidden("access denied")
 		}
 	}
