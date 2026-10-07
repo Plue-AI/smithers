@@ -75,15 +75,14 @@ test("LSP reconnect mints a fresh single-use ticket", async () => {
   const authorized: string[] = []
   const sockets: FakeSocket[] = []
   const lsp = createCloudLspClient({
-    http: async () => Response.json({
+    openSession: async () => Response.json({
       id: "lsp-1",
       workspace_id: "workspace-1",
       status: "running",
-      kind: "lsp",
+      kind: "exec",
       language: "typescript",
       idle_timeout_secs: 600
     }, { status: 201 }),
-    baseUrl: "https://api.example.test",
     socketUrl: () => "wss://api.example.test/api/lsp",
     authorizeSocket: async (url) => {
       const ticket = `ticket-${authorized.length + 1}`
