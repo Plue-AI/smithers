@@ -164,6 +164,7 @@ func TestBranchRebaseTypedRequests(t *testing.T) {
 		{`{"rebase":true}`, "branch.rebase-now"},
 		{`{"op":"rebase"}`, "branch.rebase-now"},
 		{`{"conflict_change":"change-1","onto_revision":"rev-2"}`, "branch.rebase"},
+		{`{"op":"rebase","conflict_change":"change-1","onto_revision":"rev-2"}`, "branch.rebase"},
 	} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", "/api/branches/scratch%2Fben%2Fwork", strings.NewReader(tc.body))
@@ -181,5 +182,5 @@ func TestBranchRebaseTypedRequests(t *testing.T) {
 		router.ServeHTTP(w, httptest.NewRequest("POST", "/api/branches/b", strings.NewReader(body)))
 		require.Equal(t, 400, w.Code, body)
 	}
-	require.Equal(t, 3, f.calls)
+	require.Equal(t, 4, f.calls)
 }
