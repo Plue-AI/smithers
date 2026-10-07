@@ -88,7 +88,6 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
       input: [{ name: "text", label: "Steer the coding agent", kind: "text", required: true, multiline: true }],
       command_input: { n, text: "" }, resolve_input: input => ({ n, text: input.text ?? "" }) })
   }
-  if (model.scratch && model.machine.state !== "closed") definitions.push({ tag: "branch.add-to-stack", label: "Add to stack", primary: true, command_input: { text: model.name } })
   // The current Fork provider accepts main or a TODO. A scratch branch must not silently fork main.
   if (n !== undefined || model.name === "main") definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from: n === undefined ? "main" : `T${n}` } })
   return definitions.filter(definition => providers.has(definition.tag))
