@@ -74,13 +74,20 @@ func (q *Queries) RecentAppAgentRuns(ctx context.Context) ([]AgentModelRun, erro
 // Unattributed proxy calls and other repositories never become agent runs.
 func (q *Queries) RecentFactoryAgentRuns(ctx context.Context, role string) ([]AgentModelRun, error) {
 	runs := []AgentModelRun{}
-	rows, err := q.db.Query(ctx, `SELECT u.workflow_run_id::text, u.model FROM model_usage u
+	rows, err := q.db.Query(ctx, `SELECT run,model FROM (
+ SELECT u.workflow_run_id::text AS run,u.model,u.created_at,u.id FROM model_usage u
  JOIN workflow_steps s ON s.id=u.workflow_step_id AND s.workflow_run_id=u.workflow_run_id AND s.repository_id=u.repository_id
- WHERE u.source='agent_run'
+ WHERE u.source='agent_run' AND s.name=CASE $1 WHEN 'planner' THEN 'coding/plan' WHEN 'implementer' THEN 'coding/implement' WHEN 'reviewer' THEN 'coding/review' ELSE '' END
  AND u.repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')
- AND s.name=CASE $1 WHEN 'planner' THEN 'coding/plan' WHEN 'implementer' THEN 'coding/implement' WHEN 'reviewer' THEN 'coding/review' ELSE '' END
  AND u.outcome IN ('pending','succeeded','unknown')
- ORDER BY u.created_at DESC,u.id DESC LIMIT 10`, role)
+ UNION ALL
+ SELECT b.binding_id,u.model,u.created_at,u.id FROM model_usage u
+ JOIN flow_runtime_host_bindings b ON b.id::text=split_part(u.reference,'#',1) AND b.repository_id=u.repository_id AND b.workspace_id::text=u.workspace_id
+ WHERE u.source='flow_host' AND split_part(u.reference,'#',2)=$1
+ AND b.binding_kind='mythical-item'
+ AND u.repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')
+ AND u.outcome IN ('pending','succeeded','unknown')
+ ) receipts ORDER BY created_at DESC,id DESC LIMIT 10`, role)
 	if err != nil {
 		return nil, err
 	}
@@ -93,4 +100,11 @@ func (q *Queries) RecentFactoryAgentRuns(ctx context.Context, role string) ([]Ag
 		runs = append(runs, run)
 	}
 	return runs, rows.Err()
+}
+
+// PinInstallSetting records immutable host bootstrap data in the existing
+// install store. Concurrent starts agree on the first committed value.
+func (q *Queries) PinInstallSetting(ctx context.Context, key string, value json.RawMessage) error {
+	_, err := q.db.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO NOTHING`, key, value)
+	return err
 }

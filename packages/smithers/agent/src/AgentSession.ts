@@ -3488,7 +3488,7 @@ export const make = (
           : undefined
         const resolvedSeats = yield* Effect.forEach(
           routing === undefined ? seatIds : [routing.decision.seat, ...routing.decision.backups],
-          (id) => seats.resolve(id)
+          (id) => seats.resolve(id, seatId)
         )
         const seat = resolvedSeats[0]!
         const fallbackSeats = resolvedSeats.slice(1)

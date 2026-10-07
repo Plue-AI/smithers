@@ -31,8 +31,24 @@ func ModelCredential(bindingID, credential string) string {
 	return ModelCredentialPrefix + bindingID + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
+// RoleModelCredential attenuates a host's model credential to one factory role.
+// The role is authenticated with the control secret, not taken from model JSON.
+func RoleModelCredential(bindingID, credential, role string) string {
+	if !factoryModelRole(role) {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(credential))
+	mac.Write([]byte("smithers-model-proxy:" + bindingID + ":" + role))
+	return ModelCredentialPrefix + bindingID + "." + role + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func factoryModelRole(role string) bool {
+	return role == "planner" || role == "implementer" || role == "reviewer"
+}
+
 // CredentialBinding is the live binding a host credential belongs to.
 type CredentialBinding struct {
+	FactoryRole  string
 	ID           string
 	UserID       int64
 	RepositoryID int64
@@ -47,6 +63,13 @@ func VerifyModelCredential(ctx context.Context, pool *pgxpool.Pool, codec Secret
 		return CredentialBinding{}, ErrModelCredentialInvalid
 	}
 	id, mac, ok := strings.Cut(rest, ".")
+	role := ""
+	if candidate, signature, scoped := strings.Cut(mac, "."); scoped {
+		if !factoryModelRole(candidate) {
+			return CredentialBinding{}, ErrModelCredentialInvalid
+		}
+		role, mac = candidate, signature
+	}
 	if _, err := uuid.Parse(id); !ok || err != nil || mac == "" {
 		return CredentialBinding{}, ErrModelCredentialInvalid
 	}
@@ -67,9 +90,14 @@ func VerifyModelCredential(ctx context.Context, pool *pgxpool.Pool, codec Secret
 		return CredentialBinding{}, errors.New("open flow host credential")
 	}
 	digest := sha256.Sum256([]byte(credential))
-	if !hmac.Equal(digest[:], credentialHash) || !hmac.Equal([]byte(token), []byte(ModelCredential(out.ID, credential))) {
+	expected := ModelCredential(out.ID, credential)
+	if role != "" {
+		expected = RoleModelCredential(out.ID, credential, role)
+	}
+	if !hmac.Equal(digest[:], credentialHash) || !hmac.Equal([]byte(token), []byte(expected)) {
 		return CredentialBinding{}, ErrModelCredentialInvalid
 	}
+	out.FactoryRole = role
 	return out, nil
 }
 
