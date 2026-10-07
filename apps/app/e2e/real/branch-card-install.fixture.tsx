@@ -65,6 +65,10 @@ try {
   await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
   await waitFor(() => host.textContent?.includes("Asleep") === true)
   assert.ok(host.textContent?.includes("smithers/sleep-item"))
+  const beforeBurstDiff = requests.length
+  assert.deepEqual(await controller.submitCommand({ name: "diff", payload: { branch: "smithers/sleep-item", entry: "captured-burst-1" }, actor: "user" }),
+    { status: "failed", error: "Burst diff unavailable" })
+  assert.ok(requests.slice(beforeBurstDiff).every(request => !request.path.endsWith("/diff")), "an unavailable burst comparison never shows a TODO base diff")
   // The slash door resolves both a TODO and the canonical bookmark through
   // authorized HTTP reads, then shares the mounted card's existing live topic.
   const sshReads = requests.length

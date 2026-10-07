@@ -86,8 +86,8 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     flow({ name: "diff",   slash: "/diff", cli: ["diff"], journey: ["J2","J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
       grammar: positional("subject"),
       agent: "run", input: Schema.Struct({ subject: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), path: Schema.optional(Schema.String), entry: Schema.optional(Schema.String) }),
-      handler: ({ subject, branch, path }) => {
-        if (realFiles()) return actions.branchDiff(branch ?? subject)
+      handler: ({ subject, branch, path, entry }) => {
+        if (realFiles()) return entry !== undefined ? "Burst diff unavailable" : actions.branchDiff(branch ?? subject)
         const world = design.world()
         const wanted = path ?? subject ?? ""
         const file = wanted === "" ? undefined : findFile(world, wanted, branch, design.viewer())
