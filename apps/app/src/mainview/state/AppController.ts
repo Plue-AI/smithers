@@ -1273,7 +1273,7 @@ export const createAppController = (
       } catch { return "Branch files are unavailable." }
     }
   })).read
-  const installDiffReader = installHost ? createBranchDiffReader(ctx).readBranchDiff : undefined
+  const installDiffReader = installHost ? createBranchDiffReader(ctx, branchFileOptions).readBranchDiff : undefined
   const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles, installDiffReader))
   const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles, { storage: store.documentRecoveryStorage, member: () => store.collections.identitySessions.get("identity")?.login?.toLowerCase() }) : undefined
   ctx.onDispose(() => fileDocuments?.dispose())

@@ -67,7 +67,9 @@ test("/file dispatch loads branch bytes; live writes, gone states and Follow kee
     const publish = (path: string, digest: string) => socket.receive({ t: "delta", id: subscription.id, cursor: ++cursor, data: { kind: "file_written", path, post_digest: digest, actor: maya } })
     publish("unrelated.ts", "two"); expect(requests).toHaveLength(1)
     model = { ...first, digest: "two", content: { kind: "text", text: "export const retry = 2\n" } }
-    publish("retry.ts", "two")
+    socket.receive({ t: "snap", id: subscription.id, cursor: ++cursor, data: {
+      changed: [{ path: "retry.ts", change: "modified", post_digest: "two", last_writer: maya }], open: []
+    } })
     await wait(() => store.collections.cards.get(id)?.kind === "file" && (store.collections.cards.get(id) as any).payload.digest === "two")
     render(); expect(host.querySelector('[data-kind="file"]')).toBe(surface)
     expect(host.querySelector('[data-digest="two"]')).not.toBeNull()
