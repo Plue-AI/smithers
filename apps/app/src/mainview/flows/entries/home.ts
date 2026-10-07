@@ -3,7 +3,8 @@
  * background runs and main's sync retry. Reorder and merge go through the TODO seam: the seeded design
  * world where this host has no TODO provider, else POST /api/todos/{n} {op: move} and
  * /api/todos/{n}/merge (spec §6.3). MOCK SEAM: the background run handlers act on the seeded design world
- * (state/seams/DesignWorld/home.ts); their real door is /api/runs/{id}. Sync Retry calls the real door where
+ * (state/seams/DesignWorld/home.ts); installs refuse until /api/runs/{id} supplies stored, pinned admission.
+ * Sync Retry calls the real door where
  * this host serves one: the install's POST /api/github/sync (GitHubSyncSeam), or the Cloud's `github.reconcile` (GitHubSeam).
  */
 import { Schema } from "effect"
@@ -80,10 +81,10 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     } }),
   flow({ name: "background.retry", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Retry a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
-    handler: ({ id }) => result(actions.design.retryRun(id)) }),
+    handler: ({ id }) => actions.design.enabled ? result(actions.design.retryRun(id)) : "Background runs unavailable" }),
   flow({ name: "background.dismiss", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",  summary: "Dismiss a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
-    handler: ({ id }) => result(actions.design.dismissRun(id)) }),
+    handler: ({ id }) => actions.design.enabled ? result(actions.design.dismissRun(id)) : "Background runs unavailable" }),
   flow({ name: "github",   slash: "/github", cli: ["github"], journey: ["J10"], group: "GitHub", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/github/sync"}, summary: "Show sync status and retry", agent: "run", input: NoPayload,
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
   flow({ name: "github.retry", agent: "run", minimumRole: "member", actors: ["person", "app_agent", "external_agent"], visibility: "in-card", http: { method: "POST", path: "/api/github/sync" }, summary: "Retry GitHub sync", hidden: true, input: NoPayload,

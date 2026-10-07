@@ -233,6 +233,18 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await page.goto("/")
   await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(1)
+  const backgroundWrites: string[] = []
+  await page.route("**/api/runs/**", route => {
+    if (route.request().method() === "POST") backgroundWrites.push(route.request().url())
+    return route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Unavailable" } } })
+  })
+  for (const name of ["retry", "dismiss"]) {
+    await command(page, `/background.${name} stored-failure`)
+    await expect(page.getByText("Background runs unavailable", { exact: true }).first()).toBeVisible()
+  }
+  expect(backgroundWrites).toEqual([])
+  await expect(home.locator(".run-row")).toHaveCount(0)
+  await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
   conflict = true
   await expect(home.getByRole("button", { name: "Resolve", exact: true })).toBeVisible()
   await expect(home.getByRole("button", { name: "Answer", exact: true })).toHaveCount(0)
