@@ -99,6 +99,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/user/tokens", "self"},
 		{http.MethodGet, "/api/members/alice", ""},
 		{http.MethodGet, "/api/secrets", "secrets.read"},
+		{http.MethodGet, "/api/external/sessions", "external.read"},
 		{http.MethodPut, "/api/secrets", "secrets.set"},
 		{http.MethodDelete, "/api/secrets", "secrets.delete"},
 		{http.MethodPatch, "/api/secrets/KEY", "secrets.scope"},

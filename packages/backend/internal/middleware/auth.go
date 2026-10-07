@@ -438,6 +438,7 @@ var installMemberRoutes = []struct {
 	// channel and the app's error reports.
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install$`)},
 	{http.MethodPost, "settings.setup", regexp.MustCompile(`^/api/install/setup/(address|app|sign_in|repository|models|source|machine)$`)},
+	{http.MethodGet, "external.read", regexp.MustCompile(`^/api/external/sessions$`)},
 	{http.MethodGet, "install.scorecard", regexp.MustCompile(`^/api/install/scorecard$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/agents$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/model/(catalog|default)$`)},

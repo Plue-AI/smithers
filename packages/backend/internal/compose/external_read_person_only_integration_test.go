@@ -34,7 +34,7 @@ import (
 // credential are refused with never; the owner's terminal credential with
 // permission by the auth loader, which confines it to its profile's routes
 // (§8.11.1); a run credential with permission; and every other member with
-// permission at the owner-only HTTP boundary (code forbidden). The
+// permission through the catalog command boundary. The
 // live topic external:<agent>:<session> takes the same decision.
 func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
@@ -140,12 +140,13 @@ func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 		code string // never, or the permission refusal's code
 	}{
 		{"the owner's personal access token", credential{bearer: token(owner, "pat", "all", false)}, "never"},
-		{"the owner's CLI credential", credential{bearer: token(owner, "cli", "write:repository,via:cli", true)}, "never"},
+		{"the owner's CLI credential", credential{bearer: token(owner, "cli", "read:repository,write:repository,via:cli", true)}, "never"},
+		{"the owner's CLI credential without read scope", credential{bearer: token(owner, "cli-write-only", "write:repository,via:cli", true)}, "permission"},
 		{"the owner's terminal credential", credential{bearer: token(owner, "terminal", "write:repository,via:terminal,branch:main,profile:terminal_s1,terminal-session:s1", true)}, "permission"},
 		{"the owner's run credential", credential{bearer: token(owner, "run", "write:repository", true)}, "permission"},
-		{"a maintainer's session", maintainerSession, "forbidden"},
-		{"a maintainer's CLI credential", credential{bearer: token(maintainer, "cli", "write:repository,via:cli", true)}, "forbidden"},
-		{"a member's session", writerSession, "forbidden"},
+		{"a maintainer's session", maintainerSession, "permission"},
+		{"a maintainer's CLI credential", credential{bearer: token(maintainer, "cli", "read:repository,write:repository,via:cli", true)}, "permission"},
+		{"a member's session", writerSession, "permission"},
 	} {
 		status, body := get(tc.who)
 		require.Equal(t, http.StatusForbidden, status, "%s: %v", tc.name, body)
