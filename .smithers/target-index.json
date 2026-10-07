@@ -68056,6 +68056,14 @@
       },
       {
         "kind": "file",
+        "path": "scripts/perf/github-freshness.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/perf/projection-delta.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/perf/questions.test.mjs"
       },
       {

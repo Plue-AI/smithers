@@ -877,6 +877,8 @@ const perfUnit = Smithers.NodeTest({
     Smithers.file("//scripts/working-together/faults.test.mjs"),
     Smithers.file("//scripts/perf/keystroke.test.mjs"),
     Smithers.file("//scripts/perf/disk-write.test.mjs"),
+    Smithers.file("//scripts/perf/github-freshness.test.mjs"),
+    Smithers.file("//scripts/perf/projection-delta.test.mjs"),
     Smithers.file("//scripts/perf/questions.test.mjs"),
     Smithers.file("//scripts/perf/warm-wake.test.mjs"),
     Smithers.file("//scripts/perf/lib/ssh-member.test.mjs"),
