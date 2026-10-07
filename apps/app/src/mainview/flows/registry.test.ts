@@ -12,6 +12,7 @@ import { visibleItems } from "./Commands"
 import type { CommandState } from "./registry"
 import {
 matches,
+disclosedToAgent,
 namespaceOf,
 namespacesOf,
 parseSubmit,
@@ -711,4 +712,10 @@ test("Library is absent by default from commands, recommendations and agent tool
   expect(controller.commands.callable().map(entry => entry.binding.descriptor.name)).not.toContain("plugins.install")
   expect(store.session().plugins ?? []).toEqual([])
   await controller.dispose()
+})
+
+
+test("explicit nondisclosure keeps an in-card control out of agent discovery", () => {
+  expect(disclosedToAgent({ summary: "Show workspace facet", visibility: "in-card", hidden: true, discloseToAgent: false, agent: "run", actors: ["person", "app_agent"] })).toBe(false)
+  expect(disclosedToAgent({ summary: "Show workspace facet", visibility: "in-card", agent: "run", actors: ["person", "app_agent"] })).toBe(true)
 })

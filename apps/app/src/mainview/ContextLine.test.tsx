@@ -2,6 +2,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
+import { EntryRow } from "./EntryRow"
 import { ContextLine } from "./ContextLine"
 import { contextActions } from "./flows/contextActions"
 import { contextOpenAction } from "./flows/contextOpenAction"
@@ -19,7 +20,7 @@ const pinned = "0123456789abcdef0123456789abcdef01234567"
 const items = [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts", revision: pinned, reason: "Retry implementation" }]
 const agent: AgentPort = { available: false, startTurn: async () => ({ status: "error", message: "Unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {} }
 
-test("Context opens a pinned file through cardActions, the registered flow and the real install seam", async () => {
+test.each(["context", "entry"])("%s opens a pinned file through cardActions, the registered flow and the real install seam", async surface => {
   const requests: string[] = []
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, agent, {
@@ -41,10 +42,13 @@ test("Context opens a pinned file through cardActions, the registered flow and t
     let completed: Promise<unknown> = Promise.resolve()
     const actions = contextActions(items, (tag, input) => { completed = controller.runCommandForResult(tag, JSON.stringify(input)) }, contextOpenAction)
     let expanded = false
-    const render = () => flushSync(() => root.render(<ContextLine count={1} expanded={expanded} onView={patch => { expanded = patch.expanded; render() }} {...actions} />))
+    const render = () => flushSync(() => root.render(surface === "entry"
+      ? <EntryRow kind="answer" author={{ kind: "person", login: "ben", name: "Ben", avatar_url: "", color_index: 0 }} title="" tone="quiet"
+          context={{ count: 1, items }} contextActions={actions} onAction={() => { throw new Error("context used the inspect dispatcher") }} />
+      : <ContextLine count={1} expanded={expanded} onView={patch => { expanded = patch.expanded; render() }} {...actions} />))
     render()
     expect(host.querySelectorAll("button")).toHaveLength(1)
-    host.querySelector<HTMLButtonElement>(".context-toggle")!.click()
+    flushSync(() => host.querySelector<HTMLButtonElement>(".context-toggle")!.click())
     const source = host.querySelector<HTMLButtonElement>(".context-chip")!
     expect(source.tagName).toBe("BUTTON")
     source.focus(); expect(document.activeElement).toBe(source)

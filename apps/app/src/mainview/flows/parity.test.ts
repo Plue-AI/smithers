@@ -560,6 +560,24 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
           const reducer = reducerOf(setter)
           if (reducer && !pureCallback(reducer)) valid = false
           for (const argument of node.arguments) if (functionValue(argument) && !pureCallback(argument)) valid = false
+        } else if (ts.isIdentifier(callee) && callee.text === "onCopy" && node.arguments.length === 0 &&
+          (() => {
+            const supplied = resolveName(callee, "onCopy")?.parent
+            return !!supplied && ts.isBindingElement(supplied) && ts.isObjectBindingPattern(supplied.parent) &&
+              ts.isParameter(supplied.parent.parent) && (supplied.propertyName?.getText(tree) ?? supplied.name.getText(tree)) === "onCopy"
+          })()) {
+          // Supplied clipboard gesture seam; FileCards binds retained recovery bytes.
+        } else if (ts.isPropertyAccessExpression(callee) && callee.name.text === "indexOf" &&
+          ts.isIdentifier(callee.expression) && (() => {
+            const declaration = resolveName(callee.expression, callee.expression.text)?.parent
+            return !!declaration && ts.isVariableDeclaration(declaration) && !!declaration.initializer &&
+              ts.isArrayLiteralExpression(unwrap(declaration.initializer)) && ts.isVariableDeclarationList(declaration.parent) &&
+              (declaration.parent.flags & ts.NodeFlags.Const) !== 0 && (unwrap(declaration.initializer) as ts.ArrayLiteralExpression).elements.every(ts.isStringLiteral)
+          })()) {
+          // Indexing a local literal tab list is pure presentation.
+        } else if (ts.isPropertyAccessExpression(callee) && callee.name.text === "querySelector" &&
+          /^(?:event|e)\.currentTarget\.parentElement$/.test(callee.expression.getText(tree))) {
+          // Keyboard tabs focus a sibling within their own DOM tablist.
         } else if (ts.isIdentifier(callee) && isClipboard(callee)) {
           // Copy: its arguments are inspected below like any other call's.
         } else if (ts.isIdentifier(callee) && presentationHandler(callee, new Set(seen))) {
@@ -581,7 +599,10 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
             ? current.expression
             : undefined
           const domRef = ref !== undefined && isDomRef(ref)
-          if (!/^(?:event|e)(?:\.currentTarget|\.target)?$/.test(receiver) && !domRef) valid = false
+          const sibling = ts.isCallExpression(callee.expression) && ts.isPropertyAccessExpression(callee.expression.expression) &&
+            callee.expression.expression.name.text === "querySelector" &&
+            /^(?:event|e)\.currentTarget\.parentElement$/.test(callee.expression.expression.expression.getText(tree))
+          if (!/^(?:event|e)(?:\.currentTarget|\.target)?$/.test(receiver) && !domRef && !sibling) valid = false
         } else valid = false
       }
       if (ts.isNewExpression(node)) valid = false
@@ -654,6 +675,17 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
             ts.isParameter(callback.parent.parent) && callback.parent.parent.parent === owner &&
             (callback.propertyName?.getText(tree) ?? callback.name.getText(tree)) === name &&
             child && viewChildren.has(child)) continue
+        }
+        if (name === "onAction" && expression && ts.isBinaryExpression(expression) &&
+          expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken &&
+          ts.isPropertyAccessExpression(expression.left) && expression.left.name.text === "onAction" &&
+          ts.isIdentifier(expression.left.expression) && ts.isIdentifier(expression.right) && expression.right.text === "onAction") {
+          const supplied = resolveName(expression.left.expression, expression.left.expression.text)?.parent
+          const fallback = resolveName(expression.right, "onAction")?.parent
+          if (supplied && fallback && ts.isBindingElement(supplied) && ts.isBindingElement(fallback) &&
+            ts.isObjectBindingPattern(supplied.parent) && supplied.parent === fallback.parent &&
+            ts.isParameter(supplied.parent.parent) && ts.isIdentifier(node.tagName) &&
+            viewChildren.has(resolveName(node.tagName, node.tagName.text)!)) continue
         }
         if (name === "gestures") continue
         const tag = calledTag(expression)
@@ -1041,6 +1073,32 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
   })
 
+  test("tab indexing and sibling focus accept presentation and reject hidden effects", () => {
+    const handler = 'const tabs = ["files", "activity"]; const view = <button onKeyDown={event => { const i = tabs.indexOf(value); event.currentTarget.parentElement?.querySelector(`[data-tab="${tabs[i]}"]`)?.focus(); onView({ tab: tabs[i] }) }} />'
+    expect(viewSeamViolations(handler)).toEqual([])
+    for (const source of [handler.replace('const tabs', 'let tabs'), handler.replace('tabs.indexOf(value)', 'tabs.indexOf(fetch("/write"))'), handler.replace('onView({ tab: tabs[i] })', 'onView({ tab: tabs[i] }); localStorage.clear()')]) {
+      expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+    }
+  })
+
+  test("explicit parameter callback forwarding preserves the seam without spreads", () => {
+    const imported = 'import { ContextLine } from "./ContextLine"; '
+    const source = imported + 'function View({ contextActions, onAction }) { return <ContextLine onAction={contextActions?.onAction ?? onAction} /> }'
+    expect(viewSeamViolations(source, new URL("../EntryRow.tsx", import.meta.url))).toEqual([])
+    expect(viewSeamViolations(source.replace('function View({ contextActions, onAction })', 'const contextActions = { onAction: () => fetch("/write") }; function View({ onAction })')).length).toBeGreaterThan(0)
+  })
+
+  test("File retained Copy accepts the supplied clipboard seam and rejects unrelated effects", () => {
+    const source = 'function View({ onCopy }) { return <button onClick={async () => { await onCopy() }}>Copy</button> }'
+    expect(viewSeamViolations(source)).toEqual([])
+    for (const effect of ['fetch("/write")', 'localStorage.clear()', 'onCopy("replacement")']) {
+      expect(viewSeamViolations(source.replace('await onCopy()', `await onCopy(); ${effect}`)).length).toBeGreaterThan(0)
+    }
+    expect(viewSeamViolations('const onCopy = () => fetch("/write"); const view = <button onClick={() => onCopy()} />').length).toBeGreaterThan(0)
+    expect(viewSeamViolations('const { onCopy } = { onCopy: () => fetch("/write") }; const view = <button onClick={() => onCopy()} />').length).toBeGreaterThan(0)
+    expect(viewSeamViolations(read("../cards/views/CodeEditorView.tsx"), new URL("../cards/views/CodeEditorView.tsx", import.meta.url))).toEqual([])
+  })
+
   test("Copy through copyText from @smthrs/ui is a clipboard handler; other copies and calls are not", () => {
     for (
       const source of [
@@ -1285,6 +1343,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../HelpBubble.tsx": 1,
       "../InputModeMenu.tsx": 2,
       "../cards/CodingVibeCard.tsx": 1,
+      "../cards/RepositoryChoiceCard.tsx": 2,
       "../cards/RepositoryUpdateCard.tsx": 2,
       /*
        * The Library (the `plugins` surface and the guided introduction share
@@ -1294,7 +1353,7 @@ describe("launch-law parity: every affordance is a command", () => {
        */
       /* 11 = 10 + the origin chip's "rev N exists · view" (lane change step 4; renders only when both seqs are known). */
       // Send and Stop, plus the prompt queue: Queue, Resume, Edit and Remove.
-      "../Composer.tsx": 6,
+      "../Composer.tsx": 5,
       /*
        * 3 — the GitHub connect / disconnect pair and the empty state's own
        * import affordance (§11.6). The connected list carries no control.
@@ -1326,7 +1385,7 @@ describe("launch-law parity: every affordance is a command", () => {
 
       "../cards/IssueCards.tsx": 12, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips, the saved view toggles and Make TODO (todo.from-issue)
       "../cards/IssueThread.tsx": 3, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
-      "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
+      "../cards/LandingCards.tsx": 4, // Includes the durable PR tab flow.
       "../cards/FileCards.tsx": 2,
       "../cards/ModelCards.tsx": 6, // Restored model-assignment controls in Settings.
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
@@ -1350,7 +1409,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */
-      "../cards/RunTraceCard.tsx": 24, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
+      "../cards/RunTraceCard.tsx": 23, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
       "../cards/RunTraceSteps.tsx": 1, // Each step row selects its span.
       "../cards/RunTracePhaseStrip.tsx": 3,
       "../cards/RunTraceSummary.tsx": 4, // A parked run offers Continue and Stop.
@@ -1411,7 +1470,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * review again after requested changes (ad40a699e) — all through
        * onRunCommand with data-flow set.
        */
-      "../cards/ChangeCards.tsx": 21,
+      "../cards/ChangeCards.tsx": 20,
       /*
        * The plan inside a run card: Inspect review feedback and Inspect failed
        * execution (runs.trace.select), Vibe this change (flow.run), Check
@@ -1419,8 +1478,8 @@ describe("launch-law parity: every affordance is a command", () => {
        * (runs.coding.select) — all through onRunCommand with data-flow set.
        */
       "../cards/CodingPlanCard.tsx": 2,
-      "../cards/CodingPocCard.tsx": 2, // Native execution inspection and existing steering form.
-      "../cards/BranchesCard.tsx": 1, // a row opens that branch's commits (commits.list)
+      "../cards/CodingPocCard.tsx": 1, // Native execution inspection and existing steering form.
+
       /*
        * Connection, world and browser card interactions, plus the embedded
        * wiki collaboration cards (ad438463a6): page Previous/Next and the
@@ -1609,6 +1668,10 @@ describe("launch-law parity: every affordance is a command", () => {
     const declared = new Set(
       [...registrySource.matchAll(/\bname:\s*"([^"]+)"/g)].map((match) => match[1] as string)
     )
+    // Mapped flow declarations retain literal names in the source array.
+    for (const match of registrySource.matchAll(/\[([^\]]+)\]\.map\(name => flow\(\{/g)) {
+      for (const literal of match[1]!.matchAll(/"([^"]+)"/g)) declared.add(literal[1]!)
+    }
     expect(declared.size).toBeGreaterThan(0)
     const violations: Array<string> = []
     for (const [file, source] of Object.entries(files)) {

@@ -1,46 +1,46 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { editorText, fileCoeditFixture } from "./file-coedit-fixture"
 
-// UI projection of .specs/engineering/checks/C-UI-14.md; not a qualification receipt.
-// Written before implementation: mvp.md §6.8, M-43; spec.md §7.4.5; lands with T-UI-19
-test("C-UI-14: two members see live edits within the keystroke budget", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.8, M-43; spec.md §7.4.5; lands with T-UI-19")
-  test.setTimeout(700_000)
-  // Requires two authenticated reference Macs on one real branch, each with
-  // a File card editor. The harness supplies a second member session and
-  // runs this scenario once with the carets flag on, then once off.
-  // Hermetic execution cannot qualify reference-host latency or colours.
-  await owner(page)
-  const other = await page.context().browser()!.newContext()
-  const alice = await other.newPage()
+// Browser composition proof. C-UI-14's five-minute reference-host/second-Mac
+// latency campaign remains a separate receipt; this relay cannot qualify it.
+const carets = process.env.VITE_SMITHERS_REMOTE_CARETS === "1"
+test(`C-UI-14: mounted member carets and selections with the flag ${carets ? "on" : "off"}`, async ({ page }) => {
+  const host = fileCoeditFixture("hello")
+  const context = await page.context().browser()!.newContext()
+  const other = await context.newPage()
   try {
-    // The reference harness supplies Alice's authenticated identity here.
-    await Promise.all([page.goto("/"), alice.goto("/")])
-    await Promise.all([say(page, "/file retry-webhooks:src/webhooks/retry.ts"), say(alice, "/file retry-webhooks:src/webhooks/retry.ts")])
-    const benEditor = page.getByRole("textbox", { name: /retry.ts/ }).last()
-    const aliceEditor = alice.getByRole("textbox", { name: /retry.ts/ }).last()
-    const samples: number[][] = [[], []]
-    const start = Date.now()
-    for (let i = 0; i < 1000 || Date.now() - start < 300_000; i++) {
-      for (const [index, editor, observer] of [[0, benEditor, aliceEditor], [1, aliceEditor, benEditor]] as const) {
-        const marker = `// member ${index} edit ${i}`
-        const before = Date.now()
-        await editor.press("Control+End")
-        await editor.press("Enter")
-        await editor.pressSequentially(marker)
-        await expect(observer).toHaveValue(new RegExp(marker))
-        samples[index]!.push(Date.now() - before)
-      }
-      await expect(page.getByText("Alice", { exact: true }).last()).toBeVisible()
-      await expect(alice.getByText("Ben", { exact: true }).last()).toBeVisible()
+    await host.install(page, "Alice")
+    await host.install(other, "Bob")
+    for (const member of [page, other]) {
+      await member.goto("/")
+      await say(member, '/file {"path":"retry.ts","branch":"T12"}')
+      await expect(member.locator('[data-kind="file"][data-mode="live"]').last()).toBeVisible()
     }
-    for (const values of samples) {
-      expect(values.length).toBeGreaterThanOrEqual(1000)
-      values.sort((a, b) => a - b)
-      expect(values[Math.ceil(values.length * 0.95) - 1]).toBeLessThanOrEqual(1000)
+    const editors = [page, other].map(member => member.locator('[data-kind="file"] .cm-content').last())
+    for (const [index, member] of [page, other].entries()) {
+      await member.bringToFront()
+      await editors[index]!.click()
+      await member.keyboard.press("Control+End")
+      await member.keyboard.insertText(String(index))
+      await member.keyboard.press("Shift+ArrowLeft")
+      const observer = [other, page][index]!
+      await expect.poll(() => editorText(editors[1 - index]!)).toBe(index === 0 ? "hello0" : "hello01")
+      const file = observer.locator('[data-kind="file"]').last()
+      await expect(file.locator('.code-name-flag')).toContainText(index === 0 ? "Alice" : "Bob")
+      if (carets) {
+        await expect(file.locator('.cm-ySelectionCaret')).toHaveCount(1)
+        await expect(file.locator('.cm-ySelection')).toHaveCount(1)
+        await expect(file.locator('.cm-ySelectionInfo')).toHaveText(index === 0 ? "Alice" : "Bob")
+        const colours = await file.evaluate(node => ({
+          caret: getComputedStyle(node.querySelector('.cm-ySelectionCaret')!).borderLeftColor,
+          flag: getComputedStyle(node.querySelector('.code-name-flag')!).borderLeftColor,
+          selection: getComputedStyle(node.querySelector('.cm-ySelection')!).backgroundColor
+        }))
+        expect(colours.caret).toBe(colours.flag)
+        expect(colours.selection).not.toBe('rgba(0, 0, 0, 0)')
+      } else await expect(file.locator('.cm-ySelectionCaret, .cm-ySelection')).toHaveCount(0)
+      await expect(observer.getByTestId('composer-input')).toBeEditable()
     }
-    await test.info().attach("latency-samples", { body: JSON.stringify(samples), contentType: "application/json" })
-  } finally {
-    await other.close()
-  }
+  } finally { await context.close(); host.dispose() }
 })

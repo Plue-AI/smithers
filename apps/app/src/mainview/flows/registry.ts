@@ -535,7 +535,7 @@ export const viewerAdmitted = (state: CommandState, commands: ReadonlyArray<Cata
 
 /** Model discovery is explicit for internal controls; invocation authority is unchanged. */
 export const disclosedToAgent = (metadata: FlowMetadata): boolean =>
-  metadata.agent !== "never" && (metadata.actors === undefined || metadata.actors.includes("app_agent")) &&
+  metadata.discloseToAgent !== false && metadata.agent !== "never" && (metadata.actors === undefined || metadata.actors.includes("app_agent")) &&
   (metadata.visibility === undefined ? metadata.hidden !== true || metadata.discloseToAgent === true : metadata.visibility !== "hidden")
 
 /** A needle matches a flow by name or summary, case-insensitively. */
