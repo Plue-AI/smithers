@@ -191,7 +191,8 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 			// Runtime turn-boundary promotion owns consumption. Versioned edits
 			// replace the pending input atomically there; admission is not consumption.
 			consumed := priorSteer >= 0 && checks.Steers[priorSteer].InputConsumed
-			decision := decideGitHubFact(mythicalGitHubFact{Kind: kind, Review: &gitHubReviewFact{State: object.State, Change: change, ActiveMember: active, OwnApp: ownApp, Duplicate: duplicate, Stale: stale, Held: held, Consumed: consumed, Empty: strings.TrimSpace(text) == ""}}, mythicalGitHubFactItem{State: todoState(item)}, s.now())
+			boundEdit := change == "edited" && priorSteer >= 0 && !held
+			decision := decideGitHubFact(mythicalGitHubFact{Kind: kind, Review: &gitHubReviewFact{State: object.State, Change: change, ActiveMember: active, OwnApp: ownApp, Duplicate: duplicate, Stale: stale, Held: held, Consumed: consumed, Admitted: priorSteer >= 0 && !held, Empty: strings.TrimSpace(text) == ""}}, mythicalGitHubFactItem{State: todoState(item)}, s.now())
 			if decision.Review == nil {
 				continue
 			}
@@ -203,7 +204,8 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 					return nil, gitHubReviewUnavailable()
 				}
 				if effect.Input == "steer" {
-					if _, pinned := mythicalPinOf(item); !pinned || !stack.ActorUserID.Valid || (reopened && (s.lanes == nil || mythicalMergeFenced(item))) || (!reopened && (!todoSteerReady(item) || item.RequestRunID == "" || item.WorkspaceID == "")) {
+					unready := !boundEdit && !todoSteerReady(item)
+					if _, pinned := mythicalPinOf(item); !pinned || !stack.ActorUserID.Valid || (reopened && (s.lanes == nil || mythicalMergeFenced(item))) || (!reopened && (unready || item.RequestRunID == "" || item.WorkspaceID == "")) {
 						return nil, gitHubReviewUnavailable()
 					}
 				}
@@ -235,7 +237,6 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 					if !held {
 						feedback.Text, feedback.EditText = checks.Steers[priorSteer].Text, text
 						feedback.Attempt, feedback.ReleasePending = checks.Steers[priorSteer].Attempt, false
-						effect.Input = "steer"
 					}
 					feedback.InputVersion = checks.Steers[priorSteer].InputVersion + 1
 					if feedback.InputVersion < 2 {

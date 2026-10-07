@@ -157,3 +157,19 @@ func TestNormalizeGitHubStandaloneCommentText(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, text)
 }
+
+func TestGitHubAdmittedEditDecisionKeepsBoundInput(t *testing.T) {
+	for _, state := range []string{"queued", "starting", "failed", "paused", "working", "needs_you", "in_review"} {
+		for _, kind := range []string{"review", "review_comment", "conversation_comment"} {
+			t.Run(state+"/"+kind, func(t *testing.T) {
+				fact := mythicalGitHubFact{Kind: kind, Review: &gitHubReviewFact{State: "COMMENTED", Change: "edited", ActiveMember: true, Admitted: true}}
+				require.Equal(t, mythicalGitHubFactDecision{Review: &gitHubReviewEffect{Activity: "upsert", Input: "steer", PRReview: kind == "review"}}, decideGitHubFact(fact, mythicalGitHubFactItem{State: state}, time.Time{}))
+				fact.Review.Consumed = true
+				require.Equal(t, mythicalGitHubFactDecision{Review: &gitHubReviewEffect{Activity: "upsert", PRReview: kind == "review"}}, decideGitHubFact(fact, mythicalGitHubFactItem{State: state}, time.Time{}))
+				fact.Review.Consumed = false
+				fact.Review.ActiveMember = false
+				require.Equal(t, mythicalGitHubFactDecision{Review: &gitHubReviewEffect{Activity: "upsert", PRReview: kind == "review"}}, decideGitHubFact(fact, mythicalGitHubFactItem{State: state}, time.Time{}))
+			})
+		}
+	}
+}
