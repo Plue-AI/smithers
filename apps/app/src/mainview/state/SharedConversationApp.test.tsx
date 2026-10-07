@@ -1,3 +1,4 @@
+import { SharedConversationSchema } from "./seams/SharedConversationSeam"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
@@ -401,4 +402,9 @@ test("initial member view arrival never remounts an interactive Context disclosu
     expect(host.querySelector(".context-toggle")).toBe(toggle)
     expect(toggle.getAttribute("aria-expanded")).toBe("true")
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+})
+
+test("shared publication exposes durable order without changing recorded turn output", () => {
+  const result = SharedConversationSchema.parse({ id: "main", entries: [{ ...ben, sequence: 9 }] })
+  expect(result.entries[0]).toMatchObject({ id: ben.id, sequence: 9, prompt: ben.prompt, author: ben.author })
 })

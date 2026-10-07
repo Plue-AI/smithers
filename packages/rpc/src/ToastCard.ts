@@ -43,6 +43,7 @@ export const ToastCardSchema = z.object({
   tone: ToneSchema,
   action: ActionSchema.optional(),
   entry_id: z.string(),
+  fresh: z.boolean().optional(),
   kind: ToastKindSchema
 })
 
