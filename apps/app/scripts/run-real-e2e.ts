@@ -113,7 +113,7 @@ if (args[0] === "serve") {
   await serve()
 } else {
   // Activation must never silently boot a dev host or a loopback provider.
-  if (args.includes("j1-activation.spec.ts")) requireJ1Preconditions()
+  if (args.some(arg => /(?:^|\/)(?:j1-activation|j1|keyboard-journeys)\.spec\.ts$/.test(arg))) requireJ1Preconditions()
   const selection = extractRequestedGrep(args)
   if (selection.grep !== undefined) process.env.SMITHERS_REAL_TEST_GREP = selection.grep
   if (process.env.SMITHERS_CHAT_STUB === "1") throw new Error("The real E2E runner refuses SMITHERS_CHAT_STUB=1.")
