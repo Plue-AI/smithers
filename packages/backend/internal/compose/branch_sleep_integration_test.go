@@ -100,6 +100,10 @@ func TestBranchSleepAuthenticatedCaptureInstallHTTP(t *testing.T) {
 	branchSleepInstall(t, "wire")
 }
 
+func TestReclaimedBranchRestoresFinalCaptureInstallHTTP(t *testing.T) {
+	branchSleepInstall(t, "reclaimed")
+}
+
 func TestBranchSleepCapturedReadsNeverWake(t *testing.T) {
 	branchSleepInstall(t, "reads")
 }
@@ -117,6 +121,10 @@ func TestBranchSleepUnavailableProviders(t *testing.T) {
 func branchSleepInstall(t *testing.T, scenario string) {
 	t.Helper()
 	_, _, pool := splitProcessDatabase(t)
+	if scenario == "reclaimed" {
+		t.Setenv("SMITHERS_FEATURE_FLAGS_WORKSPACES", "true")
+		t.Setenv("SMITHERS_FEATURE_FLAGS_SANDBOXES", "true")
+	}
 	ctx := t.Context()
 	q := db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "sleepowner", LowerUsername: "sleepowner"})
@@ -284,6 +292,46 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		raw, err := io.ReadAll(res.Body)
 		require.NoError(t, err)
 		require.Equal(t, want, res.StatusCode, string(raw))
+	}
+	if scenario == "reclaimed" {
+		// A replacement machine has no working copy. Main has moved to retry=99;
+		// the retained final capture contains retry=3 and the extra backoff file.
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='pending',disk_reclaimed_at=NOW(),branch_archived_at=NOW(),head_commit_id=$2 WHERE id=$1`, id, base)
+		require.NoError(t, err)
+		resume := func(want int) {
+			req, err := http.NewRequest("POST", server.URL+"/api/repos/sleepowner/demo/workspaces/"+id+"/resume", nil)
+			require.NoError(t, err)
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			req.Header.Set("Origin", origin)
+			req.Header.Set("X-CSRF-Token", "sleep-csrf")
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "sleep-csrf"})
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			require.NoError(t, err)
+			require.Equal(t, want, res.StatusCode, string(body))
+		}
+		resume(503)
+		missing, err := q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.True(t, missing.DiskReclaimedAt.Valid, "an unverifiable capture stays pending")
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, head)
+		require.NoError(t, err)
+		resume(200)
+		restored, err := q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, "running", restored.Status)
+		require.False(t, restored.DiskReclaimedAt.Valid)
+		require.False(t, restored.BranchArchivedAt.Valid)
+		for path, text := range map[string]string{"src/retry.ts": retry, "src/backoff.ts": backoff} {
+			var file struct{ Content struct{ Kind, Text string } }
+			require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/"+path, 200), &file))
+			require.Equal(t, text, file.Content.Text)
+		}
+		// Repeating wake reuses the receipt and never selects the newer main.
+		resume(200)
+		return
 	}
 	counted.stopped.Store(false)
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)

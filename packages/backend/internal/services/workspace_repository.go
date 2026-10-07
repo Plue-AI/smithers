@@ -13,6 +13,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -49,14 +50,78 @@ type workspaceRepositoryReceipt struct {
 	CloneURL       string `json:"clone_url"`
 	SourceBookmark string `json:"source_bookmark"`
 	SourceRevision string `json:"source_revision"`
-	// SourceCommit is the pushed-ref commit the working copy started from
-	// (#1968); empty for a bookmark workspace.
+	// SourceCommit keeps the product's original pushed-ref identity (#1968),
+	// empty for bookmark workspaces. Reconstruction pins its final capture in
+	// SourceRevision while preserving this identity for receipt replay.
 	SourceCommit  string    `json:"source_commit,omitempty"`
 	InitializedAt time.Time `json:"initialized_at"`
 }
 
 func (s *WorkspaceService) ensureRuntimeWorkspaceRepository(ctx context.Context, row db.Workspace, requesterID int64) error {
-	return s.ensureRuntimeWorkspaceRepositoryWithReceipt(ctx, row, requesterID, false)
+	if row.DiskReclaimedAt.Valid {
+		if err := s.verifyReclaimedWorkspaceSource(ctx, row); err != nil {
+			return err
+		}
+	}
+	if err := s.ensureRuntimeWorkspaceRepositoryWithReceipt(ctx, row, requesterID, false); err != nil {
+		return err
+	}
+	if !row.DiskReclaimedAt.Valid {
+		return nil
+	}
+	// Only a fully receipted checkout discharges reconstruction. A crash before
+	// commit retries the same capture, including an already initialized clone.
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	result, err := tx.Exec(ctx, `UPDATE workspaces SET disk_reclaimed_at=NULL,branch_archived_at=NULL,updated_at=NOW() WHERE id=$1 AND head_commit_id=$2 AND disk_reclaimed_at=$3 AND deleted_at IS NULL`, row.ID, row.HeadCommitID, row.DiskReclaimedAt)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return pkgerrors.Conflict("retained capture changed during reconstruction")
+	}
+	return tx.Commit(ctx)
+}
+
+// Verify host-retained objects before a reclaimed disk can seed repository
+// execution. Neither an old source commit nor a moving main is recovery data.
+func (s *WorkspaceService) verifyReclaimedWorkspaceSource(ctx context.Context, row db.Workspace) error {
+	unavailable := func() error {
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "retained final capture unavailable")
+	}
+	store, ok := s.branchHeads.(workspaceSnapshotStore)
+	if !ok || s.transactions == nil || !codingCommitID.MatchString(row.HeadCommitID) || len(row.CapturePending) != 0 {
+		return unavailable()
+	}
+	slug, err := s.workspaceRepoSlug(ctx, row.RepositoryID)
+	if err != nil {
+		return err
+	}
+	owner, repo, _ := strings.Cut(slug, "/")
+	advertisement, err := store.InfoRefsUploadPack(ctx, owner, repo)
+	if err != nil {
+		return err
+	}
+	refs, err := parseUploadPackAdvertisement(advertisement)
+	if err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		if ref.name != repohost.BranchHeadRef(row.ID) || ref.oid != row.HeadCommitID {
+			continue
+		}
+		commit, err := store.GetChange(ctx, owner, repo, row.HeadCommitID)
+		if err != nil {
+			return err
+		}
+		if commit.CommitID == row.HeadCommitID {
+			return nil
+		}
+	}
+	return unavailable()
 }
 
 // adoptRuntimeWorkspaceRepository is used only after an authorized runtime
@@ -189,11 +254,15 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			if depth := sandbox.ResolveCloneDepth(s.workspaceCloneDepth(ctx, row.RepositoryID)); depth > 0 {
 				args = append(args, "--depth", strconv.Itoa(depth))
 			}
-			args = append(args, "--branch", bookmark)
+			if row.DiskReclaimedAt.Valid {
+				args = append(args, "--no-checkout")
+			} else {
+				args = append(args, "--branch", bookmark)
+			}
 		}
 		args = append(args, "--", cloneURL, ".")
 		if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "clone", workspaceapi.Command{Args: args, Environment: authEnvironment}); err != nil {
-			if empty || lostWorker(err) {
+			if empty || row.DiskReclaimedAt.Valid || lostWorker(err) {
 				return err
 			}
 			// git writes origin metadata before transferring objects. Continue the
@@ -250,8 +319,10 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			return err
 		}
 	} else if !hasJJ {
-		if err := s.ensureRuntimeGitHead(ctx, row, requesterID, cloneURL, bookmark, authEnvironment); err != nil {
-			return err
+		if !row.DiskReclaimedAt.Valid {
+			if err := s.ensureRuntimeGitHead(ctx, row, requesterID, cloneURL, bookmark, authEnvironment); err != nil {
+				return err
+			}
 		}
 		if err := s.fetchRuntimeWorkspaceSource(ctx, row, requesterID, authEnvironment); err != nil {
 			return err
@@ -620,6 +691,10 @@ func (s *WorkspaceService) verifyRuntimeRepositorySourcePin(ctx context.Context,
 }
 
 func (s *WorkspaceService) initializeRuntimeJujutsu(ctx context.Context, row db.Workspace, requesterID int64, bookmark string) error {
+	bookmarkRevision := bookmark + "@origin"
+	if row.DiskReclaimedAt.Valid {
+		bookmarkRevision = workspaceSourceCheckout(row, bookmark)
+	}
 	commands := []struct {
 		step string
 		args []string
@@ -627,7 +702,7 @@ func (s *WorkspaceService) initializeRuntimeJujutsu(ctx context.Context, row db.
 	}{
 		{step: "jj-init", args: []string{"jj", "git", "init", "--colocate", "."}},
 		{step: "jj-track", args: []string{"jj", "bookmark", "track", bookmark + "@origin"}, soft: true},
-		{step: "jj-bookmark", args: []string{"jj", "bookmark", "set", bookmark, "-r", bookmark + "@origin"}},
+		{step: "jj-bookmark", args: []string{"jj", "bookmark", "set", bookmark, "-r", bookmarkRevision}},
 		{step: "jj-working-copy", args: []string{"jj", "new", workspaceSourceCheckout(row, bookmark)}},
 	}
 	for _, command := range commands {
@@ -639,8 +714,12 @@ func (s *WorkspaceService) initializeRuntimeJujutsu(ctx context.Context, row db.
 }
 
 func (s *WorkspaceService) runtimeRepositoryRevision(ctx context.Context, row db.Workspace, requesterID int64, bookmark string) (string, error) {
+	ref := "refs/remotes/origin/" + bookmark
+	if row.DiskReclaimedAt.Valid {
+		ref = workspaceSourceCheckout(row, bookmark)
+	}
 	revision, err := s.runtimeRepositoryCommandOutput(ctx, row, requesterID, "source-revision", workspaceapi.Command{
-		Args: []string{"git", "rev-parse", "--verify", "refs/remotes/origin/" + bookmark + "^{commit}"},
+		Args: []string{"git", "rev-parse", "--verify", ref + "^{commit}"},
 	})
 	if err != nil {
 		return "", err

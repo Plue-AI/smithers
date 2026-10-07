@@ -220,8 +220,8 @@ func (l *workspaceMythicalLanes) ForkScratch(ctx context.Context, fork ScratchFo
 // workspaceSourceCheckout names what a new workspace's working copy starts
 // from: its bookmark, or the pinned pushed-ref commit.
 func workspaceSourceCheckout(row db.Workspace, bookmark string) string {
-	if row.SourceCommit != "" {
-		return row.SourceCommit
+	if source := workspaceCloneSourceOf(row); source.Commit != "" {
+		return source.Commit
 	}
 	return bookmark
 }
@@ -230,21 +230,22 @@ func workspaceSourceCheckout(row db.Workspace, bookmark string) string {
 // runtime workspace's clone and checks it out. A bookmark workspace needs
 // nothing.
 func (s *WorkspaceService) fetchRuntimeWorkspaceSource(ctx context.Context, row db.Workspace, requesterID int64, environment map[string]string) error {
-	if row.SourceCommit == "" {
+	source := workspaceCloneSourceOf(row)
+	if source.Commit == "" {
 		return nil
 	}
 	args := []string{"git", "fetch"}
 	if depth := workspaceSourceFetchDepth(s.workspaceCloneDepth(ctx, row.RepositoryID)); depth != "" {
 		args = append(args, depth)
 	}
-	args = append(args, "origin", repohost.WorkspaceSourceRef(row.ID, row.SourceCommit))
+	args = append(args, "origin", source.Ref)
 	if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "fetch-source", workspaceapi.Command{Args: args, Environment: environment}); err != nil {
 		return err
 	}
 	// Jujutsu imports Git's HEAD when it initializes, which makes the pinned
 	// commit visible to it.
 	return s.runRuntimeRepositoryCommand(ctx, row, requesterID, "checkout-source", workspaceapi.Command{
-		Args: []string{"git", "checkout", "--detach", row.SourceCommit},
+		Args: []string{"git", "checkout", "--detach", source.Commit},
 	})
 }
 
@@ -265,6 +266,9 @@ type workspaceCloneSource struct {
 }
 
 func workspaceCloneSourceOf(row db.Workspace) workspaceCloneSource {
+	if row.DiskReclaimedAt.Valid {
+		return workspaceCloneSource{Ref: repohost.BranchHeadRef(row.ID), Commit: row.HeadCommitID}
+	}
 	if row.SourceCommit == "" {
 		return workspaceCloneSource{}
 	}
