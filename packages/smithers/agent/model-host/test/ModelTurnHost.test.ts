@@ -198,3 +198,16 @@ test.each(
 )("rejects malformed event sequences %j", async (events, message) => {
   await expect(collect(events)).rejects.toThrow(message)
 })
+
+test("cuts subscription token and account identity across every chunk boundary", () => {
+  const access = "private-access-token"
+  const account = "private-account-id"
+  const credential = JSON.stringify({ accessToken: access, accountId: account })
+  for (const secret of [access, account]) {
+    for (let boundary = 0; boundary <= secret.length; boundary++) {
+      const cutter = new StreamingCredentialCutter(credential)
+      const output = cutter.push(`before ${secret.slice(0, boundary)}`) + cutter.push(`${secret.slice(boundary)} after`) + cutter.finish()
+      expect(output).toBe("before  after")
+    }
+  }
+})

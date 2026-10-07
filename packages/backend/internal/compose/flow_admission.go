@@ -13,6 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -158,11 +159,22 @@ func ownerCodingSeat(queries *db.Queries, seats []modelproxy.Seat) func(context.
 			return "", err
 		}
 		var binding struct {
+			Protocol   string `json:"protocol"`
 			ModelID    string `json:"modelId"`
 			Credential string `json:"credential"`
 		}
 		if json.Unmarshal(setting.Value, &binding) != nil || strings.TrimSpace(binding.ModelID) == "" {
 			return "", nil
+		}
+		if binding.Credential == services.InstallSubscriptionCredential {
+			enabled, err := services.InstallChatGPTEnabled(ctx, queries)
+			if err != nil {
+				return "", err
+			}
+			if !enabled || binding.Protocol != "openai-responses-chatgpt" {
+				return "", &services.InstallReadinessError{Code: "model_key_missing", Class: "user", Message: "Sign in to ChatGPT"}
+			}
+			return "openai:" + strings.TrimSpace(binding.ModelID), nil
 		}
 		for _, seat := range seats {
 			if seat.KeyEnv == binding.Credential {

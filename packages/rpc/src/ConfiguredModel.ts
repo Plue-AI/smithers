@@ -31,7 +31,7 @@ import type { WorkerFailureCode } from "./WorkerFailureCodes.ts"
  * @since 1.0.0
  * @category constants
  */
-export const MODEL_PROTOCOLS = ["anthropic-messages", "openai-responses", "openai-chat", "evaluation"] as const
+export const MODEL_PROTOCOLS = ["anthropic-messages", "openai-responses", "openai-responses-chatgpt", "openai-chat", "evaluation"] as const
 /**
  * Validates a model protocol at the RPC boundary.
  *
@@ -88,6 +88,7 @@ export const MODEL_PROTOCOL_DEFAULTS: Readonly<
   Record<ModelProtocol, { readonly baseUrl: string | undefined; readonly path: string }>
 > = {
   "anthropic-messages": { baseUrl: "https://api.anthropic.com", path: "/v1/messages" },
+  "openai-responses-chatgpt": { baseUrl: "https://chatgpt.com/backend-api", path: "/codex/responses" },
   "openai-responses": { baseUrl: "https://api.openai.com", path: "/v1/responses" },
   "openai-chat": { baseUrl: undefined, path: "/v1/chat/completions" },
   evaluation: { baseUrl: "https://ai-gateway.vercel.sh", path: "/v4/ai/evaluation-model" }
@@ -165,6 +166,7 @@ export const MODEL_CREDENTIALS = [
   { name: "OPENAI_API_KEY", origins: ["https://api.openai.com"] },
   { name: "CEREBRAS_API_KEY", origins: ["https://api.cerebras.ai"] },
   { name: "OPENROUTER_API_KEY", origins: ["https://openrouter.ai"] },
+  { name: "CHATGPT_SUBSCRIPTION", origins: ["https://chatgpt.com"] },
   { name: "AI_GATEWAY_API_KEY", origins: ["https://ai-gateway.vercel.sh"] }
 ] as const satisfies ReadonlyArray<{ readonly name: string; readonly origins: ReadonlyArray<string> }>
 /**
@@ -1521,10 +1523,28 @@ export const hostRefusedModelTest = (
  * @since 1.0.0
  * @category conversions
  */
+export const modelCredentialParts = (secret: string): ReadonlyArray<string> => {
+  try {
+    const access = JSON.parse(secret) as { accessToken?: unknown; accountId?: unknown }
+    if (typeof access?.accessToken === "string" && typeof access?.accountId === "string") {
+      return [secret, access.accessToken, access.accountId].filter((value) => value !== "")
+    }
+  } catch { /* Ordinary API keys have one secret part. */ }
+  return secret === "" ? [] : [secret]
+}
+
+/** Cut every secret and account identity from a provider echo.
+ * @since 1.0.0
+ * @category conversions
+ */
 export const cutModelCredential = (text: string, secret: string): string => {
   let kept = text
   // Again until none is left: cutting one echo out can join the halves of another.
-  while (secret !== "" && kept.includes(secret)) kept = kept.split(secret).join("")
+  let previous: string
+  do {
+    previous = kept
+    for (const part of modelCredentialParts(secret)) kept = kept.split(part).join("")
+  } while (previous !== kept)
   return kept
 }
 
@@ -1669,6 +1689,9 @@ export const planModelBinding = (
     return failed({ code: "invalid", field })
   }
   const binding = parsed.data
+  if (binding.credential === "CHATGPT_SUBSCRIPTION" && binding.protocol !== "openai-responses-chatgpt") {
+    return failed({ code: "invalid", field: "credential" })
+  }
   const kind = modelKindOf(binding.protocol)
   if (options.kind !== undefined && options.kind !== kind) return failed({ code: "invalid", field: "protocol" })
   const resolved = resolveModelEndpoint(binding, credentials, options)

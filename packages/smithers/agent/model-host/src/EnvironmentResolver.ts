@@ -82,6 +82,7 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
           model,
           options: {
             modelId: planned.plan.modelId,
+            ...(planned.plan.protocol === "openai-responses-chatgpt" ? { outputTokenLimitSupported: false } : {}),
             credential,
             ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens })
           }
@@ -125,6 +126,7 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
             model: fastModel,
             options: {
               modelId: fast.plan.modelId,
+              ...(fast.plan.protocol === "openai-responses-chatgpt" ? { outputTokenLimitSupported: false } : {}),
               credential: fastCredential
             }
           }
