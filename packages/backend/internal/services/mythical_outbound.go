@@ -320,6 +320,7 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 		return nil, err
 	}
 	return &saved, nil
+
 }
 
 // yieldBody drops a "body" operation that must not be sent; the current
