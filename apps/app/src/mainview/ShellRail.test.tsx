@@ -410,3 +410,18 @@ test("member toast hiding leaves shared lines present and timeline leases use pr
   await waitFor(() => view.timeline_visible_until === null)
   expect(writes.at(-1)).toEqual({ toasts_hidden: false, scroll_anchor: "turn:prompt", timeline_visible_until: null })
 })
+
+
+test("unseen completed entries pin below and clear after the durable cursor catches up", () => {
+  const conversation = { id: "main", entries: [{ id: "turn", sequence: 7, author: 2, authorLogin: "alice", runId: "run", prompt: "Done", title: "Done", tone: "done" as const, state: "completed" as const, frames: [] }] }
+  const rows = sharedRailLines(conversation, { role: "member" }, 12)
+  expect(rows.map(row => row.fresh)).toEqual([true, true])
+  const visible = { entry_id: "visible", kind: "prompt" as const, title: "Earlier", tone: "quiet" as const, glyph: { state: "queued" as const } }
+  const edges = railEdges([visible, ...rows], ["visible", "visible"])
+  expect(edges.above).toEqual([])
+  expect(edges.below.map(row => row.entry_id)).toEqual(["turn:prompt", "turn:answer"])
+  const host = mount(<EdgeMap above={[]} below={edges.below} narrow onAction={() => {}} onView={() => {}} />)
+  expect(host.textContent).toContain("↓ 2 new below")
+  expect(railEdges([visible, ...sharedRailLines(conversation, { role: "member" }, 14)], ["visible", "visible"]).below).toEqual([])
+  expect(sharedRailLines(conversation, { role: "member" }, 13).map(row => row.fresh)).toEqual([false, true])
+})

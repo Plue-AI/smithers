@@ -172,6 +172,7 @@ var migrationRegistry = []migrationSpec{
 	{134, "migrations/0134_retire_app_timelines.sql"},
 	{135, "migrations/0135_transcript_checkpoints.sql"},
 	{136, "migrations/0136_machine_receipt_payload.sql"},
+	{137, "migrations/0137_conversation_entry_sequence.sql"},
 }
 
 type migration struct {

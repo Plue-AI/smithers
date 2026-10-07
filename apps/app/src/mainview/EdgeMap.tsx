@@ -22,9 +22,10 @@ function Edge({ entries, direction, narrow, onAction, onView }: EdgeProps) {
   const jump = () => { if (nearest) onView({ jump_to: nearest.entry_id }) }
   const more = () => { if (rest) onView({ jump_to: rest.entry_id }) }
   if (!nearest) return null
+  const label = entries.every(entry => entry.fresh && !["live", "attention", "failed"].includes(entry.tone)) ? "new" : "live"
   const tone = entries.some(entry => entry.tone === "attention") ? "attention" : entries.some(entry => entry.tone === "failed") ? "failed" : "live"
   return <section className="edge" data-edge={direction} data-narrow={narrow || undefined} aria-label={`Live ${direction}`}>
-    <button type="button" className="edge-pill" data-tone={tone} onClick={jump}>{direction === "above" ? "↑" : "↓"} {entries.length} live {direction}</button>
+    <button type="button" className="edge-pill" data-tone={tone} onClick={jump}>{direction === "above" ? "↑" : "↓"} {entries.length} {label} {direction}</button>
     <ol className="tl-edge" data-edge={direction === "above" ? "top" : "bottom"}>
       {entries.slice(0, 2).map(toast => <EdgeRow key={toast.id} toast={toast} onAction={onAction} onView={onView} />)}
       {rest ? <li><button type="button" className="tl-more" onClick={more}>+{entries.length - 2} {direction}</button></li> : null}
