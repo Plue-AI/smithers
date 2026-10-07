@@ -28,11 +28,11 @@ import (
 // dispatch the next one. It does not substitute for guest/model-turn proof.
 type orderedFeedbackReceiver struct {
 	*reviewFixtureReceiver
-	entered    chan string
-	holds      map[string]chan struct{}
-	order      []string
-	lostAck    chan struct{}
-	recoverAck chan struct{}
+	entered     chan string
+	holds       map[string]chan struct{}
+	order       []string
+	lostAcks    map[string]chan struct{}
+	recoverAcks map[string]chan struct{}
 }
 
 func (r *orderedFeedbackReceiver) receive(ctx context.Context, text string) error {
@@ -58,15 +58,16 @@ func (r *orderedFeedbackReceiver) Steer(ctx context.Context, input flowruntime.S
 		return flowruntime.MutationResult{}, err
 	}
 	receipt, err := r.reviewFixtureReceiver.Steer(ctx, input)
-	if input.Body != "Lost acknowledgment steer" || err != nil {
+	lostAck, uncertain := r.lostAcks[input.Body]
+	if !uncertain || err != nil {
 		return receipt, err
 	}
 	if receipt.Receipt.Tag == "Accepted" {
-		close(r.lostAck)
+		close(lostAck)
 		return flowruntime.MutationResult{}, fmt.Errorf("connection closed after durable admission")
 	}
 	select {
-	case <-r.recoverAck:
+	case <-r.recoverAcks[input.Body]:
 		return receipt, nil
 	case <-ctx.Done():
 		return flowruntime.MutationResult{}, ctx.Err()
@@ -119,7 +120,8 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	})
 	service.EnableTodoSteering()
 	receiver := &orderedFeedbackReceiver{reviewFixtureReceiver: &reviewFixtureReceiver{messages: map[string]flowruntime.Steer{}},
-		lostAck: make(chan struct{}), recoverAck: make(chan struct{}), entered: make(chan string, 2), holds: map[string]chan struct{}{"Ordered steer": make(chan struct{}), "Ordered answer": make(chan struct{})}}
+		lostAcks:    map[string]chan struct{}{"Lost acknowledgment steer": make(chan struct{}), "Lost acknowledgment amendment": make(chan struct{})},
+		recoverAcks: map[string]chan struct{}{"Lost acknowledgment steer": make(chan struct{}), "Lost acknowledgment amendment": make(chan struct{})}, entered: make(chan string, 2), holds: map[string]chan struct{}{"Ordered steer": make(chan struct{}), "Ordered answer": make(chan struct{})}}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil }), SteerAuthorizer: service, Projector: service})
@@ -281,10 +283,12 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	for index, pair := range []struct {
 		first, second string
 		answerFirst   bool
+		amendment     bool
 	}{
-		{"Ordered steer", "Quick answer", false},
-		{"Ordered answer", "Quick steer", true},
-		{"Lost acknowledgment steer", "Answer after lost acknowledgment", false},
+		{"Ordered steer", "Quick answer", false, false},
+		{"Ordered answer", "Quick steer", true, false},
+		{"Lost acknowledgment steer", "Answer after lost acknowledgment", false, false},
+		{"Lost acknowledgment amendment", "Answer after lost amendment acknowledgment", false, true},
 	} {
 		waitID := fmt.Sprintf("ordered-question-%d", index)
 		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
@@ -301,19 +305,40 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 			confirmationCall("POST", "/api/todos/1/answer", string(body), waitID, false, 202)
 		}
 		steer := func(text string) {
-			body, err := json.Marshal(map[string]string{"steer": text})
+			method, field := "POST", "steer"
+			if pair.amendment {
+				method, field = "PATCH", "prompt"
+			}
+			body, err := json.Marshal(map[string]string{field: text})
 			require.NoError(t, err)
-			call("POST", string(body), fmt.Sprintf("ordered-steer-%d", index))
+			call(method, string(body), fmt.Sprintf("ordered-steer-%d", index))
 		}
 		if pair.answerFirst {
 			answer(pair.first)
 		} else {
 			steer(pair.first)
 		}
+		if pair.amendment {
+			committed, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			steer(pair.first) // HTTP replay while the delivery acknowledgment is lost.
+			replayed, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, committed.Revisions, replayed.Revisions)
+			var revisions []struct {
+				Text string `json:"text"`
+			}
+			require.NoError(t, json.Unmarshal(replayed.Revisions, &revisions))
+			require.Len(t, revisions, 4)
+			require.Equal(t, pair.first, revisions[3].Text)
+			require.Equal(t, "pinned-run", replayed.RequestRunID)
+			require.Equal(t, read.WorkspaceID, replayed.WorkspaceID)
+			require.Equal(t, int32(1), replayed.Attempt)
+		}
 		entered := receiver.entered
-		if index == 2 {
+		if index >= 2 {
 			select {
-			case <-receiver.lostAck:
+			case <-receiver.lostAcks[pair.first]:
 			case <-time.After(5 * time.Second):
 				t.Fatal("runtime never committed the uncertain input")
 			}
@@ -354,7 +379,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 			}
 			return false
 		}, 200*time.Millisecond, 10*time.Millisecond, "later input overtook an unresolved predecessor")
-		if index == 2 {
+		if index >= 2 {
 			// Stop only our worker after the guest accepted the input but before
 			// PostgreSQL has its receipt. A new dispatcher has no local state.
 			cancel()
@@ -362,7 +387,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 			dispatcher, err = flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil }), SteerAuthorizer: service, Projector: service})
 			require.NoError(t, err)
 			service.SetLauncher(dispatcher)
-			close(receiver.recoverAck)
+			close(receiver.recoverAcks[pair.first])
 			workerCtx, cancel = context.WithCancel(ctx)
 			defer cancel()
 			done = make(chan error, 1)
@@ -382,7 +407,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 			}
 			return false
 		}, 5*time.Second, 10*time.Millisecond)
-		if index == 2 {
+		if index >= 2 {
 			require.Eventually(t, func() bool {
 				var recovered int
 				err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests
@@ -392,7 +417,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 			}, 5*time.Second, 10*time.Millisecond, "restart must persist the guest's duplicate receipt")
 		}
 		receiver.mu.Lock()
-		if index == 2 {
+		if index >= 2 {
 			require.Equal(t, pair.second, receiver.order[len(receiver.order)-1])
 			applied := 0
 			for _, message := range receiver.messages {
