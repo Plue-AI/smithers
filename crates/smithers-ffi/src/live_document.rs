@@ -12,6 +12,7 @@ use yrs::{DeepObservable, Doc, GetString, Map, ReadTxn, StateVector, Transact};
 
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TEXT: usize = 1024 * 1024;
+const MAX_WIKI_STATE: usize = 8 * 1024 * 1024;
 type Result<T> = std::result::Result<T, u32>;
 struct Document {
     doc: Doc,
@@ -83,6 +84,12 @@ fn with(h: u64, f: impl FnOnce(&mut Document) -> Result<Vec<u8>>) -> Result<Vec<
     let mut doc = doc.lock().map_err(|_| 3u32)?;
     f(&mut doc)
 }
+fn validate_state_size(root: &str, doc: &Doc) -> Result<()> {
+    if root == "markdown" && core::state(doc).len() > MAX_WIKI_STATE {
+        return Err(1);
+    }
+    Ok(())
+}
 fn restore(root: &'static str, state: &[u8]) -> Result<Doc> {
     let doc = core::document(None);
     doc.get_or_insert_text(root);
@@ -102,6 +109,7 @@ fn restore(root: &'static str, state: &[u8]) -> Result<Doc> {
     {
         return Err(1);
     }
+    validate_state_size(root, &doc)?;
     Ok(doc)
 }
 
@@ -155,6 +163,9 @@ pub unsafe extern "C" fn ld_apply(h: u64, client: u64, data: *const u8, len: usi
             {
                 return Err(1);
             }
+            if entry.root == "markdown" && bytes.len() > MAX_TEXT {
+                return Err(1);
+            }
             // Validate before touching the live document, including delete-only writes.
             // A missing causal predecessor is refused and can be retried after sync;
             // otherwise a hidden pending authors write could be activated later.
@@ -178,6 +189,7 @@ pub unsafe extern "C" fn ld_apply(h: u64, client: u64, data: *const u8, len: usi
             {
                 return Err(1);
             }
+            validate_state_size(entry.root, &scratch)?;
             let mut txn = entry.doc.transact_mut();
             txn.apply_update(decode(bytes).map_err(|_| 2u32)?)
                 .map_err(|_| 2u32)?;
@@ -265,6 +277,19 @@ pub unsafe extern "C" fn ld_set_author(
                     return Err(1);
                 }
                 return Ok(vec![0, 0]);
+            }
+            // Metadata also counts toward the persisted wiki-state bound.
+            // Check the candidate before allocating an authenticated client id.
+            if e.root == "markdown" {
+                let candidate = core::document(Some(e.doc.client_id().get()));
+                core::apply(&candidate, decode(&core::state(&e.doc)).map_err(|_| 2u32)?)
+                    .map_err(|_| 2u32)?;
+                candidate.get_or_insert_map("authors").insert(
+                    &mut candidate.transact_mut(),
+                    client.to_string(),
+                    actor,
+                );
+                validate_state_size(e.root, &candidate)?;
             }
             let mut txn = e.doc.transact_mut();
             map.insert(&mut txn, client.to_string(), actor);
@@ -366,6 +391,49 @@ mod tests {
         f(&mut txn);
         txn.encode_update_v1()
     }
+    #[test]
+    fn wiki_state_limit_refuses_growth_atomically() {
+        // A small visible page can have large attribution/history metadata.
+        // Retain a near-limit state, then try both edits and new subscriptions.
+        let doc = core::document(Some(42));
+        doc.get_or_insert_text("markdown");
+        let authors = doc.get_or_insert_map("authors");
+        authors.insert(&mut doc.transact_mut(), "11", "alice");
+        authors.insert(
+            &mut doc.transact_mut(),
+            "42",
+            "x".repeat(8 * 1024 * 1024 - 256),
+        );
+        let state = core::state(&doc);
+        assert!(state.len() < 8 * 1024 * 1024);
+        let h = unsafe { ld_open(1, state.as_ptr(), state.len()) };
+        assert_ne!(h, 0);
+        let client = core::document(Some(11));
+        core::apply(&client, core::decode(&state).unwrap()).unwrap();
+        let text = client.get_or_insert_text("markdown");
+        let update = delta(&client, |txn| text.insert(txn, 0, &"a".repeat(512)));
+        assert_eq!(apply(h, 11, &update), Err(1));
+        assert_eq!(take(ld_state(h)).unwrap(), state);
+        let actor = "b".repeat(512);
+        assert_eq!(
+            take(unsafe { ld_set_author(h, 22, actor.as_ptr(), actor.len()) }),
+            Err(1)
+        );
+        assert_eq!(take(ld_state(h)).unwrap(), state);
+        // Trusted peer merges and reopen obey the same storage limit.
+        assert_eq!(
+            take(unsafe { ld_peer(h, update.as_ptr(), update.len()) }),
+            Err(1)
+        );
+        assert_eq!(take(ld_state(h)).unwrap(), state);
+        let oversized = core::state(&client);
+        assert_eq!(
+            unsafe { ld_open(1, oversized.as_ptr(), oversized.len()) },
+            0
+        );
+        take(ld_close(h)).unwrap();
+    }
+
     #[test]
     fn thousand_large_document_cycles() {
         let doc = core::document(Some(42));
