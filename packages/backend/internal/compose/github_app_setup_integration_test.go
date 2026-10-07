@@ -44,7 +44,11 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 	options = append(options, extras...)
 	userHandler := &routes.UserHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{}
+	var wikiService routes.WikiService
 	for _, extra := range extras {
+		if wiki, ok := extra.(routes.WikiService); ok {
+			wikiService = wiki
+		}
 		if workspace, ok := extra.(*routes.WorkspaceHandler); ok {
 			workspaceHandler = workspace
 		}
@@ -56,7 +60,7 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 		cfg, db.New(pool), pool,
 		&routes.RepoHandler{}, &routes.AuthHandler{}, userHandler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
-		nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
+		wikiService, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil,
 		workspaceHandler, nil, nil, nil, nil, nil, nil,
