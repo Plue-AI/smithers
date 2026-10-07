@@ -7,6 +7,25 @@ import { summarize, summarizeRebases } from './lib/stats.mjs'
 import { configuration as agentConfiguration, run as agentRun } from './agent-first-token.mjs'
 import { configuration as projectionConfiguration, run as projectionRun } from './projection-delta.mjs'
 
+import { configuration as keystrokeConfiguration, run as keystrokeRun } from './keystroke.mjs'
+import { configuration as diskConfiguration, run as diskRun } from './disk-write.mjs'
+import { configuration as wakeConfiguration, run as wakeRun } from './warm-wake.mjs'
+
+// No operator boolean can qualify privileged lifecycle inputs. Until the install
+// exposes authenticated qualification, refuse before invoking machine workloads.
+function machineProvider(configuration, workload, fields) {
+  return {
+    available(env, { origin }) {
+      const config = configuration(env)
+      if (config.origin !== origin) throw new Error('configured measurement origin differs from run')
+      if (process.platform !== 'darwin') throw new Error('reference-network Mac required')
+      throw new Error('authenticated lifecycle qualification unavailable: T-INS-02, T-MCH-11, T-SEC-01, T-MCH-10')
+    },
+    async measure(env) { return (await workload(env, { persist: false })).result },
+    fields
+  }
+}
+
 // Literal release budgets, not derived from spec text or implementation policy.
 // Drivers remain unavailable until their production boundary and security evidence qualify.
 export const budgets = [
@@ -19,6 +38,9 @@ export const budgets = [
 ]
 
 export const productionProviders = {
+  'C-PERF-03': machineProvider(keystrokeConfiguration, keystrokeRun, { remoteCard: 'arrival_ms' }),
+  'C-PERF-04': machineProvider(diskConfiguration, diskRun, { fileReload: 'arrival_ms' }),
+  'C-PERF-05': machineProvider(wakeConfiguration, wakeRun, { awake: 'hostMs' }),
   'C-PERF-01': {
     available(env, { origin }) {
       const config = agentConfiguration(env)
@@ -81,7 +103,7 @@ export async function run({ env = process.env, providers = productionProviders, 
       entry.samples = result.samples ?? []
       // Retain the driver's cross-checks, including on failure. Only public
       // evidence fields are copied; environment and credentials stay private.
-      for (const field of ['browser', 'clock', 'models', 'member', 'members', 'sshMember', 'sshFingerprint', 'backgroundTabs', 'preflightSummary', 'questionOrder', 'metricsCrossCheck', 'wakesBefore', 'wakesAfter', 'activity', 'sleepSeconds']) {
+      for (const field of ['browser', 'clock', 'models', 'member', 'members', 'sshMember', 'sshFingerprint', 'backgroundTabs', 'preflightSummary', 'questionOrder', 'metricsCrossCheck', 'wakesBefore', 'wakesAfter', 'activity', 'sleepSeconds', 'cleanupError', 'pendingTerminal']) {
         if (result[field] !== undefined) entry[field] = result[field]
       }
       if (result.status !== 'passed') throw new Error(result.error ?? 'measurement failed')

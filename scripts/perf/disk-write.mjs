@@ -73,7 +73,7 @@ export async function subscribeFiles({ origin, branch }) {
   })
 }
 
-export async function run(env = process.env) {
+export async function run(env = process.env, { persist = true } = {}) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   const result = { timestamp, check: 'C-PERF-04', status: 'failed', samples: [], clock: 'second Mac Node performance.now(): SSH submission to browser binding (upper bound)' }
   let browser, directory, ssh, masterStarted = false
@@ -165,6 +165,7 @@ export async function run(env = process.env) {
     if (masterStarted) await execute('/usr/bin/ssh', [...ssh, '-O', 'exit', '--', env.SMITHERS_PERF_SSH_DESTINATION], { timeout: 5000 }).catch(() => {})
     if (directory) await rm(directory, { recursive: true, force: true })
   }
+  if (!persist) return { result }
   const evidence = await writeRun(process.cwd(), { ...result, budgets: [{ ...result, name: 'disk-write' }] })
   console.log(`${result.status}: ${evidence}${result.error ? ` (${result.error})` : ''}`)
   return result.status === 'passed' ? 0 : 1

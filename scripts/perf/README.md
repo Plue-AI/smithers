@@ -217,3 +217,11 @@ acknowledgement samples, distinct retained markers, and p95 below 2000 ms in
 each cohort. A pooled percentile cannot qualify the delayed cohort. Workload
 exceptions retain completed samples and the failed attempt; delivery-restoration
 errors remain alongside the original failure in unified artifacts.
+
+The unified runner now binds the existing C-PERF-03, 04 and 05 workloads,
+using their raw result objects without creating nested artifact directories.
+C-PERF-05 compares `hostMs` with its budget; client timing stays a cross-check.
+All three bindings refuse before measurement until authenticated lifecycle
+qualification is exposed by the install. Environment flags cannot waive that
+precondition. A configured driver is not an activated machine budget.
+Standalone CLI behavior and artifact copies are preserved.

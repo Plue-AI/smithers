@@ -230,3 +230,27 @@ test('failed workload exceptions retain partial samples and cleanup failure in a
   assert.equal(saved.reason, error.message)
   assert.equal(saved.cleanupError, error.cleanupError)
 }))
+
+test('machine bindings select real drivers and refuse before measurement on this host', async () => temporary(async root => {
+  const measured = await run({ ...options, root, providers: productionProviders })
+  assert.equal(measured.summary.status, 'incomplete')
+  for (const check of ['C-PERF-03', 'C-PERF-04', 'C-PERF-05']) {
+    const budget = measured.summary.budgets.find(b => b.check === check)
+    assert.equal(budget.status, 'skipped')
+    assert.deepEqual(budget.samples, [])
+    assert.doesNotMatch(budget.reason, /standalone driver exists/)
+    assert.equal(typeof productionProviders[check].measure, 'function')
+  }
+  assert.deepEqual(productionProviders['C-PERF-05'].fields, { awake: 'hostMs' })
+}))
+
+test('bound machine drivers return failure observations without writing nested runs', async () => temporary(async root => {
+  const env = { SMITHERS_PERF_ARTIFACT_ROOT: root }
+  for (const check of ['C-PERF-03', 'C-PERF-04', 'C-PERF-05']) {
+    const result = await productionProviders[check].measure(env)
+    assert.equal(result.status, 'failed')
+    assert.deepEqual(result.samples, [])
+    assert.equal(typeof result.error, 'string')
+  }
+  assert.deepEqual(await readdir(root), [])
+}))

@@ -52,7 +52,7 @@ async function fullText(page) {
   return page.evaluate(() => navigator.clipboard.readText())
 }
 
-export async function run(env = process.env) {
+export async function run(env = process.env, { persist = true } = {}) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   const result = { timestamp, check: 'C-PERF-03', status: 'failed', samples: [], clock: 'second Mac: performance.timeOrigin + performance.now()' }
   let browser
@@ -128,6 +128,7 @@ export async function run(env = process.env) {
   }
   // Use the shared writer for both raw evidence and check copies. It refuses
   // symlink parents and existing run directories on every path.
+  if (!persist) return { result }
   const directory = await writeRun(process.cwd(), {
     ...result, budgets: [{ ...result, name: 'keystroke' }]
   })

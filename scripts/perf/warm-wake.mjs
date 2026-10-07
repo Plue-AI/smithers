@@ -43,7 +43,7 @@ export function configuration(env) {
   return { origin, repository: repository.map(encodeURIComponent).join('/'), branch: env.SMITHERS_PERF_BRANCH, csrf, sleepSeconds }
 }
 
-export async function run(env = process.env) {
+export async function run(env = process.env, { persist = true } = {}) {
   const result = { timestamp: new Date().toISOString().replace(/[:.]/g, '-'), check: 'C-PERF-05', status: 'failed', samples: [], budgets: [{ check: 'C-PERF-05', name: 'warm-wake', status: 'failed' }] }
   let socket
   let terminal, closeTerminal
@@ -131,6 +131,7 @@ export async function run(env = process.env) {
       try { await closeTerminal(terminal) } catch (error) { result.cleanupError = error.message; result.pendingTerminal = terminal }
     }
   }
+  if (!persist) return { result }
   result.artifacts = await writeRun(env.SMITHERS_PERF_ARTIFACT_ROOT ?? process.cwd(), result)
   return result
 }
