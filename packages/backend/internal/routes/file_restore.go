@@ -23,27 +23,38 @@ type FileRestoreHandler struct {
 	Authorize func(*http.Request, string) (int64, int64, error)
 }
 
-func (h *FileRestoreHandler) Restore(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Action  string `json:"action"`
-		Version string `json:"version"`
-		Base    string `json:"base_digest"`
-	}
-	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+type FileRestoreInput struct {
+	Action  string `json:"action"`
+	Version string `json:"version"`
+	Base    string `json:"base_digest"`
+}
+
+// DecodeFileRestore resolves the concrete command before admission. Both the
+// install dispatcher and direct handler use this strict payload contract.
+func DecodeFileRestore(body io.Reader) (FileRestoreInput, string, error) {
+	var input FileRestoreInput
+	d := json.NewDecoder(body)
 	d.DisallowUnknownFields()
 	if err := d.Decode(&input); err != nil {
-		writeRouteError(w, r, pkgerrors.BadRequest("invalid restore request"))
-		return
+		return input, "", pkgerrors.BadRequest("invalid restore request")
 	}
 	if err := d.Decode(&struct{}{}); err != io.EOF {
-		writeRouteError(w, r, pkgerrors.BadRequest("invalid restore request"))
-		return
+		return input, "", pkgerrors.BadRequest("invalid restore request")
 	}
-	command := "file.restore"
-	if input.Action == "restore-deleted" {
-		command = "file.restore-deleted"
-	} else if input.Action != "restore" {
-		writeRouteError(w, r, pkgerrors.BadRequest("invalid restore action"))
+	switch input.Action {
+	case "restore":
+		return input, "file.restore", nil
+	case "restore-deleted":
+		return input, "file.restore-deleted", nil
+	default:
+		return input, "", pkgerrors.BadRequest("invalid restore action")
+	}
+}
+
+func (h *FileRestoreHandler) Restore(w http.ResponseWriter, r *http.Request) {
+	input, command, err := DecodeFileRestore(http.MaxBytesReader(w, r.Body, 8192))
+	if err != nil {
+		writeRouteError(w, r, err)
 		return
 	}
 	if h.Authorize == nil {

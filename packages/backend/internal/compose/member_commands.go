@@ -82,16 +82,21 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 			}
 			if command == "file.restore" {
 				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
-				var input struct {
-					Action string `json:"action"`
-				}
-				if err != nil || json.Unmarshal(raw, &input) != nil || (input.Action != "restore" && input.Action != "restore-deleted") {
-					writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_restore", Message: "Invalid restore request"})
+				if err != nil {
+					pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid restore request"))
 					return
 				}
-				if input.Action == "restore-deleted" {
-					command = "file.restore-deleted"
+				_, resolved, err := routes.DecodeFileRestore(bytes.NewReader(raw))
+				if err != nil {
+					var apiError *pkgerrors.APIError
+					if stdErrors.As(err, &apiError) {
+						pkgerrors.WriteError(w, apiError)
+					} else {
+						pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid restore request"))
+					}
+					return
 				}
+				command = resolved
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 			if command == "todo.new" {
