@@ -193,15 +193,26 @@ describe("NodeWorkspaceObservation.changes", () => {
     { name: "creates a file in a new directory", change: (root) => write(root, "src/new/deep/file.ts", "n") },
     { name: "deletes a file", change: (root) => rmSync(join(root, "README.md")) },
     { name: "renames a file", change: (root) => renameSync(join(root, "README.md"), join(root, "READ.md")) }
-  ])("counts a command that $name just before the call", patient, async ({ change }, context) => {
-    needsLiveFeed(context)
+  ])("counts a command that $name just before the call", patient, async ({ change }) => {
     const root = checkout()
-    const { settled, close } = await feedOver(root)
-    const before = count(await settled())
-    change(root)
-    // No pause: the fence alone must make the change count.
-    expect(count(await settled())).toBeGreaterThan(before)
-    await close()
+    const { feed, settled, close } = await feedOver(root)
+    try {
+      const cached = WorkspaceObservation.cached(WorkspaceObservation.observeHost(host, root), feed)
+      const before = await Effect.runPromise(cached)
+      const beforeCount = await settled()
+      change(root)
+      // No pause: a delivered fence counts the change; an unavailable fence
+      // must make the cached observer walk rather than return old bytes.
+      const afterCount = await settled()
+      if (Option.isSome(beforeCount) && Option.isSome(afterCount)) {
+        expect(afterCount.value).toBeGreaterThan(beforeCount.value)
+      }
+      const after = await Effect.runPromise(cached)
+      expect(after.digest).not.toBe(before.digest)
+      expect(after).toEqual(await native(root))
+    } finally {
+      await close()
+    }
   })
 
   it("does not count changes under skipped paths", patient, async (context) => {
