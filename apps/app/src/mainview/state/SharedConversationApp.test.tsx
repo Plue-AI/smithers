@@ -1,3 +1,4 @@
+import { SharedConversationSchema } from "./seams/SharedConversationSeam"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
@@ -503,4 +504,14 @@ test("Home and conversation preferences serialize through the install controller
     expect(saved).toEqual({ home: { filter: "working" }, last_seen_seq: 19, toasts_hidden: true })
     expect(controller.homeView!.get().last_seen_seq).toBe(19)
   } finally { release?.(); stop(); await controller.dispose() }
+})
+
+test("published imports remain read-only with their durable sequence", () => {
+  const result = SharedConversationSchema.parse({ id: "main", entries: [{
+    id: "import-1", sequence: 9, origin: "external", read_only: true, agent: "codex", source_format_version: "codex/0.160.0",
+    source_id: "source", source_offset: 0, session_id: "session", participant_id: "participant", owner_id: "2", author_id: "2",
+    author: 2, authorLogin: "alice", kind: "prompt", body: "Read this import", title: "Read this import", tone: "quiet",
+    runId: "import-run", prompt: "Read this import", state: "completed", frames: []
+  }] })
+  expect(result.entries[0]).toMatchObject({ origin: "external", read_only: true, text: "Read this import", role: "user", sequence: 9 })
 })

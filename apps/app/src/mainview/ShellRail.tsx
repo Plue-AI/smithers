@@ -110,7 +110,10 @@ export const railTimes = (entries: ReadonlyArray<RailEntry>): Map<string, number
 const sharedEntrySequences = (conversation: SharedConversation | undefined): ReadonlyMap<string, number> => {
  const positions = new Map<string, number>()
  for (const turn of conversation?.entries ?? []) {
-  if ("role" in turn) continue
+  if ("role" in turn) {
+    if ("sequence" in turn && typeof turn.sequence === "number") positions.set(turn.id, turn.sequence * 1_000_000)
+    continue
+   }
   if (turn.entry_sequences) { for (const [id, position] of Object.entries(turn.entry_sequences)) positions.set(id,position) }
   else if (turn.sequence!==undefined) { positions.set(`${turn.id}:prompt`,turn.sequence*2-1); positions.set(`${turn.id}:answer`,turn.sequence*2) }
  }
@@ -125,7 +128,7 @@ const sharedFresh = (positions: ReadonlyMap<string, number>, id: string, lastSee
 export const sharedRailLines = (conversation: SharedConversation | undefined, viewer: Parameters<typeof actionFor>[1], lastSeen: number = 0): TimelineLine[] => {
  const positions=sharedEntrySequences(conversation)
  return (conversation?.entries ?? []).flatMap(turn => {
-  if ("role" in turn) return railLines([{ kind: "message", message: turn }], viewer)
+  if ("role" in turn) return railLines([{ kind: "message", message: turn }], viewer).map(line => ({ ...line, fresh: sharedFresh(positions, line.entry_id, lastSeen) }))
   const color_index = (turn.author % 6) as 0 | 1 | 2 | 3 | 4 | 5
   const person = { login: turn.authorLogin, name: turn.authorLogin, avatar_url: PlaceholderAvatarUrl }
   const frames = turn.frames.filter(frame => frame.runId === turn.runId)

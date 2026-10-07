@@ -22,6 +22,7 @@ const SharedTurnSchema = z.object({
 // The journal projection carries adapter drafts, not persisted browser messages.
 // Validate its trusted identity before mapping it through the shared message decoder.
 const ImportedTurnSchema = z.object({
+  sequence: z.number().int().positive().safe().optional(),
   id: z.string().min(1), origin: z.literal("external"), read_only: z.literal(true),
   agent: z.enum(["claude-code", "codex"]), source_format_version: z.string().min(1),
   source_id: z.string().min(1), source_offset: z.number().int().nonnegative(),
@@ -38,7 +39,7 @@ const ImportedTurnSchema = z.object({
   }
 }).transform(entry => {
   const person = { name: entry.authorName || entry.authorLogin, login: entry.authorLogin, avatar_url: PlaceholderAvatarUrl }
-  return MessageSchema.parse({
+  const decoded = MessageSchema.parse({
     id: entry.id, origin: "external", read_only: true, agent_kind: entry.agent,
     format_version: entry.source_format_version, source_id: entry.source_id,
     session_id: entry.session_id, participant_id: entry.participant_id,
@@ -54,6 +55,7 @@ const ImportedTurnSchema = z.object({
     status: entry.failed || entry.kind === "error" ? "failed" : "complete",
     createdAt: 0, ordinal: 0
   })
+  return { ...decoded, ...(entry.sequence === undefined ? {} : { sequence: entry.sequence }) }
 })
 export const SharedConversationSchema = z.object({
   id: z.string(),
