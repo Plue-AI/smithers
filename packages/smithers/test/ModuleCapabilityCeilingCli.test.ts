@@ -59,56 +59,69 @@ const start = async (flow: "deny" | "spawn") => {
   // The directory name stays free of the repository's name so a local jj
   // wrapper never mistakes this scratch repository for the checkout.
   const root = await realpath(await mkdtemp(join(tmpdir(), "ceiling-")))
-  await cp(join(fixture, "flows"), join(root, "flows"), { recursive: true })
-  await cp(join(fixture, "probe.ts"), join(root, "probe.ts"))
-  await mkdir(join(root, ".flows"))
-  await symlink(nodeModules, join(root, "node_modules"), "dir")
-  execFileSync("jj", ["git", "init", root], { stdio: "ignore" })
-  const marker = join(root, "spawned-marker")
-  const written = join(root, "written.txt")
-  const environment = {
-    ...process.env,
-    XDG_CONFIG_HOME: join(root, "config"),
-    AI_GATEWAY_API_KEY: "",
-    SMITHERS_REMOTE: "",
-    NODE_OPTIONS: ""
-  }
-  const command = (arguments_: ReadonlyArray<string>) =>
-    run(process.execPath, ["--no-warnings", "--import", preload, bin, ...arguments_], {
-      cwd: root,
-      env: environment,
-      timeout: 120_000,
-      maxBuffer: 4 * 1024 * 1024
-    }).catch((cause: unknown) => {
-      const failure = cause as { message: string; stdout?: string; stderr?: string }
-      throw new Error(`${failure.message}\nstdout: ${failure.stdout ?? ""}\nstderr: ${failure.stderr ?? ""}`)
-    })
-  const before = requests
-  const started = await command([
-    "flow",
-    "start",
-    flow,
-    "--data",
-    JSON.stringify({ marker, written, url }),
-    "--wait",
-    "--json"
-  ])
-  const { runId } = JSON.parse(started.stdout) as { runId: string }
-  const shown = await command(["runs", "show", runId, "--json"])
-  const logs = await command(["runs", "logs", runId, "--format", "jsonl"])
-  const outcomes = logs.stdout.trim().split("\n").map((line) => findOutcomes(JSON.parse(line)))
-    .find((found) => found !== undefined)
-  expect(outcomes, `${shown.stdout}\n${logs.stdout}`).toBeDefined()
-  return {
-    root,
-    status: (JSON.parse(shown.stdout) as { status: string }).status,
-    outcomes: outcomes!,
-    spawned: existsSync(marker),
-    written: existsSync(written),
-    // The engine's own step snapshot around the compensable action, taken on
-    // its privileged repository rather than the action's guarded one.
-    engineSnapshot: /"snapshotId":"[0-9a-f]{40}"/.test(logs.stdout),
-    requested: requests - before
+  try {
+    await cp(join(fixture, "flows"), join(root, "flows"), { recursive: true })
+    await cp(join(fixture, "probe.ts"), join(root, "probe.ts"))
+    await mkdir(join(root, ".flows"))
+    await symlink(nodeModules, join(root, "node_modules"), "dir")
+    execFileSync("jj", ["git", "init", root], { stdio: "ignore" })
+    const marker = join(root, "spawned-marker")
+    const written = join(root, "written.txt")
+    const environment = {
+      ...process.env,
+      XDG_CONFIG_HOME: join(root, "config"),
+      AI_GATEWAY_API_KEY: "",
+      SMITHERS_REMOTE: "",
+      SMITHERS_BACKEND: "sqlite",
+      NODE_OPTIONS: ""
+    }
+    const command = (arguments_: ReadonlyArray<string>) =>
+      run(process.execPath, ["--no-warnings", "--import", preload, bin, ...arguments_], {
+        cwd: root,
+        env: environment,
+        timeout: 120_000,
+        maxBuffer: 4 * 1024 * 1024
+      }).catch((cause: unknown) => {
+        const failure = cause as { message: string; stdout?: string; stderr?: string }
+        throw new Error(`${failure.message}\nstdout: ${failure.stdout ?? ""}\nstderr: ${failure.stderr ?? ""}`)
+      })
+    const before = requests
+    const started = await command([
+      "flow",
+      "start",
+      flow,
+      "--data",
+      JSON.stringify({ marker, written, url }),
+      "--wait",
+      "--json"
+    ])
+    const { runId } = JSON.parse(started.stdout) as { runId: string }
+    expect(runId).toMatch(/^run-/)
+    // Install run commands use the backend; this execution belongs to the
+    // scratch project's local control store.
+    const shown = await command(["status", runId, "--json"])
+    const page = JSON.parse(shown.stdout) as { items: Array<{ runId: string; status: string }> }
+    expect(page.items).toHaveLength(1)
+    expect(page.items[0]!.runId).toBe(runId)
+    const logs = await command(["runs", "logs", runId, "--format", "jsonl"])
+    const outcomes = logs.stdout.trim().split("\n").map((line) => findOutcomes(JSON.parse(line)))
+      .find((found) => found !== undefined)
+    expect(outcomes, `${shown.stdout}\n${logs.stdout}`).toBeDefined()
+    return {
+      root,
+      status: page.items[0]!.status,
+      outcomes: outcomes!,
+      spawned: existsSync(marker),
+      written: existsSync(written),
+      // The engine's own step snapshot around the compensable action, taken on
+      // its privileged repository rather than the action's guarded one.
+      engineSnapshot: /"snapshotId":"[0-9a-f]{40}"/.test(logs.stdout),
+      requested: requests - before
+    }
+  } catch (cause) {
+    // Setup or observation failures happen before the caller owns a result.
+    await rm(root, { recursive: true, force: true })
+    throw cause
   }
 }
 

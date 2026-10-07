@@ -35,6 +35,7 @@ describe("a module's exported implementation layer", () => {
         XDG_CONFIG_HOME: join(root, "config"),
         AI_GATEWAY_API_KEY: "",
         SMITHERS_REMOTE: "",
+        SMITHERS_BACKEND: "sqlite",
         NODE_OPTIONS: ""
       }
       const command = (arguments_: ReadonlyArray<string>) =>
@@ -58,15 +59,19 @@ describe("a module's exported implementation layer", () => {
       ])
       expect(started.stderr).not.toContain("AnyOf")
       expect(await readFile(output, "utf8")).toBe("child-wrote-this")
-      const listed = await command(["runs", "list", "--flow", "fixture", "--json"])
+      // Install run commands use the backend. This fixture runs a local
+      // file flow, so read its project store through the retained local CLI.
+      const listed = await command(["ps", "--flow", "fixture", "--json"])
       const page = JSON.parse(listed.stdout) as {
         items: ReadonlyArray<{ runId: string; flowId: string; status: string }>
       }
       expect(page.items).toHaveLength(1)
       expect(page.items[0]).toMatchObject({ flowId: "fixture", status: "completed" })
-      const inspected = await command(["runs", "show", page.items[0]!.runId, "--json"])
-      const completion = JSON.parse(inspected.stdout) as { status: string }
-      expect(completion.status).toBe("completed")
+      const inspected = await command(["status", page.items[0]!.runId, "--json"])
+      expect(JSON.parse(inspected.stdout)).toMatchObject({
+        _tag: "runs",
+        items: [{ runId: page.items[0]!.runId, flowId: "fixture", status: "completed" }]
+      })
       // The recorded result proves completion came from the subprocess, not
       // merely from accepting the launch or creating its plan.
       const events = await command(["runs", "logs", page.items[0]!.runId, "--format", "jsonl"])
