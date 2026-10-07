@@ -257,7 +257,7 @@
     },
     "C-INS-05": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/scripts/server-bundle.integration.test.ts",
+      "reason": "Bundle integration test exists; positive readiness, offline boot and PostgreSQL persistence require a current owner-approved install and signed reference-host receipt",
       "ticket": "T-INS-01",
       "pendingBinding": {
         "commands": [
