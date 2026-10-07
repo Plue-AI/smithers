@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { publicOrigin, readHost, validateHost } from './lib/host.mjs'
 import { writeRun } from './lib/artifact.mjs'
-import { summarize } from './lib/stats.mjs'
+import { summarize, summarizeRebases } from './lib/stats.mjs'
 import { configuration as agentConfiguration, run as agentRun } from './agent-first-token.mjs'
 import { configuration as projectionConfiguration, run as projectionRun } from './projection-delta.mjs'
 
@@ -93,8 +93,13 @@ export async function run({ env = process.env, providers = productionProviders, 
         const field = provider.fields[name]
         if (!field || entry.stats[field]?.p95 >= limit) throw new Error(`${name} p95 must be below ${limit} ms`)
       }
+      if (budget.check === 'C-PERF-06') entry.cohorts = summarizeRebases(entry.samples)
       entry.status = 'passed'
-    } catch (error) { entry.reason = error.message }
+    } catch (error) {
+      entry.reason = error.message
+      if (Array.isArray(error.samples)) entry.samples = error.samples
+      if (error.cleanupError) entry.cleanupError = error.cleanupError
+    }
   }
   const status = measured.some(b => b.status === 'failed') ? 'failed'
     : measured.every(b => b.status === 'passed') ? 'passed' : 'incomplete'

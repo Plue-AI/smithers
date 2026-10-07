@@ -142,3 +142,43 @@ test('projection CLI refusal copies failed evidence into its check directory', a
     assert.deepEqual(check, saved)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test('rebase failure retains prior samples and the failed attempt when cleanup also fails', async () => {
+ let writes = 0, restores = 0
+ const boundary = rebaseBoundary({
+  acknowledgementWindow: async () => { if (++restores > 1) throw new Error('cleanup unavailable') },
+  waitWriteHold: async () => { if (++writes === 3) throw new Error('SSH disconnected') }
+ })
+ await assert.rejects(rebaseHold(boundary), error => {
+  assert.equal(error.message, 'SSH disconnected')
+  assert.equal(error.cleanupError, 'cleanup unavailable')
+  assert.equal(error.samples.length, 3)
+  assert.equal(error.samples[0].failed, false)
+  assert.equal(error.samples[2].failed, true)
+  assert.equal(error.samples[2].marker, 'NORMAL_REBASE002')
+  return true
+ })
+})
+
+test('rebase threshold and cleanup failures retain all completed raw observations', async () => {
+ let windows = 0
+ const boundary = rebaseBoundary()
+ const window = boundary.acknowledgementWindow
+ boundary.acknowledgementWindow = async ms => {
+  if (++windows === 3) throw new Error('restore failed')
+  await window(ms)
+ }
+ await assert.rejects(rebaseHold(boundary), error => {
+  assert.equal(error.message, 'restore failed')
+  assert.equal(error.samples.length, 200)
+  return true
+ })
+ await assert.rejects(rebaseHold(rebaseBoundary({
+  guestHold: async id => ({ id, clock: 'guest monotonic:boot-1', start: 10, end: 2010, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 })
+ })), error => {
+  assert.match(error.message, /each acknowledgement cohort/)
+  assert.equal(error.samples.length, 200)
+  assert.equal(error.samples[199].holdMs, 2000)
+  return true
+ })
+})

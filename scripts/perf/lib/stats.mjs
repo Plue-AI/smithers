@@ -16,3 +16,14 @@ export function summarize(samples, fields, minimum) {
     return [field, { n: sorted.length, p50: sorted[Math.ceil(sorted.length * 0.5) - 1], p95: sorted[Math.ceil(sorted.length * 0.95) - 1] }]
   }))
 }
+
+/** Ordinary delivery and delayed acknowledgements must each meet C-PERF-06. */
+export function summarizeRebases(samples) {
+  if (!Array.isArray(samples) || samples.some(sample => typeof sample?.acknowledgementsWithheld !== 'boolean')) throw new Error('rebase acknowledgement cohort required')
+  if (new Set(samples.map(sample => sample.marker)).size !== samples.length || samples.some(sample => typeof sample.marker !== 'string' || !sample.marker)) throw new Error('distinct retained rebase markers required')
+  return Object.fromEntries([false, true].map(withheld => {
+    const stats = summarize(samples.filter(sample => sample.acknowledgementsWithheld === withheld), ['holdMs'], 100)
+    if (stats.holdMs.p95 >= 2000) throw new Error('rebase hold p95 must be below 2000 ms in each acknowledgement cohort')
+    return [withheld ? 'withheld' : 'normal', stats]
+  }))
+}

@@ -200,3 +200,33 @@ test('failed first-token workloads retain partial samples and cross-checks in ch
   assert.equal(saved.budgets[0].stats, undefined)
   for (const [key, value] of Object.entries(evidence)) assert.deepEqual(saved.budgets[0][key], value)
 }))
+
+
+const rebaseSamples = () => Array.from({ length: 200 }, (_, i) => ({ marker: `marker-${i}`, acknowledgementsWithheld: i >= 100, holdMs: 100, clock: 'guest monotonic:fixture', failed: false }))
+const rebaseProvider = value => ({ available() {}, fields: { writeHold: 'holdMs' }, measure: async () => ({ ...passing(), samples: value }) })
+test('unified rebase verdict requires both acknowledgement cohorts independently', async () => {
+  const good = rebaseSamples()
+  const hiddenTail = rebaseSamples()
+  for (let i = 194; i < 200; i++) hiddenTail[i].holdMs = 2000
+  for (const [value, exit] of [[good, 0], [hiddenTail, 1], [good.slice(0, 100), 1], [good.map(s => ({ ...s, acknowledgementsWithheld: undefined })), 1], [good.map(s => ({ ...s, marker: 'duplicate' })), 1]]) {
+    await temporary(async root => {
+      const result = await run({ ...options, root, check: 'C-PERF-06', providers: { 'C-PERF-06': rebaseProvider(value) } })
+      assert.equal(result.exit, exit)
+      const saved = JSON.parse(await readFile(join(result.directory, 'rebase-hold.json'), 'utf8')).budgets[0]
+      assert.equal(saved.samples.length, value.length)
+      if (exit === 0) {
+        assert.equal(saved.cohorts.normal.holdMs.n, 100)
+        assert.equal(saved.cohorts.withheld.holdMs.n, 100)
+      }
+    })
+  }
+})
+test('failed workload exceptions retain partial samples and cleanup failure in artifacts', async () => temporary(async root => {
+  const error = Object.assign(new Error('lost held edit'), { samples: rebaseSamples().slice(0, 4), cleanupError: 'restore delivery failed' })
+  const result = await run({ ...options, root, check: 'C-PERF-06', providers: { 'C-PERF-06': { ...rebaseProvider([]), measure: async () => { throw error } } } })
+  assert.equal(result.exit, 1)
+  const saved = JSON.parse(await readFile(join(result.directory, 'rebase-hold.json'), 'utf8')).budgets[0]
+  assert.deepEqual(saved.samples, error.samples)
+  assert.equal(saved.reason, error.message)
+  assert.equal(saved.cleanupError, error.cleanupError)
+}))

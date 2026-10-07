@@ -211,3 +211,9 @@ The warm-wake driver and its tests were restored from upstream commit
 Keystroke and disk-write workloads refuse Linux before opening browser or SSH
 connections. Failed first-token samples retain their question order as well as
 model, preflight and wake cross-checks in the full runner evidence.
+
+The unified C-PERF-06 verdict independently requires 100 normal and 100 delayed
+acknowledgement samples, distinct retained markers, and p95 below 2000 ms in
+each cohort. A pooled percentile cannot qualify the delayed cohort. Workload
+exceptions retain completed samples and the failed attempt; delivery-restoration
+errors remain alongside the original failure in unified artifacts.
