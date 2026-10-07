@@ -23,6 +23,9 @@
 # count is not exactly 10 (issuecomment-6029135006). Raise EXPECTED_PASS
 # deliberately in the change that adds a macOS test.
 #
+# OFFLINE. The job runs only while the repository variable
+# REFERENCE_HOST_ONLINE is 'true'; otherwise it is skipped.
+#
 # LINTING. ci.yml names this file in its actionlint step (PACKAGE.ts), and
 # release.yml copies that step.
 name: Reference host
@@ -41,6 +44,12 @@ concurrency:
 jobs:
   macos-release-trust:
     name: macOS release-trust suite
+    # Until the runner is registered no machine carries the label, and every
+    # push would leave a run queued until it fails after 24 hours, marking
+    # main red. The repository variable is set once the runner shows online
+    # (scripts/reference-host/setup-runner.sh, register step) and unset on
+    # rollback; while it is unset the job is skipped and queues nothing.
+    if: vars.REFERENCE_HOST_ONLINE == 'true'
     runs-on: [self-hosted, reference-host]
     timeout-minutes: 30
     env:

@@ -319,6 +319,7 @@ register() {
     /bin/launchctl bootstrap system $PLIST
   fi
   say "started system/$LABEL"
+  say "next: once the runner shows online, a lane runs: gh variable set REFERENCE_HOST_ONLINE --body true -R smithersai/smithers"
 }
 
 case $mode in
