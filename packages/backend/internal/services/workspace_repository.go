@@ -748,6 +748,12 @@ func validateWorkspaceRepositoryReceiptSource(receipt workspaceRepositoryReceipt
 		receipt.InitializedAt.IsZero() {
 		return pkgerrors.Conflict("workspace repository receipt does not match its product repository")
 	}
+	// Reconstruction may replay a checkout completed before a host crash, but
+	// only the exact retained final capture discharges the reclaimed marker.
+	// Merely possessing another source commit does not prove that checkout.
+	if row.DiskReclaimedAt.Valid && receipt.SourceRevision != row.HeadCommitID {
+		return pkgerrors.Conflict("workspace repository receipt does not match its retained final capture")
+	}
 	// A pushed-ref workspace never adopts a working copy started elsewhere.
 	if row.SourceCommit != "" && receipt.SourceCommit != row.SourceCommit {
 		return pkgerrors.Conflict("workspace repository receipt does not match its pushed ref")

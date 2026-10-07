@@ -331,6 +331,28 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		}
 		// Repeating wake reuses the receipt and never selects the newer main.
 		resume(200)
+		// A crash can leave a completed checkout beside a reclaimed marker.
+		// A valid retained ref for another capture must not adopt that checkout
+		// merely because both source commits are present in its object store.
+		git("--git-dir", hostGit, "update-ref", repohost.BranchHeadRef(id), base)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='pending',disk_reclaimed_at=NOW(),branch_archived_at=NOW(),head_commit_id=$2 WHERE id=$1`, id, base)
+		require.NoError(t, err)
+		resume(409)
+		refused, err := q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.True(t, refused.DiskReclaimedAt.Valid, "a different checkout cannot discharge reconstruction")
+		require.True(t, refused.BranchArchivedAt.Valid)
+		// Restoring the original capture allows replay of the completed checkout
+		// without replacing files or selecting the moving main.
+		git("--git-dir", hostGit, "update-ref", repohost.BranchHeadRef(id), head)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, head)
+		require.NoError(t, err)
+		resume(200)
+		for path, text := range map[string]string{"src/retry.ts": retry, "src/backoff.ts": backoff} {
+			var file struct{ Content struct{ Kind, Text string } }
+			require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/"+path, 200), &file))
+			require.Equal(t, text, file.Content.Text)
+		}
 		return
 	}
 	counted.stopped.Store(false)
