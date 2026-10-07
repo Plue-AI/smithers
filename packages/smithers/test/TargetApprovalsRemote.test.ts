@@ -8,6 +8,7 @@ import { spawn, spawnSync } from "node:child_process"
 import { mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createServer, type AddressInfo } from "node:net"
 import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import * as TargetApprovals from "../src/cli/TargetApprovals.ts"
@@ -22,6 +23,15 @@ afterAll(() => {
 
 const push = { label: "//images:push", digest: "a".repeat(64) }
 const other = { label: "//images:mirror", digest: "b".repeat(64) }
+
+const freePort = () => new Promise<number>((resolve, reject) => {
+  const probe = createServer()
+  probe.once("error", reject)
+  probe.listen(0, "127.0.0.1", () => {
+    const port = (probe.address() as AddressInfo).port
+    probe.close(error => error ? reject(error) : resolve(port))
+  })
+})
 
 /** A served workspace: its base URL, the operator token it printed, and a hard kill. */
 const serve = async (cwd: string, port: number) => {
@@ -94,7 +104,7 @@ describe("remote build target approvals", { timeout: 480_000 }, () => {
     // What a refused build leaves behind: a pending revision per target.
     expect(await TargetApprovals.store.granted({ root: cwd, ...push })).toBe(false)
     expect(await TargetApprovals.store.granted({ root: cwd, ...other })).toBe(false)
-    const port = 42_000 + Math.floor(Math.random() * 8000)
+    const port = await freePort()
 
     const first = await serve(cwd, port)
     let listed: ReturnType<typeof approvals>
@@ -138,7 +148,7 @@ describe("remote build target approvals", { timeout: 480_000 }, () => {
     expect(await TargetApprovals.store.granted({ root: cwd, ...push })).toBe(true)
     expect(await TargetApprovals.store.granted({ root: cwd, ...other })).toBe(false)
 
-    const second = await serve(cwd, port + 1)
+    const second = await serve(cwd, await freePort())
     try {
       expect(approvals(cwd, second, ["list", "--targets"]).value).toEqual([])
       const again = approvals(cwd, second, ["grant", push.label])
