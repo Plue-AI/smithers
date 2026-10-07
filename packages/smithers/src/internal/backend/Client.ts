@@ -412,6 +412,9 @@ export class Client {
     if (!path.startsWith("/") || path.startsWith("//")) {
       throw new UsageError({ message: "API path must start with /" })
     }
+    if (this.session.managedFile && options.token != null) {
+      throw new Refused({ fault: "user", code: "token_file_unavailable", message: "A managed terminal uses only its session credential" })
+    }
     const origin = options.origin ?? this.session.target().api_url
     // Explicit bounded signals also own cancellation cleanup after the command
     // signal aborts; retain that contract rather than poisoning the whole Client.

@@ -22,6 +22,7 @@ import (
 // session's close removes it.
 func TestRealMicroVMTerminalSessionToken(t *testing.T) {
 	runtime := realRuntime(t, t.TempDir())
+	runtime.config.HostPorts = []uint16{4000}
 	ctx := operation("session-token")
 	id := "microvm-session-token"
 	_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
@@ -40,10 +41,10 @@ func TestRealMicroVMTerminalSessionToken(t *testing.T) {
 		return result.Stdout
 	}
 	inspect := `stat -c '%U %a' "$1" "${1%/token}"; cat "$1"; ls -A "${1%/token}"`
-	require.Equal(t, "agent 600\nroot 755\nsmithers_first\ntoken\n", run(inspect))
+	require.Equal(t, "agent 600\nroot 755\nsmithers_first\nissuer.json\ntoken\n", run(inspect))
 	_, err = runtime.PutSessionToken(ctx, id, session, []byte("smithers_second"), workspaceapi.SessionCredentialIdentity([]byte("smithers_first")))
 	require.NoError(t, err)
-	require.Equal(t, "agent 600\nroot 755\nsmithers_second\ntoken\n", run(inspect), "rotation replaces the file and leaves no temporary")
+	require.Equal(t, "agent 600\nroot 755\nsmithers_second\nissuer.json\ntoken\n", run(inspect), "rotation replaces the file and leaves no temporary")
 
 	// A stale replica and a foreign credential cannot replace or remove the successor.
 	_, err = runtime.PutSessionToken(ctx, id, session, []byte("smithers_stale"), workspaceapi.SessionCredentialIdentity([]byte("smithers_first")))
@@ -51,7 +52,7 @@ func TestRealMicroVMTerminalSessionToken(t *testing.T) {
 	require.Error(t, runtime.DeleteSessionToken(ctx, id, session, workspaceapi.SessionCredentialIdentity([]byte("smithers_first"))))
 	_, err = runtime.PutSessionToken(ctx, id, session, []byte("smithers_create"), "")
 	require.Error(t, err, "create cannot replace a retained bearer")
-	require.Equal(t, "agent 600\nroot 755\nsmithers_second\ntoken\n", run(inspect))
+	require.Equal(t, "agent 600\nroot 755\nsmithers_second\nissuer.json\ntoken\n", run(inspect))
 
 	require.Equal(t, "pinned\nkept\n", run(`mv "$1" "$1.moved" 2>/dev/null && echo moved || echo pinned; rm -f "$1" 2>/dev/null; test -e "$1" && echo kept || echo removed`))
 

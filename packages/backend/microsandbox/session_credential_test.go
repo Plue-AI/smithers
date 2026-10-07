@@ -17,9 +17,10 @@ func TestSessionTokenRootInputsValidatedBeforeUseSupplemental(t *testing.T) {
 	require.NotZero(t, os.Geteuid())
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
-	script := `import hashlib,importlib.util,os,stat,sys,tempfile,types
+	script := `import hashlib,importlib.util,json,os,stat,sys,tempfile,types
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 scenario=sys.argv[2]
+os.umask(0o022)
 with tempfile.TemporaryDirectory() as root:
  root=os.path.realpath(root); os.makedirs(root+"/run/smithers/sessions")
  outside=root+"/outside"; open(outside,"wb").write(b"root canary")
@@ -56,10 +57,20 @@ with tempfile.TemporaryDirectory() as root:
  if scenario=="empty": body=b""
  if scenario=="bad-session": session="../escape"
  if scenario=="unprivileged": os.geteuid=lambda:19999
+ issuer="http://127.0.0.1:4000"
+ if scenario=="bad-issuer": issuer="http://127.0.0.1:70000"
+ if scenario.startswith("issuer-"):
+  g.put_session_token(session,body,expected,issuer)
+  expected=hashlib.sha256(body).hexdigest()
+  if scenario=="issuer-link":
+   os.unlink(directory+"/issuer.json");os.symlink(outside,directory+"/issuer.json")
+  if scenario=="issuer-writable": os.chmod(directory+"/issuer.json",0o666)
+  if scenario=="issuer-session":
+   value=json.load(open(directory+"/issuer.json"));value['session_id']='foreign';json.dump(value,open(directory+"/issuer.json","w"))
  refused=False
  try:
   if scenario in ("delete-extra","stale-close"): g.delete_session_token(session,expected)
-  else: g.put_session_token(session,body,expected)
+  else: g.put_session_token(session,body,expected,issuer)
  except (SystemExit,OSError): refused=True
  assert open(outside,"rb").read()==b"root canary"
  if scenario=="valid":
@@ -67,9 +78,9 @@ with tempfile.TemporaryDirectory() as root:
   assert not os.path.islink(directory+"/token")
   assert open(directory+"/token","rb").read()==b"smithers_token\n"
   assert stat.S_IMODE(os.stat(directory+"/token").st_mode)==0o600
-  g.put_session_token(session,b"smithers_rotated",hashlib.sha256(body).hexdigest())
+  g.put_session_token(session,b"smithers_rotated",hashlib.sha256(body).hexdigest(),"http://127.0.0.1:4000")
   assert open(directory+"/token","rb").read()==b"smithers_rotated\n"
-  assert os.listdir(directory)==["token"]
+  assert sorted(os.listdir(directory))==["issuer.json","token"]
   g.delete_session_token(session,hashlib.sha256(b"smithers_rotated").hexdigest())
   assert not os.path.exists(directory)
   g.delete_session_token(session,hashlib.sha256(b"smithers_rotated").hexdigest())
@@ -79,7 +90,7 @@ with tempfile.TemporaryDirectory() as root:
    assert open(directory+"/token","rb").read()==b"smithers_foreign\n"
   if scenario=="delete-extra": assert open(directory+"/unrelated","rb").read()==b"keep"
 `
-	for _, scenario := range []string{"valid", "foreign-token", "writable-token", "hardlink-token", "delete-extra", "stale-rotation", "stale-close", "lock-link", "session-link", "parent-link", "leaf-link", "temporary-link", "writable-session", "space", "newline", "oversized", "empty", "bad-session", "unprivileged"} {
+	for _, scenario := range []string{"valid", "foreign-token", "writable-token", "hardlink-token", "delete-extra", "stale-rotation", "stale-close", "lock-link", "session-link", "parent-link", "leaf-link", "temporary-link", "writable-session", "space", "newline", "oversized", "empty", "bad-session", "unprivileged", "bad-issuer", "issuer-link", "issuer-writable", "issuer-session"} {
 		t.Run(scenario, func(t *testing.T) {
 			output, err := exec.Command(python, "-B", "-c", script, filepath.Join("guest", "smithers-guest.py"), scenario).CombinedOutput()
 			require.NoError(t, err, string(output))

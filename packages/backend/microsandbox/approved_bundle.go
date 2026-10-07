@@ -20,8 +20,8 @@ const managedArtifactLimit = 64 << 20
 
 // managedArtifactDepth and managedArtifactMode are the guest helper's own
 // bounds: a planted path has at most this many segments, and every planted
-// file is written with this mode, so only a manifest entry with exactly it
-// is planted.
+// executable uses this mode; the generated skill and CLI archive are data
+// with mode 0644. No other non-executable artifact is plantable.
 const (
 	managedArtifactDepth = 8
 	managedArtifactMode  = 0o755
@@ -123,7 +123,7 @@ func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, e
 	switch {
 	case !ok:
 		return nil, "", fmt.Errorf("%w: %s is not declared by the bundle manifest", ErrUnapprovedArtifact, relative)
-	case entry.Mode != managedArtifactMode && !(relative == terminalSkillPath && entry.Mode == 0o644):
+	case entry.Mode != managedArtifactMode && !((relative == terminalSkillPath || relative == "share/cli/linux-arm64.tar.gz") && entry.Mode == 0o644):
 		return nil, "", fmt.Errorf("%w: %s has no approved guest artifact mode", ErrUnapprovedArtifact, relative)
 	case len(parts) > managedArtifactDepth:
 		return nil, "", fmt.Errorf("%w: %s is deeper than %d segments", ErrUnapprovedArtifact, relative, managedArtifactDepth)

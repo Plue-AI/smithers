@@ -119,13 +119,17 @@ export class Session {
   readonly authPath: string
   readonly env: Readonly<Record<string, string | undefined>>
   private readonly tokenFile: string | undefined
-  private readonly managedFile: boolean
+  readonly managedFile: boolean
+  private readonly terminalSession: string | undefined
+  private readonly terminalIssuer: string | undefined
   private readonly fileEpochs = new Map<string, CredentialEpoch>()
   private readonly nativeEpochs = new Map<string, CredentialEpoch>()
   constructor(env: Readonly<Record<string, string | undefined>>) {
     this.env = env
     this.tokenFile = env.SMITHERS_TOKEN_FILE ? resolvePath(env.SMITHERS_TOKEN_FILE) : undefined
-    this.managedFile = !!(env.SMITHERS_TOKEN_FILE?.startsWith("/run/smithers/") || this.tokenFile?.startsWith("/run/smithers/"))
+    this.terminalSession = env.SMITHERS_TERMINAL_SESSION
+    this.terminalIssuer = env.SMITHERS_URL
+    this.managedFile = !!(this.terminalSession || env.SMITHERS_TOKEN_FILE?.startsWith("/run/smithers/") || this.tokenFile?.startsWith("/run/smithers/"))
     this.home = env.HOME || homedir()
     this.configPath = join(
       env.XDG_CONFIG_HOME ||
@@ -155,7 +159,7 @@ export class Session {
     const token = this.managedTokenFile() ? undefined : this.env.SMITHERS_TOKEN?.trim()
     if (token) return identity([target.api_url, "env", token])
     if (this.tokenFile) {
-      return identity([target.api_url, "token_file", this.tokenFile, this.fileEpoch(this.tokenFile).revision])
+      return identity([target.api_url, "token_file", this.tokenFile, this.terminalSession, this.terminalIssuer, this.fileEpoch(this.tokenFile).revision])
     }
     const files = [...new Set([this.fileEpoch(this.configPath), this.fileEpoch(this.authPath)])]
     const native = this.env.SMITHERS_DISABLE_SYSTEM_KEYRING === "1" ? undefined : this.nativeEpoch(target.host)
@@ -186,7 +190,7 @@ export class Session {
   invalidateCredential(origin: string, expected: string): void {
     if (this.tokenFile && this.credentialIdentity(origin) === expected) this.fileEpoch(this.tokenFile).revision++
   }
-  private readTokenFile(): string {
+  private readTokenFile(origin: string): string {
     try {
       if (this.managedFile) {
         // Bind the literal issuer path before normalization. Traversal must
@@ -200,6 +204,7 @@ export class Session {
       // descriptors so replacing an ancestor cannot redirect the read.
       let parent: number | undefined
       let descriptor: number
+      let envelope: RecordValue | undefined
       try {
         if (this.managedFile) {
           parent = openSync("/", constants.O_RDONLY | constants.O_DIRECTORY)
@@ -209,6 +214,25 @@ export class Session {
               constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
             closeSync(parent)
             parent = next
+          }
+          const issuer = openSync(`/proc/self/fd/${parent}/issuer.json`,
+            constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+          try {
+            const info = fstatSync(issuer)
+            if (!info.isFile() || info.uid !== 0 || (info.mode & 0o777) !== 0o644 || info.nlink !== 1 || info.size > 1024) throw invalidToken()
+            const bytes = Buffer.alloc(1025)
+            let size = 0
+            while (size < bytes.length) {
+              const count = readSync(issuer, bytes, size, bytes.length - size, null)
+              if (count === 0) break
+              size += count
+            }
+            if (size > 1024) throw invalidToken()
+            const parsed: unknown = JSON.parse(bytes.subarray(0, size).toString("utf8"))
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw invalidToken()
+            envelope = parsed as RecordValue
+          } finally {
+            closeSync(issuer)
           }
           descriptor = openSync(`/proc/self/fd/${parent}/token`,
             constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
@@ -221,7 +245,7 @@ export class Session {
       try {
         const stat = fstatSync(descriptor)
         if (!stat.isFile() || stat.size > 16384 || (stat.mode & 0o444) === 0) throw invalidToken()
-        if (this.managedFile && ((stat.mode & 0o777) !== 0o600 || stat.uid !== process.getuid?.())) throw invalidToken()
+        if (this.managedFile && ((stat.mode & 0o777) !== 0o600 || stat.uid !== process.getuid?.() || stat.nlink !== 1)) throw invalidToken()
         const bytes = Buffer.alloc(16385)
         let length = 0
         while (length < bytes.length) {
@@ -232,6 +256,13 @@ export class Session {
         if (length > 16384) throw invalidToken()
         const token = bytes.subarray(0, length).toString("utf8").trim()
         if (!tokenPattern.test(token)) throw invalidToken()
+        if (this.managedFile) {
+          const session = this.tokenFile!.split("/").at(-2)
+          if (envelope?.version !== 1 || envelope.session_id !== session ||
+            this.terminalSession !== session ||
+            envelope.issuer !== origin || envelope.issuer !== this.terminalIssuer ||
+            envelope.credential_identity !== createHash("sha256").update(token).digest("hex")) throw invalidToken()
+        }
         return token
       } finally {
         closeSync(descriptor)
@@ -318,6 +349,9 @@ export class Session {
           : `https://${origin.startsWith("api.") ? origin : `api.${origin}`}`}
     }
     const api_url = normalizeOrigin(origin)
+    if (this.managedFile && (this.terminalIssuer === undefined || api_url !== normalizeOrigin(this.terminalIssuer))) {
+      throw new Refused({ fault: "user", code: "token_file_unavailable", message: "Cannot read a valid SMITHERS_TOKEN_FILE" })
+    }
     return { api_url, host: new URL(api_url).hostname.replace(/^api\./, "") }
   }
   record(origin: string): RecordValue | undefined {
@@ -420,7 +454,7 @@ export class Session {
     const target = this.target(origin)
     const env = this.managedTokenFile() ? undefined : this.env.SMITHERS_TOKEN?.trim()
     if (env) return { ...target, token: env, source: "env" }
-    if (this.tokenFile) return { ...target, token: this.readTokenFile(), source: "token_file" }
+    if (this.tokenFile) return { ...target, token: this.readTokenFile(target.api_url), source: "token_file" }
     // Go stored by hostname. A record binds that existing keychain item to its exact origin.
     const record = this.record(target.api_url)
     const configOrigin = text(this.config(false).api_origin)

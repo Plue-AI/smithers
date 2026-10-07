@@ -122,3 +122,36 @@ with tempfile.TemporaryDirectory() as directory:
  else:raise AssertionError('home discovery admitted another uid')
 `)
 }
+
+func TestTerminalCLIUnpacksOnlyAsSessionUser(t *testing.T) {
+	boundaryPython(t, `
+import io,json,pathlib,pwd,tarfile
+os.umask(0o022)
+with tempfile.TemporaryDirectory() as directory:
+ root=pathlib.Path(directory);home=root/'home';home.mkdir()
+ g.PROTECTED_BASE=directory;g.ROOT_UID=os.getuid()
+ store=root.joinpath(*g.MANAGED_ARTIFACT_ROOT,'share','cli');store.mkdir(parents=True)
+ path=store/'linux-arm64.tar.gz'
+ def bundle(unsafe=False,platform='linux-arm64'):
+  with tarfile.open(path,'w:gz') as archive:
+   for name,body in [('node_modules/@smthrs/cli/bin/smithers.mjs',b'// packaged CLI'),('guest-platform.json',json.dumps({'platform':platform,'runtime':'node26'}).encode())]+([('../../outside',b'canary')] if unsafe else []):
+    info=tarfile.TarInfo(name);info.size=len(body);info.mode=0o644
+    archive.addfile(info,io.BytesIO(body))
+  path.chmod(0o644)
+ entry=pwd.struct_passwd(('session','x',os.getuid(),os.getgid(),'session',str(home),'/bin/sh'))
+ bundle();g.install_terminal_cli(entry)
+ current=home/'.local/share/smithers/cli/current'
+ assert (current/'node_modules/@smthrs/cli/bin/smithers.mjs').read_bytes()==b'// packaged CLI'
+ first=current.readlink();g.install_terminal_cli(entry);assert current.readlink()==first
+ for bad,platform in [(True,'linux-arm64'),(False,'darwin-arm64')]:
+  bundle(bad,platform)
+  try:g.install_terminal_cli(entry)
+  except (SystemExit,tarfile.FilterError):pass
+  else:raise AssertionError('unapproved CLI archive admitted')
+  assert current.readlink()==first and not (root/'outside').exists()
+ path.unlink();path.symlink_to(root/'absent')
+ try:g.install_terminal_cli(entry)
+ except OSError:pass
+ else:raise AssertionError('CLI archive link followed')
+`)
+}
