@@ -25,7 +25,7 @@ func environmentLink(t *testing.T, r *machined.Registry) (*machined.Link, net.Co
 	done := make(chan error, 1)
 	go func() {
 		nonce := make([]byte, 32)
-		if err := wire.Write(peer, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(2)), wire.Field(3, a.ID[:]), wire.Field(4, nonce))}); err != nil {
+		if err := wire.Write(peer, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(wire.Protocol)), wire.Field(3, a.ID[:]), wire.Field(4, nonce))}); err != nil {
 			done <- err
 			return
 		}

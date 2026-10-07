@@ -497,7 +497,7 @@ func externalTranscriptLink(t *testing.T, registry *machined.Registry, branch st
 		done <- func() error {
 			nonce := make([]byte, 32)
 			nonce[0] = 71
-			if err := wire.Write(peer, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(2)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))}); err != nil {
+			if err := wire.Write(peer, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(wire.Protocol)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))}); err != nil {
 				return err
 			}
 			proof, err := wire.Read(peer)

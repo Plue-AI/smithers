@@ -1,6 +1,4 @@
 //! ADR 0004 S3 payload codec; stream framing belongs to the shared connection.
-/// Only a ready protocol-2 link may select the sequenced document layout.
-pub const SEQUENCED_DOCUMENT_PROTOCOL: u16 = 2;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Document {
     pub msg: u8,

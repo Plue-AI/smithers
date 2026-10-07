@@ -1,7 +1,7 @@
 //! ADR 0004 framing and canonical tagged payload validation.
 use std::io::{Read, Write};
 include!("schema.rs");
-pub const PROTOCOL: u16 = 5;
+pub const PROTOCOL: u16 = 6;
 pub const MAX_FILE_BYTES: usize = 1_048_576;
 pub const INITIAL_CREDIT: usize = 262_144;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -689,4 +689,55 @@ impl Acknowledgement {
             haves,
         })
     }
+}
+
+/// The batch reuses single-write values and one authenticated actor envelope.
+pub fn batch_write_args(
+    bytes: &[u8],
+) -> Result<(Vec<crate::hooks::FileWrite>, crate::hooks::Actor), ProtocolError> {
+    let values = fields("args17", bytes)?;
+    let actor = values[1].1;
+    let mut list = Cursor(values[0].1);
+    let count = list.number(2)? as usize;
+    if count == 0 || count > 256 {
+        return Err(BadValue);
+    }
+    let mut writes = Vec::with_capacity(count);
+    for _ in 0..count {
+        let start = list.0;
+        list.value("local_write")?;
+        let raw = &start[..start.len() - list.0.len()];
+        let mut values: Vec<_> = fields("local_write", raw)?
+            .into_iter()
+            .map(|(tag, value)| field(tag, value))
+            .collect();
+        values.push(field(4, actor));
+        let write = write_args(&structure_bytes(&values))?;
+        writes.push(crate::hooks::FileWrite {
+            path: write.path,
+            base: write.base,
+            content: write.content,
+        });
+    }
+    let principal = fields("principal", &actor[1..])?[0].1;
+    Ok((
+        writes,
+        crate::hooks::Actor::Principal(principal[4..].to_vec()),
+    ))
+}
+pub fn local_batch_write_args(
+    bytes: &[u8],
+    principal: [u8; 16],
+) -> Result<(Vec<crate::hooks::FileWrite>, crate::hooks::Actor), ProtocolError> {
+    if principal == [0; 16] {
+        return Err(BadValue);
+    }
+    let values = fields("local_batch", bytes)?;
+    batch_write_args(&structure_bytes(&[
+        field(1, values[0].1),
+        field(
+            2,
+            actor_bytes(&crate::hooks::Actor::Principal(principal.to_vec())),
+        ),
+    ]))
 }

@@ -13,6 +13,7 @@ fn hex(s: &str) -> Vec<u8> {
 fn fixtures(ok: bool) {
     let manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root().join("MANIFEST.json")).unwrap()).unwrap();
+    assert_eq!(manifest["protocol"].as_u64(), Some(conn::PROTOCOL as u64));
     for entry in manifest["frames"].as_array().unwrap() {
         let name = entry["name"].as_str().unwrap();
         let expected = entry["expected"].as_str().unwrap();

@@ -58,18 +58,22 @@ func TestRegistryFileRPC(t *testing.T) {
 		result, err := r.WriteFiles(t.Context(), "a", []byte("host-author"), []FileChange{{Path: "first", Content: []byte("a")}, {Path: "second", Content: []byte("b")}})
 		writes <- written{result, err}
 	}()
-	answer(t, peer, wire.WriteFile, wire.Field(1, digest), wire.Field(2, wire.Struct(wire.Field(1, wire.String("first")), wire.Field(2, digest))))
 	request, err := wire.Read(peer)
 	require.NoError(t, err)
-	id, method, _, err := request.Request()
+	id, method, args, err := request.Request()
 	require.NoError(t, err)
-	require.Equal(t, byte(wire.WriteFile), method)
-	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(255, wire.Field(1, []byte{byte(wire.Stale)}), wire.Field(2, wire.String("second")), wire.Field(3, digest))))}))
+	require.Equal(t, byte(wire.WriteFiles), method)
+	requestFields, err := wire.Fields("args17", args)
+	require.NoError(t, err)
+	changes, err := wire.List("local_write", requestFields[1])
+	require.NoError(t, err)
+	require.Len(t, changes, 2)
+	failure := wire.Struct(wire.Field(1, wire.U16(1)), wire.Field(2, []byte{1}), wire.Field(3, wire.Struct(wire.Field(1, []byte{byte(wire.Stale)}), wire.Field(3, digest))))
+	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.WriteFiles), wire.Field(1, wire.U16(0)), wire.Field(2, failure))))}))
 	write := <-writes
 	require.NoError(t, write.err)
-	require.Len(t, write.result.Applied, 1)
-	require.Equal(t, "first", write.result.Applied[0].Path)
-	require.Equal(t, "first", write.result.Raced[0].Path)
+	require.Empty(t, write.result.Applied)
+	require.Empty(t, write.result.Raced)
 	require.Equal(t, "second", write.result.Stale.Path)
 	require.Equal(t, strings.Repeat("ab", 32), *write.result.Stale.CurrentDigest)
 	_, err = r.ReadFile(t.Context(), "foreign", "README.md", "")
@@ -238,8 +242,8 @@ func TestRegistryAckCanonicalAndRefusals(t *testing.T) {
 	require.ErrorIs(t, r.Ack(t.Context(), "a", Acknowledgement{Seq: 1, Outcome: AckRejected, Error: &SessionError{Code: "invented"}}), wire.BadValue)
 }
 
-func TestRegistryDocumentRequiresOpaqueActorLiveProtocol(t *testing.T) {
-	for _, version := range []uint16{1, 2, 3, 4} {
+func TestRegistryRequiresExactLiveProtocolBeforeCredentials(t *testing.T) {
+	for _, version := range []uint16{0, 1, 2, 3, 4, 5, 7} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			r := new(Registry)
 			authority, err := r.MintBoot("a", "vm")
@@ -248,15 +252,25 @@ func TestRegistryDocumentRequiresOpaqueActorLiveProtocol(t *testing.T) {
 			defer host.Close()
 			defer guest.Close()
 			done := make(chan error, 1)
-			go func() { done <- daemonHandshakeVersion(guest, authority, authority.Credential, version) }()
+			go func() {
+				payload := wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(version)), wire.Field(3, authority.ID[:]), wire.Field(4, make([]byte, 32)))
+				raw := append(wire.U32(uint32(len(payload))), wire.Hello, 0, 0, 0, 0)
+				raw = append(raw, payload...)
+				if _, e := guest.Write(raw); e != nil {
+					done <- e
+					return
+				}
+				goodbye, e := wire.Read(guest)
+				if e == nil && (goodbye.Kind != wire.Hello || len(goodbye.Payload) != 7 || goodbye.Payload[0] != 5 || goodbye.Payload[6] != byte(wire.VersionMismatch)) {
+					e = wire.HandshakeOrder
+				}
+				done <- e
+			}()
 			link, err := r.Connect(t.Context(), "a", host)
-			require.NoError(t, err)
-			defer link.Close()
+			require.ErrorIs(t, err, wire.VersionMismatch)
+			require.Nil(t, link)
 			require.NoError(t, <-done)
-			require.NoError(t, link.Reconciled())
-			_, err = r.OpenDocument(t.Context(), "a", "README.md", []byte("actor"))
-			require.ErrorIs(t, err, ErrNotReady)
-
+			require.Empty(t, r.ConnectedBranches())
 		})
 	}
 }

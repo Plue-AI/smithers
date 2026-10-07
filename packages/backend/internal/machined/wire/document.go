@@ -9,9 +9,6 @@ import (
 	"unicode/utf8"
 )
 
-// SequencedDocumentProtocol must be selected by a ready protocol-2 link.
-const SequencedDocumentProtocol = 2
-
 const (
 	DocumentInput          byte = 1
 	DocumentAwarenessInput byte = 2

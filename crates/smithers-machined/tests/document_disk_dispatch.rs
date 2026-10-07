@@ -847,3 +847,169 @@ fn accepted_outside_snapshot_is_not_reported_again_as_a_swap_race() {
         .iter()
         .any(|n| matches!(n, smithers_machined::doc::host::Notice::Outside { .. })));
 }
+
+fn batch(cx: &mut LockCx, changes: &[(&str, Option<&[u8]>, &[u8])]) -> Vec<u8> {
+    let mut values = (changes.len() as u16).to_be_bytes().to_vec();
+    for (path, base, content) in changes {
+        let base = base
+            .map(|b| conn::tagged(1, &[conn::field(1, digest(b))]))
+            .unwrap_or_else(|| conn::tagged(2, &[]));
+        let mut bytes = (content.len() as u32).to_be_bytes().to_vec();
+        bytes.extend(*content);
+        values.extend(conn::structure_bytes(&[
+            conn::field(1, string(path)),
+            conn::field(2, base),
+            conn::field(3, bytes),
+        ]));
+    }
+    result(
+        &rpc::dispatch(
+            &request(
+                17,
+                &[
+                    conn::field(1, values),
+                    conn::field(
+                        2,
+                        conn::actor_bytes(&hooks::Actor::Principal(MEMBER.to_vec())),
+                    ),
+                ],
+            ),
+            cx,
+        )
+        .unwrap(),
+    )
+}
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn batch_stale_later_file_leaves_earlier_file_absent_even_after_timers() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    let response = batch(
+        &mut cx,
+        &[("new.rs", None, b"new"), ("a.rs", Some(b"stale"), b"bad")],
+    );
+    assert_eq!(response[0], 17);
+    let fields = conn::fields("result17", &response[1..]).unwrap();
+    assert_eq!(fields[0].1, [0, 0]);
+    let failure = conn::fields("batch_failure", fields[1].1).unwrap();
+    assert_eq!(failure[0].1, [0, 1]);
+    assert_eq!(failure[1].1, [1]);
+    assert_eq!(conn::fields("error", failure[2].1).unwrap()[0].1, [4]);
+    for now in [200, 2000, 60_001] {
+        f.clock.0.store(now, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+    }
+    assert!(!f.root.join("workspace/new.rs").exists());
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"abc");
+    assert_eq!(fs::read_dir(f.root.join("store")).unwrap().count(), 0);
+    assert!(service.projections(&mut cx).unwrap().is_empty());
+}
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn batch_io_error_preserves_applied_receipts_and_never_calls_it_stale() {
+    let f = Fixture::new();
+    fs::create_dir(f.root.join("workspace/locked")).unwrap();
+    fs::write(f.root.join("workspace/locked/b"), b"before").unwrap();
+    fs::set_permissions(
+        f.root.join("workspace/locked"),
+        fs::Permissions::from_mode(0o555),
+    )
+    .unwrap();
+    let (_service, mut cx) = f.service();
+    let response = batch(
+        &mut cx,
+        &[
+            ("a.rs", Some(b"abc"), b"after"),
+            ("locked/b", Some(b"before"), b"bad"),
+            ("not-started", None, b"must not exist"),
+        ],
+    );
+    fs::set_permissions(
+        f.root.join("workspace/locked"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    assert!(!f.root.join("workspace/not-started").exists());
+    assert_eq!(response[0], 17);
+    let fields = conn::fields("result17", &response[1..]).unwrap();
+    assert_eq!(&fields[0].1[..2], [0, 1]);
+    let receipt = conn::fields("result3", &fields[0].1[2..]).unwrap();
+    assert_eq!(receipt[0].1, digest(b"after"));
+    let failure = conn::fields("batch_failure", fields[1].1).unwrap();
+    assert_eq!(failure[0].1, [0, 1]);
+    assert_eq!(failure[1].1, [0]);
+    assert_eq!(conn::fields("error", failure[2].1).unwrap()[0].1, [12]);
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"after");
+    assert_eq!(
+        fs::read(f.root.join("workspace/locked/b")).unwrap(),
+        b"before"
+    );
+}
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn batch_retains_outside_edit_to_later_file_after_all_bases_were_compared() {
+    struct Race {
+        receipts: Receipts,
+        workspace: PathBuf,
+    }
+    impl Versions for Race {
+        fn outside(
+            &mut self,
+            path: &str,
+            bytes: &[u8],
+            actor: &str,
+        ) -> smithers_machined::doc::Result<String> {
+            self.receipts.outside(path, bytes, actor)
+        }
+        fn before_write(
+            &mut self,
+            path: &str,
+            _: Option<&str>,
+        ) -> smithers_machined::doc::Result<()> {
+            if path == "a.rs" {
+                fs::write(self.workspace.join("b.rs"), b"late outside")?;
+            }
+            Ok(())
+        }
+        fn own_write(
+            &mut self,
+            path: &str,
+            bytes: &[u8],
+            mode: u32,
+            actor: Option<&str>,
+        ) -> smithers_machined::doc::Result<()> {
+            self.receipts.own_write(path, bytes, mode, actor)
+        }
+    }
+    let f = Fixture::new();
+    fs::write(f.root.join("workspace/b.rs"), b"before").unwrap();
+    let (_service, mut cx) = f.with_versions(Race {
+        receipts: f.receipts.clone(),
+        workspace: f.root.join("workspace"),
+    });
+    let response = batch(
+        &mut cx,
+        &[
+            ("a.rs", Some(b"abc"), b"one"),
+            ("b.rs", Some(b"before"), b"two"),
+        ],
+    );
+    assert_eq!(response[0], 17);
+    let fields = conn::fields("result17", &response[1..]).unwrap();
+    assert_eq!(fields.len(), 1);
+    assert_eq!(&fields[0].1[..2], [0, 2]);
+    assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"one");
+    assert_eq!(fs::read(f.root.join("workspace/b.rs")).unwrap(), b"two");
+    assert!(f
+        .receipts
+        .0
+        .lock()
+        .unwrap()
+        .contains(&b"late outside".to_vec()));
+    let first_size = 4 + u32::from_be_bytes(fields[0].1[2..6].try_into().unwrap()) as usize;
+    let second = conn::fields("result3", &fields[0].1[2 + first_size..]).unwrap();
+    assert_eq!(
+        conn::fields("raced", second[1].1).unwrap()[1].1,
+        digest(b"late outside")
+    );
+}

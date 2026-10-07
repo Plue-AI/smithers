@@ -9,7 +9,7 @@ use super::{
 use crate::{
     conn::Frame,
     document_payload::Document,
-    hooks::{self, Actor, Base, DocumentWrite, Documents},
+    hooks::{self, Actor, Base, BatchFailure, DocumentBatch, DocumentWrite, Documents, FileWrite},
     lock::LockCx,
 };
 use std::{
@@ -466,62 +466,113 @@ impl<D: Disk> Documents for Service<D> {
         bytes: &[u8],
         by: &Actor,
     ) -> Option<hooks::Result<DocumentWrite>> {
-        let mut s = match self.state() {
-            Ok(s) => s,
-            Err(e) => return Some(Err(e)),
-        };
-        Some((|| {
-            s.host.ready().map_err(error)?;
-            if !super::disk::valid_path(path) {
+        Some(
+            self.write_batch(
+                _cx,
+                &[FileWrite {
+                    path: path.into(),
+                    base: base.clone(),
+                    content: bytes.into(),
+                }],
+                by,
+            )
+            .and_then(|mut result| {
+                if let Some(failure) = result.failure {
+                    return Err(failure.error);
+                }
+                result.writes.pop().ok_or_else(hooks::Error::unsupported)
+            }),
+        )
+    }
+    fn write_batch(
+        &self,
+        _cx: &mut LockCx,
+        changes: &[FileWrite],
+        by: &Actor,
+    ) -> hooks::Result<DocumentBatch> {
+        let mut s = self.state()?;
+        s.host.ready().map_err(error)?;
+        let by = actor(by)?;
+        if changes.is_empty() || changes.len() > 256 {
+            return Err(error(Error::Invalid));
+        }
+        let mut paths = std::collections::BTreeSet::new();
+        let mut bytes = 0usize;
+        for change in changes {
+            if !super::disk::valid_path(&change.path) || !paths.insert(change.path.as_str()) {
                 return Err(error(Error::Invalid));
             }
-            let text = std::str::from_utf8(bytes).map_err(|_| error(Error::ReadOnly))?;
-            if bytes.len() > super::MAX_TEXT_BYTES {
+            bytes = bytes
+                .checked_add(change.content.len())
+                .ok_or_else(|| error(Error::Invalid))?;
+            if bytes > super::MAX_TEXT_BYTES || std::str::from_utf8(&change.content).is_err() {
                 return Err(error(Error::ReadOnly));
             }
-            // Validate identity before opening a document: even an empty new
-            // document becomes dirty and will otherwise be saved by a timer.
-            let by = actor(by)?;
-            let mut temporary = None;
-            let current = if let Some(current) = s.host.current_digest(path) {
-                if base != &Base::Digest(current) {
-                    return Err(hooks::Error {
-                        code: 4,
-                        current_digest: Some(current),
-                        ..hooks::Error::unsupported()
-                    });
+        }
+        for path in &paths {
+            for (at, _) in path.match_indices('/') {
+                if paths.contains(&path[..at]) {
+                    return Err(error(Error::Invalid));
                 }
-                current
-            } else {
-                let mut epoch = [0; 16];
-                getrandom::fill(&mut epoch).map_err(|_| error(Error::Io("entropy".into())))?;
-                temporary = Some(
-                    s.host
-                        .open_for_write(path, base, epoch, self.now())
-                        .map_err(error)?,
-                );
-                s.host
-                    .current_digest(path)
-                    .ok_or_else(hooks::Error::unsupported)?
-            };
-            let result = (|| {
+            }
+        }
+        let mut result = DocumentBatch::default();
+        let mut prepared = Vec::with_capacity(changes.len());
+        let mut cost = 0usize;
+        for (index, change) in changes.iter().enumerate() {
+            match s.host.prepare_write(&change.path, &change.base, self.now()) {
+                Ok(snapshot) => {
+                    cost = cost.saturating_add(snapshot.cost);
+                    // Bound retained CRDT snapshots as well as request bytes.
+                    if cost > super::MAX_STATE_BYTES {
+                        return Err(hooks::Error {
+                            code: 8,
+                            limit: Some(super::MAX_STATE_BYTES as u32),
+                            ..hooks::Error::unsupported()
+                        });
+                    }
+                    prepared.push(snapshot);
+                }
+                Err(e) => {
+                    result.failure = Some(BatchFailure {
+                        index,
+                        error: error(e),
+                        preflight: true,
+                    });
+                    return Ok(result);
+                }
+            }
+        }
+        for (index, (snapshot, change)) in prepared.into_iter().zip(changes).enumerate() {
+            let current = snapshot.current;
+            let written = (|| {
+                let open = s.host.activate_write(snapshot, self.now()).map_err(error)?;
+                let text =
+                    std::str::from_utf8(&change.content).map_err(|_| error(Error::Invalid))?;
                 let (digest, raced) = s
                     .host
-                    .write_saved(path, current, text, &by, self.now())
+                    .write_saved(&change.path, current, text, &by, self.now())
                     .map_err(error)?
                     .ok_or_else(hooks::Error::unsupported)?;
-                // The tool's internal stream is not a network subscriber.
-                if temporary.is_none() {
-                    s.broadcast(path)?;
+                if open {
+                    s.broadcast(&change.path)?;
                 }
                 s.collect()?;
                 Ok(DocumentWrite { digest, raced })
             })();
-            if let Some(id) = temporary {
-                s.host.close(id, self.now()).map_err(error)?;
+            match written {
+                Ok(write) => result.writes.push(write),
+                Err(error) => {
+                    result.failure = Some(BatchFailure {
+                        index,
+                        error,
+                        preflight: false,
+                    });
+                    break;
+                }
             }
-            result
-        })())
+        }
+        Ok(result)
     }
 
     fn completed_write(&self, _cx: &mut LockCx, path: &str, by: &Actor) -> hooks::Result<()> {

@@ -17,13 +17,17 @@ func TestWireCorpus(t *testing.T) {
 		t.Fatal(e)
 	}
 	var m struct {
-		Frames []struct {
+		Protocol uint16
+		Frames   []struct {
 			Name, Expected, SHA256 string
 			Local                  bool
 		}
 	}
 	if e = json.Unmarshal(manifest, &m); e != nil {
 		t.Fatal(e)
+	}
+	if m.Protocol != Protocol {
+		t.Fatalf("fixture protocol %d, live protocol %d", m.Protocol, Protocol)
 	}
 	for _, tc := range m.Frames {
 		t.Run(tc.Name, func(t *testing.T) {

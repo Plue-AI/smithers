@@ -94,6 +94,11 @@ pub fn serve(
     } else {
         None
     };
+    let batch = if method == 17 {
+        Some(conn::local_batch_write_args(args, run.principal).map_err(io::Error::other)?)
+    } else {
+        None
+    };
     let stream_ready = ready.clone();
     let stream_groups = groups.clone();
     let stream_run = run.clone();
@@ -109,7 +114,7 @@ pub fn serve(
             {
                 return Ok(daemon::refused(id, unauthorized()));
             }
-            if cx.rewrite_pending && method == 3 {
+            if cx.rewrite_pending && matches!(method, 3 | 17) {
                 return Ok(daemon::refused(id, crate::freeze::pending_error()));
             }
             match method {
@@ -117,6 +122,13 @@ pub fn serve(
                     Ok(body) => daemon::response(id, 3, body),
                     Err(e) => daemon::refused(id, e),
                 }),
+                17 => {
+                    let (changes, actor) = batch.unwrap();
+                    Ok(match files.write_batch(cx, changes, actor) {
+                        Ok(body) => daemon::response(id, 17, body),
+                        Err(e) => daemon::refused(id, e),
+                    })
+                }
                 6 => {
                     if cx.rewrite_pending {
                         return Ok(daemon::refused(id, crate::freeze::pending_error()));

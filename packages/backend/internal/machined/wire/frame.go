@@ -13,16 +13,9 @@ import (
 	"unicode/utf8"
 )
 
-const Protocol = 1
-
-// SessionActorProtocol requires durable attribution before session execution.
-const SessionActorProtocol = 3
-
-// SessionKillProtocol adds confirmed cancellation of one session cgroup.
-const SessionKillProtocol = 4
-
-// DocumentActorProtocol uses lossless hexadecimal keys for opaque document actors.
-const DocumentActorProtocol = 5
+// Protocol is the sole live connection version. Decoding a historical frame
+// does not admit an older peer; link admission requires this exact version.
+const Protocol = 6
 const MaxWorkspaceFileBytes = 1048576
 const InitialCredit = 262144
 const (
@@ -312,6 +305,8 @@ func (c *cursor) value(typ string) error {
 	}
 	width, max, min := 1, uint64(255), uint64(0)
 	switch typ {
+	case "bool":
+		max = 1
 	case "u16":
 		width = 2
 		max = 65535
@@ -328,7 +323,7 @@ func (c *cursor) value(typ string) error {
 	case "version":
 		width = 2
 		min = 1
-		max = DocumentActorProtocol
+		max = Protocol
 	case "state", "session_kind":
 		min = 1
 		max = 3

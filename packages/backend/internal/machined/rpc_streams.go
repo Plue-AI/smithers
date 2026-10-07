@@ -19,7 +19,7 @@ func (r *Registry) OpenDocument(ctx context.Context, branch, path string, actor 
 	}
 	// Live mirrors use lossless actor keys as well as sequenced save receipts.
 	// Recorded older frames still decode, but cannot authorize this live stream.
-	if l.protocol < wire.DocumentActorProtocol {
+	if l.protocol != wire.Protocol {
 		return nil, ErrNotReady
 	}
 	if len(actor) == 0 || len(actor) > 1024 {
@@ -137,8 +137,8 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 	l.sessionCallMu.Lock()
 	defer l.sessionCallMu.Unlock()
 	if call.Method == "open_session" || call.Method == "tcp_connect" {
-		if l.protocol < wire.SessionActorProtocol {
-			return SessionResult{}, refused("unsupported", "durable session attribution requires protocol 3")
+		if l.protocol != wire.Protocol {
+			return SessionResult{}, refused("unsupported", "session admission requires the current protocol")
 		}
 		if !validSessionActor(call) {
 			return SessionResult{}, ErrUnauthorized
@@ -218,8 +218,8 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 			if !validSession(call.Session) {
 				return SessionResult{}, wire.BadStream
 			}
-			if l.protocol < wire.SessionKillProtocol {
-				return SessionResult{}, refused("unsupported", "session cancellation requires protocol 4")
+			if l.protocol != wire.Protocol {
+				return SessionResult{}, refused("unsupported", "session cancellation requires the current protocol")
 			}
 		}
 		if call.Run != "" && !validString(call.Run) {

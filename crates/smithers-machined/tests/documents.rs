@@ -1854,6 +1854,210 @@ mod dispatcher {
         assert_eq!(disk.versions, versions);
     }
 
+    fn change(path: &str, base: Option<&[u8]>, content: &[u8]) -> hooks::FileWrite {
+        hooks::FileWrite {
+            path: path.into(),
+            base: base
+                .map(|b| hooks::Base::Digest(digest(b)))
+                .unwrap_or(hooks::Base::Absent),
+            content: content.into(),
+        }
+    }
+    #[test]
+    fn batch_stale_at_every_position_leaves_all_files_records_and_timers_unchanged() {
+        for stale in 0..3 {
+            let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
+            let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+            let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+            let mut cx = LockCx::new(Default::default());
+            let mut changes = vec![
+                change("a.rs", Some(b"before"), b"after"),
+                change("b.rs", None, b"b"),
+                change("c.rs", None, b"c"),
+            ];
+            changes[stale].base = hooks::Base::Digest(digest(b"wrong"));
+            let result = service
+                .write_batch(&mut cx, &changes, &hooks::Actor::Outside)
+                .unwrap();
+            assert!(result.writes.is_empty());
+            let failure = result.failure.unwrap();
+            assert_eq!(
+                (failure.index, failure.preflight, failure.error.code),
+                (stale, true, 4)
+            );
+            for now in [200, 2000, 60_001] {
+                clock.0.store(now, Ordering::Relaxed);
+                service.poll(&mut cx).unwrap();
+            }
+            assert!(service.projections(&mut cx).unwrap().is_empty());
+            let disk = disk.0.lock().unwrap();
+            assert_eq!(disk.files, Model::with("before").files);
+            assert!(disk.records.is_empty());
+            assert!(disk.versions.is_empty());
+        }
+    }
+    #[test]
+    fn batch_validation_finishes_before_preparing_any_file() {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock);
+        let mut cx = LockCx::new(Default::default());
+        for changes in [
+            vec![],
+            vec![change("x", None, b"a"); 257],
+            vec![change("a", None, b"a"), change("a", None, b"b")],
+            vec![change("a/z", None, b"a"), change("a", None, b"b")],
+            vec![
+                change("safe", None, b"ok"),
+                change("../escape", None, b"bad"),
+            ],
+            vec![change("safe", None, b"ok"), change("a", None, &[255])],
+            vec![
+                change("safe", None, b"ok"),
+                change("large", None, &vec![b'x'; 1 << 20]),
+            ],
+        ] {
+            assert!(service
+                .write_batch(&mut cx, &changes, &hooks::Actor::Outside)
+                .is_err());
+            assert!(disk.0.lock().unwrap().log.is_empty());
+            assert!(service.projections(&mut cx).unwrap().is_empty());
+        }
+    }
+    #[test]
+    fn batch_uses_unsaved_document_text_and_preserves_live_edits_on_stale() {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("disk"))));
+        let mut h = Host::new(disk.clone(), gates(), ids());
+        let _id = h.open("a.rs", [7; 16], 0).unwrap();
+        h.write_through("a.rs", digest(b"disk"), "unsaved", "alice", 0)
+            .unwrap();
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(h, clock);
+        let mut cx = LockCx::new(Default::default());
+        let result = service
+            .write_batch(
+                &mut cx,
+                &[
+                    change("new", None, b"new"),
+                    change("a.rs", Some(b"disk"), b"bad"),
+                ],
+                &hooks::Actor::Outside,
+            )
+            .unwrap();
+        assert!(result.writes.is_empty());
+        assert_eq!(
+            result.failure.unwrap().error.current_digest,
+            Some(digest(b"unsaved"))
+        );
+        assert!(!disk.0.lock().unwrap().files.contains_key("new"));
+        let result = service
+            .write_batch(
+                &mut cx,
+                &[
+                    change("new", None, b"new"),
+                    change("a.rs", Some(b"unsaved"), b"accepted"),
+                ],
+                &hooks::Actor::Outside,
+            )
+            .unwrap();
+        assert!(result.failure.is_none());
+        assert_eq!(result.writes.len(), 2);
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"accepted");
+    }
+    #[test]
+    fn batch_can_create_empty_files_and_apply_the_maximum_number_of_text_writes() {
+        let disk = Shared(Arc::new(Mutex::new(Model::default())));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+        let mut cx = LockCx::new(Default::default());
+        let changes: Vec<_> = (0..256)
+            .map(|i| {
+                change(
+                    &format!("file-{i}"),
+                    None,
+                    if i == 0 { b"" } else { b"text" },
+                )
+            })
+            .collect();
+        let result = service
+            .write_batch(&mut cx, &changes, &hooks::Actor::Outside)
+            .unwrap();
+        assert!(result.failure.is_none());
+        assert_eq!(result.writes.len(), 256);
+        assert_eq!(result.writes[0].digest, digest(b""));
+        clock.0.store(60_001, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+        assert!(service.projections(&mut cx).unwrap().is_empty());
+        let disk = disk.0.lock().unwrap();
+        assert_eq!(disk.files.len(), 256);
+        for change in changes {
+            assert_eq!(disk.files[&change.path], change.content);
+        }
+    }
+    #[test]
+    fn batch_preparation_does_not_publish_outside_versions_before_a_later_stale_refusal() {
+        let (mut h, _) = host("saved");
+        h.flush_all(0).unwrap();
+        h.tick(200, true).unwrap();
+        h.disk.files.insert("a.rs".into(), b"outside".to_vec());
+        let records = h.disk.records.clone();
+        let versions = h.disk.versions.clone();
+        let disk = Shared(Arc::new(Mutex::new(h.disk)));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+        let mut cx = LockCx::new(Default::default());
+        let result = service
+            .write_batch(
+                &mut cx,
+                &[
+                    change("a.rs", Some(b"outside"), b"new"),
+                    change("missing", Some(b"stale"), b"new"),
+                ],
+                &hooks::Actor::Outside,
+            )
+            .unwrap();
+        assert!(result.writes.is_empty());
+        assert_eq!(result.failure.unwrap().index, 1);
+        clock.0.store(60_001, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+        assert!(service.projections(&mut cx).unwrap().is_empty());
+        let disk = disk.0.lock().unwrap();
+        assert_eq!(disk.files["a.rs"], b"outside");
+        assert_eq!(disk.records, records);
+        assert_eq!(disk.versions, versions);
+    }
+    #[test]
+    fn batch_snapshot_budget_refuses_without_activating_any_documents() {
+        let mut model = Model::default();
+        let bytes = vec![b'a'; 1 << 20];
+        for i in 0..4 {
+            model.files.insert(format!("file-{i}"), bytes.clone());
+        }
+        let disk = Shared(Arc::new(Mutex::new(model)));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+        let mut cx = LockCx::new(Default::default());
+        let changes: Vec<_> = (0..4)
+            .map(|i| change(&format!("file-{i}"), Some(&bytes), b"new"))
+            .collect();
+        let refusal = service
+            .write_batch(&mut cx, &changes, &hooks::Actor::Outside)
+            .unwrap_err();
+        assert_eq!(refusal.code, 8);
+        assert_eq!(
+            refusal.limit,
+            Some(smithers_machined::doc::MAX_STATE_BYTES as u32)
+        );
+        clock.0.store(60_001, Ordering::Relaxed);
+        service.poll(&mut cx).unwrap();
+        assert!(service.projections(&mut cx).unwrap().is_empty());
+        let disk = disk.0.lock().unwrap();
+        assert!(disk.records.is_empty());
+        assert!(disk.versions.is_empty());
+        for b in disk.files.values() {
+            assert_eq!(*b, bytes);
+        }
+    }
     #[test]
     fn mutation_executor_saves_without_a_connected_host() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));

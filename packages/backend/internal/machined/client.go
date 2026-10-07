@@ -29,9 +29,10 @@ type File struct {
 	Mode    uint32
 }
 
-// BaseDigest nil means absent, not an unconditional write. Changes are ordered
-// write_file calls, not a rollback transaction: stop at the first stale/error
-// and retain all earlier applied receipts, including when returning an error.
+// BaseDigest nil means absent, not an unconditional write. All bases are
+// compared before any write; a stale result has no applied receipts. I/O errors
+// can occur after earlier writes succeed, whose receipts remain in the result.
+// This text-write capability does not delete files: nil Content writes empty.
 type FileChange struct {
 	Path       string
 	BaseDigest *string

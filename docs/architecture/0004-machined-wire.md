@@ -133,7 +133,16 @@ The boot file `/run/smithers/machined/boot` (written by the runtime, T-COL-03; o
 
 Rejected: the host presenting the relay secret as a bearer value (§9.5.3's wording). A process that reached the listening port first, or a stale bridge listener, would learn the secret; the HMAC proof costs one extra half round trip and leaks nothing. Rejected: version negotiation. Host and daemon ship in one bundle and the daemon is planted, digest-checked, on every boot (§16.1.1), so a skew lives only until the machine's next boot; one exact `protocol` value keeps one code path.
 
-`protocol` is `5` (8a ruling, 2026-10-07, #3626): exactly one connection protocol, with no negotiation and no older protocol accepted. The host plants the daemon from the same verified install bundle (spec §17.3), so the two never differ in a working install. A handshake whose `protocol` differs from the receiver's ends the connection with `version_mismatch` (error 13). Document bodies are part of the connection protocol, with no separate document version. Any change to any byte of this contract increments `protocol`, regenerates every golden frame, and fails both codecs until both pass. The amendment sections below record how protocol 5 was reached (documents in 2, session actors in 3, command cancellation in 4, opaque document authors in 5); their "older recordings still decode" provisions are superseded: no protocol 1–4 decoder or recording is retained.
+`protocol` is `6`: protocol 5's exact live-connection rule (8a, 2026-10-07,
+#3626) continues, with the bump required by the compared text-batch addition
+below. There is no negotiation or older live protocol accepted. Host and daemon
+ship in the same verified install bundle (spec §17.3); a different handshake
+version ends the connection with `version_mismatch` (error 13) before credentials
+or operations. Any wire change increments the version and regenerates the golden
+frames for both codecs. Existing persisted history remains readable as required
+by the repository's permanent interaction rules; historical decoding never
+admits an older live connection. The amendment sections record earlier formats.
+
 
 ### Control RPC
 
@@ -326,7 +335,7 @@ The exported Go `Read`, `Decode`, `DecodeLocal`, `Encode`, `EncodeLocal` and
 `RequestFrame` and Rust `Frame::{read,decode,decode_local,encode,encode_local}`
 share the framing above. `msg` exposes method and error discriminants; tagged
 payload builders construct requests without a second framing implementation.
-The 142 literal frames include 1 MiB and 1 MiB + 1 content fixtures and preserve
+The 148 literal frames include 1 MiB and 1 MiB + 1 content fixtures and preserve
 the browser document fixtures. The JSON companion records kind, stream and the
 canonical payload as hex; it never records JSON sent over the connection.
 `gen.mjs --check` verifies the independent byte tables and manifest hashes.
@@ -465,3 +474,40 @@ and other producer migrations.
 2. **Durable event variant 5 (transcripts) stays reserved in this contract.** Its payload belongs to T-AGT-02, which amends this ADR with the struct and adds its own frames when it lands. Until then, the `ev_transcript`, `ev_transcript_bad_utf8`, `ev_transcript_partial` and `ev_reserved_transcript` frames leave this manifest; the partial frame's `bad_utf8` expectation on valid UTF-8 was a fixture bug and is not carried over.
 3. **One rule for reserved variants:** a reserved union variant is refused with `bad_value` (a forbidden variant) whatever its body, before the body is decoded. Event variants 5 and 6 behave the same; document `msg` bytes keep their own §documents rule until T-COL-08b defines them.
 4. **Sequences that span connections** name each connection: every sequence step carries `conn` (`a`, `b`, …; default `a`). `seq_newer_boot` is: `a` completes its handshake; `b` (newer boot, same machine) completes its handshake and is accepted; `a` receives `Goodbye{superseded}`; a third connection `c` presenting the older boot's credential receives `auth_failed`.
+
+### Compared text batches (connection protocol 6, 2026-10-07)
+
+Method **17 `write_files`** replaces the host client's serial loop over method
+3. It runs as one FIFO mutation job. Args are `{1 changes: list<local_write>,
+2 actor: host_actor}`; each change uses the existing `{1 path: str, 2 base: Base,
+3 content: bytes}`. The agent-local form has only field 1; its actor comes from
+kernel peer credentials and the broker's committed admission, rechecked after
+queueing. Client-provided local actors are refused. Rewrite fencing applies to
+the whole batch. Method 3 uses the same document batch engine with one change.
+
+The engine validates all paths, UTF-8 content, duplicate/ancestor paths, 1–256
+entries and at most 1 MiB combined content before preparing documents. Closed
+files are prepared from read snapshots without activating recovery or publishing
+versions. Retained closed-document snapshots are bounded to 8 MiB of encoded
+CRDT state plus baseline and read bytes. Every base is compared before any
+write starts. Open files compare against current document text. A stale base
+leaves the entire batch unchanged, including timers and recovery records.
+
+Result 17 is `{1 writes: list<result3>, 2? failure: BatchFailure}`. Receipts
+are the durable successful prefix in input order. `BatchFailure` is
+`{1 index: u16, 2 preflight: bool, 3 error: Error}`, with a zero-based input
+index. A preflight failure has zero receipts; only a preflight `stale` error
+means the batch did nothing. After application starts, errors retain the
+successful prefix and identify the first write whose completion is uncertain;
+that write may also have changed bytes. Later writes are not started. There is
+no rollback on I/O failure. A swap-window outside race retains displaced bytes
+and returns the ordinary `raced` receipt, without re-comparing later files and
+misreporting a partially applied batch as stale. Hosts check receipt counts,
+indices, requested post-digests and raced paths before accepting them.
+
+Live connections require protocol 6; hosts do not fall back to the serial
+loop. Earlier persisted recordings remain decodable. This capability writes text files;
+empty content creates an empty file. Delete/move support and provider
+qualification are still required before it can implement the public
+`WorkspaceCompareWriter` contract. This addition does not enable that provider
+or claim installed-machine acceptance.

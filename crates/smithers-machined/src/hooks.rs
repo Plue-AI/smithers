@@ -72,6 +72,24 @@ pub struct DocumentWrite {
     pub digest: Digest,
     pub raced: Option<Digest>,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileWrite {
+    pub path: String,
+    pub base: Base,
+    pub content: Vec<u8>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchFailure {
+    pub index: usize,
+    pub error: Error,
+    pub preflight: bool,
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DocumentBatch {
+    /// In input order; only writes with durable version receipts appear here.
+    pub writes: Vec<DocumentWrite>,
+    pub failure: Option<BatchFailure>,
+}
 pub trait Documents: Send + Sync {
     /// Continues saving after a host disconnect; called by the lock executor.
     fn tick(&self, _cx: &mut LockCx) -> Result<()> {
@@ -106,6 +124,16 @@ pub trait Documents: Send + Sync {
         _actor: &Actor,
     ) -> Option<Result<DocumentWrite>> {
         None
+    }
+    /// Compare every base before activating any document. Late outside races
+    /// retain their bytes; an I/O failure preserves earlier applied receipts.
+    fn write_batch(
+        &self,
+        _cx: &mut LockCx,
+        _changes: &[FileWrite],
+        _actor: &Actor,
+    ) -> Result<DocumentBatch> {
+        Err(Error::unsupported())
     }
     /// Reconcile open documents after a settled rewrite, on the mutation lock.
     fn reconcile_all(&self, _cx: &mut LockCx, _actor: &Actor) -> Result<()> {

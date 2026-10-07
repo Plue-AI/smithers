@@ -142,6 +142,12 @@ struct Pending {
     quiet: u64,
     deadline: u64,
 }
+pub(super) struct PreparedWrite {
+    pub path: String,
+    pub current: Digest,
+    pub cost: usize,
+    closed: Option<(Document, Vec<u8>)>,
+}
 pub struct Host<D: Disk> {
     pub disk: D,
     gates: Gates,
@@ -326,27 +332,9 @@ impl<D: Disk> Host<D> {
     /// Epoch randomness comes from the authority's OS entropy provider; the
     /// production adapter must not expose this input in RPC or stream schemas.
     pub fn open(&mut self, path: &str, fresh_epoch: [u8; 16], now: u64) -> Result<u32> {
-        self.open_inner(path, fresh_epoch, now, None)
+        self.open_inner(path, fresh_epoch, now)
     }
-    /// Compare before admitting a temporary document. A refused write must not
-    /// leave a dirty recovery document behind for a later timer to save.
-    /// File writes can create a missing path without planting placeholder bytes.
-    pub(crate) fn open_for_write(
-        &mut self,
-        path: &str,
-        base: &crate::hooks::Base,
-        fresh_epoch: [u8; 16],
-        now: u64,
-    ) -> Result<u32> {
-        self.open_inner(path, fresh_epoch, now, Some(base))
-    }
-    fn open_inner(
-        &mut self,
-        path: &str,
-        fresh_epoch: [u8; 16],
-        now: u64,
-        write_base: Option<&crate::hooks::Base>,
-    ) -> Result<u32> {
+    fn open_inner(&mut self, path: &str, fresh_epoch: [u8; 16], now: u64) -> Result<u32> {
         self.gates.check()?;
         if !disk::valid_path(path) {
             return Err(Error::Invalid);
@@ -358,149 +346,217 @@ impl<D: Disk> Host<D> {
             return Err(Error::Invalid);
         }
         if !self.docs.contains_key(path) {
-            let disk_bytes = self.disk.read(path)?;
-            let missing = disk_bytes.is_none();
-            if let Some(base) = write_base {
-                let current = disk_bytes.as_deref().map(digest);
-                let matches = match (base, current) {
-                    (crate::hooks::Base::Absent, None) => true,
-                    (crate::hooks::Base::Digest(expected), Some(actual)) => *expected == actual,
-                    _ => false,
-                };
-                if !matches {
-                    return Err(Self::stale_write(current));
-                }
-            }
-            let bytes = match disk_bytes {
-                Some(bytes) => bytes,
-                None if write_base.is_some() => vec![],
-                None => return Err(Error::Gone),
-            };
-            let text = std::str::from_utf8(&bytes);
-            let readonly = bytes.len() > MAX_TEXT_BYTES || text.is_err();
-            if readonly && write_base.is_some() {
-                return Err(Error::ReadOnly);
-            }
-            let text = if readonly { "" } else { text.unwrap() };
-            let key = digest(path.as_bytes());
-            let record = if readonly || missing {
-                None
-            } else {
-                self.disk.load_record(key)?
-            };
-            let mut entry = match record {
-                Some(record) => {
-                    let doc = record.document()?;
-                    let saved = digest(record.text.as_bytes());
-                    Document {
-                        doc,
-                        retired_clients: record.retired_clients,
-                        epoch: record.epoch,
-                        save_author: if digest(&bytes) == record.previous && digest(&bytes) != saved
-                        {
-                            SaveAuthor::Unknown
-                        } else {
-                            SaveAuthor::Clean
-                        },
-                        base: record.text,
-                        last_disk: saved,
-                        dirty_since: if digest(&bytes) == record.previous && digest(&bytes) != saved
-                        {
-                            Some(now)
-                        } else {
-                            None
-                        },
-                        updated: now,
-                        subscribers: BTreeSet::new(),
-                        closing: None,
-                        gone: None,
-                        readonly,
-                        activity: BTreeMap::new(),
-                        displaced: vec![],
-                        editors: BTreeMap::new(),
-                        saved_at_ms: None,
-                        outside_change: None,
-                    }
-                }
-                None => {
-                    let doc = core::document(None);
-                    doc.get_or_insert_map("authors");
-                    let client = authors::allocate(&doc, "outside")?;
-                    doc.get_or_insert_text("content");
-                    let update = reconcile::replace(&doc, text, client)?;
-                    core::apply(&doc, core::decode(&update).map_err(|_| Error::Invalid)?)
-                        .map_err(|_| Error::Invalid)?;
-                    Document {
-                        doc,
-                        retired_clients: BTreeSet::new(),
-                        epoch: fresh_epoch,
-                        base: text.into(),
-                        last_disk: digest(&bytes),
-                        dirty_since: if readonly { None } else { Some(now) },
-                        save_author: SaveAuthor::Clean,
-                        updated: now,
-                        subscribers: BTreeSet::new(),
-                        closing: None,
-                        gone: None,
-                        readonly,
-                        activity: BTreeMap::new(),
-                        displaced: vec![],
-                        editors: BTreeMap::new(),
-                        saved_at_ms: None,
-                        outside_change: None,
-                    }
-                }
-            };
-            if write_base.is_some()
-                && entry.dirty_since.is_some()
-                && digest(&bytes) != entry.last_disk
-            {
-                // A persisted but interrupted save is newer than the caller's
-                // disk read. Do not activate its recovery as a side effect of
-                // a rejected write. An ordinary document open still recovers it.
-                return Err(Self::stale_write(Some(entry.last_disk)));
-            }
-            // Outside changes are reconciled only if this is not an interrupted
-            // save. In that case the record is completed on disk first.
-            if !readonly && digest(&bytes) != entry.last_disk && entry.dirty_since.is_none() {
-                Self::outside(
-                    (&mut self.disk, &mut self.notices),
-                    path,
-                    &mut entry,
-                    &bytes,
-                    "outside",
-                    now,
-                    None,
-                )?;
-                // This newly opened document has no unsaved live edits: its
-                // prior base and text were both record.text. Reconciliation
-                // accepted this exact disk snapshot. Use it as the next swap's
-                // predecessor, so it is not misreported as a concurrent write
-                // or merged a second time when the displaced inode goes quiet.
-                entry.base = text.into();
-                entry.last_disk = digest(&bytes);
-            }
-            if !readonly {
-                for recovered in self.disk.recover_temps(path, key)? {
-                    let bytes = self.disk.read_displaced(recovered.token)?;
-                    entry.displaced.push(Pending {
-                        token: recovered.token,
-                        base: recovered.record.previous_text,
-                        expected: recovered.record.previous,
-                        saved: digest(recovered.record.text.as_bytes()),
-                        observed: digest(&bytes),
-                        quiet: now,
-                        deadline: now.saturating_add(2000),
-                    });
-                }
-            }
-            self.docs.insert(path.into(), entry);
+            let (entry, bytes) = self.load_document(path, fresh_epoch, now, None)?;
+            self.activate_document(path, entry, &bytes, now)?;
         }
         let doc = self.docs.get_mut(path).unwrap();
         doc.subscribers.insert(stream);
         doc.closing = None;
         self.streams.insert(stream, path.into());
         Ok(stream)
+    }
+    fn load_document(
+        &mut self,
+        path: &str,
+        fresh_epoch: [u8; 16],
+        now: u64,
+        write_base: Option<&crate::hooks::Base>,
+    ) -> Result<(Document, Vec<u8>)> {
+        let disk_bytes = self.disk.read(path)?;
+        let missing = disk_bytes.is_none();
+        if let Some(base) = write_base {
+            let current = disk_bytes.as_deref().map(digest);
+            let matches = match (base, current) {
+                (crate::hooks::Base::Absent, None) => true,
+                (crate::hooks::Base::Digest(expected), Some(actual)) => *expected == actual,
+                _ => false,
+            };
+            if !matches {
+                return Err(Self::stale_write(current));
+            }
+        }
+        let bytes = match disk_bytes {
+            Some(bytes) => bytes,
+            None if write_base.is_some() => vec![],
+            None => return Err(Error::Gone),
+        };
+        let text = std::str::from_utf8(&bytes);
+        let readonly = bytes.len() > MAX_TEXT_BYTES || text.is_err();
+        if readonly && write_base.is_some() {
+            return Err(Error::ReadOnly);
+        }
+        let text = if readonly { "" } else { text.unwrap() };
+        let key = digest(path.as_bytes());
+        let record = if readonly || missing {
+            None
+        } else {
+            self.disk.load_record(key)?
+        };
+        let entry = match record {
+            Some(record) => {
+                let doc = record.document()?;
+                let saved = digest(record.text.as_bytes());
+                Document {
+                    doc,
+                    retired_clients: record.retired_clients,
+                    epoch: record.epoch,
+                    save_author: if digest(&bytes) == record.previous && digest(&bytes) != saved {
+                        SaveAuthor::Unknown
+                    } else {
+                        SaveAuthor::Clean
+                    },
+                    base: record.text,
+                    last_disk: saved,
+                    dirty_since: if digest(&bytes) == record.previous && digest(&bytes) != saved {
+                        Some(now)
+                    } else {
+                        None
+                    },
+                    updated: now,
+                    subscribers: BTreeSet::new(),
+                    closing: None,
+                    gone: None,
+                    readonly,
+                    activity: BTreeMap::new(),
+                    displaced: vec![],
+                    editors: BTreeMap::new(),
+                    saved_at_ms: None,
+                    outside_change: None,
+                }
+            }
+            None => {
+                let doc = core::document(None);
+                doc.get_or_insert_map("authors");
+                let client = authors::allocate(&doc, "outside")?;
+                doc.get_or_insert_text("content");
+                let update = reconcile::replace(&doc, text, client)?;
+                core::apply(&doc, core::decode(&update).map_err(|_| Error::Invalid)?)
+                    .map_err(|_| Error::Invalid)?;
+                Document {
+                    doc,
+                    retired_clients: BTreeSet::new(),
+                    epoch: fresh_epoch,
+                    base: text.into(),
+                    last_disk: digest(&bytes),
+                    dirty_since: if readonly { None } else { Some(now) },
+                    save_author: SaveAuthor::Clean,
+                    updated: now,
+                    subscribers: BTreeSet::new(),
+                    closing: None,
+                    gone: None,
+                    readonly,
+                    activity: BTreeMap::new(),
+                    displaced: vec![],
+                    editors: BTreeMap::new(),
+                    saved_at_ms: None,
+                    outside_change: None,
+                }
+            }
+        };
+        if write_base.is_some() && entry.dirty_since.is_some() && digest(&bytes) != entry.last_disk
+        {
+            // A persisted but interrupted save is newer than the caller's
+            // disk read. Do not activate its recovery as a side effect of
+            // a rejected write. An ordinary document open still recovers it.
+            return Err(Self::stale_write(Some(entry.last_disk)));
+        }
+        Ok((entry, bytes))
+    }
+    fn activate_document(
+        &mut self,
+        path: &str,
+        mut entry: Document,
+        bytes: &[u8],
+        now: u64,
+    ) -> Result<()> {
+        let key = digest(path.as_bytes());
+        // Outside changes are reconciled only if this is not an interrupted
+        // save. In that case the record is completed on disk first.
+        if !entry.readonly && digest(bytes) != entry.last_disk && entry.dirty_since.is_none() {
+            Self::outside(
+                (&mut self.disk, &mut self.notices),
+                path,
+                &mut entry,
+                bytes,
+                "outside",
+                now,
+                None,
+            )?;
+            // This newly opened document has no unsaved live edits: its
+            // prior base and text were both record.text. Reconciliation
+            // accepted this exact disk snapshot. Use it as the next swap's
+            // predecessor, so it is not misreported as a concurrent write
+            // or merged a second time when the displaced inode goes quiet.
+            entry.base = std::str::from_utf8(bytes)
+                .map_err(|_| Error::ReadOnly)?
+                .into();
+            entry.last_disk = digest(bytes);
+        }
+        if !entry.readonly {
+            for recovered in self.disk.recover_temps(path, key)? {
+                let bytes = self.disk.read_displaced(recovered.token)?;
+                entry.displaced.push(Pending {
+                    token: recovered.token,
+                    base: recovered.record.previous_text,
+                    expected: recovered.record.previous,
+                    saved: digest(recovered.record.text.as_bytes()),
+                    observed: digest(&bytes),
+                    quiet: now,
+                    deadline: now.saturating_add(2000),
+                });
+            }
+        }
+        self.docs.insert(path.into(), entry);
+        Ok(())
+    }
+    /// Preparation reads snapshots only. It must not activate recovery, publish
+    /// outside versions or leave a document for the save timer on stale refusal.
+    pub(super) fn prepare_write(
+        &mut self,
+        path: &str,
+        base: &crate::hooks::Base,
+        now: u64,
+    ) -> Result<PreparedWrite> {
+        self.gates.check()?;
+        if !disk::valid_path(path) {
+            return Err(Error::Invalid);
+        }
+        if let Some(current) = self.current_digest(path) {
+            if base != &crate::hooks::Base::Digest(current) {
+                return Err(Self::stale_write(Some(current)));
+            }
+            if self.docs[path].readonly {
+                return Err(Error::ReadOnly);
+            }
+            return Ok(PreparedWrite {
+                path: path.into(),
+                current,
+                closed: None,
+                cost: 0,
+            });
+        }
+        let mut epoch = [0; 16];
+        getrandom::fill(&mut epoch).map_err(|_| Error::Io("entropy".into()))?;
+        let (entry, bytes) = self.load_document(path, epoch, now, Some(base))?;
+        let cost = core::state(&entry.doc).len() + entry.base.len() + bytes.len();
+        Ok(PreparedWrite {
+            path: path.into(),
+            current: digest(&bytes),
+            closed: Some((entry, bytes)),
+            cost,
+        })
+    }
+    /// Commit only an already compared snapshot. Outside changes since prepare
+    /// are detected by the shared retained-inode swap; never reclassify a
+    /// partially applied batch as stale by rereading a later file here.
+    pub(super) fn activate_write(&mut self, prepared: PreparedWrite, now: u64) -> Result<bool> {
+        if let Some((mut entry, bytes)) = prepared.closed {
+            entry.closing = Some(now.saturating_add(60_000));
+            self.activate_document(&prepared.path, entry, &bytes, now)?;
+            Ok(false)
+        } else {
+            Ok(true)
+        }
     }
     fn stale_write(current_digest: Option<Digest>) -> Error {
         Error::Provider(crate::hooks::Error {

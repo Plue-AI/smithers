@@ -59,7 +59,7 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	go func() {
 		nonce := make([]byte, 32)
 		nonce[0] = 5
-		if err := wire.Write(guest, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(2)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))}); err != nil {
+		if err := wire.Write(guest, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(wire.Protocol)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))}); err != nil {
 			peer <- err
 			return
 		}
@@ -249,7 +249,10 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	fields, err := wire.Fields("args13", args)
 	require.NoError(t, err)
 	require.Equal(t, wire.String("retry.ts"), fields[1])
-	require.Equal(t, wire.Union(1, wire.Field(1, wire.Bytes([]byte("host")))), fields[2])
+	// The current live protocol forwards the opaque authenticated principal,
+	// not the legacy mirror label used by the older connection fixture.
+	principal := []byte{0x00, 0xff, 0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d}
+	require.Equal(t, wire.Union(1, wire.Field(1, wire.Bytes(principal))), fields[2])
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(13, wire.Field(1, wire.U32(5)))))}))
 
 	// The host mirror first asks the daemon for its persisted state. Complete
@@ -259,7 +262,7 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	require.NoError(t, err)
 	initial, err := wire.DecodeDocumentV2(syncRequest.Payload)
 	require.NoError(t, err)
-	require.Equal(t, []byte("host"), initial.Actor)
+	require.Equal(t, principal, initial.Actor)
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: docGolden(t, "epoch")}))
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: []byte{3, 1, 2, 0, 0}}))
 	daemonDocument, err := f.relay.Host.Library.Open(livedocument.Code, nil)

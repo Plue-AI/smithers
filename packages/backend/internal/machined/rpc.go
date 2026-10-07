@@ -1,11 +1,15 @@
 package machined
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 )
@@ -94,39 +98,114 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 	if len(changes) == 0 || len(changes) > 256 {
 		return result, wire.BadValue
 	}
-	for _, change := range changes {
+	if l.protocol != wire.Protocol {
+		return result, refused("unsupported", fmt.Sprintf("text write batches require protocol %d", wire.Protocol))
+	}
+	// Keep receipt validation bound to what was encoded, even if the caller
+	// reuses its input buffers after the peer receives the request.
+	changes = append([]FileChange(nil), changes...)
+	expectedDigests := make([][32]byte, len(changes))
+	payload := wire.U16(uint16(len(changes)))
+	paths := make(map[string]bool, len(changes))
+	total := 0
+	for index, change := range changes {
+		if change.Path == "" || len(change.Path) > 4096 || strings.HasPrefix(change.Path, "/") || strings.ContainsRune(change.Path, 0) || !utf8.ValidString(change.Path) || paths[change.Path] {
+			return result, wire.BadValue
+		}
+		for _, part := range strings.Split(change.Path, "/") {
+			if part == "" || part == "." || part == ".." {
+				return result, wire.BadValue
+			}
+		}
+		paths[change.Path] = true
+		total += len(change.Content)
+		if total > 1<<20 || !utf8.Valid(change.Content) {
+			return result, wire.BadValue
+		}
 		base := wire.Union(2)
 		if change.BaseDigest != nil {
 			digest, err := hex.DecodeString(*change.BaseDigest)
-			if err != nil || len(digest) != 32 {
+			if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != *change.BaseDigest {
 				return result, wire.BadValue
 			}
 			base = wire.Union(1, wire.Field(1, digest))
 		}
-		fields, err := l.call(ctx, branch, wire.WriteFile, wire.Field(1, wire.String(change.Path)), wire.Field(2, base), wire.Field(3, wire.Bytes(change.Content)), wire.Field(4, principal(actor)))
-		if err != nil {
-			if refusal, ok := err.(*SessionError); ok && refusal.Code == "stale" {
-				stale := &StaleFile{Path: change.Path}
-				if bytes := fields[3]; bytes != nil {
-					digest := hex.EncodeToString(bytes)
-					stale.CurrentDigest = &digest
-				}
-				result.Stale = stale
-				return result, nil
+		expectedDigests[index] = sha256.Sum256(change.Content)
+		payload = append(payload, wire.Struct(wire.Field(1, wire.String(change.Path)), wire.Field(2, base), wire.Field(3, wire.Bytes(change.Content)))...)
+	}
+	for path := range paths {
+		for at := strings.IndexByte(path, '/'); at >= 0; {
+			if paths[path[:at]] {
+				return result, wire.BadValue
 			}
+			next := strings.IndexByte(path[at+1:], '/')
+			if next < 0 {
+				break
+			}
+			at += next + 1
+		}
+	}
+	fields, err := l.call(ctx, branch, wire.WriteFiles, wire.Field(1, payload), wire.Field(2, principal(actor)))
+	if err != nil {
+		return result, err
+	}
+	receipts, err := wire.List("result3", fields[1])
+	if err != nil || len(receipts) > len(changes) {
+		return result, wire.BadValue
+	}
+	for i, raw := range receipts {
+		receipt, err := wire.Fields("result3", raw)
+		if err != nil {
 			return result, err
 		}
-		result.Applied = append(result.Applied, AppliedFile{change.Path, hex.EncodeToString(fields[1])})
-		if bytes := fields[2]; bytes != nil {
-			raced, err := wire.Fields("raced", bytes)
-			if err != nil {
-				return result, err
-			}
-			result.Raced = append(result.Raced, RacedFile{string(raced[1][2:]), hex.EncodeToString(raced[2])})
+		expected := expectedDigests[i]
+		if !bytes.Equal(receipt[1], expected[:]) {
+			return result, wire.BadValue
 		}
+		result.Applied = append(result.Applied, AppliedFile{changes[i].Path, hex.EncodeToString(receipt[1])})
+		if raw := receipt[2]; raw != nil {
+			raced, err := wire.Fields("raced", raw)
+			if err != nil || string(raced[1][2:]) != changes[i].Path {
+				return result, wire.BadValue
+			}
+			result.Raced = append(result.Raced, RacedFile{changes[i].Path, hex.EncodeToString(raced[2])})
+		}
+	}
+	if raw := fields[2]; raw != nil {
+		failure, err := wire.Fields("batch_failure", raw)
+		if err != nil {
+			return result, err
+		}
+		index := int(binary.BigEndian.Uint16(failure[1]))
+		preflight := failure[2][0] == 1
+		if index >= len(changes) || (preflight && len(receipts) != 0) || (!preflight && index != len(receipts)) {
+			return result, wire.BadValue
+		}
+		e, err := wire.Fields("error", failure[3])
+		if err != nil {
+			return result, err
+		}
+		if preflight && e[1][0] == byte(wire.Stale) {
+			result.Stale = &StaleFile{Path: changes[index].Path}
+			if current := e[3]; current != nil {
+				digest := hex.EncodeToString(current)
+				result.Stale.CurrentDigest = &digest
+			}
+			return result, nil
+		}
+		codes := []string{"", "malformed", "unsupported", "not_ready", "stale", "not_found", "invalid_path", "not_regular", "too_large", "busy", "moved_off", "unauthorized", "internal"}
+		detail := changes[index].Path
+		if v := e[2]; len(v) > 0 {
+			detail += ": " + string(v[2:])
+		}
+		return result, &SessionError{Code: codes[e[1][0]], Detail: detail}
+	}
+	if len(receipts) != len(changes) {
+		return result, wire.BadValue
 	}
 	return result, nil
 }
+
 func (r *Registry) Capture(ctx context.Context, branch string) (CaptureResult, error) {
 	l, err := r.Current(branch)
 	if err != nil {

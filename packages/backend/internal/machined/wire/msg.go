@@ -20,6 +20,7 @@ const (
 	CloseDoc
 	AttachSession
 	SetRoster
+	WriteFiles
 )
 
 // ErrorCode is an RPC refusal, distinct from a framing ProtocolError.
@@ -90,4 +91,25 @@ func Fields(name string, data []byte) (map[byte][]byte, error) {
 		}
 	}
 	return result, nil
+}
+
+// List decodes a canonical ADR list using the same schema as frame validation.
+func List(name string, data []byte) ([][]byte, error) {
+	c := cursor{data}
+	n, err := c.number(2)
+	if err != nil {
+		return nil, err
+	}
+	var out [][]byte
+	for i := uint64(0); i < n; i++ {
+		before := c.b
+		if err := c.value(name); err != nil {
+			return nil, err
+		}
+		out = append(out, before[:len(before)-len(c.b)])
+	}
+	if len(c.b) != 0 {
+		return nil, TrailingBytes
+	}
+	return out, nil
 }

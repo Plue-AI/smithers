@@ -72,6 +72,9 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 	defer stop()
 	challenge, err := wire.Read(stream)
 	if err != nil {
+		if err == wire.VersionMismatch {
+			_ = wire.Write(stream, wire.Frame{Kind: wire.Hello, Payload: wire.Union(5, wire.Field(1, []byte{byte(wire.VersionMismatch)}))})
+		}
 		return nil, err
 	}
 	if challenge.Kind != wire.Hello || challenge.Payload[0] != 1 {
@@ -80,6 +83,12 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 	fields, err := wire.Fields("challenge", challenge.Payload[1:])
 	if err != nil {
 		return nil, err
+	}
+	// Host and daemon ship together. Historical decoders do not grant an
+	// older live connection permission to execute any operation.
+	if binary.BigEndian.Uint16(fields[2]) != wire.Protocol {
+		_ = wire.Write(stream, wire.Frame{Kind: wire.Hello, Payload: wire.Union(5, wire.Field(1, []byte{byte(wire.VersionMismatch)}))})
+		return nil, wire.VersionMismatch
 	}
 	var id [16]byte
 	copy(id[:], fields[3])

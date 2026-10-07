@@ -314,3 +314,31 @@ fn local_pty_foreign_stream_and_revocation_interrupt_idle_reader() {
         executor.shutdown().unwrap();
     }
 }
+
+#[test]
+fn local_batch_binds_one_committed_principal_and_rejects_body_actor() {
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/backend/internal/compose/testdata/cocontracts/local_write_files.bin"
+    ));
+    let frame = Frame::decode_local(bytes).unwrap();
+    let (_, method, args) = frame.request().unwrap();
+    assert_eq!(method, 17);
+    let (changes, actor) = conn::local_batch_write_args(args, [7; 16]).unwrap();
+    assert_eq!(actor, Actor::Principal(vec![7; 16]));
+    assert_eq!(changes.len(), 2);
+    assert_eq!(changes[0].path, "a");
+    assert_eq!(changes[0].base, smithers_machined::hooks::Base::Absent);
+    assert_eq!(changes[0].content, b"x");
+    assert_eq!(changes[1].path, "b");
+    assert_eq!(changes[1].content, b"y");
+    assert!(conn::local_batch_write_args(args, [0; 16]).is_err());
+    let forged = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/backend/internal/compose/testdata/cocontracts/local_write_files_actor.bin"
+    ));
+    assert_eq!(
+        Frame::decode_local(forged),
+        Err(conn::ProtocolError::UnknownField)
+    );
+}

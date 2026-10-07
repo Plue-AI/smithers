@@ -99,6 +99,40 @@ impl Files {
         }
         Ok(conn::structure_bytes(&fields))
     }
+    pub fn write_batch(
+        &self,
+        cx: &mut LockCx,
+        changes: Vec<hooks::FileWrite>,
+        actor: hooks::Actor,
+    ) -> hooks::Result<Vec<u8>> {
+        let documents = cx.hooks.documents.clone();
+        let result = documents.write_batch(cx, &changes, &actor)?;
+        let mut writes = (result.writes.len() as u16).to_be_bytes().to_vec();
+        for (change, write) in changes.iter().zip(&result.writes) {
+            let mut fields = vec![conn::field(1, write.digest)];
+            if let Some(displaced) = write.raced {
+                let mut path = (change.path.len() as u16).to_be_bytes().to_vec();
+                path.extend(change.path.as_bytes());
+                fields.push(conn::field(
+                    2,
+                    conn::structure_bytes(&[conn::field(1, path), conn::field(2, displaced)]),
+                ));
+            }
+            writes.extend(conn::structure_bytes(&fields));
+        }
+        let mut fields = vec![conn::field(1, writes)];
+        if let Some(failure) = result.failure {
+            fields.push(conn::field(
+                2,
+                conn::structure_bytes(&[
+                    conn::field(1, (failure.index as u16).to_be_bytes()),
+                    conn::field(2, [u8::from(failure.preflight)]),
+                    conn::field(3, conn::structure_bytes(&failure.error.fields())),
+                ]),
+            ));
+        }
+        Ok(conn::structure_bytes(&fields))
+    }
 }
 impl Core for Files {
     fn ready(&self) -> hooks::Result<()> {
@@ -123,6 +157,10 @@ impl Core for Files {
                 ]))
             }
             3 => self.write(cx, conn::write_args(arguments).map_err(|_| error(1))?),
+            17 => {
+                let (changes, actor) = conn::batch_write_args(arguments).map_err(|_| error(1))?;
+                self.write_batch(cx, changes, actor)
+            }
             _ => self.next.call(cx, method, arguments),
         }
     }

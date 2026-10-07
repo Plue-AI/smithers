@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
+const protocol=6;
 const num=(v,n)=>{let b=Buffer.alloc(n);let x=BigInt(v);for(let i=n-1;i>=0;i--){b[i]=Number(x&255n);x>>=8n}return b};
 const cat=(...b)=>Buffer.concat(b.map(x=>Buffer.from(x)));
 const f=(t,b)=>cat([t],b);
@@ -21,8 +22,8 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const entries=[];
 function emit(name,kind,payload,stream=0,expected='ok',direction='host-to-daemon',local=false){const b=cat(num(payload.length,4),[kind],num(stream,4),payload);raw(name,b,expected,{kind,stream,payload:payload.toString('hex'),local},direction)}
 function raw(name,b,expected,value=null,direction='host-to-daemon'){entries.push({name,b,expected,value,direction})}
-emit('hello_challenge',0,un(1,f(1,num(0x534d4d44,4)),f(2,num(1,2)),f(3,id),f(4,digest)),0,'ok','daemon-to-host');
-emit('hello_host_proof',0,un(2,f(1,num(1,2)),f(2,digest)));
+emit('hello_challenge',0,un(1,f(1,num(0x534d4d44,4)),f(2,num(protocol,2)),f(3,id),f(4,digest)),0,'ok','daemon-to-host');
+emit('hello_host_proof',0,un(2,f(1,num(protocol,2)),f(2,digest)));
 emit('hello_machine',0,un(3,f(1,bytes(Buffer.from('boot-token'))),f(2,id),f(3,num(7,8)),f(4,list(num(1,4)))),0,'ok','daemon-to-host');
 emit('hello_welcome',0,un(4));
 for(const [name,code] of [['version_mismatch',13],['auth_failed',14],['superseded',15]])emit('goodbye_'+name,0,un(5,f(1,[code])));
@@ -32,7 +33,7 @@ for(let i=0;i<methods.length;i++){emit('req_'+methods[i],1,req(i+1,...args[i]));
 emit('req_kill_sessions_user',1,req(9,...args[8]));emit('req_kill_sessions_run',1,req(9,f(1,un(2,f(1,str('run-1'))))));
 emit('req_read_file_at',1,req(2,f(1,str('src/a.ts')),f(2,oid)));
 emit('req_write_file_absent',1,req(3,f(1,str('src/new')),f(2,un(2)),f(3,bytes(Buffer.from('new'))),f(4,actor)));
-emit('res_status',1,res(1,f(1,[3]),f(2,num(1,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(5,oid),f(6,num(0,2))),0,'ok','daemon-to-host');
+emit('res_status',1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(5,oid),f(6,num(0,2))),0,'ok','daemon-to-host');
 emit('res_read_file',1,res(2,f(1,bytes(Buffer.from('hello'))),f(2,digest),f(3,num(420,4))),0,'ok','daemon-to-host');
 emit('res_write_file',1,res(3,f(1,digest)),0,'ok','daemon-to-host');
 emit('res_capture',1,res(4,f(1,oid),f(2,oid2),f(3,num(0,2))),0,'ok','daemon-to-host');
@@ -98,8 +99,23 @@ emit('bad_roster_missing_uid',1,req(16,f(1,list(st(f(1,str('ben')))))),0,'missin
 emit('bad_raced_missing_digest',1,res(3,f(1,digest),f(2,st(f(1,str('src/a.ts'))))),0,'missing_field','daemon-to-host');
 // Variant 4 moved_off (#3562): session actor 7, TODO item 2, pre-move commit.
 emit('ev_moved_off',2,durable(11,un(4,f(1,un(2,f(1,num(7,4)))),f(2,num(2,8)),f(3,Buffer.from('1234567890abcdef1234567890abcdef12345678','hex')))),0,'ok','daemon-to-host');
+// Protocol 6: compare the whole text batch before mutation. Literal tables
+// remain independent of both production encoders.
+const batchActor=un(1,f(1,bytes(Buffer.from(Array.from({length:16},(_,i)=>i+1)))));
+const sha=b=>createHash('sha256').update(b).digest();
+const batchChanges=list(st(f(1,str('a')),f(2,un(2)),f(3,bytes(Buffer.from('x')))),st(f(1,str('b')),f(2,un(1,f(1,sha('before')))),f(3,bytes(Buffer.from('y')))));
+const batchReq=(...fs)=>un(1,f(1,num(9,4)),f(2,un(17,...fs)));
+const batchRes=(...fs)=>un(2,f(1,num(9,4)),f(2,un(17,...fs)));
+const batchReceipt=st(f(1,sha('x')));
+const batchFailure=(index,preflight,code)=>st(f(1,num(index,2)),f(2,[preflight]),f(3,st(f(1,[code]))));
+emit('req_write_files',1,batchReq(f(1,batchChanges),f(2,batchActor)));
+emit('local_write_files',1,batchReq(f(1,batchChanges)),0,'ok','host-to-daemon',true);
+emit('local_write_files_actor',1,batchReq(f(1,batchChanges),f(2,batchActor)),0,'unknown_field','host-to-daemon',true);
+emit('res_write_files',1,batchRes(f(1,list(batchReceipt,st(f(1,sha('y')))))),0,'ok','daemon-to-host');
+emit('res_write_files_stale',1,batchRes(f(1,list()),f(2,batchFailure(1,1,4))),0,'ok','daemon-to-host');
+emit('res_write_files_partial',1,batchRes(f(1,list(batchReceipt)),f(2,batchFailure(1,0,12))),0,'ok','daemon-to-host');
 const previous=JSON.parse(readFileSync(dir+'MANIFEST.json','utf8'));
-const manifest={...previous,scope:"ADR 0004 daemon contract and T-COL-08b browser fixtures",document_protocol:2,protocol:2,legacy_protocols:[1],pins:{...previous.pins,yrs:'=0.27.4'},frames:entries.map(e=>({name:e.name,direction:e.direction,expected:e.expected,local:e.value?.local??false,sha256:createHash('sha256').update(e.b).digest('hex')})),sequences:{seq_working_together:['req_set_roster','res_set_roster','req_open_doc_s3','doc-epoch','doc-input-v2','doc-saved-v2','req_write_file','res_write_file_raced','req_set_roster_empty','res_set_roster'],seq_handshake:['hello_challenge','hello_host_proof','hello_machine','hello_welcome'],seq_write_stale:['req_write_file','err_stale'],seq_capture:['obj_data','obj_eof','ev_captured','ack_captured'],seq_missing_objects:['ack_missing_objects','obj_data','obj_eof','ev_burst','ack_applied'],seq_duplicate_receipt:['ev_burst','ack_duplicate'],seq_reconnect_replay:['hello_challenge','hello_host_proof','hello_machine','hello_welcome','ev_burst','ev_captured'],seq_reserved_doc_s2:['doc_reserved_sync','doc_refused_unsupported'],seq_newer_boot:['goodbye_superseded'],seq_wake_objects:['obj_host_data','obj_host_eof','obj_host_close','req_wake_reconcile']}};
+const manifest={...previous,scope:"ADR 0004 daemon contract and T-COL-08b browser fixtures",document_protocol:2,protocol,legacy_protocols:[],pins:{...previous.pins,yrs:'=0.27.4'},frames:entries.map(e=>({name:e.name,direction:e.direction,expected:e.expected,local:e.value?.local??false,sha256:createHash('sha256').update(e.b).digest('hex')})),sequences:{seq_working_together:['req_set_roster','res_set_roster','req_open_doc_s3','doc-epoch','doc-input-v2','doc-saved-v2','req_write_file','res_write_file_raced','req_set_roster_empty','res_set_roster'],seq_handshake:['hello_challenge','hello_host_proof','hello_machine','hello_welcome'],seq_write_stale:['req_write_file','err_stale'],seq_capture:['obj_data','obj_eof','ev_captured','ack_captured'],seq_missing_objects:['ack_missing_objects','obj_data','obj_eof','ev_burst','ack_applied'],seq_duplicate_receipt:['ev_burst','ack_duplicate'],seq_reconnect_replay:['hello_challenge','hello_host_proof','hello_machine','hello_welcome','ev_burst','ev_captured'],seq_reserved_doc_s2:['doc_reserved_sync','doc_refused_unsupported'],seq_newer_boot:['goodbye_superseded'],seq_wake_objects:['obj_host_data','obj_host_eof','obj_host_close','req_wake_reconcile']}};
 function save(name,bytes){if(check){if(!readFileSync(dir+name).equals(Buffer.from(bytes)))throw Error('fixture drift: '+name)}else writeFileSync(dir+name,bytes)}
 for(const e of entries){save(e.name+'.bin',e.b);save(e.name+'.json',JSON.stringify(e.value??{expected:e.expected},null,2)+'\n')}
 save('MANIFEST.json',JSON.stringify(manifest,null,2)+'\n');

@@ -19,21 +19,21 @@
     "doc-unsupported-detail.bin": "88771414720c2ca72c8f6ebd3e7971bf14f61023fc37be9fab989dac399753ff",
     "doc-renamed.bin": "4d7cb8b7e4c58e5b9d1c40c62913b0fe6d74083e2d04b22ae594597b48964586"
   },
-  "protocol": 2,
+  "protocol": 6,
   "frames": [
     {
       "name": "hello_challenge",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "e9ecc0e727ffed1b5346f80d1a04b70ca786d3b7d174a608a2c904b0839cb9d8"
+      "sha256": "0a7bbdb52dd8fb3f5f0ba3ad48ef67ebf625e1a4b1da13f53f9f4a812d3e42ef"
     },
     {
       "name": "hello_host_proof",
       "direction": "host-to-daemon",
       "expected": "ok",
       "local": false,
-      "sha256": "8db7be4176c089d8f35d413fec0f6a7637277f00198383aa713d463cd91e934a"
+      "sha256": "b194c9a24e58ed7a83be1dc2038ff78ef9ab3a67bcd1f7d8903b74fdcdc3e584"
     },
     {
       "name": "hello_machine",
@@ -313,7 +313,7 @@
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "3efb01d2f85e4e8f591d60e750c4b52abceb265bc65ec7fdd794a6ec83c64cdc"
+      "sha256": "8f75e08f39980445d3a8da57cf7c95043de594696b1cb4ef62720f98763be949"
     },
     {
       "name": "res_read_file",
@@ -1014,6 +1014,48 @@
       "expected": "ok",
       "local": false,
       "sha256": "99a97e7dca911099812a9b5a1f8d9ac99e7fde1b5192a08cbaf505c79dc3cb70"
+    },
+    {
+      "name": "req_write_files",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "6723bbbb2ff6494e38e05b084874850652071b8f89217a721bb390d10df5e1b0"
+    },
+    {
+      "name": "local_write_files",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": true,
+      "sha256": "4e1f37b3ef3f08a38ff569bc393dce632b3ed5e3696b1c31267459dd3fc29bc5"
+    },
+    {
+      "name": "local_write_files_actor",
+      "direction": "host-to-daemon",
+      "expected": "unknown_field",
+      "local": true,
+      "sha256": "6723bbbb2ff6494e38e05b084874850652071b8f89217a721bb390d10df5e1b0"
+    },
+    {
+      "name": "res_write_files",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "91ef41a8a16269aafdd3f187330b859ee8c519ce99f638e82bdc787511b43018"
+    },
+    {
+      "name": "res_write_files_stale",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "42f011877a9c5f98e5cfd790301297d5f762bb756162eebb4f911530f98d9c8d"
+    },
+    {
+      "name": "res_write_files_partial",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "18d97e767c5ca3e73b804d6b5a5a0c2f39b1d2ea659ea1fd7d5dc29978a1b522"
     }
   ],
   "sequences": {
@@ -1079,7 +1121,5 @@
     ]
   },
   "document_protocol": 2,
-  "legacy_protocols": [
-    1
-  ]
+  "legacy_protocols": []
 }
