@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -32,6 +34,7 @@ import (
 type restoreHarness struct {
 	t            *testing.T
 	distribution string
+	release      string
 	env          []string
 }
 
@@ -39,12 +42,23 @@ func newRestoreHarness(t *testing.T) restoreHarness {
 	t.Helper()
 	// The packaged scripts need PostgreSQL client tools of the server's major
 	// version, as the distribution tests do.
-	bin, _ := testdb.Tools(t)
+	bin, major := testdb.Tools(t)
 	if testdb.ServerURL() == "" {
 		testdb.Unavailable(t, testdb.ErrNotConfigured)
 	}
 	distribution, err := filepath.Abs("../../../distribution")
 	if err != nil {
+		t.Fatal(err)
+	}
+	// The image build generates version.env; a source checkout has no copy.
+	// Keep the fixture bound to the migrated schema and actual client tools.
+	schema, err := product.HeadVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := filepath.Join(t.TempDir(), "version.env")
+	manifest := fmt.Sprintf("SMITHERS_DISTRIBUTION_VERSION=1.0.0-rc.1\nSMITHERS_SCHEMA_VERSION=%d\nSMITHERS_POSTGRES_MAJOR=%d\n", schema, major)
+	if err := os.WriteFile(release, []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// The container serializes maintenance with flock(1); the maintenance
@@ -53,10 +67,10 @@ func newRestoreHarness(t *testing.T) restoreHarness {
 	if err := os.WriteFile(filepath.Join(fake, "flock"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return restoreHarness{t: t, distribution: distribution, env: []string{
+	return restoreHarness{t: t, distribution: distribution, release: release, env: []string{
 		"PATH=" + fake + ":" + bin + ":" + os.Getenv("PATH"),
 		"SMITHERS_LIB=" + filepath.Join(distribution, "lib.sh"),
-		"SMITHERS_RELEASE_FILE=" + filepath.Join(distribution, "version.env"),
+		"SMITHERS_RELEASE_FILE=" + release,
 	}}
 }
 
@@ -119,7 +133,7 @@ func TestRestoredProviderCredentialServesModelCallsPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	backedUpKey := os.Getenv(operatorKeyName)
-	release, err := os.ReadFile(filepath.Join(h.distribution, "version.env"))
+	release, err := os.ReadFile(h.release)
 	if err != nil {
 		t.Fatal(err)
 	}

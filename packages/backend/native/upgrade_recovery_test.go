@@ -228,7 +228,11 @@ func TestRealFailedUpgradeRecoveryPostgreSQL(t *testing.T) {
 		t.Fatal(string(got))
 	}
 	target := start("target-pg")
-	restored := t.TempDir()
+	// Restore into a private install root; TempDir does not promise mode 0700.
+	restored := filepath.Join(t.TempDir(), "restored")
+	if err := os.Mkdir(restored, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := CheckRestore(backup, oldRelease, restored, false); err != nil {
 		t.Fatal(err)
 	}
