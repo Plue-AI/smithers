@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/coder/websocket"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
-	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -95,10 +94,6 @@ func TestConfirmLearningConsumerInstall(t *testing.T) {
 	otherHash := sha256.Sum256([]byte("other-cookie"))
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: other.ID, Username: other.Username, SessionKey: hex.EncodeToString(otherHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
-	bus := revocation.NewBus(pool, q)
-	require.NoError(t, bus.Start(ctx))
-	routes.SetRevocationSource(bus)
-	defer routes.SetRevocationSource(nil)
 	readLive := func(after *int64) map[string]any {
 		t.Helper()
 		hubCtx, cancel := context.WithCancel(ctx)
