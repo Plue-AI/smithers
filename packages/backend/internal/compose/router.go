@@ -1116,6 +1116,7 @@ func buildRouter(
 				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)
 				branches.Answers, _ = extras.Mythical.Service.(routes.BranchAnswerService)
 				branches.Adds, _ = extras.Mythical.Service.(routes.BranchAddService)
+				branches.Rebases, _ = extras.Mythical.Service.(routes.BranchRebaseService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
 			files := &routes.BranchFileHandler{Branches: branches.Reads, Authorize: routes.InstallBranchAuthorizer(queries)}
