@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,9 +83,16 @@ func TestConfirmationMergeAdmissionComposedPostgres(t *testing.T) {
 	testTodoMergeComposedRouteBoundaryPostgres(t, true)
 }
 
+func TestConfirmationMergeBrowserComposedPostgres(t *testing.T) {
+	if os.Getenv("SMITHERS_CONFIRMATION_BROWSER") != "1" {
+		t.Skip("set SMITHERS_CONFIRMATION_BROWSER=1 for the composed browser journey")
+	}
+	testTodoMergeComposedRouteBoundaryPostgres(t, true, true)
+}
+
 var confirmationMergeInstallations atomic.Int64
 
-func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool) {
+func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool, browserJourney ...bool) {
 	installation := int64(98300) + confirmationMergeInstallations.Add(1)
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
@@ -239,6 +247,11 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 		require.Equal(t, "pending", receipt["state"])
 		require.Equal(t, "Waiting for Merge owner to confirm", receipt["message"])
 		id := receipt["confirmation"].(string)
+		if len(browserJourney) > 0 && browserJourney[0] {
+			runMergeConfirmationBrowser(t, cfg, pool, mythical, server, owner, pat, id, filed.Number, pull.Head.SHA, before.ID,
+				&services.Members{Pool: pool, Credentials: credentials, Minter: connections, Budget: services.NewBudgetTracker()})
+			return
+		}
 		replayCode, replay := invoke(argv...)
 		require.Equal(t, 3, replayCode)
 		require.Equal(t, receipt, replay, "repeated CLI invocation keeps the same private confirmation")
