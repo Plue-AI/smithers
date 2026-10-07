@@ -38,8 +38,9 @@ test("C-J8-03: owner changes the folder and sees sync status and refusals", asyn
 
 test("C-J8-03: a refused install provider exposes no folder control", async ({ page }) => {
   await owner(page)
-  await page.route("**/api/install", route => route.fulfill({ status: 403, json: { code: "permission", class: "permission", message: "Only the owner can do this" } }))
   await page.goto("/")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await page.route("**/api/install", route => route.fulfill({ status: 403, json: { code: "permission", class: "permission", message: "Only the owner can do this" } }))
   await say(page, "/settings")
   await expect(page.getByTestId("card-settings")).toHaveCount(0)
   await expect(page.getByLabel("Obsidian folder", { exact: true })).toHaveCount(0)
