@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -104,9 +105,10 @@ func turnText(turn map[string]any) string {
 }
 
 // TestJ4Rehearsal walks journey J4 (mvp.md §5, the team's work; C-J4-01..03)
-// as the owner on the install J1 sets up. T1 goes straight to review, T2
+// with the owner, maintainer Ben and member Alice on the install J1 sets up.
+// T1 goes straight to review, T2
 // asks a question and T3 fails its checks (distribution/fake-todo-turns.mjs
-// markers). The owner answers T2 and merges T1 while chatting; T4, filed
+// markers). Alice answers T2 and Ben merges T1 while the owner chats; T4, filed
 // once T3 failed, is the ready item a person moves above T3. Rows that wait
 // on a lane are listed as pending.
 func TestJ4Rehearsal(t *testing.T) {
@@ -120,6 +122,8 @@ func TestJ4Rehearsal(t *testing.T) {
 	if !r.install("0 Install through Machine ready") {
 		return
 	}
+	var ben, alice http.CookieJar
+	var memberMergeRefused bool
 	var t1, t2, t3, t4 int64
 	head1, wait2 := "", ""
 	head2BeforeMerge, node2 := "", ""
@@ -283,6 +287,11 @@ func TestJ4Rehearsal(t *testing.T) {
 			if err != nil {
 				return err
 			}
+			if person.login == "ben" {
+				ben = jar
+			} else {
+				alice = jar
+			}
 			socket, err := r.openLive(jar)
 			if err != nil {
 				return fmt.Errorf("%s: %w", person.login, err)
@@ -348,10 +357,20 @@ func TestJ4Rehearsal(t *testing.T) {
 	var retriedAt time.Time
 	var retriedTo int
 	var chats []<-chan error
-	if !r.step("7 Answer T2 while chatting", "POST /api/todos/{T2}/answer beside POST "+chat.TurnPath, "202 within 1 s; the same answer again 202; T2 reaches in_review as a draft behind T1", "T-STK-01, T-APP-03", func() error {
+	if !r.step("7 Answer T2 while chatting", "POST /api/todos/{T2}/answer as Alice beside POST "+chat.TurnPath, "202 within 1 s; the same answer again 202; T2 reaches in_review as a draft behind T1", "T-STK-01, T-APP-03", func() error {
+		if alice == nil {
+			return fmt.Errorf("row 5b did not sign in Alice")
+		}
+		answer := func() (int, []byte, error) {
+			body, err := json.Marshal(map[string]string{"wait": wait2, "answer": answer2})
+			if err != nil {
+				return 0, nil, err
+			}
+			return r.keyedAs(alice, "POST", fmt.Sprintf("/api/todos/%d/answer", t2), string(body), r.keyPrefix+"alice-answer-t2")
+		}
 		chats = append(chats, r.besideChat())
 		began := time.Now()
-		code, data, err := r.answer(t2, wait2, answer2)
+		code, data, err := answer()
 		if err != nil {
 			return err
 		}
@@ -360,7 +379,7 @@ func TestJ4Rehearsal(t *testing.T) {
 			return fmt.Errorf("answer: HTTP %d after %s: %s", code, took, data)
 		}
 		answered = j4Receipt{at: time.Now(), body: string(data)}
-		if code, data, err = r.answer(t2, wait2, answer2); err != nil || code != 202 {
+		if code, data, err = answer(); err != nil || code != 202 {
 			return fmt.Errorf("the same answer again: HTTP %d %s %v", code, data, err)
 		}
 		// Hold the person's merge until T2 has a draft PR. Otherwise a fast
@@ -382,10 +401,46 @@ func TestJ4Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	if !r.step("9 Merge T1 while chatting", "POST /api/todos/{T1}/merge beside POST "+chat.TurnPath, "202 within 1 s; reviewed head; one session-bound checks.Land", "T-STK-04", func() error {
+	if !r.step("9 Merge T1 while chatting", "POST /api/todos/{T1}/merge as Alice then Ben beside POST "+chat.TurnPath, "202 within 1 s; reviewed head; one session-bound checks.Land", "T-STK-04", func() error {
+		if ben == nil || alice == nil {
+			return fmt.Errorf("row 5b did not sign in Ben and Alice")
+		}
+		// Refuse a real member session before it can approve or contact GitHub.
+		mergeWrites := func() int {
+			count := 0
+			for _, write := range r.fake.Writes() {
+				if write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge") {
+					count++
+				}
+			}
+			return count
+		}
+		before := mergeWrites()
+		body, err := json.Marshal(map[string]string{"reviewed_head_sha": head1})
+		if err != nil {
+			return err
+		}
+		code, data, err := r.keyedAs(alice, "POST", fmt.Sprintf("/api/todos/%d/merge", t1), string(body), r.keyPrefix+"alice-merge-t1")
+		if err != nil {
+			return err
+		}
+		var refused struct {
+			Class string `json:"class"`
+		}
+		if code != 403 || json.Unmarshal(data, &refused) != nil || refused.Class != "permission" {
+			return fmt.Errorf("Alice merge: HTTP %d %s, want permission refusal", code, data)
+		}
+		var hasLand bool
+		if err = r.pool.QueryRow(r.ctx, `SELECT coalesce(checks->'land' <> 'null'::jsonb, false) FROM mythical_items WHERE number=$1`, t1).Scan(&hasLand); err != nil {
+			return err
+		}
+		if hasLand || mergeWrites() != before {
+			return fmt.Errorf("Alice's refused merge recorded approval=%v or sent a GitHub merge", hasLand)
+		}
+		memberMergeRefused = true
 		chats = append(chats, r.besideChat())
 		began := time.Now()
-		if err := r.merge(t1, head1); err != nil {
+		if err := r.mergeAs(ben, t1, head1); err != nil {
 			return err
 		}
 		merged = j4Receipt{at: time.Now(), body: r.actual}
@@ -816,7 +871,43 @@ func TestJ4Rehearsal(t *testing.T) {
 	})
 	r.pending("18 main row synced", "GET /api/github/sync; Home card", "last_success_at within one poll; 'synced N s ago'; machines in use of capacity", "T-GH-02", "sync-row")
 	r.pending("19 Retry and dismiss failed background runs", "POST /api/runs/{id}", "Retry starts exactly one run; Dismiss removes the row for everyone; 403 without the role", "T-APP-01", "background-runs")
-	r.pending("20 Ben merges, Alice answers", "POST /api/todos/{n}/merge and /answer as Ben and Alice", "maintainer Ben merges; member Alice answers and her merge is 403", "T-ACC-02", "members")
+	r.step("20 Ben merges, Alice answers", "GET /api/todos/{T2}; SQL approvals and answer events; member merge refusal from row 9", "Ben's session approved T1; Alice answered T2 once; her merge was 403 with no approval or GitHub write", "T-ACC-02", func() error {
+		if !memberMergeRefused {
+			return fmt.Errorf("Alice's merge refusal was not verified")
+		}
+		var by, head string
+		if err := r.pool.QueryRow(r.ctx, `SELECT checks->'land'->>'by', checks->'land'->>'head' FROM mythical_items WHERE number=$1`, t1).Scan(&by, &head); err != nil {
+			return err
+		}
+		if by != "ben" || head != head1 {
+			return fmt.Errorf("T1 approval by %q for %q, want Ben at reviewed head %s", by, head, head1)
+		}
+		data, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", t2), "", 200)
+		if err != nil {
+			return err
+		}
+		var card struct {
+			FirstAnswer struct {
+				Text string                       `json:"text"`
+				By   struct{ Kind, Login string } `json:"by"`
+			} `json:"first_answer"`
+		}
+		if err = json.Unmarshal(data, &card); err != nil {
+			return err
+		}
+		if card.FirstAnswer.Text != answer2 || card.FirstAnswer.By.Kind != "person" || card.FirstAnswer.By.Login != "alice" {
+			return fmt.Errorf("T2 answer attributed incorrectly: %+v", card.FirstAnswer)
+		}
+		var answers, aliceAnswers int
+		if err = r.pool.QueryRow(r.ctx, `SELECT count(*), count(*) FILTER (WHERE data->'actor'->>'login'='alice' AND data->'actor'->>'kind'='person') FROM product_job_events WHERE event_type='todo.answered' AND (data->>'n')::bigint=$1`, t2).Scan(&answers, &aliceAnswers); err != nil {
+			return err
+		}
+		if answers != 1 || aliceAnswers != 1 {
+			return fmt.Errorf("T2 has %d answer events, %d from Alice; want one of each", answers, aliceAnswers)
+		}
+		r.actual = "Ben's reviewed-head session approval; Alice's answer and one attributed event; Alice merge 403 with no approval or GitHub write"
+		return nil
+	})
 }
 
 // j4Receipt is a 202 a row received: when, and its body.
