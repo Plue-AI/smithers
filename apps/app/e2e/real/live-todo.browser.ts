@@ -1,0 +1,96 @@
+/** TestLiveTodoBrowserPostgres supplies the composed install. No API response or Live frame is mocked. */
+import { chromium, expect } from "@playwright/test"
+import { createServer } from "vite"
+import { fillComposer } from "../playwright/composer"
+
+const origin = process.env.SMITHERS_LIVE_ORIGIN!
+if (!origin) throw new Error("The owned PostgreSQL install is required")
+const vite = await createServer({ configLoader: "runner", logLevel: "error", server: { host: "127.0.0.1", port: 0 } })
+await vite.listen()
+const address = vite.httpServer!.address()
+if (!address || typeof address === "string") throw new Error("Vite did not bind a port")
+console.log(`LIVE_BROWSER_READY http://127.0.0.1:${address.port}`)
+await Bun.stdin.text()
+const browser = await chromium.launch({ headless: true })
+try {
+  const context = await browser.newContext()
+  await context.addCookies([
+    { name: "session", value: "maya-browser-session", url: origin, httpOnly: true },
+    { name: "__csrf", value: "csrf", url: origin }
+  ])
+  const page = await context.newPage()
+  const errors: string[] = []
+  page.on("pageerror", error => errors.push(error.message))
+  page.on("console", message => { if (message.type() === "error" && /TypeError|ReferenceError/.test(message.text())) errors.push(message.text()) })
+  const subscriptions: Array<{ topic: string; cursor?: number }> = []
+  const frames: Array<{ t: string; id: number; cursor?: number; data?: unknown }> = []
+  let unblock: Promise<void> | undefined
+  let cut: (() => void) | undefined
+  // Transparent proxy to the real install; fault injection changes delivery
+  // only. Every forwarded snapshot/delta comes from committed PostgreSQL rows.
+  await page.routeWebSocket("**/api/live", async socket => {
+    const pending: Array<string | Buffer> = []
+    socket.onMessage(raw => pending.push(raw))
+    if (unblock) await unblock
+    const server = socket.connectToServer()
+    const forward = (raw: string | Buffer) => {
+      if (typeof raw === "string") {
+        const frame = JSON.parse(raw)
+        if (frame.t === "sub") subscriptions.push({ topic: frame.topic, ...(frame.cursor === undefined ? {} : { cursor: frame.cursor }) })
+      }
+      server.send(raw)
+    }
+    socket.onMessage(forward)
+    for (const raw of pending) forward(raw)
+    server.onMessage(raw => {
+      if (typeof raw === "string") frames.push(JSON.parse(raw))
+      socket.send(raw)
+    })
+    cut = () => { server.close(); socket.close({ code: 1001, reason: "network fault" }) }
+  })
+  await page.goto(`${origin}/maya/demo`)
+  const say = async (text: string) => {
+    await fillComposer(page, text)
+    await page.keyboard.press("Enter")
+  }
+  await say("/todo.new Replay alpha")
+  await page.getByRole("region", { name: "Draft", exact: true }).getByRole("button", { name: "Commit", exact: true }).click()
+  const first = page.getByRole("article", { name: "TODO T1", exact: true })
+  await expect(first).toBeVisible({ timeout: 30000 })
+  await say("/todo.new Replay beta")
+  await page.getByRole("region", { name: "Draft", exact: true }).getByRole("button", { name: "Commit", exact: true }).click()
+  const second = page.getByRole("article", { name: "TODO T2", exact: true })
+  await expect(second).toBeVisible({ timeout: 30000 })
+  await expect.poll(() => subscriptions.some(s => s.topic === "todo:1") && subscriptions.some(s => s.topic === "todo:2")).toBe(true)
+  const before = subscriptions.length
+  const at = Date.now()
+  unblock = new Promise(resolve => setTimeout(resolve, 10000))
+  cut!()
+  for (const n of [1, 2]) {
+    const response = await fetch(`${origin}/api/todos/${n}`, { method: "POST", headers: {
+      Cookie: "session=maya-browser-session; __csrf=csrf", Origin: origin,
+      "Content-Type": "application/json", "X-CSRF-Token": "csrf", "Idempotency-Key": `live-drop-${n}`
+    }, body: JSON.stringify({ op: "drop" }) })
+    expect(response.status, await response.text()).toBe(202)
+  }
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+  await expect(first).not.toContainText("Dropped")
+  await expect(second).not.toContainText("Dropped")
+  await expect(first).toContainText("Dropped", { timeout: 20000 })
+  await expect(second).toContainText("Dropped")
+  expect(Date.now() - at).toBeGreaterThanOrEqual(10000)
+  const resumed = subscriptions.slice(before).filter(s => s.topic === "todo:1" || s.topic === "todo:2")
+  expect(resumed).toHaveLength(2)
+  expect(resumed.every(s => s.cursor !== undefined)).toBe(true)
+  expect(frames.filter(frame => frame.t === "gap")).toHaveLength(0)
+  console.log("PASS live install: production commands, committed TODO cards, ten-second outage and cursor replay")
+  unblock = undefined
+  await page.reload()
+  await say("/todo T1")
+  await expect(first).toContainText("Dropped")
+  expect(errors).toEqual([])
+  console.log("PASS live install: reload reads the committed snapshot")
+} finally {
+  await browser.close()
+  await vite.close()
+}

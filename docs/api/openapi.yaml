@@ -4540,14 +4540,18 @@ paths:
       description: >-
         WebSocket upgrade with subprotocol smithers.live.v1 (spec §7.1). A
         member's browser session from the install's own origin, or a scoped delegated bearer without cookies, subscribes to
-        shared topics (home, todo:<n>, flows; the install owner also
+        shared topics (home, todo:<n>, run:<id>, flows; the install owner also
         external:<agent>:<session>, the size of a Codex or Claude Code
         session file) with text
         frames {"t":"sub","id","topic"} and {"t":"unsub","id"}; each topic
         answers {"t":"snap","id","cursor","data"} initially. TODO sources also
         deliver {"t":"delta","id","cursor","data"} with committed job-event
         payloads, resuming strictly after the requested source cursor. An expired
-        cursor receives a fresh snapshot. Snapshot-only topics update when their committed
+        cursor receives a fresh snapshot. Dispatched run topics read summary,
+        steps and ordered events from the existing runtime journal; their cursor
+        is the last complete journal entry. Missing retained entries produce gap
+        and a cursor-free resubscription reads a fresh snapshot. Run reads require
+        branch access and never start a host. Snapshot-only topics update when their committed
         facts change, every subscriber at the same cursor with the same
         bytes. A refused topic answers {"t":"err","id","code"} with
         unknown_topic, forbidden or unsupported, and the socket stays open.

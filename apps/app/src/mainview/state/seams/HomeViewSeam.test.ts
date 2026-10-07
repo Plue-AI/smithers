@@ -2,6 +2,29 @@ import { expect, test } from "bun:test"
 import { createHomeViewSeam } from "./HomeViewSeam"
 import { waitFor } from "../TestFixtures"
 
+test("reload disposal leaves a stable empty snapshot and ignores late view changes and reads", async () => {
+  let resolve!: (response: Response) => void
+  let requests = 0, notifications = 0, owners = 0
+  const seam = createHomeViewSeam({ owner: () => "Ben", subscribeOwner: () => { owners++; return () => { owners-- } },
+    report: error => { throw error }, http: () => { requests++; return new Promise(done => { resolve = done }) } })
+  const stop = seam.subscribe(() => { notifications++ })
+  expect(owners).toBe(1)
+  seam.dispose()
+  const empty = seam.get()
+  expect(empty).toEqual({ maximized: false })
+  expect(seam.get()).toBe(empty)
+  seam.onView({ on_screen: true, filter: "working" })
+  const stopLate = seam.subscribe(() => { notifications++ })
+  resolve(Response.json({ home: { filter: "queued" } }))
+  await Promise.resolve(); await Promise.resolve()
+  expect(seam.get()).toBe(empty)
+  expect(requests).toBe(1)
+  expect(notifications).toBe(0)
+  expect(owners).toBe(0)
+  stopLate(); stop(); seam.dispose()
+  expect(owners).toBe(0)
+})
+
 test("Home filters persist through the member API without overwriting conversation preferences or queue", async () => {
   let saved: Record<string, unknown> = { scroll_anchor: "entry-8", last_seen_seq: 12, card_view: { todo: "maximized" }, toasts_hidden: true,
     home: { filter: "queued" }, queue: [{ prompt: "private" }] }
