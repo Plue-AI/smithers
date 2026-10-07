@@ -307,7 +307,8 @@ func TestRealUndeclaredMachineReadyThroughComposedSetup(t *testing.T) {
 			step := h.machineStep(t)
 			require.NotEmpty(t, step.Revision)
 			require.NotEmpty(t, step.LayerKey)
-			id := "offline-" + name
+			// The composed member roster resolves workspace IDs as UUIDs.
+			id := uuid.NewString()
 			_, err := h.runtime.CreateWorkspace(h.ctx(t), workspaceapi.WorkspaceSpec{ID: id, Source: &workspaceapi.WorkspaceSource{Repository: h.slug, Revision: "main"}})
 			require.NoError(t, err)
 			t.Cleanup(func() {
@@ -551,6 +552,14 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayer
 		binary = real
 	}
 	h.runtime = newRootLayerRuntime(t, binary, true, func(config *microsandbox.Config) {
+		if direct {
+			bundlePath := os.Getenv("SMITHERS_CHECK_BUNDLE")
+			require.NotEmpty(t, bundlePath, "direct harness requires the approved installed bundle")
+			bundle, err := installbundle.Open(bundlePath)
+			require.NoError(t, err)
+			config.Bundle, config.Binary = bundle, ""
+			config.Root = bundletest.ProtectedTempDir(t)
+		}
 		if len(coding) == 0 {
 			return
 		}
