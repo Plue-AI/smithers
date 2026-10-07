@@ -249,7 +249,7 @@ func (s *MythicalService) observeIssueInTx(ctx context.Context, admission pgx.Tx
 		}
 		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt,
 			"from": "issue", "to": "queued", "issue": issue.Number, "label_event": applied.EventID, "by": applied.By})
-		if _, err = s.recordTodoFlowFact(ctx, tx, item, uuid.NewString(), "todo.created", "queued", fact); err != nil {
+		if _, err = s.recordTodoFact(ctx, tx, item, uuid.NewString(), "todo.created", "queued", fact); err != nil {
 			return err
 		}
 		if _, err = q.RequestMythicalStack(ctx, repositoryID); err != nil {
@@ -695,7 +695,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			}
 			if mythicalTodo(saved) && saved.Number.Valid {
 				fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "generation": saved.Generation, "phase": projection.Phase, "run": runID, "actor": map[string]string{"kind": "run", "id": runID}, "from": todoState(item), "to": todoState(saved)})
-				if _, err := s.recordTodoFlowFact(ctx, tx, saved, uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
+				if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
 					return err
 				}
 			}
@@ -3028,7 +3028,7 @@ func (s *MythicalService) recordTodoRebased(ctx context.Context, tx pgx.Tx, save
 	fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt,
 		"generation": saved.Generation, "from": from, "onto": saved.CandidateBase, "onto_name": onto, "head": saved.CandidateHead,
 		"text": "Rebased onto " + onto, "actor": map[string]string{"kind": "system", "id": "stack"}})
-	_, err := s.recordTodoFlowFact(ctx, tx, saved, uuid.NewString(), "todo.rebased", todoState(saved), fact)
+	_, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.rebased", todoState(saved), fact)
 	return err
 }
 
@@ -3415,7 +3415,7 @@ func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, 
 		activity, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": waitID, "lease": noPR,
 			"sha": head, "by": by, "url": "https://github.com/" + source.OwnerLogin + "/" + source.RepoName + "/commit/" + head,
 			"from": todoState(item), "to": todoState(saved), "ref_claim": fact.RefClaim})
-		if _, err := s.recordTodoFlowFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_push", todoState(saved), activity); err != nil {
+		if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_push", todoState(saved), activity); err != nil {
 			return nil, err
 		}
 		if _, err := q.RequestMythicalStack(ctx, item.RepositoryID); err != nil {
