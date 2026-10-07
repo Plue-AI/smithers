@@ -167,6 +167,10 @@ pub trait Sessions: Send + Sync {
     fn live(&self) -> Vec<u32> {
         vec![]
     }
+    /// Attributed writes use the authenticated session sink; missing sinks refuse.
+    fn where_file(&self, _session: u32, _path: &str) -> Result<()> {
+        Err(Error::unsupported())
+    }
     fn last_path(&self, _session: u32) -> Option<String> {
         None
     }
