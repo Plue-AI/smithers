@@ -1540,6 +1540,18 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			}()
 		}
 	}
+	var reviewBackground *services.ReviewBackground
+	var reviewWorker *criticalWorker
+	if flow != nil && flow.review != nil && chatService != nil {
+		reviewBackground, err = services.NewReviewBackground(pool, mythicalService, flow.review, reviewConversationDelivery{store: chatService.runtime.Handler.Store, resolve: conversationBranchResolver(workspaceService)})
+		if err != nil {
+			return fmt.Errorf("initialize background reviews: %w", err)
+		}
+		mythicalService.SetReviewBackground(reviewBackground)
+		if options.topology.workers() {
+			reviewWorker = newCriticalWorker()
+		}
+	}
 	var chatWorker, chatCallbackWorker *criticalWorker
 	if chatService != nil {
 		// Every instance with a ChatHost can recover accepted turns. Hosted API
@@ -2064,6 +2076,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	r = withCriticalWorkerReadiness(r, workspaceCommandWorker)
 	r = withCriticalWorkerReadiness(r, messageDispatchWorker)
 	r = withCriticalWorkerReadiness(r, flowWorker)
+	r = withCriticalWorkerReadiness(r, reviewWorker)
 	r = withCriticalWorkerReadiness(r, chatWorker)
 	r = withCriticalWorkerReadiness(r, chatCallbackWorker)
 
@@ -2155,6 +2168,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		flowWorkerFailure = flowWorker.Failed()
 	}
 	var chatWorkerFailure, chatCallbackFailure <-chan error
+	var reviewWorkerFailure <-chan error
+	if reviewWorker != nil {
+		reviewWorker.Start(workerCtx, "review dispatch", func(ctx context.Context) error {
+			return reviewBackground.RunWorker(ctx, jobs.WorkerConfig{WorkerID: "review-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, PollInterval: 250 * time.Millisecond, RetryDelay: time.Second, OnError: func(err error) { slog.Error("review operation failed", "error", err) }})
+		})
+		reviewWorkerFailure = reviewWorker.Failed()
+	}
 	if chatWorker != nil {
 		chatWorker.Start(workerCtx, "chat dispatch", chatService.runtime.Run)
 		chatWorkerFailure = chatWorker.Failed()
@@ -2339,6 +2359,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		case fatalWorkerErr = <-workspaceCommandFailure:
 		case fatalWorkerErr = <-messageDispatchFailure:
 		case fatalWorkerErr = <-flowWorkerFailure:
+		case fatalWorkerErr = <-reviewWorkerFailure:
 		case fatalWorkerErr = <-chatWorkerFailure:
 		case fatalWorkerErr = <-chatCallbackFailure:
 		case fatalWorkerErr = <-workerMetrics.Failed():
@@ -2375,7 +2396,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			}
 			stopFlow()
 		}
-		for name, worker := range map[string]*criticalWorker{"workspace commands": workspaceCommandWorker, "message dispatch": messageDispatchWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
+		for name, worker := range map[string]*criticalWorker{"review dispatch": reviewWorker, "workspace commands": workspaceCommandWorker, "message dispatch": messageDispatchWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
 			if worker == nil {
 				continue
 			}
