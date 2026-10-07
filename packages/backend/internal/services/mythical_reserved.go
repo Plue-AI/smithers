@@ -128,7 +128,10 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			return empty, 204, tx.Commit(live)
 		}
 	}
-	if command == "stack.propose" && (input.Generation != item.Generation || !item.CandidateVerified || item.CandidateBase != prefix) {
+	// Candidate acknowledges a generation while its checks still run, so a
+	// proposal of that generation waits for them instead of refusing.
+	checking := item.State == "verifying" && item.VerifyOutcome == ""
+	if command == "stack.propose" && (input.Generation != item.Generation || !item.CandidateVerified && !checking || item.CandidateBase != prefix) {
 		return empty, 0, pkgerrors.Conflict("candidate changed")
 	}
 	_, tree, err := machine.observeWorkspaceHeadTree(live, row)

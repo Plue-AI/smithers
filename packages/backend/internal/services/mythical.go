@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -364,7 +365,7 @@ func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStac
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				outcome = mythicalOutcome{failed: true, err: "internal error"}
-				s.logger.Error("mythical.panic", "repository_id", row.RepositoryID, "panic", recovered)
+				s.logger.Error("mythical.panic", "repository_id", row.RepositoryID, "panic", recovered, "stack", string(debug.Stack()))
 			}
 		}()
 		outcome = s.run(ctx, row)
