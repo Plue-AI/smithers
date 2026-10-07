@@ -38,6 +38,9 @@ fn scope(ruleset: &OwnedFd, path: &CStr, allowed: u64, directory: bool) -> io::R
         return Err(errno());
     }
     let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    if !directory {
+        validate_device(&fd, path)?;
+    }
     let rule = Beneath {
         allowed,
         parent: fd.as_raw_fd(),
@@ -53,6 +56,24 @@ fn scope(ruleset: &OwnedFd, path: &CStr, allowed: u64, directory: bool) -> io::R
     } != 0
     {
         return Err(errno());
+    }
+    Ok(())
+}
+fn validate_device(fd: &OwnedFd, path: &CStr) -> io::Result<()> {
+    let expected = match path.to_bytes() {
+        b"/dev/null" => libc::makedev(1, 3),
+        b"/dev/zero" => libc::makedev(1, 5),
+        b"/dev/tty" => libc::makedev(5, 0),
+        _ => return Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+    };
+    let mut info = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(fd.as_raw_fd(), info.as_mut_ptr()) } != 0 {
+        return Err(errno());
+    }
+    let info = unsafe { info.assume_init() };
+    if info.st_uid != 0 || info.st_mode & libc::S_IFMT != libc::S_IFCHR || info.st_rdev != expected
+    {
+        return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
     Ok(())
 }
@@ -107,6 +128,17 @@ mod tests {
     use super::*;
     use std::os::unix::process::CommandExt;
     use std::process::Command;
+    #[test]
+    fn device_exceptions_validate_the_held_object() {
+        let null = std::fs::File::open("/dev/null").unwrap();
+        let null = OwnedFd::from(null);
+        validate_device(&null, c"/dev/null").unwrap();
+        assert!(validate_device(&null, c"/dev/zero").is_err());
+        assert!(validate_device(&null, c"/dev/tty").is_err());
+        assert!(validate_device(&null, c"/tmp/device").is_err());
+        let ordinary = OwnedFd::from(std::fs::File::open("/etc/passwd").unwrap());
+        assert!(validate_device(&ordinary, c"/dev/null").is_err());
+    }
     #[test]
     fn missing_fixed_scope_refuses_before_member_command() {
         let mut child = Command::new("/bin/sh");
