@@ -55,7 +55,7 @@ func TestConfirmAgentEditConsumerInstall(t *testing.T) {
 	}
 }
 
-func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via string, flowBody ...string) {
+func confirmationNativeLibrary(t *testing.T) {
 	t.Helper()
 	// These always-on install tests need the real wiki library. Resolve the
 	// workspace build locally instead of requiring a suite-wide native opt-in
@@ -74,6 +74,11 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via str
 		require.NoError(t, err, "build smithers-ffi or set SMITHERS_FFI_LIBRARY_PATH")
 		t.Setenv("SMITHERS_FFI_LIBRARY_PATH", library)
 	}
+}
+
+func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via string, flowBody ...string) {
+	t.Helper()
+	confirmationNativeLibrary(t)
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben", DisplayName: "Ben"})
