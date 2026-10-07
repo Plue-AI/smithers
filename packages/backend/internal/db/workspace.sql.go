@@ -4091,6 +4091,9 @@ SET status = $2::text,
         WHEN $2::text = 'running' THEN NULL::timestamptz
         ELSE suspended_at
     END,
+    disk_reclaimed_at = CASE WHEN $2::text = 'running' THEN NULL::timestamptz ELSE disk_reclaimed_at END,
+    cleanup_pending_head = CASE WHEN $2::text = 'running' THEN '' ELSE cleanup_pending_head END,
+    cleanup_pending_capture_id = CASE WHEN $2::text = 'running' THEN '' ELSE cleanup_pending_capture_id END,
     updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL

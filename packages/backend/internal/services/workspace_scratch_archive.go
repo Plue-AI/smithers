@@ -47,9 +47,28 @@ func (s *WorkspaceService) ArchiveScratchBranch(ctx context.Context, id string, 
 	if err != nil {
 		return BranchMachineResponse{}, err
 	}
+	if err := tx.Rollback(ctx); err != nil {
+		return BranchMachineResponse{}, err
+	}
 	id = initial.ID
 	unlock := s.lockRuntimeWorkspace(id)
 	defer unlock()
+	tx, err = s.transactions.Begin(ctx)
+	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	authorization, err = Authorize(ctx, db.New(tx), "branch.archive")
+	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	if authorization.UserID != userID {
+		return BranchMachineResponse{}, pkgerrors.Forbidden("not a member of this install")
+	}
+	if err := s.branchMachineProviders.Membership(ctx, tx, repositoryID, userID); err != nil {
+		return BranchMachineResponse{}, err
+	}
+	q = db.New(tx)
 	var locked string
 	err = tx.QueryRow(ctx, `SELECT id::text FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR UPDATE`, id, repositoryID).Scan(&locked)
 	if errors.Is(err, pgx.ErrNoRows) {

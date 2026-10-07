@@ -532,9 +532,13 @@ func (r *Runtime) StopService(ctx context.Context, workspaceID, name string) err
 		r.mu.Unlock()
 		return nil
 	}
+	r.mu.Unlock()
+	if err := service.command.cancel(); err != nil {
+		return err
+	}
+	r.mu.Lock()
 	service.stopped = true
 	r.mu.Unlock()
-	service.command.cancel()
 	return nil
 }
 
