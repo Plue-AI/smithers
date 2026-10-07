@@ -16,7 +16,12 @@ func TestMaintenancePreflightPrivateSocket(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("installing user required")
 	}
-	state := t.TempDir()
+	// Darwin limits Unix socket paths to 104 bytes; t.TempDir includes the
+	// full test name. Keep this socket fixture short without moving all tests
+	// under an unprotected global TMPDIR.
+	state, err := os.MkdirTemp("", "preflight-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(state)) })
 	require.NoError(t, os.Chmod(state, 0700))
 	var method, path string
 	closeServer, err := services.StartInstallSetupHandoff(t.Context(), state, func(context.Context, io.Writer) error { return nil }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
