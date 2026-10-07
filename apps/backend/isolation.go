@@ -134,6 +134,7 @@ func openExecutionRuntimes(ctx context.Context, dataRoot string, bundle *install
 		return executionRuntimes{}, err
 	}
 	config.EgressRelay = relay
+	config.RecoverAdmission = true
 	isolated, err := microsandbox.New(ctx, config)
 	if err != nil {
 		return executionRuntimes{}, errors.Join(fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err), relay.Close())

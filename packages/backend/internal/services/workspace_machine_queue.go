@@ -293,3 +293,74 @@ func (s *MythicalService) orderTodoMachines(items []db.MythicalItem) {
 		lanes.OrderTodoMachines(items)
 	}
 }
+
+// ReconstructMachineAdmission reads existing durable authorities before the
+// install starts workers or serves machine requests. One SQL snapshot preserves
+// FIFO ages across jobs and sessions without creating a persistent queue.
+func (s *WorkspaceService) ReconstructMachineAdmission(ctx context.Context) error {
+	runtime, ok := s.runtime.(interface {
+		ReconstructAdmission(context.Context, []microsandbox.AdmissionRequest) error
+	})
+	if !ok {
+		return errors.New("machine admission recovery unavailable")
+	}
+	if s.transactions == nil {
+		return errors.New("machine admission recovery store unavailable")
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	rows, err := tx.Query(ctx, `
+SELECT holder, class, actor, retain_only, todo_scope FROM (
+  SELECT 'workspace:' || w.id::text AS holder, 'person'::text AS class,
+         'person:' || s.user_id::text || ':session:' || s.id::text AS actor, s.created_at AS age, s.status='running' AS retain_only, ''::text AS todo_scope
+    FROM workspace_sessions s JOIN workspaces w ON w.id=s.workspace_id AND w.repository_id=s.repository_id
+    JOIN users u ON u.id=s.user_id
+   WHERE s.status IN ('pending','starting','running') AND w.deleted_at IS NULL
+     AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL
+     AND (EXISTS(SELECT 1 FROM self_host_owners o WHERE o.user_id=u.id AND o.singleton)
+       OR EXISTS(SELECT 1 FROM collaborators c WHERE c.repository_id=w.repository_id AND c.user_id=u.id
+          AND c.permission IN ('admin','write') AND c.suspended_at IS NULL))
+  UNION ALL
+  SELECT 'workspace:' || w.id::text, 'todo', 'workspace:' || w.id::text, i.created_at, (i.paused_at IS NOT NULL OR i.state IN ('proposed','blocked')), 'repository:' || i.repository_id::text
+    FROM mythical_items i JOIN mythical_lanes l ON l.item_id=i.id AND l.workspace_id=i.workspace_id AND l.repository_id=i.repository_id
+    JOIN workspaces w ON w.id::text=i.workspace_id AND w.repository_id=i.repository_id
+   WHERE i.source='todo' AND i.state IN ('queued','running','delivering','integrating','verifying','proposing','waiting','proposed','retrying','blocked')
+     AND w.deleted_at IS NULL AND l.retired_at IS NULL
+  UNION ALL
+  SELECT 'workspace:' || w.id::text, 'background', j.id::text, j.created_at, false, ''::text
+    FROM product_job_requests j JOIN workspaces w ON w.name='review-' || j.id::text
+   WHERE j.operation='install.review' AND j.state IN ('accepted','dispatching','running','waiting')
+     AND NOT j.cancellation_requested AND w.deleted_at IS NULL
+     AND w.repository_id::text=j.payload->'admission'->>'repository_id'
+     AND w.user_id::text=j.payload->'admission'->>'requester_id'
+) demand ORDER BY age, holder, actor`)
+	if err != nil {
+		return err
+	}
+	demand := []microsandbox.AdmissionRequest{}
+	for rows.Next() {
+		row := microsandbox.AdmissionRequest{Reason: workspaceMachineReason}
+		if err := rows.Scan(&row.Holder, &row.Class, &row.Actor, &row.RetainOnly, &row.RecoveryTodoScope); err != nil {
+			rows.Close()
+			return err
+		}
+		if row.Class == "background" {
+			row.Reason = "review"
+		}
+		demand = append(demand, row)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	// End the read transaction before runtime I/O; never hold database locks
+	// while waiting for an old VM's stop confirmation.
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	return runtime.ReconstructAdmission(ctx, demand)
+}
