@@ -234,6 +234,9 @@ SET status = sqlc.arg(status)::text,
         WHEN sqlc.arg(status)::text = 'running' THEN NULL::timestamptz
         ELSE suspended_at
     END,
+    disk_reclaimed_at = CASE WHEN sqlc.arg(status)::text = 'running' THEN NULL::timestamptz ELSE disk_reclaimed_at END,
+    cleanup_pending_head = CASE WHEN sqlc.arg(status)::text = 'running' THEN '' ELSE cleanup_pending_head END,
+    cleanup_pending_capture_id = CASE WHEN sqlc.arg(status)::text = 'running' THEN '' ELSE cleanup_pending_capture_id END,
     updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL
