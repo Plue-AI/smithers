@@ -7,7 +7,7 @@
 import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { createServer, request } from "node:http"
 import { connect } from "node:net"
 import { tmpdir } from "node:os"
@@ -309,5 +309,39 @@ test("normalizes registered Claude and Codex records without executing reported 
   } finally {
     host.child.kill("SIGTERM")
     await host.exited
+  }
+})
+
+
+test("host normalization preserves complete committed golden drafts across framed records and replay", async (t) => {
+  const host = await launch()
+  t.after(() => host.child.kill("SIGKILL"))
+  const context = { owner_id: "registered-owner", participant_id: "registered-agent", session_id: "registered-session", source_generation: "generation-1" }
+  const fixtures = new URL("../../../packages/smithers/agent/harness/test/fixtures/external/", import.meta.url)
+  const manifest = JSON.parse(readFileSync(new URL("manifest.json", fixtures), "utf8"))
+  for (const fixture of manifest.fixtures) {
+    const input = readFileSync(new URL(fixture.file, fixtures), "utf8")
+    const expected = JSON.parse(readFileSync(new URL(fixture.expected, fixtures), "utf8"))
+    for (let replay = 0; replay < 2; replay++) {
+      let state
+      let start = 0
+      const entries = []
+      for (const record of input.trimEnd().split("\n")) {
+        const end = start + Buffer.byteLength(record) + 1
+        const response = await send(host.identity.port, {
+          path: "/v1/transcript/normalize",
+          headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+          body: JSON.stringify({ profile: fixture.format_version, context, record, start, end, state })
+        })
+        assert.equal(response.status, 200, `${fixture.file}: ${response.text}`)
+        const decoded = JSON.parse(response.text)
+        assert.equal(decoded.needs_more, false)
+        assert.equal(decoded.state.offset, end)
+        entries.push(...decoded.entries)
+        state = decoded.state
+        start = end
+      }
+      assert.deepEqual(entries, expected, `${fixture.file} replay ${replay}`)
+    }
   }
 })
