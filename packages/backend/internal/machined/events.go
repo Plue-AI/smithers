@@ -52,6 +52,10 @@ type BurstIngest struct {
 	// staging, duplicates or refusals. It runs under the connection fence and
 	// must not call back into the registry.
 	ObserveCommitted func()
+	// OutsideChanges joins pinned-run signal admission to the committed burst.
+	// Nil keeps notes dark. The host must bind only after durable pinned delivery
+	// and daemon stale-write enforcement are available; it performs no network IO.
+	OutsideChanges func(context.Context, pgx.Tx, string, string, json.RawMessage, []string) error
 }
 
 func validBurstPath(p string) bool {
@@ -236,6 +240,18 @@ func commitBurst(ctx context.Context, tx pgx.Tx, objects BurstObjects, branch st
 		for _, f := range b.Files {
 			_, err = tx.Exec(ctx, `INSERT INTO burst_files(event_id,path,change,before_blob,after_blob,post_digest,renamed_to) VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,''),NULLIF($6,''),NULLIF($7,''))`, fact.EventID, f.Path, f.Change, f.BeforeBlob, f.AfterBlob, f.PostDigest, f.RenamedTo)
 			if err != nil {
+				return ack, err
+			}
+		}
+		if s.OutsideChanges != nil {
+			paths := make([]string, 0, len(b.Files)*2)
+			for _, f := range b.Files {
+				paths = append(paths, f.Path)
+				if f.RenamedTo != "" {
+					paths = append(paths, f.RenamedTo)
+				}
+			}
+			if err = s.OutsideChanges(ctx, tx, branch, burstID, actor, paths); err != nil {
 				return ack, err
 			}
 		}
