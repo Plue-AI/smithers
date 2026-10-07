@@ -326,7 +326,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		}
 		// C-CAT-02: request through the actual source CLI, with a delegated
 		// credential. Discovery, schema parsing and HTTP dispatch all run.
-		if !browserJourney {
+		if !installBrowser {
 			fake.SetCollaborator(17, "merge-owner", "admin")
 			fake.SignInAs("merge-login-code", 17)
 			_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id,profile_data) VALUES(2,$1,'workos','17','{}')`, owner.ID)
