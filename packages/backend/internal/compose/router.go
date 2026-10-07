@@ -41,7 +41,7 @@ func apiBodyLimit(r *http.Request) int64 {
 
 type routerExtras struct {
 	InstallQuiesce *services.InstallQuiesce
-	FlowRuns *services.InstallFlowRuns
+	FlowRuns       *services.InstallFlowRuns
 	// Confirmations requires the private browser View and qualified consumers.
 	Confirmations       *services.ApprovalsService
 	Members             *routes.MembersHandler
