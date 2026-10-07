@@ -77,7 +77,7 @@ test("Settings syncs a Mac folder in both directions without restart", scenario(
   expect(await read(join(next, "diagram.png"))).toEqual(attachment)
   await folder.fill(state!)
   await folder.locator("xpath=ancestor::form").getByRole("button", { name: "Change", exact: true }).press("Enter")
-  await expect(card.getByRole("alert")).toContainText("Obsidian folder refused")
+  await expect(card.getByRole("alert")).toHaveText("Sync failed")
   expect((await get("/api/install")).wiki_sync.obsidian.path).toBe(next)
   const revisions = await get(`${api}/${slug}/revisions`)
   await info.attach("page-revisions", { body: JSON.stringify(revisions, null, 2), contentType: "application/json" })
