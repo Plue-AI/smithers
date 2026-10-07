@@ -96,7 +96,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | HTTP seam: ten PRs, automatic refresh, responsive Chat; backend/native receipts separate | T-GH-02 |
 | C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | passing install REST/live seam: confirmed Drop, 202 stays working, late PR link, terminal reload; production-dispatcher crash receipt separate | T-GH-09, T-GH-01 |
-| C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | fixme-before-implementation | T-GH-04 |
+| C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | composed-install PostgreSQL browser; native campaign | T-GH-04 |
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | App copy journey and all 19 View modules / 272 fixtures pass: 2,176 inline/maximized, light/dark, 1440/390px renders; zero copy violations | T-CAT-01 |
 | C-UI-03 | [notifications.spec.ts](../notifications.spec.ts) | passing: Chromium + WebKit, loopback/plain HTTP, live owned TODOs, gesture, hidden/visible, dedupe, click/focus, no console errors; Notification API recorded | T-APP-18 |
