@@ -340,6 +340,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 			}
 		}
 	}()
+	if row.Status == "releasing" {
+		return row, pkgerrors.Conflict("branch is releasing")
+	}
 	if err := s.refuseRebuildRequired(row); err != nil {
 		return row, err
 	}
@@ -414,7 +417,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		}
 		observed, err = s.runtime.StartWorkspace(startCtx, row.ID)
 		if waking && err != nil {
-			recovery, cancel := detachedRuntimeContext(ctx, 10*time.Second)
+			recovery, cancel := detachedRuntimeContext(operationCtx, 10*time.Second)
 			actual, inspectErr := s.runtime.InspectWorkspace(recovery, row.ID)
 			if inspectErr == nil && actual.State == workspaceapi.WorkspaceStopped {
 				_ = s.transitionBranchMachine(recovery, row, "starting", "suspended", "")

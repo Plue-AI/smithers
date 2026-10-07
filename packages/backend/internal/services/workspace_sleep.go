@@ -30,6 +30,12 @@ func WithBranchCapture(capture BranchCapture) WorkspaceServiceOption {
 }
 
 func (s *WorkspaceService) captureAndSleep(ctx context.Context, row db.Workspace, sessionless bool) error {
+	unlock := s.lockRuntimeWorkspace(row.ID)
+	defer unlock()
+	return s.captureAndSleepLocked(ctx, row, sessionless)
+}
+
+func (s *WorkspaceService) captureAndSleepLocked(ctx context.Context, row db.Workspace, sessionless bool) error {
 	unavailable := func(err error) error {
 		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch sleep requires verified capture, runtime binding and state publication").WithCause(err)
 	}
@@ -37,8 +43,6 @@ func (s *WorkspaceService) captureAndSleep(ctx context.Context, row db.Workspace
 	if !ok || s.branchCapture == nil || !s.hasWorkspaceRuntime() || s.requireBranchMachineProviders() != nil {
 		return unavailable(nil)
 	}
-	unlock := s.lockRuntimeWorkspace(row.ID)
-	defer unlock()
 	var err error
 	row, err = s.q.GetWorkspace(ctx, row.ID)
 	if err != nil {
@@ -72,7 +76,7 @@ func (s *WorkspaceService) captureAndSleep(ctx context.Context, row db.Workspace
 	// Cancellation must not strand a live VM in releasing. An inspection failure
 	// is not evidence that it is awake: retain releasing and the failure receipt.
 	fail := func(cause error) error {
-		recovery, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		recovery, cancel := context.WithTimeout(context.WithoutCancel(operationCtx), 10*time.Second)
 		defer cancel()
 		next := "releasing"
 		observed, inspectErr := s.runtime.InspectWorkspace(recovery, row.ID)
@@ -126,8 +130,15 @@ func (s *WorkspaceService) captureAndSleep(ctx context.Context, row db.Workspace
 	if err = s.runtime.StopWorkspace(operationCtx, row.ID); err != nil {
 		return fail(err)
 	}
-	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	finish, cancel := context.WithTimeout(context.WithoutCancel(operationCtx), 10*time.Second)
 	defer cancel()
+	observed, err := s.runtime.InspectWorkspace(finish, row.ID)
+	if err != nil {
+		return fail(err)
+	}
+	if observed.ID != row.ID || observed.State != workspaceapi.WorkspaceStopped {
+		return fail(fmt.Errorf("branch stop is unconfirmed"))
+	}
 	if err = s.transitionBranchMachine(finish, row, "releasing", "suspended", ""); err != nil {
 		return unavailable(err)
 	}
