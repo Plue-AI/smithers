@@ -306,6 +306,7 @@ func TestTodoMergeCrashThroughRoute(t *testing.T) {
 			child := faultprocess.Start(t, "TestTodoMergeCrashChild", "todo-merge", point, f.pool.Config().ConnString(), f.host, strconv.FormatInt(f.number, 10), f.head)
 			child.Await(t, faultprocess.Marker+point)
 			child.Kill(t)
+			require.Equal(t, 1, faultDatabaseCount(t, f.pool), "killed child must not orphan a suite database")
 			fmt.Println(faultprocess.Marker + point)
 			ctx := t.Context()
 			before, err := f.q.GetMythicalItemByNumber(ctx, f.repo, f.number)
@@ -413,4 +414,13 @@ CREATE TRIGGER fault_merge_fact BEFORE INSERT ON product_job_events FOR EACH ROW
 			require.NoError(t, os.WriteFile(filepath.Join(evidence, "observations.json"), raw, 0600))
 		})
 	}
+}
+
+func faultDatabaseCount(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	namespace := os.Getenv("SMITHERS_TEST_DATABASE_NAMESPACE")
+	require.NotEmpty(t, namespace)
+	var count int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM pg_database WHERE starts_with(datname,$1)`, "smithers_test_"+namespace+"_").Scan(&count))
+	return count
 }
