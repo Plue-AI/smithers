@@ -2426,3 +2426,51 @@ func TestMythicalStandingPreapprovalWaitRequiresPersonAnswer(t *testing.T) {
 	require.Len(t, h.merges(), 1)
 	require.Equal(t, "landed", h.item(n).State)
 }
+
+// Check delivery can schedule evaluation but cannot approve or mutate a TODO.
+func TestMythicalCheckDeliveryHeadAndSourceGuards(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, pr := h.first("Check delivery")
+	_, err := h.q.SetGithubAppInstallation(h.ctx, h.installation)
+	require.NoError(t, err)
+	synced := NewGitHubSyncedRepoService(h.q)
+	require.NoError(t, synced.ConfigureInstallSync(h.pool.(*pgxpool.Pool)))
+	synced.BindInstallAuthority(h.credentials, true)
+	row, err := h.q.EnrollGitHubSyncedRepo(h.ctx, db.EnrollGitHubSyncedRepoParams{OwnerLogin: "rehearsal-owner", RepoName: "app", InstallationID: pgtype.Int8{Int64: h.installation, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}, SyncMetadata: true, EnrolledVia: GitHubSyncedRepoEnrolledViaInstallation})
+	require.NoError(t, err)
+	h.service.UseInstallGitHubPolling(synced)
+	before := h.item(n)
+	for _, tc := range []struct {
+		name, head   string
+		installation int64
+		woken        int
+		fails        bool
+	}{
+		{"current", head, h.installation, 1, false},
+		{"old head", strings.Repeat("a", 40), h.installation, 0, false},
+		{"malformed", "bad", h.installation, 0, true},
+		{"other installation", head, h.installation + 1, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, _ := json.Marshal(map[string]string{"head": tc.head})
+			var receipt json.RawMessage
+			err := pgx.BeginFunc(h.ctx, h.pool.(*pgxpool.Pool), func(tx pgx.Tx) error {
+				var err error
+				receipt, err = h.service.consumeGitHubCheckTodos(h.ctx, tx, gitHubFetchedObject{Repo: row.ID, GitHubRepository: 100, Installation: tc.installation, Number: pr, Resource: "checks", Object: raw})
+				return err
+			})
+			if tc.fails {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				var result struct {
+					Woken int `json:"woken"`
+				}
+				require.NoError(t, json.Unmarshal(receipt, &result))
+				require.Equal(t, tc.woken, result.Woken)
+			}
+			require.Equal(t, before, h.item(n), "a fetched snapshot never manufactures approval")
+			require.Empty(t, h.merges())
+		})
+	}
+}

@@ -21,6 +21,7 @@ func (s *MythicalService) UseInstallGitHubPolling(synced *GitHubSyncedRepoServic
 	if synced != nil && synced.install != nil {
 		synced.RegisterFetchedConsumer(gitHubIssueEvents, s.consumeGitHubTodoLabels)
 		synced.RegisterFetchedConsumer(gitHubRefs, s.consumeGitHubRefTodos)
+		synced.RegisterFetchedConsumer("checks", s.consumeGitHubCheckTodos)
 		synced.install.pullFacts = true
 		synced.install.requestPulls = s.requestInstallPulls
 		synced.install.requiredPulls = s.requiredInstallPulls
