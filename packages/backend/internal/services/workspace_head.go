@@ -227,7 +227,7 @@ func (s *WorkspaceService) workspaceHeadAuthorityScopes(ctx context.Context, wor
 	if err != nil {
 		return "", err
 	}
-	if item.Source != "todo" || item.RepositoryID != workspace.RepositoryID || item.WorkspaceID != workspace.ID ||
+	if !mythicalTodo(item) || item.RepositoryID != workspace.RepositoryID || item.WorkspaceID != workspace.ID ||
 		!item.OwnerID.Valid || item.OwnerID.Int64 != userID || item.Attempt <= 0 || item.RequestRunID == "" || mythicalSettledStates[item.State] {
 		return scopes, nil
 	}

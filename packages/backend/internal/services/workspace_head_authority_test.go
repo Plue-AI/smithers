@@ -76,8 +76,20 @@ func TestWorkspaceHeadAuthorityScopesPostgres(t *testing.T) {
 	scopes, err = service.workspaceHeadAuthorityScopes(ctx, workspace, user)
 	require.NoError(t, err)
 	require.Equal(t, base+","+middleware.AgentSessionRestrictionScope("replacement-run"), scopes)
+	t.Run("frozen issue TODO", func(t *testing.T) {
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		_, err = tx.Exec(ctx, `UPDATE mythical_items SET source='issue',revisions='[{"text":"Frozen issue prompt"}]' WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		scoped := NewWorkspaceService(q, WithWorkspaceInstallAuthorization(db.New(tx)))
+		actual, err := scoped.workspaceHeadAuthorityScopes(ctx, workspace, user)
+		require.NoError(t, err)
+		require.Equal(t, base+","+middleware.AgentSessionRestrictionScope("replacement-run"), actual)
+	})
 	for _, cell := range []struct{ name, set string }{
 		{"ordinary coding work", "source='chat'"},
+		{"legacy issue", "source='issue',revisions='[]'"},
 		{"attempt not admitted", "attempt=0"},
 		{"run not attached", "request_run_id=''"},
 		{"closed TODO", "state='landed'"},

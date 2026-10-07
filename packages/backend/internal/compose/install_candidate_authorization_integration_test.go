@@ -209,13 +209,17 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 			require.NotEmpty(t, landing)
 			return runtime.token
 		}
+		// An admitted issue TODO uses the same issuer-owned run authority.
+		// Its frozen revision distinguishes it from a legacy issue item.
+		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET source='issue',revisions='[{"text":"Frozen issue revision 1"}]' WHERE id=$1`, itemID)
+		require.NoError(t, err)
 		current := prepare()
 		call(landing, input, 202)
 		require.Equal(t, 1, runtime.starts)
 		call(current, input, 202)
 		require.Equal(t, current, prepare(), "an unchanged run reuses the live publisher")
 		require.Equal(t, 1, runtime.starts)
-		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-run',generation=generation+1 WHERE id=$1`, itemID)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-run',generation=generation+1 WHERE id=$1`, itemID)
 		require.NoError(t, err)
 		replacement := input
 		replacement.RequestRunID = "replacement-run"
@@ -232,7 +236,7 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		require.False(t, live, "replacing the publisher revokes its previous run bearer")
 		call(next, replacement, 202)
 		call(landing, replacement, 202)
-		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET source='todo',request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
 		require.NoError(t, err)
 		afterReplay = reads.Load()
 	})
@@ -247,13 +251,13 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		require.Equal(t, before, reads.Load(), "machine refusal precedes retained-object reads")
 		call(currentMachine, input, 202)
 		afterReplay = reads.Load()
-		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-run',generation=generation+1 WHERE id=$1`, itemID)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement-run',generation=generation+1 WHERE id=$1`, itemID)
 		require.NoError(t, err)
 		replacement := input
 		replacement.RequestRunID = "replacement-run"
 		call(currentMachine, replacement, 403)
 		require.Equal(t, afterReplay, reads.Load(), "old machine cannot select a replacement run in the body")
-		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET source='todo',request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
 		require.NoError(t, err)
 	})
 	call(run, stale, 403)
@@ -267,7 +271,7 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 	require.Zero(t, approvals, "candidate submission grants no person approval")
 	for _, kind := range []string{"generation", "payload", "revoked"} {
 		t.Run("write fence "+kind, func(t *testing.T) {
-			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET source='todo',request_run_id='current-run',generation=7 WHERE id=$1`, itemID)
 			require.NoError(t, err)
 			raw := f.token(f.owner, "fence-"+kind, scopes, true)
 			digest := sha256.Sum256([]byte(raw))
