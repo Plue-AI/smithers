@@ -1,4 +1,4 @@
-smthrs todo — TODOs and the stack
+smthrs todo — Answer the install's TODOs
 
 Usage: smthrs todo <command>
 

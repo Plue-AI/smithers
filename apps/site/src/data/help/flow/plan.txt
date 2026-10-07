@@ -1,16 +1,22 @@
 smthrs flow plan — See what a flow would run
 
-Usage: smthrs flow plan <name> [options]
+Usage: smthrs flow plan <flow> <input...> [options]
 
 Arguments:
-  name
+  flow   Discovered flow name
+  input  Input fields as key=value
 
 Options:
+  --root <string>
+  --remote <string>
+  --mcp-config <string>
+  --quiet
+  --data <string>
+  --verbose
   --repo <value>
   --source-card <value>
   --against <value>
   --input <value>
-  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

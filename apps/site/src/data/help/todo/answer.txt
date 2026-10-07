@@ -1,14 +1,14 @@
 smthrs todo answer — Answer the agent's question
 
-Usage: smthrs todo answer <n> <answer> [options]
+Usage: smthrs todo answer <todo> <answer> [options]
 
 Arguments:
-  n
-  answer
+  todo    TODO number (T3)
+  answer  Your answer
 
 Options:
-  --wait <value>
-  --verbose       Show redacted diagnostic details
+  --wait <string>
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

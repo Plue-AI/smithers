@@ -1,12 +1,18 @@
 smthrs runs show — Open a run's card
 
-Usage: smthrs runs show <id> [options]
+Usage: smthrs runs show <run> [options]
 
 Arguments:
-  id
+  run  Durable run ID
 
 Options:
-  --verbose  Show redacted diagnostic details
+  --repo <string>
+  --root <string>
+  --remote <string>
+  --mcp-config <string>
+  --quiet
+  --verbose
+  --cloud
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

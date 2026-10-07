@@ -3,11 +3,12 @@ smthrs issue comment — Comment on an issue; waits for the person's confirmatio
 Usage: smthrs issue comment <number> [options]
 
 Arguments:
-  number
+  number  Issue number
 
 Options:
   --body <value>
-  --verbose       Show redacted diagnostic details
+  --repo <string>
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

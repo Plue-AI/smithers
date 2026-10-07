@@ -30,8 +30,8 @@ Commands:
   search     Search repositories, issues, code and users
   shell      Open an interactive terminal in a workspace via the WebSocket terminal endpoint
   ssh-key    Manage your SSH keys
-  stack      TODOs and the stack
-  todo       TODOs and the stack
+  stack      Show the stack and background runs
+  todo       Answer the install's TODOs
   wiki       Read and edit wiki pages
   workspace  Create, open and run commands in workspaces
 

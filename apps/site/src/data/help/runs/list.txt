@@ -3,7 +3,22 @@ smthrs runs list — Active and attention-needing runs
 Usage: smthrs runs list [options]
 
 Options:
-  --verbose  Show redacted diagnostic details
+  --repo <string>
+  --root <string>
+  --remote <string>
+  --mcp-config <string>
+  --quiet
+  --flow <string>
+  --status <accepted|running|parked|waiting-approval|cancelled|completed|failed>
+  --since <string>
+  --until <string>
+  --sort <newest|oldest>
+  --parent <string>
+  --trigger <string>
+  --limit <number>
+  --cursor <string>
+  --verbose
+  --cloud
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

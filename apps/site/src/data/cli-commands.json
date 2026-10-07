@@ -627,18 +627,55 @@
         "args": {
           "type": "object",
           "properties": {
-            "name": {
-              "type": "string"
+            "flow": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Discovered flow name"
+            },
+            "input": {
+              "default": [],
+              "description": "Input fields as key=value",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
-            "name"
+            "flow",
+            "input"
           ],
           "additionalProperties": false
         },
         "options": {
           "type": "object",
           "properties": {
+            "root": {
+              "description": "Project directory; defaults to the nearest Smithers project",
+              "type": "string"
+            },
+            "remote": {
+              "description": "Remote control plane URL; defaults to SMITHERS_REMOTE",
+              "type": "string"
+            },
+            "mcpConfig": {
+              "description": "Path to the configured MCP servers",
+              "type": "string"
+            },
+            "quiet": {
+              "default": false,
+              "description": "Suppress progress messages",
+              "type": "boolean"
+            },
+            "data": {
+              "description": "JSON input object",
+              "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            },
             "repo": {
               "type": [
                 "string",
@@ -668,16 +705,8 @@
                   "type": "null"
                 }
               ]
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
             }
           },
-          "required": [
-            "verbose"
-          ],
           "additionalProperties": false
         }
       }
@@ -745,28 +774,43 @@
         "args": {
           "type": "object",
           "properties": {
-            "name": {
+            "flow": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "description": "Discovered flow name"
             }
           },
           "required": [
-            "name"
+            "flow"
           ],
           "additionalProperties": false
         },
         "options": {
           "type": "object",
           "properties": {
+            "root": {
+              "description": "Project directory; defaults to the nearest Smithers project",
+              "type": "string"
+            },
+            "remote": {
+              "description": "Remote control plane URL; defaults to SMITHERS_REMOTE",
+              "type": "string"
+            },
+            "mcpConfig": {
+              "description": "Path to the configured MCP servers",
+              "type": "string"
+            },
+            "quiet": {
+              "default": false,
+              "description": "Suppress progress messages",
+              "type": "boolean"
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
               "type": "boolean"
             }
           },
-          "required": [
-            "verbose"
-          ],
           "additionalProperties": false
         }
       }
@@ -1032,19 +1076,8 @@
           "type": "object",
           "properties": {
             "number": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "Infinity",
-                    "-Infinity",
-                    "NaN"
-                  ]
-                }
-              ]
+              "type": "string",
+              "description": "Issue number"
             }
           },
           "required": [
@@ -1058,6 +1091,10 @@
             "body": {
               "type": "string",
               "minLength": 1
+            },
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
             },
             "verbose": {
               "default": false,
@@ -1362,45 +1399,71 @@
         "args": {
           "type": "object",
           "properties": {
-            "number": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "Infinity",
-                    "-Infinity",
-                    "NaN"
-                  ]
-                }
-              ]
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "number"
+            "patterns"
           ],
           "additionalProperties": false
         },
         "options": {
           "type": "object",
           "properties": {
-            "repo": {
-              "type": [
-                "string",
-                "null"
-              ]
+            "workspace": {
+              "default": "<cwd>",
+              "description": "Directory inside a workspace containing WORKSPACE.ts",
+              "type": "string"
+            },
+            "cacheDir": {
+              "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
+              "type": "string"
+            },
+            "policyRevision": {
+              "type": "string",
+              "description": "Full approved commit SHA containing the trusted review index"
+            },
+            "revision": {
+              "default": "HEAD",
+              "description": "Committed source revision: HEAD or a full commit SHA",
+              "type": "string"
+            },
+            "plan": {
+              "default": false,
+              "description": "Show pinned policy and source selection without inference",
+              "type": "boolean"
+            },
+            "required": {
+              "default": false,
+              "description": "Fail every selected review that selects no files or cannot run instead of passing it",
+              "type": "boolean"
+            },
+            "findingsStore": {
+              "description": "Absolute private directory for review runs and findings (default: the Git directory)",
+              "type": "string"
+            },
+            "credentialReceiver": {
+              "description": "Absolute executable that receives credential names and locations as JSON on stdin; a nonzero exit fails the review",
+              "type": "string"
             },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
               "type": "boolean"
+            },
+            "repo": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
-          "required": [
-            "verbose"
-          ],
           "additionalProperties": false
         }
       }
@@ -1449,15 +1512,87 @@
         "options": {
           "type": "object",
           "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            },
+            "root": {
+              "description": "Project directory; defaults to the nearest Smithers project",
+              "type": "string"
+            },
+            "remote": {
+              "description": "Remote control plane URL; defaults to SMITHERS_REMOTE",
+              "type": "string"
+            },
+            "mcpConfig": {
+              "description": "Path to the configured MCP servers",
+              "type": "string"
+            },
+            "quiet": {
+              "default": false,
+              "description": "Suppress progress messages",
+              "type": "boolean"
+            },
+            "flow": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "accepted",
+                "running",
+                "parked",
+                "waiting-approval",
+                "cancelled",
+                "completed",
+                "failed"
+              ]
+            },
+            "since": {
+              "description": "Only runs created at or after this time (epoch ms or ISO 8601)",
+              "type": "string"
+            },
+            "until": {
+              "description": "Only runs created before this time (epoch ms or ISO 8601)",
+              "type": "string"
+            },
+            "sort": {
+              "description": "Order by creation time",
+              "type": "string",
+              "enum": [
+                "newest",
+                "oldest"
+              ]
+            },
+            "parent": {
+              "description": "Only runs branched from this run",
+              "type": "string"
+            },
+            "trigger": {
+              "description": "Only runs this trigger started",
+              "type": "string"
+            },
+            "limit": {
+              "description": "Runs per page (default 100)",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "cursor": {
+              "description": "Continue from the nextCursor a previous page printed",
+              "type": "string"
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
               "type": "boolean"
+            },
+            "cloud": {
+              "default": false,
+              "description": "Use repository flows and runs on the backend",
+              "type": "boolean"
             }
           },
-          "required": [
-            "verbose"
-          ],
           "additionalProperties": false
         }
       }
@@ -1469,27 +1604,52 @@
         "args": {
           "type": "object",
           "properties": {
-            "id": {
-              "type": "string"
+            "run": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Durable run ID"
             }
           },
           "required": [
-            "id"
+            "run"
           ],
           "additionalProperties": false
         },
         "options": {
           "type": "object",
           "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            },
+            "root": {
+              "description": "Project directory; defaults to the nearest Smithers project",
+              "type": "string"
+            },
+            "remote": {
+              "description": "Remote control plane URL; defaults to SMITHERS_REMOTE",
+              "type": "string"
+            },
+            "mcpConfig": {
+              "description": "Path to the configured MCP servers",
+              "type": "string"
+            },
+            "quiet": {
+              "default": false,
+              "description": "Suppress progress messages",
+              "type": "boolean"
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
               "type": "boolean"
+            },
+            "cloud": {
+              "default": false,
+              "description": "Use repository flows and runs on the backend",
+              "type": "boolean"
             }
           },
-          "required": [
-            "verbose"
-          ],
           "additionalProperties": false
         }
       }
@@ -1794,17 +1954,18 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {
+            "todo": {
               "type": "string",
-              "pattern": "^T[1-9]\\d*$"
+              "pattern": "^T[1-9]\\d*$",
+              "description": "TODO number (T3)"
             },
             "answer": {
               "type": "string",
-              "minLength": 1
+              "description": "Your answer"
             }
           },
           "required": [
-            "n",
+            "todo",
             "answer"
           ],
           "additionalProperties": false
@@ -1813,15 +1974,8 @@
           "type": "object",
           "properties": {
             "wait": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "minLength": 1
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "string",
+              "description": "The question's id, when the TODO asks more than one"
             },
             "verbose": {
               "default": false,
