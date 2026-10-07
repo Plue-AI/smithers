@@ -548,6 +548,7 @@ export interface AppController extends IssueFlowsController {
   readonly setBranchNavigationView: (patch: { selected_branch?: string; selected_archive?: string; previous_branch?: string; open?: boolean }) => Promise<void>
   readonly setCardTab: (id: string, tab: string) => void
   readonly branchControls?: import("./seams/BranchControlsSeam").BranchControls
+  readonly branchSshLine?: (name: string, signal?: AbortSignal) => Promise<string | { readonly value: string }>
   readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
@@ -1009,8 +1010,7 @@ export const createAppController = (
       owner, open: true, selected_branch: name, nodes: previous && previous.owner === owner ? previous.nodes : []
     } }).isPersisted.promise
   }
-  const openBranch: AppController["openBranch"] = installHost ? async target => {
-    if (target === "main") { await selectConversationBranch("main"); return { value: "Opened main" } }
+  const readBranchIdentity = async (target: string): Promise<{ name: string; id: string } | string> => {
     try {
       let name = target
       if (/^T[1-9][0-9]*$/.test(target)) {
@@ -1022,12 +1022,65 @@ export const createAppController = (
       const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(name)}`, { credentials: "same-origin" })
       const body = await response.json() as { name?: unknown; machine?: { id?: unknown }; message?: unknown }
       if (!response.ok || typeof body.name !== "string" || typeof body.machine?.id !== "string") return typeof body.message === "string" ? body.message : "Branch unavailable"
-      await selectConversationBranch(body.name)
-      await presentCard("branch", body.name, body.machine.id)
-      return { value: `Opened ${body.name}` }
+      return { name: body.name, id: body.machine.id }
     } catch { return "Branch unavailable" }
+  }
+  const openBranch: AppController["openBranch"] = installHost ? async target => {
+    if (target === "main") { await selectConversationBranch("main"); return { value: "Opened main" } }
+    const branch = await readBranchIdentity(target)
+    if (typeof branch === "string") return branch
+    await selectConversationBranch(branch.name)
+    await presentCard("branch", branch.name, branch.id)
+    return { value: `Opened ${branch.name}` }
   } : undefined
   const branchControls = services.branchControlOptions ? createBranchControlsSeam(seamCtx, services.branchControlOptions) : undefined
+  const pendingSshReads = new Set<() => void>()
+  ctx.onDispose(() => { for (const cancel of pendingSshReads) cancel() })
+  const branchSshLine: AppController["branchSshLine"] = installHost ? async (target, signal) => {
+    const epoch = ctx.accountEpoch
+    const branch = await readBranchIdentity(target)
+    if (typeof branch === "string") return branch
+    const live = services.live
+    if (!live || signal?.aborted || ctx.accountEpoch !== epoch || seamCtx.isDisposed?.()) return "Branch unavailable"
+    // A read owns a lease on the existing socket; it neither opens a card nor wakes the machine.
+    const topic = `branch:${branch.id}`
+    let stop: (() => void) | undefined
+    let identity: { unsubscribe: () => void } | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let cancel = () => {}
+    try {
+      return await new Promise<string | { readonly value: string }>(resolve => {
+        let settled = false
+        const finish = (value: string | { readonly value: string }) => {
+          if (settled) return
+          settled = true
+          resolve(value)
+        }
+        cancel = () => finish("Branch unavailable")
+        const read = () => {
+          if (signal?.aborted || ctx.accountEpoch !== epoch || seamCtx.isDisposed?.()) return cancel()
+          const snapshot = live.getSnapshot(topic)
+          if (snapshot?.error) return cancel()
+          if (snapshot?.data === undefined) return
+          const data = snapshot.data as { id?: unknown; ssh_line?: unknown } | null
+          finish(data?.id === branch.id && typeof data.ssh_line === "string" && data.ssh_line.length > 0
+            ? { value: data.ssh_line } : "Branch unavailable")
+        }
+        pendingSshReads.add(cancel)
+        signal?.addEventListener("abort", cancel, { once: true })
+        identity = store.collections.identitySessions.subscribeChanges(read)
+        timer = setTimeout(cancel, 10000)
+        stop = live.subscribe(topic, read)
+        read()
+      })
+    } catch { return "Branch unavailable" }
+    finally {
+      stop?.(); identity?.unsubscribe()
+      if (timer !== undefined) clearTimeout(timer)
+      signal?.removeEventListener("abort", cancel)
+      pendingSshReads.delete(cancel)
+    }
+  } : undefined
   const forkBranch: AppController["forkBranch"] = installHost ? async input => {
     try {
       const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches`, { credentials: "same-origin", method: "POST",
@@ -2034,6 +2087,7 @@ export const createAppController = (
     ...(openBranch ? { openBranch } : {}),
     ...(forkBranch ? { forkBranch } : {}),
     ...(branchControls ? { branchControls } : {}),
+    ...(branchSshLine ? { branchSshLine } : {}),
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,
