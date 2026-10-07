@@ -5,6 +5,8 @@ import type { LiveSocket } from "../../src/mainview/runtime/LiveChannel"
 const origin = process.env.SMITHERS_BRANCH_CARD_ORIGIN!
 const branch = process.env.SMITHERS_BRANCH_CARD_ID!
 const movedChoice = process.env.SMITHERS_BRANCH_MOVED_CHOICE
+const scratchFork = process.env.SMITHERS_BRANCH_CARD_FORK === "1"
+const newTerminal = process.env.SMITHERS_BRANCH_CARD_TERMINAL === "1"
 const addToStack = process.env.SMITHERS_BRANCH_CARD_ADD === "1"
 assert.ok(origin && branch)
 const NativeSocket = WebSocket, nativeFetch = fetch
@@ -65,7 +67,30 @@ try {
   assert.equal(card.kind, "branch")
   if (card.kind !== "branch") throw new Error("Expected Branch")
   await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
-  if (addToStack) {
+  if (scratchFork) {
+    await waitFor(() => host.querySelector('[data-flow="branch.fork"]') !== null)
+    await act(async () => (host.querySelector('[data-flow="branch.fork"]') as HTMLButtonElement).click())
+    await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/branches"))
+    const fork = requests.find(request => request.method === "POST" && request.path === "/api/branches")!
+    assert.deepEqual(fork.body, { from: "scratch/ben/try" })
+    assert.equal(fork.status, 201, JSON.stringify(fork))
+    assert.equal(requests.filter(request => request.method === "POST").length, 1)
+    console.log("PASS mounted scratch Fork through production dispatcher and PostgreSQL")
+  } else if (newTerminal) {
+    await waitFor(() => host.querySelector('[data-flow="terminal"]') !== null)
+    await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "terminal-card-fixture", repo: "ben/demo", phase: "pending" } }).isPersisted.promise
+    await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "terminal-card-fixture", repo: "ben/demo", phase: "ready" } }).isPersisted.promise
+    await act(async () => (host.querySelector('[data-flow="terminal"]') as HTMLButtonElement).click())
+    await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/terminals"))
+    const terminal = requests.find(request => request.method === "POST" && request.path === "/api/terminals")!
+    assert.deepEqual(terminal.body, { branch: "scratch/ben/try" })
+    assert.equal(terminal.status, 503, JSON.stringify(terminal))
+    await waitFor(() => store.session().terminalRequests?.some(request => request.state === "failed") === true)
+    assert.equal(requests.filter(request => request.method === "POST").length, 1)
+    assert.equal(store.session().terminalRequests?.[0]?.branch, "scratch/ben/try")
+    assert.equal(controller.design.enabled, false)
+    console.log("PASS mounted New terminal through production dispatcher; unavailable guest refuses without admission")
+  } else if (addToStack) {
     await waitFor(() => host.querySelector('[data-flow="branch.add-to-stack"]') !== null)
     const snapshot = live.getSnapshot(`branch:${branch}`)?.data as { scratch: { forked_from: unknown } }
     assert.deepEqual(snapshot.scratch.forked_from, JSON.parse(process.env.SMITHERS_BRANCH_CARD_FORK_ORIGIN!))

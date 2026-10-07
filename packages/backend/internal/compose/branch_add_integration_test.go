@@ -38,6 +38,12 @@ func TestBranchAddComposedInstall(t *testing.T) {
 		t.Run("provider-"+remove, func(t *testing.T) { runBranchAddComposed(t, remove) })
 	}
 }
+func TestBranchScratchForkCardComposedInstall(t *testing.T) { runBranchAddComposed(t, "app-card-fork") }
+
+func TestBranchTerminalCardComposedInstall(t *testing.T) {
+	runBranchAddComposed(t, "app-card-terminal")
+}
+
 func TestBranchAddCardComposedInstall(t *testing.T) {
 	for _, origin := range []string{"main", "item", "branch"} {
 		t.Run(origin, func(t *testing.T) { runBranchAddComposed(t, "app-card-"+origin) })
@@ -188,10 +194,28 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
 		require.NoError(t, err)
 		command := exec.CommandContext(ctx, "bun", "run", script)
-		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+origin, "SMITHERS_BRANCH_CARD_ID="+workspace.ID, "SMITHERS_BRANCH_CARD_COOKIE=smithers_session="+cookie, "SMITHERS_BRANCH_CARD_LOGIN="+owner.Username, "SMITHERS_BRANCH_CARD_SUBJECT="+workspace.TargetBookmark, "SMITHERS_BRANCH_CARD_ADD=1", "SMITHERS_BRANCH_CARD_ADD_N="+strconv.FormatInt(addedNumber, 10), "SMITHERS_BRANCH_CARD_FORK_ORIGIN="+string(forkJSON))
+		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+origin, "SMITHERS_BRANCH_CARD_ID="+workspace.ID, "SMITHERS_BRANCH_CARD_COOKIE=smithers_session="+cookie, "SMITHERS_BRANCH_CARD_LOGIN="+owner.Username, "SMITHERS_BRANCH_CARD_SUBJECT="+workspace.TargetBookmark, "SMITHERS_BRANCH_CARD_TERMINAL="+map[bool]string{true: "1", false: "0"}[remove == "app-card-terminal"], "SMITHERS_BRANCH_CARD_FORK="+map[bool]string{true: "1", false: "0"}[remove == "app-card-fork"], "SMITHERS_BRANCH_CARD_ADD=1", "SMITHERS_BRANCH_CARD_ADD_N="+strconv.FormatInt(addedNumber, 10), "SMITHERS_BRANCH_CARD_FORK_ORIGIN="+string(forkJSON))
 		output, err := command.CombinedOutput()
 		require.NoError(t, err, string(output))
 		t.Log(string(output))
+		if remove == "app-card-fork" {
+			forked, err := q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repo.ID, TargetBookmark: "scratch/ben/fork-try"})
+			require.NoError(t, err)
+			require.True(t, forked.IsFork)
+			require.Equal(t, head, forked.SourceCommit)
+			require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
+			return
+		}
+		if remove == "app-card-terminal" {
+			var count int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspace_sessions WHERE workspace_id=$1`, workspace.ID).Scan(&count))
+			require.Zero(t, count)
+			current, err := q.GetWorkspace(ctx, workspace.ID)
+			require.NoError(t, err)
+			require.Equal(t, "stopped", current.Status)
+			require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
+			return
+		}
 		item, err := q.GetMythicalItemByNumber(ctx, repo.ID, addedNumber)
 		require.NoError(t, err)
 		require.Equal(t, workspace.ID, item.WorkspaceID)

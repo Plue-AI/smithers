@@ -151,7 +151,7 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
     })
     expect(requests).toEqual([["GET", "/api/todos/2", undefined], ["GET", "/api/branches/smithers%2Fretry-webhooks", undefined], ["GET", "/api/branches/smithers%2Fretry-webhooks/files/retry.ts", undefined], ["POST", "/api/branches", { from: "T2" }]])
     await snap("branch:b-live", { id:"b-live",name:"scratch/ben/try",scratch:{forked_from:{kind:"item",n:2,title:"Retry webhooks"}},machine:{state:"asleep"},presence:[],terminals:[],ssh_line:"" },2)
-    expect(host.querySelector('[data-flow="branch.fork"]')).toBeNull()
+    expect(host.querySelector('[data-flow="branch.fork"]')).not.toBeNull()
     await act(async () => {
       (host.querySelector('[data-flow="branch.add-to-stack"]') as HTMLButtonElement).click()
       for(let i=0;i<30 && requests.length<5;i++) await new Promise(resolve=>setTimeout(resolve,5))

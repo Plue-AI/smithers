@@ -92,8 +92,11 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
       command_input: { n, text: "" }, resolve_input: input => ({ n, text: input.text ?? "" }) })
   }
   if (model.machine.state !== "closed" && model.scratch) definitions.push({ tag: "branch.add-to-stack", label: "Add to stack", command_input: { text: model.name } })
-  // The current Fork provider accepts main or a TODO. A scratch branch must not silently fork main.
-  if (n !== undefined || model.name === "main") definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from: n === undefined ? "main" : `T${n}` } })
+  if (model.machine.state !== "closed") definitions.push({ tag: "terminal", label: "New terminal", command_input: { branch: model.name }, resolve_input: () => ({ branch: model.name }) })
+  if (n !== undefined || model.name === "main" || model.scratch) {
+    const from = n === undefined ? model.name : `T${n}`
+    definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from }, resolve_input: () => ({ from }) })
+  }
   return definitions.filter(definition => providers.has(definition.tag))
 }
 
@@ -161,6 +164,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (typeof controller.showTodo === "function") providers.add("todo")
   if (controller.branchFiles?.available()) providers.add("file")
   if (controller.terminalCards?.available()) providers.add("terminal.watch")
+  if (controller.openBranchTerminal) providers.add("terminal")
   if (controller.forkBranch) providers.add("branch.fork")
   if (controller.runMonitors && typeof controller.openRunMonitor === "function") providers.add("run")
   const controls = controller.branchControls

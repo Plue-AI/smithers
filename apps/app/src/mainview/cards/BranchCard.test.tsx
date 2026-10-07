@@ -402,3 +402,29 @@ test("live step gestures require the run provider and a recorded agent run", () 
     expect(cardActions(dispatch, liveBranchActionDefinitions({ ...model, presence }, new Set(["run"]))).gestures.run).toBeUndefined()
   }
 })
+
+
+test("live New terminal retains the displayed branch and requires its provider", () => {
+  const model = definitionsOf(make(), "b-retry").model
+  const { calls, dispatch } = recorder()
+  cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["terminal"])))
+    .onAction("terminal", { branch: "other-branch" })
+  expect(calls).toEqual([["terminal", { branch: "retry-webhooks" }]])
+  for (const candidate of [model, { ...model, machine: { state: "closed" as const } }]) {
+    const blocked = recorder()
+    cardActions(blocked.dispatch, liveBranchActionDefinitions(candidate, new Set(candidate.machine.state === "closed" ? ["terminal"] : [])))
+      .onAction("terminal")
+    expect(blocked.calls).toEqual([])
+  }
+})
+
+
+test("scratch Fork retains its own source, including on a closed branch", () => {
+  const base = definitionsOf(make(), "b-retry").model
+  for (const state of ["asleep", "closed"] as const) {
+    const model = { ...base, item: undefined, name: "scratch/ben/try", machine: { state }, scratch: { forked_from: { kind: "main" as const } } }
+    const { calls, dispatch } = recorder()
+    cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["branch.fork"]))).onAction("branch.fork", { from: "main" })
+    expect(calls).toEqual([["branch.fork", { from: "scratch/ben/try" }]])
+  }
+})
