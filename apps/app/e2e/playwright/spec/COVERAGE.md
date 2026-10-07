@@ -329,7 +329,7 @@ Cycle 31: repository flow listing, failed activation, edit-to-merge, typed execu
 | A-MONITOR | [A-MONITOR.spec.ts](A-MONITOR.spec.ts) | fixme-before-implementation | T-FLW-07 |
 | A-DEBUG-API | [A-DEBUG-API.spec.ts](A-DEBUG-API.spec.ts) | fixme-before-implementation | T-APP-21 |
 | A-RUN-INSPECT | [A-RUN-INSPECT.spec.ts](A-RUN-INSPECT.spec.ts) | fixme-before-implementation | T-FLW-07 |
-| A-FLOW-SOURCE | [A-FLOW-SOURCE.spec.ts](A-FLOW-SOURCE.spec.ts), [install Source continuation](../flow-card-install.spec.ts) | mounted source and confirmed Draft-to-branch Source/reload pass; S2/S3 editing pending | T-APP-05, T-FLW-04, T-FLW-05 |
+| A-FLOW-SOURCE | [A-FLOW-SOURCE.spec.ts](A-FLOW-SOURCE.spec.ts), [install Source continuation](../flow-card-install.spec.ts) | mounted source, unavailable-catalog refusal without a Draft/TODO, and confirmed Draft-to-branch Source/reload pass; S2/S3 editing pending | T-APP-05, T-FLW-04, T-FLW-05 |
 
 Cycle 32: live run recovery, GitHub stale/refused sync, the full monitor,
 API playground and collaborative flow-source editing retain complete pending

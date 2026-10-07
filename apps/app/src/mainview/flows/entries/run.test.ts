@@ -122,7 +122,7 @@ test("on an install, flow doors read GET /api/flows: the built-in TODO flow is e
 test("on an install, a catalog the install does not serve refuses the flow doors instead of reading the seed", async () => {
   const h = await bootInstall(() => Response.json({ code: "unknown", class: "infra", message: "Not available" }, { status: 404 }))
   try {
-    for (const [name, args] of [["flow", "todo"], ["flow.edit", "todo Add review"], ["flows", undefined]] as const) {
+    for (const [name, args] of [["flow", "todo"], ["flow.edit", "todo Add review"], ["flow.source", "todo"], ["flows", undefined]] as const) {
       expect(await h.controller.runCommandForResult(name, args)).toMatchObject({ status: "failed", error: expect.stringContaining("Flows unavailable") })
     }
     expect(cards(h).filter(row => row.kind === "flow" || row.kind === "draft")).toEqual([])
