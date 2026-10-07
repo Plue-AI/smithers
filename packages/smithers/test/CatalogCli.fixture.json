@@ -69,6 +69,10 @@
       "agent": "run"
     },
     {
+      "path": "branch archive",
+      "agent": "confirm"
+    },
+    {
       "path": "branch add-to-stack",
       "agent": "confirm"
     },
@@ -272,6 +276,17 @@
         "from": "main",
         "name": "retry-webhooks"
       }
+    },
+    {
+      "argv": [
+        "branch",
+        "archive",
+        "--branch",
+        "scratch-id"
+      ],
+      "method": "POST",
+      "path": "/api/branches/scratch-id/archive",
+      "body": {}
     },
     {
       "argv": [
