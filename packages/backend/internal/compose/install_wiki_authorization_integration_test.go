@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -29,10 +30,13 @@ func TestInstallWikiWriteAuthorizationPostgres(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Close()
 	wiki := services.NewWikiService(f.q, nil, services.WithWikiContent(store), services.WithWikiCollaboration(f.q, nil))
+	todos := services.NewMythicalService(f.pool, nil)
+	todos.SetWiki(wiki)
+	todos.SetLearningWiki(wiki)
 	router := buildRouterCompat(cfg, f.q, f.pool,
 		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, wiki, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}})
 	cookie := "wiki-member"
 	sum := sha256.Sum256([]byte(cookie))
 	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
@@ -42,7 +46,11 @@ func TestInstallWikiWriteAuthorizationPostgres(t *testing.T) {
 	external := f.token(f.owner, "wiki-external", "read:repository,write:repository,via:codex", true)
 	call := func(t *testing.T, method, path, body, token, command string, status int) string {
 		t.Helper()
-		req := httptest.NewRequest(method, cfg.Server.PublicURL+"/api/repos/gate-owner/app/wiki"+path, strings.NewReader(body))
+		target := "/api/repos/gate-owner/app/wiki" + path
+		if strings.HasPrefix(path, "/api/") {
+			target = path
+		}
+		req := httptest.NewRequest(method, cfg.Server.PublicURL+target, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", "wiki-authority-"+method+path)
 		req.Header.Set("Origin", cfg.Server.PublicURL)
@@ -87,7 +95,17 @@ func TestInstallWikiWriteAuthorizationPostgres(t *testing.T) {
 		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT body FROM wiki_pages WHERE repository_id=$1 AND slug='decision'`, f.repoID).Scan(&body))
 		require.Equal(t, "Revised decision", body)
 		call(t, "PATCH", "/decision", `{"body":"App decision","expected_revision":2}`, appAgent, "wiki.edit", 200)
-		call(t, "DELETE", "/decision", "", appAgent, "wiki.delete", 204)
+		pending := call(t, "DELETE", "/decision", "", appAgent, "wiki.delete", 202)
+		var receipt struct {
+			Confirmation string `json:"confirmation"`
+			State        string `json:"state"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(pending), &receipt))
+		require.Equal(t, "pending", receipt.State)
+		require.NotEmpty(t, receipt.Confirmation)
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1`, f.repoID).Scan(&count))
+		require.Equal(t, 1, count, "an agent request must not delete the page")
+		call(t, "POST", "/api/confirmations/"+receipt.Confirmation+"/approve", `{}`, "", "wiki.delete", 200)
 		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1`, f.repoID).Scan(&count))
 		require.Zero(t, count)
 	})

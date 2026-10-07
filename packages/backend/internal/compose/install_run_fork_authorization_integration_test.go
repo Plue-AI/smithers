@@ -40,6 +40,7 @@ func TestInstallRunForkAuthorizationPostgres(t *testing.T) {
 }
 
 func testInstallRunForkAuthorizationPostgres(t *testing.T) map[string]any {
+	configureNativeInstallFixture(t)
 	t.Setenv("TMPDIR", t.TempDir())
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
 	storage := t.TempDir()

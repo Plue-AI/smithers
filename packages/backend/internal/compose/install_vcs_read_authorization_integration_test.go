@@ -21,6 +21,7 @@ import (
 )
 
 func TestInstallRetainedVCSReadsPostgres(t *testing.T) {
+	configureNativeInstallFixture(t)
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
 	storage := t.TempDir()
 	engine, err := repository.OpenLocal(repository.Config{StoragePath: storage, AuthToken: "native-history", FFILibraryPath: os.Getenv("SMITHERS_FFI_LIBRARY_PATH"), InstallMainMirror: true})
