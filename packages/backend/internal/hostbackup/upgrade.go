@@ -150,19 +150,9 @@ func ReadUpgradeMarker(state string) (string, error) {
 }
 
 func readUpgradeMarker(root *os.Root) (string, error) {
-	if _, err := root.Lstat(".upgrade-incomplete"); err != nil {
-		return "", err
-	}
-	marker, err := openRegular(root, ".upgrade-incomplete")
+	bytes, err := readMetadata(root, ".upgrade-incomplete")
 	if err != nil {
 		return "", err
-	}
-	bytes, readErr := io.ReadAll(io.LimitReader(marker, 4097))
-	if err := errors.Join(readErr, marker.Close()); err != nil {
-		return "", err
-	}
-	if len(bytes) > 4096 {
-		return "", errors.New("upgrade recovery marker exceeds 4096 bytes")
 	}
 	// Writers append one newline. Other control bytes cannot name a generated
 	// backup and must never become terminal output or a restore argument.
@@ -172,6 +162,36 @@ func readUpgradeMarker(root *os.Root) (string, error) {
 		}
 	}
 	return string(bytes), nil
+}
+
+// ReadMaintenanceMetadata uses the same confined reader for bundle/state
+// version.env and legacy key/value manifests. Metadata cannot block startup or
+// select an outside file, and its complete contents must fit in 4096 bytes.
+func ReadMaintenanceMetadata(path string) ([]byte, error) {
+	root, err := openSnapshot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return readMetadata(root, filepath.Base(path))
+}
+
+func readMetadata(root *os.Root, name string) ([]byte, error) {
+	if _, err := root.Lstat(name); err != nil {
+		return nil, err
+	}
+	file, err := openRegular(root, name)
+	if err != nil {
+		return nil, err
+	}
+	bytes, readErr := io.ReadAll(io.LimitReader(file, 4097))
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		return nil, err
+	}
+	if len(bytes) > 4096 {
+		return nil, fmt.Errorf("maintenance metadata %s exceeds 4096 bytes", name)
+	}
+	return bytes, nil
 }
 
 // ContinueUpgrade is the new-binary half of upgrade. A return from migration

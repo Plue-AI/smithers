@@ -48,7 +48,7 @@ var shellValue = regexp.MustCompile(`^[A-Za-z0-9/._+-]+$`)
 var fieldValue = regexp.MustCompile(`^[A-Za-z0-9._+-]+$`)
 
 func fields(path string) (map[string]string, error) {
-	body, err := os.ReadFile(path)
+	body, err := hostbackup.ReadMaintenanceMetadata(path)
 	if err != nil {
 		return nil, err
 	}

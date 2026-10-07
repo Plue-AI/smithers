@@ -100,3 +100,77 @@ func TestNativeStartupRecoveryMarkerInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeStartupVersionMetadataInputs(t *testing.T) {
+	for _, kind := range []string{"symlink outside", "symlink inside", "fifo", "directory", "oversized", "malformed"} {
+		t.Run(kind, func(t *testing.T) {
+			state := t.TempDir()
+			path := filepath.Join(state, "version.env")
+			outside := filepath.Join(t.TempDir(), "sentinel")
+			require.NoError(t, os.WriteFile(outside, []byte("outside-version-secret"), 0640))
+			switch kind {
+			case "symlink outside":
+				require.NoError(t, os.Symlink(outside, path))
+			case "symlink inside":
+				require.NoError(t, os.WriteFile(filepath.Join(state, "other"), []byte("inside-version-secret"), 0600))
+				require.NoError(t, os.Symlink("other", path))
+			case "fifo":
+				require.NoError(t, unix.Mkfifo(path, 0600))
+			case "directory":
+				require.NoError(t, os.Mkdir(path, 0700))
+			case "oversized":
+				require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", 4097)), 0600))
+			case "malformed":
+				require.NoError(t, os.WriteFile(path, []byte("SMITHERS_DISTRIBUTION_VERSION=$(outside-version-secret)\n"), 0600))
+			}
+			before, err := os.Lstat(path)
+			require.NoError(t, err)
+			finished := make(chan error, 1)
+			go func() {
+				finished <- Run(t.Context(), Config{StateDir: state, Postgres: postgres.Config{
+					BinDir: filepath.Join(state, "absent-tools"), StateDir: filepath.Join(state, "postgres"), Major: 18,
+				}})
+			}()
+			select {
+			case err = <-finished:
+			case <-time.After(time.Second):
+				if kind == "fifo" {
+					fd, e := unix.Open(path, unix.O_RDWR|unix.O_NONBLOCK, 0)
+					if e == nil {
+						_, _ = unix.Write(fd, []byte("invalid\n"))
+						_ = unix.Close(fd)
+					}
+				}
+				t.Fatal("startup blocked reading version metadata")
+			}
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), "start owned postgres")
+			require.NotContains(t, err.Error(), "outside-version-secret")
+			require.NotContains(t, err.Error(), "inside-version-secret")
+			after, err := os.Lstat(path)
+			require.NoError(t, err)
+			require.True(t, os.SameFile(before, after))
+			require.Equal(t, before.Mode(), after.Mode())
+			bytes, err := os.ReadFile(outside)
+			require.NoError(t, err)
+			require.Equal(t, "outside-version-secret", string(bytes))
+			info, err := os.Stat(outside)
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0640), info.Mode().Perm())
+			require.NoDirExists(t, filepath.Join(state, "postgres"))
+		})
+	}
+}
+
+func TestVersionMetadataSizeBoundary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "version.env")
+	prefix := "SMITHERS_DISTRIBUTION_VERSION=dev\nSMITHERS_SCHEMA_VERSION=1\nSMITHERS_POSTGRES_MAJOR=18\nPADDING="
+	body := prefix + strings.Repeat("x", 4096-len(prefix))
+	require.NoError(t, os.WriteFile(path, []byte(body), 0600))
+	version, err := ReadVersion(path)
+	require.NoError(t, err)
+	require.Equal(t, Version{"dev", "1", "18"}, version)
+	require.NoError(t, os.WriteFile(path, []byte(body+"x"), 0600))
+	_, err = ReadVersion(path)
+	require.EqualError(t, err, "maintenance metadata version.env exceeds 4096 bytes")
+}
