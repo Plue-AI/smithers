@@ -97,6 +97,22 @@ test("a transcript the decoder refuses keeps what came before and says where it 
   expect(headless.get()).toMatchObject({ entries: [], error: "Session transcript line 1 could not be read." })
 })
 
+test("unknown semantic content stops the real session seam and retains only earlier entries", async () => {
+  const unknown = JSON.stringify({ type: "event_msg", payload: { type: "future_semantic_event" } }) + "\n"
+  const { asked, http } = host({ text: meta() + prompt(1, "kept") + unknown + prompt(2, "never") })
+  const seam = createExternalSessionSeam({ http, pollMs: 10 })
+  const source = seam.session("codex", SESSION)
+  const stop = source.subscribe(() => {})
+  await until(() => source.get().error !== undefined)
+  expect(texts(source)).toEqual(["kept"])
+  expect(source.get().error).toBe("Session transcript line 3 could not be read.")
+  const count = asked.length
+  await Bun.sleep(40)
+  expect(asked).toHaveLength(count)
+  stop()
+  seam.dispose()
+})
+
 test("each host's refusal is the error, in its words; a host without the route says so", async () => {
   for (const body of [{ class: "user", code: "source_not_found", message: "No Codex session ffff on this machine." },
     { error: { code: "source_not_found", message: "No Codex session ffff on this machine." }, status: "error", code: "source_not_found", message: "No Codex session ffff on this machine." }]) {

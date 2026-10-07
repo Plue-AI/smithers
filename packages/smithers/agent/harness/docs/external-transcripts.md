@@ -48,7 +48,7 @@ are explicitly listed in `codexReleases` and `claudeReleases`. These profiles
 use major/minor release lines, rather than the historical patch-version names.
 Missing or unsupported versions and malformed JSON return
 `ExternalTranscriptError` with `missing_version`, `unsupported_version` or
-`malformed_record` and a line number.
+`malformed_record`, or `unsupported_record` and a line number.
 
 | Source | Display mapping |
 | --- | --- |
@@ -76,9 +76,13 @@ The current public-export tests cover deterministic chunk replay, incomplete
 records, errors, inert content and both recorded formats. Decoder-only coverage
 does not establish package-wide §21.1 evidence or owner sign-off.
 
-C-AGT-01 remains incomplete. Its strict unknown-semantic-record rejection
-requirement differs from the current projection: Codex skips records outside
-its completed-item projection, and Claude can retain an unread-part marker.
-The library owner must reconcile the supported semantic mapping and profiles
-with the ticket and sign off exports and §21.1. The browser C-AGT-01 check still
-contains a fixme; passing mounted-conversation tests do not replace that check.
+Unknown Codex record/event types and completed items, and unknown Claude
+conversation records/content blocks, return `unsupported_record` without a
+partial batch. Known Codex metadata and model-facing duplicate records are
+explicit skips; Claude context attachments and system status records retain
+the existing profile mapping.
+
+C-AGT-01 remains incomplete. The library owner must reconcile the supported semantic mapping and profiles
+with the ticket and sign off exports and §21.1. The browser C-AGT-01 check exercises both recorded captures through the real
+raw-session seam, reload and visible semantic refusal with an HTTP contract fake.
+It does not establish authenticated reference-machine capture or owner sign-off.

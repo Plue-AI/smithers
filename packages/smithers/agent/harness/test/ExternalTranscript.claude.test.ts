@@ -516,7 +516,10 @@ describe("ExternalTranscript Claude Code", () => {
     it("holds an unterminated final record in pending until its newline arrives", () => {
       const prompt = user("hello", { promptId: "turn-1" })
       const first = Result.getOrThrow(
-        ExternalTranscript.decodeClaude(ExternalTranscript.claudeStart, `${row("system", { subtype: "x" })}\n${prompt}`)
+        ExternalTranscript.decodeClaude(
+          ExternalTranscript.claudeStart,
+          `${row("system", { subtype: "informational" })}\n${prompt}`
+        )
       )
       expect(first.entries).toEqual([])
       expect(first.state).toMatchObject({ pending: prompt, line: 1, seq: 0 })
@@ -595,8 +598,7 @@ describe("ExternalTranscript Claude Code", () => {
       expect(decodeRows(
         JSON.stringify({ type: "permission-mode", permissionMode: "default" }),
         JSON.stringify({ type: "queue-operation", operation: "enqueue", content: "hello" }),
-        JSON.stringify({ type: "cost-state", totalCostUSD: 1 }),
-        JSON.stringify({ type: "some-future-row", uuid: 7 })
+        JSON.stringify({ type: "cost-state", totalCostUSD: 1 })
       )).toEqual([])
     })
 
@@ -932,10 +934,29 @@ describe("ExternalTranscript Claude Code", () => {
       ["no type", { text: "x" }, "unnamed"],
       ["a value that is not an object", "loose", "unnamed"]
     ])("reports an assistant block with %s as an error part", (_, block, name) => {
-      expect(partOf(assistant([block]))).toEqual({
-        type: "error",
+      expect(failure(jsonl(assistant([block])))).toMatchObject({
+        code: "unsupported_record",
+        line: 1,
         message: `Claude Code wrote a content block this release does not read: ${name}`
       })
+    })
+
+    it("rejects unknown bookkeeping records and leaves caller state unchanged", () => {
+      const before = structuredClone(ExternalTranscript.claudeStart)
+      expect(failure(jsonl(JSON.stringify({ type: "future_semantic_record" })))).toMatchObject({
+        code: "unsupported_record",
+        line: 1
+      })
+      expect(ExternalTranscript.claudeStart).toEqual(before)
+    })
+
+    it.each([
+      row("system", { subtype: "future_status" }),
+      row("system"),
+      attachment({ type: "future_attachment" }),
+      row("attachment")
+    ])("rejects unknown system and attachment semantics: %s", (value) => {
+      expect(failure(jsonl(value))).toMatchObject({ code: "unsupported_record", line: 1 })
     })
 
     it("reads Claude Code's API error message, falling back to its error code", () => {
@@ -1012,12 +1033,14 @@ describe("ExternalTranscript Claude Code", () => {
       expect(decodeRows(user(content, fields))).toEqual([])
     })
 
-    it("reports a user block it does not read as an error part, beside the owner's words", () => {
-      expect(partsOf(user([{ type: "document", source: {} }, { type: "text", text: "see attached" }, {}]))).toEqual([
-        { type: "error", message: "Claude Code wrote a content block this release does not read: document" },
-        { type: "error", message: "Claude Code wrote a content block this release does not read: unnamed" },
-        { type: "prompt", text: "see attached" }
-      ])
+    it("rejects an unknown user block without returning the owner's adjacent words", () => {
+      expect(failure(jsonl(user([{ type: "document", source: {} }, { type: "text", text: "see attached" }]))))
+        .toMatchObject({
+          code: "unsupported_record",
+          line: 1,
+          message: "Claude Code wrote a content block this release does not read: document"
+        })
+      expect(failure(jsonl(user([{}])))).toMatchObject({ code: "unsupported_record", line: 1 })
     })
 
     it.each([
@@ -1043,7 +1066,6 @@ describe("ExternalTranscript Claude Code", () => {
       expect(partsOf(
         attachment({ type: "edited_text_file", filename: "/repo/a.ts", snippet: "" }),
         attachment({ type: "goal_status", met: false, condition: "ship" }),
-        row("attachment"),
         row("system", { subtype: "api_error", retryAttempt: 1 }),
         row("system", { subtype: "local_command", content: "<command-name>/x</command-name>" }),
         row("system", { subtype: "compact_boundary", content: "Conversation compacted" })
@@ -1054,8 +1076,9 @@ describe("ExternalTranscript Claude Code", () => {
       ["a type this release does not read", "progress", "progress"],
       ["no type", undefined, "unnamed"]
     ])("reports a conversation record with %s as an error part", (_, type, name) => {
-      expect(partOf(row(type as string))).toEqual({
-        type: "error",
+      expect(failure(jsonl(row(type as string)))).toMatchObject({
+        code: "unsupported_record",
+        line: 1,
         message: `Claude Code wrote a record this release does not read: ${name}`
       })
     })

@@ -591,7 +591,9 @@ describe("ExternalTranscript", () => {
     })
 
     it("preserves encrypted reasoning as a placeholder", () => {
-      expect(partOf({ type: "Reasoning", summary_text: [], encrypted_content: "ciphertext" })).toEqual({ type: "encrypted" })
+      expect(partOf({ type: "Reasoning", summary_text: [], encrypted_content: "ciphertext" })).toEqual({
+        type: "encrypted"
+      })
     })
 
     it("joins the text of every UserMessage content part, and reads content that is not a list as empty", () => {
@@ -808,11 +810,11 @@ describe("ExternalTranscript", () => {
       ["no type", { id: "call-5" }, "unnamed"],
       ["a list", [], "unnamed"],
       ["null", null, "unnamed"]
-    ])("reports an item with %s as an error part", (_, value, name) => {
-      const [entry] = decodeRows(item(value))
-      expect(entry).toMatchObject({
-        role: "assistant",
-        part: { type: "error", message: `Codex reported an item this release does not read: ${name}` }
+    ])("rejects an item with %s", (_, value, name) => {
+      expect(failure(jsonl(session(), item(value)))).toMatchObject({
+        code: "unsupported_record",
+        line: 2,
+        message: `Codex reported an item this release does not read: ${name}`
       })
     })
 
@@ -832,11 +834,23 @@ describe("ExternalTranscript", () => {
       ])
     })
 
-    it("skips other event_msg rows, other row types and rows that carry no payload", () => {
+    it.each([
+      JSON.stringify({ type: "future_semantic_record" }),
+      JSON.stringify({}),
+      JSON.stringify({ type: "response_item", payload: { type: "future_response" } }),
+      JSON.stringify({ type: "response_item" }),
+      event({ type: "future_semantic_event" }),
+      JSON.stringify({ type: "event_msg" })
+    ])("rejects unknown semantic records without advancing the caller checkpoint: %s", (row) => {
+      const state = structuredClone(ExternalTranscript.codexStart)
+      expect(failure(jsonl(session(), row))).toMatchObject({ code: "unsupported_record", line: 2 })
+      expect(ExternalTranscript.codexStart).toEqual(state)
+    })
+
+    it("skips known metadata rows", () => {
       expect(decodeRows(
         event({ type: "token_count", info: null }),
-        JSON.stringify({ timestamp: at, type: "turn_context", payload: { turn_id: "turn-1" } }),
-        JSON.stringify({ timestamp: at, type: "event_msg" })
+        JSON.stringify({ timestamp: at, type: "turn_context", payload: { turn_id: "turn-1" } })
       )).toEqual([])
     })
   })
