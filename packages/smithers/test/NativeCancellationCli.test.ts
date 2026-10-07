@@ -132,9 +132,12 @@ describe("native CLI cancellation", { timeout: 120_000 }, () => {
           )
         } else {
           const cancelled = await command(root, ["runs", "cancel", runId]).finished
-          // The cancellation request succeeds; the attached execution reports
-          // its cancelled settlement through its own exit status below.
-          expect(cancelled.code, cancelled.stdout + cancelled.stderr).toBe(0)
+          // An accepted cancel exits 0 and the attached execution reports the
+          // cancelled settlement below; a cancel whose own receipt is Terminal
+          // (the released committed request) reports the interrupt status, 130.
+          expect(cancelled.code, cancelled.stdout + cancelled.stderr).toBe(
+            mode === "released committed request" ? 130 : 0
+          )
           expect(cancelled.stderr).toBe("")
           if (mode === "released") {
             const receipt = JSON.parse(cancelled.stdout)
@@ -150,7 +153,7 @@ describe("native CLI cancellation", { timeout: 120_000 }, () => {
             expect(Date.now()).toBeLessThan(staleAt)
             await new Promise((resolve) => setTimeout(resolve, staleAt - Date.now()))
             const settled = await command(root, ["runs", "cancel", runId]).finished
-            expect(settled.code, settled.stdout + settled.stderr).toBe(0)
+            expect(settled.code, settled.stdout + settled.stderr).toBe(130)
             expect(JSON.parse(settled.stdout)).toMatchObject({ _tag: "Terminal", status: "cancelled" })
           }
           if (mode.startsWith("released")) {
@@ -186,9 +189,13 @@ describe("native CLI cancellation", { timeout: 120_000 }, () => {
         expect(listed.code, listed.stdout + listed.stderr).toBe(0)
         expect(JSON.parse(listed.stdout).items).toMatchObject([{ runId, status: "cancelled" }])
         const replay = await command(root, ["runs", "cancel", runId]).finished
-        expect(replay.code, replay.stdout + replay.stderr).toBe(0)
         // The stable request can replay Accepted; the durable state stays terminal.
-        expect(JSON.parse(replay.stdout).runId).toBe(runId)
+        // Its exit follows the receipt it replays, like any cancel: a Terminal
+        // cancelled receipt is an interruption (130), an Accepted one is 0 (#3071 RC4).
+        const replayed = JSON.parse(replay.stdout)
+        expect(replay.code, replay.stdout + replay.stderr).toBe(replayed._tag === "Terminal" ? 130 : 0)
+        if (replayed._tag === "Terminal") expect(replayed.status).toBe("cancelled")
+        expect(replayed.runId).toBe(runId)
         expect(rows(root, "control")).toEqual(control)
         expect(rows(root, "engine")).toEqual(engine)
         expect(readFileSync(marker, "utf8")).toBe(entered)
