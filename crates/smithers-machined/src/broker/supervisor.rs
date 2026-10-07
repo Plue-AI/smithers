@@ -24,6 +24,8 @@ pub trait Kernel: Send {
     }
     fn recover(&mut self, deadline: Instant) -> io::Result<()>;
     fn ready(&mut self, user: &User) -> io::Result<()>;
+    /// Failure may leave a child or cgroup. The supervisor retains ownership
+    /// and calls kill before forgetting the reservation.
     fn spawn(
         &mut self,
         id: u32,
@@ -40,6 +42,8 @@ pub trait Kernel: Send {
     fn signal(&mut self, id: u32, signal: u8) -> io::Result<()>;
     fn exited(&mut self, id: u32) -> io::Result<Option<Exit>>;
     fn close(&mut self, id: u32, kind: Kind) -> io::Result<()>;
+    /// Also accepts a reserved ID whose spawn failed before creating a group.
+    /// Return success only after no child or cgroup remains.
     fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()>;
     fn freeze(&mut self, timeout: Duration) -> io::Result<Option<u32>>;
     fn thaw(&mut self) -> io::Result<()>;
@@ -150,7 +154,7 @@ impl<K: Kernel> Supervisor<K> {
         caller: Option<u32>,
     ) -> io::Result<u32> {
         self.registry.authorize(&user)?;
-        if self.streams.len() >= sessions::MAX_SESSIONS || self.next > 0x7fff_ffff {
+        if self.registry.entries().count() >= sessions::MAX_SESSIONS || self.next > 0x7fff_ffff {
             return Err(invalid());
         }
         if let Some(caller) = caller {
@@ -158,28 +162,31 @@ impl<K: Kernel> Supervisor<K> {
         }
         self.kernel.with(|k| k.ready(&user))?;
         let id = self.allocate_stream()?; // failed spawns never reuse IDs
-        self.kernel
-            .with(|k| k.spawn(id, &user, kind, &argv, size, port))?;
-        let inserted = if let Some(caller) = caller {
-            self.registry.insert_local(id, 19999, caller)
-        } else {
-            self.registry.insert(id, user, kind)
-        };
-        if let Err(error) = inserted {
-            self.kernel
-                .with(|k| k.kill(id, Instant::now() + sessions::KILL_DEADLINE))?;
-            return Err(error);
-        }
         let input = Descriptor {
             kernel: self.kernel.clone(),
             id,
             kind,
             fd: 0,
         };
+        let pipe = Pipe::new(id, input, matches!(kind, Kind::Exec | Kind::Sftp))?;
+        if let Some(caller) = caller {
+            self.registry.insert_local(id, 19999, caller)?;
+        } else {
+            self.registry.insert(id, user.clone(), kind)?;
+        }
+        if let Err(error) = self
+            .kernel
+            .with(|k| k.spawn(id, &user, kind, &argv, size, port))
+        {
+            // Cleanup errors take precedence: the failed reservation remains
+            // attributable and revocable, but cannot admit or attach traffic.
+            self.registry.abort_spawn(id, Instant::now())?;
+            return Err(error);
+        }
         self.streams.insert(
             id,
             Stream {
-                pipe: Pipe::new(id, input, matches!(kind, Kind::Exec | Kind::Sftp))?,
+                pipe,
                 kind,
                 local: caller.is_some(),
                 next_fd: 1,
@@ -243,6 +250,9 @@ impl<K: Kernel> Supervisor<K> {
         self.registry.expire(now)?;
         let entries: Vec<_> = self.registry.entries().cloned().collect();
         for entry in entries {
+            if self.registry.failed_spawn(entry.id) {
+                continue; // retained for cleanup, never exposed as a stream
+            }
             let stream = self.streams.get_mut(&entry.id).ok_or_else(invalid)?;
             if entry.closed {
                 stream.pipe.closed_by_owner();
@@ -266,13 +276,14 @@ impl<K: Kernel> Supervisor<K> {
         let mut entries: Vec<_> = self.registry.entries().cloned().collect();
         entries.sort_by_key(|e| (e.id <= self.cursor, e.id));
         for entry in entries {
+            if entry.closed {
+                continue;
+            }
             let stream = self.streams.get_mut(&entry.id).ok_or_else(invalid)?;
-            if entry.closed
-                || match local {
-                    Some(id) => !stream.local || id != entry.id,
-                    None => stream.local,
-                }
-            {
+            if match local {
+                Some(id) => !stream.local || id != entry.id,
+                None => stream.local,
+            } {
                 continue;
             }
             self.cursor = entry.id;

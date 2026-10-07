@@ -406,15 +406,6 @@ impl<A: Admission> Kernel for Processes<A> {
             let input = child.stdin.take();
             let output = child.stdout.take();
             let error = child.stderr.take();
-            if let Some(fd) = &input {
-                nonblocking(fd)?;
-            }
-            if let Some(fd) = &output {
-                nonblocking(fd)?;
-            }
-            if let Some(fd) = &error {
-                nonblocking(fd)?;
-            }
             self.processes.insert(
                 id,
                 Process {
@@ -427,12 +418,22 @@ impl<A: Admission> Kernel for Processes<A> {
                     exit_observed: false,
                 },
             );
+            // Retain the child before any fallible descriptor configuration.
+            // Supervisor-owned rollback must be able to kill AND reap it.
+            let process = self.process(id)?;
+            if let Some(fd) = &process.input {
+                nonblocking(fd)?;
+            }
+            if let Some(fd) = &process.output {
+                nonblocking(fd)?;
+            }
+            if let Some(fd) = &process.error {
+                nonblocking(fd)?;
+            }
             Ok(())
         })();
-        if result.is_err() {
-            self.groups
-                .kill(id, Instant::now() + Duration::from_secs(5))?;
-        }
+        // The supervisor reserved attribution before calling us and owns
+        // rollback, including failures before group creation or after fork.
         result
     }
     fn read(&mut self, id: u32, fd: u8, bytes: &mut [u8]) -> io::Result<usize> {
@@ -537,10 +538,16 @@ impl<A: Admission> Kernel for Processes<A> {
         Ok(())
     }
     fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()> {
-        self.groups.kill(id, deadline)?;
-        if let Some(mut p) = self.processes.remove(&id) {
+        // Spawn can fail before create(), and a retry can follow successful
+        // cgroup cleanup but failed reaping. No child is forked before its group
+        // is retained, so an absent group is safe at this owned-session door.
+        if self.groups.contains(id) {
+            self.groups.kill(id, deadline)?;
+        }
+        if let Some(p) = self.processes.get_mut(&id) {
             p.child.wait()?;
         }
+        self.processes.remove(&id);
         Ok(())
     }
     fn freeze(&mut self, t: Duration) -> io::Result<Option<u32>> {

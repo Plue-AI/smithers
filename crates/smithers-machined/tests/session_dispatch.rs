@@ -11,7 +11,7 @@ use smithers_machined::{
     session_stream::Exit,
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -28,6 +28,11 @@ struct State {
     missing: Option<&'static str>,
     blocked: bool,
     fail_kill: Option<u32>,
+    fail_all_kills: bool,
+    fail_spawn: bool,
+    fail_before_fork: bool,
+    ready_calls: usize,
+    running: BTreeSet<u32>,
 }
 struct OS(Arc<Mutex<State>>);
 impl Kernel for OS {
@@ -38,7 +43,8 @@ impl Kernel for OS {
         Ok(())
     }
     fn ready(&mut self, u: &User) -> io::Result<()> {
-        let state = self.0.lock().unwrap();
+        let mut state = self.0.lock().unwrap();
+        state.ready_calls += 1;
         if state.missing.is_some() {
             return Err(io::ErrorKind::Unsupported.into());
         }
@@ -56,7 +62,15 @@ impl Kernel for OS {
         _: Option<(u16, u16)>,
         _: Option<u16>,
     ) -> io::Result<()> {
-        self.0.lock().unwrap().spawns.push((id, u.clone(), k));
+        let mut state = self.0.lock().unwrap();
+        state.spawns.push((id, u.clone(), k));
+        if state.fail_before_fork {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        state.running.insert(id);
+        if state.fail_spawn {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
         Ok(())
     }
     fn read(&mut self, id: u32, fd: u8, b: &mut [u8]) -> io::Result<usize> {
@@ -96,10 +110,11 @@ impl Kernel for OS {
     }
     fn kill(&mut self, id: u32, _: Instant) -> io::Result<()> {
         let mut s = self.0.lock().unwrap();
-        if s.fail_kill == Some(id) {
+        if s.fail_kill == Some(id) || s.fail_all_kills {
             return Err(io::ErrorKind::TimedOut.into());
         }
         s.kills.push(id);
+        s.running.remove(&id);
         Ok(())
     }
     fn freeze(&mut self, _: Duration) -> io::Result<Option<u32>> {
@@ -577,4 +592,164 @@ fn broker_registry_projection_is_read_only_and_retains_lingering_ownership() {
     assert_eq!(supervisor.entries().count(), 1);
     assert_eq!(state.lock().unwrap().spawns.len(), 1);
     assert!(state.lock().unwrap().kills.is_empty());
+}
+
+#[test]
+fn failed_spawn_is_removed_only_after_confirmed_cleanup_and_never_reuses_id() {
+    for before_fork in [false, true] {
+        let (mut s, state) = setup();
+        roster(&mut s);
+        {
+            let mut state = state.lock().unwrap();
+            state.fail_spawn = !before_fork;
+            state.fail_before_fork = before_fork;
+        }
+        let result = s.session(Request::Open {
+            user: user(),
+            kind: Kind::Exec,
+            argv: vec!["/bin/sh".into()],
+            size: None,
+        });
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+        assert!(s.entries().next().is_none());
+        {
+            let mut state = state.lock().unwrap();
+            assert_eq!(state.kills, [1]);
+            assert!(state.running.is_empty());
+            state.fail_spawn = false;
+            state.fail_before_fork = false;
+        }
+        assert_eq!(open(&mut s, user(), Kind::Pty), 2);
+    }
+}
+
+#[test]
+fn failed_spawn_cleanup_retains_owner_without_breaking_other_streams() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let healthy = open(&mut s, user(), Kind::Pty);
+    {
+        let mut state = state.lock().unwrap();
+        state.fail_spawn = true;
+        state.fail_kill = Some(2);
+        state.outputs.insert((healthy, 1), b"still usable".to_vec());
+    }
+    let result = s.session(Request::Open {
+        user: user(),
+        kind: Kind::Exec,
+        argv: vec!["/bin/sh".into()],
+        size: None,
+    });
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+    let retained = s.entries().find(|e| e.id == 2).unwrap();
+    assert_eq!(retained.user, user());
+    assert_eq!(retained.kind, Kind::Exec);
+    assert!(retained.closed);
+    assert!(state.lock().unwrap().running.contains(&2));
+    assert!(s
+        .session(Request::Attach {
+            session: 2,
+            received: 0
+        })
+        .is_err());
+    assert!(s.frame(&frame(2, vec![1, 0, b'x'])).is_err());
+    assert!(!state.lock().unwrap().inputs.contains_key(&2));
+    s.tick().unwrap();
+    let output = poll(&mut s, 0).unwrap();
+    assert_eq!(output.stream, healthy);
+    assert_eq!(&output.payload[2..], b"still usable");
+    assert!(s.session(Request::Roster(vec![])).is_err());
+    assert_eq!(s.entries().count(), 1);
+    assert_eq!(s.entries().next().unwrap().id, 2);
+    state.lock().unwrap().fail_kill = None;
+    s.session(Request::Roster(vec![])).unwrap();
+    assert!(s.entries().next().is_none());
+    assert!(state.lock().unwrap().running.is_empty());
+}
+
+#[test]
+fn failed_local_spawn_retains_run_for_cleanup_without_granting_child_authority() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let parent = open(
+        &mut s,
+        User {
+            login: "agent".into(),
+            uid: 19999,
+        },
+        Kind::Exec,
+    );
+    s.session(Request::Register {
+        session: parent,
+        run: "original-run".into(),
+    })
+    .unwrap();
+    {
+        let mut state = state.lock().unwrap();
+        state.fail_spawn = true;
+        state.fail_kill = Some(2);
+    }
+    let args = open_bytes("agent", 19999);
+    assert_eq!(
+        s.open_local(parent, &args).unwrap_err().kind(),
+        io::ErrorKind::TimedOut
+    );
+    let entry = s.entries().find(|e| e.id == 2).unwrap();
+    assert_eq!(entry.run.as_deref(), Some("original-run"));
+    assert_eq!(entry.user.uid, 19999);
+    assert!(entry.closed);
+    assert!(s.run_of_cgroup("/smithers/sessions/s2").is_none());
+    assert!(s.open_local(2, &args).is_err());
+    assert!(s
+        .session(Request::Register {
+            session: 2,
+            run: "replacement".into()
+        })
+        .is_err());
+    assert_eq!(state.lock().unwrap().spawns.len(), 2);
+    assert!(s.session(Request::KillRun("original-run".into())).is_err());
+    assert_eq!(s.entries().count(), 1);
+    assert_eq!(
+        s.entries().next().unwrap().run.as_deref(),
+        Some("original-run")
+    );
+    state.lock().unwrap().fail_kill = None;
+    s.session(Request::KillRun("original-run".into())).unwrap();
+    assert!(s.entries().next().is_none());
+    assert!(state.lock().unwrap().running.is_empty());
+}
+
+#[test]
+fn failed_spawn_reservations_count_toward_limit_before_consuming_admission() {
+    use smithers_machined::broker::sessions::MAX_SESSIONS;
+    let (mut s, state) = setup();
+    roster(&mut s);
+    {
+        let mut state = state.lock().unwrap();
+        state.fail_spawn = true;
+        state.fail_all_kills = true;
+    }
+    for _ in 0..MAX_SESSIONS {
+        assert_eq!(
+            s.session(Request::Tcp(8080)).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+    }
+    assert_eq!(s.entries().count(), MAX_SESSIONS);
+    assert_eq!(
+        s.session(Request::Tcp(8080)).unwrap_err().kind(),
+        io::ErrorKind::InvalidInput
+    );
+    {
+        let mut state = state.lock().unwrap();
+        assert_eq!(state.spawns.len(), MAX_SESSIONS);
+        assert_eq!(state.ready_calls, MAX_SESSIONS);
+        assert_eq!(state.running.len(), MAX_SESSIONS);
+        state.fail_all_kills = false;
+        state.fail_spawn = false;
+    }
+    s.before_restart(Instant::now()).unwrap();
+    assert!(s.entries().next().is_none());
+    assert!(state.lock().unwrap().running.is_empty());
+    assert_eq!(open(&mut s, user(), Kind::Pty), MAX_SESSIONS as u32 + 1);
 }

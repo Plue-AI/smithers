@@ -1,7 +1,7 @@
 //! Broker-owned registry, reconnect grace and confirmed cgroup cleanup.
 //! No request selects a cgroup path or a pid. Entries survive process exit and
 //! close so background children remain attributable and revocable.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -71,6 +71,7 @@ pub struct Sessions<C> {
     entries: BTreeMap<u32, Entry>,
     controls: C,
     detached: BTreeMap<u32, Instant>,
+    failed: BTreeSet<u32>,
     roster: Option<BTreeMap<u32, String>>,
     roster_ready: bool,
 }
@@ -80,6 +81,7 @@ impl<C: Controls> Sessions<C> {
             entries: BTreeMap::new(),
             controls,
             detached: BTreeMap::new(),
+            failed: BTreeSet::new(),
             roster: None,
             roster_ready: false,
         }
@@ -127,7 +129,7 @@ impl<C: Controls> Sessions<C> {
         }
         Ok(())
     }
-    /// Called only after trusted account binding and successful cgroup spawn.
+    /// Reserve ownership after trusted account binding and BEFORE cgroup spawn.
     /// Stream allocation is owned by the shared daemon allocator, not this map.
     pub fn insert(&mut self, id: u32, user: User, kind: Kind) -> io::Result<()> {
         self.authorize(&user)?;
@@ -153,8 +155,7 @@ impl<C: Controls> Sessions<C> {
     }
     /// Record an agent-local PTY with its caller's immutable run in the same
     /// registry mutation. No observer can see an admitted but unattributed PTY.
-    /// The root spawn provider must authorize the caller before spawning, then
-    /// call this while still holding the broker's serialization boundary.
+    /// Reserve before spawning, under the broker's serialization boundary.
     pub fn insert_local(&mut self, id: u32, peer_uid: u32, caller: u32) -> io::Result<()> {
         let run = self.local_run(peer_uid, caller)?.to_owned();
         self.insert(
@@ -167,6 +168,21 @@ impl<C: Controls> Sessions<C> {
         )?;
         self.entries.get_mut(&id).expect("inserted entry").run = Some(run);
         Ok(())
+    }
+    /// A failed launch may have forked before descriptor setup failed. Fence
+    /// its authority immediately, but retain ownership until cleanup confirms
+    /// that no children survive. A later kill/revocation/restart retries it.
+    pub(super) fn abort_spawn(&mut self, id: u32, now: Instant) -> io::Result<()> {
+        self.entries
+            .get_mut(&id)
+            .ok_or_else(|| refusal("unknown session"))?
+            .closed = true;
+        self.failed.insert(id);
+        self.kill_matching(|entry| entry.id == id, now)?;
+        Ok(())
+    }
+    pub(super) fn failed_spawn(&self, id: u32) -> bool {
+        self.failed.contains(&id)
     }
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
         self.entries.values()
@@ -193,7 +209,7 @@ impl<C: Controls> Sessions<C> {
     /// The daemon derives this id from the local peer's kernel cgroup, never
     /// from a request's actor or user fields.
     pub fn local_run(&self, peer_uid: u32, caller_session: u32) -> io::Result<&str> {
-        if peer_uid != 19999 {
+        if peer_uid != 19999 || self.failed.contains(&caller_session) {
             return Err(refusal("local caller is not agent"));
         }
         let entry = self
@@ -241,6 +257,7 @@ impl<C: Controls> Sessions<C> {
             self.controls.kill(id, deadline)?;
             self.entries.remove(&id);
             self.detached.remove(&id);
+            self.failed.remove(&id);
             killed += 1;
         }
         Ok(killed)

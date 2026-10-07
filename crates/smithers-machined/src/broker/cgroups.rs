@@ -168,6 +168,9 @@ impl Cgroups {
     }
 }
 impl Cgroups {
+    pub(super) fn contains(&self, id: u32) -> bool {
+        self.groups.contains_key(&id)
+    }
     pub fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()> {
         let group = self
             .groups

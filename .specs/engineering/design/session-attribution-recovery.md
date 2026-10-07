@@ -13,6 +13,13 @@ wire variants still use the existing live adapter; their launch/broker migration
 below remains required. These component checks do not prove installed admission
 or recovery of legacy session-number events.
 
+The broker now reserves session ownership (including an inherited local run)
+before spawn. Failed launches retain that ownership until cgroup cleanup and
+child reaping succeed; they cannot reattach or authorize local child sessions.
+This repairs the failed-launch lifetime gap without changing live wire bytes.
+Host-created durable references and pre-launch host run binding below still
+need their coordinated producer migration.
+
 ## Required behavior
 
 [Engineering spec §9](../spec.md) requires observed edits and external-agent
