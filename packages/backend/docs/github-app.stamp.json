@@ -5,7 +5,7 @@
     "path": "packages/backend/docs/github-app.md",
     "digest": "88f824c7b728474d7dc892b5bb9062e0893a9f65b9885400a75f6a7dfb1ad092"
   },
-  "closure": "c871923106fca0cd779535ac183eb5166a3ce78f0c56a8abaad94f7dbd617807",
+  "closure": "357e9c87581b95239be22de8d5cb068727bef50896b147e6b9c829378c7832c3",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -49,7 +49,7 @@
     },
     {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "dfcfda97745c84857f25cb5b69939e3057adb883e7aa08c433285efdb2074304"
+      "digest": "6655f671eeda19bd2862359fada904f844b524e8c57a0662f1170f4a5de40603"
     },
     {
       "path": "packages/backend/internal/compose/runtime_helpers.go",
@@ -237,7 +237,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical.go",
-      "digest": "7da75077682ac10da81b325c09a414df5d81c6547784037b833f9e50b42cc829"
+      "digest": "a90c683a855817c2859c8169499fcfeffc1ba347ceb6a395d9a9bfeb5b182248"
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
@@ -253,7 +253,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "a64f58b2d6e4c388bd9279c0e5d02e4184e000807d6dba2929d5b845df3f2460"
+      "digest": "c798f44ab54688792571ebd4d79a3a1546f91cb5d6fca845c449878ec20f97ff"
     },
     {
       "path": "packages/backend/internal/services/mythical_outbound.go",
@@ -265,7 +265,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_todo_read.go",
-      "digest": "383f43b730dd475fdb3f22ad6924fa814637f11468a46abfd19ffc12a6508a45"
+      "digest": "5ce437a067ec6d950e4770185948712bd8f242b151aa3acff6e7b50e9958737b"
     },
     {
       "path": "packages/backend/internal/services/mythical_todo_state.go",
