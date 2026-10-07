@@ -9,11 +9,11 @@ import { homeFromTodos } from "./HomeFromTodos"
 const testdata = new URL("../../../../../../packages/backend/internal/compose/testdata/live/", import.meta.url)
 const read = (name: string): unknown => JSON.parse(readFileSync(new URL(name, testdata), "utf8"))
 
-test("Home counts every state and keeps only open rows", () => {
+test("Home counts open TODOs and excludes merged and dropped rows", () => {
   const base = TodoCardSchema.parse((read("home-todos.json") as unknown[])[0])
   const todos = TodoStateSchema.options.map((state, index) => ({ ...base, n: index + 1, state }))
   const home = homeFromTodos("rehearsal-owner/app", todos)
-  expect(Object.values(home.counts)).toEqual(TodoStateSchema.options.map(() => 1))
+  expect(home.counts).toEqual({ queued: 1, starting: 1, working: 1, needs_you: 1, paused: 1, failed: 1, in_review: 1, merged: 0, dropped: 0 })
   expect(home.items.map(row => row.state)).toEqual(TodoStateSchema.options.filter(state => state !== "merged" && state !== "dropped"))
 })
 
