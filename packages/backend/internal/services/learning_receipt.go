@@ -48,6 +48,9 @@ func (r *LearningRuntime) ProjectFlowRuntime(ctx context.Context, update flowdis
 		return nil
 	}
 	if update.State != jobs.StateCompleted {
+		if update.State.Terminal() {
+			return r.retireLearningMachine(ctx, update)
+		}
 		return nil
 	}
 	if r == nil || r.service == nil || r.wiki == nil || cp.FlowID != "learning" || cp.Run == nil || cp.Run.Status != "completed" || cp.Run.FinalOutput == nil || cp.RunID == "" || cp.Run.RunID != cp.RunID || cp.Run.FlowID != "learning" {
@@ -73,7 +76,10 @@ func (r *LearningRuntime) ProjectFlowRuntime(ctx context.Context, update flowdis
 		return err
 	}
 	binding := LearningBinding{Repository: owner + "/" + repo.Name, Todo: item.Number.Int64, Run: cp.RunID, State: todoState(item)}
-	return CommitLearning(ctx, store, binding, output, r.service.now())
+	if err := CommitLearning(ctx, store, binding, output, r.service.now()); err != nil {
+		return err
+	}
+	return r.retireLearningMachine(ctx, update)
 }
 
 type learningReceiptStore struct {
@@ -220,4 +226,30 @@ func (t *learningReceiptTx) RecordReceipt(ctx context.Context, b LearningBinding
 func (s *MythicalService) SetLearningWiki(wiki *WikiService) { s.learningWiki = wiki }
 func (s *MythicalService) LearningRuntime() *LearningRuntime {
 	return NewLearningRuntime(s, s.learningWiki)
+}
+
+// Retirement follows a committed success receipt or a verified terminal failure.
+// Replay retries cleanup without mining again or borrowing another workspace.
+func (r *LearningRuntime) retireLearningMachine(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
+	if r == nil || r.service == nil {
+		return ErrLearningUnavailable
+	}
+	if r.service.learningMachines == nil {
+		return nil
+	}
+	cp := update.Checkpoint
+	var payload, checkpoint []byte
+	err := r.service.store.QueryRow(ctx, `SELECT r.payload,d.external_receipt FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.id=$1 AND r.operation='flow.runtime.launch' AND r.tenant_id=$2 AND r.principal_id=$3`, update.OperationID, update.Scope.TenantID, update.Scope.PrincipalID).Scan(&payload, &checkpoint)
+	if err != nil {
+		return ErrLearningBinding
+	}
+	var launch struct {
+		Target flowruntime.Target `json:"target"`
+		Flow   string             `json:"flowId"`
+	}
+	var saved flowdispatch.RuntimeCheckpoint
+	if json.Unmarshal(payload, &launch) != nil || json.Unmarshal(checkpoint, &saved) != nil || launch.Flow != "learning" || launch.Target != cp.Target || saved.Target != cp.Target || saved.RunID != cp.RunID || cp.Target.BindingKind != learningBindingKind || cp.Target.WorkspaceID == "" {
+		return ErrLearningBinding
+	}
+	return r.service.learningMachines.RetireLearningMachine(ctx, cp.Target)
 }

@@ -119,6 +119,7 @@ if (parsed.values.version) {
     stateRoot,
     credential: bind.credential,
     gatewayId: process.env.SMITHERS_GATEWAY_ID ?? "",
+    learningEvidenceOrigin: process.env.SMITHERS_PRODUCT_API_URL,
     todoExecutionDigest: process.env.SMITHERS_FLOW_SOURCE_PINNED === "1"
       ? process.env.SMITHERS_TODO_EXECUTION_DIGEST
       : undefined,
