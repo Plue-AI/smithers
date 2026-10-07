@@ -462,7 +462,8 @@ The composed live endpoint refreshes Home positions together after reorder or
 runtime-only person cancellation, using its existing snapshot protocol. The
 durable TODO source refreshes queue positions at the same journal cursor when
 no TODO event was appended.
-The runtime rechecks the saved parallel setting at each grant. Recovered
+The runtime rechecks the saved parallel setting after readiness checks and
+before each reservation; a failed read refuses the grant. Recovered
 workspace demand waits for authoritative stack registration before a new TODO
 grant; existing holders remain held.
 

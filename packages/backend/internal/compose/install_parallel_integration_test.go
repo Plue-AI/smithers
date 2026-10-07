@@ -155,6 +155,38 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		return
 	}
 
+	t.Run("owner lowers during readiness", func(t *testing.T) {
+		// Only the empty boot/stop inventory is a fixture. The setting is read
+		// and saved through the same PostgreSQL-backed install HTTP boundary.
+		binary := filepath.Join(t.TempDir(), "msb")
+		require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '[]\\n'\n"), 0755))
+		profile := capacity.Profile
+		sizing := microsandbox.ComputeSizing(profile)
+		runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: t.TempDir(), Binary: binary, SkipQualification: true, HostProfile: &profile, CPUs: sizing.CPUs, MemoryMiB: sizing.MemoryMiB, DiskMiB: int(microsandbox.MachineDiskBytes >> 20), MaxRunningVMs: sizing.Capacity})
+		require.NoError(t, err)
+		defer func() { require.NoError(t, runtime.Close()) }()
+		runtime.SetCapacityReader(capacity.Capacity)
+		runtime.SetTodoParallelReader(func(ctx context.Context) (int, error) {
+			setting, err := capacity.Parallel(ctx)
+			return setting.Effective, err
+		})
+		require.NoError(t, runtime.SyncTodoAdmission("fixture", []string{"workspace:T1", "workspace:T2"}, 2))
+		providers := microsandbox.AdmissionProviders{Ready: func(context.Context, microsandbox.AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 400 << 30, nil }}
+		first, err := runtime.GrantNext(ctx, providers)
+		require.NoError(t, err)
+		require.Equal(t, "workspace:T1", first.Holder)
+		providers.Ready = func(context.Context, microsandbox.AdmissionRequest) error {
+			response := request("PUT", "/api/install", "quiesceowner-session", `{"parallel":1}`)
+			require.Equal(t, 200, response.Code, response.Body.String())
+			return nil
+		}
+		second, err := runtime.GrantNext(ctx, providers)
+		require.NoError(t, err)
+		require.Empty(t, second.Holder)
+		require.True(t, runtime.AdmissionHeld("workspace:T1"))
+		require.False(t, runtime.AdmissionHeld("workspace:T2"))
+		require.Equal(t, 1, runtime.InUse())
+	})
 	// Every credential goes through the composed authentication chain. Refusal
 	// must preserve the requested value, including when the bearer belongs to
 	// the owner; administrator status cannot substitute for install ownership.
