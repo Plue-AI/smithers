@@ -52,7 +52,7 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
   const n = model.item?.n
   if (n !== undefined) definitions.push({ tag: "todo", label: model.item!.title, gesture: "item",
     command_input: { n }, resolve_input: () => ({ n }) })
-  definitions.push({ tag: "file", label: "Open", gesture: "file",
+  definitions.push({ tag: "file", label: "Open", gesture: "file", args: { navigation: "file" },
     command_input: { path: "", branch: model.name },
     resolve_input: input => ({ path: input.path ?? "", branch: model.name,
       ...(input.line === undefined ? {} : { line: Number(input.line) }) }) })
@@ -65,6 +65,12 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
       { tag: "todo.return-to-item", label: `Return to T${model.moved_off.item}`, command_input: { n: model.moved_off.item } },
       { tag: "todo.keep-moved", label: "Keep for now", command_input: { n: model.moved_off.item } }
     )
+    if (model.scratch && model.rebase?.state === "conflict") {
+      for (const path of model.rebase.paths) definitions.push({
+        tag: "file", label: "Resolve", args: { conflict_path: path },
+        command_input: { branch: model.name, path }
+      })
+    }
     if (model.scratch && model.rebase?.state === "conflict" && model.rebase.conflict_change && model.rebase.onto_revision) definitions.push({
       tag: "branch.rebase", label: "Done", command_input: { branch: model.name, conflict_change: model.rebase.conflict_change, onto_revision: model.rebase.onto_revision }
     })

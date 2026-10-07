@@ -65,3 +65,44 @@ for (const [operation, flow, state] of cases) for (const ready of [false, true])
     }
   } finally { await act(async () => root.unmount()); await controller.dispose() }
 })
+
+for (const ready of [false, true]) test(`scratch Resolve opens only its bound branch file (${ready})`, async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: string[] = []
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(String(input), "https://install.test").pathname
+    if (path === "/api/branches/scratch%2Fben%2Ftry") return Response.json({ name: "scratch/ben/try", machine: { id: "b-contract" } })
+    if (path.startsWith("/api/branches/")) requests.push(`${init?.method ?? "GET"} ${path}`)
+    if (path === "/api/branches/scratch%2Fben%2Ftry/files/src/retry.ts") return Response.json({ path: "src/retry.ts", branch: "scratch/ben/try", language: "typescript", digest: "conflicted-bytes", content: { kind: "text", text: "<<<<<<< local\nlocal\n=======\nmain\n>>>>>>> main\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
+    return new Response("{}", { status: 404 })
+  })
+  const snapshots = new Map([
+    ["branch:b-contract", { topic: "branch:b-contract", data: { id: "b-contract", name: "scratch/ben/try", machine: { state: "awake" }, scratch: { forked_from: { kind: "main" } }, rebase: { state: "conflict", onto: "main", paths: ["src/retry.ts"] }, presence: [], terminals: [], ssh_line: "ssh -p 2222 scratch/ben/try@localhost" } }],
+    ["branch:b-contract:activity", { topic: "branch:b-contract:activity", data: [] }], ["branch:b-contract:files", { topic: "branch:b-contract:files", data: [] }]
+  ])
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    branchOptions: { ready: () => ready, scope: () => ({ branch: "scratch/ben/try", member: "ben", revision: 1, sleeping: false }) },
+    live: { subscribe: () => () => {}, getSnapshot: topic => snapshots.get(topic) } })
+  const host = document.createElement("div"), root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    expect(await controller.runCommandForResult("branch", "scratch/ben/try")).toMatchObject({ status: "executed" })
+    const card = store.collections.cards.get("branch:b-contract")!
+    if (card.kind !== "branch") throw new Error("Expected branch")
+    await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
+    const button = host.querySelector<HTMLButtonElement>('.branch-actions [data-flow="file"]')
+    if (!ready) expect(button).toBeNull()
+    else {
+      expect(button?.textContent).toBe("Resolve")
+      await act(async () => {
+        button!.click()
+        for (let i = 0; i < 50 && !requests.length; i++) await new Promise(resolve => setTimeout(resolve, 2))
+      })
+      expect(requests).toEqual(["GET /api/branches/scratch%2Fben%2Ftry/files/src/retry.ts"])
+      const file = [...store.collections.cards.values()].find(card => card.kind === "file")
+      expect(file?.payload).toMatchObject({ path: "src/retry.ts", file: { branch: "scratch/ben/try" } })
+      expect(host.querySelector('[data-flow="branch.rebase"]')).toBeNull()
+    }
+  } finally { await act(async () => root.unmount()); await controller.dispose() }
+})

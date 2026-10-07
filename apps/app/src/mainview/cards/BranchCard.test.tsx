@@ -223,6 +223,25 @@ test("live file gestures preserve branch and coordinates and refuse a missing fi
   expect(calls).toEqual([["file", { path: "retry.ts", branch: model.name, line: 12 }], ["file", { path: "deliver.ts", branch: model.name }]])
 })
 
+test("scratch Resolve binds each retained path and cannot retarget a file", () => {
+  const model = { ...definitionsOf(make(), "b-retry").model, item: undefined,
+    scratch: { forked_from: { kind: "main" as const } },
+    rebase: { state: "conflict" as const, onto: "main", paths: ["src/retry.ts", "docs/my guide.md"] } }
+  const { calls, dispatch } = recorder()
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, new Set<CatalogTag>(["file"])))
+  expect(bindings.actions.map(action => [action.label, action.args])).toEqual([
+    ["Resolve", { conflict_path: "src/retry.ts" }], ["Resolve", { conflict_path: "docs/my guide.md" }]
+  ])
+  for (const action of bindings.actions) bindings.onAction(action.tag, action.args)
+  expect(calls).toEqual([
+    ["file", { branch: "retry-webhooks", path: "src/retry.ts" }],
+    ["file", { branch: "retry-webhooks", path: "docs/my guide.md" }]
+  ])
+  expect(() => bindings.onAction("file", { conflict_path: "src/retry.ts", path: "other.ts" })).toThrow("needs an input resolver")
+  expect(liveBranchActionDefinitions({ ...model, machine: { state: "closed" } }, new Set<CatalogTag>(["file"]))
+    .filter(action => action.label === "Resolve")).toEqual([])
+})
+
 test("scratch Done requires both retained conflict identities and its rebase provider", () => {
   const model = { ...definitionsOf(make(), "b-retry").model, item: undefined,
     scratch: { forked_from: { kind: "main" as const } },
