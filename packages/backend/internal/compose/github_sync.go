@@ -73,3 +73,17 @@ func composeGitHubPermissionPolling(members *services.Members, synced *services.
 func composeGitHubInstallAuthority(synced *services.GitHubSyncedRepoService, credentials services.GitHubAppCredentialReader, runtimeReady bool) {
 	synced.BindInstallAuthority(credentials, runtimeReady)
 }
+
+// Bind the reset journal only when the stack provides durable attention,
+// merge fencing, rebase settlement and isolated main-moved consumers. The
+// concrete stack may implement this contract as its dependent lanes land.
+func composeGitHubMainReset(pool *pgxpool.Pool, stack *services.MythicalService, main *services.GitHubMainPullService, topology topology) {
+	if topology.hosted() {
+		return
+	}
+	contracts, ok := any(stack).(services.GitHubMainStackContracts)
+	if !ok {
+		return
+	}
+	main.SetMainSerialization(&services.GitHubMainResetJournal{Pool: pool, Stack: contracts})
+}
