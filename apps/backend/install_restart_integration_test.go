@@ -95,6 +95,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "restart-encryption-secret",
 		"SMITHERS_REPO_HOST_AUTH_TOKEN":          "restart-repo-token", "SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "restart-push-token",
 		"SMITHERS_SERVER_ADDR": addr, "SMITHERS_PUBLIC_URL": origin,
+		"SMITHERS_SSH_ADDR":           "127.0.0.1:0",
 		"SMITHERS_FLOW_HOST_MANIFEST": filepath.Join(root, "flow-hosts.json"),
 		"SMITHERS_MODEL_HOST_BUNDLE":  filepath.Join(root, "model-host"), "SMITHERS_NODE_BINARY": nodeFixture,
 		"SMITHERS_FEATURE_FLAGS_WORKFLOWS": "false", "SMITHERS_FEATURE_FLAGS_SANDBOXES": "true",

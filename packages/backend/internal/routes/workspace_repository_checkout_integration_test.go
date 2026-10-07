@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -104,6 +105,24 @@ func newCheckoutHarness(t *testing.T, public, autoInit bool) *checkoutHarness {
 	commandCodec, err := webhook.NewSecretCodec("checkout-command-secret")
 	require.NoError(t, err)
 	workspaceService := services.NewWorkspaceService(queries,
+		services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.BranchMachineProviders{
+			// These checkout tests exercise real Git/HTTP/storage and process
+			// execution. MicroVM and session qualification are test-only contracts;
+			// their production enforcement is covered by the branch-machine tests.
+			Membership: func(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64) error {
+				require.Equal(t, repo.ID, repositoryID)
+				require.Equal(t, user.ID, actorID)
+				return nil
+			},
+			Authorize: func(ctx context.Context, tx pgx.Tx, action string, repositoryID int64, branch string, actorID int64) error {
+				require.Contains(t, []string{"branch.join", "branch.read"}, action)
+				require.Equal(t, repo.ID, repositoryID)
+				require.Equal(t, user.ID, actorID)
+				return nil
+			},
+			LaneBinding: func(context.Context, pgx.Tx, int64, string, string) error { return nil },
+			MicroVM:     func(context.Context) error { return nil }, SessionIdentity: func(context.Context) error { return nil },
+		}),
 		services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL(server.URL), services.WithWorkspaceCommandJobs(commandJobs, commandCodec))
 	workspaceHandler.Service = workspaceService
 	cookie := processWorkspaceCreateSessionCookie(t, queries, user)
