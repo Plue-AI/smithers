@@ -3,9 +3,11 @@ import { owner, say } from "./j1-fixtures"
 
 // UI projection of .specs/engineering/checks/C-STK-02.md.
 // Requires seeded DesignWorld; backend race, tree and reference-host receipts remain separate.
-// Written before implementation: mvp.md §4.2, §6.6, M-06, M-13; lands with T-STK-03
+// Steps 1 and 3-5 pass on the composed install in Go's
+// TestParallelAdmissionInstallBoundary. This journey also needs step 2's
+// safe-idle release (T1 frees its machine), which waits for T-MCH-06.
 test("C-STK-02: admission follows stack order and capacity", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §4.2, §6.6, M-06, M-13; lands with T-STK-03")
+  test.fixme(true, "Pending T-MCH-06 safe-idle release (C-STK-02 step 2); steps 1, 3-5 pass in TestParallelAdmissionInstallBoundary")
   await owner(page)
   await page.goto("/smithers-mvp-canary/node")
   // Seed capacity 3, parallel 2, T1/T2 Working and T3–T5 Queued.

@@ -90,7 +90,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | passing: removal, owner protection, retained TODO history | T-ACC-02 |
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | roster and sign-in refusal HTTP projections pass; composed OAuth qualification separate | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
-| C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | Partial: real Settings card → install dispatcher and HTTP/live scheduler positions pass; full machine/safe-idle journey remains fixme pending T-MCH-06 | T-STK-03 |
+| C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | Partial: composed-install steps 1, 3-5 pass in TestParallelAdmissionInstallBoundary (engine, scheduler, terminal door, live positions); real Settings card → install dispatcher passes; step 2 safe-idle release and this browser journey remain fixme pending T-MCH-06 | T-STK-03 |
 | C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts), [current-flow Retry](todo-current-flow.spec.ts) | Stop/Resume app seam and current-flow Retry; microVM proof pending | T-STK-05 |
 | C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | composed-install Chromium: external fold, retained note and keyboard OK; reference rebase qualification pending | T-GH-03 |
 | C-STK-05 | [C-STK-05.spec.ts](C-STK-05.spec.ts) | fixme-before-implementation | T-MCH-14 |
