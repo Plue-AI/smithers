@@ -47,9 +47,12 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, users[0].ID)
 	require.NoError(t, err)
-	issuerConfig := testConfigAllFlagsOn()
-	issuerConfig.Auth.Mode = "selfhost"
-	issuer := services.NewAuthService(q, issuerConfig.Auth, nil, nil)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Auth.SessionCookieName = "session"
+	cfg.Server.PublicURL = "http://example.com"
+	cfg.Server.AllowedOrigins = []string{"http://example.com"}
+	issuer := services.NewAuthService(q, cfg.Auth, nil, nil)
 	issuer.Members = &services.Members{Pool: pool}
 	sessions, tokens, hashes := make([]string, 3), make([]string, 3), make([]string, 3)
 	for i, u := range users {
