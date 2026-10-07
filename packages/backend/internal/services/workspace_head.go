@@ -808,7 +808,8 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 					return pkgerrors.Conflict("workspace head report is no longer the live revision")
 				}
 				liveTree, err = s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "head-tree-"+uuid.NewString(), workspaceapi.Command{
-					Args: []string{"git", "rev-parse", "--verify", input.CommitID + "^{tree}"},
+					Args:        []string{"git", "rev-parse", "--verify", input.CommitID + "^{tree}"},
+					Environment: map[string]string{"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
 				})
 				if err != nil {
 					return err
@@ -824,7 +825,8 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 				return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "candidate tree verification unavailable")
 			}
 			tree, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "candidate-tree-"+uuid.NewString(), workspaceapi.Command{
-				Args: []string{"git", "rev-parse", "--verify", item.CandidateHead + "^{tree}"},
+				Args:        []string{"git", "rev-parse", "--verify", item.CandidateHead + "^{tree}"},
+				Environment: map[string]string{"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
 			})
 			if err != nil {
 				return err
