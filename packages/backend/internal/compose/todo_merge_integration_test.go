@@ -883,8 +883,8 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, lab
 
 	// The owner default is exercised through PUT /api/install and TODO creation
 	// through POST /api/todos; no existing item is rewritten.
-	putDefault := func(enabled bool, credential func(*http.Request)) int {
-		request, err := http.NewRequest(http.MethodPut, origin+"/api/install", strings.NewReader(fmt.Sprintf(`{"todo_preapprove_default":%t}`, enabled)))
+	putSetting := func(body string, credential func(*http.Request)) int {
+		request, err := http.NewRequest(http.MethodPut, origin+"/api/install", strings.NewReader(body))
 		require.NoError(t, err)
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", origin)
@@ -893,6 +893,22 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, lab
 		require.NoError(t, err)
 		require.NoError(t, response.Body.Close())
 		return response.StatusCode
+	}
+	putDefault := func(enabled bool, credential func(*http.Request)) int {
+		return putSetting(fmt.Sprintf(`{"todo_preapprove_default":%t}`, enabled), credential)
+	}
+	for _, body := range []string{
+		`{}`, `{"unknown":true}`, `{"capacity":null}`, `{"chatgpt":null}`,
+		`{"capacity":"1"}`, `{"chatgpt":1}`,
+		`{"todo_preapprove_default":true,"capacity":1}`,
+		`{"todo_preapprove_default":true,"chatgpt":false}`,
+	} {
+		t.Run("invalid_install_setting_"+body, func(t *testing.T) {
+			require.Equal(t, 400, putSetting(body, browser("owner-browser-session", true, "invalid-default")))
+			var granted bool
+			require.NoError(t, pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM install_settings WHERE key='todo.preapproval_default' AND value <> 'null'::jsonb)`).Scan(&granted))
+			require.False(t, granted, "invalid settings cannot grant future TODO approval")
+		})
 	}
 	for _, credential := range []func(*http.Request){browser("member-browser-session", true, "default-member"), func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+pat) }} {
 		require.Equal(t, 403, putDefault(true, credential))
