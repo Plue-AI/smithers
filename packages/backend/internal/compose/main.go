@@ -1622,6 +1622,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if modelStreamHost != nil {
 		modelStreamHandler = routes.NewModelStreamHandler(modelStreamHost)
 	}
+	if cfg.Install.StateDir == "" {
+		cfg.Install.StateDir = strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR"))
+	}
 	installQuiesce := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir})
 	var installSetup *services.InstallSetupService
 	var installAddress *services.InstallAddress
