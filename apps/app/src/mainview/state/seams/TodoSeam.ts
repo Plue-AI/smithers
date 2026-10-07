@@ -826,7 +826,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (!options.openSource || options.sourceAvailable && !await options.sourceAvailable(path)) return "Branch files are unavailable."
       if (!current(login, revision)) return "Sign in to work on TODOs."
       return newTodo(input, path)
-    }, draftImagePackage, draftFromIssue, draftIssueNumber, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
+    }, draftImagePackage, draftFromIssue, draftIssueNumber: options.readIssue ? draftIssueNumber : undefined, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
       const model = entry(n)?.payload.model ?? shared.list.snapshot.todos?.find(todo => todo.n === n)
       const waits = model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
