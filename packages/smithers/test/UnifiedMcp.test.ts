@@ -251,6 +251,7 @@ it(
           "flow_plan",
           "flow_run",
           "flow_edit",
+          "agent_edit",
           "todo_stop",
           "todo_new",
           "todo_amend",

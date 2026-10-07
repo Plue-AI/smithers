@@ -330,7 +330,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		t.Cleanup(storageServer.Close)
 		host := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: storageServer.URL}, "access-merge-test")
 		require.NoError(t, host.InitRepo(ctx, owner.Username, repo.Name, "main", true))
-		if browserJourney || len(delegatedBrowser) > 0 && delegatedBrowser[0] {
+		if installBrowser {
 			// The native mirror reads the same accepted main and candidate as
 			// the production merge fixture, rather than an unrelated init tree.
 			nativeGit := &pollingGitHost{dir: filepath.Join(storagePath, owner.Username, repo.Name, ".jj", "repo", "store", "git")}

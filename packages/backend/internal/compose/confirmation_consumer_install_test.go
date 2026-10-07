@@ -205,7 +205,7 @@ func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt, via str
 	require.Equal(t, "approved", state)
 	// Declining a separate request must not append anything. A later approve
 	// cannot revive it, even when it carries a fresh idempotency key.
-	cancel := call("POST", "/api/todos", input, "delegated-cancel", true)
+	cancel := call("POST", endpoint, input, "delegated-cancel", true)
 	require.Equal(t, 202, cancel.Code, cancel.Body.String())
 	var canceled services.ConfirmationReceipt
 	require.NoError(t, json.Unmarshal(cancel.Body.Bytes(), &canceled))

@@ -29,7 +29,7 @@ import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { Control as ControlService, ControlSchema } from "@smthrs/control"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
-import { Effect, Layer, Schedule, Schema, Stream } from "effect"
+import { Clock, Effect, Layer, Schedule, Schema, Stream } from "effect"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -212,6 +212,19 @@ const parkedRun = async (
 ) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "flows-cli-budget-park-")))
   const agent = new MockAgent()
+  // Keep wall-clock budgeting independent of registry/host startup load. The
+  // transport still waits its real delay; only the measured elapsed time is
+  // advanced by that provider call and while its approval is parked.
+  const liveClock = await Effect.runPromise(Clock.Clock)
+  const startedAt = liveClock.currentTimeMillisUnsafe()
+  let elapsed = 0
+  const now = () => startedAt + elapsed
+  const clock: Clock.Clock = ceiling.delayMs === 0 ? liveClock : Object.assign(Object.create(liveClock), {
+    currentTimeMillisUnsafe: now,
+    currentTimeMillis: Effect.sync(now),
+    currentTimeNanosUnsafe: () => BigInt(Math.trunc(now() * 1_000_000)),
+    currentTimeNanos: Effect.sync(() => BigInt(Math.trunc(now() * 1_000_000)))
+  })
   try {
     await mkdir(join(root, "flows", "review"), { recursive: true })
     await writeFile(
@@ -236,6 +249,7 @@ const parkedRun = async (
       200,
       (options) => {
         bodies.push(String(options.body))
+        elapsed += ceiling.delayMs
         return sse(bodies.length === 1 ? "```cell\nconst looked = 1\n```" : "```cell\nctx.done(\"reviewed\")\n```", 20)
       },
       { headers: { "content-type": "text/event-stream" } }
@@ -293,6 +307,7 @@ const parkedRun = async (
         const approval = Schema.decodeUnknownSync(ControlSchema.ApprovalPayload)(
           (requested[0]!.payload as { readonly payload: unknown }).payload
         )
+        elapsed += ceiling.delayMs
         yield* decision === "approve" ? control.approve(approval) : control.deny(approval)
         const terminal = new Set(["control.run.completed", "control.run.failed", "control.run.cancelled"])
         // A second request, not a settlement, is what a decision whose
@@ -302,7 +317,7 @@ const parkedRun = async (
           Stream.runCollect
         )
         return { parked, callsWhileParked, approval, last: [...events].at(-1)?.kind, settled: yield* summary }
-      }).pipe(Effect.provide(layer), Effect.scoped, Effect.orDie)
+      }).pipe(Effect.provide(layer), Effect.provideService(Clock.Clock, clock), Effect.scoped, Effect.orDie)
     )
     return { ...observed, bodies }
   } finally {
