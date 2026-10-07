@@ -759,3 +759,288 @@ fn authenticated_daemon_emits_production_broker_presence_after_roster_and_on_rec
     drop(sessions);
     broker_worker.join().unwrap();
 }
+
+// Actual authenticated socket, durable outbox and event/credit pump. Repository
+// refs and bundle bytes are fixtures; native capture and Git import have their
+// own tests. This test observes the public capture receipt ordering.
+#[test]
+fn authenticated_capture_waits_for_all_receipts_and_keeps_other_rpcs_live() {
+    capture_delivery_case("applied");
+}
+#[test]
+fn authenticated_capture_retries_missing_objects_before_completion() {
+    capture_delivery_case("missing");
+}
+#[test]
+fn authenticated_capture_disconnect_retains_unacknowledged_work() {
+    capture_delivery_case("disconnect");
+}
+#[test]
+fn authenticated_capture_corrupt_outbox_cannot_report_completion() {
+    capture_delivery_case("corrupt");
+}
+#[test]
+fn authenticated_capture_bounds_waiting_replies() {
+    capture_delivery_case("limit");
+}
+fn capture_delivery_case(mode: &str) {
+    use smithers_machined::{
+        event_service::Events,
+        hooks::{self, EventSink, Hooks, Oid},
+        objects::Bundles,
+        outbox::{Outbox, Refs},
+        outbox_store::Store,
+    };
+    use std::{
+        io,
+        os::unix::fs::PermissionsExt,
+        sync::{
+            atomic::{AtomicU32, Ordering},
+            Mutex,
+        },
+    };
+    #[derive(Clone, Default)]
+    struct References(Arc<Mutex<Option<Oid>>>);
+    impl Refs for References {
+        fn pin_and_sync(&mut self, _: [u8; 16], _: Oid) -> io::Result<()> {
+            Ok(())
+        }
+        fn acknowledge_and_sync(&mut self, head: Oid) -> io::Result<()> {
+            *self.0.lock().unwrap() = Some(head);
+            Ok(())
+        }
+        fn unpin(&mut self, _: [u8; 16]) -> io::Result<()> {
+            Ok(())
+        }
+        fn pending(&mut self) -> io::Result<Vec<[u8; 16]>> {
+            Ok(vec![])
+        }
+    }
+    struct Bundle;
+    impl Bundles for Bundle {
+        type Source = io::Cursor<Vec<u8>>;
+        fn export(&mut self, _: &conn::Durable, _: &[Oid]) -> io::Result<Self::Source> {
+            Ok(io::Cursor::new(b"fixture bundle".to_vec()))
+        }
+    }
+    struct CaptureCore(Arc<dyn EventSink>);
+    impl hooks::Core for CaptureCore {
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
+        fn call(
+            &self,
+            cx: &mut smithers_machined::lock::LockCx,
+            method: u8,
+            args: &[u8],
+        ) -> hooks::Result<Vec<u8>> {
+            if method != 4 {
+                return hooks::Core::call(&Reconciler, cx, method, args);
+            }
+            self.0.append(
+                &smithers_machined::outbox::captured([11; 20], [12; 20], [10; 20]),
+                Some([11; 20]),
+            )?;
+            Ok(conn::structure_bytes(&[
+                conn::field(1, [11; 20]),
+                conn::field(2, [12; 20]),
+                conn::field(3, 0u16.to_be_bytes()),
+            ]))
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let owner = rustix::process::geteuid().as_raw();
+    let refs = References::default();
+    let outbox =
+        Outbox::open(Store::open(dir.path(), owner).unwrap(), owner, refs.clone()).unwrap();
+    let streams = AtomicU32::new(1);
+    let events = Arc::new(
+        Events::new(outbox, Bundle, move || {
+            Ok(streams.fetch_add(1, Ordering::SeqCst))
+        })
+        .unwrap(),
+    );
+    events
+        .append(
+            &smithers_machined::outbox::captured([10; 20], [9; 20], [8; 20]),
+            Some([10; 20]),
+        )
+        .unwrap();
+    let daemon = Arc::new(
+        smithers_machined::daemon::Daemon::new(Hooks {
+            core: Arc::new(CaptureCore(events.clone())),
+            events: events.clone(),
+            broker: Arc::new(Roster(std::sync::atomic::AtomicBool::new(false))),
+            watcher: Arc::new(Ready),
+            documents: Arc::new(Ready),
+            sessions: Arc::new(Ready),
+            ..Default::default()
+        })
+        .unwrap(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let worker = thread::spawn(move || {
+        let identity = Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let authenticated = link::authenticate(stream, &identity, 7, &[]).unwrap();
+        let _ = daemon.serve(authenticated);
+    });
+    let mut stream = TcpStream::connect(address).unwrap();
+    host(&mut stream, &[9; 32], true);
+    call(&mut stream, 1, 5, &[conn::field(1, [8; 20])]);
+    call(&mut stream, 2, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    let request = |id: u32, method: u8| Frame {
+        kind: 1,
+        stream: 0,
+        payload: conn::tagged(
+            1,
+            &[
+                conn::field(1, id.to_be_bytes()),
+                conn::field(2, conn::tagged(method, &[])),
+            ],
+        ),
+    };
+    request(3, 4).write(&mut stream).unwrap();
+    request(4, 1).write(&mut stream).unwrap();
+    let mut status = false;
+    let mut receipts = 0;
+    let mut retained = None;
+    loop {
+        let frame = Frame::read(&mut stream).unwrap();
+        match frame.kind {
+            6 => match frame.payload[0] {
+                1 => Frame {
+                    kind: 6,
+                    stream: frame.stream,
+                    payload: [
+                        vec![6],
+                        ((frame.payload.len() - 2) as u32).to_be_bytes().to_vec(),
+                    ]
+                    .concat(),
+                }
+                .write(&mut stream)
+                .unwrap(),
+                2 => Frame {
+                    kind: 6,
+                    stream: frame.stream,
+                    payload: vec![7],
+                }
+                .write(&mut stream)
+                .unwrap(),
+                _ => panic!("unexpected object frame"),
+            },
+            2 => {
+                let event = conn::Durable::decode(&frame.payload).unwrap();
+                receipts += 1;
+                if receipts == 3 {
+                    assert_eq!(
+                        retained,
+                        Some((event.seq, event.id)),
+                        "retry keeps event identity"
+                    );
+                }
+                // The last ACK is deliberately withheld. A later status request
+                // must still complete, with no capture success ahead of it.
+                if receipts == 2 {
+                    assert!(status);
+                    request(5, 1).write(&mut stream).unwrap();
+                    let pending = Frame::read(&mut stream).unwrap();
+                    let f = conn::fields("response", &pending.payload[1..]).unwrap();
+                    assert_eq!(
+                        f[0].1,
+                        5u32.to_be_bytes(),
+                        "capture replied before host receipt"
+                    );
+                    assert_eq!(events.depth().unwrap(), 1);
+                    assert_eq!(*refs.0.lock().unwrap(), Some([10; 20]));
+                    retained = Some((event.seq, event.id));
+                    if mode == "missing" {
+                        Frame {
+                            kind: 2,
+                            stream: 0,
+                            payload: conn::tagged(
+                                3,
+                                &[
+                                    conn::field(1, event.seq.to_be_bytes()),
+                                    conn::field(2, [3]),
+                                    conn::field(3, [vec![0, 1], vec![11; 20]].concat()),
+                                ],
+                            ),
+                        }
+                        .write(&mut stream)
+                        .unwrap();
+                        continue;
+                    }
+                    if matches!(mode, "disconnect" | "corrupt" | "limit") {
+                        if mode == "disconnect" {
+                            stream.shutdown(std::net::Shutdown::Both).unwrap();
+                        } else {
+                            if mode == "corrupt" {
+                                std::fs::write(
+                                    dir.path().join(format!("{:020}.ev", event.seq)),
+                                    b"damaged receipt",
+                                )
+                                .unwrap();
+                            } else {
+                                for id in 10..74 {
+                                    request(id, 4).write(&mut stream).unwrap();
+                                }
+                            }
+                            assert!(
+                                Frame::read(&mut stream).is_err(),
+                                "failed delivery cannot return capture success"
+                            );
+                            let _ = stream.shutdown(std::net::Shutdown::Both);
+                        }
+                        worker.join().unwrap();
+                        assert_eq!(*refs.0.lock().unwrap(), Some([10; 20]));
+                        drop(events);
+                        let recovered =
+                            Outbox::open(Store::open(dir.path(), owner).unwrap(), owner, refs);
+                        if mode == "corrupt" {
+                            assert!(recovered.is_err());
+                        } else {
+                            let recovered = recovered.unwrap();
+                            let front = recovered.front().unwrap().unwrap();
+                            assert_eq!((front.seq, front.id), retained.unwrap());
+                            assert!(recovered.depth() >= 1);
+                        }
+                        return;
+                    }
+                }
+                Frame {
+                    kind: 2,
+                    stream: 0,
+                    payload: conn::tagged(
+                        3,
+                        &[conn::field(1, event.seq.to_be_bytes()), conn::field(2, [1])],
+                    ),
+                }
+                .write(&mut stream)
+                .unwrap();
+            }
+            1 => {
+                let f = conn::fields("response", &frame.payload[1..]).unwrap();
+                if f[0].1 == 4u32.to_be_bytes() {
+                    status = true;
+                    continue;
+                }
+                assert_eq!(f[0].1, 3u32.to_be_bytes());
+                assert_eq!(
+                    receipts,
+                    if mode == "missing" { 3 } else { 2 },
+                    "capture replied before the outbox drained"
+                );
+                assert_eq!(f[1].1[0], 4);
+                assert_eq!(events.depth().unwrap(), 0);
+                assert_eq!(*refs.0.lock().unwrap(), Some([11; 20]));
+                break;
+            }
+            _ => panic!("unexpected frame"),
+        }
+    }
+    stream.shutdown(std::net::Shutdown::Both).unwrap();
+    worker.join().unwrap();
+}

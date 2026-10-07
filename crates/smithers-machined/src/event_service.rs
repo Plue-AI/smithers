@@ -100,6 +100,13 @@ where
     fn ready(&self) -> hooks::Result<()> {
         self.state()?.outbox.front().map(|_| ()).map_err(error)
     }
+    fn drained(&self) -> hooks::Result<bool> {
+        self.state()?
+            .outbox
+            .front()
+            .map(|front| front.is_none())
+            .map_err(error)
+    }
 
     fn append(&self, event: &[u8], pin: Option<Oid>) -> hooks::Result<(u64, [u8; 16])> {
         self.state()?.outbox.append(event, pin).map_err(error)

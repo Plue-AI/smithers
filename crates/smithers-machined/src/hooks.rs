@@ -200,6 +200,12 @@ pub trait Broker: Send + Sync {
     }
 }
 pub trait EventSink: Send + Sync {
+    /// Certify that every durable entry has a host receipt. Read the real
+    /// outbox, including recovered entries; an unavailable store is not empty.
+    /// Called on the mutation executor without waiting for network IO.
+    fn drained(&self) -> Result<bool> {
+        Err(Error::unsupported())
+    }
     fn presence(&self, _payload: &[u8]) -> Result<()> {
         Err(Error::unsupported())
     }

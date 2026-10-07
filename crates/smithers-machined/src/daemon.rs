@@ -70,6 +70,11 @@ impl Daemon {
         let session_roster = self.roster.clone();
         let responder_generation = self.generation.clone();
         let responder = std::thread::spawn(move || {
+            // A capture's local phase runs on the mutation executor, but its
+            // reply waits here while the same pump transfers bytes and accepts
+            // host receipts. Never wait for delivery on the lock or stop the
+            // responder: either would deadlock the ACK needed for completion.
+            let mut captures = Vec::with_capacity(64);
             loop {
                 if responder_generation.load(Ordering::Acquire) != generation {
                     break;
@@ -82,10 +87,27 @@ impl Daemon {
                             Ok(Ok(frame)) => frame,
                             _ => break,
                         };
+                        if responder_generation.load(Ordering::Acquire) != generation {
+                            break;
+                        }
                         if let Some(frame) = frame {
-                            let Ok(mut socket) = output.lock() else { break };
-                            if frame.write(&mut *socket).is_err() {
-                                break;
+                            let capture = frame.kind == 1
+                                && frame.payload.first() == Some(&2)
+                                && conn::fields("response", &frame.payload[1..])
+                                    .is_ok_and(|f| f[1].1.first() == Some(&4));
+                            if capture {
+                                // Bound retained request results independently
+                                // of the inbound channel. Closing lets the host
+                                // retry against the retained durable outbox.
+                                if captures.len() == 64 {
+                                    break;
+                                }
+                                captures.push(frame);
+                            } else {
+                                let Ok(mut socket) = output.lock() else { break };
+                                if frame.write(&mut *socket).is_err() {
+                                    break;
+                                }
                             }
                         }
                     }
@@ -95,24 +117,33 @@ impl Daemon {
                 let reconciled = session_reconciled.clone();
                 let roster = session_roster.clone();
                 let current = responder_generation.clone();
-                let frames = match lock.run_blocking(
+                let waiting = !captures.is_empty();
+                let (mut frames, drained) = match lock.run_blocking(
                     "stream_tick",
-                    move |cx| -> crate::hooks::Result<Vec<Frame>> {
+                    move |cx| -> crate::hooks::Result<(Vec<Frame>, bool)> {
                         if current.load(Ordering::Acquire) != generation {
-                            return Ok(vec![]);
+                            return Ok((vec![], false));
                         }
                         let mut frames = cx.hooks.documents.clone().poll(cx)?;
+                        let mut drained = false;
                         if reconciled.load(Ordering::Acquire) && roster.load(Ordering::Acquire) {
                             frames.extend(cx.hooks.events.poll()?);
                             cx.hooks.sessions.ready()?;
                             frames.extend(cx.hooks.sessions.poll()?);
+                            drained = waiting && cx.hooks.events.drained()?;
                         }
-                        Ok(frames)
+                        Ok((frames, drained))
                     },
                 ) {
                     Ok(Ok(frames)) => frames,
                     _ => break,
                 };
+                if responder_generation.load(Ordering::Acquire) != generation {
+                    break;
+                }
+                if drained {
+                    frames.append(&mut captures);
+                }
                 let Ok(mut socket) = output.lock() else { break };
                 if frames.iter().any(|f| f.write(&mut *socket).is_err()) {
                     break;

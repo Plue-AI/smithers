@@ -148,8 +148,16 @@ fn unprovisioned_daemon_has_no_connection_or_hook_side_effect() {
         .current_dir(&dir)
         .output()
         .unwrap();
-    assert_eq!(out.status.code(), Some(1));
-    assert_eq!(out.stderr, b"{\"error\":{\"code\":\"unavailable\"}}\n");
+    if cfg!(target_os = "linux") {
+        assert_eq!(out.status.code(), Some(1));
+        assert_eq!(out.stderr, b"{\"error\":{\"code\":\"unavailable\"}}\n");
+    } else {
+        // The installed daemon command exists only on Linux. Other platforms
+        // refuse composition before entering it, with the startup error.
+        assert_eq!(out.status.code(), Some(78));
+        assert_eq!(out.stderr, b"smithers-machined: watcher not ready\n");
+    }
+    assert!(out.stdout.is_empty());
     assert!(listener.accept().is_err());
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
     std::fs::remove_dir(dir).unwrap()
