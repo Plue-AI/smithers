@@ -171,6 +171,32 @@ func TestMovedOffAuthenticatedIngestProjectsIndependentWaitThroughInstallHTTP(t 
 			require.ErrorIs(t, err, machined.ErrUnauthorized)
 			returned, err := hex.DecodeString("040000002b0102000000050100000007020000000000000001031234567890abcdef1234567890abcdef123456780401")
 			require.NoError(t, err)
+			// A stale or misbound metadata return must not release the durable
+			// write hold, settle either wait, or consume a replay receipt. The
+			// same event identity can subsequently carry the valid return.
+			var factBefore []byte
+			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT moved_off FROM workspaces WHERE id=$1`, f.row.ID).Scan(&factBefore))
+			cardBefore := read()
+			for _, rejected := range []struct {
+				name, payload string
+			}{
+				{"wrong-item", "040000002b0102000000050100000007020000000000000002031234567890abcdef1234567890abcdef123456780401"},
+				{"stale-target", "040000002b0102000000050100000007020000000000000001031234567890abcdef1234567890abcdef123456790401"},
+			} {
+				t.Run("reject-return-"+rejected.name, func(t *testing.T) {
+					payload, err := hex.DecodeString(rejected.payload)
+					require.NoError(t, err)
+					_, err = ingest.Commit(t.Context(), connection, f.row.ID, machined.Event{Seq: 3, EventID: [16]byte{10}, Payload: payload})
+					require.ErrorIs(t, err, machined.ErrUnauthorized)
+					require.Equal(t, cardBefore, read())
+					var factAfter []byte
+					require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT moved_off FROM workspaces WHERE id=$1`, f.row.ID).Scan(&factAfter))
+					require.JSONEq(t, string(factBefore), string(factAfter))
+					var receipts int
+					require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1 AND event_id='0a000000-0000-0000-0000-000000000000'`, f.row.ID).Scan(&receipts))
+					require.Zero(t, receipts)
+				})
+			}
 			event.Seq = 3
 			event.EventID = [16]byte{10}
 			event.Payload = returned
