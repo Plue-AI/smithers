@@ -288,6 +288,25 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 	if op.Kind != "close" {
 		next = mythicalDropObligation(next)
 	}
+	if op.Kind == "merge" && mythicalTodo(next) && todoState(item) != "merged" && todoState(next) == "merged" {
+		// The recovered merge and its replayable card are one committed fact.
+		// A refused fact leaves the pending operation available for recovery.
+		var saved db.MythicalItem
+		err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+			var err error
+			saved, err = db.New(tx).SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+			if err != nil {
+				return err
+			}
+			data, err := json.Marshal(map[string]any{"n": mythicalItemNumber(saved), "from": todoState(item), "to": "merged", "head": op.Desired, "merge_commit": saved.PRMergeCommit})
+			if err != nil {
+				return err
+			}
+			_, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.merged", "merged", data)
+			return err
+		})
+		return &saved, err
+	}
 	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 	return &saved, err
 }
