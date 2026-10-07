@@ -272,12 +272,19 @@ func authorityMatches(binding Binding, authority Authority, catalog Catalog) err
 // pinned revision). Drift is a planned owner replacement, never a conflict.
 func identityDrift(binding Binding, authority Authority, catalog Catalog) (Binding, bool) {
 	target := binding
+	// Changing draft authority requires replacing the host even at the same
+	// source revision: its registry and publication policy are different.
+	draftChanged := (binding.BindingKind == "draft-flow") != (authority.Target.BindingKind == "draft-flow")
+	if draftChanged {
+		target.BindingKind = authority.Target.BindingKind
+		target.BindingID = authority.Target.BindingID
+	}
 	target.ServiceName = catalog.ServiceName
 	target.RuntimeArtifactDigest = catalog.ArtifactDigest
 	if authority.SourceRevision != "" {
 		target.SourceRevision = authority.SourceRevision
 	}
-	return target, target.ServiceName != binding.ServiceName ||
+	return target, draftChanged || target.ServiceName != binding.ServiceName ||
 		target.RuntimeArtifactDigest != binding.RuntimeArtifactDigest || target.SourceRevision != binding.SourceRevision
 }
 
@@ -321,12 +328,12 @@ func (value *lease) Rebind(ctx context.Context) (Binding, error) {
 	target := value.target
 	var generation int64
 	err := value.connection.QueryRow(ctx, `UPDATE flow_runtime_host_bindings
-		SET runtime_artifact_digest=$3, service_name=$4, source_revision=$5,
+		SET runtime_artifact_digest=$3, service_name=$4, source_revision=$5, binding_kind=$6, binding_id=$7,
 			owner_generation=owner_generation+1, state='pending', last_error_code='', service_identity='',
 			updated_at=clock_timestamp()
 		WHERE id=$1 AND owner_generation=$2 AND state <> 'retired'
 		RETURNING owner_generation`, value.binding.ID, value.binding.OwnerGeneration,
-		target.RuntimeArtifactDigest, target.ServiceName, target.SourceRevision).Scan(&generation)
+		target.RuntimeArtifactDigest, target.ServiceName, target.SourceRevision, target.BindingKind, target.BindingID).Scan(&generation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Binding{}, errors.New("flow host rebind lost its owner fence")
 	}
