@@ -495,8 +495,14 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var rawInput struct {
-		Capacity json.RawMessage `json:"capacity"`
-		ChatGPT  json.RawMessage `json:"chatgpt"`
+		Capacity              json.RawMessage `json:"capacity,omitempty"`
+		ChatGPT               json.RawMessage `json:"chatgpt,omitempty"`
+		Obsidian              json.RawMessage `json:"wiki_sync.obsidian,omitempty"`
+		Parallel              json.RawMessage `json:"parallel,omitempty"`
+		TodoDailyAdmissions   json.RawMessage `json:"todo_daily_admissions,omitempty"`
+		Bind                  json.RawMessage `json:"bind,omitempty"`
+		Origins               json.RawMessage `json:"origins,omitempty"`
+		TodoPreapproveDefault json.RawMessage `json:"todo_preapprove_default,omitempty"`
 	}
 	if !decodeStrictJSONBody(w, r, &rawInput) {
 		return
@@ -513,6 +519,11 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		Origins               json.RawMessage `json:"origins"`
 		TodoPreapproveDefault *bool           `json:"todo_preapprove_default"`
 	}
+	encoded, err := json.Marshal(rawInput)
+	if err != nil || json.Unmarshal(encoded, &input) != nil {
+		writeInstallAPIError(w, pkgerrors.BadRequest("Invalid install setting"))
+		return
+	}
 	if len(rawInput.Capacity) > 0 {
 		if json.Unmarshal(rawInput.Capacity, &input.Capacity) != nil || input.Capacity == nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("capacity must be an integer"))
@@ -525,7 +536,7 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	if input.Capacity == nil && input.ChatGPT == nil {
+	if input.Capacity == nil && input.ChatGPT == nil && input.Obsidian == nil && input.Parallel == nil && input.TodoDailyAdmissions == nil && input.TodoPreapproveDefault == nil && len(input.Bind) == 0 && len(input.Origins) == 0 {
 		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
 		return
 	}
