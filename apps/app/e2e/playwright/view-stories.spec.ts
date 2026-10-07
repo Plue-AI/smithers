@@ -1072,6 +1072,29 @@ test("File and burst Diff supplied actions have keyboard doors", async ({ page }
   }
 })
 
+test("Home menu dispatches its supplied action and restores keyboard focus", async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: unknown[] = []
+    Object.assign(window, { homeCalls: calls })
+    window.addEventListener("story-callback", event => calls.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=HomeView/home-active&theme=${theme}`)
+    const trigger = page.getByRole("button", { name: "Order Persist merge requests", exact: true })
+    await trigger.press("Enter")
+    await page.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    expect(await page.evaluate(() => (window as unknown as { homeCalls: unknown[] }).homeCalls)).toEqual([
+      { kind: "view", value: { on_screen: true } },
+      { kind: "view", value: { menu: 8 } },
+      { kind: "action", value: { tag: "stack.move", args: { n: "8", direction: "up" } } },
+      { kind: "view", value: { menu: undefined } },
+    ])
+  }
+})
+
 test("Proposal keyboard actions and receipt navigation use supplied callbacks", async ({ page }) => {
   await page.addInitScript(() => {
     const calls: unknown[] = []
