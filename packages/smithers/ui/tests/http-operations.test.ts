@@ -155,3 +155,12 @@ test("variable values require an owner person and write scope even when reading"
     })
   }
 })
+
+
+test("GitHub account metadata retains its owner person read boundary", () => {
+  expect(generateCatalog().find(row => row.name === "github.account-read")).toMatchObject({
+    minimumRole: "owner", agent: "never", actors: ["person"], credentialScope: "read:repository",
+    visibility: "hidden", cli: null, slash: null,
+    http: { method: "GET", path: "/api/user/github-repos" }
+  })
+})

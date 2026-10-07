@@ -80,6 +80,8 @@ func buildRouterCompat(
 	smithersMetrics *routes.SmithersMetrics,
 	optional ...any, // *routes.GitHubImportHandler, *routes.ProviderConnectionHandler, routerExtras
 ) http.Handler {
+	var gitHubUserReposHandler *routes.GitHubUserReposHandler
+	var gitHubRepoListHandler *routes.GitHubRepoListHandler
 	var protectedBookmarkHandler *routes.ProtectedBookmarkHandler
 	var repositoryJobHandler *routes.RepositoryJobHandler
 	var stackHandler *routes.StackHandler
@@ -91,6 +93,10 @@ func buildRouterCompat(
 	var extras []any
 	for _, handler := range optional {
 		switch h := handler.(type) {
+		case *routes.GitHubUserReposHandler:
+			gitHubUserReposHandler = h
+		case *routes.GitHubRepoListHandler:
+			gitHubRepoListHandler = h
 		case *routes.ProtectedBookmarkHandler:
 			protectedBookmarkHandler = h
 		case *routes.RepositoryJobHandler:
@@ -158,10 +164,10 @@ func buildRouterCompat(
 		workspaceHandler,
 		workspaceInternalHandler,
 		repositoryJobHandler,
-		proxyHandler, // gitHubProxyHandler
-		nil,          // gitHubRepoListHandler
-		nil,          // gitHubUserReposHandler
-		nil,          // gitHubSyncedReposHandler
+		proxyHandler,           // gitHubProxyHandler
+		gitHubRepoListHandler,  // gitHubRepoListHandler
+		gitHubUserReposHandler, // gitHubUserReposHandler
+		nil,                    // gitHubSyncedReposHandler
 		importHandler,
 		workspaceTerminalHandler,
 		telemetryHandler,

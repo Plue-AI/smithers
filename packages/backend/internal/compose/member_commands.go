@@ -388,6 +388,11 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
 				return
 			}
+			if command == "github.account-read" && (info == nil || info.User == nil) {
+				_, err := services.Authorize(r.Context(), queries, command)
+				writeConfirmationDispatchError(w, err)
+				return
+			}
 			if info == nil || info.User == nil || command == "" || command == "self" || command == "public" {
 				next.ServeHTTP(w, r)
 				return

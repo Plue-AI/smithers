@@ -5031,6 +5031,33 @@
       }
     },
     {
+      "name": "github.account-read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "read:repository",
+      "agent": "never",
+      "summary": "github.account-read",
+      "http": {
+        "method": "GET",
+        "path": "/api/user/github-repos"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "github.app.choose",
       "slash": null,
       "cli": null,

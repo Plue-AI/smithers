@@ -328,6 +328,18 @@ func TestOwnerOAuthAndRepositoryBoundaries(t *testing.T) {
 			require.Empty(t, write.Body, "OAuth client secret must never appear in receipts")
 		}
 	}
+	issue := server.OpenIssue("acme/app", "acme", "Private issue", "private body")
+	server.CommentIssue("acme/app", issue, "acme", "private comment")
+	for _, path := range []string{"/repos/acme/app/issues", "/repos/acme/app/pulls", fmt.Sprintf("/repos/acme/app/issues/%d/comments", issue)} {
+		status, body := request(t, server, "GET", path, "ghu_githubfake_owner", nil)
+		require.Equal(t, 200, status, string(body))
+		status, _ = request(t, server, "GET", strings.Replace(path, "acme/app", "acme/foreign", 1), "ghu_githubfake_owner", nil)
+		require.Equal(t, 404, status)
+		status, _ = request(t, server, "GET", path, "invalid", nil)
+		require.Equal(t, 401, status)
+		status, _ = request(t, server, "POST", path, "ghu_githubfake_owner", []byte(`{"body":"must not write"}`))
+		require.Equal(t, 404, status)
+	}
 	appJWT := jwt(t, key, cfg.AppID, time.Now().Add(time.Minute))
 	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", appJWT, nil)
 	require.Equal(t, 201, status)

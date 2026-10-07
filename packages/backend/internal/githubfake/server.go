@@ -826,11 +826,14 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 			}
 			return 200, repos
 		}
-		if len(path) == 3 && path[0] == "repos" {
+		if len(path) >= 3 && path[0] == "repos" && r.Method == http.MethodGet {
 			for _, installation := range s.config.Installations {
 				for _, repo := range installation.Repositories {
 					if repo.FullName == path[1]+"/"+path[2] {
-						return 200, s.repository(repo)
+						if len(path) == 3 {
+							return 200, s.repository(repo)
+						}
+						return s.pullRequest(r, repo.FullName, path[3:], body)
 					}
 				}
 			}

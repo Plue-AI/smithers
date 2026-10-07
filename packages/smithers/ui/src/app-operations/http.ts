@@ -30,6 +30,7 @@ const repositoryAdmin = (name: string, method: "GET" | "POST" | "PATCH" | "DELET
     http: { method, path }, minimumRole: "owner", agent: "never", credentialScope, actors: ["person"] })
 
 export const httpProjections = [
+  read("github.account-read", "/api/user/github-repos", "never", "owner"),
   // Values retain the existing write-scope requirement even on reads.
   repositoryAdmin("variables.read", "GET", "/api/repos/{owner}/{repo}/variables", NoInput, "write:repository"),
   repositoryAdmin("variables.set", "POST", "/api/repos/{owner}/{repo}/variables", Schema.Struct({ name: Schema.String, value: Schema.String })),
