@@ -4,7 +4,7 @@ import { readErrorMessage, readResult, type SeamFetch } from "./SeamContext"
 
 // T-APP-17: extend the retained item decoder; old answers need no backfill.
 export const StoredContextItemSchema = ContextItemSchema.extend({ reason: z.string() })
-export const StoredAnswerSchema = z.object({ id: z.string(), context: z.array(StoredContextItemSchema).optional() })
+export const StoredAnswerSchema = z.object({ id: z.string(), runId: z.string().min(1).optional(), context: z.array(StoredContextItemSchema).optional() })
 export type StoredAnswer = z.infer<typeof StoredAnswerSchema>
 export interface ContextProvider {
   // Only supplied after SharedEntries, durable answers, View and card handlers pass C-UI-07.

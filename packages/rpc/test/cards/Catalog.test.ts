@@ -7,7 +7,7 @@ describe("generated catalog tags", () => {
   test.each([
     "docs",
     "image.add",
-    "context.inspect",
+    "run.inspect",
     "debug-api",
     "todo.return-to-item",
     "todo.preapprove",

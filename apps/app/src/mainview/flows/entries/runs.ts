@@ -43,8 +43,12 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     } }),
   flow({ name: "run",   slash: "/run", cli: ["runs","show"], journey: ["J4"], group: "Runs", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}"}, summary: "Open a run's card", args: "<id>", grammar: runGrammar,
     agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.openRunMonitor(id, false) }),
-  flow({ name: "run.inspect",   slash: "/run.inspect", cli: ["run","inspect"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}"}, summary: "Open a run's monitor", args: "<id>", grammar: runGrammar,
-    agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.openRunMonitor(id, true) }),
+  flow({ name: "run.inspect",   slash: "/run.inspect", cli: ["run","inspect"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}","query":{}}, summary: "Open a run's monitor", args: "<id>", grammar: runGrammar,
+    agent: "run", input: Schema.Struct({ id: Schema.optional(Schema.String), branch: Schema.optional(Schema.NonEmptyString), answer: Schema.optional(Schema.NonEmptyString) }),
+    form: { args: payload => JSON.stringify(payload), requires: payload => payload.branch !== undefined || payload.answer !== undefined ? ["branch", "answer"] : ["id"] },
+    handler: ({ id, branch, answer }) => branch !== undefined && answer !== undefined && id === undefined
+      ? actions.inspectContext(branch, answer) : id !== undefined && branch === undefined && answer === undefined
+      ? actions.openRunMonitor(id, true) : "Enter a run or an answer context" }),
   flow({
     name: "runs.attention",
     summary: "Show pending approvals and parked or failed runs on this repository",

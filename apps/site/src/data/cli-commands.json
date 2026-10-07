@@ -1622,7 +1622,10 @@
           "type": "object",
           "properties": {
             "id": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -1813,12 +1816,6 @@
           "type": "object",
           "properties": {
             "query": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "kinds": {
               "type": [
                 "string",
                 "null"

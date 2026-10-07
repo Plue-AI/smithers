@@ -12,7 +12,7 @@ const actionableItems: ContextLineCard["items"] = items.map((item, index) => ind
   ? { ...item, action: { tag: "file", label: "flow.ts", args: { path: "flows/todo/flow.ts" } } }
   : item)
 const actions: ContextLineCard["actions"] = [
-  { tag: "context.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } }
+  { tag: "run.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } }
 ]
 
 export const fixtures = {

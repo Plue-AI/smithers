@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type CatalogTag = RegisteredCatalogTag | typeof historicalSettings[number]
+export type CatalogTag = RegisteredCatalogTag | typeof historicalSettings[number] | "context.inspect"
 
 /**
  * An action form field.
@@ -49,7 +49,7 @@ export type FormField = z.infer<typeof FormFieldSchema>
  */
 const historicalSettings = ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup", "settings.fast-model"] as const
 export const ActionSchema = z.object({
-  tag: z.union([CatalogTagSchema, z.enum(historicalSettings)]),
+  tag: z.union([CatalogTagSchema, z.enum(historicalSettings), z.literal("context.inspect")]),
   label: z.string(),
   args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
@@ -57,7 +57,7 @@ export const ActionSchema = z.object({
   input: z.array(FormFieldSchema).optional()
 }).overwrite(action => historicalSettings.some(tag => tag === action.tag)
   ? { ...action, tag: "settings" as const, args: { ...action.args, operation: action.tag.slice("settings.".length) } }
-  : { ...action, tag: CatalogTagSchema.parse(action.tag) })
+  : action.tag === "context.inspect" ? { ...action, tag: "run.inspect" as const } : { ...action, tag: CatalogTagSchema.parse(action.tag) })
 
 /** Normalize recorded data before binding an action to a current executable door. */
 export const registeredAction = (input: z.infer<typeof ActionSchema>) => {
@@ -149,7 +149,7 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @category models
  */
 /** Historical tags are decodable data; no new typed command can use them. */
-export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalSettings[number]]: never }
+export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalSettings[number] | "context.inspect"]: never }
 
 interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
@@ -207,8 +207,7 @@ interface CurrentCardCommandInput {
   readonly "github.retry": undefined
   readonly "monitor": undefined
   readonly "runs.trace.view": { readonly runId: string; readonly sourceCard?: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools"; readonly state?: { readonly selected?: string; readonly at?: number; readonly tab?: string } }
-  readonly "context.inspect": { readonly branch: string; readonly answer: string }
-  readonly "run.inspect": { readonly id: string }
+  readonly "run.inspect": { readonly id: string } | { readonly branch: string; readonly answer: string }
   readonly "flow.source": { readonly name: string }
   readonly "flow.plan": { readonly name: string }
   readonly "agents": undefined

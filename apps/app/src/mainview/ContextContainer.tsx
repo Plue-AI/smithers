@@ -20,7 +20,7 @@ export function ContextContainer({ answer, branch, available, dispatch, openItem
   const openings = answer.context.map(openItem)
   if (openings.some(action => action === undefined)) return null
   const rows = openings.map((action, index) => ({ ...action!, scope: undefined, args: { ...action!.args, context_item: String(index) } }))
-  const inspect = { tag: "context.inspect", label: "Inspect", command_input: { branch, answer: answer.id } } as const
+  const inspect = { tag: "run.inspect", label: "Inspect", command_input: { branch, answer: answer.id } } as const
   const lineBindings = cardActions(dispatch, [inspect])
   const bindings = cardActions(dispatch, [inspect, ...rows])
   return <View count={answer.context.length} items={answer.context.map((item, index) => ({ ...item, action: bindings.actions[index + 1] }))} expanded={expanded}

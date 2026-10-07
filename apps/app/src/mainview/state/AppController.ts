@@ -1736,8 +1736,15 @@ export const createAppController = (
     })
     return { value: "Requested" }
   }
-  const { contextAvailable, inspectContext } = actors.pair(ctx, context =>
-    createContextSeam(context.http, context.baseUrl, services.contextProvider, () => {
+  const { contextAvailable, inspectContext } = actors.pair(ctx, (context, select) =>
+    createContextSeam(context.http, context.baseUrl, services.contextProvider ?? (installHost ? {
+      available: () => runMonitors !== undefined,
+      present: async answer => {
+        if (!answer.runId) throw new Error("Stored answer has no run")
+        const result = await select(openRunMonitor)(answer.runId, false)
+        if (typeof result === "string") throw new Error(result)
+      }
+    } : undefined), () => {
       const epoch = context.accountEpoch
       return () => !context.disposed && context.accountEpoch === epoch
     }, () => context.commandActor))

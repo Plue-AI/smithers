@@ -2951,45 +2951,6 @@
       }
     },
     {
-      "name": "context.inspect",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "hidden",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Inspect an answer’s stored context",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "branch": {
-              "type": "string",
-              "minLength": 1
-            },
-            "answer": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "required": [
-            "branch",
-            "answer"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "debug-api",
       "slash": "/debug-api",
       "cli": null,
@@ -8523,7 +8484,8 @@
       "summary": "Open a run's monitor",
       "http": {
         "method": "GET",
-        "path": "/api/runs/{id}"
+        "path": "/api/runs/{id}",
+        "query": {}
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -8531,12 +8493,38 @@
           "type": "object",
           "properties": {
             "id": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "answer": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
-          "required": [
-            "id"
-          ],
           "additionalProperties": true
         },
         "definitions": {}

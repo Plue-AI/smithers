@@ -51,6 +51,14 @@ const valueSchema = (schema: Record<string, any>): z.ZodType => {
   }, decoded)
 }
 
+/** An explicit GET query projection also limits this door's accepted payload fields. */
+const httpInputFields = (row: typeof catalogCommands[number]): ReadonlySet<string> | undefined => {
+  const binding = row.client?.http ?? row.http
+  return binding?.method === "GET" && binding.query !== undefined
+    ? new Set([...Array.from(binding.path.matchAll(/\{([^}]+)\}/g), match => match[1]!), ...Object.values(binding.query)])
+    : undefined
+}
+
 /**
  * Shared descriptor dispatcher for catalog doors and retained backend schemas.
  * @private
@@ -78,6 +86,9 @@ export const dispatchCatalog = async (
   if (row.http === null && row.client === undefined) {
     throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })
   }
+  const exposed = httpInputFields(row)
+  const unsupported = exposed && Object.keys(fields).find(key => supplied[key] !== undefined && !exposed.has(key))
+  if (unsupported) throw new UsageError({ message: `This HTTP door does not accept ${unsupported}` })
   const input = Object.fromEntries(
     Object.keys(fields).filter((key) => supplied[key] !== undefined).map((key) => [key, supplied[key]])
   )
@@ -192,14 +203,16 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     // A group may still need a catalog root without losing its local children.
     const local = existing && "_group" in existing ? existing.root : existing
     const schema = row.payload.schema as { properties?: Record<string, any>; required?: Array<string> }
-    const fields = schema.properties ?? {}, required = new Set(schema.required ?? [])
+    const fields = schema.properties ?? {}, required = new Set([...(schema.required ?? []), ...Array.from(row.http?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!)])
     const positional = row.name === "ssh" ? "branch" : ["n", "id", "number", "name", "path", "workflow"].find((key) => required.has(key))
     const positionalKeys = new Set([
       positional,
       ...(positional === "n" ? ["answer", "text", "direction"].filter((key) => required.has(key)) : [])
     ])
     const args: Record<string, z.ZodType> = {}, options: Record<string, z.ZodType> = {}
+    const exposed = httpInputFields(row)
     for (const [key, field] of Object.entries(fields)) {
+      if (exposed && !exposed.has(key)) continue
       let value = (key === "n" && key === positional) || key === "before"
         ? z.string().regex(/^T[1-9]\d*$/, "Expected Tn").transform((value) => Number(value.slice(1))).meta({
           type: "string",

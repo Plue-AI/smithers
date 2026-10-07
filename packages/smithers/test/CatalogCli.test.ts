@@ -223,6 +223,14 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       await f.close()
     }
   })
+  it.each([["--branch", "main", "--answer", "answer-9"], ["run-1", "--branch", "main", "--answer", "answer-9"]])("rejects browser-only inspection input before HTTP: %s", async (...args) => {
+    const f = await fixture()
+    try {
+      const result = await f.invoke(["run", "inspect", ...args])
+      expect(result.exitCode).toBe(1)
+      expect(f.seen).toEqual([])
+    } finally { await f.close() }
+  })
   it.each(cases)("dispatches literal $argv once", async (row) => {
     const f = await fixture()
     try {

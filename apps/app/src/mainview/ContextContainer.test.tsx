@@ -22,9 +22,9 @@ test("recording View receives stored items and all actions dispatch through card
   expect(recorded!.items.map(({ action, ...item }) => item)).toEqual(answer.context)
   expect(recorded!.count).toBe(1)
   expect(opened).toEqual(answer.context)
-  recorded!.onAction("context.inspect")
+  recorded!.onAction("run.inspect")
   recorded!.onAction(recorded!.items[0]!.action!.tag, recorded!.items[0]!.action!.args)
-  expect(calls).toEqual([["context.inspect", { branch: "main", answer: "answer-1" }], ["file", { path: "src/retry.ts" }]])
+  expect(calls).toEqual([["run.inspect", { branch: "main", answer: "answer-1" }], ["file", { path: "src/retry.ts" }]])
 })
 
 test("an explicitly empty stored list still exposes Inspect, with no item actions", () => {
@@ -33,7 +33,7 @@ test("an explicitly empty stored list still exposes Inspect, with no item action
     dispatch={() => {}} openItem={() => undefined} View={props => { recorded = props; return null }} />)
   expect(recorded!.count).toBe(0)
   expect(recorded!.items).toEqual([])
-  expect(recorded!.actions.map(action => action.tag)).toEqual(["context.inspect"])
+  expect(recorded!.actions.map(action => action.tag)).toEqual(["run.inspect"])
 })
 
 test("real ContextLine mounts when providers are available", () => {
@@ -52,5 +52,5 @@ test("items sharing a command tag dispatch their own pinned input", () => {
     View={props => { recorded = props; return null }} />)
   for (const item of [...recorded!.items].reverse()) recorded!.onAction(item.action!.tag, item.action!.args)
   expect(calls).toEqual([["file", { path: "src/other.ts" }], ["file", { path: "src/retry.ts" }]])
-  expect(recorded!.actions.map(action => action.tag)).toEqual(["context.inspect"])
+  expect(recorded!.actions.map(action => action.tag)).toEqual(["run.inspect"])
 })

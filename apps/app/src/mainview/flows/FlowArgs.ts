@@ -14,7 +14,7 @@ export interface FlowInput {
   readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
 
  readonly "model.assign": { readonly role: string; readonly model?: string }
-  readonly "context.inspect": { readonly branch: string; readonly answer: string }
+  readonly "run.inspect": { readonly id?: string; readonly branch?: string; readonly answer?: string }
   readonly "debug-api": import("../state/seams/DebugApiSeam").DebugApiInput
   readonly "docs": { readonly page?: string; readonly mode?: "read" }
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
@@ -248,7 +248,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "files.open-diff": (payload) => JSON.stringify(payload),
   "debug-api": payload => JSON.stringify(payload),
   "docs": payload => payload.mode === "read" ? JSON.stringify(payload) : token(payload, "page") ?? "",
-  "context.inspect": payload => JSON.stringify(payload),
+  "run.inspect": payload => JSON.stringify(payload),
   "file.compare": payload => JSON.stringify(payload),
   "file.restore-deleted": payload => JSON.stringify(payload),
   "file.follow-rename": payload => JSON.stringify(payload),

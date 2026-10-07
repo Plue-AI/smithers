@@ -17,3 +17,8 @@ it("persisted Settings actions decode their operation without registering anothe
   const saved = ActionSchema.parse({ tag: "settings.parallel", label: "At once", args: { field: "parallel", min: "1", max: "8" } })
   expect(saved).toEqual({ tag: "settings", label: "At once", args: { operation: "parallel", field: "parallel", min: "1", max: "8" } })
 })
+
+
+it("saved context inspection is data decoded to the current inspection command", () => {
+  expect(ActionSchema.parse({ tag: "context.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } })).toEqual({ tag: "run.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } })
+})
