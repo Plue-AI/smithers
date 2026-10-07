@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"io"
 	"net"
 	"path/filepath"
@@ -89,4 +90,103 @@ func TestOwnerControlCutsOwnedTransportAndRefusesReconnect(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("owner control outlived cancellation")
 	}
+}
+
+// Real TCP is deliberate: EOF injection forwards bytes before closing, which
+// a synchronous net.Pipe write would not represent without a reading peer.
+func TestFrameFaultsAreOneShotAndPreserveControl(t *testing.T) {
+	for _, mode := range []string{"lost-window", "delivered-eof"} {
+		t.Run(mode, func(t *testing.T) {
+			f := &relayFaults{}
+			if err := f.arm(mode); err != nil {
+				t.Fatal(err)
+			}
+			if f.arm(mode) == nil {
+				t.Fatal("overwrote armed fault")
+			}
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			peer, err := net.Dial("tcp", listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer peer.Close()
+			connection, err := listener.Accept()
+			if err != nil {
+				t.Fatal(err)
+			}
+			owned, err := f.admit(connection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer owned.Close()
+			owned.SetDeadline(time.Now().Add(time.Second))
+			peer.SetDeadline(time.Now().Add(time.Second))
+			if mode == "lost-window" {
+				done := make(chan error, 1)
+				go func() {
+					writer := &frameWriter{w: peer}
+					for _, value := range []any{map[string]string{"session": "s-0000000000000001"}, map[string]any{"type": "window", "bytes": 262144}, map[string]any{"type": "window", "bytes": 8192}} {
+						if err := writer.write(value); err != nil {
+							done <- err
+							return
+						}
+					}
+					done <- nil
+				}()
+				if reply, err := controlExchangeReadOnly(owned); err != nil || reply.Session == "" {
+					t.Fatalf("control lost: %+v %v", reply, err)
+				}
+				if frame, err := readFrame(owned); err != nil || frame.Type != "window" || *frame.Credit != 262144 {
+					t.Fatalf("initial credit lost: %+v %v", frame, err)
+				}
+				if _, err := readFrame(owned); err != io.EOF {
+					t.Fatalf("consumed window leaked: %v", err)
+				}
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				done := make(chan error, 1)
+				go func() { done <- (&frameWriter{w: owned}).write(map[string]any{"type": "eof", "stream": 0}) }()
+				frame, err := readFrame(peer)
+				if err != nil || frame.Type != "eof" || *frame.Stream != 0 {
+					t.Fatalf("EOF not forwarded: %+v %v", frame, err)
+				}
+				if err := <-done; err != io.ErrUnexpectedEOF {
+					t.Fatalf("EOF delivery not ambiguous: %v", err)
+				}
+			}
+			a, b := net.Pipe()
+			defer b.Close()
+			next, err := f.admit(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer next.Close()
+			if next.(*faultConnection).mode != "" {
+				t.Fatal("fault repeated on reconnect")
+			}
+		})
+	}
+	if (&relayFaults{}).arm("member-mode") == nil {
+		t.Fatal("unknown fault accepted")
+	}
+}
+
+func controlExchangeReadOnly(connection net.Conn) (controlReply, error) {
+	var length uint32
+	if err := binary.Read(connection, binary.BigEndian, &length); err != nil {
+		return controlReply{}, err
+	}
+	body := make([]byte, length)
+	if _, err := io.ReadFull(connection, body); err != nil {
+		return controlReply{}, err
+	}
+	var reply controlReply
+	err := strictControlReply(body, &reply)
+	return reply, err
 }

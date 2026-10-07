@@ -379,6 +379,17 @@ func serveRevocation(ctx context.Context, listener net.Listener, requests chan<-
 				break
 			}
 		}
+		if err == nil && (string(request) == "lost-window\n" || string(request) == "delivered-eof\n") && len(controls) == 1 && controls[0] != nil && controls[0].faults != nil {
+			mode := string(request[:len(request)-1])
+			if controls[0].faults.arm(mode) == nil {
+				_ = writeAll(connection, []byte("armed\n"))
+			} else {
+				_ = writeAll(connection, []byte("refused\n"))
+			}
+			stopConnection()
+			connection.Close()
+			continue
+		}
 		if err == nil && string(request) == "cut-relay\n" && len(controls) == 1 && controls[0] != nil && controls[0].faults != nil {
 			controls[0].faults.cut(10 * time.Second)
 			_ = writeAll(connection, []byte("cut\n"))

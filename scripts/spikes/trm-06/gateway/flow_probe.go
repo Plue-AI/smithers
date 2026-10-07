@@ -123,6 +123,11 @@ func runFlowProbe(ctx context.Context, root string, config installedConfig, host
 		result["failure"] = err.Error()
 		return err
 	}
+	for _, mode := range []string{"lost-window", "delivered-eof"} {
+		if err = relayInputFixture(ctx, client, root, evidence, mode); err != nil {
+			return err
+		}
+	}
 	result["automatic_subset_passed"] = true
 	fmt.Printf("{\"automatic_subset_passed\":true,\"evidence\":%q,\"C-SPK-08\":\"pending\"}\n", evidence)
 	return nil
@@ -444,4 +449,49 @@ func relaySequenceFixture(ctx context.Context, client *ssh.Client, root, evidenc
 		return fmt.Errorf("sequence lost lines: %d", expected-1)
 	}
 	return nil
+}
+
+func relayInputFixture(ctx context.Context, client *ssh.Client, root, evidence, mode string) error {
+	control, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(root, "control.sock"))
+	if err != nil {
+		return err
+	}
+	control.SetDeadline(time.Now().Add(2 * time.Second))
+	if err = writeAll(control, []byte(mode+"\n")); err != nil {
+		control.Close()
+		return err
+	}
+	var ack [6]byte
+	_, err = io.ReadFull(control, ack[:])
+	control.Close()
+	if err != nil || string(ack[:]) != "armed\n" {
+		return errors.New("relay input fault was not armed")
+	}
+	session, err := client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	fixture := make([]byte, 1048576)
+	for i := range fixture {
+		fixture[i] = byte(i % 251)
+	}
+	session.Stdin = bytes.NewReader(fixture)
+	started := time.Now()
+	output, err := session.Output("cat")
+	receipt := map[string]any{"fault": mode, "invoked_utc": started.UTC().Format(time.RFC3339Nano), "completion_ms": time.Since(started).Milliseconds(), "expected_bytes": 1048576, "received_bytes": len(output), "exact_match": bytes.Equal(output, fixture)}
+	if err != nil {
+		receipt["failure"] = err.Error()
+	}
+	body, _ := json.MarshalIndent(receipt, "", "  ")
+	if saveErr := os.WriteFile(filepath.Join(evidence, mode+".json"), body, 0600); saveErr != nil {
+		return saveErr
+	}
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(output, fixture) {
+		return fmt.Errorf("%s lost or duplicated stdin bytes", mode)
+	}
+	return os.WriteFile(filepath.Join(evidence, mode+".bin"), output, 0600)
 }

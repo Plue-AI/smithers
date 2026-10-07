@@ -155,7 +155,11 @@ Only the system-installed scripts accept these operations. With the protected
 configuration and an accepted bundle, `run.sh` launches a fresh machine and
 `revoke.sh` drains it. `flow.sh` uses the real SSH listener for binary half-close,
 1 GiB stalled output/RSS, PTY/resize/Ctrl-C, forwarding and a ten-second real
-relay cut with ordered replay. `ben-fixture.key` must be owner-only mode 0600
+relay cut with ordered replay. The owner-only `lost-window` and `delivered-eof`
+controls fault the next authenticated relay once: consume a post-initial stdin
+WINDOW without delivering it, or forward stdin EOF and report write failure.
+The flow campaign sends one MiB of binary stdin through each and preserves exact
+output and receipts. These campaigns are built but have not run on the reference host. `ben-fixture.key` must be owner-only mode 0600
 and match config's Ben public key; no agent or root SSH key is admitted.
 
 `run.sh measure` starts ten fresh installed runs and preserves terminal-only
