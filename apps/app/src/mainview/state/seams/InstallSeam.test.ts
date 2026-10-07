@@ -267,12 +267,19 @@ describe("T-APP-03 install seam", () => {
   })
   test("a transient address refusal retains its literal diagnostic for Settings Details", async () => {
     const refusal = { code: "address_unavailable", class: "transient" as const, message: "Install listener unavailable" }
-    const h = await harness((_path, init) => init?.method === "PUT" ? Response.json(refusal, { status: 503 }) : Response.json(installFixture()))
+    let refused = true
+    const h = await harness((_path, init) => init?.method === "PUT" && refused ? Response.json(refusal, { status: 503 }) : Response.json(installFixture()))
     await h.seam.readInstall()
     h.seam.setInstallAddress({ listen: "network", bind: "0.0.0.0:4000", origins: ["http://mini.lan:4000"] })
     await h.idle()
     expect(h.seam.snapshots.get().error).toEqual(refusal)
     expect(settingsCardModel(h.seam.snapshots.get().model!, "http://localhost:4000").address.failed?.reason.message).toBe(refusal.message)
+    await h.seam.readInstall()
+    expect(settingsCardModel(h.seam.snapshots.get().model!, "http://localhost:4000").address.failed?.reason.message).toBe(refusal.message)
+    refused = false
+    h.seam.setInstallAddress({ listen: "mac", bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] })
+    await h.idle()
+    expect(h.seam.snapshots.get().model?.address.change_failed).toBeUndefined()
     h.seam.dispose()
   })
   test("a refused setup write fails its own step and keeps the Setup card (gh-setup-walk-2)", async () => {

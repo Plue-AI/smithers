@@ -91,7 +91,13 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   const projection = (served: InstallModel): InstallModel => {
     const active = requests().filter(row => (row.state === "requested" || row.state === "running") && !lapsed(row))
     const app = requests().filter(row => row.step === "app_manifest").at(-1)
+    const previous = shared.snapshot.model?.address
+    const refused = previous?.change_failed
+    const sameAddress = previous?.bind === served.address.bind &&
+      JSON.stringify(previous.origins) === JSON.stringify(served.address.origins)
     return { ...served,
+      address: refused && sameAddress && !served.address.change_failed
+        ? { ...served.address, change_failed: refused } : served.address,
       github: served.github.owner === undefined && typeof app?.body.owner === "string" ? { ...served.github, owner: app.body.owner } : served.github,
       steps: served.steps.map(step => step.state === "pending" && active.some(row => row.step === step.id) ? { ...step, state: "running" }
         : step.id === "app_manifest" && step.state === "running" && app && lapsed(app) ? { ...step, state: "failed" } : step) }
@@ -261,7 +267,13 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           return serviceFailureSentence(result)
         }
         if ("steps" in result) {
-          if (generation === shared.generation) receive(result)
+          if (generation === shared.generation) {
+            if (path === "/install" && typeof body === "object" && body !== null && "bind" in body && shared.snapshot.model) {
+              const { change_failed: _refusal, ...address } = shared.snapshot.model.address
+              shared.snapshot = { ...shared.snapshot, model: { ...shared.snapshot.model, address } }
+            }
+            receive(result)
+          }
         } else {
           if (row) await saveRequest({ ...row, state: "running", ...("action_url" in result ? { handoff: result } : {}) })
           // The answer to the person's own press, unless the step finished meanwhile.
