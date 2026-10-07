@@ -75,6 +75,8 @@ export interface AdmissionReceipt {
   readonly decision: NotificationState.AdmissionDecision
   readonly seq: number | undefined
   readonly duplicate: boolean
+  readonly consumed?: boolean
+  readonly consumedNotification?: NotificationModel.Notification
 }
 
 /**
@@ -129,7 +131,8 @@ export interface DrainReceipt {
 export interface Service {
   readonly admit: (
     runId: string,
-    notification: NotificationModel.Notification
+    notification: NotificationModel.Notification,
+    version?: number
   ) => Effect.Effect<AdmissionReceipt, Journal.JournalError | NotificationError>
   readonly drain: (
     input: DrainInput
@@ -342,6 +345,7 @@ const freeze = (value: unknown): void => {
  * capacity-one queue grow without bound.
  */
 interface Committed {
+  readonly version: number | undefined
   readonly fingerprint: string | undefined
   readonly decision: NotificationState.AdmissionDecision
   readonly seq: number
@@ -501,11 +505,26 @@ export const layerWith = (
             if (NotificationEvent.isAdmitted(event)) {
               freeze(event.notification)
               admissions = HashMap.set(admissions, event.notification.id, {
+                version: event.version,
                 fingerprint: event.fingerprint,
                 decision: event.decision,
                 seq: entry.seq
               })
-              state = NotificationState.applyAdmission(state, event.notification, entry.seq, event.decision)
+              if (
+                event.version !== undefined &&
+                state.items.some((item) => item.notification.id === event.notification.id)
+              ) {
+                state = Object.freeze({
+                  ...state,
+                  items: Object.freeze(state.items.map((item) =>
+                    item.notification.id === event.notification.id
+                      ? Object.freeze({ notification: event.notification, seq: item.seq })
+                      : item
+                  ))
+                })
+              } else {
+                state = NotificationState.applyAdmission(state, event.notification, entry.seq, event.decision)
+              }
             } else {
               promotions = HashMap.set(
                 promotions,
@@ -540,12 +559,52 @@ export const layerWith = (
       const admitInTransaction = (
         runId: JournalEvent.RunId,
         admitted: NotificationModel.Notification,
-        admittedFingerprint: string
+        admittedFingerprint: string,
+        version?: number
       ): Effect.Effect<AdmissionReceipt, Journal.JournalError | NotificationError> =>
         Effect.gen(function*() {
           const loaded = yield* load(runId)
           const prior = Option.getOrUndefined(HashMap.get(loaded.admissions, admitted.id))
-          if (prior !== undefined) {
+          const replacing = prior !== undefined && version !== undefined && version > (prior.version ?? 0)
+          if (replacing) {
+            const original = yield* admittedAt(runId, prior.seq)
+            if (Option.isNone(original)) {
+              return yield* new NotificationError({
+                code: "notification_unavailable",
+                notificationId: admitted.id,
+                message: "Original steering input is unreadable"
+              })
+            }
+            const identity = (input: NotificationModel.Notification) => ({ ...input, payload: null })
+            if (canonical(identity(original.value.notification)) !== canonical(identity(admitted))) {
+              return yield* new NotificationError({
+                code: "notification_id_reused",
+                notificationId: admitted.id,
+                message: "An edit cannot change the notification owner or delivery binding"
+              })
+            }
+          }
+          if (replacing && !loaded.state.items.some((item) => item.notification.id === admitted.id)) {
+            const original = yield* admittedAt(runId, prior.seq)
+            if (Option.isNone(original)) {
+              return yield* new NotificationError({
+                code: "notification_unavailable",
+                message: "Consumed input is unreadable"
+              })
+            }
+            return {
+              notificationId: admitted.id,
+              decision: prior.decision,
+              seq: prior.seq,
+              duplicate: true,
+              consumed: true,
+              consumedNotification: original.value.notification
+            }
+          }
+          if (prior !== undefined && version !== undefined && version < (prior.version ?? 0)) {
+            return { notificationId: admitted.id, decision: prior.decision, seq: prior.seq, duplicate: true }
+          }
+          if (prior !== undefined && !replacing) {
             // Legacy rows have no fingerprint; only their persisted content is
             // available for comparison, and the fold keeps identities rather
             // than payloads, so the original is read back at its sequence.
@@ -577,7 +636,7 @@ export const layerWith = (
             }
           }
 
-          const admission = NotificationState.admit(
+          const admission = replacing ? { decision: "coalesced" as const } : NotificationState.admit(
             loaded.state,
             admitted,
             loaded.cursor === undefined ? 0 : loaded.cursor + 1
@@ -599,7 +658,7 @@ export const layerWith = (
             new JournalEvent.Input({
               runId,
               sourceId: NotificationEvent.admissionSourceId(admitted.id),
-              sourceSeq: JournalEvent.SourceSeq.make(0),
+              sourceSeq: JournalEvent.SourceSeq.make(version ?? 0),
               // The sequence is derived from the notification's own id, so
               // a collision IS this admission observed twice. Comparing
               // bytes instead would fail the second writer over `decision`,
@@ -607,7 +666,12 @@ export const layerWith = (
               // fill level it happened to load at.
               dedupe: "identity",
               eventType: NotificationEvent.AdmittedEventType,
-              payload: { notification: admitted, decision: admission.decision, fingerprint: admittedFingerprint }
+              payload: {
+                notification: admitted,
+                decision: admission.decision,
+                fingerprint: admittedFingerprint,
+                ...(version === undefined ? {} : { version })
+              }
             })
           )
           const committed = Option.getOrUndefined(HashMap.get((yield* load(runId)).admissions, admitted.id))
@@ -630,8 +694,14 @@ export const layerWith = (
         })
 
       return make({
-        admit: Effect.fn("NotificationQueue.admit")((rawRunId, notification) =>
+        admit: Effect.fn("NotificationQueue.admit")((rawRunId, notification, version) =>
           Effect.gen(function*() {
+            if (version !== undefined && (!Number.isSafeInteger(version) || version < 1)) {
+              return yield* new NotificationError({
+                code: "notification_invalid",
+                message: "version must be a positive safe integer"
+              })
+            }
             const admitted = yield* validated(notification)
             // T-COL-12 stays dark: nothing yet authenticates a watcher burst, pins
             // its coding run or enforces fresh machine reads. Refusing here, before
@@ -650,7 +720,7 @@ export const layerWith = (
             const admittedFingerprint = yield* fingerprint(admitted)
             return yield* journal.transact(
               operations.withPermits(1)(
-                admitInTransaction(JournalEvent.RunId.make(rawRunId), admitted, admittedFingerprint)
+                admitInTransaction(JournalEvent.RunId.make(rawRunId), admitted, admittedFingerprint, version)
               )
             )
           })
