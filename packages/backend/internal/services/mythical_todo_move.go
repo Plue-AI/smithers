@@ -118,7 +118,7 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 		receipt = TodoControlReceipt{State: "accepted", Place: place}
 		if err := recordTodoControl(ctx, tx, moved[to], input, credential, "todo.moved", receipt, map[string]any{
 			"item": uuidString(item.ID), "n": number, "direction": input.Direction, "from": from, "to": place,
-			"past": neighbor.Number.Int64, "rebase": len(rebased), "actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username},
+			"past": neighbor.Number.Int64, "rebase": len(rebased), "actor": todoActor(ctx, person), "by": todoActorRef(ctx, person),
 		}); err != nil {
 			return err
 		}
