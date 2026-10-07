@@ -99,8 +99,9 @@ func TestConversationSummariesDurabilityAndStaleResult(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("summary not dispatched")
 	}
-	// Changing the source revision while the model is blocked fences its result.
-	_, err = pool.Exec(ctx, `UPDATE chat_turns SET head_position=head_position+1,summary='literal prior summary',summary_rev=1 WHERE id=$1`, admitted.TurnID)
+	// Recovery may change state without a new journal frame. That also fences
+	// the blocked result, even when run, attempt and head position still match.
+	_, err = pool.Exec(ctx, `UPDATE chat_turns SET state='uncertain',summary='literal prior summary',summary_rev=1 WHERE id=$1`, admitted.TurnID)
 	require.NoError(t, err)
 	close(release)
 	require.Eventually(t, func() bool {
@@ -118,6 +119,26 @@ func TestConversationSummariesDurabilityAndStaleResult(t *testing.T) {
 	summaries.Model = func(context.Context, int64, int64, json.RawMessage) (io.ReadCloser, error) {
 		return nil, errors.New("no model")
 	}
+	tx, err = pool.Begin(ctx)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE chat_turns SET head_position=head_position+1 WHERE id=$1`, admitted.TurnID)
+	require.NoError(t, err)
+	require.NoError(t, summaries.Admit(ctx, tx, admitted.TurnID, "running"))
+	require.NoError(t, tx.Commit(ctx))
+	failedCtx, stopFailed := context.WithCancel(ctx)
+	failedDone := make(chan error, 1)
+	go func() {
+		failedDone <- jobStore.RunWorker(failedCtx, jobs.WorkerConfig{WorkerID: "summary-failure", Capacity: 1, Lease: time.Minute, PollInterval: time.Millisecond, Operations: []string{services.ConversationSummaryOperation}}, summaries.Handle)
+	}()
+	require.Eventually(t, func() bool {
+		var n int
+		return pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation=$1 AND state='completed'`, services.ConversationSummaryOperation).Scan(&n) == nil && n == 2
+	}, 5*time.Second, 10*time.Millisecond)
+	stopFailed()
+	require.NoError(t, <-failedDone)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT summary,summary_rev FROM chat_turns WHERE id=$1`, admitted.TurnID).Scan(&summary, &rev))
+	require.Equal(t, "literal prior summary", summary)
+	require.Equal(t, int64(1), rev)
 	_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key IN ('agent:fast','agent:coding');DELETE FROM owner_model_defaults`)
 	require.NoError(t, err)
 	tx, err = pool.Begin(ctx)
@@ -125,7 +146,7 @@ func TestConversationSummariesDurabilityAndStaleResult(t *testing.T) {
 	require.NoError(t, summaries.Admit(ctx, tx, admitted.TurnID, "running"))
 	require.NoError(t, tx.Commit(ctx))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation=$1`, services.ConversationSummaryOperation).Scan(&count))
-	require.Equal(t, 1, count)
+	require.Equal(t, 2, count)
 	// An active timeline uses the persisted five-second quiet deadline and
 	// thirty-second starvation bound. These are real PostgreSQL deadlines.
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:coding", Value: json.RawMessage(`{"protocol":"openai-chat","modelId":"test-fast","credential":"TEST_KEY"}`)}))
