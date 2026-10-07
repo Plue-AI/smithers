@@ -30,8 +30,10 @@ type BurstObjects interface {
 // BurstIngest is the sole transactional projection of an authenticated event.
 // Scope and attribution are host-resolved; no guest principal names a member.
 type BurstIngest struct {
-	Pool         *pgxpool.Pool
-	Objects      BurstObjects
+	Pool    *pgxpool.Pool
+	Objects BurstObjects
+	// ResolveActor is a read-only attribution lookup. It may consult the
+	// authenticated session registry; it runs without the registry lock.
 	ResolveActor func(context.Context, string, wire.Actor) (json.RawMessage, error)
 }
 
@@ -68,17 +70,29 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 		seen[f.Path] = true
 	}
 	r := connection.registry
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if !connection.current() {
+	if r == nil || connection.boot == nil {
 		return ack, ErrUnauthorized
 	}
+	r.mu.Lock()
+	current := connection.current()
 	branch := connection.boot.branch
+	r.mu.Unlock()
+	if !current {
+		return ack, ErrUnauthorized
+	}
+	// Session attribution consults this same registry. Resolve outside its
+	// lock, then recheck the exact connection before any persistent effect.
+	// A slow lookup must not delay another boot replacing this connection.
 	actor, err := s.ResolveActor(ctx, branch, b.Actor)
 	if err != nil {
 		return ack, err
 	}
 	if !json.Valid(actor) {
+		return ack, ErrUnauthorized
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !connection.current() {
 		return ack, ErrUnauthorized
 	}
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
