@@ -69,6 +69,68 @@ const decision = (
 }
 
 describe("recorded engine evidence in the run trace", () => {
+  test("native steps use their recorded action label and redacted result through the trace fold", () => {
+    const scheduled = wrap(1, "native", "flows.engine.node-scheduled", {
+      nodeId: "check", kind: "action", attempt: 1, action: "coding/check-command"
+    })
+    const settled = wrap(2, "native", "flows.engine.node-settled", {
+      nodeId: "check", outcome: "built", attempts: 1,
+      result: { preview: '{"status":"failed","findings":[]}', bytes: 33, truncated: false }
+    })
+    const records = [scheduled, settled, settled]
+    const model = traceFromJournal(run, records)
+    const node = model.rows.find(row => row.id.startsWith("engine-node:"))!
+    expect(node).toMatchObject({
+      kind: "call", label: "Ran checks", status: "completed", startedAt: 101, endedAt: 102,
+      detail: { sequence: 1, output: '{"status":"failed","findings":[]}' }
+    })
+    expect(model.rows.filter(row => row.id.startsWith("engine-node:"))).toHaveLength(1)
+    expect(traceFromJournal(run, records)).toEqual(model)
+    expect(traceFromJournal(run, [scheduled]).rows.find(row => row.id === node.id)?.status).toBe("running")
+  })
+
+  test("each native rescheduling retains its own step instance and generation", () => {
+    const schedule = (seq: number, generation = 0) => wrap(seq, "native", "flows.engine.node-scheduled", {
+      nodeId: "check", kind: "action", attempt: seq, action: "coding/check-command"
+    }, generation)
+    const finish = (seq: number) => wrap(seq, "native", "flows.engine.node-settled", {
+      nodeId: "check", outcome: "failed", attempts: 1, result: { preview: "failure", bytes: 7, truncated: false }
+    })
+    const records = [schedule(1), finish(2), schedule(3), schedule(4, 1)]
+    const model = traceFromJournal(run, records)
+    const nodes = model.rows.filter(row => row.id.startsWith("engine-node:"))
+    expect(nodes).toHaveLength(3)
+    expect(new Set(nodes.map(row => row.id)).size).toBe(3)
+    expect(nodes.map(row => [row.status, row.detail.output, row.endedAt])).toEqual([
+      ["failed", "failure", 102], ["running", undefined, undefined], ["running", undefined, undefined]
+    ])
+    expect(traceFromJournal(run, [...records, records[2]!]).rows).toEqual(model.rows)
+  })
+
+  test("native node outcomes retain missing and truncated evidence without executing it", () => {
+    const cases = [
+      ["failed", "failed"], ["clean", "completed"], ["skipped", "skipped"], ["deferred", "waiting"]
+    ] as const
+    for (const [outcome, status] of cases) {
+      const record = wrap(1, "native", "flows.engine.node-settled", {
+        nodeId: "edit", action: "coding/edit-atom", outcome, attempts: 1,
+        result: { preview: 'globalThis.monitorCanary = true', bytes: 9000, truncated: true }
+      })
+      const node = traceFromJournal(run, [record]).rows.find(row => row.id.startsWith("engine-node:"))!
+      expect(node.label).toBe("Edited the files")
+      expect(node.status).toBe(status)
+      expect(node.detail.output).toBe("globalThis.monitorCanary = true")
+      expect(node.detail.fields?.payload).toMatchObject({ result: { truncated: true, bytes: 9000 } })
+      expect(node.endedAt).toBe(outcome === "deferred" ? undefined : 101)
+    }
+    const malformed = wrap(1, "native", "flows.engine.node-settled", { nodeId: "edit", outcome: "invented" })
+    expect(traceFromJournal(run, [malformed]).rows.some(row => row.id.startsWith("engine-node:"))).toBe(false)
+    const unknown = wrap(1, "native", "flows.engine.node-settled", { nodeId: "legacy-step", outcome: "built", attempts: 1 })
+    expect(traceFromJournal(run, [unknown]).rows.find(row => row.id.startsWith("engine-node:"))).toMatchObject({
+      label: "legacy-step"
+    })
+  })
+
   test("leaves unrelated journal records out of engine evidence", () => {
     expect(engineTraceFromJournal([{ sequence: 1, kind: "control.agent.turn-opened", payload: {} }])).toEqual([])
   })
