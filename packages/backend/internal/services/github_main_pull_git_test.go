@@ -45,7 +45,9 @@ func (h *gitBackedRepoHost) rpc(ctx context.Context, service string, stdin io.Re
 			return fmt.Errorf("read %s request: %w", service, err)
 		}
 	}
-	args := []string{service, "--stateless-rpc"}
+	// Match the trusted repo-host process policy; this RPC fixture must not
+	// execute repository-local programs while testing publication callers.
+	args := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false", "-c", "core.alternateRefsCommand=", service, "--stateless-rpc"}
 	if advertise {
 		args = append(args, "--advertise-refs")
 	}
