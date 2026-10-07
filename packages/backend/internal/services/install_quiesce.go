@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -94,8 +95,12 @@ func (UnavailableMachineQuiescer) CaptureAndStop(context.Context) error {
 type QuiesceAdmission interface {
 	Drain(context.Context) error
 	Stop(context.Context) error
+	Resume(context.Context) error
 }
-type QuiesceHostRuntime interface{ Stop(context.Context) error }
+type QuiesceHostRuntime interface {
+	Stop(context.Context) error
+	Resume(context.Context) error
+}
 type InstallQuiescedError struct{ RetryAt time.Time }
 
 func (e *InstallQuiescedError) Error() string { return "install quiesced" }
@@ -103,6 +108,8 @@ func (e *InstallQuiescedError) Error() string { return "install quiesced" }
 type QuiesceGate struct {
 	Store    QuiesceStore
 	StateDir string
+	// resume restarts stopped providers before clearing the durable freeze.
+	resume atomic.Value // func(context.Context) error
 }
 
 func (g *QuiesceGate) marker() (bool, error) {
@@ -115,13 +122,18 @@ func (g *QuiesceGate) marker() (bool, error) {
 	}
 	return err == nil, err
 }
-func (g *QuiesceGate) expire(row *QuiesceFreeze) (*QuiesceFreeze, error) {
+func (g *QuiesceGate) expire(ctx context.Context, row *QuiesceFreeze) (*QuiesceFreeze, error) {
 	marker, err := g.marker()
 	if err != nil {
 		return nil, err
 	}
 	if row != nil && !time.Now().Before(row.LeaseUntil) && !marker {
 		slog.Warn("quiesce lease lapsed", "op", row.Op)
+		if resume, ok := g.resume.Load().(func(context.Context) error); ok {
+			if err := resume(ctx); err != nil {
+				return row, err
+			}
+		}
 		return nil, nil
 	}
 	if marker && row == nil {
@@ -142,7 +154,7 @@ func (g *QuiesceGate) Admit(ctx context.Context, class string) error {
 	var frozen *QuiesceFreeze
 	err := g.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
 		var err error
-		frozen, err = g.expire(row)
+		frozen, err = g.expire(ctx, row)
 		return frozen, err
 	})
 	if err != nil {
@@ -159,6 +171,39 @@ type InstallQuiesce struct {
 	Machines  MachineQuiescer
 	Admission QuiesceAdmission
 	Host      QuiesceHostRuntime
+	// Persistence barriers cover documents, wiki, periodic work and outbound
+	// writes. Each must preflight without side effects, then drain durably.
+	Barriers map[string]QuiesceBarrier
+}
+
+// Methods are idempotent. Resume runs while the durable freeze still fences
+// writes and must not recursively acquire the quiesce store transaction.
+type QuiesceBarrier interface {
+	Check(context.Context) error
+	Drain(context.Context) error
+	Resume(context.Context) error
+}
+
+var quiesceBarrierTickets = []string{"T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"}
+
+func (s *InstallQuiesce) resume(ctx context.Context) error {
+	// Runtime first; admission resumes last, while the gate still fences writes.
+	if s.Host != nil {
+		if err := s.Host.Resume(ctx); err != nil {
+			return err
+		}
+	}
+	for i := len(quiesceBarrierTickets) - 1; i >= 0; i-- {
+		if p := s.Barriers[quiesceBarrierTickets[i]]; p != nil {
+			if err := p.Resume(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	if s.Admission != nil {
+		return s.Admission.Resume(ctx)
+	}
+	return nil
 }
 
 func (s *InstallQuiesce) Reopen(ctx context.Context, op string) error {
@@ -175,6 +220,11 @@ func (s *InstallQuiesce) Reopen(ctx context.Context, op string) error {
 		}
 		if row != nil && op != "" && row.Op != op {
 			return row, &InstallQuiescedError{row.LeaseUntil}
+		}
+		if row != nil {
+			if err := s.resume(ctx); err != nil {
+				return row, err
+			}
 		}
 		return nil, nil
 	})
@@ -196,7 +246,12 @@ func (s *InstallQuiesce) Available() error {
 		return &QuiesceDependencyError{"T-MCH-06"}
 	}
 	if s.Host == nil {
-		return &QuiesceDependencyError{"T-INS-08"}
+		return &QuiesceDependencyError{"T-FLW-01"}
+	}
+	for _, ticket := range quiesceBarrierTickets {
+		if s.Barriers[ticket] == nil {
+			return &QuiesceDependencyError{ticket}
+		}
 	}
 	return nil
 }
@@ -214,9 +269,15 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	for _, ticket := range quiesceBarrierTickets {
+		if err := s.Barriers[ticket].Check(ctx); err != nil {
+			return nil, fmt.Errorf("%s: %w", ticket, err)
+		}
+	}
+	s.Gate.resume.Store(s.resume)
 	fresh := false
 	err = s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
-		row, e := s.Gate.expire(row)
+		row, e := s.Gate.expire(ctx, row)
 		if e != nil {
 			return nil, e
 		}
@@ -239,7 +300,7 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 		time.AfterFunc(QuiesceLease, func() {
 			expiry, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if e := s.Gate.Store.Update(expiry, s.Gate.expire); e != nil {
+			if e := s.Gate.Store.Update(expiry, func(row *QuiesceFreeze) (*QuiesceFreeze, error) { return s.Gate.expire(expiry, row) }); e != nil {
 				slog.Error("quiesce expiry failed", "error", e)
 			}
 		})
@@ -258,6 +319,9 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 					return row, e
 				}
 				if !marker && row != nil && row.Op == op && row.Since.Equal(since) {
+					if e := s.resume(cleanup); e != nil {
+						return row, e
+					}
 					return nil, nil
 				}
 				return row, nil
@@ -266,12 +330,17 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 	}()
 	drain, cancel := context.WithTimeout(ctx, 60*time.Second)
 	err = s.Admission.Drain(drain)
-	cancel()
+	defer cancel()
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 		err = s.Admission.Stop(ctx)
 	}
 	if err != nil {
 		return nil, err
+	}
+	for _, ticket := range quiesceBarrierTickets {
+		if err = s.Barriers[ticket].Drain(drain); err != nil {
+			return nil, fmt.Errorf("%s: %w", ticket, err)
+		}
 	}
 	if err = machines.CaptureAndStop(ctx); err != nil {
 		return nil, err
@@ -280,7 +349,7 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 		return nil, err
 	}
 	err = s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
-		row, e := s.Gate.expire(row)
+		row, e := s.Gate.expire(ctx, row)
 		if e != nil {
 			return nil, e
 		}
