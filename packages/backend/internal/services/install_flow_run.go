@@ -43,6 +43,9 @@ func (s *InstallFlowRuns) Request(ctx context.Context, repositoryID, userID int6
 	if !Overridable(input.Name) {
 		return empty, flowRunError(403, "reserved_name", "permission", "This flow is install-owned")
 	}
+	if flowdispatch.IsLearningFlow(input.Name) {
+		return empty, flowRunError(403, "learning_requires_merged_todo", "permission", "Learning requires a merged TODO")
+	}
 	if input.Name == "review" {
 		return empty, flowRunError(403, "review_requires_pr", "permission", "Select a pull request to review")
 	}

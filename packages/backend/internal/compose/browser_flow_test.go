@@ -74,6 +74,9 @@ func TestRunCredentialCannotSteerOrCancelRuns(t *testing.T) {
 			api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher}
 			user := &db.User{ID: 17, UserType: "user"}
 			payload := `{"runId":"run-42","marker":"` + procedure + `"}`
+			if procedure == "Approval.Submit" {
+				payload = `{"target":{"_tag":"Run","runId":"run-42"},"scope":"run","decision":"approve"}`
+			}
 			body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"` + procedure + `","payload":` + payload + `}`
 			call := func(systemIssued bool) *httptest.ResponseRecorder {
 				request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(body))
@@ -113,6 +116,8 @@ func TestBrowserFlowRelayRefusesTheTodoComposition(t *testing.T) {
 		status                   int
 	}{
 		"todo":                                 {"Plan", `{"flowId":"todo","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},
+		"learning":                             {"Plan", `{"flowId":"learning","input":{"todo":7}}`, "engine_only_flow", http.StatusForbidden},
+		"learning file":                        {"Plan", `{"flowId":"./flows/learning/flow.ts","input":{"todo":7}}`, "engine_only_flow", http.StatusForbidden},
 		"legacy request":                       {"Plan", `{"flowId":"coding/request","input":{}}`, "engine_only_flow", http.StatusForbidden},
 		"legacy delivery":                      {"Plan", `{"flowId":"flows/coding/vibe/flow.ts","input":{}}`, "engine_only_flow", http.StatusForbidden},
 		"engine verification":                  {"Plan", `{"flowId":"coding/verify","input":{}}`, "engine_only_flow", http.StatusForbidden},

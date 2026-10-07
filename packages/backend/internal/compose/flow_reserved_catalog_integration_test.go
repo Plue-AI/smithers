@@ -191,6 +191,8 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 			{"extra JSON", body + `{}`, "run", true, 400, "invalid_flow_run"},
 			{"reserved", strings.Replace(body, "canary", "merge", 1), "run", true, 403, "reserved_name"},
 			{"todo", strings.Replace(body, "canary", "todo", 1), "run", true, 403, "todo_requires_stack_admission"},
+			{"learning", strings.Replace(body, "canary", "learning", 1), "run", true, 403, "learning_requires_merged_todo"},
+			{"learning alias", strings.Replace(body, "canary", "flows/learning/flow.ts", 1), "run", true, 403, "learning_requires_merged_todo"},
 			{"review", strings.Replace(body, "canary", "review", 1), "run", true, 403, "review_requires_pr"},
 			{"another branch", strings.Replace(body, machine, "22222222-2222-4222-8222-222222222222", 1), "run", true, 404, "branch_not_found"},
 		} {
