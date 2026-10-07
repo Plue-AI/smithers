@@ -1557,6 +1557,42 @@
     }
   },
   {
+    "label": "//apps/app:journeyAskRepository",
+    "package": "apps/app",
+    "name": "journeyAskRepository",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-journey-j2.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:journeyJ1Activation",
     "package": "apps/app",
     "name": "journeyJ1Activation",

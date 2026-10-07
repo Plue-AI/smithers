@@ -1,0 +1,97 @@
+import type { Page } from "@playwright/test"
+import { test } from "./support"
+import { withReference, home, expect, runSlash, attachJson } from "./todo/reference"
+
+// Read the actual streamed Markdown bytes, before the renderer formats them.
+const ask = async (page: Page, question: string): Promise<string> => {
+  const received = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/agent/turn")
+  await runSlash(page, question)
+  const response = await received
+  expect(response.status()).toBe(200)
+  const frames = (await response.text()).split("\n").filter(line => line.trim()).flatMap(line => JSON.parse(line).batch?.frames ?? [])
+  const markdown = frames.filter(frame => frame.type === "delta" && frame.kind === "text").map(frame => frame.text).join("")
+  expect(markdown.trim()).not.toBe("")
+  return markdown
+}
+
+// No intercepted HTTP or seeded cards. The prepared canary main contains
+// src/webhooks/retry.ts and the Webhooks wiki page; the reference install
+// supplies the repository answer and all writes.
+test.use({ realScenario: { id: "journey-ask-repository", capabilities: [], coverage: ["host:production", "surface:todo", "surface:wiki", "door:button", "door:slash", "path:private-draft", "path:idempotent"] } })
+test("C-J9-01 repository answers make private TODOs and save literal Markdown @real-host:production", async ({ browser }, info) => {
+  test.setTimeout(360_000)
+  await withReference(browser, info, async f => {
+    const ben = f.members.Ben.page, alice = f.members.Alice.page
+    const before = await f.read("Ben", "/api/todos")
+    const pagesBefore = f.sql("SELECT id FROM wiki_pages")
+    await ben.keyboard.press("Meta+k")
+    const markdown = await ask(ben, "where do we retry webhooks?")
+    const answer = ben.locator('.smithers-chat-message[data-role="assistant"]').filter({ has: ben.locator(".message-answer-actions") }).last()
+    await expect(answer.getByRole("button", { name: "Make TODO", exact: true })).toBeVisible()
+    await expect(answer.getByRole("button", { name: "Save to wiki", exact: true })).toBeVisible()
+    expect(markdown).toContain("retry.ts")
+    const file = ben.getByRole("textbox", { name: "src/webhooks/retry.ts", exact: true }).last()
+    await expect(file).toContainText("redeliver")
+    await expect(ben.locator('.smithers-card[data-kind="world"]').filter({ hasText: "Webhooks" }).last()).toBeVisible()
+    await answer.getByRole("button", { name: "Make TODO", exact: true }).press("Enter")
+    const draft = ben.locator('.smithers-card[data-kind="draft"]').last()
+    await expect(draft).toBeVisible()
+    await expect(draft.getByLabel("Prompt", { exact: true })).toHaveValue(markdown)
+    await expect(draft.getByLabel("Title", { exact: true })).not.toHaveValue("")
+    await draft.getByLabel("Title", { exact: true }).fill("Document webhook retries")
+    await expect(draft.getByLabel("Place", { exact: true })).toHaveValue("append")
+    await expect(alice.locator('.smithers-card[data-kind="draft"]')).toHaveCount(0)
+    expect(await f.read("Ben", "/api/todos")).toEqual(before)
+    const commits: Array<{ key: string | undefined; body: unknown }> = []
+    ben.on("request", request => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/api/todos") commits.push({ key: request.headers()["idempotency-key"], body: request.postDataJSON() })
+    })
+    const commit = draft.getByRole("button", { name: "Commit", exact: true })
+    await commit.focus()
+    await ben.keyboard.press("Enter")
+    await ben.keyboard.press("Enter")
+    await expect.poll(async () => (await f.read("Ben", "/api/todos")).length).toBe(before.length + 1)
+    expect(commits).toHaveLength(1)
+    expect(commits[0]!.key).toEqual(expect.any(String))
+    const after = await f.read("Ben", "/api/todos")
+    const made = after.at(-1)
+    expect(made).toMatchObject({ title: "Document webhook retries", state: "queued" })
+    expect(made.prompt_revisions).toHaveLength(1)
+    expect(made.prompt_revisions[0].text).toBe(markdown)
+    await expect(draft).toContainText("Committed Document webhook retries")
+    for (const page of [ben, alice]) await expect(home(page)).toContainText("Document webhook retries")
+    await answer.getByRole("button", { name: "Save to wiki", exact: true }).press("Enter")
+    await ben.getByLabel("Name", { exact: true }).last().fill("Webhook retries answer")
+    await ben.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
+    const saved = () => f.sql("SELECT p.id,p.title,p.body,u.username FROM wiki_pages p JOIN users u ON u.id=p.author_id WHERE p.title='Webhook retries answer'")
+    await expect.poll(() => saved().length).toBe(1)
+    expect(saved()[0]).toMatchObject({ body: markdown, username: "Ben" })
+    expect(f.sql(`SELECT * FROM wiki_page_revisions WHERE page_id=${Number(saved()[0].id)}`)).toHaveLength(1)
+    await expect(ben.locator('.smithers-card[data-kind="confirm"]')).toHaveCount(0)
+    const second = await ask(ben, "what calls redeliver?")
+    await expect(answer.locator(".message-markdown")).not.toHaveText(markdown)
+    await runSlash(ben, "make that a TODO")
+    await expect(ben.locator('.smithers-card[data-kind="draft"]').last().getByLabel("Prompt", { exact: true })).toHaveValue(second)
+    await expect(alice.locator('.smithers-card[data-kind="draft"]')).toHaveCount(0)
+    const secondDraft = ben.locator('.smithers-card[data-kind="draft"]').last()
+    await secondDraft.getByLabel("Title", { exact: true }).fill("Document redeliver callers")
+    await secondDraft.getByRole("button", { name: "Commit", exact: true }).press("Enter")
+    await expect.poll(async () => (await f.read("Ben", "/api/todos")).length).toBe(before.length + 2)
+    const secondTodo = (await f.read("Ben", "/api/todos")).at(-1)
+    expect(secondTodo.prompt_revisions).toHaveLength(1)
+    expect(secondTodo.prompt_revisions[0].text).toBe(second)
+    for (const page of [ben, alice]) await expect(home(page)).toContainText("Document redeliver callers")
+    await runSlash(ben, "/wiki.save")
+    await expect(ben.getByLabel("Name", { exact: true }).last()).toBeVisible()
+    await ben.getByLabel("Name", { exact: true }).last().fill("Redeliver callers answer")
+    await ben.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
+    await expect.poll(() => f.sql("SELECT body FROM wiki_pages WHERE title='Redeliver callers answer'")).toEqual([{ body: second }])
+    expect(await f.read("Ben", "/api/todos")).toHaveLength(before.length + 2)
+    expect(f.sql("SELECT id FROM wiki_pages")).toHaveLength(pagesBefore.length + 2)
+    await attachJson(info, "todo-commit-requests", commits)
+    await attachJson(info, "todo-revisions", f.sql("SELECT number,revisions FROM mythical_items WHERE source='todo' ORDER BY stack_position"))
+    await attachJson(info, "wiki-pages", saved())
+    await attachJson(info, "wiki-revisions", f.sql("SELECT * FROM wiki_page_revisions ORDER BY id"))
+    await info.attach("repository-answer", { body: await ben.screenshot(), contentType: "image/png" })
+  })
+})

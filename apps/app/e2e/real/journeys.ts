@@ -10,7 +10,8 @@ export const journeySpecs = [
   "todo-from-issue.spec.ts",
   "todo-needs-you.spec.ts",
   "todo-evidence.spec.ts",
-  "todo-merge.spec.ts"
+  "todo-merge.spec.ts",
+  "ask-repository.spec.ts"
 ] as const
 
 /** The journey specs this run leaves out: all of them, except the one SMITHERS_JOURNEY enables. */
