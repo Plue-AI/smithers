@@ -289,6 +289,11 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 			if err != nil {
 				return nil, err
 			}
+			if decision.Event == "merged" {
+				if err := s.admitLearningInTx(ctx, tx, saved); err != nil {
+					return nil, err
+				}
+			}
 			if decision.Event != "" {
 				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version, "observation": fetched.PullObservation})
 				if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_"+decision.Event, todoState(saved), data); err != nil {
