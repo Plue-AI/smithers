@@ -150,6 +150,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	if os.Getenv(enable) != "1" {
 		t.Skip("enable explicitly with " + enable + "=1")
 	}
+	realMicroVM := enable == pinnedMicroVMRehearsal || enable == "SMITHERS_J5_MICROVM_REHEARSAL"
 	require.NotEmpty(t, os.Getenv("SMITHERS_TEST_DATABASE_URL"), "rehearsal requires real PostgreSQL")
 	t.Setenv("SMITHERS_REQUIRE_DATABASE_TESTS", "1")
 	// Each run gets its own TMPDIR: the stack's scratch repositories live at
@@ -356,7 +357,7 @@ path = "lib.rs"
 	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" || enable == "SMITHERS_DEFERRED_DOORS_BROWSER" {
 		// No TODO runs in the held-build file journey. The app agent below
 		// still uses its real model host and registered files.read dispatch.
-	} else if enable == pinnedMicroVMRehearsal {
+	} else if realMicroVM {
 		registry = pinnedMicroVMRegistry(t)
 	} else if helper := rehearsalJJExport(r.root, library); helper == "" {
 		fmt.Println("rehearsal: no smithers-jj-export (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, beside the FFI library, or target/release); the TODO's coding run is not composed")
@@ -401,7 +402,7 @@ path = "lib.rs"
 		HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 		// A label on GitHub is read within seconds, not the product's 120 s.
 		GitHubIssueEventsEvery: 2 * time.Second}
-	if enable == pinnedMicroVMRehearsal {
+	if realMicroVM {
 		configurePinnedMicroVMRehearsal(t, r, &options)
 	}
 	r.options = options

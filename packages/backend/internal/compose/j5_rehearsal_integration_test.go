@@ -24,9 +24,22 @@ import (
 // the changelog requirement from D2. A failed TODO retries on D1, then
 // explicitly retries with the current flow on D2, retaining earlier evidence.
 func TestJ5Rehearsal(t *testing.T) {
+	runJ5Rehearsal(t, "SMITHERS_J5_REHEARSAL")
+}
+
+// Reference-host qualification uses the approved installed coding host and
+// real guest capture/outbox. The process rehearsal above remains component
+// evidence and cannot qualify machine isolation or branch retirement.
+// Run with SMITHERS_J5_MICROVM_REHEARSAL=1 and SMITHERS_CHECK_BUNDLE.
+func TestJ5MicroVMRehearsal(t *testing.T) {
+	runJ5Rehearsal(t, "SMITHERS_J5_MICROVM_REHEARSAL")
+}
+
+func runJ5Rehearsal(t *testing.T, enable string) {
+	t.Helper()
 	// The install loads its flows after every main move.
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
-	r := newRehearsal(t, "SMITHERS_J5_REHEARSAL", "C-J5", "j5-")
+	r := newRehearsal(t, enable, "C-J5", "j5-")
 	if !r.install("0 Install through Machine ready") {
 		return
 	}
