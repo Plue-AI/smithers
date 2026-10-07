@@ -177,6 +177,6 @@ test("C-J8-02 shared wiki, 400 latency samples and offline reload", journey, asy
     expect(changed.map(file => file.filename)).toEqual(["README.md"])
     const produced = await f.github("Ben", "GET", `/contents/README.md?ref=${pull.head.sha}`) as any
     expect(Buffer.from(produced.content, "base64").toString("utf8")).toBe(CANARY_README + "\nRetry failed webhook deliveries with the existing retry helper.\n")
-    await attachJson(info, "wiki-decision-followed", { citation, todo: planned.number, head: pull.head.sha })
+    await attachJson(info, "wiki-decision-followed", { citation, todo: planned.n, head: pull.head.sha })
   })
 })

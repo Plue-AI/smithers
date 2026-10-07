@@ -41,7 +41,7 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
       await journeyActivate(draft.getByRole("button", { name: "Commit", exact: true }))
     }
     const initialTodos = await f.read("Will", "/api/todos")
-    expect(initialTodos.map((t: any) => t.number)).toEqual([1, 2])
+    expect(initialTodos.map((t: any) => t.n)).toEqual([1, 2])
     const events = (id: string) => f.sql(`SELECT * FROM product_job_events WHERE mythical_item_id = '${id.replace(/'/g, "''")}' ORDER BY id`)
     const land = (id: string) => f.sql(`SELECT checks->'land' AS land FROM mythical_items WHERE id = '${id.replace(/'/g, "''")}'`)[0].land
     const status = async (sha: string, state: "pending" | "success") => {
@@ -64,7 +64,7 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
     let secondBeforeMerge: any
     await expect.poll(async () => {
       const todos = await f.read("Will", "/api/todos")
-      secondBeforeMerge = todos.find((t: any) => t.number === 2)
+      secondBeforeMerge = todos.find((t: any) => t.n === 2)
       return todos.map((t: any) => t.state)
     }, { timeout: 660_000, intervals: [1000, 2000] }).toEqual(["in_review", "in_review"])
     const secondOldHead = (await f.github("Will", "GET", `/pulls/${secondBeforeMerge.pr.number}`) as any).head.sha
@@ -78,7 +78,7 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
         const current = await f.github("Will", "GET", `/pulls/${todo.pr.number}`) as any
         return todo.state === "in_review" && current.head.sha !== secondOldHead
       }, { timeout: 660_000, intervals: [1000, 2000] }).toBe(true)
-      if (n === 1) firstReviewedRevisions = todo.revisions
+      if (n === 1) firstReviewedRevisions = todo.prompt_revisions
       const prPath = `/pulls/${todo.pr.number}`
       const reviewed = await f.github("Will", "GET", prPath) as any
       const sha = reviewed.head.sha
@@ -196,10 +196,10 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
       }, { timeout: 120_000 }).toBe("completed")
       await runSlash(page, "/home")
       await expect(home(page)).toContainText(learning.id)
-      expect((await f.read("Will", "/api/todos")).map((t: any) => t.number)).toEqual([1, 2])
+      expect((await f.read("Will", "/api/todos")).map((t: any) => t.n)).toEqual([1, 2])
       await openTodo(page, 1)
       const after = await f.read("Will", "/api/todos/1")
-      expect(after.state).toBe("merged"); expect(after.revisions).toEqual(firstReviewedRevisions)
+      expect(after.state).toBe("merged"); expect(after.prompt_revisions).toEqual(firstReviewedRevisions)
       expect(after.lessons).toBeGreaterThanOrEqual(1)
       const receipt = todoCard(page, 1).getByRole("button", { name: `${after.lessons} lessons`, exact: true })
       await journeyActivate(receipt)

@@ -19,7 +19,10 @@ test("C-J4-03 only the next item merges; later items say Merges after Tn", scena
   await withReference(browser, info, async f => {
     const ben = f.members.Ben.page
     const merges = () => audit().filter(r => r.method === "PUT" && r.path.startsWith(`/repos/${f.repo}/pulls/`) && r.path.endsWith("/merge"))
-    const land = (id: string) => f.sql(`SELECT checks->'land' AS land FROM mythical_items WHERE id = '${id.replace(/'/g, "''")}'`)[0].land
+    const land = (n: number) => {
+      expect(Number.isSafeInteger(n) && n > 0).toBe(true)
+      return f.sql(`SELECT checks->'land' AS land FROM mythical_items WHERE number = ${n} AND repository_id = (SELECT repository_id FROM mythical_stacks WHERE state = 'active')`)[0].land
+    }
     const status = (sha: string) => f.github("Will", "POST", `/statuses/${sha}`, { context: "canary/required", state: "success", description: "Required passed" })
     const protect = (reviews: number) => f.github("Will", "PUT", "/branches/main/protection", {
       required_status_checks: { strict: false, contexts: ["canary/required"] }, enforce_admins: true,
@@ -44,10 +47,10 @@ test("C-J4-03 only the next item merges; later items say Merges after Tn", scena
     let todos: any[] = []
     await expect.poll(async () => {
       todos = await f.read("Will", "/api/todos")
-      return todos.map((t: any) => [t.number, t.state, Boolean(t.pr?.head)])
+      return todos.map((t: any) => [t.n, t.state, Boolean(t.pr?.head)])
     }, { timeout: 1_200_000, intervals: [1000, 2000, 5000] }).toEqual([[1, "in_review", true], [2, "in_review", true], [3, "in_review", true]])
     for (const todo of todos) await status(todo.pr.head)
-    const heads = Object.fromEntries(todos.map((t: any) => [t.number, t.pr.head])) as Record<number, string>
+    const heads = Object.fromEntries(todos.map((t: any) => [t.n, t.pr.head])) as Record<number, string>
     expect((await f.github("Will", "GET", `/pulls/${todos[0].pr.number}`) as any).draft).toBe(false)
     for (const later of todos.slice(1)) expect((await f.github("Will", "GET", `/pulls/${later.pr.number}`) as any).draft).toBe(true)
     await expect.poll(async () => (await f.read("Ben", "/api/todos/1")).merge?.state, { timeout: 120_000 }).toBe("ready")
@@ -90,7 +93,7 @@ test("C-J4-03 only the next item merges; later items say Merges after Tn", scena
     const calls = merges().slice(before)
     expect(calls).toHaveLength(1)
     expect(calls[0].body).toMatchObject({ sha: heads[1], merge_method: "squash" })
-    expect(land(first.id)).toMatchObject({ by: expect.any(String), head: heads[1] })
+    expect(land(first.n)).toMatchObject({ by: expect.any(String), head: heads[1] })
 
     // T2 rebases onto the new main and its PR is force-updated (§10.6.3).
     let second: any
@@ -128,7 +131,7 @@ test("C-J4-03 only the next item merges; later items say Merges after Tn", scena
     } finally {
       await protect(0)
     }
-    await attachJson(info, "merge-order", { todos: await f.read("Ben", "/api/todos"), calls: merges(), land: { T1: land(first.id), T2: land(second.id) } })
+    await attachJson(info, "merge-order", { todos: await f.read("Ben", "/api/todos"), calls: merges(), land: { T1: land(first.n), T2: land(second.n) } })
   })
 })
 
