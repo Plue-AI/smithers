@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 )
@@ -84,6 +86,7 @@ func TestCandidatePublicationEqualTreePush(t *testing.T) {
 	step := &mythicalItemStep{s: service, r: &mythicalRun{g: f.git, mainTip: base, owner: "fixture", repo: filepath.Base(f.root)}}
 	item := db.MythicalItem{Outsider: true, CandidateBase: base, CandidateHead: candidate, CandidateVerified: true, Checks: (mythicalChecks{Branch: "smithers/test"}).encode()}
 	op := mythicalProposalOp{Branch: "smithers/test", Head: proposal}
+	item = bindCandidatePublicationClaim(t, step, item)
 	require.NoError(t, step.pushProposal(t.Context(), item, mythicalGitHubRepo{GitURL: remote}, op))
 	// Observe GitHub independently rather than reading the candidate helper.
 	require.Equal(t, "checked", f.run("--git-dir", remote, "show", "refs/heads/smithers/test:a"))
@@ -104,6 +107,7 @@ func TestCandidatePublicationReplayOnMovedPrefix(t *testing.T) {
 	item := db.MythicalItem{CandidateBase: base, CandidateHead: candidate, CandidateVerified: true, Checks: (mythicalChecks{Branch: "smithers/test"}).encode()}
 	op := mythicalProposalOp{Branch: "smithers/test", Head: candidate}
 	gh := mythicalGitHubRepo{GitURL: remote}
+	item = bindCandidatePublicationClaim(t, step, item)
 	step.r.mainTip = f.commit("main moved", map[string]string{"b": "new main\n"})
 	require.ErrorContains(t, step.pushProposal(t.Context(), item, gh, op), "rebase_pending")
 	require.Empty(t, f.run("--git-dir", remote, "for-each-ref", "--format=%(refname)", "refs/heads"), "a recorded intent must not push after main moved")
@@ -113,4 +117,33 @@ func TestCandidatePublicationReplayOnMovedPrefix(t *testing.T) {
 	require.NoError(t, step.pushProposal(t.Context(), item, gh, op), "settle the effect committed before the crash without a second push")
 	require.Equal(t, candidate, f.run("--git-dir", remote, "rev-parse", "refs/heads/smithers/test"))
 	require.Equal(t, "checked", f.run("--git-dir", remote, "show", "refs/heads/smithers/test:a"))
+}
+
+// Positive publication fixtures carry the same live PostgreSQL claim as the
+// worker. Object equality alone never grants permission to write a branch.
+func bindCandidatePublicationClaim(t *testing.T, step *mythicalItemStep, item db.MythicalItem) db.MythicalItem {
+	t.Helper()
+	f := newMythicalServiceFixture(t)
+	ctx := t.Context()
+	q := db.New(f.pool)
+	_, err := q.RequestMythicalBootstrap(ctx, f.repoID, f.userID, 1, false)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_stacks SET running=true,claim=1,landed_main=$2,lease_expires_at=now()+interval '1 minute' WHERE repository_id=$1`, f.repoID, item.CandidateBase)
+	require.NoError(t, err)
+	var id pgtype.UUID
+	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,candidate_base,candidate_head,candidate_verified,outsider,checks) VALUES($1,'todo','proposing','Candidate',$2,$3,true,$4,$5) RETURNING id`, f.repoID, item.CandidateBase, item.CandidateHead, item.Outsider, item.Checks).Scan(&id))
+	saved, err := q.GetMythicalItem(ctx, id)
+	require.NoError(t, err)
+	step.s.store = f.pool
+	step.r.row, err = q.GetMythicalStack(ctx, f.repoID)
+	require.NoError(t, err)
+	return saved
+}
+
+func TestCandidatePushRefusesMissingClaimStore(t *testing.T) {
+	for _, service := range []*MythicalService{nil, {}} {
+		step := &mythicalItemStep{s: service}
+		err := step.pushCurrentProposal(t.Context(), db.MythicalItem{}, func() error { t.Fatal("unbound publication reached GitHub"); return nil })
+		require.ErrorContains(t, err, "claim store is unavailable")
+	}
 }
