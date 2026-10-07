@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
@@ -66,7 +67,6 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 		Name: "browser-test-claude-code", Via: "claude-code", Scopes: []string{"repo", "user"},
 	})
 	require.NoError(t, err)
-	token := credential.Token
 	wikiToken := "smithers_" + strings.Repeat("d", 40)
 	wikiSum := sha256.Sum256([]byte(wikiToken))
 	wikiHash := hex.EncodeToString(wikiSum[:])
@@ -106,7 +106,9 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NotNil(t, vite, "browser fixture did not start")
 	proxy := httputil.NewSingleHostReverseProxy(vite)
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/conversations/") {
+			chatRouter.ServeHTTP(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/api/") {
 			api.ServeHTTP(w, r)
 		} else {
 			proxy.ServeHTTP(w, r)
@@ -126,5 +128,5 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_build_object('approved',count(*) FILTER (WHERE state='approved'),'pending',count(*) FILTER (WHERE state='pending')) FROM approvals`).Scan(&result))
 	var counts map[string]int
 	require.NoError(t, json.Unmarshal(result, &counts))
-	require.Equal(t, map[string]int{"approved": 6, "pending": 0}, counts)
+	require.Equal(t, map[string]int{"approved": 5, "pending": 0}, counts)
 }
