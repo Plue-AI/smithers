@@ -27,6 +27,10 @@ export interface FailureActionProps {
 export const describedFailure = <Tag extends string>(tag: Tag, copy: UserFailureCopy, detail: string): UserFailure =>
   ({ tag, fault: copy.fault, sentence: copy.sentence, actions: copy.actions, detail })
 
+/** An infrastructure read that failed with nothing the person can do but wait. */
+export const unavailableFailure = <Tag extends string>(tag: Tag, sentence: string, detail: string): UserFailure =>
+  describedFailure(tag, { fault: "infra", sentence, actions: [] }, detail)
+
 const LABELS: Readonly<Record<UserFailureAction, string>> = {
   retry: "Retry",
   "sign-in": "Sign in",
