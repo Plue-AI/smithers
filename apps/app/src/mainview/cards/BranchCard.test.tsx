@@ -376,3 +376,19 @@ test("a listed open question binds Branch Answer without an activity question an
   bindings.onAction("todo.answer", { answer: "Include them", wait: "different-question" })
   expect(calls).toEqual([["todo.answer", { n: 9, answer: "Include them", wait: "branch-question-1" }]])
 })
+
+test("live step gestures require the run provider and a recorded agent run", () => {
+  const model = { ...definitionsOf(make(), "b-retry").model, presence: [{
+    actor: { kind: "agent" as const, id: "coding-1", agent: "coding" as const, run_id: "admitted-run", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 6 as const },
+    where: { kind: "step" as const, label: "Implement" }
+  }] }
+  const { calls, dispatch } = recorder()
+  expect(cardActions(dispatch, liveBranchActionDefinitions(model, new Set())).gestures.run).toBeUndefined()
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["run"])))
+  expect(bindings.gestures.run?.tag).toBe("run")
+  bindings.onAction("run", { id: "admitted-run" })
+  expect(calls).toEqual([["run", { id: "admitted-run" }]])
+  for (const presence of [[], [{ ...model.presence[0]!, actor: { ...model.presence[0]!.actor, run_id: undefined } }], [{ ...model.presence[0]!, where: { kind: "branch" as const } }]]) {
+    expect(cardActions(dispatch, liveBranchActionDefinitions({ ...model, presence }, new Set(["run"]))).gestures.run).toBeUndefined()
+  }
+})

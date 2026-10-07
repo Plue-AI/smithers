@@ -111,3 +111,39 @@ test("install Branch follows machine admission queue positions without waking", 
   await expect(page.getByTestId("composer-input")).toBeEditable()
   expect(writes).toEqual([])
 })
+
+test("install Branch agent step opens its admitted run inline through the shared flow", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.route("**/api/branches/working", route => route.fulfill({ json: { name: "working", machine: { id: "b-working" } } }))
+  const subscriptions: string[] = []
+  const writes: string[] = []
+  page.on("request", request => {
+    if (request.url().includes("/api/") && request.method() !== "GET") writes.push(request.url())
+  })
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub") return
+    subscriptions.push(frame.topic)
+    const data = frame.topic === "branch:b-working" ? {
+      id: "b-working", name: "working", machine: { state: "awake" }, scratch: { forked_from: { kind: "main" } },
+      presence: [{ actor: { kind: "agent", id: "coding-1", agent: "coding", run_id: "admitted-run", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 6 },
+        where: { kind: "step", label: "Implement" } }], terminals: [], ssh_line: "ssh -p 2222 working@localhost"
+    } : frame.topic === "run:admitted-run" ? {
+      id: "admitted-run", flow: "todo", version: "digest-1", title: "Implement retries", state: "running",
+      attempts: [], waits: [], tokens: 0, time_s: 0, cost_usd: 0, engine: [], journal: []
+    } : []
+    socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
+  }))
+  await page.goto("/")
+  await fillComposer(page, "/branch working")
+  await page.getByTestId("composer-send").click()
+  const branch = page.getByTestId("card-branch:b-working")
+  await branch.getByRole("button", { name: "Implement", exact: true }).press("Enter")
+  await expect(page.getByTestId("card-run:admitted-run")).toContainText("Implement retries")
+  await expect.poll(() => subscriptions.includes("run:admitted-run")).toBe(true)
+  await expect(page.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0)
+  await expect(branch).toBeVisible()
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  expect(writes.filter(url => url.includes("/api/branches") || url.includes("/api/runs/"))).toEqual([])
+})

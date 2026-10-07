@@ -47,7 +47,7 @@ export interface BranchCard {
  * @since 1.0.0
  * @category models
  */
-export type BranchViewProps = CardProps<BranchCard, {}, "item" | "file" | "terminal">
+export type BranchViewProps = CardProps<BranchCard, {}, "item" | "file" | "terminal" | "run">
 
 /**
  * Typed catalog callbacks for Branch.
@@ -70,6 +70,7 @@ export type BranchCardCallbacks = CardCallbacks<
   | "todo.answer"
   | "terminal"
   | "terminal.watch"
+  | "run"
   | "diff"
   | "ssh"
 >

@@ -262,7 +262,7 @@ function Presence({ model, gestures, onAction }: ListProps) {
                     ? gestures.file
                     : row.where.kind === "terminal"
                       ? gestures.terminal
-                      : undefined
+                      : row.actor.kind === "agent" && row.actor.run_id ? gestures.run : undefined
                 }
                 input={
                   row.where.kind === "file"
@@ -272,7 +272,7 @@ function Presence({ model, gestures, onAction }: ListProps) {
                       }
                     : row.where.kind === "terminal"
                       ? { id: row.where.id }
-                      : {}
+                      : row.actor.kind === "agent" && row.actor.run_id ? { id: row.actor.run_id } : {}
                 }
                 onAction={onAction}
               >

@@ -12,7 +12,7 @@ import { useDesignWorld } from "../state/seams/DesignWorld/hooks"
 import { designBranchModel } from "../state/seams/DesignWorld/branch"
 import { branchOf, todoOf, type DesignBranch, type DesignWorldRows } from "../state/seams/DesignWorld"
 
-type Gesture = "item" | "file" | "terminal"
+type Gesture = "item" | "file" | "terminal" | "run"
 type Definition = CardActionDefinition<CatalogTag, Gesture>
 
 /**
@@ -49,6 +49,10 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
   const definitions: Definition[] = []
   if (model.terminals.length) definitions.push({ tag: "terminal.watch", label: "Watch", gesture: "terminal",
     command_input: { id: "" }, resolve_input: input => ({ id: input.id ?? "" }) })
+  if (model.presence.some(row => row.where.kind === "step" && row.actor.kind === "agent" && row.actor.run_id)) definitions.push({
+    tag: "run", label: "Open", gesture: "run", command_input: { id: "" },
+    resolve_input: input => ({ id: input.id ?? "" })
+  })
   const n = model.item?.n
   if (n !== undefined) definitions.push({ tag: "todo", label: model.item!.title, gesture: "item",
     command_input: { n }, resolve_input: () => ({ n }) })
@@ -157,6 +161,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controller.branchFiles?.available()) providers.add("file")
   if (controller.terminalCards?.available()) providers.add("terminal.watch")
   if (controller.forkBranch) providers.add("branch.fork")
+  if (controller.runMonitors && typeof controller.openRunMonitor === "function") providers.add("run")
   const controls = controller.branchControls
   if (controls?.available("sleep")) providers.add("box.suspend")
   if (controls?.available("wake")) providers.add("box.resume")

@@ -2,6 +2,8 @@
 
 T-APP-10 wave 2 contract coverage: [Branch live](../branch-live.spec.ts) exercises the production `/branch T2` door with captured sleeping facts, durable burst and changed-file wire payloads, Files tab selection and file-row/presence-link navigation to captured bytes without waking, missing optional streams, and the authorized Fork binding. [Branch tree](../branch-navigation.spec.ts) exercises live presence from `branch:<machine-id>` and persisted navigation. These are test-only HTTP/WebSocket contracts; C-J3-01/C-J3-03/C-J3-09/C-J7-03/C-J10-04 and the legacy renderer cutover remain pending their composed providers and reference-host receipts.
 
+T-APP-10 run navigation: [Branch live](../branch-live.spec.ts) clicks the admitted coding agent’s step through the mounted Branch and shared `/run` dispatcher, receives its live Run projection inline, and keeps Chat editable. Missing run provider or run identity leaves the step unbound; no machine/run write occurs.
+
 T-APP-10 machine admission: the composed PostgreSQL/live boundary and [Branch live](../branch-live.spec.ts) verify Waiting for a machine #2 → #1 → Waking, with no admission effects from reads. This is queue projection evidence; physical microVM execution remains reference-host work.
 
 T-APP-10 member attribution: composed PostgreSQL/live tests resolve durable numeric member IDs through the existing roster; the Branch browser fixture verifies the resolved SSH actor in Activity and Files. Five composed tests and two browser tests pass; guest burst ingestion still needs reference-host evidence.
