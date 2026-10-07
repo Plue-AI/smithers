@@ -193,7 +193,7 @@ for (const loss of ["disconnect", "gap", "other-topic gap"] as const) test(`live
   } finally { await controller.dispose(); channel.dispose() }
 })
 
-for (const command of ["todo.from-issue", "issue.implement"]) test(`${command} refuses a failed preflight read and uses the current digest on recovery`, async () => {
+for (const command of ["todo.from-issue"]) test(`${command} refuses a failed preflight read and uses the current digest on recovery`, async () => {
   const {store,controller,posts,setReadFailure,setDigest} = await installApp()
   try {
     await controller.runCommandForResult("issue", "#2")

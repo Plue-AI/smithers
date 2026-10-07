@@ -67,7 +67,6 @@ export const FLOW_NAMES = [
   "agent",
   "monitor",
   "context.inspect",
-  "issue.implement",
   "stack",
   "stack.move",
   "merge",

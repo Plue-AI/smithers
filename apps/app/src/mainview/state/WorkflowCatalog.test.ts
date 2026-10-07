@@ -129,9 +129,9 @@ test("Review a PR refuses without host providers; the agent only requests confir
   try {
     // The form carries the review it continues (#3119), so its card is scoped to that act.
     const boxForms = () => [...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.flow === "box.open")
-    expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("failed")
+    expect((await controller.commands.run("review", `4 ${repo}`)).status).toBe("failed")
     expect(boxForms()).toEqual([])
-    const agent = await controller.commands.runForAgent("prs.triage", `4 ${repo}`)
+    const agent = await controller.commands.runForAgent("review", `4 ${repo}`)
     expect(agent).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
     expect(boxForms()).toEqual([])
     expect(calls).toEqual([])
@@ -142,7 +142,7 @@ test("Review a PR refuses an ambiguous branch before reading the PR", async () =
   const { controller, store, calls } = await fixture()
   try {
     await loadBox(store, repo, "0b0c0d0e-0000-4000-8000-000000000002")
-    expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("failed")
+    expect((await controller.commands.run("review", `4 ${repo}`)).status).toBe("failed")
     expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
@@ -160,7 +160,7 @@ test("explicit issue flow inspection and launch offer the existing box form", as
     }
     const agent = await controller.commands.runForAgent("issue.repro", `9 ${repo}`)
     expect(agent.status).toBe("failed")
-    if (agent.status === "failed") expect(agent.error).toContain("Open a box")
+    if (agent.status === "failed") expect(agent.error).toContain("/issue.repro is user-only")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
@@ -182,7 +182,7 @@ test("direct issue controller calls keep no-box refusal semantics and create no 
 test("Make TODO stays dark before fetching an issue or opening a box", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
-    for (const name of ["issue.implement", "todo.from-issue"]) {
+    for (const name of ["todo.from-issue"]) {
       expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("failed")
     }
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
@@ -204,7 +204,7 @@ test("issue flows refuse an ambiguous branch without rendering a retired picker"
     for (const name of ["issue.flows", "issue.repro"] as const) {
       const agent = await controller.commands.runForAgent(name, `9 ${repo}`)
       expect(agent.status).toBe("failed")
-      if (agent.status === "failed") expect(agent.error).toContain("Select a box")
+      if (agent.status === "failed") expect(agent.error).toContain(`/${name} is user-only`)
     }
     expect(store.collections.cards.get("form-box.select")).toBeUndefined()
     expect(calls).toEqual([])
