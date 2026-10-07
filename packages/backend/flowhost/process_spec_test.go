@@ -363,6 +363,21 @@ func TestPinnedTodoHostUsesImmutableSourceExport(t *testing.T) {
 	require.Equal(t, strings.Repeat("c", 64), spec.Environment["SMITHERS_TODO_EXECUTION_DIGEST"])
 	require.Equal(t, strings.Repeat("b", 40), spec.Environment["SMITHERS_SOURCE_REVISION"])
 	require.Contains(t, spec.Args, "/workspace/repo", "coding actions retain their editable root")
+	for _, kind := range []string{"browser-flow", "agent-session", "workflow-run", "draft-flow"} {
+		t.Run("pinned host/"+kind, func(t *testing.T) {
+			binding.BindingKind, authority.Target.BindingKind = kind, kind
+			spec, err := BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+			if kind != "browser-flow" {
+				require.Error(t, err, "foreign and draft hosts cannot carry a TODO pin")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_PINNED"])
+			require.Equal(t, strings.Repeat("c", 64), spec.Environment["SMITHERS_TODO_EXECUTION_DIGEST"])
+			require.Equal(t, strings.Repeat("b", 40), spec.Environment["SMITHERS_SOURCE_REVISION"])
+			require.NotContains(t, spec.Environment, "SMITHERS_FLOW_DRAFT_VERSION")
+		})
+	}
 	authority.ExecutionPin = nil
 	binding.BindingKind = "workflow-run"
 	authority.Target.BindingKind = binding.BindingKind

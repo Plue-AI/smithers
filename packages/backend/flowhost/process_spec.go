@@ -102,7 +102,11 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	delete(environment, "SMITHERS_FLOW_SOURCE_PINNED")
 	delete(environment, "SMITHERS_TODO_EXECUTION_DIGEST")
 	if pin := launch.Authority.ExecutionPin; pin != nil {
-		if launch.Binding.BindingKind != "mythical-item" || !pin.Valid() || pin.Flow != "todo" || pin.SourceCommit != launch.Binding.SourceRevision {
+		// A browser catalog read may create the shared TODO machine's host
+		// before its stack worker. Both callers resolve this pin from the
+		// admitted attempt; the browser remains unable to launch the TODO.
+		pinnedHost := launch.Binding.BindingKind == "mythical-item" || launch.Binding.BindingKind == "browser-flow"
+		if !pinnedHost || !pin.Valid() || pin.Flow != "todo" || pin.SourceCommit != launch.Binding.SourceRevision {
 			return ProcessSpec{}, errors.New("flow host attempt pin conflicts with its source binding")
 		}
 		environment["SMITHERS_FLOW_SOURCE_PINNED"] = "1"
