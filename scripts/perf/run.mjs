@@ -9,7 +9,7 @@ import { configuration as projectionConfiguration, run as projectionRun } from '
 
 import { configuration as keystrokeConfiguration, run as keystrokeRun } from './keystroke.mjs'
 import { configuration as diskConfiguration, run as diskRun } from './disk-write.mjs'
-import { configuration as wakeConfiguration, run as wakeRun } from './warm-wake.mjs'
+import { configuration as wakeConfiguration, run as wakeRun, verifyWake, summarizeWakes } from './warm-wake.mjs'
 
 // No operator boolean can qualify privileged lifecycle inputs. Until the install
 // exposes authenticated qualification, refuse before invoking machine workloads.
@@ -114,6 +114,13 @@ export async function run({ env = process.env, providers = productionProviders, 
       for (const [name, limit] of Object.entries(budget.thresholdsMs)) {
         const field = provider.fields[name]
         if (!field || entry.stats[field]?.p95 >= limit) throw new Error(`${name} p95 must be below ${limit} ms`)
+      }
+      if (budget.check === 'C-PERF-05') {
+        for (const sample of entry.samples) {
+          const verified = verifyWake(sample, sample.observation)
+          if (verified.hostMs !== sample.hostMs) throw new Error('wake duration differs from host observation')
+        }
+        entry.wakeStats = summarizeWakes(entry.samples)
       }
       if (budget.check === 'C-PERF-06') entry.cohorts = summarizeRebases(entry.samples)
       entry.status = 'passed'

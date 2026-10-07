@@ -254,3 +254,24 @@ test('bound machine drivers return failure observations without writing nested r
   }
   assert.deepEqual(await readdir(root), [])
 }))
+
+test('unified wake verdict verifies host intervals and unique requests independently of the provider', async () => {
+  const wakes = Array.from({ length: 100 }, (_, i) => ({ requestId: `wake-${i}`, branch: 'branch', capturedHead: 'b'.repeat(40), hostMs: 100, clientMs: 9000, clock: 'host monotonic/boot', failed: false,
+    observation: { requestId: `wake-${i}`, branch: 'branch', kind: 'warm', failed: false, bootId: `boot-${i}`, workingHead: 'b'.repeat(40), acceptedNs: '100000000', awakeWrittenNs: '200000000' } }))
+  const cases = [
+    { samples: wakes, status: 'passed' },
+    { samples: wakes.map(() => wakes[0]), status: 'failed' },
+    { samples: wakes.map(s => ({ ...s, hostMs: 1 })), status: 'failed' },
+    { samples: wakes.map(s => ({ ...s, observation: { ...s.observation, kind: 'cold' } })), status: 'failed' },
+    { samples: wakes.map(s => ({ ...s, observation: undefined })), status: 'failed' }
+  ]
+  for (const fixture of cases) await temporary(async root => {
+    const result = await run({ ...options, root, check: 'C-PERF-05', providers: { 'C-PERF-05': { available() {}, fields: productionProviders['C-PERF-05'].fields, async measure() { return { ...passing(), samples: fixture.samples } } } } })
+    assert.equal(result.summary.status, fixture.status)
+    assert.equal(result.summary.budgets[0].samples.length, 100)
+    if (fixture.status === 'passed') {
+      assert.equal(result.summary.budgets[0].wakeStats.hostMs.p95, 100)
+      assert.equal(result.summary.budgets[0].wakeStats.clientMs.p95, 9000)
+    }
+  })
+})
