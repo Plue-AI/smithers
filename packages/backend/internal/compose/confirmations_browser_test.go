@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
@@ -85,10 +86,14 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
 	cfg.Server.PublicURL, cfg.Server.AllowedOrigins = origin, []string{origin}
 	todos := services.NewMythicalService(pool, nil)
+	content, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: origin})
+	require.NoError(t, err)
+	wiki := services.NewWikiService(q, nil, services.WithWikiContent(content), services.WithWikiCollaboration(q, nil))
+	todos.SetLearningWiki(wiki)
 	topics := &liveTopics{queries: q, todos: todos}
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	router := githubAppSetupComposeRouter(cfg, pool, nil,
-		&routes.UserHandler{ProfileService: services.NewUserService(q)},
+		&routes.UserHandler{ProfileService: services.NewUserService(q)}, wiki,
 		&routes.ApprovalsHandler{Service: services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))},
 		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Live: liveHandler})
 	conversation, err := chat.NewRuntime(pool, revokedAuthorHost{started: make(chan ports.ChatTurnGrant, 8), stopped: make(chan string, 8)}, origin, chat.RuntimeOptions{})
