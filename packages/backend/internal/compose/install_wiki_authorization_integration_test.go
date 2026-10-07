@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -29,10 +30,13 @@ func TestInstallWikiWriteAuthorizationPostgres(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Close()
 	wiki := services.NewWikiService(f.q, nil, services.WithWikiContent(store), services.WithWikiCollaboration(f.q, nil))
+	todos := services.NewMythicalService(f.pool, nil)
+	todos.SetLearningWiki(wiki)
+	confirmations := services.NewApprovalsService(f.q, services.WithConfirmationTodos(f.pool, todos))
 	router := buildRouterCompat(cfg, f.q, f.pool,
 		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, wiki, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Confirmations: confirmations})
 	cookie := "wiki-member"
 	sum := sha256.Sum256([]byte(cookie))
 	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
@@ -42,7 +46,11 @@ func TestInstallWikiWriteAuthorizationPostgres(t *testing.T) {
 	external := f.token(f.owner, "wiki-external", "read:repository,write:repository,via:codex", true)
 	call := func(t *testing.T, method, path, body, token, command string, status int) string {
 		t.Helper()
-		req := httptest.NewRequest(method, cfg.Server.PublicURL+"/api/repos/gate-owner/app/wiki"+path, strings.NewReader(body))
+		endpoint := path
+		if !strings.HasPrefix(path, "/api/") {
+			endpoint = "/api/repos/gate-owner/app/wiki" + path
+		}
+		req := httptest.NewRequest(method, cfg.Server.PublicURL+endpoint, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", "wiki-authority-"+method+path)
 		req.Header.Set("Origin", cfg.Server.PublicURL)
@@ -58,7 +66,11 @@ func TestInstallWikiWriteAuthorizationPostgres(t *testing.T) {
 		out := httptest.NewRecorder()
 		router.ServeHTTP(out, req)
 		require.Equal(t, status, out.Code, out.Body.String())
-		require.Equal(t, []string{command}, decisions)
+		if command == "" {
+			require.Empty(t, decisions)
+		} else {
+			require.Equal(t, []string{command}, decisions)
+		}
 		return out.Body.String()
 	}
 	for _, actor := range []struct{ name, token string }{{"run", run}, {"external", external}} {
@@ -87,7 +99,20 @@ func TestInstallWikiWriteAuthorizationPostgres(t *testing.T) {
 		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT body FROM wiki_pages WHERE repository_id=$1 AND slug='decision'`, f.repoID).Scan(&body))
 		require.Equal(t, "Revised decision", body)
 		call(t, "PATCH", "/decision", `{"body":"App decision","expected_revision":2}`, appAgent, "wiki.edit", 200)
-		call(t, "DELETE", "/decision", "", appAgent, "wiki.delete", 204)
+		requested := call(t, "DELETE", "/decision", "", appAgent, "wiki.delete", 202)
+		var receipt services.ConfirmationReceipt
+		require.NoError(t, json.Unmarshal([]byte(requested), &receipt))
+		require.Equal(t, "pending", receipt.State)
+		require.NotEmpty(t, receipt.ID)
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1 AND slug='decision'`, f.repoID).Scan(&count))
+		require.Equal(t, 1, count)
+		call(t, "POST", "/api/confirmations/"+receipt.ID+"/approve", "", appAgent, "", 403)
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1 AND slug='decision'`, f.repoID).Scan(&count))
+		require.Equal(t, 1, count)
+		for range 2 {
+			approved := call(t, "POST", "/api/confirmations/"+receipt.ID+"/approve", "", "", "wiki.delete", 200)
+			require.Contains(t, approved, `"state":"approved"`)
+		}
 		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1`, f.repoID).Scan(&count))
 		require.Zero(t, count)
 	})
