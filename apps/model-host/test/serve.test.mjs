@@ -121,8 +121,21 @@ test("refuses to start off loopback or with incomplete configuration", async () 
   }
 })
 
+test("refuses invalid or already abandoned launching-parent bindings before listening", async () => {
+  for (const parent of ["", "0", "1", "-2", "2.5", "not-a-pid", "9007199254740992"]) {
+    const result = await run(["serve"], hostEnv({ SMITHERS_CHAT_HOST_PARENT_PID: parent })).exited
+    assert.equal(result.code, 1)
+    assert.equal(result.stdout, "")
+    assert.match(result.stderr, /SMITHERS_CHAT_HOST_PARENT_PID is invalid/)
+  }
+  const result = await run(["serve"], hostEnv({ SMITHERS_CHAT_HOST_PARENT_PID: "2" })).exited
+  assert.equal(result.code, 1)
+  assert.equal(result.stdout, "")
+  assert.equal(result.stderr, "")
+})
+
 test("answers health and refuses unknown routes, wrong methods and bad bearers", async (t) => {
-  const host = await launch()
+  const host = await launch(hostEnv({ SMITHERS_CHAT_HOST_PARENT_PID: String(process.pid) }))
   t.after(() => host.child.kill("SIGKILL"))
   const { port } = host.identity
   assert.deepEqual(host.identity, { protocol: PROTOCOL, host: "127.0.0.1", port })

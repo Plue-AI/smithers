@@ -214,6 +214,7 @@ func (launcher *LocalLauncher) LaunchChatHost(ctx context.Context, grant ports.C
 	environment["SMITHERS_CHAT_HOST_TOKEN"] = token
 	environment["SMITHERS_CHAT_CALLBACK_URL"] = grant.ProducerBaseURL
 	environment["SMITHERS_CHAT_MODEL"] = string(binding.Model)
+	environment["SMITHERS_CHAT_HOST_PARENT_PID"] = strconv.Itoa(os.Getpid())
 
 	// A fresh workspace per launch prevents a duplicate recovery candidate
 	// from tearing down another in-flight host for the same turn.

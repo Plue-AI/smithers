@@ -26,6 +26,18 @@ if (parsed.values.help) {
   process.exit(0)
 }
 if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "serve") throw new Error("Expected serve command")
+// macOS has no parent-death signal. Retire the credentialed local host after
+// its launching backend dies, including death before this host becomes ready.
+const parentPid = process.env.SMITHERS_CHAT_HOST_PARENT_PID
+if (parentPid !== undefined) {
+  const expectedParent = Number(parentPid)
+  if (!/^[1-9]\d*$/.test(parentPid) || !Number.isSafeInteger(expectedParent) || expectedParent <= 1) {
+    throw new Error("SMITHERS_CHAT_HOST_PARENT_PID is invalid")
+  }
+  const checkParent = () => { if (process.ppid !== expectedParent) process.exit(1) }
+  checkParent()
+  setInterval(checkParent, 100).unref()
+}
 if (parsed.values.host !== "127.0.0.1" && parsed.values.host !== "::1" && parsed.values.host !== "localhost") {
   throw new Error("The public local model host must bind loopback")
 }
