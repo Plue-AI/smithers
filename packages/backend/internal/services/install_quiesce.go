@@ -129,10 +129,12 @@ func (g *QuiesceGate) expire(ctx context.Context, row *QuiesceFreeze) (*QuiesceF
 	}
 	if row != nil && !time.Now().Before(row.LeaseUntil) && !marker {
 		slog.Warn("quiesce lease lapsed", "op", row.Op)
-		if resume, ok := g.resume.Load().(func(context.Context) error); ok {
-			if err := resume(ctx); err != nil {
-				return row, err
-			}
+		resume, ok := g.resume.Load().(func(context.Context) error)
+		if !ok {
+			return row, errors.New("quiesce recovery providers unavailable")
+		}
+		if err := resume(ctx); err != nil {
+			return row, err
 		}
 		return nil, nil
 	}
@@ -197,6 +199,20 @@ func NewInstallQuiesce(gate *QuiesceGate) *InstallQuiesce {
 }
 
 func (s *InstallQuiesce) resume(ctx context.Context) error {
+	// Persisted leases can outlive the process which stopped these providers.
+	// Clearing one without every resume authority would report a live install
+	// while some of its workers remain stopped.
+	if s.Host == nil {
+		return &QuiesceDependencyError{"T-FLW-01"}
+	}
+	if s.Admission == nil {
+		return &QuiesceDependencyError{"T-MCH-06"}
+	}
+	for _, ticket := range quiesceBarrierTickets {
+		if s.Barriers[ticket] == nil {
+			return &QuiesceDependencyError{ticket}
+		}
+	}
 	// Runtime first; admission resumes last, while the gate still fences writes.
 	if s.Host != nil {
 		if err := s.Host.Resume(ctx); err != nil {
