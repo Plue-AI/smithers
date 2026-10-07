@@ -253,3 +253,9 @@ rejects mismatched clocks, receipt replay, missing edits and missing delayed
 capture/drain evidence independently of the workload verdict. This validation
 is covered with test-only boundaries; it does not activate the production
 adapter or qualify a reference-host check.
+The durable preflight producer now records `at` and a process-scoped
+`host monotonic:` clock on both phases, including every journal page. Historical
+frames without timing remain readable. Paired preflight durations may be
+aggregated across producers; raw samples keep each process clock identity.
+Serving these frames through the installed Inspect trace route and real
+reference-Mac browser qualification remain required before C-PERF-01 can pass.

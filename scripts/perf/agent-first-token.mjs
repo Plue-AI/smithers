@@ -64,6 +64,16 @@ export function preflightTiming(events, runId) {
 
 }
 
+// Only durations are aggregated across producer processes. Every raw sample
+// keeps its own clock identity, and its endpoints were paired by preflightTiming.
+export function summarizePreflights(samples) {
+  return summarize(samples.map(sample => ({
+    durationMs: sample.preflight.durationMs,
+    clock: 'host monotonic:paired process-local durations',
+    failed: sample.failed
+  })), ['durationMs'], 100)
+}
+
 export function wakeCount(metrics) {
   const family = metrics?.find(metric => metric.name === 'smithers_machine_wake_total')
   if (!family || !Array.isArray(family.metric) || !family.metric.length) throw new Error('T-MCH-06: wake counter cross-check unavailable')
@@ -172,7 +182,7 @@ export async function run(env = process.env, { persist = true } = {}) {
       result.samples.push({ ...sample, question, preflight, firstTokenMs: sample.t1 - sample.t0, answerWithCardsMs: sample.t2 - sample.t0, clock: result.clock, failed: false })
     }
     result.summary = summarize(result.samples, ['firstTokenMs', 'answerWithCardsMs'], 100)
-    result.preflightSummary = summarize(result.samples.map(sample => ({ durationMs: sample.preflight.durationMs, clock: sample.preflight.clock, failed: false })), ['durationMs'], 100)
+    result.preflightSummary = summarizePreflights(result.samples)
     if (result.summary.firstTokenMs.p95 >= 1500 || result.summary.answerWithCardsMs.p95 >= 8000) throw new Error('agent p95 exceeds budget')
     const metrics = await fetch(`${config.origin}/api/install/metrics`, { headers: { Cookie: env.SMITHERS_PERF_OWNER_COOKIE }, redirect: 'error', signal: AbortSignal.timeout(10000) })
     if (metrics.status !== 200) throw new Error(`metrics cross-check returned ${metrics.status}`)

@@ -200,3 +200,11 @@ test('rebase threshold and cleanup failures retain all completed raw observation
     [start, { ...first, at: -1 }, last]
   ]) assert.throws(() => preflightTiming(events, 'run'))
  })
+test('preflight cross-check aggregates paired durations from separate producer processes', async () => {
+  const { summarizePreflights } = await import('./agent-first-token.mjs')
+  const samples = Array.from({ length: 100 }, (_, i) => ({ failed: false, preflight: { start: i * 100, end: i * 100 + i + 1, durationMs: i + 1, clock: `host monotonic:producer-${i}` } }))
+  assert.equal(summarizePreflights(samples).durationMs.p95, 95)
+  assert.throws(() => summarizePreflights(samples.slice(1)), /100 samples/)
+  assert.throws(() => summarizePreflights(samples.map(s => ({ ...s, failed: true }))), /succeed/)
+  assert.throws(() => summarizePreflights(samples.map(s => ({ ...s, preflight: { ...s.preflight, durationMs: -1 } }))), /invalid/)
+})
