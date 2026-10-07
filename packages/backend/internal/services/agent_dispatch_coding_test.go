@@ -14,6 +14,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
 type recordingAgentFlowDispatcher struct {
@@ -237,6 +238,47 @@ func TestCodingDispatchEnabledNeedsDispatcherAndWorkspace(t *testing.T) {
 
 	wired := &agentDispatch{svc: &AgentService{flowDispatcher: dispatcher, workspaces: stubAgentWorkspaceBackend{}}, input: owned}
 	assert.True(t, wired.codingDispatchEnabled())
+}
+
+// recordingAgentWorkspaces keeps the attachment request dispatch made.
+type recordingAgentWorkspaces struct {
+	stubAgentWorkspaceBackend
+	inputs *[]CreateAgentWorkspaceInput
+}
+
+func (r recordingAgentWorkspaces) CreateAgentWorkspace(_ context.Context, input CreateAgentWorkspaceInput) (AgentWorkspaceResult, error) {
+	*r.inputs = append(*r.inputs, input)
+	return AgentWorkspaceResult{WorkspaceID: "workspace", VMID: "vm"}, nil
+}
+
+// #3755: a hosted coding turn binds its agent token for egress, but the coding
+// host runs the turn and the agent unit never reaches the box. Asking the
+// shared branch machine to hold those bindings refused every hosted session.
+func TestCodingDispatchAttachesWithoutTheUnusedAgentUnitBindings(t *testing.T) {
+	secret := sandbox.EgressProxySecret{Name: "SMITHERS_AGENT_TOKEN", Value: "token", Hosts: []string{"api.example.com"}, MatchHeaders: []string{"authorization"}}
+	owned := DispatchAgentRunInput{RepoOwner: "org", RepoName: "repo", SessionID: "6492fbde-3fd6-4e85-85c1-34b749b7df48"}
+	for _, tc := range []struct {
+		name       string
+		dispatcher AgentFlowDispatcher
+		want       []sandbox.EgressProxySecret
+	}{
+		{name: "coding turn", dispatcher: &recordingAgentFlowDispatcher{}},
+		{name: "agent unit", want: []sandbox.EgressProxySecret{secret}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var inputs []CreateAgentWorkspaceInput
+			dispatch := &agentDispatch{
+				ctx:           context.Background(),
+				svc:           &AgentService{flowDispatcher: tc.dispatcher, workspaces: recordingAgentWorkspaces{inputs: &inputs}},
+				input:         owned,
+				egressSecrets: []sandbox.EgressProxySecret{secret},
+			}
+			require.NoError(t, dispatch.createAgentWorkspaceVM())
+			require.Len(t, inputs, 1)
+			assert.Equal(t, tc.want, inputs[0].EgressSecrets)
+			assert.Equal(t, "workspace", dispatch.workspaceID)
+		})
+	}
 }
 
 func TestCleanupCancellationReconnectsByStableProductRequest(t *testing.T) {

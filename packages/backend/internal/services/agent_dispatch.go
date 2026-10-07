@@ -761,6 +761,13 @@ func (d *agentDispatch) createAgentWorkspaceVM() error {
 	if len(d.gitRepos) > 1 {
 		members = append(members, d.gitRepos[1:]...)
 	}
+	// On the coding path the workspace's coding host runs the turn and the
+	// agent unit carrying these bindings never reaches the box (execute), so
+	// the shared machine is asked to hold none of them (#3755).
+	var egress []sandbox.EgressProxySecret
+	if !d.codingDispatchEnabled() {
+		egress = append(egress, d.egressSecrets...)
+	}
 	vmCreateStartedAt := time.Now()
 	provisionCtx := d.ctx
 	if d.sandboxStartAuthorized {
@@ -773,7 +780,7 @@ func (d *agentDispatch) createAgentWorkspaceVM() error {
 		RepoOwner:      d.input.RepoOwner,
 		RepoName:       d.input.RepoName,
 		SourceBookmark: d.input.SourceBookmark,
-		EgressSecrets:  append([]sandbox.EgressProxySecret(nil), d.egressSecrets...),
+		EgressSecrets:  egress,
 		Members:        members,
 	})
 	d.vmCreateDuration = time.Since(vmCreateStartedAt)
