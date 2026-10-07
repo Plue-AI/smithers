@@ -83,15 +83,11 @@ func TestInstallWorkspaceSystemActionsPostgres(t *testing.T) {
 		t.Run(cell.name, func(t *testing.T) {
 			status, body, _ := call(cell.method, cell.path, cell.credential, cell.body)
 			require.Equal(t, 403, status, body)
-			code := "permission"
-			if cell.name == "children cannot report head" {
-				// The read-only child credential is refused by scope middleware
-				// before the workspace authorizer or head mutation.
-				code = "forbidden"
-				require.Contains(t, body, "insufficient token scope")
-			}
 			require.Contains(t, body, `"class":"permission"`)
-			require.Contains(t, body, `"code":"`+code+`"`)
+			require.Contains(t, body, `"code":"permission"`)
+			if cell.name == "children cannot report head" {
+				require.Contains(t, body, "Workspace credential required")
+			}
 		})
 	}
 	row, err := q.GetWorkspace(ctx, other.ID)
