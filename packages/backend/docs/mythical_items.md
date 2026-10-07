@@ -438,7 +438,7 @@ The composed engine uses the effective value for its launch limit, and Home
 reports that value to the owner. Install TODO attempts use their bound branch
 machines and the composed launcher; hosted composition refuses fresh work.
 
-The install counts pending launches and runtime-owned machines, including
+The install counts runtime-confirmed reservations and owned machines, including
 cancelled grants awaiting an observed stop. Unknown runtime ownership refuses
 new launches. Publishing for review retains the branch machine; publication
 alone cannot establish safe-idle. The runtime's existing safe-idle lifecycle
@@ -458,8 +458,8 @@ Home reads every displayed queue position from one scheduler snapshot,
 including people waiting ahead of TODOs. TODO reads use the same ordered
 waiting set. Runtime-confirmed reservations and releases wake the existing
 stack worker. Waiting work remains scheduled for setting and capacity changes.
-Committed card/Home fact projection and live refresh for runtime-only demand
-changes still require the live projection contract.
+The composed live endpoint refreshes Home positions together after reorder or
+runtime-only person cancellation, using its existing snapshot protocol.
 The runtime rechecks the saved parallel setting at each grant.
 
 Production safe-idle observation providers and the complete C-STK-02 journey
