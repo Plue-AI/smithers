@@ -55,6 +55,7 @@ pub(crate) fn execute(request: Request) -> Result<Document, FfiError> {
     // characters. A Rust byte offset must never split a browser character.
     let doc = document_core::document(None);
     let text = doc.get_or_insert_text("markdown");
+    // Materialize the live editor's shared root before validating decoded state.
     doc.get_or_insert_map("authors");
     let replacement = match request {
         Request::Seed { markdown } => Some(markdown),
@@ -232,6 +233,32 @@ mod tests {
         })
         .unwrap();
         assert_eq!(emptied.markdown, "");
+    }
+
+    #[test]
+    fn replacing_a_live_document_preserves_its_author_map() {
+        let initial = seed("App decision.\n");
+        let editor = client(&initial.state);
+        editor
+            .get_or_insert_map("authors")
+            .insert(&mut editor.transact_mut(), "7", "owner");
+        let state = BASE64_STANDARD.encode(document_core::state(&editor));
+        let replaced = execute(Request::Replace {
+            state,
+            markdown: "App decision.\nFolder decision.\n".into(),
+        })
+        .unwrap();
+        assert_eq!(replaced.markdown, "App decision.\nFolder decision.\n");
+        let restored = client(&replaced.state);
+        let authors = restored.get_or_insert_map("authors");
+        assert_eq!(
+            authors.get(&restored.transact(), "7"),
+            Some(yrs::Out::Any(yrs::Any::String("owner".into())))
+        );
+        assert_eq!(
+            merge(&replaced.state, &initial.state).markdown,
+            replaced.markdown
+        );
     }
 
     #[test]
