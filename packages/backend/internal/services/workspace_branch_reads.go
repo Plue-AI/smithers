@@ -19,6 +19,7 @@ type BranchMachineResponse struct {
 	Name       string            `json:"name"`
 	Kind       string            `json:"kind"`
 	State      string            `json:"state"`
+	TodoID     string            `json:"todo_id,omitempty"`
 	Head       string            `json:"head,omitempty"`
 	ForkedFrom *BranchForkedFrom `json:"forked_from,omitempty"`
 	Machine    WorkspaceResponse `json:"machine"`
@@ -173,6 +174,24 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 func (s *WorkspaceService) projectBranch(ctx context.Context, q *db.Queries, row db.Workspace, machine WorkspaceResponse) (BranchMachineResponse, error) {
 	branch := BranchMachineResponse{Name: row.TargetBookmark, Kind: branchKind(row.TargetBookmark), State: branchMachineState(row),
 		Head: row.HeadCommitID, Machine: machine}
+	if branch.Kind == "item" {
+		lane, err := q.GetMythicalLane(ctx, row.ID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return BranchMachineResponse{}, err
+		}
+		if err == nil && !lane.RetiredAt.Valid {
+			item, err := q.GetMythicalItem(ctx, lane.ItemID)
+			if err != nil {
+				return BranchMachineResponse{}, err
+			}
+			if item.WorkspaceID == row.ID {
+				branch.TodoID = uuidString(item.ID)
+				if seed := mythicalChecksOf(item).Seed; seed != nil && row.HeadCommitID == seed.Captured {
+					branch.Head = seed.Head
+				}
+			}
+		}
+	}
 	if row.IsFork && (row.ForkedFromItem.Valid || row.ForkedFromBase != "") {
 		from := &BranchForkedFrom{Kind: "main", Ref: "main", Commit: row.SourceCommit, Base: row.ForkedFromBase}
 		if row.ForkedFromItem.Valid {
