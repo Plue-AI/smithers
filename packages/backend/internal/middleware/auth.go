@@ -243,6 +243,15 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					writeDeadCredential(w)
 					return
 				}
+				// A managed CLI pins its host-issued terminal session. A token
+				// copied from another session cannot become its next identity.
+				if sessions := r.Header.Values("Smithers-Terminal-Session"); len(sessions) > 0 {
+					delegation, delegated := authInfo.Delegation()
+					if len(sessions) != 1 || !delegated || delegation.Session == "" || sessions[0] != delegation.Session {
+						writeDeadCredential(w)
+						return
+					}
+				}
 				if config.IsSingleOwner(cfg) && !BindInstallCredential(authInfo) {
 					writeDeadCredential(w)
 					return

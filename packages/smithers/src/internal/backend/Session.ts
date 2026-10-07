@@ -120,12 +120,16 @@ export class Session {
   readonly env: Readonly<Record<string, string | undefined>>
   private readonly tokenFile: string | undefined
   readonly managedFile: boolean
+  readonly terminalSession: string | undefined
+  private readonly terminalIssuer: string | undefined
   private readonly fileEpochs = new Map<string, CredentialEpoch>()
   private readonly nativeEpochs = new Map<string, CredentialEpoch>()
   constructor(env: Readonly<Record<string, string | undefined>>) {
     this.env = env
     this.tokenFile = env.SMITHERS_TOKEN_FILE ? resolvePath(env.SMITHERS_TOKEN_FILE) : undefined
-    this.managedFile = !!(env.SMITHERS_TOKEN_FILE?.startsWith("/run/smithers/") || this.tokenFile?.startsWith("/run/smithers/"))
+    this.terminalSession = env.SMITHERS_TERMINAL_SESSION
+    this.terminalIssuer = env.SMITHERS_URL
+    this.managedFile = !!(this.terminalSession !== undefined || env.SMITHERS_TOKEN_FILE?.startsWith("/run/smithers/") || this.tokenFile?.startsWith("/run/smithers/"))
     this.home = env.HOME || homedir()
     this.configPath = join(
       env.XDG_CONFIG_HOME ||
@@ -155,7 +159,7 @@ export class Session {
     const token = this.managedTokenFile() ? undefined : this.env.SMITHERS_TOKEN?.trim()
     if (token) return identity([target.api_url, "env", token])
     if (this.tokenFile) {
-      return identity([target.api_url, "token_file", this.tokenFile, this.fileEpoch(this.tokenFile).revision])
+      return identity([target.api_url, "token_file", this.tokenFile, this.terminalSession, this.terminalIssuer, this.fileEpoch(this.tokenFile).revision])
     }
     const files = [...new Set([this.fileEpoch(this.configPath), this.fileEpoch(this.authPath)])]
     const native = this.env.SMITHERS_DISABLE_SYSTEM_KEYRING === "1" ? undefined : this.nativeEpoch(target.host)
@@ -191,7 +195,8 @@ export class Session {
       if (this.managedFile) {
         // Bind the literal issuer path before normalization. Traversal must
         // never turn a managed terminal into an ordinary credential source.
-        if (this.env.SMITHERS_TOKEN_FILE !== this.tokenFile ||
+        if ((this.terminalSession !== undefined && this.tokenFile!.split("/").at(-2) !== this.terminalSession) ||
+          this.env.SMITHERS_TOKEN_FILE !== this.tokenFile ||
           !/^\/run\/smithers\/(?:[1-9][0-9]*\/token\/)?sessions\/[A-Za-z0-9_-]+\/token$/.test(this.tokenFile!)) {
           throw invalidToken()
         }
@@ -301,6 +306,9 @@ export class Session {
     }
   }
   target(hostname?: string): { api_url: string; host: string } {
+    if (this.managedFile && !this.tokenFile) {
+      throw new Refused({ fault: "user", code: "token_file_unavailable", message: "Cannot read a valid SMITHERS_TOKEN_FILE" })
+    }
     const configured = text(this.config().api_origin)
     let origin = hostname || configured
     if (!origin) {
@@ -318,6 +326,9 @@ export class Session {
           : `https://${origin.startsWith("api.") ? origin : `api.${origin}`}`}
     }
     const api_url = normalizeOrigin(origin)
+    if (this.terminalSession !== undefined && (!this.terminalIssuer || api_url !== normalizeOrigin(this.terminalIssuer))) {
+      throw new Refused({ fault: "user", code: "token_file_unavailable", message: "Cannot read a valid SMITHERS_TOKEN_FILE" })
+    }
     return { api_url, host: new URL(api_url).hostname.replace(/^api\./, "") }
   }
   record(origin: string): RecordValue | undefined {

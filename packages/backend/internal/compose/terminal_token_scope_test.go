@@ -143,6 +143,7 @@ func packagedTerminalCLIInvoker(t *testing.T, ctx context.Context, origin, token
 type packagedTerminalCLI struct {
 	tokenFile string
 	home      string
+	overrides map[string]string
 	invoke    func(...string) (int, map[string]any)
 }
 
@@ -164,6 +165,9 @@ func newPackagedTerminalCLI(t *testing.T, ctx context.Context, origin, token str
 		t.Helper()
 		command := exec.CommandContext(ctx, binary, append(argv, "--json")...)
 		command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home, "XDG_DATA_HOME=" + home, "SMITHERS_DISABLE_SYSTEM_KEYRING=1", "SMITHERS_URL=" + origin, "SMITHERS_TOKEN_FILE=" + tokenFile, "CODEX_TEST=1"}
+		for key, value := range cli.overrides {
+			command.Env = append(command.Env, key+"="+value)
+		}
 		output, err := command.CombinedOutput()
 		code := 0
 		if err != nil {
@@ -193,7 +197,7 @@ func exercisePackagedTerminalFileRefusals(t *testing.T, cli *packagedTerminalCLI
 	record, err := json.Marshal(map[string]string{"api_url": origin, "token": token})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(auth, record, 0o600))
-	for _, fixture := range []string{"empty", "malformed", "oversized", "unreadable", "symlink", "directory", "missing"} {
+	for _, fixture := range []string{"empty", "malformed", "oversized", "unreadable", "symlink", "directory", "missing", "unbound-managed-session"} {
 		t.Run("packaged file refuses "+fixture, func(t *testing.T) {
 			require.NoError(t, os.Remove(cli.tokenFile))
 			switch fixture {
@@ -210,11 +214,15 @@ func exercisePackagedTerminalFileRefusals(t *testing.T, cli *packagedTerminalCLI
 			case "directory":
 				require.NoError(t, os.Mkdir(cli.tokenFile, 0o700))
 			}
+			if fixture == "unbound-managed-session" {
+				cli.overrides = map[string]string{"SMITHERS_TERMINAL_SESSION": "packaged-terminal", "SMITHERS_TOKEN_FILE": "", "SMITHERS_TOKEN": token}
+				defer func() { cli.overrides = nil }()
+			}
 			code, result := cli.invoke("todo", "new", "--text", "Invalid session files cannot append", "--idempotencyKey", "invalid-file-"+fixture)
 			require.Equal(t, 1, code)
 			require.Equal(t, "token_file_unavailable", result["code"])
 			require.NotContains(t, result, "confirmation")
-			if fixture != "missing" {
+			if fixture != "missing" && fixture != "unbound-managed-session" {
 				require.NoError(t, os.Remove(cli.tokenFile))
 			}
 			require.NoError(t, os.WriteFile(cli.tokenFile, []byte(token), 0o600))

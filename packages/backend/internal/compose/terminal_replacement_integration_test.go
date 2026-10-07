@@ -404,6 +404,37 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	require.Zero(t, retired, "previous delegated credential is revoked")
 	checkScope(first, true)
 	checkScope(second, false)
+	if len(scopeChecks) > 0 && scopeChecks[0] {
+		for _, fixture := range []struct {
+			session string
+			status  int
+		}{{session, 200}, {"foreign-session", 401}} {
+			request, err := http.NewRequestWithContext(ctx, "GET", origin+"/api/user", nil)
+			require.NoError(t, err)
+			request.Header.Set("Authorization", "Bearer "+second)
+			request.Header.Set("Smithers-Terminal-Session", fixture.session)
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			_ = response.Body.Close()
+			require.Equal(t, fixture.status, response.StatusCode)
+		}
+		var before, after int
+		const effects = `SELECT (SELECT count(*) FROM mythical_items) + (SELECT count(*) FROM approvals) + (SELECT count(*) FROM product_job_requests)`
+		require.NoError(t, pool.QueryRow(ctx, effects).Scan(&before))
+		request, err := http.NewRequestWithContext(ctx, "POST", origin+"/api/todos", strings.NewReader(`{"title":"Foreign session","prompt":"Must not append","place":{"mode":"append"}}`))
+		require.NoError(t, err)
+		request.Header.Set("Authorization", "Bearer "+second)
+		request.Header.Set("Smithers-Terminal-Session", "foreign-session")
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		body, err := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 401, response.StatusCode, string(body))
+		require.NoError(t, pool.QueryRow(ctx, effects).Scan(&after))
+		require.Equal(t, before, after, "foreign session causes no mutation")
+	}
 	var checkClientCache func()
 	if independent != nil {
 		checkClientCache = startTerminalClientCacheProbe(t, ctx, origin, second, independentToken, func() string {

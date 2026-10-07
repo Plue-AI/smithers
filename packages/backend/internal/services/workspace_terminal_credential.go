@@ -146,7 +146,7 @@ func (s *WorkspaceService) installTerminalCredential(ctx context.Context, creden
 func (c *terminalCredential) environment() map[string]string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return map[string]string{"SMITHERS_TOKEN_FILE": c.path, "SMITHERS_URL": c.url}
+	return map[string]string{"SMITHERS_TOKEN_FILE": c.path, "SMITHERS_URL": c.url, "SMITHERS_TERMINAL_SESSION": c.sessionID}
 }
 
 func (c *terminalCredential) scopes() string {

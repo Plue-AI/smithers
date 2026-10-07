@@ -412,7 +412,7 @@ export class Client {
     if (!path.startsWith("/") || path.startsWith("//")) {
       throw new UsageError({ message: "API path must start with /" })
     }
-    if (this.session.managedFile && (options.token != null || Object.keys(options.headers ?? {}).some(key => key.toLowerCase() === "authorization"))) {
+    if (this.session.managedFile && (options.token != null || Object.keys(options.headers ?? {}).some(key => ["authorization", "smithers-terminal-session"].includes(key.toLowerCase())))) {
       throw new Refused({ fault: "user", code: "token_file_unavailable", message: "A managed terminal uses only its session credential" })
     }
     const origin = options.origin ?? this.session.target().api_url
@@ -455,7 +455,10 @@ export class Client {
       ...(token && via && !Object.keys(options.headers ?? {}).some((key) => key.toLowerCase() === "smithers-via")
         ? { "Smithers-Via": via }
         : {}),
-      ...options.headers
+      ...options.headers,
+      ...(token && this.session.terminalSession !== undefined
+        ? { "Smithers-Terminal-Session": this.session.terminalSession }
+        : {})
     }
     const signal = options.stream
       ? requestSignal
