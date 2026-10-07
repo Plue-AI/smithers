@@ -2245,3 +2245,184 @@ func TestMythicalStandingPreapprovalInstallPolling(t *testing.T) {
 	require.Equal(t, "merged", card["state"])
 	require.Empty(t, h.item(n).PendingOp)
 }
+
+// Reconstruct the production service from durable rows at each crash boundary.
+// Every resumed worker uses fetched GitHub facts and the same outbound guard.
+func TestMythicalStandingPreapprovalRestartMatrix(t *testing.T) {
+	for _, boundary := range []string{"ready", "intended", "unknown"} {
+		t.Run(boundary, func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, head, pr := h.first("Restart approval")
+			h.freezeClock()
+			_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+			require.NoError(t, err)
+			approval := *mythicalChecksOf(h.item(n)).Preapproval
+			if boundary != "ready" {
+				h.pass()
+				require.Equal(t, "intended", h.operation(n).State)
+			}
+			if boundary == "unknown" {
+				h.fake.LoseNextResponses(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pr), 1)
+				h.pass()
+				require.Equal(t, "unknown", h.operation(n).State)
+				require.Len(t, h.merges(), 1)
+			}
+			for boot := 0; boot < 2; boot++ {
+				userRepos := NewGitHubUserReposService(h.q, fakeOAuthTokenDecrypter{token: "ghu_githubfake_owner"})
+				h.service = NewMythicalService(h.pool, h.host)
+				h.service.SetOrchestration(NewMythicalGitHub(h.q, h.connections, userRepos, h.connections), nil, nil)
+				h.service.SetPolicyReader(mergePolicy())
+				h.service.EnableTodoPublication(h.credentials, h.connections, NewBudgetTracker())
+				h.freezeClock()
+				synced, row := configureInboundPullPolling(t, h.publicationFixture)
+				stop := runFetchedFixture(t, synced)
+				for repeat := 0; repeat < 2; repeat++ {
+					require.NoError(t, synced.pollInstallPull(h.ctx, row, pr))
+					h.pass()
+				}
+				for pass := 0; pass < 5; pass++ {
+					h.pass()
+				}
+				stop()
+				require.Equal(t, "landed", h.item(n).State)
+				require.Empty(t, h.item(n).PendingOp)
+				require.Len(t, h.merges(), 1, "a restart or duplicate fact must not repeat the merge")
+				require.Equal(t, approval, *mythicalChecksOf(h.item(n)).Preapproval)
+				require.Nil(t, h.land(n), "recovery cannot fabricate a person's reviewed-head approval")
+			}
+			var sent struct {
+				SHA    string `json:"sha"`
+				Method string `json:"merge_method"`
+			}
+			require.NoError(t, json.Unmarshal(h.merges()[0].Body, &sent))
+			require.Equal(t, head, sent.SHA)
+			require.Equal(t, "squash", sent.Method)
+		})
+	}
+}
+
+func TestMythicalStandingPreapprovalOrderedVerifiedHeads(t *testing.T) {
+	h := newMergeHarness(t)
+	first, firstHead, _ := h.first("First approved")
+	second, oldHead, secondPR := h.todoInReview("Second approved", h.item(first).CandidateHead)
+	h.freezeClock()
+	h.fake.RequireCheck("unit")
+	for _, head := range []string{firstHead, oldHead} {
+		h.fake.SetCheck("rehearsal-owner/app", head, "unit", "completed", "success")
+	}
+	for _, n := range []int64{first, second} {
+		_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+		require.NoError(t, err)
+	}
+	approval := *mythicalChecksOf(h.item(second)).Preapproval
+	_, card := h.mergeCard(second)
+	require.Equal(t, "order", card["reason"])
+	require.Equal(t, "T1", card["detail"])
+	for pass := 0; pass < 6; pass++ {
+		h.pass()
+	}
+	require.Equal(t, "landed", h.item(first).State)
+	require.Len(t, h.merges(), 1, "the second TODO cannot use checks for its old head")
+	require.Equal(t, approval, *mythicalChecksOf(h.item(second)).Preapproval)
+	// T-STK-08 owns rebase execution and verification. This fixture supplies
+	// its accepted candidate contract, using a real cherry-pick onto GitHub's
+	// squash commit. It is not evidence that the install runs that provider.
+	base := h.item(first).PRMergeCommit
+	h.git(h.work, "fetch", "-q", h.github, "main")
+	h.git(h.work, "fetch", "-q", h.github, "refs/heads/"+mythicalChecksOf(h.item(second)).Branch)
+	h.git(h.work, "checkout", "-q", base)
+	h.git(h.work, "cherry-pick", oldHead)
+	candidate := h.git(h.work, "rev-parse", "HEAD")
+	h.git(h.work, "push", "-q", h.hostDir, base+":refs/heads/main", candidate+":"+repohost.MythicalReservedRefNS+"keep/"+candidate)
+	require.NoError(t, h.host.ImportRefs(h.ctx, "", ""))
+	item := h.item(second)
+	item.CandidateBase, item.CandidateHead, item.CandidateVerified = base, candidate, true
+	item.Generation++
+	item.State, item.Reason = "proposing", ""
+	checks := mythicalChecksOf(item)
+	checks.Rebase = nil
+	item.Checks = checks.encode()
+	_, err := h.q.SaveMythicalItem(h.ctx, item)
+	require.NoError(t, err)
+	for pass := 0; pass < 5; pass++ {
+		h.pass()
+	}
+	require.NotEqual(t, oldHead, h.item(second).PRHead, "the accepted candidate must publish before pre-approval can merge")
+	newHead := h.item(second).PRHead
+	h.fake.SetCheck("rehearsal-owner/app", oldHead, "unit", "completed", "success")
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	h.fake.SetCheck("rehearsal-owner/app", newHead, "unit", "completed", "success")
+	for pass := 0; pass < 6; pass++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 2)
+	require.Equal(t, fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", secondPR), h.merges()[1].Path)
+	var send struct {
+		SHA    string `json:"sha"`
+		Method string `json:"merge_method"`
+	}
+	require.NoError(t, json.Unmarshal(h.merges()[1].Body, &send))
+	require.Equal(t, newHead, send.SHA)
+	require.Equal(t, "squash", send.Method)
+	require.Equal(t, "landed", h.item(second).State)
+}
+
+func TestMythicalMergeTodoClosesOnlyItsFixedIssue(t *testing.T) {
+	for _, fixes := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fixes=%t", fixes), func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, head, _ := h.first("Issue result")
+			h.freezeClock()
+			issue := h.fake.OpenIssue("rehearsal-owner/app", "rehearsal-owner", "Linked issue", "Keep the result")
+			h.exec(`UPDATE mythical_items SET issue_number=$2,fixes_issue=$3 WHERE repository_id=$1 AND number=$4`, h.repoID, issue, fixes, n)
+			h.fake.RequireCheck("required/unit")
+			h.fake.SetCheck("rehearsal-owner/app", head, "required/unit", "completed", "success")
+			h.fake.SetCheck("rehearsal-owner/app", head, "optional/lint", "completed", "failure")
+			require.NoError(t, h.press(h.ctx, n, head))
+			for pass := 0; pass < 5; pass++ {
+				h.pass()
+			}
+			require.Equal(t, "landed", h.item(n).State)
+			require.Len(t, h.merges(), 1)
+			linked, ok := h.fake.Issue("rehearsal-owner/app", issue)
+			require.True(t, ok)
+			if fixes {
+				require.Equal(t, "closed", linked.State)
+			} else {
+				require.Equal(t, "open", linked.State)
+			}
+		})
+	}
+}
+
+func TestMythicalStandingPreapprovalWaitRequiresPersonAnswer(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, _ := h.first("Answer before merge")
+	h.freezeClock()
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	// The flow runtime owns question execution. Supply its persisted wait
+	// contract; only signal delivery is replaced, so this test exercises the
+	// real answer command, transaction and merge evaluator independently.
+	signaler := &answerLauncher{fakeMythicalLauncher: &fakeMythicalLauncher{}}
+	h.service.SetLauncher(signaler)
+	item := h.item(n)
+	checks := mythicalChecksOf(item)
+	checks.Waits = append(checks.Waits, TodoWait{ID: "question-before-merge", Kind: "question", Prompt: "Ready?", Since: h.service.now(), Signal: &TodoWaitSignal{Scope: todoOperationScope(item), Flow: "todo", Run: "question-run", Name: "ask"}})
+	item.Checks = checks.encode()
+	_, err = h.q.SaveMythicalItem(h.ctx, item)
+	require.NoError(t, err)
+	for pass := 0; pass < 3; pass++ {
+		h.pass()
+	}
+	require.Empty(t, h.merges())
+	require.Empty(t, h.item(n).PendingOp)
+	require.NoError(t, h.service.AnswerTodo(h.ctx, h.repoID, h.userID, n, TodoAnswerInput{Wait: "question-before-merge", Answer: "Ready"}))
+	require.Len(t, signaler.sent(), 1)
+	for pass := 0; pass < 5; pass++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1)
+	require.Equal(t, "landed", h.item(n).State)
+}
