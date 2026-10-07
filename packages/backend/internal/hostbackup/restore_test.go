@@ -91,3 +91,17 @@ func TestRestoreRefusalsPreserveLiveState(t *testing.T) {
 		})
 	}
 }
+
+func TestRestoreStartupFailureRetainsRecoveryMarker(t *testing.T) {
+	backup := restoreFixture(t)
+	state := t.TempDir()
+	a := &restoreAuthorityFixture{fail: "start"}
+	_, err := Restore(t.Context(), RestoreConfig{State: state, Backup: backup, Version: Version{"1.3.0", 3, 18}, Authority: a, Cloner: backupCopyFixture{}})
+	require.ErrorContains(t, err, "start")
+	marker, err := os.ReadFile(filepath.Join(state, ".upgrade-incomplete"))
+	require.NoError(t, err)
+	require.Equal(t, backup+"\n", string(marker))
+	retained, err := filepath.Glob(filepath.Join(state, "backups/pre-restore-*"))
+	require.NoError(t, err)
+	require.Len(t, retained, 1)
+}
