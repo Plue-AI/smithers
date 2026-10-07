@@ -70,8 +70,9 @@ func TestLiveFlowsRepairsMissedHintAndKeepsActive(t *testing.T) {
 	first := read(3 * time.Second)
 	var cards []services.FlowCard
 	require.NoError(t, json.Unmarshal(first.Data, &cards))
-	require.Equal(t, active, cards[0].Versions[0].ID)
-	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
+	require.Equal(t, "todo", cards[1].Name)
+	require.Equal(t, active, cards[1].Versions[0].ID)
+	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[1].Versions[0].Steps)
 	_, err = q.RequestMythicalBootstrap(ctx, repository, user.ID, 100, false)
 	require.NoError(t, err)
 	load, err := q.EnsureFlowLoad(ctx, repository)
@@ -86,12 +87,13 @@ func TestLiveFlowsRepairsMissedHintAndKeepsActive(t *testing.T) {
 	require.NotNil(t, changed.Cursor)
 	require.Greater(t, *changed.Cursor, *first.Cursor)
 	require.NoError(t, json.Unmarshal(changed.Data, &cards))
-	require.Equal(t, active, cards[0].Versions[0].ID)
-	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
-	require.Equal(t, "active", cards[0].Versions[0].State)
-	require.Equal(t, failed, cards[0].Versions[1].ID)
-	require.Equal(t, "merged-failed", cards[0].Versions[1].State)
-	require.Equal(t, "flows/todo/flow.ts:12: invalid type", cards[0].Versions[1].Error)
+	require.Equal(t, "todo", cards[1].Name)
+	require.Equal(t, active, cards[1].Versions[0].ID)
+	require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[1].Versions[0].Steps)
+	require.Equal(t, "active", cards[1].Versions[0].State)
+	require.Equal(t, failed, cards[1].Versions[1].ID)
+	require.Equal(t, "merged-failed", cards[1].Versions[1].State)
+	require.Equal(t, "flows/todo/flow.ts:12: invalid type", cards[1].Versions[1].Error)
 }
 
 // The person-facing install route reads the same persisted version metadata
@@ -139,8 +141,8 @@ func TestInstallFlowsServesPersistedGuestSteps(t *testing.T) {
 			require.NoError(t, json.NewDecoder(response.Body).Decode(&cards))
 			require.NoError(t, response.Body.Close())
 			server.Close()
-			require.Equal(t, digest, cards[0].Versions[0].ID)
-			require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
+			require.Equal(t, digest, cards[1].Versions[0].ID)
+			require.Equal(t, []services.FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[1].Versions[0].Steps)
 		})
 	}
 }

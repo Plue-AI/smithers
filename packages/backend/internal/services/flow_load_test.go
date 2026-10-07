@@ -405,7 +405,7 @@ func TestFlowLoadKeepsForeignAnswersInstallOwned(t *testing.T) {
 	require.Empty(t, moved, "refresh replay cannot reactivate a repository answer command")
 	cards, err = RepositoryFlowCatalog(ctx, q, repoID)
 	require.NoError(t, err)
-	require.Len(t, cards, 7, "the built-in TODO and six custom flows remain visible")
+	require.Len(t, cards, 8, "the built-in Learning and TODO and six custom flows remain visible")
 	for _, card := range cards {
 		require.NotContains(t, names, card.Name)
 	}
