@@ -1412,7 +1412,18 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		}
 		result := *next
 		if !saved {
-			if result, err = q.SaveMythicalItem(ctx, *next); err != nil {
+			if next.State == "landed" && item.State != "landed" {
+				err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+					result, err = db.New(tx).SaveMythicalItem(ctx, *next)
+					if err != nil {
+						return err
+					}
+					return s.admitLearningInTx(ctx, tx, result)
+				})
+			} else {
+				result, err = q.SaveMythicalItem(ctx, *next)
+			}
+			if err != nil {
 				s.logger.Warn("mythical.item_save_failed", "repository_id", r.row.RepositoryID, "item", uuidString(item.ID), "error", err)
 				if errors.Is(err, pgx.ErrNoRows) {
 					// Its version check failed: another writer moved the item.
