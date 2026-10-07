@@ -12,6 +12,7 @@ import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
 import * as Failure from "../Failure.ts"
+import { draftFromIssue } from "./IssueDraft.ts"
 import { Client, list, object } from "./Client.ts"
 
 /**
@@ -105,7 +106,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
               message: "Only a person can do this in the app"
             })
           }
-          if (row.http === null) {
+          if (row.http === null && row.client === undefined) {
             throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })
           }
           const supplied = { ...context.args, ...context.options }
@@ -119,15 +120,13 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
             throw new UsageError({ message: "An answer is required" })
           }
           const requestId = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey : randomUUID()
-          let request: ReturnType<typeof catalogRequest>
-          try {
-            request = catalogRequest(row, payload)
-          } catch (error) {
-            throw new UsageError({ message: error instanceof Error ? error.message : "Invalid command request" })
-          }
-          const body = request.body ?? {}
           const client = new Client(runtime)
           try {
+            const prepared = row.client?.kind === "issue-draft" ? await draftFromIssue(client, payload, runtime.signal) : payload
+            let request: ReturnType<typeof catalogRequest>
+            try { request = catalogRequest({ http: row.client?.http ?? row.http }, prepared) }
+            catch (error) { throw new UsageError({ message: error instanceof Error ? error.message : "Invalid command request" }) }
+            const body = request.body ?? {}
             if (row.name === "todo.answer" && !body.wait) {
               const read = catalogRequest(
                 catalogCommands.find((candidate) => candidate.name === "todo")!,

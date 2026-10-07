@@ -95,7 +95,15 @@ control-plane commands on that origin. `SMITHERS_TOKEN` overrides the saved logi
 for automation. `SMITHERS_TOKEN_FILE` reads a token from a fixed file path after
 `SMITHERS_TOKEN` and before saved credentials. Missing or invalid files refuse
 the command. A 401 clears only that file resolution; the next explicit command
-rereads it without replaying the failed request. A branch terminal opened from
+rereads it without replaying the failed request.
+
+`smthrs todo from-issue <number>` reads the install issue and drafts with no
+tools, then waits for its person's private Confirm card. Only that person's
+approval commits the TODO; it retains the original issue snapshot even after
+GitHub edits. The credential needs `read:repository` and `write:repository`,
+plus `read:user` and `write:user` for the model call.
+
+A branch terminal opened from
 the app is signed in: it sets `SMITHERS_URL` (the API origin when
 `SMITHERS_API_ORIGIN` is unset) and `SMITHERS_TOKEN_FILE`, the terminal's own
 delegated credential at `/run/smithers/sessions/<session id>/token`, mode 0600.
