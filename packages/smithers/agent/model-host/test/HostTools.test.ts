@@ -1,3 +1,4 @@
+import { catalogDescriptors } from "@smthrs/cli/Catalog"
 import * as Model from "@smthrs/model/Model"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import type { JsonObject, ModelRequest } from "@smthrs/model/ModelRequest"
@@ -14,11 +15,13 @@ import {
 import { MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
+import type { DocsPage } from "@smthrs/rpc/DocsPages"
 import { fixtures as homeFixtures } from "@smthrs/rpc/fixtures/Home"
 import { fixtures } from "@smthrs/rpc/fixtures/Todo"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
+import { UI_INSTRUCTION_FIELDS } from "@smthrs/rpc/UiInstruction"
 import { Effect, Stream } from "effect"
 import { createHash } from "node:crypto"
 import { describe, expect, test } from "vitest"
@@ -252,26 +255,40 @@ const FILES_LINES = [
   "- /files.list [path] [owner/repo] — List a repository directory",
   "- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository"
 ]
-// Literal Appendix B HTTP/file commands; unavailable UI providers stay dark.
+// Literal Appendix B HTTP, file and UI-only commands.
 const HOST_COMMANDS = [
   "agent",
   "agents",
+  "background.dismiss",
+  "background.retry",
+  "box.facet",
   "branch",
   "branch.add-to-stack",
+  "branch.archive",
   "branch.bring-in",
   "branch.discard-foreign",
   "branch.fork",
   "branch.rebase",
+  "branch.rebase-now",
   "branches",
+  "card.dismiss",
+  "card.history.back",
+  "card.history.forward",
+  "change.facet",
+  "chat.reload",
   "files.list",
   "files.read",
   "flow",
   "flow.edit",
   "flow.new",
+  "flow.plan.select",
+  "flow.plan.tab",
   "flow.run",
   "flows",
+  "form.set",
   "github",
   "github.retry",
+  "help",
   "issue",
   "issue.comment",
   "issue.new",
@@ -279,12 +296,33 @@ const HOST_COMMANDS = [
   "learning.accept",
   "learning.dismiss",
   "monitor",
+  "prs.tab",
+  "review",
   "run",
   "run.inspect",
   "runs",
+  "runs.coding.select",
+  "runs.graph.execution",
+  "runs.graph.follow",
+  "runs.graph.select",
+  "runs.graph.tab",
+  "runs.steps",
+  "runs.trace.filter",
+  "runs.trace.live",
+  "runs.trace.select",
+  "runs.trace.view",
   "search",
+  "search.changes",
+  "search.files",
+  "search.flows",
+  "search.history",
+  "search.issues",
+  "search.runs",
+  "search.wiki",
   "stack",
   "stack.move",
+  "storage.recovery",
+  "terminal",
   "theme",
   "todo",
   "todo.amend",
@@ -293,8 +331,14 @@ const HOST_COMMANDS = [
   "todo.new",
   "todo.resume",
   "todo.retry",
+  "todo.return-to-item",
   "todo.steer",
-  "todo.stop"
+  "todo.stop",
+  "wiki.backlinks",
+  "wiki.graph",
+  "wiki.open",
+  "wiki.space",
+  "wiki.view"
 ]
 const commandLines = (text: string): ReadonlyArray<string> => text.split("\n").filter((line) => line.startsWith("- /"))
 
@@ -1029,6 +1073,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       "todo.new",
       "todo.resume",
       "todo.retry",
+      "todo.return-to-item",
       "todo.steer",
       "todo.stop"
     ])
@@ -1610,6 +1655,74 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
+  test("UI-only flows commit their declared fields for the author's screen and run nothing here", async () => {
+    const cases: ReadonlyArray<readonly [string, string | undefined, Record<string, unknown>]> = [
+      ["card.dismiss", "card-7", { command: "card.dismiss", cardId: "card-7" }],
+      ["search.files", "retry.ts", { command: "search.files", query: "retry.ts" }],
+      [
+        "runs.trace.select",
+        "{\"sourceCard\":null,\"runId\":\"run-1\",\"nodeId\":\"build\",\"seq\":4}",
+        { command: "runs.trace.select", runId: "run-1", nodeId: "build", seq: 4 }
+      ],
+      ["help", undefined, { command: "help" }]
+    ]
+    for (const [name, args, ui] of cases) {
+      const journal = producer((path) => file(path, JOURNEY), stackRoutes)
+      const provider = model([execute(name, args)])
+      await run(install, provider, journal)
+      expect(journal.calls).toEqual([])
+      expect(journal.frames.some((frame) => frame.type === "card")).toBe(false)
+      expect(journal.frames.filter((frame) => frame.type === "call.settled")).toEqual([
+        { runId: install.request.runId, type: "call.settled", link: 0, ordinal: 0, name, verdict: "run", ui }
+      ])
+      expect(toolOutputs(provider)).toEqual([`Requested /${name} on the author's screen.`])
+    }
+  })
+
+  test("UI-only flows refuse undeclared, missing and nested fields; shared writes are not UI-only", async () => {
+    for (
+      const [name, args] of [
+        ["card.dismiss", undefined],
+        ["card.dismiss", "{\"cardId\":\"card-7\",\"runId\":\"run-1\"}"],
+        ["form.set", "{\"cardId\":\"card-7\",\"field\":\"title\",\"value\":{\"x\":1}}"],
+        ["wiki.view", "{\"view\":\"raw\"}"]
+      ] as const
+    ) {
+      const journal = producer((path) => file(path, JOURNEY), stackRoutes)
+      const provider = model([execute(name, args)])
+      await run(install, provider, journal)
+      expect(journal.frames.filter((frame) => frame.type === "call.settled")).toEqual([])
+      expect(toolOutputs(provider)).toEqual([`failed: Invalid arguments for ${name}; use its declared payload.`])
+    }
+    for (const name of ["form.submit", "wiki.new-note", "palette.recent", "chat.retry", "palette.open"]) {
+      const journal = producer((path) => file(path, JOURNEY), stackRoutes)
+      const provider = model([execute(name, "{}")])
+      await run(install, provider, journal)
+      expect(journal.frames.filter((frame) => frame.type === "call.settled")).toEqual([])
+      expect(toolOutputs(provider)).toEqual([unknownCommandResult(name)])
+    }
+  })
+
+  test("each UI-only flow is a screen-only catalog row whose declared fields the instruction carries", () => {
+    for (const [name, fields] of Object.entries(UI_INSTRUCTION_FIELDS)) {
+      const row = catalogDescriptors.find((entry) => entry.name === name)!
+      expect([name, row.actors.includes("app_agent"), row.actors.includes("external_agent")]).toEqual([
+        name,
+        true,
+        false
+      ])
+      expect([name, row.agent, row.http, row.cli, row.visibility === "hidden"]).toEqual([
+        name,
+        "run",
+        null,
+        null,
+        false
+      ])
+      expect(Object.keys(row.payload.schema.properties ?? {}).sort()).toEqual([...fields].sort())
+      expect(fields).not.toContain("command")
+    }
+  })
+
   test("merge stays a person's action and forged Draft authority refuses", async () => {
     for (
       const args of [
@@ -1822,5 +1935,159 @@ describe("delegated public API transport", () => {
     expect(await Effect.runPromise(apiCaller("http://callback.test", install, async () => response)("/api/todos")))
       .toEqual({ code: "invalid_answer" })
     expect(cancelled).toBe(true)
+  })
+})
+
+// Literal pages, in table-of-contents order: the host is handed what its build bundles.
+const HTTPS = "## Put HTTPS in front\n\n```sh\ntailscale serve --bg --https=443 http://127.0.0.1:4000\n```\n"
+const PAGES: ReadonlyArray<DocsPage> = [
+  { slug: "quickstart", title: "Quickstart", summary: "Install and run.", markdown: `# Quickstart\n\n${HTTPS}` },
+  { slug: "flows", title: "Flows reference", summary: "Every flow.", markdown: "# Flows reference\n" }
+]
+const DOCS_LINE =
+  "Asked how to do something in Smithers, first run docs with {\"mode\":\"read\",\"page\":\"<page>\"} for the page that covers it (pages: quickstart, flows), answer from what it returns, and name the page you read."
+const https: DurableChatGrant = {
+  ...sourceless,
+  request: { ...question, messages: [{ role: "user", content: "How do I put HTTPS in front?" }] }
+}
+const runWithDocs = (
+  turn: DurableChatGrant,
+  provider: ReturnType<typeof model>,
+  journal: ReturnType<typeof producer>,
+  docs: ReadonlyArray<DocsPage> | undefined
+) =>
+  Effect.runPromise(
+    runDurableChatTurn(
+      provider.model,
+      turn,
+      { modelId: "m" },
+      "http://callback.test",
+      journal.fetchImpl,
+      undefined,
+      docs
+    )
+  )
+
+describe("the host-owned app agent answers \"how do I\" from the bundled docs (C-UI-09)", () => {
+  test("a read hands the model the page's title, summary and Markdown, embeds nothing and touches no repository", async () => {
+    const journal = producer((path) => file(path, JOURNEY))
+    const provider = model([execute("docs", JSON.stringify({ mode: "read", page: "quickstart" }))])
+    await runWithDocs(https, provider, journal, PAGES)
+
+    const read = JSON.stringify({
+      title: "Quickstart",
+      summary: "Install and run.",
+      markdown: `# Quickstart\n\n${HTTPS}`
+    })
+    expect(commandLines(systemText(provider.requests[0]))).toEqual(["- /docs — Read the docs in the app"])
+    expect(systemText(provider.requests[0])).toContain(DOCS_LINE)
+    expect(toolOutputs(provider)).toEqual([read])
+    expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "call.settled", "delta", "done"])
+    for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
+    expect(journal.frames[0]).toEqual({ runId: "run", type: "call.started", link: 0, ordinal: 0, name: "docs" })
+    expect(journal.frames[1]).toEqual({
+      runId: "run",
+      type: "call.settled",
+      link: 0,
+      ordinal: 0,
+      name: "docs",
+      verdict: "run"
+    })
+    expect(answerText(journal.frames)).toBe(`From the source: ${read}`)
+    expect(answerText(journal.frames)).toContain("tailscale serve --bg --https=443 http://127.0.0.1:4000")
+    expect(journal.reads).toEqual([])
+    expect(journal.lists).toEqual([])
+    expect(journal.calls).toEqual([])
+  })
+
+  test("an install turn lists docs beside the commands its grant runs, and nothing else changes", async () => {
+    const listed = async (docs: ReadonlyArray<DocsPage> | undefined) => {
+      const provider = model([])
+      await runWithDocs(install, provider, producer((path) => file(path, JOURNEY), stackRoutes), docs)
+      return systemText(provider.requests[0])
+    }
+    const without = await listed(undefined)
+    const withDocs = await listed(PAGES)
+    expect(commandLines(withDocs).filter((line) => !commandLines(without).includes(line))).toEqual([
+      "- /docs — Read the docs in the app"
+    ])
+    expect(commandLines(without).filter((line) => !commandLines(withDocs).includes(line))).toEqual([])
+    expect(withDocs).toContain(DOCS_LINE)
+    expect(without).not.toContain(DOCS_LINE)
+  })
+
+  test("a read of a page no one wrote, or of no page, is refused with every page named, and the turn answers", async () => {
+    const refusals: ReadonlyArray<readonly [string, string]> = [
+      [
+        JSON.stringify({ mode: "read", page: "nowhere" }),
+        "There is no docs page named nowhere. Pages: quickstart, flows."
+      ],
+      [JSON.stringify({ mode: "read" }), "Name a docs page to read. Pages: quickstart, flows."],
+      [JSON.stringify({ mode: "read", page: "  " }), "Name a docs page to read. Pages: quickstart, flows."],
+      [
+        JSON.stringify({ mode: "write", page: "quickstart" }),
+        "docs takes a page, or {\"mode\":\"read\",\"page\":\"<page>\"} to read one."
+      ],
+      [
+        JSON.stringify({ page: "quickstart", path: "/etc/passwd" }),
+        "docs takes a page, or {\"mode\":\"read\",\"page\":\"<page>\"} to read one."
+      ],
+      ["{\"mode\":", "docs takes a page, or {\"mode\":\"read\",\"page\":\"<page>\"} to read one."]
+    ]
+    for (const [args, message] of refusals) {
+      const journal = producer((path) => file(path, JOURNEY))
+      await runWithDocs(https, model([execute("docs", args)]), journal, PAGES)
+      expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "gate.rejected", "delta", "done"])
+      expect(journal.frames[1]).toEqual({ runId: "run", type: "gate.rejected", link: 0, kind: "call_failed", message })
+      expect(answerText(journal.frames)).toBe(`From the source: failed: ${message}`)
+      expect(journal.frames.at(-1)).toMatchObject({ type: "done", reason: "stop" })
+    }
+  })
+
+  test("without read, docs embeds the Docs card the app renders: the page, its anchor and the table of contents", async () => {
+    const toc = [{ slug: "quickstart", title: "Quickstart" }, { slug: "flows", title: "Flows reference" }]
+    const cases: ReadonlyArray<readonly [string | undefined, string, Record<string, unknown>]> = [
+      [undefined, "Quickstart", { page: "quickstart" }],
+      ["quickstart#put-https-in-front", "Quickstart", { page: "quickstart", anchor: "put-https-in-front" }],
+      [JSON.stringify({ page: "flows" }), "Flows reference", { page: "flows" }],
+      ["#put-https-in-front", "Quickstart", { page: "quickstart", anchor: "put-https-in-front" }],
+      ["nowhere#heading", "Quickstart", { page: "quickstart", not_found: "nowhere" }]
+    ]
+    for (const [args, title, payload] of cases) {
+      const journal = producer((path) => file(path, JOURNEY))
+      const provider = model([execute("docs", args)])
+      await runWithDocs(https, provider, journal, PAGES)
+      expect(journal.frames.map((frame) => frame.type)).toEqual([
+        "call.started",
+        "card",
+        "call.settled",
+        "delta",
+        "done"
+      ])
+      const page = PAGES.find((candidate) => candidate.slug === payload.page)!
+      const card = journal.frames[1]?.type === "card" ? journal.frames[1].card : undefined
+      expect(card).toEqual({
+        id: `docs-${page.slug}`,
+        kind: "docs",
+        title,
+        status: "active",
+        createdAt: expect.any(Number),
+        ordinal: 0,
+        payload: { markdown: page.markdown, summary: page.summary, toc, ...payload }
+      })
+      expect(toolOutputs(provider)).toEqual([`Embedded the ${title} docs page.`])
+    }
+  })
+
+  test("a host its build gave no pages offers no docs, and a docs call runs nothing", async () => {
+    for (const docs of [undefined, []]) {
+      const journal = producer((path) => file(path, JOURNEY))
+      const provider = model([execute("docs", JSON.stringify({ mode: "read", page: "quickstart" }))])
+      await runWithDocs(https, provider, journal, docs)
+      expect(toolNames(provider.requests[0])).toEqual([])
+      expect(systemText(provider.requests[0])).not.toContain("/docs")
+      expect(journal.frames.map((frame) => frame.type)).toEqual(["delta", "done"])
+      expect(answerText(journal.frames)).toBe("From the source: unknown-tool: commands")
+    }
   })
 })

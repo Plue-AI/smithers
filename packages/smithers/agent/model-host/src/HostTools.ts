@@ -6,10 +6,11 @@
  * executing them itself, so the two never share a turn.
  *
  * Commands use the generated catalog shared with the CLI. The host binds
- * file reads to the turn's mirrored source and HTTP commands to the public
- * API with a generation-bound bearer. The server rechecks the author's
- * permission and owns confirmations. Commands without a transport are not
- * offered. No repository code runs in this host.
+ * file reads to the turn's mirrored source, `docs` to the pages its build
+ * bundles, HTTP commands to the public API with a generation-bound
+ * bearer, and UI-only flows to the author's own screen as instructions. The
+ * server rechecks the author's permission and owns confirmations. Commands
+ * without a transport are not offered. No repository code runs in this host.
  *
  * @since 1.0.0-rc.0
  */
@@ -41,6 +42,7 @@ import {
 } from "@smthrs/rpc/AgentInstructions"
 import { boundToolResult, MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import type { Card } from "@smthrs/rpc/Cards"
+import { docsCard, type DocsPage, parseDocsArgs, readDocsPage } from "@smthrs/rpc/DocsPages"
 import { fileListCard, FILES_LIST_COMMAND, parseFileListArgs } from "@smthrs/rpc/FileList"
 import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc/FileRead"
 import { FlowCardSchema } from "@smthrs/rpc/FlowCard"
@@ -49,6 +51,12 @@ import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
 import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { draftCard, parseTodoArgs, todoCard, TodoNewInputSchema } from "@smthrs/rpc/TodoCommands"
+import {
+  isUiInstructionCommand,
+  type UiInstructionCommand,
+  type UiInstructionFrame,
+  UiInstructionFrameSchema
+} from "@smthrs/rpc/UiInstruction"
 import { Effect } from "effect"
 import { z } from "zod"
 import type { DurableChatGrant } from "./DurableChatProducer.ts"
@@ -168,7 +176,9 @@ export type ApiCall = (
 ) => Effect.Effect<ApiAnswer>
 
 /**
- * The source callbacks and public API transport used by host-owned commands.
+ * The source callbacks and public API transport used by host-owned commands,
+ * and the docs pages the host's build bundles, in their table-of-contents
+ * order. A host without pages offers no `docs`.
  *
  * @category models
  * @since 1.0.0-rc.0
@@ -177,6 +187,7 @@ export interface HostTransport {
   readonly read: SourceRead
   readonly list: SourceList
   readonly api: ApiCall
+  readonly docs?: ReadonlyArray<DocsPage> | undefined
 }
 
 /** A callback refusal's code, or the status it answered without one. */
@@ -335,7 +346,7 @@ const refusalText = (path: string, code: string): string => {
 type Outcome = {
   readonly cards: ReadonlyArray<Card>
   readonly value: string
-  readonly ui?: { readonly command: "theme"; readonly mode: "light" | "dark" }
+  readonly ui?: UiInstructionFrame
 } | { readonly refusal: string }
 
 /** One command bound to this turn: it runs with the call's argument text and ordinal. */
@@ -478,20 +489,30 @@ const commandPayload = (row: CatalogDescriptor, args: string | undefined): Recor
   ).parse(input) as Record<string, unknown>
 }
 
-/** UI instructions share the committed journal, but only the author's private view projects them. */
-const themeCommand = (row: CatalogDescriptor): Bind => (grant) =>
+/**
+ * A UI-only flow (spec §14.1.4) runs on the author's own screen, never here.
+ * Its request shares the committed journal, but only the author's private
+ * view projects it. A null field is an absent one. `/theme` names its mode:
+ * this host cannot see the screen a toggle would flip.
+ */
+const uiCommand = (row: CatalogDescriptor, command: UiInstructionCommand): Bind => (grant) =>
   grant.api === undefined ? undefined : (args) =>
     Effect.sync(() => {
+      const refusal = command === "theme"
+        ? "Invalid arguments for theme; use light or dark."
+        : `Invalid arguments for ${command}; use its declared payload.`
+      let ui: UiInstructionFrame
       try {
-        const payload = commandPayload(row, args)
-        if (payload.mode !== "light" && payload.mode !== "dark") throw new Error("Explicit mode required")
-        return {
-          cards: [],
-          value: `Requested /theme ${payload.mode} on the author's screen.`,
-          ui: { command: "theme" as const, mode: payload.mode }
-        }
+        const payload = Object.entries(commandPayload(row, args)).filter(([, value]) => value !== null)
+        ui = UiInstructionFrameSchema.parse({ ...Object.fromEntries(payload), command })
       } catch {
-        return { refusal: "Invalid arguments for theme; use light or dark." }
+        return { refusal }
+      }
+      if (command === "theme" && ui.mode !== "light" && ui.mode !== "dark") return { refusal }
+      return {
+        cards: [],
+        value: `Requested /${command}${command === "theme" ? ` ${ui.mode}` : ""} on the author's screen.`,
+        ui
       }
     })
 
@@ -537,6 +558,26 @@ const todoNew: Bind = (grant) => {
         Date.now()
       )
       return { cards: [card], value: DRAFTED }
+    })
+}
+
+/**
+ * `docs` over the bundled pages, as the app runs it: a read hands the model a
+ * page's title, summary and Markdown and embeds nothing; otherwise the Docs
+ * card embeds the page. Neither reads the repository or calls the API.
+ */
+const docsCommand: Bind = (_grant, { docs }) => {
+  if (docs === undefined || docs.length === 0) return undefined
+  return (args, ordinal) =>
+    Effect.sync(() => {
+      const input = parseDocsArgs(args)
+      if ("error" in input) return { refusal: input.error }
+      if (input.payload.mode === "read") {
+        const read = readDocsPage(docs, input.payload.page ?? "")
+        return "error" in read ? { refusal: read.error } : { cards: [], value: read.value }
+      }
+      const { card, value } = docsCard(docs, input.payload.page, ordinal, Date.now())
+      return { cards: [card], value }
     })
 }
 
@@ -724,8 +765,10 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
       todoNew
       : row.name === "flow" || row.name === "flow.edit" ?
       flowCommand(row)
-      : row.name === "theme" ?
-      themeCommand(row)
+      : isUiInstructionCommand(row.name) ?
+      uiCommand(row, row.name)
+      : row.name === "docs" ?
+      docsCommand
       : catalogCommand(row)
     const run = bind(grant, transport)
     const command: Offered["command"] = {
@@ -739,6 +782,12 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
     return run === undefined ? [] : [{ command, run }]
   })
 
+/** How a turn answers "how do I": from the page that covers it, which it names. */
+const docsReadLine = (docs: ReadonlyArray<DocsPage>): string =>
+  `Asked how to do something in Smithers, first run docs with {"mode":"read","page":"<page>"} for the page that covers it (pages: ${
+    docs.map((page) => page.slug).join(", ")
+  }), answer from what it returns, and name the page you read.`
+
 /** How a turn that can list finds a file it was not named: it lists, never guesses. */
 const LIST_BEFORE_READ_LINE =
   "Asked about the repository's code without a file named, run files.list with no argument to list the root, then list or read the paths it shows; never guess a path."
@@ -749,7 +798,7 @@ const LIST_BEFORE_READ_LINE =
  * app agent's standing rules and exactly the commands this host runs for the
  * turn's author, and no other.
  */
-const hostInstructions = (offered: ReadonlyArray<Offered>): string => {
+const hostInstructions = (offered: ReadonlyArray<Offered>, docs: ReadonlyArray<DocsPage>): string => {
   const reads = offered.flatMap(({ command }) =>
     command.name === FILES_LIST_COMMAND.name || command.name === FILES_READ_COMMAND.name ? [command.name] : []
   )
@@ -778,6 +827,7 @@ const hostInstructions = (offered: ReadonlyArray<Offered>): string => {
     ),
     "Call commands with action list to inspect payload schemas. HTTP commands accept a JSON object; TODO references also accept Tn.",
     ...(reads.includes(FILES_LIST_COMMAND.name) ? [LIST_BEFORE_READ_LINE] : []),
+    ...(offered.some(({ command }) => command.name === "docs") ? [docsReadLine(docs)] : []),
     "",
     `Everything this list lacks is a can't-yet. ${cantYetsSentence(namedCantYets(reads))}`,
     ...WORKFLOW_LAUNDERING_RULE
@@ -806,11 +856,15 @@ const hostContext = (context: AgentRuntimeContext): AgentRuntimeContext => {
 }
 
 /** The request of a turn this host runs commands for: its instructions, context and tool are this host's. */
-const hostRequest = (request: StartAgentTurnRequest, offered: ReadonlyArray<Offered>): StartAgentTurnRequest => {
+const hostRequest = (
+  request: StartAgentTurnRequest,
+  offered: ReadonlyArray<Offered>,
+  docs: ReadonlyArray<DocsPage>
+): StartAgentTurnRequest => {
   const { context, ...rest } = request
   return {
     ...rest,
-    instructions: hostInstructions(offered),
+    instructions: hostInstructions(offered, docs),
     ...(context === undefined ? {} : { context: hostContext(context) }),
     tools: [commandsToolSpec]
   }
@@ -908,7 +962,7 @@ export const runHostTurn = <E>(
     // A turn offered no command keeps its request's own instructions and context: this host owns neither.
     let request: StartAgentTurnRequest = offered.length === 0
       ? { ...grant.request, tools: [] }
-      : hostRequest(grant.request, offered)
+      : hostRequest(grant.request, offered, transport.docs ?? [])
     if (grant.agentInstructions !== undefined) {
       request = { ...request, instructions: request.instructions + "\n\n" + grant.agentInstructions }
     }
