@@ -243,7 +243,9 @@ export const systemFlowsFromEnv = (
 }
 
 const configured = (options: Options) => {
-  if (options.draftVersion && (options.todoExecutionDigest !== undefined || options.sourcePublication !== "local-only")) {
+  if (
+    options.draftVersion && (options.todoExecutionDigest !== undefined || options.sourcePublication !== "local-only")
+  ) {
     throw new Error("Draft runs require local-only publication and no TODO pin")
   }
   if (
@@ -713,7 +715,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             // A local lander reads through the native helper, so it is provided first.
             (layers) => landing === undefined ? layers : layers.pipe(Layer.provideMerge(landing)),
             // The helper operations that read the workspace's protected binding
-            // (read, source creation, import, publication) run on the host's raw
+            // (read, source creation, import, publication and reserved stack
+            // operations) run on the host's raw
             // spawner (NativeTransport).
             Layer.provideMerge(nativeLayer(options).pipe(Layer.provide(NativeTransport.layerFrom(platform.host)))),
             (layers) =>

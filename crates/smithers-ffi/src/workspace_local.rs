@@ -702,17 +702,19 @@ pub fn run(raw: &[u8]) -> Result<Value> {
     if !repo.is_absolute() {
         return Err(invalid("repository path must be absolute"));
     }
+    // Reject unsupported dispatch before opening the repository or its lock.
+    // In particular an older bundle must not touch a workspace when a newer
+    // host asks it to perform a reserved operation it cannot authorize.
+    let dispatch: fn(&Path, &Value) -> Result<Value> = match field(&input, "operation")? {
+        "read" => read,
+        "snapshot" | "create" | "describe" | "edit" | "amend" | "reorder" | "apply_files" => mutate,
+        "create_source" => create_source,
+        "publish_source" => publish_source,
+        "import_source" => source_import::run,
+        _ => return Err(invalid("unsupported local coding operation")),
+    };
     let _lock = CodingLock::acquire(repo)?;
-    match field(&input, "operation")? {
-        "read" => read(repo, &input),
-        "snapshot" | "create" | "describe" | "edit" | "amend" | "reorder" | "apply_files" => {
-            mutate(repo, &input)
-        }
-        "create_source" => create_source(repo, &input),
-        "publish_source" => publish_source(repo, &input),
-        "import_source" => source_import::run(repo, &input),
-        _ => Err(invalid("unsupported local coding operation")),
-    }
+    dispatch(repo, &input)
 }
 
 #[cfg(test)]
@@ -720,6 +722,40 @@ mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::tempdir;
+
+    #[test]
+    fn unsupported_operations_refuse_before_workspace_lock_or_reads() {
+        let directory = tempdir().unwrap();
+        for operation in ["stack.candidate", "stack.propose", "unknown"] {
+            let input = serde_json::to_vec(&json!({
+                "operation": operation,
+                "repositoryPath": directory.path(),
+                "requestId": "11111111-1111-4111-8111-111111111111"
+            }))
+            .unwrap();
+            let error = run(&input).unwrap_err();
+            assert_eq!(error.code, "invalid_request");
+            assert_eq!(
+                serde_json::to_value(&error).unwrap()["message"],
+                "unsupported local coding operation"
+            );
+            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+        // A nonexistent workspace must produce the same dispatch error, rather
+        // than disclosing filesystem state or trying to create a lock directory.
+        let absent = directory.path().join("absent");
+        let error = run(&serde_json::to_vec(&json!({
+            "operation": "stack.candidate", "repositoryPath": absent
+        }))
+        .unwrap())
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_request");
+        assert_eq!(
+            serde_json::to_value(&error).unwrap()["message"],
+            "unsupported local coding operation"
+        );
+        assert!(!absent.exists());
+    }
 
     #[test]
     fn operation_args_supports_old_and_new_jj_receipts() {

@@ -22,8 +22,8 @@ import {
   SourceCreation,
   SourceImport,
   SourcePublication,
-  type StackCandidate,
-  type StackProposal
+  StackCandidate,
+  StackProposal
 } from "./native-schema.ts"
 export * from "./native-schema.ts"
 
@@ -106,7 +106,14 @@ export class NativeTransport extends Context.Service<
     })).pipe(Layer.provide(host))
 }
 
-const transportOperations: ReadonlySet<unknown> = new Set(["read", "create_source", "import_source", "publish_source"])
+const transportOperations: ReadonlySet<unknown> = new Set([
+  "read",
+  "create_source",
+  "import_source",
+  "publish_source",
+  "stack.candidate",
+  "stack.propose"
+])
 
 /** Effect's injected spawner owns acquisition, cancellation and process cleanup
  * on both Node and Bun. The native helper owns JJ and identity.
@@ -194,8 +201,50 @@ export const nativeLayer = (options: NativeOptions) =>
             )
         })
       )
+    // Reserved operations cannot fall back to the run's ordinary process
+    // service. Only the installed host transport can read its authority binding.
+    const stackInvoke = (
+      request: { operation: "stack.candidate" | "stack.propose"; requestId: string; generation?: number }
+    ) =>
+      Effect.gen(function*() {
+        if (options.sourcePublication === "local-only" || Option.isNone(transport)) {
+          return yield* failure("source_refused", "Current TODO run and machine authority is unavailable")
+        }
+        yield* Schema.decodeUnknownEffect(PublishSource.fields.requestId)(request.requestId).pipe(
+          Effect.mapError(() => failure("invalid_request", "Stack operation requires a durable invocation identity"))
+        )
+        if (request.operation === "stack.propose") {
+          yield* Schema.decodeUnknownEffect(StackCandidate.fields.generation)(request.generation).pipe(
+            Effect.mapError(() => failure("invalid_request", "Stack proposal requires a positive candidate generation"))
+          )
+        }
+        return yield* invoke(request)
+      })
     return {
       sourcePublication: options.sourcePublication ?? "cloud",
+      stackCandidate: (requestId: string) =>
+        stackInvoke({ operation: "stack.candidate", requestId }).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(StackCandidate)),
+          Effect.mapError((error) =>
+            error instanceof NativeCodingError
+              ? error
+              : failure("invalid_receipt", "Native candidate returned an invalid receipt")
+          )
+        ),
+      stackPropose: (requestId: string, generation: number) =>
+        stackInvoke({ operation: "stack.propose", requestId, generation }).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(StackProposal)),
+          Effect.flatMap((proposal) =>
+            proposal.generation === generation
+              ? Effect.succeed(proposal)
+              : Effect.fail(failure("invalid_receipt", "Native proposal acknowledged another candidate generation"))
+          ),
+          Effect.mapError((error) =>
+            error instanceof NativeCodingError
+              ? error
+              : failure("invalid_receipt", "Native proposal returned an invalid receipt")
+          )
+        ),
       read: (changeIds: ReadonlyArray<string> = [], historyLimit?: number) =>
         invoke({
           operation: "read",

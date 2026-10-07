@@ -145,6 +145,15 @@ The coding host requires `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to name the
 packaged helper by an absolute path. Both Node and Bun use that executable for
 file eligibility, snapshots and native coding operations.
 
+`NativeCoding.stackCandidate` and `stackPropose` use the existing host
+`NativeTransport`, with durable invocation IDs and bounded candidate generations.
+They refuse a missing transport or local-only publication before spawning the
+helper, and validate the helper's receipt before the Action can journal success.
+A helper without reserved dispatch rejects these tags before acquiring its
+workspace lock. The installed run/machine authorizer and owning-claim dispatch
+remain required; these providers alone do not enable candidate capture or PR
+publication.
+
 The configured executable is staged separately from the general Smithers CLI.
 Plue's existing `SMITHERS_WORKSPACE_CODING_HOST_BINARY` operator option selects
 that artifact; it is installed as `/usr/local/bin/smithers-coding-host`. General
