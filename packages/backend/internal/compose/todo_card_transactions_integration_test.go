@@ -131,9 +131,9 @@ func TestTodoCardCommitAndAmendTransactions(t *testing.T) {
 	first := call("POST", "/api/todos", commit, "commit-once", 202)
 	require.Equal(t, first, call("POST", "/api/todos", commit, "commit-once", 202))
 	for _, socket := range sockets {
-		delta := readFrame(socket)
-		require.Equal(t, "delta", delta.T)
-		require.Contains(t, string(delta.Data), "Retry webhooks")
+		snapshot := readFrame(socket)
+		require.Equal(t, "snap", snapshot.T)
+		require.Contains(t, string(snapshot.Data), "Retry webhooks")
 	}
 	n := int64(first["n"].(float64))
 	path := fmt.Sprintf("/api/todos/%d", n)
