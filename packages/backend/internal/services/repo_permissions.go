@@ -1050,3 +1050,70 @@ func executionTodoSponsorMatches(info *middleware.AuthInfo, item db.MythicalItem
 	}
 	return info.CredentialKind() != middleware.CredentialAgentRun || middleware.ParseTokenAgentSessionRestriction(info.RawScopes) == item.RequestRunID
 }
+
+// lockInstallSessionWrite checks credential and membership liveness under the
+// caller's roster lock. It preserves an admitted command's role decision.
+func lockInstallSessionWrite(ctx context.Context, tx pgx.Tx, actorID int64) error {
+	info := middleware.AuthInfoFromContext(ctx)
+	dead := func() error {
+		return &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+	}
+	if info == nil || info.User == nil || info.User.ID != actorID || info.IsTokenAuth || info.SessionHash == "" {
+		return dead()
+	}
+	// Account disable/delete is another credential-death transition. Keep its
+	// row stable through the effect, in the same roster → user → session order.
+	var liveUser int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND is_active AND NOT prohibit_login AND deleted_at IS NULL FOR SHARE`, actorID).Scan(&liveUser); stdErrors.Is(err, pgx.ErrNoRows) {
+		return dead()
+	} else if err != nil {
+		return err
+	}
+	// Find the stored key without locking unrelated sessions. Earlier rows
+	// stored the raw cookie; the live principal still carries its digest.
+	rows, err := tx.Query(ctx, `SELECT session_key FROM auth_sessions WHERE user_id=$1 AND expires_at>now()`, actorID)
+	if err != nil {
+		return err
+	}
+	key := ""
+	for rows.Next() {
+		var stored string
+		if err = rows.Scan(&stored); err != nil {
+			rows.Close()
+			return err
+		}
+		if stored == info.SessionHash || (middleware.LegacyRawSessionKey(stored) && sessionStorageKey(stored) == info.SessionHash) {
+			key = stored
+			break
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if key == "" {
+		return dead()
+	}
+	// Logout deletes this row, so exactly this credential is serialized too.
+	err = tx.QueryRow(ctx, `SELECT session_key FROM auth_sessions WHERE session_key=$1 AND user_id=$2 AND expires_at>clock_timestamp() FOR SHARE`, key, actorID).Scan(&key)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return dead()
+	}
+	if err != nil {
+		return err
+	}
+	queries := db.New(tx)
+	role, err := InstallRoleOf(ctx, queries, actorID)
+	if err != nil {
+		return err
+	}
+	if role == "" {
+		return dead()
+	}
+	if err := identity.NewMemberBoundary(queries).AuthorizeMember(identity.WithMemberRoute(ctx), actorID); err != nil {
+		return err
+	}
+	return nil
+
+}

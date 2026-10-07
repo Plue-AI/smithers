@@ -12,8 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/identity"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
@@ -613,58 +611,10 @@ func (s *SecretService) guardedSecretWrite(ctx context.Context, repository db.Re
 		if _, err = db.New(tx).LockInstallRepositoryBinding(ctx); err != nil {
 			return err
 		}
-		info := middleware.AuthInfoFromContext(ctx)
-		dead := func() error {
-			return &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
-		}
-		if info == nil || info.User == nil || info.User.ID != actorID || info.IsTokenAuth || info.SessionHash == "" {
-			return dead()
-		}
-		// Find the stored key without locking unrelated sessions. Earlier rows
-		// stored the raw cookie; the live principal still carries its digest.
-		rows, err := tx.Query(ctx, `SELECT session_key FROM auth_sessions WHERE user_id=$1 AND expires_at>now()`, actorID)
-		if err != nil {
-			return err
-		}
-		key := ""
-		for rows.Next() {
-			var stored string
-			if err = rows.Scan(&stored); err != nil {
-				rows.Close()
-				return err
-			}
-			if stored == info.SessionHash || (middleware.LegacyRawSessionKey(stored) && sessionStorageKey(stored) == info.SessionHash) {
-				key = stored
-				break
-			}
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return err
-		}
-		if key == "" {
-			return dead()
-		}
-		// Logout deletes this row, so exactly this credential is serialized too.
-		err = tx.QueryRow(ctx, `SELECT session_key FROM auth_sessions WHERE session_key=$1 AND user_id=$2 AND expires_at>clock_timestamp() FOR SHARE`, key, actorID).Scan(&key)
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return dead()
-		}
-		if err != nil {
+		if err := lockInstallSessionWrite(ctx, tx, actorID); err != nil {
 			return err
 		}
 		queries := db.New(tx)
-		role, err := InstallRoleOf(ctx, queries, actorID)
-		if err != nil {
-			return err
-		}
-		if role == "" {
-			return dead()
-		}
-		if err := identity.NewMemberBoundary(queries).AuthorizeMember(identity.WithMemberRoute(ctx), actorID); err != nil {
-			return err
-		}
 		current, err := InstallRepositoryID(ctx, queries)
 		if err != nil {
 			return err

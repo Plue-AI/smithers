@@ -7,34 +7,34 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 )
 
-// memberMutation serializes roster changes and session minting (ClaimOwner
-// takes the same row FOR SHARE) on the owner row, then decides the actor's
-// standing again under that lock: a maintainer removed a moment ago changes
-// nothing.
-func (m *Members) memberMutation(ctx context.Context) (pgx.Tx, int64, error) {
+// memberMutation preserves the bound command decision while serializing its
+// live session, membership and repository subject against revocation and rebind.
+func (m *Members) memberMutation(ctx context.Context, actorID, repositoryID int64) (pgx.Tx, int64, error) {
 	tx, err := m.lockRoster(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	var owner int64
-	err = tx.QueryRow(ctx, `SELECT user_id FROM self_host_owners`).Scan(&owner)
-	if err == nil {
-		var role InstallRole
-		info := middleware.AuthInfoFromContext(ctx)
-		if info != nil && info.User != nil {
-			role, err = InstallRoleOf(ctx, db.New(tx), info.User.ID)
-		}
-		if err == nil && role.rank() < InstallMaintainer.rank() {
-			err = memberError(http.StatusForbidden, "permission", "permission", "Only a maintainer can do this")
-		}
+	fail := func(err error) (pgx.Tx, int64, error) { _ = tx.Rollback(ctx); return nil, 0, err }
+	q := db.New(tx)
+	if _, err = q.LockInstallRepositoryBinding(ctx); err != nil {
+		return fail(err)
 	}
+	if err = lockInstallSessionWrite(ctx, tx, actorID); err != nil {
+		return fail(err)
+	}
+	current, err := InstallRepositoryID(ctx, q)
 	if err != nil {
-		_ = tx.Rollback(ctx)
-		return nil, 0, err
+		return fail(err)
+	}
+	if current != repositoryID {
+		return fail(memberError(http.StatusForbidden, "permission", "permission", "Not available"))
+	}
+	var owner int64
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM self_host_owners`).Scan(&owner); err != nil {
+		return fail(err)
 	}
 	return tx, owner, nil
 }
@@ -138,7 +138,7 @@ func (m *Members) Remove(ctx context.Context, login string) error {
 	if err != nil {
 		return err
 	}
-	tx, owner, err := m.memberMutation(ctx)
+	tx, owner, err := m.memberMutation(ctx, decision.UserID, repo.ID)
 	if err != nil {
 		return err
 	}
