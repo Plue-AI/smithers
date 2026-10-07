@@ -112,9 +112,10 @@ type GitHubMainPullStatus struct {
 type GitHubMainPullService struct {
 	// install is the install's GitHub sync (UseInstallPolicy): it always
 	// follows, polls on the install cadence and serves its health.
-	install          bool
-	syncStreams      GitHubSyncStreams
-	refReadAdmission interface {
+	install           bool
+	mainSerialization GitHubMainSerialization
+	syncStreams       GitHubSyncStreams
+	refReadAdmission  interface {
 		prepareRefRead(context.Context, db.GithubMainPull) (gitHubRefReadCommit, error)
 	}
 	wake chan struct{}
@@ -358,6 +359,11 @@ func (s *GitHubMainPullService) Sweep(ctx context.Context) {
 // immediately before its run, so the run deadline always ends inside its
 // lease.
 func (s *GitHubMainPullService) PollOnce(ctx context.Context) error {
+	if s.install && s.mainSerialization != nil {
+		if err := s.RecoverMainResets(ctx); err != nil {
+			return err
+		}
+	}
 	if err := s.installSyncReady(ctx); err != nil {
 		return err
 	}
@@ -484,6 +490,24 @@ func gitHubMainPullBackoff(attempts int32) time.Duration {
 // pull performs one observation. It targets GitHub's tip read now, never a
 // webhook's `after`, so duplicate and out-of-order deliveries converge.
 func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull) gitHubMainPullOutcome {
+	if s.install && s.mainSerialization != nil {
+		var out gitHubMainPullOutcome
+		err := s.mainSerialization.WithRepository(ctx, row.RepositoryID, func(fence GitHubMainFence) error {
+			if fence == nil {
+				return githubSyncUnavailable()
+			}
+			out = s.pullSerialized(ctx, row, fence)
+			return nil
+		})
+		if err != nil {
+			return gitHubMainPullOutcome{state: gitHubMainPullStateFailed, err: err.Error()}
+		}
+		return out
+	}
+	return s.pullSerialized(ctx, row, nil)
+}
+
+func (s *GitHubMainPullService) pullSerialized(ctx context.Context, row db.GithubMainPull, fence GitHubMainFence) gitHubMainPullOutcome {
 	out := gitHubMainPullOutcome{}
 	fail := func(message string) gitHubMainPullOutcome {
 		out.state, out.err = gitHubMainPullStateFailed, message
@@ -656,7 +680,16 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	defer func() { _ = os.RemoveAll(dir) }()
 	// The write is bound under repo-host's lock to this repository: a deleted
 	// or transferred repository's name can be reused.
-	verify := RepositoryStillAt(s.store, repository.ID, owner, repository.Name)
+	verifyRepository := RepositoryStillAt(s.store, repository.ID, owner, repository.Name)
+	verify := func(ctx context.Context) error {
+		if err := verifyRepository(ctx); err != nil {
+			return err
+		}
+		if fence != nil {
+			return fence.VerifyPull(ctx, smithersHead, out.githubHead)
+		}
+		return nil
+	}
 	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: smithersHead, writer: s.mainWriter()}, verify)
 	if err != nil {
 		return fail(err.Error())
@@ -691,6 +724,11 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	if !ancestor {
 		if s.install {
 			out.forcePush = &GitHubMainForcePush{Old: smithersHead, New: tip}
+			if fence != nil {
+				if err := fence.OpenForcePush(ctx, *out.forcePush); err != nil {
+					return fail(err.Error())
+				}
+			}
 			return fail("force_push")
 		}
 		return fail("Smithers " + branch + " (" + smithersHead + ") is not an ancestor of GitHub " + branch + " (" + tip +
