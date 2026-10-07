@@ -13098,9 +13098,15 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Delete a Wiki note",
-      "http": null,
+      "http": {
+        "method": "DELETE",
+        "path": "/api/repos/{owner}/{repo}/wiki/{documentId}",
+        "query": {
+          "visibility": "visibility"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
@@ -13108,6 +13114,40 @@
           "properties": {
             "documentId": {
               "type": "string"
+            },
+            "owner": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "visibility": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "public",
+                    "private"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [

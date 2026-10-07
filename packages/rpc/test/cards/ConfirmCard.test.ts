@@ -140,3 +140,11 @@ test("Learning confirmation retains its proposal identity; Dismiss creates no TO
     }).success
   ).toBe(false)
 })
+
+
+test("Wiki deletion uses its initiating catalog tag in the private Confirm projection", () => {
+  const model = { ...fixtures.one_click.model, action: { tag: "wiki.delete", verb: "Delete" }, subject: { kind: "wiki", ref: "home", revision: "7:2" } }
+  const row = { id: "10000000-0000-4000-8000-000000000001", command: "wiki.delete", state: "pending", revision: "7:2",
+    expires_at: "2099-01-01T00:00:00Z", payload: { input: { owner: "ben", repo: "app" }, card: model } }
+  expect(MemberConfirmationSchema.parse(row)).toEqual(row)
+})

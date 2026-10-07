@@ -150,9 +150,11 @@ export const wikiOperations = [
     // Appendix B: the agent asks; only the person answers the existing dialog.
     visibility: "in-card",
     summary: `Delete a ${WIKI_DISPLAY_NAME} note`,
-    hidden: true,
+    visibility: "in-card",
+    agent: "confirm",
+    http: { method: "DELETE", path: "/api/repos/{owner}/{repo}/wiki/{documentId}", query: { visibility: "visibility" } },
     args: "<documentId>",
-    input: Schema.Struct({ documentId: Schema.String })
+    input: Schema.Struct({ documentId: Schema.String, owner: Schema.optional(Schema.String), repo: Schema.optional(Schema.String), visibility: Schema.optional(Schema.Literals(["public", "private"])) })
   }),
   operation({
     /* Deleting a note asks first; a model may ASK and may never answer for the human. */
