@@ -297,6 +297,8 @@ func branchPresenceModel(row db.Workspace, presence []any, origin string) map[st
 	switch row.Status {
 	case "suspended", "stopped":
 		machine["state"] = "asleep"
+	case "releasing":
+		machine["state"] = "releasing"
 	case "running":
 		machine["state"] = "awake"
 	case "starting", "pending":
