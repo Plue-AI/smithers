@@ -70,7 +70,11 @@ try {
   await expect(first).toHaveCount(0)
   expect((await page.request.post(`${origin}/__live_test/release`)).status()).toBe(204)
   await expect(first).toBeVisible({ timeout: 30000 })
-  await expect(first).toContainText("Waiting for a machine")
+  // This control-only install has no machine runtime. Queue positions come
+  // from that runtime's admission facts, not from counting queued cards.
+  // Assert the committed TODO state without inventing machine admission.
+  await expect(first.getByText("Queued", { exact: true })).toBeVisible()
+  await expect(first.locator('[data-state="starting"], [data-state="working"]')).toHaveCount(0)
   console.log("PASS live install: held admission keeps chat responsive and shows no uncommitted TODO")
   await say("/todo.new Replay beta")
   await page.getByRole("region", { name: "Draft", exact: true }).getByRole("button", { name: "Commit", exact: true }).click()
@@ -84,8 +88,10 @@ try {
   const beforeReload = subscriptions.length
   const beforeReloadFrames = frames.length
   await page.reload()
-  await expect(first).toContainText("Waiting for a machine")
-  await expect(second).toContainText("Waiting for a machine")
+  for (const card of [first, second]) {
+    await expect(card.getByText("Queued", { exact: true })).toBeVisible()
+    await expect(card.locator('[data-state="starting"], [data-state="working"]')).toHaveCount(0)
+  }
   await expect.poll(() => {
     const mounted = subscriptions.slice(beforeReload)
     return ["home", "todo:1", "todo:2"].every(topic => mounted.some(s => s.topic === topic
