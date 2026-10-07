@@ -8,6 +8,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,16 +16,26 @@ import (
 // authority. Only repository context and model responses are scripted here;
 // prompt admission, journal, dispatcher and author authentication are real.
 func TestBranchConversationUnavailableProviders(t *testing.T) {
-	for _, missing := range []string{"delegated-issuer", "branch-membership", "context-reader", "model-assignment", "model-credential"} {
+	for _, missing := range []string{"delegated-issuer", "branch-membership", "context-reader", "model-assignment", "model-credential", "live-topics", "live-revocation"} {
 		t.Run(missing, func(t *testing.T) {
 			f := workingConversationWithContext(t, func(context.Context, middleware.Credential, int64, int64, string) (json.RawMessage, error) {
 				return json.RawMessage(`{"state":"main","candidates":[],"tokenBudget":24000}`), nil
-			}, func(_ *localChat, options *chat.RuntimeOptions) {
+			}, func(local *localChat, options *chat.RuntimeOptions) {
 				if missing == "delegated-issuer" {
 					options.API = nil
 				}
+				if missing == "live-topics" {
+					local.configureExtras = func(extras *routerExtras) { extras.Live.Topics = nil }
+				}
 			})
-			if missing == "branch-membership" {
+			if missing == "live-topics" || missing == "live-revocation" {
+				if missing == "live-revocation" {
+					routes.SetRevocationSource(nil)
+				}
+				body := f.call(t, "ben", "GET", "/api/live", "", 503)
+				require.Contains(t, string(body), "live_unavailable")
+				require.NotContains(t, string(body), "Host answer.")
+			} else if missing == "branch-membership" {
 				f.local.composition.runtime.Handler.ResolveBranch = nil
 				f.call(t, "ben", "GET", "/api/conversations/main", "", 503)
 				f.call(t, "ben", "POST", "/api/conversations/main/prompt", `{"prompt":"must not run","idempotencyKey":"missing-branch"}`, 503)
