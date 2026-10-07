@@ -321,6 +321,66 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	require.ErrorIs(t, err, chat.ErrConflict)
 	require.Equal(t, 2, adapter.calls)
 
+	// Replacement resets adapter state. Once a newer generation commits,
+	// delayed old-generation records may replay an existing range, but cannot
+	// advance a retired source or resurrect a previously unseen generation.
+	record.Generation = 3
+	record.Start, record.End = 0, 16
+	record.Record = `{"type":"user"}`
+	payload, err = wire.EncodeTranscript(record)
+	require.NoError(t, err)
+	event.Payload = payload
+	event.Seq++
+	event.EventID[0]++
+	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+	require.NoError(t, err)
+	require.Equal(t, 3, adapter.calls)
+	require.Empty(t, adapter.previous, "replacement must reset adapter state")
+	for _, tc := range []struct {
+		name                   string
+		generation, start, end uint64
+	}{
+		{"retired-generation-append", 1, 32, 48},
+		{"unseen-retired-generation", 2, 0, 16},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			record.Generation, record.Start, record.End = tc.generation, tc.start, tc.end
+			payload, err = wire.EncodeTranscript(record)
+			require.NoError(t, err)
+			event.Payload = payload
+			event.Seq++
+			event.EventID[0]++
+			beforeHistory := call("GET", "/api/conversations/"+branch.ID, "", benCookie, 200)
+			_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+			require.ErrorIs(t, err, chat.ErrCursorConflict)
+			require.Equal(t, 3, adapter.calls)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE transcript_checkpoint IS NOT NULL`).Scan(&receipts))
+			require.Equal(t, 4, receipts)
+			require.JSONEq(t, beforeHistory, call("GET", "/api/conversations/"+branch.ID, "", aliceCookie, 200))
+		})
+	}
+	// Lost acknowledgments of already committed old records remain replayable.
+	record.Generation, record.Start, record.End = 1, 0, 16
+	payload, err = wire.EncodeTranscript(record)
+	require.NoError(t, err)
+	event.Payload = payload
+	event.Seq++
+	event.EventID[0]++
+	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+	require.NoError(t, err)
+	require.Equal(t, 3, adapter.calls)
+	// Current generation continues from its own checkpoint after old replay.
+	record.Generation, record.Start, record.End = 3, 16, 32
+	payload, err = wire.EncodeTranscript(record)
+	require.NoError(t, err)
+	event.Payload = payload
+	event.Seq++
+	event.EventID[0]++
+	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+	require.NoError(t, err)
+	require.Equal(t, 4, adapter.calls)
+	require.JSONEq(t, `{"offset":16,"pending":"","calls":{"tool1":{"name":"read","input":{"path":"a.ts"}}}}`, string(adapter.previous))
+
 	// Invoke the actual install-shipped TS adapters over the same bearer boundary
 	// as production. Only discovery/registration remains a test provider until
 	// the privileged registry contract and reference-host qualification exist.

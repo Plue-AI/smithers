@@ -84,6 +84,22 @@ func (s *TranscriptIngest) normalizeHost(ctx context.Context, tx pgx.Tx, branch 
 	if replay != nil {
 		checkpoint.State = replay.State
 	} else {
+		// Write holds the workspace row lock, so generation retirement and
+		// checkpoint advancement serialize across connections. Existing ranges
+		// above remain replayable after replacement; new data cannot advance a
+		// retired generation or resurrect one with no committed checkpoint.
+		var retired bool
+		err = tx.QueryRow(ctx, `SELECT EXISTS (
+ SELECT 1 FROM machine_event_receipts
+ WHERE workspace_id=$1 AND transcript_checkpoint->>'source'=$2
+ AND (transcript_checkpoint->>'generation')::numeric > $3::numeric
+ AND outcome='applied')`, branch, source, generation).Scan(&retired)
+		if err != nil {
+			return nil, err
+		}
+		if retired {
+			return nil, chat.ErrCursorConflict
+		}
 		if record.Start != latest {
 			return nil, chat.ErrCursorConflict
 		}
