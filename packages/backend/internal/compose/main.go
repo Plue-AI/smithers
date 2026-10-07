@@ -176,6 +176,7 @@ func composeBranchMachines(options Options, hosted bool, members identity.Member
 
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
+	InstallMaintenanceDatabase ports.InstallMaintenanceDatabase
 	// Machined is the shared host link registry, owned by the install runtime.
 	Machined *machined.Registry
 	// DocumentRelay is the authenticated document seam; nil refuses document subscriptions.
@@ -1712,7 +1713,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			return fmt.Errorf("mint setup authority: %w", err)
 		}
 		if stateDir := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR")); *setupHandoff == "socket" {
-			closeHandoff, err := startInstallMaintenanceHandoff(ctx, stateDir, pool, authService.InstallSetup.Emit, installQuiesce)
+			closeHandoff, err := startInstallMaintenanceHandoff(ctx, stateDir, pool, authService.InstallSetup.Emit, options.InstallMaintenanceDatabase, installQuiesce)
 			if err != nil {
 				return fmt.Errorf("start setup handoff: %w", err)
 			}

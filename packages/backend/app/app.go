@@ -30,6 +30,7 @@ import (
 // routes, services, jobs, and database are assembled by the common
 // implementation. A deployment can pass its configuration file using Args.
 type Config struct {
+	InstallMaintenanceDatabase ports.InstallMaintenanceDatabase
 	// HostProfile is measured once on the install state volume before startup.
 	HostProfile *microsandbox.HostProfile
 	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
@@ -219,13 +220,14 @@ func Run(ctx context.Context, cfg Config) error {
 // a new field cannot reach one entry point and miss the other.
 func (cfg Config) options() compose.Options {
 	return compose.Options{
-		HostProfile:             cfg.HostProfile,
-		EnvGitHubAppCredentials: cfg.EnvGitHubAppCredentials,
-		CanaryRuns:              cfg.CanaryRuns,
-		RuntimeStores:           cfg.RuntimeStores,
-		BeforeShutdown:          cfg.BeforeShutdown,
-		ComputeProvider:         cfg.ComputeProvider,
-		Admission:               cfg.Admission, Commerce: cfg.Commerce,
+		InstallMaintenanceDatabase: cfg.InstallMaintenanceDatabase,
+		HostProfile:                cfg.HostProfile,
+		EnvGitHubAppCredentials:    cfg.EnvGitHubAppCredentials,
+		CanaryRuns:                 cfg.CanaryRuns,
+		RuntimeStores:              cfg.RuntimeStores,
+		BeforeShutdown:             cfg.BeforeShutdown,
+		ComputeProvider:            cfg.ComputeProvider,
+		Admission:                  cfg.Admission, Commerce: cfg.Commerce,
 		Duties:                 compose.Duties(cfg.Duties),
 		TraceExporter:          cfg.TraceExporter,
 		Blobs:                  cfg.Blobs,

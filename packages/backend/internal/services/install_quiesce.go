@@ -402,3 +402,20 @@ func (s *InstallQuiesce) Freeze(ctx context.Context, op string, by int64) (freez
 	})
 	return freeze, err
 }
+
+// RequireReady fences authority exports against an existing owner operation.
+// It cannot create or renew a freeze; callers maintain their lease separately.
+func (s *InstallQuiesce) RequireReady(ctx context.Context, op string, by int64) error {
+	if op == "" || len(op) > 256 {
+		return errors.New("quiesce op required")
+	}
+	if err := s.Available(); err != nil {
+		return err
+	}
+	return s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
+		if row == nil || !row.Ready || row.Op != op || row.By != by || !time.Now().Before(row.LeaseUntil) {
+			return row, errors.New("ready owner quiesce lease required")
+		}
+		return row, nil
+	})
+}

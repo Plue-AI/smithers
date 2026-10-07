@@ -94,6 +94,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return errors.Join(fmt.Errorf("publish state version: %w", err), stop(database))
 	}
 	starting.close()
+	cfg.App.InstallMaintenanceDatabase = database
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	appDone := make(chan error, 1)

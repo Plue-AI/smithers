@@ -3,7 +3,9 @@ package routes
 import (
 	"encoding/json"
 	"errors"
+	"github.com/smithersai/smithers/packages/backend/ports"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -11,8 +13,9 @@ import (
 )
 
 type InstallQuiesceHandler struct {
-	Owners  GitHubAppSetupOwners
-	Service *services.InstallQuiesce
+	Owners   GitHubAppSetupOwners
+	Service  *services.InstallQuiesce
+	Database ports.InstallMaintenanceDatabase
 }
 
 func (h *InstallQuiesceHandler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +46,10 @@ func (h *InstallQuiesceHandler) HandleInstallingOwner(w http.ResponseWriter, r *
 	}
 	if h.Service == nil {
 		quiesceResponse(w, errors.New("quiesce unavailable"))
+		return
+	}
+	if r.URL.Path == "/maintenance/database/size" || r.URL.Path == "/maintenance/database/dump" {
+		h.handleDatabase(w, r, owner.ID)
 		return
 	}
 	if r.URL.Path == "/maintenance/check" && r.Method == http.MethodGet {
@@ -117,5 +124,52 @@ func MountInstallQuiesce(r chi.Router, enabled bool, gate *services.QuiesceGate,
 	if h != nil {
 		r.Post("/api/install/quiesce", h.Handle)
 		r.Delete("/api/install/quiesce", h.Handle)
+	}
+}
+
+// Only HandleInstallingOwner can reach these exports. They are never TCP routes.
+func (h *InstallQuiesceHandler) handleDatabase(w http.ResponseWriter, r *http.Request, owner int64) {
+	method := http.MethodGet
+	if r.URL.Path == "/maintenance/database/dump" {
+		method = http.MethodPost
+	}
+	if r.Method != method {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if h.Database == nil {
+		quiesceResponse(w, errors.New("owned postgres maintenance unavailable"))
+		return
+	}
+	if method == http.MethodGet {
+		size, err := h.Database.DatabaseSize(r.Context())
+		if err != nil {
+			quiesceResponse(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			Bytes uint64 `json:"bytes"`
+		}{size})
+		return
+	}
+	if err := h.Service.RequireReady(r.Context(), r.URL.Query().Get("op"), owner); err != nil {
+		quiesceResponse(w, err)
+		return
+	}
+	// Large dumps must outlive the bridge's ordinary 65-second response deadline.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		quiesceResponse(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	err := h.Database.Dump(r.Context(), w)
+	if err == nil {
+		err = h.Service.RequireReady(r.Context(), r.URL.Query().Get("op"), owner)
+	}
+	if err != nil {
+		// Closing the chunked stream makes a partial dump fail at the CLI boundary.
+		// Never append a JSON error to database bytes or let EOF imply success.
+		panic(http.ErrAbortHandler)
 	}
 }

@@ -17,6 +17,13 @@ import (
 	"github.com/smithersai/smithers/packages/backend/workspace"
 )
 
+// InstallMaintenanceDatabase is the supervised, bundled database authority.
+// It never exports credentials to a CLI, browser or repository process.
+type InstallMaintenanceDatabase interface {
+	DatabaseSize(context.Context) (uint64, error)
+	Dump(context.Context, io.Writer) error
+}
+
 var ErrModelCredentialMissing = errors.New("model credential is missing")
 
 // ErrModelRequestInvalid identifies a model stream request rejected before provider execution.

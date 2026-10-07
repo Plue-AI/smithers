@@ -76,7 +76,7 @@ func StartInstallSetupHandoff(ctx context.Context, stateDir string, emit func(co
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Content-Type", "application/json")
-			if (r.URL.Path == "/maintenance/quiesce" || r.URL.Path == "/maintenance/check") && len(maintenance) == 1 && maintenance[0] != nil {
+			if (r.URL.Path == "/maintenance/quiesce" || r.URL.Path == "/maintenance/check" || r.URL.Path == "/maintenance/database/size" || r.URL.Path == "/maintenance/database/dump") && len(maintenance) == 1 && maintenance[0] != nil {
 				maintenance[0].ServeHTTP(w, r)
 				return
 			}
