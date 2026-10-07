@@ -167,12 +167,15 @@ func (p *branchPresence) session(r *http.Request, repository int64) live.Presenc
 }
 
 func (p *branchPresence) source(ctx context.Context, branch string, repository, member int64, slug string) (live.Source, string) {
-	if p == nil || p.dispatcher == nil || p.branches == nil || p.queries == nil {
+	if p == nil || p.branches == nil || p.queries == nil {
 		return live.Source{}, live.Unsupported
 	}
 	row, err := p.branches.PresenceBranch(ctx, branch, repository, member)
 	if err != nil {
 		return live.Source{}, live.Forbidden
+	}
+	if p.dispatcher == nil && row.Status != "suspended" && row.Status != "stopped" {
+		return live.Source{}, live.Unsupported
 	}
 	return live.Source{Key: "branch:" + row.ID, Every: 250 * time.Millisecond, MinInterval: 250 * time.Millisecond, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
 		// Refresh by stable identity: a rename or machine transition must update
@@ -181,13 +184,17 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		if err != nil {
 			return nil, err
 		}
-		raw, err := p.call(ctx, current, slug, "Branch.Roster", map[string]any{})
-		if err != nil {
-			return nil, err
-		}
 		var leases []leaseParticipant
-		if err = json.Unmarshal(raw, &leases); err != nil {
-			return nil, err
+		if p.dispatcher != nil {
+			raw, err := p.call(ctx, current, slug, "Branch.Roster", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			if err = json.Unmarshal(raw, &leases); err != nil {
+				return nil, err
+			}
+		} else if current.Status != "suspended" && current.Status != "stopped" {
+			return nil, errors.New("awake branch roster unavailable")
 		}
 		// Multiple sessions retain leases but render one participant, at the newest
 		// location. Lease timestamps stay internal, so heartbeats do not fan out.

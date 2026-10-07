@@ -173,9 +173,37 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		}}, diff)
 	}
 	assertDiff()
+	t.Run("app dispatcher and mounted Branch against PostgreSQL", func(t *testing.T) {
+		require.Equal(t, int64(1), item.Number.Int64)
+		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
+		require.NoError(t, err)
+		command := exec.CommandContext(t.Context(), "bun", "run", script)
+		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+server.URL, "SMITHERS_BRANCH_CARD_ID="+id)
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		t.Log(string(output))
+	})
 	// An awake/released candidate keeps its existing immutable candidate semantics.
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
 	require.NoError(t, err)
+
+	// A current awake file comes from the retained runtime, not the mirrored head.
+	liveWorkspace, err := runtime.CreateWorkspace(ctx, workspace.WorkspaceSpec{ID: id})
+	require.NoError(t, err)
+	_, err = runtime.StartWorkspace(ctx, id)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(liveWorkspace.Root, "src"), 0700))
+	const uncommitted = "export const retry = 17;\n"
+	require.NoError(t, os.WriteFile(filepath.Join(liveWorkspace.Root, "src/retry.ts"), []byte(uncommitted), 0600))
+	var currentFile struct{ Content struct{ Kind, Text string } }
+	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/src/retry.ts", 200), &currentFile))
+	require.Equal(t, uncommitted, currentFile.Content.Text)
+	require.Equal(t, int32(1), counted.reads.Load())
+	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/src/retry.ts?at="+head, 200), &currentFile))
+	require.Equal(t, retry, currentFile.Content.Text)
+	require.Equal(t, int32(1), counted.reads.Load(), "a pinned revision does not read the working copy")
+	// Start a fresh measurement interval for all subsequent sleeping reads.
+	counted.reads.Store(0)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_verified=true, candidate_head=$2 WHERE id=$1`, item.ID, base)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"files":[]}`, string(readPath("/api/branches/"+id+"/diff", 200)))
