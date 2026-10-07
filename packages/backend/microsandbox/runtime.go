@@ -174,22 +174,24 @@ type Runtime struct {
 	codingHelper codingHelperCache
 	guestJJ      codingHelperCache
 
-	mu                       sync.Mutex
-	closed                   bool
-	workspaces               map[string]*workspace
-	auxVMs                   map[string]struct{}
-	auxCleanup               map[string]struct{}
-	capacityReader           func(context.Context) (int, error)
-	admission                map[string]*admissionHolder
-	admissionSequence        uint64
-	admissionChanged         chan struct{}
-	admissionCancel          context.CancelFunc
-	admissionIdleMu          sync.Mutex
-	admissionIdle            *AdmissionIdleProviders
-	admissionStarted         time.Time
-	admissionRecoveryPending bool
-	admissionRecoveryMu      sync.Mutex
-	metrics                  *machineMetrics
+	mu                        sync.Mutex
+	closed                    bool
+	workspaces                map[string]*workspace
+	auxVMs                    map[string]struct{}
+	auxCleanup                map[string]struct{}
+	capacityReader            func(context.Context) (int, error)
+	admission                 map[string]*admissionHolder
+	admissionSequence         uint64
+	admissionChanged          chan struct{}
+	admissionCancel           context.CancelFunc
+	admissionIdleMu           sync.Mutex
+	admissionIdle             *AdmissionIdleProviders
+	admissionStarted          time.Time
+	admissionRecoveryPending  bool
+	admissionRecoveryMu       sync.Mutex
+	metrics                   *machineMetrics
+	todoParallelReader        func(context.Context) (int, error)
+	admissionOwnershipChanged chan struct{}
 }
 
 // MachinedRegistry is the install's single registry. Composition and runtime
