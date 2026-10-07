@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -27,6 +28,12 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
+	bus := revocation.NewBus(pool, q)
+	busContext, stopBus := context.WithCancel(ctx)
+	defer stopBus()
+	require.NoError(t, bus.Start(busContext))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "hostowner", LowerUsername: "hostowner"})
 	require.NoError(t, err)
 	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "hostmember", LowerUsername: "hostmember"})
