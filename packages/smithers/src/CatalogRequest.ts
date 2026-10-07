@@ -86,7 +86,7 @@ export const catalogRequest = (
   }
   const used = new Set<string>()
   let path = binding.path.replace(/\{([^}]+)\}/g, (_, field: string) => {
-    const value = payload[field]
+    const value = payload[field] ?? binding.defaults?.[field]
     if (value === undefined || value === null || typeof value === "object") {
       throw new CatalogRequestError("field_invalid", `Missing or invalid ${field}`)
     }

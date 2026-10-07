@@ -178,10 +178,21 @@ func TestCatalogCLIConfirmationsPostgres(t *testing.T) {
 // The source parser and dispatcher run in an isolated home against the install listener.
 func catalogCLIInvoker(t *testing.T, ctx context.Context, origin, token string) func(...string) (int, map[string]any) {
 	t.Helper()
+	invoke := catalogCLIValueInvoker(t, ctx, origin, token)
+	return func(argv ...string) (int, map[string]any) {
+		code, value := invoke(argv...)
+		result, ok := value.(map[string]any)
+		require.True(t, ok, "expected object CLI result: %v", value)
+		return code, result
+	}
+}
+
+func catalogCLIValueInvoker(t *testing.T, ctx context.Context, origin, token string) func(...string) (int, any) {
+	t.Helper()
 	cli, err := filepath.Abs("../../../smithers/src/Cli.ts")
 	require.NoError(t, err)
 	home := t.TempDir()
-	return func(argv ...string) (int, map[string]any) {
+	return func(argv ...string) (int, any) {
 		t.Helper()
 		encoded, err := json.Marshal(append(argv, "--json"))
 		require.NoError(t, err)
@@ -199,8 +210,8 @@ console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
 		output, err := command.CombinedOutput()
 		require.NoError(t, err, string(output))
 		var response struct {
-			Code   int            `json:"code"`
-			Result map[string]any `json:"result"`
+			Code   int `json:"code"`
+			Result any `json:"result"`
 		}
 		require.NoError(t, json.Unmarshal(output, &response), string(output))
 		return response.Code, response.Result

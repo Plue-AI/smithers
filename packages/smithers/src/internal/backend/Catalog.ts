@@ -203,7 +203,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     // A group may still need a catalog root without losing its local children.
     const local = existing && "_group" in existing ? existing.root : existing
     const schema = row.payload.schema as { properties?: Record<string, any>; required?: Array<string> }
-    const fields = schema.properties ?? {}, required = new Set([...(schema.required ?? []), ...Array.from(row.http?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!)])
+    const fields = schema.properties ?? {}, required = new Set([...(schema.required ?? []), ...Array.from(row.http?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!).filter(key => row.http?.defaults?.[key] === undefined)])
     const positional = row.name === "ssh" ? "branch" : ["n", "id", "number", "name", "path", "workflow"].find((key) => required.has(key))
     const positionalKeys = new Set([
       positional,

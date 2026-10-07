@@ -688,18 +688,26 @@
         "repo": "owner/repo",
         "conversation": "main"
       }
+    },
+    {
+      "argv": [
+        "files"
+      ],
+      "method": "GET",
+      "path": "/api/branches/main/files"
+    },
+    {
+      "argv": [
+        "file",
+        "README.md"
+      ],
+      "method": "GET",
+      "path": "/api/branches/main/files/README.md"
     }
   ],
   "unavailable": [
     [
       "diff"
-    ],
-    [
-      "file",
-      "README.md"
-    ],
-    [
-      "files"
     ],
     [
       "flow",

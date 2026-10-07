@@ -73,7 +73,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       grammar: numbered("body"), agent: "confirm", input: Schema.Struct({ number: Schema.Number, body: Schema.NonEmptyString }),
       form: { submitLabel: "Comment", fields: { number: { label: "Issue" }, body: { label: "Comment" } }, args: json },
       handler: ({ number, body }) => commentIssue(design, number, body, design.viewer()) ? { value: `Commented on #${number}` } : `No issue #${number}` }),
-    flow({ name: "file",   slash: "/file", cli: ["file"], journey: ["J3","J9"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open and co-edit a file", args: FILES_READ_COMMAND.args, discloseToAgent: true,
+    flow({ name: "file",   slash: "/file", cli: ["file"], journey: ["J3","J9"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "GET", path: "/api/branches/{branch}/files/{path}", defaults: { branch: "main" }, query: { at: "revision" } }, summary: "Open and co-edit a file", args: FILES_READ_COMMAND.args, discloseToAgent: true,
       grammar: args => payloadFor("file", args), agent: "run",
       payloadRequires: payload => payload.operation === "workspace" ? ["signed-in"] : repositoryFile(payload) ? ["first-run-target", "repo-source"] : [],
       form: { fields: { branch: { hidden: true }, revision: { hidden: true }, workspaceId: { optionsFrom: "workspaces", hidden: true }, operation: { hidden: true }, path: { kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => flowArgs("file", payload as Parameters<typeof flowArgs<"file">>[1]) },
@@ -92,7 +92,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         const file = findFile(world, path, branch, design.viewer())
         return file === undefined ? `No file ${path}` : open(fileCard(designRepo(), file.branch, file.path, line))
       } }),
-    flow({ name: "files", slash: "/files", cli: ["files"], journey: ["J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Browse a branch's files", args: FILES_LIST_COMMAND.args, discloseToAgent: true,
+    flow({ name: "files", slash: "/files", cli: ["files"], journey: ["J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "GET", path: "/api/branches/{branch}/files", defaults: { branch: "main" }, query: { path: "path" } }, summary: "Browse a branch's files", args: FILES_LIST_COMMAND.args, discloseToAgent: true,
       grammar: args => {
         const parsed = payloadFor("files", args)
         if (!("payload" in parsed) || args?.trim().startsWith("{")) return parsed

@@ -4050,7 +4050,16 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open and co-edit a file",
-      "http": null,
+      "http": {
+        "method": "GET",
+        "path": "/api/branches/{branch}/files/{path}",
+        "defaults": {
+          "branch": "main"
+        },
+        "query": {
+          "at": "revision"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
@@ -4430,7 +4439,16 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Browse a branch's files",
-      "http": null,
+      "http": {
+        "method": "GET",
+        "path": "/api/branches/{branch}/files",
+        "defaults": {
+          "branch": "main"
+        },
+        "query": {
+          "path": "path"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
