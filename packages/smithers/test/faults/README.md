@@ -4,15 +4,19 @@ Run the existing serial matrix with `pnpm exec smthrs test
 '//packages/...:faults' --jobs 1`. `Smithers.FaultSuite` discovers TypeScript
 cases here; `durability-required.test.ts` now selects the named Go cases below. Missing
 case files, unmatched Go selectors, skipped cases and missing kill markers
-fail the matrix. The PostgreSQL transition case is implemented; the other
-required production cases remain unavailable.
+fail the matrix. The PostgreSQL transition and three merge boundaries are implemented; the
+remaining required production cases stay fail-closed. The composed Start admission
+case uses the production dispatcher and workspace rows with a test-only VM
+qualification contract; it proves the pinned launch survives SIGKILL before
+any step, not machine or run recovery. Stop/Resume remain a separate required
+case until their handlers land.
 Existing engine/library crash tests are not C-DUR acceptance evidence.
 
 | Check | Required production harness | Host |
 | --- | --- | --- |
-| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend services `todo_pause_fault_test.go`; compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
+| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and services `todo_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
 | C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` | Approved reference Mac, microVM |
-| C-DUR-03 | backend compose `github_outbound_kill_test.go`; services `todo_merge_fault_test.go`; `github-step-kill.test.ts` | CI, PostgreSQL 18, fake GitHub |
+| C-DUR-03 | backend compose `github_outbound_kill_test.go`; compose `todo_merge_fault_test.go`; `github-step-kill.test.ts` | CI, PostgreSQL 18, fake GitHub |
 | C-DUR-04 | backend machined `fault_test.go`, `rebase_fault_test.go` | Linux CI (daemon), approved reference Mac (VM) |
 
 These are required paths, not claims of implemented coverage. The approved
@@ -25,8 +29,8 @@ reference-host matrix entry refuses before building or executing branch code
 until main-bundle provenance, authenticated host selection and check mappings
 are approved. It is not reference-host-qualified.
 
-The shared Go child controller lives in backend services
-`durable_crash_restart_test.go`. Its vocabulary is `pre-commit`, `post-commit`,
+The shared Go child controller lives in backend `testkit/faultprocess`,
+extracted from services `durable_crash_restart_test.go`. Both suites use it. Its vocabulary is `pre-commit`, `post-commit`,
 `pre-launch`, `post-launch`, `stale-owner`. A child selects a point using
 `SMITHERS_CRASH_POINT` and logs `CRASH-POINT <point> [details]`. The controller
 must observe the exact point token before SIGKILL. Missing, wrong and
@@ -87,8 +91,10 @@ leaf cases: `start`, `stop`, `resume`; `postgres-transition`;
 shared vocabulary above. The runner checks the full point inventory, so
 omitting a boundary cannot pass even when every executed leaf has a marker.
 Repeated markers and parent-only markers do not satisfy a missing boundary.
-The rebase harness must still cover both presence contexts and retain their
-observations; point inventory alone does not prove that coverage.
+The rebase harness names its presence subtests `people-present` and
+`people-absent`. The runner requires all three rebase markers in passing
+leaves within each context; a marker from the other context cannot satisfy
+a missing kill point. Cases must also retain their recovery observations.
 
 `internal/compose/postgres_kill_fault_test.go` now supplies the
 `postgres-transition` case. Its operation is a person's Drop through the
@@ -117,3 +123,8 @@ builds `pgcrypto` with OpenSSL for product migrations and exports
 service remains the database for other integration cases. No system install,
 sudo, or shared-server stop is required. Source provisioning is separate from
 reference-host artifact approval and does not enable privileged cases.
+
+To run only the Linux fault job remotely, dispatch `reliability.yml` on `main`
+with `campaign: faults-linux`. Its default `all` and the nightly schedule keep
+all campaigns and both host selections. The Linux selection does not enable
+reference-host execution or approve check mappings.

@@ -558,7 +558,6 @@ const ci = Smithers.GithubCiGen({
     "rust",
     "wasm-repro",
     "browser",
-    "e2e-faults",
     "packages",
     "go-backend",
     "go-backend-access",
@@ -850,51 +849,6 @@ const ci = Smithers.GithubCiGen({
           pattern: "//crates/flows-jj:wasmReproducibility"
         }
       ]
-    },
-    {
-      // The fault-injection matrix: eighteen crash, restart, served-control,
-      // time-travel, provider, and safety cases, plus the primitive suites
-      // under them, that each inject a real fault into a real process. Until
-      // this job existed the matrix ran under no gate at all.
-      //
-      // It is one job over every package that declares a `faults` target, not
-      // one job over a directory. The matrix used to be a workspace member of
-      // its own, `e2e/`, which owned every case in the repository and was the
-      // only place they could live; each case now sits in the package whose
-      // behaviour it asserts, and `//packages/...:faults` selects all of them.
-      //
-      // FaultSuite marks its target exclusive, so ordinary workspace CI and
-      // package-suite wildcards omit it. The explicit matrix selects the tier;
-      // the executor runs each exclusive target alone. Keep `-j 1` here to
-      // state the job's serial intent, and `fileParallelism: false` in each
-      // vitest.faults.config.ts to serialize cases within a target.
-      //
-      // Required. It was advisory while `case22 ... redacts the credential out
-      // of the operator's terminal` was red by design: rc.0
-      // shipped no redacting logger, so a required job would have been red on
-      // every commit for a defect no commit introduced. The redaction
-      // deliverable landed that logger (`@smthrs/journal`
-      // `RedactedLogger`, installed by `packages/smithers/src/bin.ts` and
-      // `packages/smithers/flows/src/NodeRuntime.ts`), the case is green in both
-      // halves, and the matrix is 67 of 67. The durable-park defect the old
-      // comment also named is a COVERAGE gap, not a red case: no case reaches
-      // it (`scripts/repo-contract/fault-gaps.md`, the `03, 05, 31` row), so
-      // nothing here fails for it and it cannot make this job red. A gate that
-      // is green is a gate that can hold the line.
-      //
-      // `jj` is a real requirement here, not a convenience: cases 12 and 21
-      // drive a real Jujutsu workspace and are written to throw rather than
-      // skip on CI.
-      id: "e2e-faults",
-      name: "fault-injection matrix",
-      runsOn: ubuntu,
-      timeoutMinutes: 30,
-      toolchain: Smithers.CiToolchain.Needs({
-        cargoBinaries: nativeFilesystem,
-        runtimes: [node],
-        jj
-      }),
-      steps: [{ name: "Exclusive fault matrix", verb: Smithers.Verb.Test, pattern: "//packages/...:faults", parallelism: 1 }]
     },
     {
       id: "browser",

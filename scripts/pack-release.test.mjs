@@ -284,13 +284,13 @@ test("every gate in ci.yml also runs in release.yml", () => {
     "rust",
     "rust-ffi",
     "wasm-repro",
-    "e2e-faults",
     "browser",
     "packages",
-    "go-backend"
+    "go-backend",
+    "go-backend-access"
   ])
 
-  const mirrored = ["test", "repository", "scripts", "docs", "rust-ffi", "e2e-faults", "wasm-repro", "go-backend"]
+  const mirrored = ["test", "repository", "scripts", "docs", "rust-ffi", "wasm-repro", "go-backend", "go-backend-access"]
   const isGate = (step) => graphCommands([step]).length > 0
   // ci.yml passes the known-red list; the release does not, so every target a
   // release mirrors must be green there, including those main tolerates.
@@ -299,7 +299,8 @@ test("every gate in ci.yml also runs in release.yml", () => {
   const actual = jobSteps(workflow("release.yml"), "publish").filter(isGate)
 
   // The gates the release adds on top of the mirrored jobs, pinned so an
-  // extra step is a decision here rather than a silent addition. The apps/app
+  // extra step is a decision here rather than a silent addition. Faults moved
+  // to scheduled reliability but remain a required release gate. The apps/app
   // and apps/tui gates mirror the `apps-e2e` job without its browser suite; the other two
   // are release-only targets the roster comment in release.yml explains. The
   // 2026-09-05 rename added `smthrs` copies of two gates beside their older
@@ -312,14 +313,16 @@ test("every gate in ci.yml also runs in release.yml", () => {
     "pnpm exec smthrs test '//apps/app:conformance' --verbose",
     "pnpm exec smthrs ci '//apps/tui/...' --verbose",
     "pnpm exec smthrs test '//apps/tui:e2eTests' --verbose",
+    "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --verbose",
     "pnpm exec smthrs test '//packages/smithers/flows/engine-store:disasterRecovery' --verbose",
     "pnpm exec smthrs test '//scripts:releaseVersion' --verbose"
   ]
   const command = (step) => graphCommands([step])[0]
-  const copied = actual.filter((step) => !releaseOnly.includes(command(step)))
+  const gate = (step) => command(step).replace(/ --results-file "\$RUNNER_TEMP\/smthrs-results\/\$GITHUB_ACTION.json"/g, "")
+  const copied = actual.filter((step) => !releaseOnly.includes(gate(step)))
 
   assert.ok(expected.length > 15, `${expected.length} gates is too few to be the required CI roster`)
-  assert.deepEqual(actual.filter((step) => releaseOnly.includes(command(step))).map(command), releaseOnly)
+  assert.deepEqual(actual.filter((step) => releaseOnly.includes(gate(step))).map(gate), releaseOnly)
   // Whole blocks across independent jobs: a different env, a gate
   // ci.yml dropped, or one it gained all fail here, not only a missing one.
   assert.deepEqual(copied.map(command).sort(), expected.map(command).sort())
@@ -487,11 +490,19 @@ test("published adapters remain optional while executable SQLite and Bun host pr
       "@opentelemetry/sdk-trace-node": "2.11.0", "@opentelemetry/sdk-trace-web": "2.11.0"
     }
   }
+  const peerRanges = {
+    "@opentelemetry/exporter-logs-otlp-http": ">=0.222.0 <0.300.0",
+    "@opentelemetry/exporter-metrics-otlp-http": ">=0.222.0 <0.300.0",
+    "@opentelemetry/exporter-trace-otlp-http": ">=0.222.0 <0.300.0",
+    "@opentelemetry/sdk-trace-base": ">=2.11.0 <3.0.0",
+    "@opentelemetry/sdk-trace-node": ">=2.11.0 <3.0.0",
+    "@opentelemetry/sdk-trace-web": ">=2.11.0 <3.0.0"
+  }
   for (const [name, peers] of Object.entries(optional)) {
     const manifest = byName.get(name)
     for (const [peer, version] of Object.entries(peers)) {
       assert.equal(manifest.dependencies?.[peer], undefined, name + " must not force " + peer)
-      assert.equal(manifest.peerDependencies[peer], version)
+      assert.equal(manifest.peerDependencies[peer], peerRanges[peer] ?? version)
       assert.deepEqual(manifest.peerDependenciesMeta[peer], { optional: true })
       assert.equal(manifest.devDependencies[peer], version)
     }

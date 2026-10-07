@@ -79,4 +79,26 @@ describe("Go fault evidence cannot pass vacuously", () => {
     expect(() => requireReachedGoFault(log, name, ["stop"])).toThrow(`${name}/stop`)
   })
 
+  const rebasePoints = ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]
+  const rebaseContexts = ["people-present", "people-absent"]
+  const contextLeaves = (context: string, points = rebasePoints) => points.map((point) =>
+    leaf(`${context}/${point}`, `CRASH-POINT ${point}\n`)).join("\n")
+  it("requires all rebase points in both presence contexts", () => {
+    const log = [...rebaseContexts.map((context) => contextLeaves(context)), passed].join("\n")
+    expect(() => requireReachedGoFault(log, name, rebasePoints, rebaseContexts)).not.toThrow()
+  })
+  it("refuses a rebase matrix with only people present", () => {
+    expect(() => requireReachedGoFault(`${contextLeaves("people-present")}\n${passed}`,
+      name, rebasePoints, rebaseContexts)).toThrow(`${name}/people-absent`)
+  })
+  it("cannot borrow a missing rebase point from the other presence context", () => {
+    const log = [contextLeaves("people-present"), contextLeaves("people-absent", rebasePoints.slice(0, 2)), passed].join("\n")
+    expect(() => requireReachedGoFault(log, name, rebasePoints, rebaseContexts))
+      .toThrow(`${name}/people-absent/rebase-post-apply`)
+  })
+  it("matches presence context path components exactly", () => {
+    const log = [contextLeaves("people-present"), contextLeaves("people-absent-extra"), passed].join("\n")
+    expect(() => requireReachedGoFault(log, name, rebasePoints, rebaseContexts)).toThrow(`${name}/people-absent`)
+  })
+
 })

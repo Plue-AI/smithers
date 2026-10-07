@@ -11,6 +11,7 @@ export default defineConfig({
     include: ["test/**/*.test.ts"],
     exclude: [...configDefaults.exclude, "test/faults/**"],
     environment: "node",
+    setupFiles: ["./test/setup.ts"],
     // Files launch real CLI hosts, SQLite engines, and child process trees.
     // Bound that fanout so the default coverage gate does not multiply host
     // startup contention by the machine's core count.

@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert"
 
 // Go exits successfully for an unmatched -run and for skipped integration
 // cases. Neither is fault evidence. Preserve the raw JSON stream in CI logs.
-export function requireReachedGoFault(log: string, name: string, requiredPoints: readonly string[] = []): void {
+export function requireReachedGoFault(log: string, name: string, requiredPoints: readonly string[] = [], requiredContexts: readonly string[] = []): void {
   const events = log.split("\n").filter(Boolean).map((line) => JSON.parse(line) as {
     Action?: string; Test?: string; Output?: string
   })
@@ -18,6 +18,7 @@ export function requireReachedGoFault(log: string, name: string, requiredPoints:
   // parent's or sibling's output cannot qualify a different kill case.
   const leaves = tests.filter((test) => !tests.some((child) => child.startsWith(`${test}/`)))
   const reached = new Set<string>()
+  const contexts = new Map(requiredContexts.map((context) => [context, new Set<string>()]))
   for (const test of leaves) {
     assert(events.some((event) => event.Action === "pass" && event.Test === test),
       `required fault subtest did not pass: ${test}`)
@@ -25,9 +26,20 @@ export function requireReachedGoFault(log: string, name: string, requiredPoints:
     const markers = [...output.matchAll(/^CRASH-POINT ([a-zA-Z0-9][a-zA-Z0-9-]*)(?:[ \t][^\r\n]*)?\r?$/gm)]
     assert(markers.length > 0,
       `required fault test logged no kill marker: ${test}`)
-    for (const marker of markers) reached.add(marker[1]!)
+    for (const marker of markers) {
+      reached.add(marker[1]!)
+      for (const [context, points] of contexts) {
+        if (test.slice(name.length + 1).split("/").includes(context)) points.add(marker[1]!)
+      }
+    }
   }
   for (const point of requiredPoints) {
     assert(reached.has(point), `required fault boundary was not reached: ${name}/${point}`)
+  }
+  for (const [context, points] of contexts) {
+    assert(points.size > 0, `required fault context was not reached: ${name}/${context}`)
+    for (const point of requiredPoints) {
+      assert(points.has(point), `required fault boundary was not reached: ${name}/${context}/${point}`)
+    }
   }
 }
