@@ -2,6 +2,7 @@ package microsandbox
 
 import (
 	"context"
+	"errors"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -173,4 +174,43 @@ func TestTodoInstallRecoveredDemandWaitsForStackOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, blocked.Holder)
 	require.True(t, r.AdmissionHeld("workspace:1"))
+}
+
+func TestTodoGrantRechecksParallelAfterReadiness(t *testing.T) {
+	r, p := admissionFixture()
+	r.config.MaxRunningVMs = 3
+	r.SetCapacityReader(func(context.Context) (int, error) { return 3, nil })
+	parallel := 2
+	var readErr error
+	r.SetTodoParallelReader(func(context.Context) (int, error) { return parallel, readErr })
+	require.NoError(t, r.SyncTodoAdmission("repo", []string{"workspace:1", "workspace:2"}, 2))
+	first, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:1", first.Holder)
+	ready := p.Ready
+	p.Ready = func(ctx context.Context, request AdmissionRequest) error {
+		parallel = 1
+		return ready(ctx, request)
+	}
+	blocked, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Empty(t, blocked.Holder)
+	require.Equal(t, 1, r.InUse())
+	require.True(t, r.AdmissionHeld("workspace:1"))
+	require.False(t, r.AdmissionHeld("workspace:2"))
+	parallel = 2
+	failedRead := errors.New("settings read failed")
+	p.Ready = func(ctx context.Context, request AdmissionRequest) error {
+		readErr = failedRead
+		return ready(ctx, request)
+	}
+	blocked, err = r.GrantNext(t.Context(), p)
+	require.ErrorIs(t, err, failedRead)
+	require.Empty(t, blocked.Holder)
+	require.Equal(t, 1, r.InUse())
+	readErr = nil
+	p.Ready = ready
+	second, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:2", second.Holder)
 }

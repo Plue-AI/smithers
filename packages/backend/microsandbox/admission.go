@@ -299,6 +299,16 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	if err != nil {
 		return AdmissionRequest{}, err
 	}
+	// Readiness and host reconciliation can wait while the owner saves a
+	// lower limit. Re-read before reserving rather than restoring the old
+	// cutoff over a newer engine reconciliation. Failed reads refuse grants.
+	if parallelReader != nil {
+		value, err := parallelReader(ctx)
+		if err != nil {
+			return AdmissionRequest{}, err
+		}
+		parallel = max(0, value)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {

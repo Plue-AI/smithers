@@ -461,7 +461,8 @@ stack worker. Waiting work remains scheduled for setting and capacity changes.
 TODO live subscriptions refresh scheduler-only position changes at the existing
 job cursor, including people entering and leaving without an item job event.
 Committed card/Home deltas still require the live projection contract.
-The runtime rechecks the saved parallel setting at each grant. Recovered
+The runtime rechecks the saved parallel setting after readiness checks and
+before each reservation; a failed read refuses the grant. Recovered
 workspace demand waits for authoritative stack registration before a new TODO
 grant; existing holders remain held.
 
