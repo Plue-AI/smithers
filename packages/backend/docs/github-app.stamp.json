@@ -5,7 +5,7 @@
     "path": "packages/backend/docs/github-app.md",
     "digest": "88f824c7b728474d7dc892b5bb9062e0893a9f65b9885400a75f6a7dfb1ad092"
   },
-  "closure": "84669ef3a00133306a3cc739adbb9c316c2120c532699fcefa9660f2400789ae",
+  "closure": "ca08e75249bd9611764654d5f0119c65cd925dbe02fe1d4992aa15af96dbbf4e",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -49,7 +49,7 @@
     },
     {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "6655f671eeda19bd2862359fada904f844b524e8c57a0662f1170f4a5de40603"
+      "digest": "45c7d7facf48c3db0073a60142ecf5ad1f9bb78d0978b078522ccca61c8120f7"
     },
     {
       "path": "packages/backend/internal/compose/runtime_helpers.go",
@@ -265,7 +265,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_todo_read.go",
-      "digest": "1445112028703b9ddb1a1a271bdfb1e24ab332186e59ce7f5385b7f4bb3ba1dc"
+      "digest": "8c554c81bc1b1d1fe5c0aa18cc223aa637f91487ec7f40f0af4742b8ec331fff"
     },
     {
       "path": "packages/backend/internal/services/mythical_todo_state.go",
