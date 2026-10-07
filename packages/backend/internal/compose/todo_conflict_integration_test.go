@@ -111,8 +111,36 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 			require.Equal(t, code, body["code"])
 		}
 	}
+	// The card's Done is the conflict wait's own todo.answer, served only once
+	// native validation is composed.
+	waitActions := func(t *testing.T) []any {
+		t.Helper()
+		req, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+		req.Header.Set("Origin", origin)
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		var card struct {
+			Waits []struct {
+				ID      string `json:"id"`
+				Kind    string `json:"kind"`
+				Paths   []string
+				Actions []any `json:"actions"`
+			} `json:"waits"`
+		}
+		require.Equal(t, 200, res.StatusCode)
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&card))
+		require.Len(t, card.Waits, 1)
+		require.Equal(t, "conflict-1", card.Waits[0].ID)
+		require.Equal(t, []string{"a.txt"}, card.Waits[0].Paths)
+		return card.Waits[0].Actions
+	}
+	require.Empty(t, waitActions(t))
 	call(t, 503, "conflict_validation_unavailable")
 	service.SetConflictValidator(provider)
+	require.Equal(t, []any{map[string]any{"tag": "todo.answer", "label": "Done", "args": map[string]any{"answer": "done"}}}, waitActions(t))
 	for _, field := range []string{"change", "onto", "run"} {
 		t.Run("stale reservation "+field, func(t *testing.T) {
 			reservation := map[string]any{"change": "change", "onto": "onto", "run": "pinned-run", "limit": 1, "reserved": 1}

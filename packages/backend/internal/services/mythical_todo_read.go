@@ -169,6 +169,11 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		}
 		if wait.Kind == "conflict" {
 			projected["paths"] = wait.Paths
+			// Done is the conflict's todo.answer. Offer it only when native
+			// validation is composed; without it the door refuses with 503.
+			if wait.AnsweredBy == "" && wait.Signal != nil && s.conflictValidator != nil {
+				projected["actions"] = []any{map[string]any{"tag": "todo.answer", "label": "Done", "args": map[string]any{"answer": "done"}}}
+			}
 		}
 		if wait.SHA != "" {
 			projected["sha"] = wait.SHA
