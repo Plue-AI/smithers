@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"strings"
@@ -131,16 +132,19 @@ type providerPoolScopeQuerier interface {
 
 // ProviderPoolScopes binds a pool call to a (user, repository) scope.
 type ProviderPoolScopes struct {
-	q     providerPoolScopeQuerier
-	pool  *pgxpool.Pool
-	codec flowhost.SecretCodec
+	install bool
+	q       providerPoolScopeQuerier
+	pool    *pgxpool.Pool
+	codec   flowhost.SecretCodec
 }
 
 // NewProviderPoolScopes resolves pool scopes over product SQL. codec opens
 // managed Flow hosts' stored credentials (the Flow host store's codec).
-func NewProviderPoolScopes(q providerPoolScopeQuerier, pool *pgxpool.Pool, codec flowhost.SecretCodec) *ProviderPoolScopes {
-	return &ProviderPoolScopes{q: q, pool: pool, codec: codec}
+func NewProviderPoolScopes(q providerPoolScopeQuerier, pool *pgxpool.Pool, codec flowhost.SecretCodec, install ...bool) *ProviderPoolScopes {
+	return &ProviderPoolScopes{q: q, pool: pool, codec: codec, install: len(install) > 0 && install[0]}
 }
+
+type verifiedInstallPoolHostKey struct{}
 
 // Scope answers the pool (user, repository) of an authenticated call.
 //
@@ -153,33 +157,60 @@ func NewProviderPoolScopes(q providerPoolScopeQuerier, pool *pgxpool.Pool, codec
 // credential (not another workspace-bound token, such as the head
 // reporter's), bound to that workspace and its repository, and the workspace
 // must belong to its user.
-func (p *ProviderPoolScopes) Scope(ctx context.Context, bearer string) (userID, repositoryID int64, ok bool) {
+// It preserves the legacy provider interface; ScopeDecision carries the
+// install's typed authorization refusal to the HTTP boundary.
+func (p *ProviderPoolScopes) Scope(ctx context.Context, bearer string) (int64, int64, bool) {
+	user, repository, err := p.ScopeDecision(ctx, bearer)
+	return user, repository, err == nil
+}
+
+func (p *ProviderPoolScopes) ScopeDecision(ctx context.Context, bearer string) (userID, repositoryID int64, failure error) {
 	if p == nil {
-		return 0, 0, false
+		return 0, 0, errors.New("pool credential required")
 	}
 	if strings.HasPrefix(bearer, flowhost.ModelCredentialPrefix) {
 		binding, err := flowhost.VerifyModelCredential(ctx, p.pool, p.codec, bearer)
 		if err != nil || binding.UserID <= 0 || binding.RepositoryID <= 0 {
-			return 0, 0, false
+			if p.install {
+				return 0, 0, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Invalid model credential"}
+			}
+			return 0, 0, errors.New("pool credential required")
 		}
-		return binding.UserID, binding.RepositoryID, true
+		if p.install {
+			verified := context.WithValue(ctx, verifiedInstallPoolHostKey{}, binding)
+			if _, err := Authorize(verified, db.New(p.pool), "workspace.provider-pool", InstallSubject{RepositoryID: binding.RepositoryID, WorkspaceID: binding.WorkspaceID}); err != nil {
+				return 0, 0, err
+			}
+		}
+		return binding.UserID, binding.RepositoryID, nil
 	}
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || !info.IsTokenAuth || info.User == nil {
-		return 0, 0, false
+		return 0, 0, errors.New("pool credential required")
 	}
 	workspaceID := info.WorkspaceRestriction()
 	repositoryID = info.RepositoryRestriction()
+	if p.install {
+		q, ok := p.q.(*db.Queries)
+		if !ok {
+			return 0, 0, errors.New("pool credential required")
+		}
+		decision, err := Authorize(ctx, q, "workspace.provider-pool", InstallSubject{RepositoryID: repositoryID, WorkspaceID: workspaceID})
+		if err != nil {
+			return 0, 0, err
+		}
+		return decision.UserID, repositoryID, nil
+	}
 	if workspaceID == "" || repositoryID <= 0 {
-		return 0, 0, false
+		return 0, 0, errors.New("pool credential required")
 	}
 	token, err := p.q.GetAccessTokenByID(ctx, info.TokenID)
 	if err != nil || !token.SystemIssued || token.UserID != info.User.ID || token.Name != providerPoolTokenPrefix+workspaceID {
-		return 0, 0, false
+		return 0, 0, errors.New("pool credential required")
 	}
 	workspace, err := p.q.GetWorkspace(ctx, workspaceID)
 	if err != nil || workspace.UserID != info.User.ID || workspace.RepositoryID != repositoryID {
-		return 0, 0, false
+		return 0, 0, errors.New("pool credential required")
 	}
-	return workspace.UserID, repositoryID, true
+	return workspace.UserID, repositoryID, nil
 }

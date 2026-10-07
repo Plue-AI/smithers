@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -391,6 +393,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if command == "workspace.children.list" || command == "workspace.children.spawn" || command == "workspace.children.stop" {
 		return authorizeWorkspaceChildren(ctx, q, command, subject)
 	}
+	if command == "workspace.provider-pool" {
+		return authorizeWorkspaceProviderPool(ctx, q, subject)
+	}
 	if command == "workspace.head" {
 		return authorizeWorkspaceHead(ctx, q, subject)
 	}
@@ -744,6 +749,89 @@ func authorizeWorkspaceChildren(ctx context.Context, q *db.Queries, command stri
 			return deny()
 		}
 	} else if subject.ChildWorkspaceID != "" {
+		return deny()
+	}
+	repository, err := InstallRepositoryID(ctx, q)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if repository != subject.RepositoryID {
+		return deny()
+	}
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return deny()
+	}
+	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
+// The pool keeps its existing named publisher credential and workspace owner
+// guard. An install additionally binds it to the active repository member.
+func authorizeWorkspaceProviderPool(ctx context.Context, q *db.Queries, subject InstallSubject) (InstallAuthorization, error) {
+	deny := func() (InstallAuthorization, error) {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Workspace pool credential required"}
+	}
+	if binding, ok := ctx.Value(verifiedInstallPoolHostKey{}).(flowhost.CredentialBinding); ok {
+		if q == nil || binding.RepositoryID != subject.RepositoryID || binding.WorkspaceID != subject.WorkspaceID || subject.ChildWorkspaceID != "" {
+			return deny()
+		}
+		workspace, err := q.GetWorkspace(ctx, subject.WorkspaceID)
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			return deny()
+		}
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if workspace.RepositoryID != binding.RepositoryID || workspace.DeletedAt.Valid {
+			return deny()
+		}
+		repository, err := InstallRepositoryID(ctx, q)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if repository != binding.RepositoryID {
+			return deny()
+		}
+		role, err := InstallRoleOf(ctx, q, binding.UserID)
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if role == "" {
+			return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+		}
+		if err := identity.NewMemberBoundary(q).AuthorizeMember(identity.WithMemberRoute(ctx), binding.UserID); err != nil {
+			return InstallAuthorization{}, err
+		}
+		return InstallAuthorization{UserID: binding.UserID, Role: role}, nil
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil {
+		return InstallAuthorization{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
+	}
+	if q == nil || !info.IsTokenAuth || !info.TokenSystemIssued || info.CredentialKind() != middleware.CredentialMachine || !info.Scopes.Has(middleware.ScopeReadWorkspace) || subject.RepositoryID <= 0 || subject.WorkspaceID == "" || subject.ChildWorkspaceID != "" || info.RepositoryRestriction() != subject.RepositoryID || !strings.EqualFold(info.WorkspaceRestriction(), subject.WorkspaceID) {
+		return deny()
+	}
+	token, err := q.GetAccessTokenByID(ctx, info.TokenID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if !token.SystemIssued || token.UserID != info.User.ID || token.Name != providerPoolTokenPrefix+subject.WorkspaceID {
+		return deny()
+	}
+	workspace, err := q.GetWorkspace(ctx, subject.WorkspaceID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return deny()
+	}
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if workspace.UserID != info.User.ID || workspace.RepositoryID != subject.RepositoryID || workspace.DeletedAt.Valid {
 		return deny()
 	}
 	repository, err := InstallRepositoryID(ctx, q)

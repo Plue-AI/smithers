@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -90,9 +91,8 @@ func (h *ProviderPoolHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		writeModelPoolError(w, http.StatusNotFound, "not_found_error", "Only POST "+route.path+" is served.", 0)
 		return
 	}
-	userID, repositoryID, ok := h.Scopes.Scope(r.Context(), poolBearer(r))
+	userID, repositoryID, ok := h.authorizePool(w, r)
 	if !ok {
-		writeModelPoolError(w, http.StatusForbidden, "permission_error", "A pool credential is required.", 0)
 		return
 	}
 	limit := h.MaxBodyBytes
@@ -107,14 +107,36 @@ func (h *ProviderPoolHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	h.servePool(w, r, provider, route, body, userID, repositoryID)
 }
 
+func (h *ProviderPoolHandler) authorizePool(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
+	if typed, ok := h.Scopes.(interface {
+		ScopeDecision(context.Context, string) (int64, int64, error)
+	}); ok {
+		user, repository, err := typed.ScopeDecision(r.Context(), poolBearer(r))
+		if err == nil {
+			return user, repository, true
+		}
+		var refusal *services.AccessError
+		if errors.As(err, &refusal) {
+			writeRouteError(w, r, err)
+			return 0, 0, false
+		}
+	} else {
+		user, repository, ok := h.Scopes.Scope(r.Context(), poolBearer(r))
+		if ok {
+			return user, repository, true
+		}
+	}
+	writeModelPoolError(w, http.StatusForbidden, "permission_error", "A pool credential is required.", 0)
+	return 0, 0, false
+}
+
 // serveRoutes lists the routes with connected accounts in the caller's
 // scope, limited or not: {"routes":["anthropic","chatgpt"]}. A guest asks
 // when it resolves a seat, so an account connected after boot serves the next
 // seat without a restart.
 func (h *ProviderPoolHandler) serveRoutes(w http.ResponseWriter, r *http.Request) {
-	userID, repositoryID, ok := h.Scopes.Scope(r.Context(), poolBearer(r))
+	userID, repositoryID, ok := h.authorizePool(w, r)
 	if !ok {
-		writeModelPoolError(w, http.StatusForbidden, "permission_error", "A pool credential is required.", 0)
 		return
 	}
 	routes := []string{}
