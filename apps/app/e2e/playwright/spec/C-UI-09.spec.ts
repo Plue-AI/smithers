@@ -1,10 +1,48 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { installCloudFixture } from "../cloudFixture"
+import { execFileSync } from "node:child_process"
+import { resolve } from "node:path"
 
-// Bundled production pages and real app flows; the model is deterministic.
+// Real app docs dispatcher/loader and branch HTTP/live seams with a contract
+// fixture. Composed-install model execution and macOS remain separate receipts.
 test("C-UI-09: Bundled docs open pages and anchors through every door", async ({ page }) => {
-  await owner(page)
-  await page.route("**/api/agent/**", route => route.continue())
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  let entries: unknown[] = []
+  let publish: (() => void) | undefined
+  let cursor = 0
+  const admissions: string[] = []
+  const retired: string[] = []
+  page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/agent/")) retired.push(request.url()) })
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: {} }))
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
+  await page.route("**/api/conversations/main/prompt", async route => {
+    const body = route.request().postDataJSON()
+    expect(body.prompt).toBe("How do I put HTTPS in front?")
+    expect(body.idempotencyKey).toEqual(expect.any(String))
+    const read = execFileSync("bun", [resolve("e2e/support/DocsReadFixture.ts")], { encoding: "utf8", timeout: 10_000 })
+    expect(JSON.parse(read).markdown).toContain("## Put HTTPS in front")
+    admissions.push(body.idempotencyKey)
+    const runId = "docs-host-run"
+    entries = [{ id: body.idempotencyKey, author: 1, authorLogin: "canary-owner", runId,
+      prompt: body.prompt, state: "completed", frames: [
+        { runId, type: "delta", kind: "text", text: `docs.read quickstart: ${read}` },
+        { runId, type: "done", reason: "stop" }
+      ] }]
+    await route.fulfill({ status: 202, json: { turnId: body.idempotencyKey, terminal: false } })
+    publish?.()
+  })
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    const frame = JSON.parse(String(raw))
+    if (frame.t !== "sub") return
+    if (frame.topic !== "conversation:main") {
+      socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" }))
+      return
+    }
+    publish = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: ++cursor, data: { id: "main", entries } }))
+    publish()
+  }))
   await page.goto("/")
   const outside: string[] = []
   const origin = new URL(page.url()).origin
@@ -32,5 +70,8 @@ test("C-UI-09: Bundled docs open pages and anchors through every door", async ({
   await page.reload()
   await expect(quickstart).toContainText("Page not found: no-such-page")
   await expect(page.getByTestId("composer-input")).toBeEditable()
+  expect(admissions).toHaveLength(1)
+  expect(retired).toEqual([])
+  await expect(page.getByText(/^docs.read quickstart:/).last()).toContainText("tailscale serve --bg --https=443 http://127.0.0.1:4000")
   expect(outside).toEqual([])
 })
