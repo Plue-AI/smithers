@@ -1904,8 +1904,6 @@ def setup(user, uid, directories, *, create_home=True):
                 os.close(member)
         finally:
             os.close(parent)
-    if not create_home:
-        return
     parent = safe_directory("/home", trusted=True)
     try:
         created = False
