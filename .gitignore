@@ -24,6 +24,7 @@ app/.electrobun/
 .backend-go-modcache/
 .backend-sqlc/
 .native-ffi/
+.native-ffi-check/
 .nyc_output/
 coverage/
 # Browser qualification sources, not generated coverage output.

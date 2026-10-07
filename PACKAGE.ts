@@ -317,21 +317,34 @@ const backendPostgres = Smithers.Docker.Service({
 })
 
 // Native FFI builds with the toolchain rust-toolchain.toml pins, installed
-// into a private rustup home so the declared output carries it. Only a
-// trusted-process-binding build can import a source outside a guest, so its
-// source import CLI test runs as a second pass.
-const nativeFfi = Smithers.Shell.Build({
-  shell: "mkdir -p .native-ffi; export RUSTUP_HOME=\"$PWD/.native-ffi/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi/target\"; rustup toolchain install && cargo clippy -p smithers-ffi --all-targets --locked -- -D warnings && cargo test -p smithers-ffi --locked && cargo test -p smithers-ffi --locked --features trusted-process-binding --test source_import_cli && cargo build -p smithers-ffi --lib --locked && touch .native-ffi/qualified",
+// into a private rustup home so the declared output carries it. backendGo
+// needs only the library, so it depends on this build alone: a clippy or
+// cargo test failure in //:nativeFfi must not skip the Go backend suite.
+const nativeFfiInputs = [
+  Smithers.file("//Cargo.toml"),
+  Smithers.file("//Cargo.lock"),
+  Smithers.file("//rust-toolchain.toml"),
+  Smithers.file("//crates/flows-jj/Cargo.toml"),
+  flowsJjPackage.nativeSources,
+  Smithers.glob("//crates/smithers-ffi/**/*.rs"),
+  Smithers.file("//crates/smithers-ffi/Cargo.toml")
+]
+const nativeFfiLib = Smithers.Shell.Build({
+  shell: "mkdir -p .native-ffi; export RUSTUP_HOME=\"$PWD/.native-ffi/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi/target\"; rustup toolchain install && cargo build -p smithers-ffi --lib --locked",
   outDirs: ["//.native-ffi"],
-  data: [
-    Smithers.file("//Cargo.toml"),
-    Smithers.file("//Cargo.lock"),
-    Smithers.file("//rust-toolchain.toml"),
-    Smithers.file("//crates/flows-jj/Cargo.toml"),
-    flowsJjPackage.nativeSources,
-    Smithers.glob("//crates/smithers-ffi/**/*.rs"),
-    Smithers.file("//crates/smithers-ffi/Cargo.toml")
-  ],
+  data: nativeFfiInputs,
+  sandbox: { network: true },
+  timeout: "30m"
+})
+
+// Clippy and the FFI tests, run by the rust-ffi CI job. Only a
+// trusted-process-binding build can import a source outside a guest, so its
+// source import CLI test runs as a second pass. It keeps its own rustup home
+// and target directory so it never writes nativeFfiLib's output.
+const nativeFfi = Smithers.Shell.Build({
+  shell: "mkdir -p .native-ffi-check; export RUSTUP_HOME=\"$PWD/.native-ffi-check/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi-check/target\"; rustup toolchain install && cargo clippy -p smithers-ffi --all-targets --locked -- -D warnings && cargo test -p smithers-ffi --locked && cargo test -p smithers-ffi --locked --features trusted-process-binding --test source_import_cli && touch .native-ffi-check/qualified",
+  outDirs: ["//.native-ffi-check"],
+  data: nativeFfiInputs,
   sandbox: { network: true },
   timeout: "30m"
 })
@@ -380,7 +393,7 @@ const backendGo = Smithers.Shell.Test({
     Smithers.file("//scripts/check-public-backend-boundary.sh"),
     Smithers.file("//scripts/test-backend-consumer.sh"),
     Smithers.file("//scripts/test_check_go_boundaries.py"),
-    nativeFfi,
+    nativeFfiLib,
     modelHostPackage.lib,
     integrationsPackage.lib,
     flowsPackage.lib,
@@ -1250,6 +1263,7 @@ export const Package = Smithers.Package({
     backendGoModules,
     backendSQLC,
     backendGo,
+    nativeFfiLib,
     nativeFfi,
     commit,
     changelog,

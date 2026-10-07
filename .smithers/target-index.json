@@ -77,7 +77,7 @@
     "dependencies": [
       "//:backendGoModules",
       "//:backendSQLC",
-      "//:nativeFfi",
+      "//:nativeFfiLib",
       "//apps/model-host:backendInputs",
       "//flows:codingHostInputs",
       "//packages/backend:buildInputs",
@@ -587,6 +587,50 @@
     "label": "//:nativeFfi",
     "package": "",
     "name": "nativeFfi",
+    "rule": "Shell.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.lock"
+      },
+      {
+        "kind": "file",
+        "path": "rust-toolchain.toml"
+      },
+      {
+        "kind": "file",
+        "path": "crates/flows-jj/Cargo.toml"
+      },
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-ffi/**/*.rs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "crates/smithers-ffi/Cargo.toml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//crates/flows-jj:nativeSources"
+    ],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//:nativeFfiLib",
+    "package": "",
+    "name": "nativeFfiLib",
     "rule": "Shell.Build",
     "kinds": [
       "build"
