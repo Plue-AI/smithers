@@ -59,6 +59,13 @@ func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 	root := bundletest.ProtectedTempDir(t)
 	home := filepath.Join(root, "home")
 	require.NoError(t, os.Mkdir(home, 0700))
+	hostileBin := filepath.Join(home, "bin")
+	require.NoError(t, os.Mkdir(hostileBin, 0700))
+	marker := filepath.Join(home, "unapproved-executable")
+	markerShell := "'" + strings.ReplaceAll(marker, "'", "'\"'\"'") + "'"
+	for _, name := range []string{"node", "bun", "msb", "git", "postgres"} {
+		require.NoError(t, os.WriteFile(filepath.Join(hostileBin, name), []byte("#!/bin/sh\nprintf invoked > "+markerShell+"\nexit 97\n"), 0700))
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
@@ -71,7 +78,7 @@ func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, approved.Path("bin/smithers-server"), "--bind", address)
-			cmd.Env = []string{"HOME=" + home, "PATH=/opt/homebrew/bin:" + filepath.Join(home, "bin") + ":/usr/bin:/bin", "SMITHERS_BACKEND_MODE=plue", "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false"}
+			cmd.Env = []string{"HOME=" + home, "PATH=" + hostileBin + ":/opt/homebrew/bin:/usr/bin:/bin", "SMITHERS_BACKEND_MODE=plue", "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false"}
 			var stdout, stderr isolationOutput
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
@@ -167,6 +174,8 @@ func TestCSEC02BundledLauncherSetupRotation(t *testing.T) {
 				require.Equal(t, http.StatusUnauthorized, response.StatusCode, "old token refused by served exchange")
 			}
 			stop()
+			_, markerErr := os.Stat(marker)
+			require.ErrorIs(t, markerErr, os.ErrNotExist, "launcher must never execute a shell-selected program")
 			require.Equal(t, 1, strings.Count(stdout.snapshot(), `{"setup_urls":`), "no additional emission during shutdown")
 			outside := strings.Replace(stdout.snapshot(), setupLine, "", 1)
 			for _, secret := range tokens {

@@ -113,13 +113,24 @@ func TestCSEC02BundledInstallIsolation(t *testing.T) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		t.Fatal("prerequisite: environment: darwin-arm64 required")
 	}
-	msb := os.Getenv("SMITHERS_MICROSANDBOX_BIN")
-	if !filepath.IsAbs(msb) {
-		t.Fatal("prerequisite: environment: msb: absolute verified runtime required")
+	// The install ignores shell-selected runtimes. Qualify its pinned msb
+	// and kernel, rather than accepting an unrelated operator-supplied msb.
+	approved, err := installbundle.Open(bundle)
+	if err != nil {
+		t.Fatalf("prerequisite: dependency: approved bundle: %v", err)
+	}
+	msb, err := approved.Expect("bundled msb", approved.Path("bin/msb"), "bin/msb", true)
+	if err != nil {
+		t.Fatalf("prerequisite: dependency: bundled msb: %v", err)
+	}
+	if _, err := approved.Expect("bundled guest kernel", approved.Path("lib/libkrunfw.5.dylib"), "lib/libkrunfw.5.dylib", false); err != nil {
+		t.Fatalf("prerequisite: dependency: bundled guest kernel: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	version, err := exec.CommandContext(ctx, msb, "--version").CombinedOutput()
+	runtimeVersion := exec.CommandContext(ctx, msb, "--version")
+	runtimeVersion.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + approved.Path("bin") + ":/usr/bin:/bin:/usr/sbin:/sbin"}
+	version, err := runtimeVersion.CombinedOutput()
 	if err != nil || !strings.Contains(string(version), "0.6.16") {
 		t.Fatal("prerequisite: environment: msb: version 0.6.16 required")
 	}
