@@ -21,6 +21,22 @@ import (
 // not an approvals store with no executor. Requests create no TODO; only the
 // member's authenticated Confirm press does, atomically and once.
 func TestConfirmTodoConsumerInstall(t *testing.T) {
+	testConfirmTodoConsumerInstall(t, "Keep the greeting", "Keep the exact greeting.")
+}
+
+// Literal flow-edit prompts cross the same installed TODO and confirmation
+// doors. Diff bytes remain revision context; approval never applies a patch.
+func TestConfirmFlowEditConsumerInstall(t *testing.T) {
+	for _, tc := range []struct{ name, prompt string }{
+		{"request", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists"},
+		{"diff", "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n> +pnpm test\n> +```\n> +<script>untrusted</script>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testConfirmTodoConsumerInstall(t, "Change the TODO flow: Run tests", tc.prompt) })
+	}
+}
+
+func testConfirmTodoConsumerInstall(t *testing.T, wantTitle, wantPrompt string) {
+	t.Helper()
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben", DisplayName: "Ben"})
@@ -40,6 +56,15 @@ func TestConfirmTodoConsumerInstall(t *testing.T) {
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: hex.EncodeToString(hash[:]), ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
 
+	other, err := q.CreateUser(ctx, db.CreateUserParams{Username: "maya", LowerUsername: "maya", DisplayName: "Maya"})
+	require.NoError(t, err)
+	otherCookie := "other-flow-edit-cookie"
+	otherHash := sha256.Sum256([]byte(otherCookie))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: other.ID, Username: other.Username, SessionKey: hex.EncodeToString(otherHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo.ID, other.ID)
+	require.NoError(t, err)
+
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, owner.ID)
 	require.NoError(t, err)
 	token := "smithers_" + strings.Repeat("c", 40)
@@ -48,7 +73,7 @@ func TestConfirmTodoConsumerInstall(t *testing.T) {
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "codex-confirm", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
 	handler := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
-	call := func(method, path, body, key string, delegated bool) *httptest.ResponseRecorder {
+	call := func(method, path, body, key string, delegated bool, cookies ...string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(method, "http://127.0.0.1:4000"+path, strings.NewReader(body))
 		request.RemoteAddr = "127.0.0.1:12345"
 		request.Header.Set("Content-Type", "application/json")
@@ -59,13 +84,19 @@ func TestConfirmTodoConsumerInstall(t *testing.T) {
 		if delegated {
 			request.Header.Set("Authorization", "Bearer "+token)
 		} else {
-			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			session := cookie
+			if len(cookies) > 0 {
+				session = cookies[0]
+			}
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: session})
 		}
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response
 	}
-	const input = `{"title":"Keep the greeting","prompt":"Keep the exact greeting.","acceptance":["Greeting remains"]}`
+	encoded, err := json.Marshal(map[string]any{"title": wantTitle, "prompt": wantPrompt, "acceptance": []string{"Greeting remains"}, "place": map[string]string{"mode": "append"}})
+	require.NoError(t, err)
+	input := string(encoded)
 	var receipt services.ConfirmationReceipt
 	for range 2 {
 		response := call("POST", "/api/todos", input, "delegated-new", true)
@@ -79,7 +110,21 @@ func TestConfirmTodoConsumerInstall(t *testing.T) {
 		}
 		receipt = next
 	}
+	changed := call("POST", "/api/todos", `{"title":"Changed","prompt":"Apply a different patch"}`, "delegated-new", true)
+	require.Equal(t, 409, changed.Code, changed.Body.String())
+	require.Contains(t, changed.Body.String(), `"code":"idempotency_mismatch"`)
+	var approvals int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&approvals))
+	require.Equal(t, 1, approvals)
 	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE source='todo'`).Scan(&count))
+	require.Zero(t, count)
+	wrongMember := call("POST", "/api/confirmations/"+receipt.ID+"/approve", `{}`, "other-press", false, otherCookie)
+	require.Equal(t, 403, wrongMember.Code, wrongMember.Body.String())
+	require.JSONEq(t, `{"class":"permission","code":"permission","message":"Not your confirmation"}`, wrongMember.Body.String())
+	var pending string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, receipt.ID).Scan(&pending))
+	require.Equal(t, "pending", pending)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE source='todo'`).Scan(&count))
 	require.Zero(t, count)
 	denied := call("POST", "/api/confirmations/"+receipt.ID+"/approve", `{}`, "agent-press", true)
@@ -93,8 +138,33 @@ func TestConfirmTodoConsumerInstall(t *testing.T) {
 	require.Equal(t, 1, count)
 	var title, prompt, state string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT title,revisions->0->>'text' FROM mythical_items WHERE source='todo'`).Scan(&title, &prompt))
-	require.Equal(t, "Keep the greeting", title)
-	require.Equal(t, "Keep the exact greeting.", prompt)
+	require.Equal(t, wantTitle, title)
+	require.Equal(t, wantPrompt, prompt)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, receipt.ID).Scan(&state))
 	require.Equal(t, "approved", state)
+	// A person's direct create uses the same writer and appends behind the
+	// confirmed request. Replaying its key never creates a third stack item.
+	for range 2 {
+		response := call("POST", "/api/todos", input, "person-new", false)
+		require.Equal(t, 202, response.Code, response.Body.String())
+	}
+	changed = call("POST", "/api/todos", `{"title":"Changed","prompt":"Different request"}`, "person-new", false)
+	require.Equal(t, 409, changed.Code, changed.Body.String())
+	require.Contains(t, changed.Body.String(), `"code":"idempotency_mismatch"`)
+	rows, err := pool.Query(ctx, `SELECT stack_position, title, revisions->0->>'text', jsonb_array_length(revisions) FROM mythical_items WHERE source='todo' ORDER BY stack_position`)
+	require.NoError(t, err)
+	defer rows.Close()
+	count = 0
+	for rows.Next() {
+		var position int64
+		var revisions int
+		require.NoError(t, rows.Scan(&position, &title, &prompt, &revisions))
+		count++
+		require.Equal(t, int64(count), position)
+		require.Equal(t, wantTitle, title)
+		require.Equal(t, wantPrompt, prompt)
+		require.Equal(t, 1, revisions)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, 2, count)
 }
