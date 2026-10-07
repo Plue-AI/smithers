@@ -50,6 +50,12 @@ func TestSettingsHealthInstallHTTPPostgres(t *testing.T) {
 		{`{"todo_daily_admissions":0}`, 400},
 		{`{"todo_daily_admissions":-1}`, 400},
 		{`{"todo_daily_admissions":1.5}`, 400},
+		{`{"todo_daily_admissions":25,"capacity":null}`, 400},
+		{`{"todo_daily_admissions":25,"capacity":"2"}`, 400},
+		{`{"todo_daily_admissions":25,"capacity":1.5}`, 400},
+		{`{"todo_daily_admissions":25,"chatgpt":null}`, 400},
+		{`{"todo_daily_admissions":25,"chatgpt":"true"}`, 400},
+		{`{"todo_daily_admissions":25,"unexpected":true}`, 400},
 	} {
 		request, err := http.NewRequest("PUT", origin+"/api/install", strings.NewReader(setting.body))
 		require.NoError(t, err)
