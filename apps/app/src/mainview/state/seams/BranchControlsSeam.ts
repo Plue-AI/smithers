@@ -10,7 +10,7 @@ export interface BranchControlOptions {
 }
 export interface BranchControls {
   readonly available: (operation: BranchControl) => boolean
-  readonly request: (operation: BranchControl, branch: string, input?: { text?: string; conflict_change?: string; onto_revision?: string }) => Promise<CommandResult>
+  readonly request: (operation: BranchControl, branch: string, input?: { conflict_change?: string; onto_revision?: string }) => Promise<CommandResult>
 }
 
 /** Spec §6.3 branch commands, with no cloud or host execution fallback. */
