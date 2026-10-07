@@ -1,3 +1,4 @@
+import { journeyEnter, journeyActivate } from "./support/keyboard-journey-input"
 import { test } from "./support"
 import { scenario } from "./coverage/types"
 import { withReference, createTodo, todoCard, home, openTodo, expect, attachJson, JourneyUnavailable, runSlash } from "./todo/reference"
@@ -59,11 +60,11 @@ test("C-J2-03 implement ask opens Needs you; first answer wins", journey, async 
       await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeEnabled()
     }
     const texts = { Ben: "Use backoff", Alice: "Use fixed delay" }
-    for (const actor of ["Ben", "Alice"] as const) await todoCard(f.members[actor].page, 1).getByRole("textbox").fill(texts[actor])
+    for (const actor of ["Ben", "Alice"] as const) await journeyEnter(todoCard(f.members[actor].page, 1).getByRole("textbox"), texts[actor])
     const results = await Promise.all((["Ben", "Alice"] as const).map(async actor => {
       const page = f.members[actor].page
       const pending = page.waitForResponse(r => r.request().method() === "POST" && r.request().postDataJSON()?.wait_id === wait)
-      await todoCard(page, 1).getByRole("button", { name: "Answer", exact: true }).click()
+      await journeyActivate(todoCard(page, 1).getByRole("button", { name: "Answer", exact: true }))
       const response = await pending
       return { actor, status: response.status(), body: await response.json() }
     }))
@@ -89,7 +90,7 @@ test("C-J2-03 implement ask opens Needs you; first answer wins", journey, async 
     expect(activity).toHaveLength(1); expect(activity[0].actor).toBe(winner); expect(activity[0].avatar).toBeTruthy()
     const run = await f.read("Will", `/api/runs/${todo.run_id}`)
     expect(run.events.filter((e: any) => e.kind === "answer").map((e: any) => e.text)).toEqual([texts[winner]])
-    await losingCard.getByRole("button", { name: "Send as steer", exact: true }).click()
+    await journeyActivate(losingCard.getByRole("button", { name: "Send as steer", exact: true }))
     await expect.poll(async () => (await f.read("Will", `/api/runs/${todo.run_id}`)).events.filter((e: any) => e.kind === "steer" && e.author === loser).map((e: any) => e.text)).toEqual([texts[loser]])
     await attachJson(info, "wait-timing", { opened, observed, answered, activity })
   })

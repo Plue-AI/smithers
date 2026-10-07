@@ -1,3 +1,4 @@
+import { journeyActivate, journeyReach } from "./support/keyboard-journey-input"
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
@@ -36,7 +37,7 @@ test("C-J8-02 shared wiki, 400 latency samples and offline reload", journey, asy
       await runSlash(page, `/wiki.page ${slug}`)
       const card = page.getByTestId(`card-wiki-open-wiki:${f.repo}:${id}`)
       await expect(card).toBeVisible()
-      await card.getByRole("button", { name: "Edit", exact: true }).click()
+      await journeyActivate(card.getByRole("button", { name: "Edit", exact: true }))
       const editor = card.locator('.ProseMirror[contenteditable="true"]')
       await expect(editor).toBeVisible()
       return editor
@@ -68,7 +69,7 @@ test("C-J8-02 shared wiki, 400 latency samples and offline reload", journey, asy
       })
     }
     await Promise.all(editors.map(async (editor, index) => {
-      await editor.click()
+      await journeyReach(editor)
       await pages[index]!.keyboard.press(index ? "Meta+ArrowUp" : "Meta+ArrowDown")
       for (let n = 0; n < 200; n++) {
         const character = String.fromCharCode(0xe000 + index * 200 + n)
@@ -76,7 +77,7 @@ test("C-J8-02 shared wiki, 400 latency samples and offline reload", journey, asy
         const received = new Promise<void>(done => { arrived = done })
         const started = performance.now()
         waiting.set(character, { sent: started, receiver: pages[1 - index]!, done: arrived })
-        await pages[index]!.keyboard.insertText(character)
+        await pages[index]!.keyboard.type(character)
         await Promise.race([received, new Promise<never>((_, reject) => {
           const timer = setTimeout(() => reject(new Error(`Peer did not receive ${character}`)), 5000)
           void received.then(() => clearTimeout(timer))
@@ -94,13 +95,13 @@ test("C-J8-02 shared wiki, 400 latency samples and offline reload", journey, asy
     const overlaps = [String.fromCharCode(...Array.from({ length: 30 }, (_, n) => 0xe200 + n)),
       String.fromCharCode(...Array.from({ length: 30 }, (_, n) => 0xe300 + n))]
     await Promise.all(pages.map(async (page, index) => {
-      await editors[index]!.click(); await page.keyboard.press("Meta+ArrowUp")
-      await page.keyboard.insertText(overlaps[index]!)
+      await journeyReach(editors[index]!); await page.keyboard.press("Meta+ArrowUp")
+      await page.keyboard.type(overlaps[index]!)
     }))
     await f.members.Alice.context.setOffline(true)
-    await editors[1]!.click(); await alice.keyboard.press("Meta+ArrowDown")
+    await journeyReach(editors[1]!); await alice.keyboard.press("Meta+ArrowDown")
     const offline = "OFFLINE" + "x".repeat(43)
-    await alice.keyboard.insertText(offline)
+    await alice.keyboard.type(offline)
     await expect(editors[1]!).toContainText(offline)
     await alice.waitForTimeout(2000)
     await alice.reload().catch(() => {})

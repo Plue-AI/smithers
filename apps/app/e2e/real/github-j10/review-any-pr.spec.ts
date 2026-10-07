@@ -1,3 +1,4 @@
+import { journeyActivate } from "../support/keyboard-journey-input"
 import { readFileSync } from "node:fs"
 import type { APIRequestContext } from "@playwright/test"
 import { test } from "../support"
@@ -240,7 +241,7 @@ test("C-J10-09 /review on a teammate's PR", journey, async ({ browser }, info) =
     await expect(confirm).toBeVisible({ timeout: 180_000 })
     await attachJson(info, "step-4-confirm-before-press", { jobs: reviewJobs(f, MEMBER_PR).map(each => each.id) })
     expect(reviewJobs(f, MEMBER_PR)).toHaveLength(1)
-    await confirm.locator("button[data-primary]").click()
+    await journeyActivate(confirm.locator("button[data-primary]"))
     await expect.poll(() => reviewJobs(f, MEMBER_PR).length, { timeout: 60_000 }).toBe(2)
     const confirmed = reviewJobs(f, MEMBER_PR)[1]!
     expect(confirmed.payload.admission.head).toBe(HEAD.commit)

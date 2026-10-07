@@ -1,3 +1,4 @@
+import { journeyActivate } from "./support/keyboard-journey-input"
 import { test } from "./support"
 import { scenario } from "./coverage/types"
 import { withReference, home, runSlash, expect, attachJson } from "./todo/reference"
@@ -46,7 +47,7 @@ test("C-J8-06 merge refresh, shared retry and durable dismissal", journey, async
       expect(api.body).toContain(symbol)
       await runSlash(owner, "/wiki.page generated-package-api")
       await expect(owner.getByText(symbol, { exact: false }).last()).toBeVisible()
-      await owner.getByRole("button", { name: /History/ }).last().click()
+      await journeyActivate(owner.getByRole("button", { name: /History/ }).last())
       await expect(owner.getByText("Smithers", { exact: true }).last()).toBeVisible()
       await attachJson(info, `published-${symbol}`, row)
       return row
@@ -59,7 +60,7 @@ test("C-J8-06 merge refresh, shared retry and durable dismissal", journey, async
     await visible("failed")
     const failed = wiki()
     const failedRun = await f.read("Ben", `/api/runs/${failed.run_id}`)
-    await home(member).getByRole("button", { name: "Retry", exact: true }).click()
+    await journeyActivate(home(member).getByRole("button", { name: "Retry", exact: true }))
     await expect.poll(() => wiki().run_id, { timeout: 60_000 }).not.toBe(failed.run_id)
     const retried = await f.read("Ben", `/api/runs/${wiki().run_id}`)
     expect(failedRun.flow_version).toBeTruthy()
@@ -71,7 +72,7 @@ test("C-J8-06 merge refresh, shared retry and durable dismissal", journey, async
     await expect.poll(() => wiki().state, { timeout: 180_000 }).toBe("failed")
     await visible("failed")
     const dismissed = wiki().run_id
-    await home(owner).getByRole("button", { name: "Dismiss", exact: true }).click()
+    await journeyActivate(home(owner).getByRole("button", { name: "Dismiss", exact: true }))
     for (const page of [owner, member]) {
       await page.reload()
       await runSlash(page, "/stack")

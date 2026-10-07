@@ -1,3 +1,4 @@
+import { journeyActivate } from "./support/keyboard-journey-input"
 import { execFileSync } from "node:child_process"
 import { resolve } from "node:path"
 import { test } from "./support"
@@ -80,7 +81,7 @@ test("C-J2-04 accepted-generation PR and TODO evidence agree", journey, async ({
     const log = checks[0]
     expect(log.log_url).toMatch(/^\/api\/todos\/1\/attempts\/1\/logs\/[a-f0-9]+$/)
     const opened = page.waitForResponse(r => new URL(r.url()).pathname === log.log_url)
-    await card.getByRole("link").filter({ hasText: new RegExp(log.name) }).click()
+    await journeyActivate(card.getByRole("link").filter({ hasText: new RegExp(log.name) }))
     const response = await opened
     expect(response.status()).toBe(200); expect(response.headers()["content-type"]).toContain("text/plain")
     expect(await response.text()).toContain(log.output)

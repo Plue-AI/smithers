@@ -1,3 +1,4 @@
+import { journeyActivate, journeyChecked } from "./support/keyboard-journey-input"
 import { readFileSync } from "node:fs"
 import { test } from "./support"
 import { scenario } from "./coverage/types"
@@ -33,11 +34,11 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
     expect((await f.github("Ben", "POST", "/issues", { title: "Document retries", body: "Add a retry example." }) as any).number).toBe(8)
     for (const [number, fixes] of [[7, true], [8, false]] as const) {
       await runSlash(page, `/issue ${number}`)
-      await page.getByRole("button", { name: "Make TODO", exact: true }).click()
+      await journeyActivate(page.getByRole("button", { name: "Make TODO", exact: true }))
       // DraftView uses the mounted draft kind (06efaa113d); preserve all field assertions.
       const draft = page.locator('.smithers-card[data-kind="draft"]').last()
-      await draft.getByLabel("Fixes", { exact: true }).setChecked(fixes)
-      await draft.getByRole("button", { name: "Commit", exact: true }).click()
+      await journeyChecked(draft.getByLabel("Fixes", { exact: true }), fixes)
+      await journeyActivate(draft.getByRole("button", { name: "Commit", exact: true }))
     }
     const initialTodos = await f.read("Will", "/api/todos")
     expect(initialTodos.map((t: any) => t.number)).toEqual([1, 2])
@@ -139,7 +140,7 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
         ;(window as any)[`${name}Stop`] = async () => { capture(); observer.disconnect(); await Promise.all(pending) }
       }, binding)
       const request = page.waitForRequest(r => r.method() === "POST" && (new URL(r.url()).pathname === `/api/todos/${n}/merge` || new URL(r.url()).pathname.includes("/approve")))
-      await surface.getByRole("button", { name: /^(Merge|Confirm|Approve)$/ }).click()
+      await journeyActivate(surface.getByRole("button", { name: /^(Merge|Confirm|Approve)$/ }))
       const sent = await request
       if (n === 1) expect(sent.postDataJSON().reviewed_head_sha).toBe(sha)
       let merged: any, commits: any[], observedAt = 0
@@ -201,7 +202,7 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
       expect(after.state).toBe("merged"); expect(after.revisions).toEqual(firstReviewedRevisions)
       expect(after.lessons).toBeGreaterThanOrEqual(1)
       const receipt = todoCard(page, 1).getByRole("button", { name: `${after.lessons} lessons`, exact: true })
-      await receipt.click()
+      await journeyActivate(receipt)
       await expect(page.locator('[data-subject="wiki"], .smithers-card[data-kind="proposal"]').last()).toBeVisible()
       expect(events(before.id).filter(e => e.run_id === learning.id && (e.state || e.revision))).toEqual([])
       await attachJson(info, "learning-run-and-events", { learning, events: events(before.id), todo: after })

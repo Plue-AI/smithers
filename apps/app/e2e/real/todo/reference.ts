@@ -1,3 +1,4 @@
+import { registerKeyboardJourney, journeyActivate } from "../support/keyboard-journey-input"
 import { execFileSync } from "node:child_process"
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test"
 import { awaitBoot, command, expect, realApi } from "../support"
@@ -43,6 +44,22 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
   if (!/^smithers-mvp-canary\/[a-zA-Z0-9._-]+$/.test(repo)) throw new JourneyUnavailable("Use an owned smithers-mvp-canary scratch repository")
   const contexts: BrowserContext[] = []
   const members = {} as Record<Actor, Member>
+  const keyboard = new Map<Actor, ReturnType<typeof registerKeyboardJourney>>()
+  const theme = process.env.SMITHERS_JOURNEY_THEME
+  if (theme !== undefined && theme !== "light" && theme !== "dark") throw new JourneyUnavailable("SMITHERS_JOURNEY_THEME must be light or dark")
+  if (process.env.SMITHERS_JOURNEY_KEYBOARD !== undefined && process.env.SMITHERS_JOURNEY_KEYBOARD !== "1") throw new JourneyUnavailable("SMITHERS_JOURNEY_KEYBOARD must be 1 or absent")
+  let capture = 0
+  const checkpoint = async (actor: Actor) => {
+    const page = members[actor].page
+    const keys = keyboard.get(actor)
+    if (keys?.snapshot().inputs.some(input => input.result === "allowed")) await keys.observe()
+    if (!theme) return
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
+    const cards = page.locator(".smithers-card:visible")
+    for (const card of await cards.all()) {
+      await info.attach(`card-${theme}-${actor}-${++capture}`, { body: await card.screenshot(), contentType: "image/png" })
+    }
+  }
   try {
     const status = execFileSync(required("SMITHERS_JOURNEY_SMTHRS"), ["host", "status", "--json"], { encoding: "utf8" })
     const host = JSON.parse(status)
@@ -55,9 +72,12 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
       contexts.push(context)
       await context.tracing.start({ screenshots: true, snapshots: true })
       const page = await context.newPage()
+      if (process.env.SMITHERS_JOURNEY_KEYBOARD === "1") keyboard.set(actor, registerKeyboardJourney(page, origin))
       await page.goto(`${origin}/${repo}`)
       await awaitBoot(page)
       members[actor] = { context, page }
+      if (theme && await page.locator("html").getAttribute("data-theme") !== theme) await runSlash(page, "/theme")
+      if (theme) await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
     }
     const github = async (actor: Actor, method: string, path: string, data?: unknown): Promise<any> => {
       const response = await members[actor].context.request.fetch(`https://api.github.com/repos/${repo}${path}`, {
@@ -73,10 +93,17 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
       expect(response.status(), path).toBe(200)
       const result = await response.json()
       await attachJson(info, `api-${actor}-${path.replace(/\W/g, "-")}`, result)
+      await checkpoint(actor)
       return result
     }
     await body({ repo, members, info, github, read, sql: observe })
+    for (const actor of ["Will", "Ben", "Alice"] as const) {
+      await checkpoint(actor)
+      const keys = keyboard.get(actor)
+      if (keys?.snapshot().inputs.length) keys.finish()
+    }
   } finally {
+    for (const [actor, keys] of keyboard) await attachJson(info, `keyboard-${actor}`, keys.snapshot())
     for (const [index, context] of contexts.entries()) {
       await context.tracing.stop({ path: info.outputPath(`member-${index}.zip`) })
       await context.close()
@@ -100,6 +127,6 @@ export const home = (page: Page) => page.locator('.smithers-card.home').last()
 export const openTodo = async (page: Page, n: number): Promise<void> => { await runSlash(page, `/todo ${n}`); await expect(todoCard(page, n)).toBeVisible() }
 export const createTodo = async (page: Page, prompt: string): Promise<void> => {
   await command(page, `/todo.new ${prompt}`)
-  await page.getByRole("button", { name: "Commit", exact: true }).last().click()
+  await journeyActivate(page.getByRole("button", { name: "Commit", exact: true }).last())
 }
 export { attachJson, runSlash, realApi, expect }

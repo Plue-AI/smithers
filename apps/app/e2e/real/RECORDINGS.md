@@ -61,3 +61,21 @@ traces and video remain disabled. Both-theme per-card sanitized capture and
 reviewed per-step traces/videos are still release requirements, not supplied by
 these entries. Missing host, credentials, human review or approved mapping must
 never be replaced with fixture evidence.
+
+The prepared-install `withReference` journeys support
+`SMITHERS_JOURNEY_KEYBOARD=1` and `SMITHERS_JOURNEY_THEME=light|dark`.
+Run each owning spec separately against a fresh canary for each theme and browser;
+these destructive journeys cannot replay into the same repository. J2 draft,
+answer, evidence and merge, shared wiki editing/refresh, and the GitHub review
+spec use the shared physical-input doors. Other direct pointer calls still refuse
+under the guard. Per-member keyboard logs survive failed attempts. Focus is
+observed again at HTTP readback and final completion, after live updates.
+Theme capture retains every visible card at those checkpoints with actor and
+theme in its attachment name. This is checkpoint capture, not proof that every
+journey/card has been reached. Setup and credential-entry recordings continue
+through the separately reviewed recording path above.
+
+These additions do not complete C-UI-01: fresh setup and the remaining J1,
+J3–J7, J10 and J11 steps still require real-install keyboard coverage and
+reference-host execution. No Mac recording, live credential soak, microVM proof
+or approved check receipt is produced by supplemental browser tests.

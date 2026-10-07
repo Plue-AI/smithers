@@ -1,3 +1,4 @@
+import { keyboardInputFor } from "./keyboard-journey-input"
 import { expect, type APIRequestContext, type APIResponse, type Page } from "@playwright/test"
 // Share the isolated persistent WebKit context; it supplies real OPFS and
 // contains no API or product doubles. Chromium keeps its standard context.
@@ -204,6 +205,8 @@ export const openComposer = async (page: Page): Promise<void> => {
 
 /** Submit one slash command or natural-language turn through the visible composer. */
 export const command = async (page: Page, text: string): Promise<void> => {
+  const keys = keyboardInputFor(page)
+  if (keys) { await keys.command(text); return }
   await openComposer(page)
   const input = page.getByTestId("composer-input")
   await input.fill(text)

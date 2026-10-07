@@ -1,3 +1,4 @@
+import { journeyActivate, journeyEnter, journeySelect, journeyChecked } from "./support/keyboard-journey-input"
 import { test } from "./support"
 import { scenario } from "./coverage/types"
 import { withReference, seedIssueSeven, createTodo, home, todoCard, openTodo, expect, runSlash, attachJson } from "./todo/reference"
@@ -16,7 +17,7 @@ test("C-J2-01 Make TODO freezes the private draft and commits once", journey, as
     const labelsBefore = await f.github("Ben", "GET", "/issues/7/labels")
     const commentsBefore = await f.github("Ben", "GET", "/issues/7/comments")
     await runSlash(ben, "/issue 7")
-    await ben.getByRole("button", { name: "Make TODO", exact: true }).click()
+    await journeyActivate(ben.getByRole("button", { name: "Make TODO", exact: true }))
     // DraftView uses the mounted draft kind (06efaa113d); preserve all field assertions.
     const draft = ben.locator('.smithers-card[data-kind="draft"]').last()
     await expect(draft).toBeVisible()
@@ -30,14 +31,14 @@ test("C-J2-01 Make TODO freezes the private draft and commits once", journey, as
     expect(await f.github("Ben", "GET", "/issues/7/comments")).toEqual(commentsBefore)
     await info.attach("private-draft-Ben", { body: await ben.screenshot(), contentType: "image/png" })
     await info.attach("private-draft-Will", { body: await will.screenshot(), contentType: "image/png" })
-    await draft.getByLabel("Prompt", { exact: true }).fill(`${prompt}\nLog each retry.`)
-    await draft.getByLabel("Place", { exact: true }).selectOption({ label: "Before T2" })
-    await draft.getByLabel("Fixes", { exact: true }).check()
+    await journeyEnter(draft.getByLabel("Prompt", { exact: true }), `${prompt}\nLog each retry.`)
+    await journeySelect(draft.getByLabel("Place", { exact: true }), "Before T2")
+    await journeyChecked(draft.getByLabel("Fixes", { exact: true }), true)
     // Remote changes after drafting must not refresh revision 1 or context.
     await f.github("Ben", "PATCH", "/issues/7", { body: "Remote changed body" })
     const submitted = ben.waitForRequest(r => r.method() === "POST" && new URL(r.url()).pathname === "/api/todos")
     const committed = ben.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/todos")
-    await draft.getByRole("button", { name: "Commit", exact: true }).click()
+    await journeyActivate(draft.getByRole("button", { name: "Commit", exact: true }))
     const request = await submitted, response = await committed
     expect([200, 201]).toContain(response.status())
     const data = request.postDataJSON(), headers = await request.allHeaders()
@@ -81,7 +82,7 @@ test("C-J2-01 Make TODO freezes the private draft and commits once", journey, as
     // drafted by Will, not a random string masquerading as another member's.
     await runSlash(will, "/issue 7")
     const otherDraft = will.waitForResponse(r => r.request().method() === "POST" && r.url().includes("from-issue"))
-    await will.getByRole("button", { name: "Make TODO", exact: true }).last().click()
+    await journeyActivate(will.getByRole("button", { name: "Make TODO", exact: true }).last())
     const other = await (await otherDraft).json()
     for (const digest of ["unknown-digest", other.issue_digest]) {
       expect(digest).toEqual(expect.any(String))

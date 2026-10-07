@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test"
 import { chromium } from "@playwright/test"
-import { keyboardJourneyInput } from "./keyboard-journey-input"
+import { keyboardJourneyInput, registerKeyboardJourney, journeyActivate, journeyReach, journeyEnter, journeyChecked, journeySelect } from "./keyboard-journey-input"
 import { installReleasedHost } from "./release-install"
 
 test("keyboard journey traversal refuses a page outside the declared install", async () => {
@@ -46,5 +46,36 @@ test("Tab traversal types, selects and activates native controls without a point
     expect(evidence.inputs.every(input => input.result === "allowed")).toBe(true)
     expect(evidence.focus).toHaveLength(3)
     expect(JSON.stringify(evidence)).not.toContain("First TODO")
+  } finally { await browser.close(); server.stop(true) }
+}, 30_000)
+
+
+test("shared real journey doors traverse before typing, preserve editor text, and reject direct shortcuts", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
+    <style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
+    <input aria-label="Title"><select aria-label="Place"><option>Append</option><option>Before T2</option></select>
+    <input type="checkbox" aria-label="Fixes"><textarea aria-label="File">Original</textarea>
+    <button onclick="document.querySelector('output').textContent=document.querySelector('input').value">Commit</button><output></output>
+  `, { headers: { "Content-Type": "text/html" } }) })
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage()
+    const origin = `http://127.0.0.1:${server.port}`
+    await page.goto(origin)
+    const keys = registerKeyboardJourney(page, origin)
+    await journeyEnter(page.getByLabel("Title"), "Reviewed literal")
+    await journeySelect(page.getByLabel("Place"), "Before T2")
+    await journeyChecked(page.getByLabel("Fixes"), true)
+    await journeyChecked(page.getByLabel("Fixes"), true)
+    expect(await page.getByLabel("Fixes").isChecked()).toBe(true)
+    await journeyChecked(page.getByLabel("Fixes"), false)
+    await journeyReach(page.getByLabel("File"))
+    expect(await page.getByLabel("File").inputValue()).toBe("Original")
+    await journeyActivate(page.getByRole("button", { name: "Commit" }))
+    expect(await page.locator("output").textContent()).toBe("Reviewed literal")
+    expect(await page.getByLabel("Place").inputValue()).toBe("Before T2")
+    keys.finish()
+    expect(() => page.getByLabel("Title").fill("Bypass")).toThrow("keyboard guard refused")
+    expect(() => keys.finish()).toThrow("refused input")
   } finally { await browser.close(); server.stop(true) }
 }, 30_000)
