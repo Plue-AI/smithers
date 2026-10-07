@@ -17,7 +17,7 @@ test("C-J4-01 Home shared facts, private filter and retained background failures
     const actors = ["Will", "Ben", "Alice"] as const
     type Snapshot = { cursor: number; bytes: string; model: HomeCard; at: number }
     const received = new Map<string, Snapshot[]>()
-    const actions: Array<{ op: string; actor: string; id: string; started: number; acknowledged: number; receipt: unknown }> = []
+    const actions: Array<{ op: string; actor: string; id: string; started: number; acknowledged: number; status: number; receipt: unknown }> = []
     try {
     for (const actor of actors) {
       const page = f.members[actor].page, rows: Snapshot[] = []
@@ -68,11 +68,25 @@ test("C-J4-01 Home shared facts, private filter and retained background failures
       if (actor !== "Alice") await expect(card.locator(".stack-row").filter({ hasText: new RegExp(`\\bT${ready[0]!.n}\\b`) }).getByRole("button", { name: "Merge", exact: true })).toBeVisible()
     }
     const owner = f.members.Will.page
+    // Working includes Starting. Verify the actual row identities, rather than
+    // just a matching count that could conceal the wrong filter membership.
+    for (const state of ["working", "queued", "in_review"] as const) {
+      const expected = model.items.filter(item => item.state === state || (state === "working" && item.state === "starting"))
+      const button = home(owner).locator(`[data-filter="${state}"]`)
+      await journeyActivate(button)
+      await expect(button).toHaveAttribute("aria-pressed", "true")
+      await expect(home(owner).locator(".stack-row .ref")).toHaveText(expected.map(item => `T${item.n}`))
+      for (const member of ["Ben", "Alice"] as const) await expect(home(f.members[member].page).locator(".stack-row .ref")).toHaveText(model.items.map(item => `T${item.n}`))
+      await journeyActivate(button)
+      await expect(button).toHaveAttribute("aria-pressed", "false")
+      await expect(home(owner).locator(".stack-row .ref")).toHaveText(model.items.map(item => `T${item.n}`))
+    }
     await journeyActivate(home(owner).locator('[data-filter="needs_you"]'))
-    await expect(home(owner).locator(".stack-row")).toHaveCount(model.counts.needs_you)
+    const needs = model.items.filter(item => item.state === "needs_you").map(item => `T${item.n}`)
+    await expect(home(owner).locator(".stack-row .ref")).toHaveText(needs)
     await owner.reload()
     await expect(home(owner).locator('[data-filter="needs_you"]')).toHaveAttribute("aria-pressed", "true")
-    await expect(home(owner).locator(".stack-row")).toHaveCount(model.counts.needs_you)
+    await expect(home(owner).locator(".stack-row .ref")).toHaveText(needs)
     for (const actor of ["Ben", "Alice"] as const) {
       await expect(home(f.members[actor].page).locator('[data-filter="needs_you"]')).toHaveAttribute("aria-pressed", "false")
       await expect(home(f.members[actor].page).locator(".stack-row")).toHaveCount(model.items.length)
@@ -111,9 +125,9 @@ test("C-J4-01 Home shared facts, private filter and retained background failures
       await journeyActivate(row.getByRole("button", { name: op === "retry" ? "Retry" : "Dismiss", exact: true }))
       await expect(page.getByTestId("composer-input")).toBeEnabled()
       const { answer, acknowledged } = await response
-      expect(answer.ok()).toBe(true)
       const receipt = await answer.json()
-      actions.push({ op, actor, id, started, acknowledged, receipt })
+      actions.push({ op, actor, id, started, acknowledged, status: answer.status(), receipt })
+      expect(answer.ok()).toBe(true)
       expect(receipt.state).toBe(op === "retry" ? "accepted" : "dismissed")
       expect(Number.isSafeInteger(receipt.run_id) && receipt.run_id > 0).toBe(true)
       if (op === "retry") {
