@@ -223,6 +223,13 @@ impl NativeCore {
     }
 }
 impl Core for NativeCore {
+    fn maintain(&self, cx: &mut LockCx) -> hooks::Result<()> {
+        if cx.rewrite_pending { return Err(crate::freeze::pending_error()); }
+        self.require_settled_wake()?;
+        // A settled rewrite no longer needs its rollback operation retained.
+        self.native.settled().map_err(hook)?;
+        self.native.cleanup(cx.hooks.clock.now()).map(|_| ())
+    }
     fn validate_coding_write(&self) -> hooks::Result<()> {
         let item = self.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
         if item.number == 0 {

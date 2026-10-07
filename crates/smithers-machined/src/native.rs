@@ -981,3 +981,6 @@ pub(crate) mod tests {
         );
     }
 }
+
+#[path = "native_oplog.rs"]
+mod retention;

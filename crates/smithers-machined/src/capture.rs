@@ -35,6 +35,7 @@ pub fn local(cx: &mut LockCx, repository: &mut impl Repository) -> Result<Captur
             .events
             .append(&outbox::captured(head, tree, base), Some(head))?;
     }
+    cx.cadence.captured(cx.hooks.clock.mono());
     Ok(Captured {
         head,
         tree,

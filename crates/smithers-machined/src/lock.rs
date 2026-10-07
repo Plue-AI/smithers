@@ -12,6 +12,10 @@ use tokio::sync::oneshot;
 pub struct LockCx {
     pub hooks: Hooks,
     pub completed: u64,
+    pub maintenance_ready: bool,
+    pub cadence: crate::capture::Cadence,
+    burst_generation: u64,
+    last_maintenance: std::time::Instant,
     pub rewrite_pending: bool,
     pub epoch: Arc<AtomicU64>,
     pub last_rewrite_was_return: bool,
@@ -21,7 +25,12 @@ pub struct LockCx {
 }
 impl LockCx {
     pub fn new(hooks: Hooks) -> Self {
+        let now = hooks.clock.mono();
         Self {
+            cadence: crate::capture::Cadence::new(now),
+            maintenance_ready: false,
+            burst_generation: 0,
+            last_maintenance: now,
             hooks,
             completed: 0,
             rewrite_pending: false,
@@ -30,6 +39,33 @@ impl LockCx {
             return_epoch: 0,
             journal: None,
             last_hold: None,
+        }
+    }
+    /// Runs even with a busy RPC queue and after a host disconnect. Only a
+    /// completed wake authorizes snapshots; failed captures remain due.
+    fn tick(&mut self) {
+        let hooks = self.hooks.clone();
+        let _ = hooks.documents.tick(self);
+        if !self.maintenance_ready || self.rewrite_pending {
+            return;
+        }
+        if hooks.watcher.drain(self).is_err() {
+            return;
+        }
+        let generation = hooks.events.burst_generation();
+        if generation != self.burst_generation {
+            self.cadence.burst_closed();
+            self.burst_generation = generation;
+        }
+        let now = hooks.clock.mono();
+        if self.cadence.due(now) && hooks.core.call(self, 4, &[]).is_ok() {
+            self.cadence.captured(now);
+            self.burst_generation = hooks.events.burst_generation();
+        }
+        if now.saturating_duration_since(self.last_maintenance) >= Duration::from_secs(60) {
+            // Retry failed cleanup on the next minute, without starving controls.
+            self.last_maintenance = now;
+            let _ = hooks.core.maintain(self);
         }
     }
     pub fn recovering(
@@ -111,16 +147,18 @@ impl Executor {
         let worker = thread::Builder::new()
             .name("machined-lock".into())
             .spawn(move || {
+                let mut last_tick = cx.hooks.clock.mono();
                 loop {
+                    let now = cx.hooks.clock.mono();
+                    if now.saturating_duration_since(last_tick) >= Duration::from_millis(25) {
+                        let _ =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cx.tick()));
+                        last_tick = now;
+                    }
                     let (name, job) = match rx.recv_timeout(Duration::from_millis(25)) {
                         Ok(job) => job,
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                         Err(mpsc::RecvTimeoutError::Timeout) => {
-                            // A failed save stays dirty and retries; never emit a
-                            // success receipt for a failed persistence attempt.
-                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                cx.hooks.documents.clone().tick(&mut cx)
-                            }));
                             continue;
                         }
                     };

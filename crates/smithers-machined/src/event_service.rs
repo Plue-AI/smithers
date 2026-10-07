@@ -12,6 +12,7 @@ struct State<R: Refs, B: Bundles> {
     outbox: Outbox<R>,
     delivery: Delivery<B>,
     active: bool,
+    bursts: u64,
     hints: VecDeque<Frame>,
 }
 
@@ -43,6 +44,7 @@ impl<R: Refs, B: Bundles> Events<R, B> {
                 outbox,
                 delivery: Delivery::new(bundles),
                 active: false,
+                bursts: 0,
                 hints: VecDeque::new(),
             }),
             allocate: Box::new(allocate),
@@ -123,8 +125,17 @@ where
             .map_err(error)
     }
 
+    fn burst_generation(&self) -> u64 {
+        self.state.lock().map(|s| s.bursts).unwrap_or(0)
+    }
+
     fn append(&self, event: &[u8], pin: Option<Oid>) -> hooks::Result<(u64, [u8; 16])> {
-        self.state()?.outbox.append(event, pin).map_err(error)
+        let mut state = self.state()?;
+        let receipt = state.outbox.append(event, pin).map_err(error)?;
+        if event.first() == Some(&1) {
+            state.bursts = state.bursts.wrapping_add(1);
+        }
+        Ok(receipt)
     }
 
     fn hint(&self, hint: &[u8]) -> hooks::Result<()> {
@@ -159,6 +170,7 @@ where
             delivery,
             active,
             hints,
+            ..
         } = &mut *state;
         delivery.reconnect(outbox);
         *active = false;

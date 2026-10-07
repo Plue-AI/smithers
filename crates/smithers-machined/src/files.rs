@@ -289,6 +289,9 @@ impl Files {
     }
 }
 impl Core for Files {
+    fn maintain(&self, cx: &mut LockCx) -> hooks::Result<()> {
+        self.next.maintain(cx)
+    }
     fn validate_coding_write(&self) -> hooks::Result<()> {
         self.next.validate_coding_write()
     }

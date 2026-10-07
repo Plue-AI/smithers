@@ -8,26 +8,23 @@ struct Repo {
     last: Option<SystemTime>,
     calls: Vec<String>,
     fail: bool,
+    size: u64,
+    count: usize,
 }
 impl Repository for Repo {
     fn last_run(&mut self) -> Result<Option<SystemTime>> {
         Ok(self.last)
     }
+    fn size_bytes(&mut self) -> Result<u64> {
+        Ok(self.size)
+    }
     fn operations(&mut self) -> Result<Vec<Operation>> {
-        Ok(vec![
-            Operation {
-                id: "oldest".into(),
-                ended: self.now - RETENTION - Duration::from_secs(10),
-            },
-            Operation {
-                id: "cutoff".into(),
-                ended: self.now - RETENTION,
-            },
-            Operation {
-                id: "newest-old".into(),
-                ended: self.now - RETENTION - Duration::from_secs(1),
-            },
-        ])
+        Ok((0..self.count)
+            .map(|i| Operation {
+                id: format!("op-{i}"),
+                ended: self.now - RETENTION - Duration::from_secs(i as u64),
+            })
+            .collect())
     }
     fn abandon_ancestors(&mut self, id: &str) -> Result<()> {
         self.calls.push(id.into());
@@ -48,16 +45,18 @@ impl Repository for Repo {
     }
 }
 #[test]
-fn retention_selects_newest_strictly_old_operation_and_runs_weekly() {
+fn retention_preserves_newest_hundred_and_runs_daily() {
     let now = SystemTime::UNIX_EPOCH + RETENTION * 3;
     let mut r = Repo {
         now,
         last: None,
         calls: vec![],
         fail: false,
+        size: 0,
+        count: 105,
     };
     assert!(oplog::run(&mut r, now).unwrap());
-    assert_eq!(r.calls, ["newest-old", "gc", "persist"]);
+    assert_eq!(r.calls, ["op-100", "gc", "persist"]);
     assert!(!oplog::run(&mut r, now + RETENTION - Duration::from_secs(1)).unwrap());
     assert!(!oplog::run(&mut r, now - Duration::from_secs(1)).unwrap());
     assert!(oplog::run(&mut r, now + RETENTION).unwrap());
@@ -70,8 +69,27 @@ fn failed_gc_does_not_advance_durable_clock() {
         last: None,
         calls: vec![],
         fail: true,
+        size: 0,
+        count: 105,
     };
     assert!(oplog::run(&mut r, now).is_err());
     assert_eq!(r.last, None);
-    assert_eq!(r.calls, ["newest-old", "gc"]);
+    assert_eq!(r.calls, ["op-100", "gc"]);
+}
+
+#[test]
+fn size_triggers_early_cleanup_and_small_history_is_preserved() {
+    let now = SystemTime::UNIX_EPOCH + RETENTION * 3;
+    let mut r = Repo {
+        now,
+        last: Some(now),
+        calls: vec![],
+        fail: false,
+        size: oplog::SIZE_LIMIT - 1,
+        count: 100,
+    };
+    assert!(!oplog::run(&mut r, now).unwrap());
+    r.size += 1;
+    assert!(oplog::run(&mut r, now).unwrap());
+    assert_eq!(r.calls, ["gc", "persist"]);
 }

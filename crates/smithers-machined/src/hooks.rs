@@ -228,6 +228,10 @@ pub trait Broker: Send + Sync {
     }
 }
 pub trait EventSink: Send + Sync {
+    /// Monotonic durable burst-close generation; capture events do not count.
+    fn burst_generation(&self) -> u64 {
+        0
+    }
     /// Discard incomplete transport input; never discard durable events.
     fn disconnected(&self) -> Result<()> {
         Ok(())
@@ -265,6 +269,10 @@ pub trait EventSink: Send + Sync {
     }
 }
 pub trait Core: Send + Sync {
+    /// Daily/size-triggered repository cleanup, under the mutation lock.
+    fn maintain(&self, _cx: &mut LockCx) -> Result<()> {
+        Ok(())
+    }
     /// Runs on the mutation thread, after authenticating the coding run and
     /// before consulting a document or touching disk. Missing item authority
     /// cannot grant coding writes.

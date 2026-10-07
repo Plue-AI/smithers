@@ -1106,3 +1106,86 @@ fn capture_delivery_case(mode: &str) {
     stream.shutdown(std::net::Shutdown::Both).unwrap();
     worker.join().unwrap();
 }
+
+#[test]
+fn authenticated_wake_starts_cadence_and_disconnect_keeps_capturing() {
+    use smithers_machined::hooks::{self, Core, Hooks};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
+    struct Timers {
+        start: Instant,
+        seconds: AtomicU64,
+        bursts: AtomicU64,
+        captures: AtomicU64,
+        cleanups: AtomicU64,
+        fail: AtomicBool,
+    }
+    impl hooks::Clock for Timers {
+        fn mono(&self) -> Instant { self.start + Duration::from_secs(self.seconds.load(SeqCst)) }
+        fn now(&self) -> std::time::SystemTime {
+            std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(self.seconds.load(SeqCst))
+        }
+    }
+    impl hooks::Watcher for Timers {
+        fn ready(&self) -> hooks::Result<()> { Ok(()) }
+        fn drain(&self, _: &mut smithers_machined::lock::LockCx) -> hooks::Result<()> { Ok(()) }
+    }
+    impl hooks::EventSink for Timers {
+        fn ready(&self) -> hooks::Result<()> { Ok(()) }
+        fn burst_generation(&self) -> u64 { self.bursts.load(SeqCst) }
+    }
+    impl Core for Timers {
+        fn maintain(&self, _: &mut smithers_machined::lock::LockCx) -> hooks::Result<()> {
+            self.cleanups.fetch_add(1, SeqCst);
+            Ok(())
+        }
+        fn ready(&self) -> hooks::Result<()> { Ok(()) }
+        fn call(&self, cx: &mut smithers_machined::lock::LockCx, method: u8, args: &[u8]) -> hooks::Result<Vec<u8>> {
+            if method != 4 { return Reconciler.call(cx, method, args); }
+            if self.fail.load(SeqCst) { return Err(hooks::Error::unsupported()); }
+            self.captures.fetch_add(1, SeqCst);
+            Ok(vec![])
+        }
+    }
+    let timers = Arc::new(Timers { start: Instant::now(), seconds: AtomicU64::new(0),
+        bursts: AtomicU64::new(0), captures: AtomicU64::new(0), cleanups: AtomicU64::new(0), fail: AtomicBool::new(false) });
+    let daemon = Arc::new(smithers_machined::daemon::Daemon::new(Hooks {
+        core: timers.clone(), clock: timers.clone(), watcher: timers.clone(), events: timers.clone(),
+        documents: Arc::new(Ready), sessions: Arc::new(Ready),
+        broker: Arc::new(Roster(AtomicBool::new(false))), ..Default::default()
+    }).unwrap());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let d = daemon.clone();
+    let worker = thread::spawn(move || {
+        let identity = Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec()).unwrap();
+        let (socket, _) = listener.accept().unwrap();
+        let auth = link::authenticate(socket, &identity, 7, &[]).unwrap();
+        let _ = d.serve(auth);
+    });
+    let mut stream = TcpStream::connect(addr).unwrap();
+    host(&mut stream, &[9; 32], true);
+    let check = |seconds, count| {
+        timers.seconds.store(seconds, SeqCst);
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(timers.captures.load(SeqCst), count);
+    };
+    check(300, 0);
+    assert_eq!(timers.cleanups.load(SeqCst), 0); // No capture before authenticated wake.
+    call(&mut stream, 1, 5, &[conn::field(1, [1; 20])]);
+    check(301, 1);
+    assert_eq!(timers.cleanups.load(SeqCst), 1);
+    timers.bursts.fetch_add(1, SeqCst);
+    check(305, 1);
+    check(306, 2);
+    timers.bursts.fetch_add(2, SeqCst); // Multiple closes coalesce.
+    check(310, 2);
+    timers.fail.store(true, SeqCst);
+    check(311, 2);
+    timers.fail.store(false, SeqCst);
+    check(312, 3); // Failed capture did not advance cadence.
+    drop(stream);
+    worker.join().unwrap();
+    check(611, 3);
+    check(612, 4);
+    assert_eq!(timers.cleanups.load(SeqCst), 2); // Disconnected local capture does not wait for host receipts.
+}

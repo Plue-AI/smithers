@@ -202,6 +202,7 @@ impl Daemon {
                     }
                     let (id, method, args) = frame.request()?;
                     if cx.rewrite_pending || crate::wiring::ready(&cx.hooks).is_err() {
+                        cx.maintenance_ready = false;
                         state.store(false, Ordering::Release);
                         roster.store(false, Ordering::Release);
                     }
@@ -245,6 +246,7 @@ impl Daemon {
                         roster.store(true, Ordering::Release);
                     }
                     if method == 5 {
+                        cx.maintenance_ready = false;
                         state.store(false, Ordering::Release);
                         let fields = conn::fields("response", &result.payload[1..])?;
                         let value = fields[1].1;
@@ -253,6 +255,7 @@ impl Daemon {
                             // Conflict is a real wake outcome, not permission to admit sessions.
                             if matches!(fields[0].1[0], 1 | 2) {
                                 state.store(true, Ordering::Release);
+                                cx.maintenance_ready = true;
                             }
                         }
                     }
