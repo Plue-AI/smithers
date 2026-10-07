@@ -2,9 +2,9 @@ import { expect, test } from "../browserTest"
 import { owner } from "./j1-fixtures"
 import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
 
-// Browser boundary uses the real shared seam and flow/card handlers. The
-// composed Go tests separately exercise PostgreSQL and the packaged host.
-test("C-UI-07: shared prompt opens all four pinned Context sources and Inspect", async ({ page }) => {
+// HTTP-contract regression only. C-UI-07-native.spec.ts supplies acceptance
+// through PostgreSQL, the packaged host and the native repository store.
+test("Context HTTP contract: shared prompt opens four pinned sources and Inspect", async ({ page }) => {
   await owner(page)
   await page.route("**/api/bootstrap", route => route.fulfill({ json: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))

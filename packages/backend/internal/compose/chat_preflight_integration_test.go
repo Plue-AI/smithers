@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
@@ -37,8 +39,20 @@ import (
 // Candidate contents come from the actual native repository and filesystem wiki.
 // Only the external model endpoint records scripted selection/answer responses.
 func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
+	testLocalSharedPreflight(t, false)
+}
+
+func TestLocalSharedPreflightBrowser(t *testing.T) {
+	if os.Getenv("SMITHERS_CONTEXT_BROWSER") != "1" {
+		t.Skip("set SMITHERS_CONTEXT_BROWSER=1 for the unified browser proof")
+	}
+	testLocalSharedPreflight(t, true)
+}
+
+func testLocalSharedPreflight(t *testing.T, browser bool) {
 	type call struct{ role, key, body string }
 	calls := make(chan call, 8)
+	runRef := ""
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -56,6 +70,39 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 		answer := "Retries three times."
 		if input.Model != "answer" {
 			answer = `[{"index":0,"reason":"Retry implementation"}]`
+			if browser {
+				var request struct {
+					Messages []struct {
+						Content string `json:"content"`
+					} `json:"messages"`
+				}
+				require.NoError(t, json.Unmarshal(body, &request))
+				var catalog struct {
+					Candidates []struct {
+						Index int                        `json:"index"`
+						Item  struct{ Kind, Ref string } `json:"item"`
+					} `json:"candidates"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(request.Messages[len(request.Messages)-1].Content), &catalog))
+				choices := []map[string]any{}
+				for _, expected := range []struct{ kind, ref, reason string }{{"file", "src/webhooks/retry.ts", "Retry implementation"}, {"page", "public", "Retry policy"}, {"todo", "T1", "Retry work"}, {"run", runRef, "Retry evidence"}} {
+					if expected.kind == "run" && runRef == "" {
+						continue
+					}
+					found := false
+					for _, candidate := range catalog.Candidates {
+						if candidate.Item.Kind == expected.kind && candidate.Item.Ref == expected.ref {
+							choices = append(choices, map[string]any{"index": candidate.Index, "reason": expected.reason})
+							found = true
+							break
+						}
+					}
+					require.True(t, found, expected.ref)
+				}
+				selected, err := json.Marshal(choices)
+				require.NoError(t, err)
+				answer = string(selected)
+			}
 		}
 		chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]string{"content": answer}, "finish_reason": nil}}})
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -66,6 +113,7 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 	credential := middleware.Credential{SessionHash: hex.EncodeToString(sum[:])}
 	var revision, itemRevision string
 	var memberID int64
+	var contextReader services.InstallContext
 	local := startConfiguredLocalChat(t, func(local *localChat, options *chat.RuntimeOptions) {
 		q := db.New(local.pool)
 		_, err := local.pool.Exec(local.ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, local.ownerID)
@@ -82,7 +130,13 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 		reader, commit, candidate := composedContextSources(t, local)
 		revision, itemRevision = commit, candidate
 		options.ContextRepository = reader.Read
-		seedComposedContextHistory(t, local, memberID)
+		contextReader = reader
+		if !browser {
+			seedComposedContextHistory(t, local, memberID)
+		} else {
+			_, err = local.pool.Exec(local.ctx, `INSERT INTO mythical_items(repository_id,source,title,state,revisions,request_run_id,request_outcome,summary,owner_id,version) VALUES($1,'todo','Repair retries','queued','[{"text":"Retry three times","acceptance":[],"by":{"kind":"person","login":"ben","name":"Ben","avatar_url":"https://example.test/ben.png","color_index":0},"at":"2026-10-07T00:00:00Z"}]','','completed','Retry check passed',$2,1)`, local.repoID, memberID)
+			require.NoError(t, err)
+		}
 	})
 	defer local.stop(t)
 	q := db.New(local.pool)
@@ -102,6 +156,15 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 	router := chi.NewRouter()
 	router.Use(middleware.AuthLoader(q, config.AuthConfig{SessionCookieName: "context_session"}))
 	local.composition.runtime.MountPublic(router)
+	if browser {
+		files := &routes.BranchFileHandler{Source: contextReader.Source, Branches: branches}
+		router.Get("/api/branches/{b}/files/*", files.Read)
+		router.Get("/api/repos/{owner}/{repo}/wiki/navigation/index", routes.WikiIndex(contextReader.Wiki))
+		wikiContent := &routes.WikiContentHandler{Service: contextReader.Wiki}
+		router.Get("/api/repos/{owner}/{repo}/wiki/history/{pageID}/{revision}/content", wikiContent.Content)
+		todos := &routes.TodoHandler{Queries: q, Service: services.NewMythicalService(local.pool, nil)}
+		router.Get("/api/todos/{n}", todos.Get)
+	}
 	public := httptest.NewServer(router)
 	defer public.Close()
 	jar, err := cookiejar.New(nil)
@@ -113,6 +176,63 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 	_, err = local.pool.Exec(local.ctx, `INSERT INTO approvals(id,repository_id,state,kind,title,member_id,credential_id,command,subject,revision,payload,expires_at)
       VALUES($1,$2,'pending','one_click','canary-C',$3,'alice-credential','todo.drop','{"kind":"todo","ref":"T1"}','revision-1','{"private":"canary-C"}',now()+interval '1 hour')`, uuid.NewString(), local.repoID, local.ownerID)
 	require.NoError(t, err)
+	if browser {
+		// Give the selected run a real completed packaged-host turn, rather than
+		// opening an absent engine record or a seeded DesignWorld monitor.
+		response, err := client.Post(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(`{"prompt":"Prepare retry context","idempotencyKey":"context-run-source"}`))
+		require.NoError(t, err)
+		raw, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 202, response.StatusCode, string(raw))
+		var admitted struct {
+			TurnID string `json:"turnId"`
+			RunID  string `json:"runId"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &admitted))
+		require.Eventually(t, func() bool {
+			var terminal bool
+			err := local.pool.QueryRow(local.ctx, `SELECT terminal FROM chat_turns WHERE id=$1`, admitted.TurnID).Scan(&terminal)
+			return err == nil && terminal
+		}, 20*time.Second, 20*time.Millisecond)
+		require.Len(t, calls, 2)
+		require.Equal(t, "fast", (<-calls).role)
+		require.Equal(t, "answer", (<-calls).role)
+		runRef = admitted.RunID
+		_, err = local.pool.Exec(local.ctx, `UPDATE mythical_items SET request_run_id=$1 WHERE repository_id=$2 AND number=1`, runRef, local.repoID)
+		require.NoError(t, err)
+		_, source, _, ok := runtime.Caller(0)
+		require.True(t, ok)
+		root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+		command := exec.CommandContext(local.ctx, "pnpm", "exec", "playwright", "test", "e2e/playwright/spec/C-UI-07-native.spec.ts", "--workers", "1")
+		command.Dir = filepath.Join(root, "apps/app")
+		command.Env = append(os.Environ(), "SMITHERS_CONTEXT_ORIGIN="+public.URL, "SMITHERS_CONTEXT_REVISION="+revision, "SMITHERS_CONTEXT_MEMBER="+fmt.Sprint(memberID), "SMITHERS_CONTEXT_RUN="+runRef)
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		t.Log(string(output))
+		require.Len(t, calls, 2)
+		selection, answer := <-calls, <-calls
+		require.Equal(t, "fast", selection.role)
+		require.Equal(t, "answer", answer.role)
+		for _, text := range []string{"export const retries = 3", "Public wiki context", "Repair retries", "Retry check passed"} {
+			require.Contains(t, answer.body, text)
+		}
+		require.NotContains(t, answer.body, "unselected-content-canary")
+		var turns int
+		require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM chat_turns WHERE repository_id=$1`, local.repoID).Scan(&turns))
+		require.Equal(t, 2, turns, "one source run plus one browser turn; tab closure cannot duplicate admission")
+		shared, err := local.composition.runtime.Handler.Store.SharedEntries(local.ctx, chat.Scope{UserID: memberID, RepositoryID: local.repoID, Owner: "ben"}, "main")
+		require.NoError(t, err)
+		require.Len(t, shared.Entries, 2)
+		require.NotNil(t, shared.Entries[1].Context)
+		stored, err := json.Marshal(shared.Entries[1].Context)
+		require.NoError(t, err)
+		require.JSONEq(t, `[{"kind":"file","label":"retry.ts","ref":"src/webhooks/retry.ts","revision":"`+revision+`","reason":"Retry implementation"},{"kind":"page","label":"Webhooks","ref":"public","revision":"1","reason":"Retry policy"},{"kind":"todo","label":"T1 Repair retries","ref":"T1","revision":"1","reason":"Retry work"},{"kind":"run","label":"T1 run","ref":"`+runRef+`","revision":"1","reason":"Retry evidence"}]`, string(stored))
+		var machines int
+		require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1`, local.repoID).Scan(&machines))
+		require.Zero(t, machines)
+		return
+	}
 	for _, role := range []string{"fast", "coding"} {
 		if role == "coding" {
 			body := strings.NewReader(`{"action":"remove","requestId":"remove-fast-for-fallback","name":"FAST_KEY"}`)
