@@ -1240,6 +1240,15 @@ func TestMythicalMergeTodoRequiredReviews(t *testing.T) {
 			n, head, pr := h.first("Order")
 			h.fake.RequireReviews(1)
 			tc.change(h, pr, head)
+			if tc.code == "checks" {
+				// The press reads required checks itself (row 9's first
+				// fact): refused by name before any approval or fence.
+				assert.Equal(t, TodoControlError{Status: 409, Code: tc.code, Class: "conflict", Message: tc.message}, *refusalOf(t, h.press(h.ctx, n, head)))
+				h.unfenced(n)
+				h.pass()
+				assert.Empty(t, h.merges())
+				return
+			}
 			require.NoError(t, h.press(h.ctx, n, head))
 			h.pass()
 			h.refused(n, tc.code, tc.message)
