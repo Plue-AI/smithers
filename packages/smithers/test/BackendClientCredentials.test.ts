@@ -711,6 +711,16 @@ describe("terminal credential files (#3537)", () => {
     expect(spawn).not.toHaveBeenCalled()
   })
 
+  it("refuses explicit bearer and case-insensitive Authorization overrides before HTTP admission", async () => {
+    const f = await fixture()
+    const client = new Client({ environment: { ...f.environment, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" } })
+    for (const options of [{ token: "synthetic-foreign" }, { headers: { Authorization: "token synthetic-foreign" } }, { headers: { authorization: "token synthetic-foreign" } }, { headers: { AUTHORIZATION: "token synthetic-foreign" } }]) {
+      await expect(client.response("POST", "/probe", {}, options)).rejects.toMatchObject({ code: "token_file_unavailable" })
+    }
+    expect(f.received).toEqual([])
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
   it("refuses a foreign session symlink after 401 without sending another mutation", async () => {
     const f = await fixture()
     const pathA = join(f.home, "A"), pathB = join(f.home, "B")

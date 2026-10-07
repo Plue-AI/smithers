@@ -12,6 +12,18 @@ export async function installCLI(packages, staging, destination) {
     dependencies[name] = `file:${relative(installation, archive)}`
     overrides[name] = `$${name}`
   }
+  // Optional peers of a transitive runtime must not float past the exact
+  // versions the release packages certify (for example OTel's trace SDKs).
+  const selected = new Set(packages.map(pkg => pkg.name))
+  for (const { peers = {} } of packages) {
+    for (const [name, version] of Object.entries(peers)) {
+      if (selected.has(name) || name.startsWith("@smthrs/") || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version)) continue
+      if (dependencies[name] !== undefined && dependencies[name] !== version) {
+        throw new Error(`Conflicting release peer ${name}: ${dependencies[name]} and ${version}`)
+      }
+      dependencies[name] = version
+    }
+  }
   await mkdir(installation, { recursive: true })
   await writeFile(join(installation, "package.json"), JSON.stringify({ private: true, dependencies, overrides }))
   const result = spawnSync("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: installation, stdio: "inherit" })

@@ -72,3 +72,18 @@ test("a failed packed installation preserves the previous CLI output", async () 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("incompatible exact release peers refuse before changing the installed CLI", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cli-peer-refusal-"))
+  try {
+    const destination = join(root, "output")
+    await mkdir(destination)
+    await writeFile(join(destination, "existing"), "kept")
+    await assert.rejects(installCLI([
+      { name: "@smthrs/first", archive: join(root, "first.tgz"), peers: { external: "2.11.0" } },
+      { name: "@smthrs/second", archive: join(root, "second.tgz"), peers: { external: "2.12.0" } }
+    ], join(root, "staging"), destination, { os: "linux", cpu: "arm64", libc: "glibc" }), /Conflicting release peer external/)
+    assert.equal(await readFile(join(destination, "existing"), "utf8"), "kept")
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

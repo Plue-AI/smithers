@@ -119,7 +119,7 @@ export class Session {
   readonly authPath: string
   readonly env: Readonly<Record<string, string | undefined>>
   private readonly tokenFile: string | undefined
-  private readonly managedFile: boolean
+  readonly managedFile: boolean
   private readonly fileEpochs = new Map<string, CredentialEpoch>()
   private readonly nativeEpochs = new Map<string, CredentialEpoch>()
   constructor(env: Readonly<Record<string, string | undefined>>) {

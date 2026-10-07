@@ -32,7 +32,7 @@ try {
     const staged = join(staging, String(index))
     await stagePackage(join(repoRoot, directory), staged, manifest)
     run("npm", ["pack", "--ignore-scripts", "--pack-destination", staging], staged)
-    packages.push({ name: manifest.name, archive: join(staging, manifest.name.replace(/^@/, "").replaceAll("/", "-") + "-" + manifest.version + ".tgz") })
+    packages.push({ name: manifest.name, peers: manifest.peerDependencies, archive: join(staging, manifest.name.replace(/^@/, "").replaceAll("/", "-") + "-" + manifest.version + ".tgz") })
   }
   await installCLI(packages, staging, destination)
   run(process.execPath, [join(destination, "node_modules/@smthrs/cli/bin/smithers.mjs"), "issue", "list", "--help"], destination)
