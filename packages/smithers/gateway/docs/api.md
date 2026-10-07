@@ -36,7 +36,7 @@ The whole HTTP surface as one application layer a host serves.
 ### Mounts
 
 `GatewayServer.layer` mounts seven base routes, and `NodeGateway.layer` binds
-them to a socket. A host that supplies `runtimeBridge` adds two authenticated
+them to a socket. A host that supplies `runtimeBridge` adds three authenticated
 JSON routes.
 
 | Path                       | Protocol           | Serves                                               |
@@ -50,6 +50,7 @@ JSON routes.
 | `GET /health`              | JSON               | `GatewayServer.Health`                               |
 | `POST /runtime/v1/command` | JSON               | Versioned launch and Control mutations (optional)    |
 | `POST /runtime/v1/observe` | JSON               | Bounded journal replay and run projection (optional) |
+| `POST /runtime/v1/monitor` | JSON               | Recorded monitor and read-only historical frame (optional) |
 
 ### Scoped tokens
 
@@ -64,6 +65,15 @@ alone, and a ticket issued against a scoped token opens only what the token
 could open.
 
 ### Runtime observation cursors
+
+`POST /runtime/v1/monitor` accepts `{ protocol: "smithers.flow-runtime/v1", runId,
+at? }`. `RuntimeBridge.monitor(control, runId, at?)` reads an existing run and
+its finite committed journal. `at` selects a journal sequence; the response's
+`replay` records that position and the latest sequence. The host does not
+launch, resume, or evaluate repository presentation modules while inspecting.
+It refuses journals beyond the projection limits and model usage whose USD
+total cannot be established. The install resolves only an existing host;
+inspection cannot start a stopped host.
 
 `POST /runtime/v1/observe` returns `nextCursor`; pass it back unchanged as
 `afterCursor` with the same `runId`. An empty cursor consumes no events. A
@@ -475,6 +485,11 @@ evidence do not acquire invented phases, successful checks, or file changes.
 
 - `traceFromJournal(run, records, options?)` builds a `TraceModel`: nested
   spans, frame summaries, phase bands, milestone pins, and discipline notes.
+- `monitorFromJournal(run, records, at?)` adapts the same fold to the install's
+  Run card. It retains recorded node instances, I/O, approval waits, labels,
+  and Engine bookkeeping. A historical frame uses only its journal prefix
+  for lifecycle state. This partial adapter has no native USD attribution;
+  the served bridge refuses unknown spend instead of publishing it as zero.
 - `inspectLabel(tag)` reads the build-generated Appendix C Inspect rendering.
   Coding call and native execution spans use the same labels. Dynamic
   `<cell-call:flow>` wrappers use the wrapped action's rendering; unknown
@@ -528,6 +543,9 @@ contracts that wrote them. `engineTraceFromJournal(records)` produces spans;
 result projections. `engineRunEvidence(records, rootId, cursorSeq?)` limits
 facts to recorded ancestry and the inspection cursor. `engineProjectionPending`
 reports unfinished observation independently of the run's terminal verdict.
+Native node schedules and settlements retain separate instances on reschedule,
+deterministic Inspect labels, timestamps, and recorded output previews. A
+preview remains inert text even when truncated.
 
 ## Host branch presence
 
