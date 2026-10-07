@@ -92,12 +92,21 @@ func TestInstallExecutionWorkspaceFileReadPostgres(t *testing.T) {
 	require.NoError(t, err)
 	creds["issued run"] = environment["SMITHERS_JJHUB_TOKEN"]
 	require.NotEmpty(t, creds["issued run"])
+	creds["unknown profile"] = f.token(f.owner, "file-unknown-profile", "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+",via:codex,profile:unknown", true)
+	for index, actor := range []struct{ name, binding string }{
+		{"unknown run profile", middleware.LandingWorkspaceScope(workspaces[0].ID) + "," + middleware.AgentSessionRestrictionScope("file-run-0") + ",profile:unknown"},
+		{"unknown run kind", middleware.LandingWorkspaceScope(workspaces[0].ID) + "," + middleware.AgentSessionRestrictionScope("file-run-0") + ",credential:unknown"},
+		{"unknown machine profile", middleware.WorkspaceRestrictionScope(workspaces[0].ID) + ",profile:unknown"},
+		{"unknown machine kind", middleware.WorkspaceRestrictionScope(workspaces[0].ID) + ",credential:unknown"},
+	} {
+		creds[actor.name] = f.token(f.owner, fmt.Sprintf("unknown-%d", index), "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+actor.binding, true)
+	}
 	for _, cell := range []struct {
 		actor     string
 		workspace int
 		status    int
 	}{
-		{"issued run", 0, 200}, {"issued run", 1, 403}, {"run", 0, 200}, {"machine", 0, 200}, {"run", 1, 403}, {"machine", 1, 403}, {"wrong run", 0, 403}, {"children", 0, 403},
+		{"unknown profile", 0, 403}, {"unknown run profile", 0, 403}, {"unknown run kind", 0, 403}, {"unknown machine profile", 0, 403}, {"unknown machine kind", 0, 403}, {"issued run", 0, 200}, {"issued run", 1, 403}, {"run", 0, 200}, {"machine", 0, 200}, {"run", 1, 403}, {"machine", 1, 403}, {"wrong run", 0, 403}, {"children", 0, 403},
 	} {
 		for _, suffix := range []string{"files/content?path=proof.txt", "files"} {
 			t.Run(fmt.Sprintf("%s/%d/%s", cell.actor, cell.workspace, suffix), func(t *testing.T) {
