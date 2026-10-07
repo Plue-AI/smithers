@@ -199,6 +199,8 @@ test("File recovery buttons cross the registered dispatcher and branch transport
   const { ControllerContext } = await import("../../src/mainview/ControllerContext")
   const { fileModel } = await import("../../src/mainview/cards/FileCards")
   const seed = (JSON.parse(readFileSync(new URL("./co-edit.frames.json", import.meta.url), "utf8")) as { seed: number[] }).seed
+  // The controller subscribes to members first; documents and files follow.
+  seed[4] = 2
   const socket = new Socket()
   const channel = new LiveChannel({ documentFrames: true, socket: () => socket })
   const calls: Array<[string, unknown]> = []
@@ -228,7 +230,7 @@ test("File recovery buttons cross the registered dispatcher and branch transport
     calls.length = 0
     const resource = controller.fileDocuments!.resolve("T12", "retry.ts")!
     socket.open()
-    socket.receive('{"t":"snap","id":1,"cursor":0,"data":{"epoch":"00000000000000000000000000000001","client_id":42}}')
+    socket.receive('{"t":"snap","id":2,"cursor":0,"data":{"epoch":"00000000000000000000000000000001","client_id":42}}')
     socket.receive(new LiveDocRelay([seed]).next())
     resource.provider.doc.getText("content").insert(0, "Alice's retained document")
     const dispatches: Promise<unknown>[] = []
@@ -236,10 +238,14 @@ test("File recovery buttons cross the registered dispatcher and branch transport
     flushSync(() => root.render(createElement(ControllerContext.Provider, { value: controller }, renderCardBody(opened, mountedActions))))
     for (let i = 0; i < 100 && !host.querySelector(".cm-editor"); i++) await new Promise(resolve => setTimeout(resolve, 10))
     const editor = EditorView.findFromDOM(host.querySelector(".cm-editor")!)!
+    expect(resource.provider.editable).toBe(true)
     flushSync(() => editor.dispatch({ selection: { anchor: 3 } }))
-    expect(socket.frames.at(-1) instanceof Uint8Array).toBe(true)
+    // Awareness is coalesced; mounting and selection do not synchronously send it.
+    const awarenessSent = () => socket.frames.some(frame => frame instanceof Uint8Array && frame[0] === 2)
+    for (let i = 0; i < 100 && !awarenessSent(); i++) await new Promise(resolve => setTimeout(resolve, 10))
+    expect(awarenessSent()).toBe(true)
     expect(resource.provider.awareness.getLocalState()).toEqual({ actor: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.com/alice", color_index: 0 }, colour: "var(--lane-0)", line: 1 })
-    socket.receive(JSON.stringify({ t: "snap", id: 2, cursor: 0, data: [{ path: "first.ts", change: "added", authors: [] }, { ...model, change: "modified", outside: { version: "outside-17", at: "2026-10-05T12:00:00Z" } }, { path: "last.ts", change: "deleted", authors: [] }] }))
+    socket.receive(JSON.stringify({ t: "snap", id: 3, cursor: 0, data: [{ path: "first.ts", change: "added", authors: [] }, { ...model, change: "modified", outside: { version: "outside-17", at: "2026-10-05T12:00:00Z" } }, { path: "last.ts", change: "deleted", authors: [] }] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     flushSync(() => root.render(createElement(ControllerContext.Provider, { value: controller }, renderCardBody(opened, mountedActions))))
     host.querySelector<HTMLButtonElement>('[data-flow="file.compare"]')!.click()
@@ -248,11 +254,11 @@ test("File recovery buttons cross the registered dispatcher and branch transport
     expect(editor.state.doc.toString()).toBe("Alice's retained document")
     expect(host.querySelector('[aria-label="Live and outside versions"]')?.textContent).toContain("Maya's outside text")
     expect(resource.provider.comparison).toEqual({ version: "outside-17", text: "Maya's outside text" })
-    socket.receive('{"t":"delta","id":2,"cursor":1,"data":{"path":"retry.ts","saved_digest":"digest-17","saved_at":"2026-10-05T12:01:00Z","outside_change":{"version":"outside-18","by":{"outside":true}}}}')
+    socket.receive('{"t":"delta","id":3,"cursor":1,"data":{"path":"retry.ts","saved_digest":"digest-17","saved_at":"2026-10-05T12:01:00Z","outside_change":{"version":"outside-18","by":{"outside":true}}}}')
     expect(resource.provider.file?.outside).toEqual({ version: "outside-18", at: "2026-10-05T12:01:00Z" })
     expect(resource.provider.saved).toBe("saving")
     expect(channel.getSnapshot("branch:T12:files")?.data).toMatchObject({ rows: [{ path: "first.ts", change: "added", authors: [] }, { path: "retry.ts", change: "modified", authors: [] }, { path: "last.ts", change: "deleted", authors: [] }] })
-    socket.receive('{"t":"delta","id":2,"cursor":2,"data":{"path":"retry.ts"}}')
+    socket.receive('{"t":"delta","id":3,"cursor":2,"data":{"path":"retry.ts"}}')
     expect(resource.provider.file?.outside).toBeUndefined()
     expect(resource.provider.comparison).toBeUndefined()
     resource.provider.setFile({ ...model, gone: { kind: "deleted", by: { kind: "outside", color_index: 7 } } })
@@ -268,9 +274,9 @@ test("File recovery buttons cross the registered dispatcher and branch transport
     await Promise.all(dispatches.splice(0))
     expect(calls.at(-1)).toEqual(["/api/branches/T12/files/src/renamed.ts", null])
     expect(store.collections.cards.get(opened.id)).toMatchObject({ kind: "file", payload: { path: "src/renamed.ts", ref: "T12", content: "seed fallback" } })
-    expect(socket.frames).toContain('{"t":"sub","id":3,"topic":"doc:code:T12:src/renamed.ts"}')
+    expect(socket.frames).toContain('{"t":"sub","id":4,"topic":"doc:code:T12:src/renamed.ts"}')
     resource.provider.setFile(model)
-    socket.receive('{"t":"snap","id":1,"cursor":1,"data":{"epoch":"00000000000000000000000000000002","client_id":42}}')
+    socket.receive('{"t":"snap","id":2,"cursor":1,"data":{"epoch":"00000000000000000000000000000002","client_id":42}}')
     socket.receive(new LiveDocRelay([seed]).next())
     expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
     expect(await resource.provider.copy(async () => ({ ok: false, code: "clipboard-write-failed", cause: "denied" }))).toBe(false)
@@ -281,12 +287,12 @@ test("File recovery buttons cross the registered dispatcher and branch transport
     expect(resource.provider.doc.getText("content").toString()).toBe("Alice's retained document")
     expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
     // Client 42 inserted 25 retained characters in the new epoch; only the covering vector clears recovery.
-    socket.receive('{"t":"saved","id":1,"sv":"ASoA","seq":1}')
+    socket.receive('{"t":"saved","id":2,"sv":"ASoA","seq":1}')
     expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
-    socket.receive('{"t":"saved","id":1,"sv":"ASoZ","seq":1}')
+    socket.receive('{"t":"saved","id":2,"sv":"ASoZ","seq":1}')
     expect(resource.provider.unsaved).toBeUndefined()
     resource.provider.setFile({ ...model, gone: { kind: "deleted", by: { kind: "outside", color_index: 7 } } })
-    socket.receive('{"t":"err","id":2,"code":"forbidden"}')
+    socket.receive('{"t":"err","id":3,"code":"forbidden"}')
     const requestsBeforeRevokedRestore = calls.length
     expect((await controller.runCommandForResult("file.restore-deleted", '{"path":"retry.ts"}')).status).toBe("failed")
     expect(calls.length).toBe(requestsBeforeRevokedRestore)
