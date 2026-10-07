@@ -965,6 +965,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceCommandJobs(commandJobs, webhookSecretCodec),
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceTransactions(pool),
+		services.WithTransactionalWorkspaceCleanup(nil),
 		services.WithWorkspaceBillingPolicy(billingPolicy),
 		services.WithWorkspaceAuditService(auditService),
 		services.WithWorkspaceSandboxClient(sandboxClient),
