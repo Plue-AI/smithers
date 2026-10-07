@@ -86,8 +86,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	nodeFixture, err := filepath.EvalSymlinks("/bin/sh")
 	require.NoError(t, err)
 	environment := map[string]string{
-		"SMITHERS_SSH_ADDR": "127.0.0.1:0",
-		testBackendServe:    "1", "SMITHERS_WORKSPACE_ISOLATION": "process",
+		testBackendServe: "1", "SMITHERS_WORKSPACE_ISOLATION": "process",
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_DATA_ROOT": state,
 		"SMITHERS_NATIVE_POSTGRES_BIN": "", "SMITHERS_NATIVE_STATE_DIR": state,
 		"SMITHERS_BLOB_DATA_DIR":       filepath.Join(state, "blobs"),
