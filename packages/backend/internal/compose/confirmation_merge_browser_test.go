@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,8 +68,22 @@ func runMergeConfirmationBrowser(t *testing.T, cfg *config.Config, pool *pgxpool
 				}
 			})
 		case line == "MERGE_BROWSER_STALE":
-			_, err := pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, item)
-			require.NoError(t, err)
+			// Move the generation after the browser sends its press, before
+			// the production router admits it. Moving it earlier races private
+			// live expiry, which correctly removes the button before any press.
+			previous := server.Config.Handler
+			var move sync.Once
+			server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost && r.URL.Path == "/api/confirmations/"+confirmation+"/approve" {
+					move.Do(func() {
+						_, err := pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, item)
+						if err != nil {
+							t.Errorf("move confirmation generation: %v", err)
+						}
+					})
+				}
+				previous.ServeHTTP(w, r)
+			})
 			stale = true
 		case line == "MERGE_BROWSER_ADMITTED":
 			row, err := q.GetMythicalItem(ctx, item)
