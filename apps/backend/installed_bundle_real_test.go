@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"log/slog"
 	"net"
 	"os"
@@ -64,7 +65,7 @@ func TestRealInstalledBundleStartsMicroVMIsolation(t *testing.T) {
 		t.Fatalf("the installed bundle's inputs were refused: %v", err)
 	}
 	slog.Info("approved installed bundle", "bundle", inputs.bundle.Root(), "revision", inputs.bundle.Revision(), "manifest_sha256", inputs.bundle.ManifestSHA256())
-	runtimes, err := openExecutionRuntimes(context.Background(), inputs.dataRoot, inputs.bundle, inputs.registry.Coding.Executable, false)
+	runtimes, err := openExecutionRuntimes(context.Background(), inputs.dataRoot, inputs.bundle, inputs.registry.Coding.Executable, microsandbox.Detect, false)
 	if err != nil {
 		t.Fatalf("the installed bundle was refused: %v", err)
 	}

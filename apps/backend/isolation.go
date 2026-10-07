@@ -101,11 +101,16 @@ func workspaceIsolation(allowProcessForTests bool) (string, error) {
 	}
 }
 
+// hostDetector measures the Mac a microVM install sizes its machines from.
+// The backend passes microsandbox.Detect; bundle qualification tests pass a
+// fixed Apple Silicon profile so their refusals do not depend on the CI host.
+type hostDetector func(state string) (microsandbox.HostProfile, error)
+
 // openExecutionRuntimes composes the workspace runtime. In microvm mode the
 // backend runs from the installed bundle it pinned (installedInputs); msb,
 // the guest kernel and the coding Flow host and Linux workspace helper it
 // plants are verified against that bundle's manifest.
-func openExecutionRuntimes(ctx context.Context, dataRoot string, bundle *installbundle.Bundle, codingHost string, allowProcessForTests bool) (executionRuntimes, error) {
+func openExecutionRuntimes(ctx context.Context, dataRoot string, bundle *installbundle.Bundle, codingHost string, detect hostDetector, allowProcessForTests bool) (executionRuntimes, error) {
 	mode, err := workspaceIsolation(allowProcessForTests)
 	if err != nil {
 		return executionRuntimes{}, err
@@ -121,7 +126,7 @@ func openExecutionRuntimes(ctx context.Context, dataRoot string, bundle *install
 		}
 		return executionRuntimes{workspace: runtime, control: runtime, relay: relay}, nil
 	}
-	config, err := microVMConfig(dataRoot, bundle, codingHost)
+	config, err := microVMConfig(dataRoot, bundle, codingHost, detect)
 	if err != nil {
 		return executionRuntimes{}, err
 	}
@@ -146,11 +151,7 @@ func openExecutionRuntimes(ctx context.Context, dataRoot string, bundle *install
 	return executionRuntimes{workspace: isolated, control: control, relay: relay, profile: config.HostProfile}, nil
 }
 
-func microVMConfig(dataRoot string, bundle *installbundle.Bundle, codingHost string) (microsandbox.Config, error) {
-	return microVMConfigWithProfile(dataRoot, bundle, codingHost, microsandbox.Detect)
-}
-
-func microVMConfigWithProfile(dataRoot string, bundle *installbundle.Bundle, codingHost string, detect func(string) (microsandbox.HostProfile, error)) (microsandbox.Config, error) {
+func microVMConfig(dataRoot string, bundle *installbundle.Bundle, codingHost string, detect hostDetector) (microsandbox.Config, error) {
 	port, err := backendPort()
 	if err != nil {
 		return microsandbox.Config{}, err

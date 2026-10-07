@@ -26,7 +26,7 @@ import (
 
 func TestProcessIsolationKeepsOneTrustedRuntime(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "")
-	runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), nil, "", true)
+	runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), nil, "", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +62,14 @@ func TestEgressRelayPortIsStable(t *testing.T) {
 	}
 }
 
+// referenceHost is a fixed Apple Silicon Mac with Hypervisor.framework. The
+// bundle and msb refusals below are host-independent, so they must reach
+// Microsandbox on every CI platform rather than stop at host detection
+// (macOS only); detection has its own tests.
+func referenceHost(string) (microsandbox.HostProfile, error) {
+	return microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "26.0", Hypervisor: true}, nil
+}
+
 // freeRelayPort points the microVM relay at a free loopback port.
 func freeRelayPort(t *testing.T) {
 	t.Helper()
@@ -87,7 +95,7 @@ func TestMicroVMIsolationRefusesWithoutMicrosandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SMITHERS_MICROSANDBOX_BIN", outside)
-	runtimes, err := openExecutionRuntimes(context.Background(), bundletest.ProtectedTempDir(t), bundle.pin(t), bundle.codingHost, false)
+	runtimes, err := openExecutionRuntimes(context.Background(), bundletest.ProtectedTempDir(t), bundle.pin(t), bundle.codingHost, referenceHost, false)
 	if err == nil {
 		_ = runtimes.Close()
 		t.Fatal("microvm mode started without Microsandbox")
@@ -103,13 +111,13 @@ func TestMicroVMIsolationRefusesWithoutMicrosandbox(t *testing.T) {
 
 func TestIsolationModeIsValidated(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "container")
-	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), nil, "", false); err == nil {
+	if _, err := openExecutionRuntimes(context.Background(), t.TempDir(), nil, "", referenceHost, false); err == nil {
 		t.Fatal("unknown isolation mode accepted")
 	}
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "microvm")
 	t.Setenv("SMITHERS_SERVER_ADDR", ":0")
 	bundle := installedBundleFixture(t)
-	if _, err := openExecutionRuntimes(context.Background(), bundletest.ProtectedTempDir(t), bundle.pin(t), bundle.codingHost, false); err == nil || !strings.Contains(err.Error(), "fixed SMITHERS_SERVER_ADDR port") {
+	if _, err := openExecutionRuntimes(context.Background(), bundletest.ProtectedTempDir(t), bundle.pin(t), bundle.codingHost, referenceHost, false); err == nil || !strings.Contains(err.Error(), "fixed SMITHERS_SERVER_ADDR port") {
 		t.Fatalf("dynamic port accepted: %v", err)
 	}
 }
@@ -217,7 +225,7 @@ func startInstalled(b testBundle, environment map[string]string) (executionRunti
 	if err != nil {
 		return executionRuntimes{}, fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err)
 	}
-	return openExecutionRuntimes(context.Background(), inputs.dataRoot, inputs.bundle, inputs.registry.Coding.Executable, false)
+	return openExecutionRuntimes(context.Background(), inputs.dataRoot, inputs.bundle, inputs.registry.Coding.Executable, referenceHost, false)
 }
 
 // approve writes one bundle file and declares it, as a differently assembled
@@ -636,7 +644,7 @@ func TestInstalledGitEnvironmentIsTheBundles(t *testing.T) {
 func TestControlRuntimeCannotBindCodingFlowHost(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "process")
 	root := t.TempDir()
-	runtimes, err := openExecutionRuntimes(context.Background(), root, nil, "", true)
+	runtimes, err := openExecutionRuntimes(context.Background(), root, nil, "", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -688,7 +696,7 @@ func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
 			profile := microsandbox.HostProfile{MemoryBytes: row.memory << 30, DiskFreeBytes: row.disk << 30,
 				PerfCores: row.cores, PhysicalCores: row.cores + 4, MacOSVersion: "26.0", Hypervisor: true}
 			calls := 0
-			config, err := microVMConfigWithProfile(root, pinned, bundle.codingHost, func(state string) (microsandbox.HostProfile, error) {
+			config, err := microVMConfig(root, pinned, bundle.codingHost, func(state string) (microsandbox.HostProfile, error) {
 				calls++
 				if state != root {
 					t.Fatalf("detector measured %q, want state volume %q", state, root)
@@ -728,7 +736,7 @@ func TestMicroVMConfigDetectionFailureRefusesStartup(t *testing.T) {
 	t.Setenv("SMITHERS_SERVER_ADDR", "127.0.0.1:4000")
 	bundle := installedBundleFixture(t)
 	cause := errors.New("hw.memsize failed")
-	config, err := microVMConfigWithProfile(t.TempDir(), bundle.pin(t), bundle.codingHost, func(string) (microsandbox.HostProfile, error) {
+	config, err := microVMConfig(t.TempDir(), bundle.pin(t), bundle.codingHost, func(string) (microsandbox.HostProfile, error) {
 		return microsandbox.HostProfile{}, cause
 	})
 	if err == nil {
@@ -748,7 +756,7 @@ func TestMicroVMIsolationRefusesWrongVersion(t *testing.T) {
 	freeRelayPort(t)
 	bundle := installedBundleFixture(t)
 	bundle.approve(t, bundle.msb, []byte("#!/bin/sh\necho 'msb 0.6.15'\n"))
-	_, err := openExecutionRuntimes(context.Background(), bundletest.ProtectedTempDir(t), bundle.pin(t), bundle.codingHost, false)
+	_, err := openExecutionRuntimes(context.Background(), bundletest.ProtectedTempDir(t), bundle.pin(t), bundle.codingHost, referenceHost, false)
 	if !errors.Is(err, microsandbox.ErrUnavailable) || !strings.Contains(err.Error(), "qualified with msb 0.6.16") {
 		t.Fatalf("version refusal = %v", err)
 	}

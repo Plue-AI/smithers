@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/app"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/localbootstrap"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/native"
 	"github.com/smithersai/smithers/packages/backend/operator"
@@ -128,7 +129,7 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		cleanupErr = errors.Join(cleanupErr, local.Shutdown(shutdownCtx))
 	}()
 
-	runtimes, err := openExecutionRuntimes(ctx, inputs.dataRoot, inputs.bundle, registry.Coding.Executable, testFlowHostConfig.AllowTrustedProcessForTests)
+	runtimes, err := openExecutionRuntimes(ctx, inputs.dataRoot, inputs.bundle, registry.Coding.Executable, microsandbox.Detect, testFlowHostConfig.AllowTrustedProcessForTests)
 	if err != nil {
 		return err
 	}
