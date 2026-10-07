@@ -3265,6 +3265,20 @@ func (c *Client) GetAPIFlowsName(ctx context.Context, name string) (FlowCard, er
 	return out, err
 }
 
+// PostAPIFlowsNameRun calls POST /api/flows/{name}/run.
+func (c *Client) PostAPIFlowsNameRun(ctx context.Context, name string, idempotencyKey string, body NamedFlowRunRequest) (FlowRunReceipt, error) {
+	var out FlowRunReceipt
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/flows/"+url.PathEscape(name)+"/run", nil, body, &out)
+	return out, err
+}
+
+// GetAPIFlowsRunsID calls GET /api/flows/runs/{id}.
+func (c *Client) GetAPIFlowsRunsID(ctx context.Context, id string) (FlowRunReceipt, error) {
+	var out FlowRunReceipt
+	err := c.do(ctx, "GET", "/api/flows/runs/"+url.PathEscape(id), nil, nil, &out)
+	return out, err
+}
+
 // PostAPIFlowsNameEdit calls POST /api/flows/{name}/edit.
 func (c *Client) PostAPIFlowsNameEdit(ctx context.Context, name string, idempotencyKey string, body PostAPIFlowsNameEditBody) error {
 	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/flows/"+url.PathEscape(name)+"/edit", nil, body, nil)
