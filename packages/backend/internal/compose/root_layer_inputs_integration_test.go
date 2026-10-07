@@ -51,9 +51,9 @@ import (
 // a hostile main is refused before any VM boots, and a branch never selects
 // root input. Setup runs through the composed router on real PostgreSQL, the
 // real repository host with its FFI mirror, and the GitHub fake. Microsandbox
-// is the real runtime over a recording msb; with SMITHERS_REQUIRE_MICROVM_TESTS=1
-// and SMITHERS_MICROSANDBOX_BIN, the recorder forwards every call to that msb
-// and cases a, e and f build real layers.
+// is the runtime over a recording msb for root-input inspection. Signed native
+// runtime qualification and composed layer execution are proved separately by
+// TestRealUndeclaredMachineReadyThroughComposedSetup below.
 func TestRootLayerInputsValidatedBeforeUse(t *testing.T) {
 	if os.Getenv("SMITHERS_TEST_DATABASE_URL") == "" {
 		t.Skip("set SMITHERS_TEST_DATABASE_URL: the R4 receipt needs real PostgreSQL and the FFI mirror")
@@ -272,6 +272,57 @@ func TestUndeclaredGoMachineReadyThroughComposedSetup(t *testing.T) {
 	require.NotEmpty(t, step.LayerKey)
 }
 
+// This receipt qualifies and executes the signed native runtime directly. The
+// recording wrapper remains confined to the input-validation receipt above.
+func TestRealUndeclaredMachineReadyThroughComposedSetup(t *testing.T) {
+	if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") != "1" {
+		t.Skip("set SMITHERS_REQUIRE_MICROVM_TESTS=1 for reference-host execution")
+	}
+	require.NotEmpty(t, os.Getenv("SMITHERS_TEST_DATABASE_URL"))
+	t.Setenv("SMITHERS_REQUIRE_DATABASE_TESTS", "1")
+	for _, name := range []string{"pnpm", "go"} {
+		t.Run(name, func(t *testing.T) {
+			h := startRootLayerHarnessRuntime(t, true)
+			files := rootLayerFixtures()[name]
+			argv := []string{"go", "test", "./..."}
+			if name == "pnpm" {
+				files["sum.test.js"] = "const test=require('node:test'); const assert=require('node:assert/strict'); test('sum',()=>assert.equal(require('./index.js')(2,3),5));\n"
+				argv = []string{"pnpm", "test"}
+			} else {
+				files["x.go"] = "package fixture\nfunc Sum(a,b int) int { return a+b }\n"
+				files["x_test.go"] = "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T){if Sum(2,3)!=5{t.Fatal(\"sum\")}}\n"
+			}
+			h.commitMain(files)
+			h.runSetupThroughSource()
+			require.Equal(t, "done", h.steps()["source"].State)
+			require.Equal(t, "pending", h.steps()["machine"].State)
+			state, message := h.runMachine(t, name)
+			require.Equal(t, "done", state, message)
+			step := h.machineStep(t)
+			require.NotEmpty(t, step.Revision)
+			require.NotEmpty(t, step.LayerKey)
+			id := "offline-" + name
+			_, err := h.runtime.CreateWorkspace(h.ctx(t), workspaceapi.WorkspaceSpec{ID: id, Source: &workspaceapi.WorkspaceSource{Repository: h.slug, Revision: "main"}})
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				require.NoError(t, h.runtime.DeleteWorkspace(ctx, id))
+			})
+			for path, content := range files {
+				require.NoError(t, h.runtime.WriteFile(h.ctx(t), id, path, []byte(content), 0644))
+			}
+			result, err := h.runtime.ExecuteCommand(h.ctx(t), id, workspaceapi.Command{Args: argv})
+			require.NoError(t, err)
+			require.Equal(t, 0, result.ExitCode, result.Stdout+result.Stderr)
+			t.Logf("offline %s check: %s%s", name, result.Stdout, result.Stderr)
+			network, err := h.runtime.ExecuteCommand(h.ctx(t), id, workspaceapi.Command{Args: []string{"curl", "-fsS", "--max-time", "3", "https://registry.npmjs.org"}})
+			require.NoError(t, err)
+			require.NotEqual(t, 0, network.ExitCode, "fresh check workspace must be offline")
+		})
+	}
+}
+
 // ---- cases ----
 
 type rootLayerCase struct {
@@ -416,6 +467,10 @@ func (h *rootLayerHarness) ctx(t *testing.T) context.Context {
 var rootLayerFixtureID atomic.Int64
 
 func startRootLayerHarness(t *testing.T) *rootLayerHarness {
+	return startRootLayerHarnessRuntime(t, false)
+}
+
+func startRootLayerHarnessRuntime(t *testing.T, direct bool) *rootLayerHarness {
 	// GitHub IDs are globally unique. Distinct fake installations must not
 	// share the process-wide installation-token cache's ID namespace.
 	fixtureID := 1_000_000 + rootLayerFixtureID.Add(1)
@@ -473,7 +528,12 @@ func startRootLayerHarness(t *testing.T) *rootLayerHarness {
 		require.NotEmpty(t, real, "SMITHERS_REQUIRE_MICROVM_TESTS=1 needs SMITHERS_MICROSANDBOX_BIN")
 	}
 	h.msb = newRecordingMSB(t, real)
-	h.runtime = newRootLayerRuntime(t, h.msb.binary, true)
+	binary := h.msb.binary
+	if direct {
+		require.NotEmpty(t, real, "direct harness requires the real runtime")
+		binary = real
+	}
+	h.runtime = newRootLayerRuntime(t, binary, true)
 	// Model access (step 5) needs the composed chat host, as in the J1
 	// rehearsal: the trusted model host runs on a process runtime, never in
 	// the workspace microVM runtime under test. Reuse the rehearsal Gateway
