@@ -330,11 +330,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
   }
 
   const available = (entry: FlowEntry): boolean => {
-    // AppController has no qualified guest-execution binding yet (T-SEC-01).
-    // A terminal tunnel alone must not expose gestures that the seam refuses.
-    // Keep the shared declarations registered, but withhold all three doors
-    // until the production composition can supply that authority.
-    if (["code.hover", "code.definition", "code.diagnostics"].includes(nameOf(entry))) return false
+    // Session authority comes from the admitted daemon host, never a terminal tunnel.
+    if (["code.hover", "code.definition", "code.diagnostics"].includes(nameOf(entry)) && actions.codeIntelligenceAvailable?.() !== true) return false
     const bootstrap = actions.bootstrap
     const { hosts } = entry.metadata
     // A host-scoped flow exists only where the bootstrap names its host: no bootstrap, no host, no flow.

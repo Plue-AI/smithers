@@ -69,7 +69,6 @@ const ownerSeams = (bootstrap: AppBootstrap): AppServices => ({
   applicationTarget: webSelfhost,
   applicationIdentity: { current: async () => null },
   cloudSocketUrl: () => undefined,
-  cloudLspSocketUrl: () => undefined
 })
 
 const openSignedOut = async (bootstrap: AppBootstrap) => {
