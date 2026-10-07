@@ -552,6 +552,39 @@ impl<D: Disk> Host<D> {
             }
         }
     }
+    /// The host mirror may relay multiple browser ids on one stream. Each id
+    /// must already belong to the authenticated actor in the durable author map.
+    pub fn peer_awareness(
+        &mut self,
+        stream: u32,
+        client: u64,
+        actor: &str,
+        colour: &str,
+        line: Option<(&str, u32)>,
+    ) -> Result<()> {
+        self.gates.check()?;
+        let doc = self.entry(stream)?;
+        if authors::entries(&doc.doc)?
+            .get(&client.to_string())
+            .map(String::as_str)
+            != Some(actor)
+        {
+            return Err(Error::Forged);
+        }
+        if line.is_some_and(|(path, n)| path != self.streams[&stream] || n == 0)
+            || colour.len() > 64
+        {
+            return Err(Error::Invalid);
+        }
+        self.clients.insert((stream, actor.into()), client);
+        self.awareness(
+            stream,
+            self.epoch(stream)?,
+            actor,
+            colour,
+            line.map(|(_, n)| n),
+        )
+    }
     /// The envelope codec validates awareness's field whitelist and clock.
     /// It passes only the authenticated actor and that actor's line/colour.
     pub fn awareness(
