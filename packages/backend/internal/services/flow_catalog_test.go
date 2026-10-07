@@ -16,7 +16,7 @@ func TestSystemFlowsAreNeverOverridable(t *testing.T) {
 		"todo.preapprove", "todo.unapprove",
 		"learning.accept", "learning.dismiss",
 		"todo.new", "todo.from-issue", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.drop",
-		"branch.fork", "branch.add-to-stack", "branch.rebase",
+		"branch.fork", "branch.add-to-stack", "branch.rebase", "branch.rebase-now",
 		"branch.bring-in", "branch.discard-foreign",
 		"merge", "members", "settings", "secrets", "sync", "admission", "setup", "flow-load", "summarizer",
 	}

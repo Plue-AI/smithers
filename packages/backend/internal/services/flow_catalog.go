@@ -21,7 +21,7 @@ var SystemFlows = []string{
 	"todo.preapprove", "todo.unapprove",
 	"learning.accept", "learning.dismiss",
 	"history.todo", "issue.implement", "runs.steer", "history.retry",
-	"branch.fork", "branch.add-to-stack", "branch.rebase",
+	"branch.fork", "branch.add-to-stack", "branch.rebase", "branch.rebase-now",
 	// B.4: foreign-push answers stay install-owned even before their
 	// confirmation and checkpoint providers become available.
 	"branch.bring-in", "branch.discard-foreign",
