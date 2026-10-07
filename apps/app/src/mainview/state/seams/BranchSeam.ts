@@ -27,6 +27,15 @@ const Branch = z.object({ id: z.string(), name: z.string(), machine: MachineStat
   rebase: z.discriminatedUnion("state", [z.object({ state: z.literal("pending"), onto: z.string(), waiting_for: z.object({ actor: ActorSchema, terminal: z.string() }).optional() }), z.object({ state: z.literal("rebasing"), onto: z.string() }), z.object({ state: z.literal("conflict"), onto: z.string(), paths: z.array(z.string()), conflict_change: z.string().min(1).optional(), onto_revision: z.string().min(1).optional() })]).optional(),
   moved_off: z.object({ by: ActorSchema, item: z.number().int().positive() }).optional(),
   presence: z.array(z.object({ actor: ActorSchema, where: Where, watching: z.string().optional() })), terminals: z.array(Terminal), ssh_line: z.string() })
+/** The File reader uses the same branch projection as the Branch card. */
+export function branchFileMachineScope(value: unknown, branch: string): { sleeping: boolean; capturedHead?: string } | undefined {
+  const parsed = Branch.pick({ id: true, name: true, machine: true }).extend({ head: z.string().optional() }).safeParse(value)
+  if (!parsed.success || (parsed.data.id !== branch && parsed.data.name !== branch)) return
+  const sleeping = parsed.data.machine.state === "asleep"
+  const head = parsed.data.head
+  return { sleeping, ...(sleeping && head && /^[a-f0-9]{40}$/.test(head) ? { capturedHead: head } : {}) }
+}
+
 const Activity = z.array(z.object({ id: z.string(), actor: ActorSchema, asked_by: ActorSchema.optional(), kind: z.enum(["step", "steer", "question", "answer", "edit", "change", "github", "rebase", "read", "context"]), text: z.string(), items: z.array(z.string()).optional(), files: z.number().int().nonnegative().optional(), github: z.boolean().optional(), at: z.string() }))
 const Files = z.array(z.object({ path: z.string(), change: z.enum(["added", "modified", "deleted", "renamed"]), renamed_to: z.string().optional(), authors: z.array(ActorSchema) }))
 

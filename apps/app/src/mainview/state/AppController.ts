@@ -1,5 +1,6 @@
 import { draftIssueTodo } from "./seams/IssueTodoDraft"
 import { createBranchControlsSeam } from "./seams/BranchControlsSeam"
+import { branchFileMachineScope } from "./seams/BranchSeam"
 import { createSharedPrompts } from "./controller/sharedPrompts"
 import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
 import { createEarlierHistoryController } from "./controller/earlierHistory"
@@ -1319,6 +1320,8 @@ export const createAppController = (
   }))
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBranchNavigationSeam(context, design, { live: services.live, onDispose: ctx.onDispose }))
+  const fileBranchSubscriptions = new Map<string, () => void>()
+  ctx.onDispose(() => { for (const dispose of fileBranchSubscriptions.values()) dispose(); fileBranchSubscriptions.clear() })
   const branchFileOptions = services.branchOptions ?? (installHost ? {
     ready: () => true,
     scope: (requestedBranch?: string) => {
@@ -1328,7 +1331,20 @@ export const createAppController = (
       const navigation = store.session().branchNavigation
       const branch = requestedBranch ?? (navigation?.owner === (ctx.accountOwner() ?? null) ? navigation.selected_branch : undefined) ?? "main"
       // The server authorizes each operation; this fences in-flight answers on sign-out.
-      return { branch, member: identity.login, revision: ctx.accountEpoch, sleeping: false }
+      const topic = `branch:${branch}`
+      if (services.live && !fileBranchSubscriptions.has(topic)) {
+        // Bound subscriptions just like the bounded File card set.
+        if (fileBranchSubscriptions.size >= 30) {
+          const oldest = fileBranchSubscriptions.keys().next().value!
+          fileBranchSubscriptions.get(oldest)!()
+          fileBranchSubscriptions.delete(oldest)
+        }
+        fileBranchSubscriptions.set(topic, services.live.subscribe(topic, () => {}))
+      }
+      const snapshot = services.live?.getSnapshot(topic)
+      if (snapshot?.error) return null
+      const machine = branchFileMachineScope(snapshot?.data, branch)
+      return { branch, member: identity.login, revision: ctx.accountEpoch, ...(machine ?? { sleeping: false }) }
     }
   } : undefined)
   const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))

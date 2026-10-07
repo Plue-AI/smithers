@@ -298,7 +298,7 @@ func branchPresenceModel(row db.Workspace, presence []any, origin string) map[st
 	if address, err := url.Parse(origin); err == nil && address.Hostname() != "" {
 		host = address.Hostname()
 	}
-	return map[string]any{"id": row.ID, "name": row.TargetBookmark, "machine": machine, "presence": presence, "terminals": []any{}, "ssh_line": "ssh -p 2222 " + row.TargetBookmark + "@" + host}
+	return map[string]any{"id": row.ID, "name": row.TargetBookmark, "head": row.HeadCommitID, "machine": machine, "presence": presence, "terminals": []any{}, "ssh_line": "ssh -p 2222 " + row.TargetBookmark + "@" + host}
 }
 
 // rebasePresence reads authenticated leases afresh at the stack boundary. It

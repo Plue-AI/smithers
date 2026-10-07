@@ -1,6 +1,6 @@
 import { projectBranchFiles } from "@smthrs/rpc/FileCard"
 import { expect, test } from "bun:test"
-import { branchModel, branchSeedAvailable, createBrowserPresence, projectBranchActivity } from "./BranchSeam"
+import { branchFileMachineScope, branchModel, branchSeedAvailable, createBrowserPresence, projectBranchActivity } from "./BranchSeam"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 
 test("branch fallback distinguishes a demo bootstrap from an install and a provider-only host", () => {
@@ -87,4 +87,16 @@ test("invalid activity frames retain typed diagnostic reasons", () => {
     try { projectBranchActivity(previous, delta); throw new Error("accepted invalid activity") }
     catch (value) { expect(value).toMatchObject({ _tag: "BranchActivityFailure", sentence }) }
   }
+})
+
+test("File sleep scope accepts only the matching branch and a captured commit", () => {
+  const head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  expect(branchFileMachineScope({ ...branch, head }, "b1")).toEqual({ sleeping: true, capturedHead: head })
+  expect(branchFileMachineScope({ ...branch, head }, "Live branch")).toEqual({ sleeping: true, capturedHead: head })
+  expect(branchFileMachineScope({ ...branch, head }, "other")).toBeUndefined()
+  for (const head of [undefined, "../main", "short", "A".repeat(40)]) {
+    expect(branchFileMachineScope({ ...branch, head }, "b1")).toEqual({ sleeping: true })
+  }
+  expect(branchFileMachineScope({ ...branch, head, machine: { state: "awake" } }, "b1")).toEqual({ sleeping: false })
+  expect(branchFileMachineScope({ ...branch, machine: { state: "magic" } }, "b1")).toBeUndefined()
 })
