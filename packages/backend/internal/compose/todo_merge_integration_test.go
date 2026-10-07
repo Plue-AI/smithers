@@ -1056,7 +1056,11 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			}
 			require.NoError(t, json.NewDecoder(response.Body).Decode(&model))
 			require.NotNil(t, model.Default, "Settings must receive the persisted creation default")
-			require.Equal(t, enabled, *model.Default)
+			var requested struct {
+				Default bool `json:"todo_preapprove_default"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(body), &requested))
+			require.Equal(t, requested.Default, *model.Default)
 		}
 		require.NoError(t, response.Body.Close())
 		return response.StatusCode
