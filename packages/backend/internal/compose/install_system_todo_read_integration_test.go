@@ -43,11 +43,15 @@ func TestInstallSystemTodoReadLiteralCellsPostgres(t *testing.T) {
 	cfg.Server.PublicURL = f.origin
 	cfg.Server.AllowedOrigins = []string{f.origin}
 	router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Live: &routes.LiveHandler{Origins: func() []string { return []string{f.origin} }}})
-	token := func(n int, scopes string) string {
+	token := func(n int, scopes string, users ...db.User) string {
+		user := f.user
+		if len(users) > 0 {
+			user = users[0]
+		}
 		raw := fmt.Sprintf("smithers_%040x", 9000+n)
 		sum := sha256.Sum256([]byte(raw))
 		hash := hex.EncodeToString(sum[:])
-		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: f.user.ID, Name: fmt.Sprintf("system-read-%d", n), TokenHash: hash, TokenLastEight: hash[56:], Scopes: scopes, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: user.ID, Name: fmt.Sprintf("system-read-%d", n), TokenHash: hash, TokenLastEight: hash[56:], Scopes: scopes, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 		require.NoError(t, err)
 		return raw
 	}
@@ -148,8 +152,14 @@ func TestInstallSystemTodoReadLiteralCellsPostgres(t *testing.T) {
 		_, err = services.Authorize(middleware.ContextWithAuthInfo(ctx, &old), q, "todo.read", subject)
 		var access *services.AccessError
 		require.ErrorAs(t, err, &access)
-		require.Equal(t, 403, access.Status, "the creator does not inherit the new sponsor's read")
-		var commands []string
+		require.Equal(t, 401, access.Status, "substituting a person invalidates the stored credential")
+		require.Equal(t, "unauthenticated", access.Code)
+		formerToken := token(9, runScopes, former)
+		status, body, commands := call("/api/todos/1", formerToken)
+		require.Equal(t, 403, status, "a live creator credential does not inherit the new sponsor's read: %s", body)
+		require.Contains(t, body, `"code":"permission"`)
+		require.Equal(t, []string{"todo.read"}, commands)
+		commands = nil
 		ctx := services.WithAuthorizationObserver(middleware.ContextWithAuthInfo(ctx, info), func(command string) { commands = append(commands, command) })
 		decision, err := services.Authorize(ctx, q, "todo.read", subject)
 		require.NoError(t, err)
