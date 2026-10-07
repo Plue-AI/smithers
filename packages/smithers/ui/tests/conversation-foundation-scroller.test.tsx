@@ -12,6 +12,7 @@ import {
   useMessageScroller,
   useMessageScrollerState,
   useMessageVisibility,
+  useMessageBand,
 } from "../src/chat/MessageScroller";
 import { SMITHERS_UI_STYLE_ATTR } from "../src/index";
 import { installDarkThemeStyles, removeDarkThemeStyles } from "./theme-test-utils";
@@ -605,6 +606,26 @@ describe("MessageScroller compound", () => {
     } finally {
       globalThis.IntersectionObserver = intersectionObserver;
     }
+  });
+
+  test("band observers receive viewport transitions without a render write", async () => {
+    const intersectionObserver = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver;
+    const bands: (readonly [string, string] | undefined)[] = [];
+    function Probe() { useMessageBand(["a", "b"], band => bands.push(band)); return null; }
+    geometryByMessageId.set("a", { top: 0, height: 100 });
+    geometryByMessageId.set("b", { top: 800, height: 100 });
+    try {
+      await render(<MessageScrollerProvider><MessageScrollerViewport><MessageScrollerContent>
+        <MessageScrollerItem messageId="a">a</MessageScrollerItem>
+        <MessageScrollerItem messageId="b">b</MessageScrollerItem>
+      </MessageScrollerContent></MessageScrollerViewport><Probe /></MessageScrollerProvider>,
+      { scrollHeight: 1000, clientHeight: 200, scrollTop: 0 });
+      expect(bands.at(-1)).toEqual(["a", "a"]);
+      metrics().scrollTop = 800;
+      await scroll();
+      expect(bands.at(-1)).toEqual(["b", "b"]);
+    } finally { globalThis.IntersectionObserver = intersectionObserver; }
   });
 
   test("visibility treats an item filling the viewport as visible", async () => {
