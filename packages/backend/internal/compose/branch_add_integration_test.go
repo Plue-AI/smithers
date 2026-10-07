@@ -28,12 +28,17 @@ import (
 // Real native mirror, PostgreSQL, snapshot reader, admission and install HTTP.
 // Trusted-process admission is test-only; no VM/root qualification is claimed.
 func TestBranchAddComposedInstall(t *testing.T) {
-	for _, remove := range []string{"", "membership", "authorize", "lane", "microvm", "identity", "capture", "awake"} {
+	for _, remove := range []string{"", "confirm-after", "confirm-default", "membership", "authorize", "lane", "microvm", "identity", "capture", "awake"} {
 		t.Run("provider-"+remove, func(t *testing.T) { runBranchAddComposed(t, remove) })
 	}
 }
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
+	placement := "before"
+	if strings.HasPrefix(remove, "confirm-") {
+		placement = strings.TrimPrefix(remove, "confirm-")
+		remove = ""
+	}
 	_, _, pool := splitProcessDatabase(t)
 	q, ctx := db.New(pool), t.Context()
 	t.Setenv("SMITHERS_FEATURE_FLAGS_WORKSPACES", "true")
@@ -231,7 +236,14 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	scopes = append(scopes, middleware.DelegationScopes(middleware.Delegation{Via: "codex"})...)
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "delegated", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: strings.Join(scopes, ","), SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
-	agentRequest := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches/scratch%2Fben%2Fconfirmed/add-to-stack", strings.NewReader(`{"text":"Confirmed scratch","before":1}`))
+	agentPayload := `{"text":"Confirmed scratch","before":1}`
+	expectedPlace := int64(1)
+	if placement == "after" {
+		agentPayload, expectedPlace = `{"text":"Confirmed scratch","after":1}`, 2
+	} else if placement == "default" {
+		agentPayload, expectedPlace = `{"text":"Confirmed scratch"}`, 2
+	}
+	agentRequest := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches/scratch%2Fben%2Fconfirmed/add-to-stack", strings.NewReader(agentPayload))
 	agentRequest.RemoteAddr = "127.0.0.1:12345"
 	agentRequest.Header.Set("Authorization", "Bearer "+token)
 	agentRequest.Header.Set("Content-Type", "application/json")
@@ -252,7 +264,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	var revision string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT subject,revision,payload FROM approvals WHERE id=$1`, ask.ID).Scan(&subject, &revision, &payload))
 	var card struct {
-		Input struct{ Before *int64 }
+		Input struct{ Before, After *int64 }
 		Card  struct {
 			Subject struct{ Kind, Ref, Revision string }
 		}
@@ -260,7 +272,16 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	require.NoError(t, json.Unmarshal(payload, &card))
 	require.Equal(t, "branch", card.Card.Subject.Kind)
 	require.Equal(t, confirmed.TargetBookmark, card.Card.Subject.Ref)
-	require.EqualValues(t, 1, *card.Input.Before)
+	if placement == "before" {
+		require.EqualValues(t, 1, *card.Input.Before)
+		require.Nil(t, card.Input.After)
+	} else if placement == "after" {
+		require.EqualValues(t, 1, *card.Input.After)
+		require.Nil(t, card.Input.Before)
+	} else {
+		require.Nil(t, card.Input.Before)
+		require.Nil(t, card.Input.After)
+	}
 	pressBody, _ := json.Marshal(map[string]any{"subject": json.RawMessage(subject), "revision": revision})
 	press := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/confirmations/"+ask.ID+"/approve", strings.NewReader(string(pressBody)))
 	press.RemoteAddr = "127.0.0.1:12345"
@@ -286,7 +307,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	require.NoError(t, local.Client().ImportRefs(ctx, "ben", "demo"))
 	// Once stale, the person needs a newly prepared card for the restored head.
 	freshRequest := agentRequest.Clone(ctx)
-	freshRequest.Body = io.NopCloser(strings.NewReader(`{"text":"Confirmed scratch","before":1}`))
+	freshRequest.Body = io.NopCloser(strings.NewReader(agentPayload))
 	freshRequest.Header.Set("Idempotency-Key", "agent-add-fresh")
 	freshPending := httptest.NewRecorder()
 	handler.ServeHTTP(freshPending, freshRequest)
@@ -318,7 +339,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	confirmedItem, err := q.GetMythicalItemByNumber(ctx, repo.ID, 2)
 	require.NoError(t, err)
 	require.Equal(t, confirmed.ID, confirmedItem.WorkspaceID)
-	require.EqualValues(t, 1, confirmedItem.StackPosition.Int64)
+	require.EqualValues(t, expectedPlace, confirmedItem.StackPosition.Int64)
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces`).Scan(&count))
 	require.Equal(t, 2, count)
