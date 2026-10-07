@@ -50,6 +50,8 @@ func TestDelegatedMergeSettlementNativeInstall(t *testing.T) {
 	fixture.SetPolicyReader(r.repoClient)
 	filed, err := fixture.FileTodo(caller, repository, owner.ID, services.MythicalTodoInput{Title: "Reviewed greeting", Prompt: "Retain the greeting", Request: "settlement-fixture"})
 	require.NoError(t, err)
+	waiting, err := fixture.FileTodo(caller, repository, owner.ID, services.MythicalTodoInput{Title: "Wait for a machine", Prompt: "Retain the launch refusal", Request: "settlement-waiting-fixture"})
+	require.NoError(t, err)
 
 	// Authorship is an external GitHub writer in the fixture, never a branch
 	// process on the install. GitHub's fake then makes a real squash object.
@@ -154,4 +156,13 @@ func TestDelegatedMergeSettlementNativeInstall(t *testing.T) {
 	var approved int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM approvals WHERE member_id=$1 AND state='approved'`, owner.ID).Scan(&approved))
 	require.Equal(t, 1, approved)
+	// This process runtime lacks ordered TODO admission. An approved Merge
+	// may settle, but its queued neighbor must never acquire a machine/run.
+	queued, err := q.GetMythicalItemByNumber(r.ctx, repository, waiting.Number)
+	require.NoError(t, err)
+	require.Contains(t, r.logs.String(), "ordered TODO admission unavailable")
+	require.Equal(t, "queued", queued.State)
+	require.Zero(t, queued.Attempt)
+	require.Empty(t, queued.WorkspaceID)
+	require.Empty(t, queued.RequestRunID)
 }
