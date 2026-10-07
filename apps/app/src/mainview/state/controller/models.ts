@@ -85,49 +85,78 @@ export const createModelsController = (ctx: ControllerContext, deps: { readonly 
   await ctx.store.dispatch({ type: "model.removed", actor: "user", id }).isPersisted.promise
  }
  const shared = actorSharedState(ctx, "model-tests", () => ({ pending: new Map<string, number>() }))
- const markTest = (id: string, pending: boolean, error?: string) => {
+ const markTest = (id: string, pending: boolean, error?: string, request?: { requestId: string; model: ConfiguredModel }, keepRequest = false) => {
   const card = ctx.store.collections.cards.get("agents")
   if (card?.kind !== "agents" || !("agents" in card.payload)) return
   const testing = new Set(card.payload.testing ?? [])
   if (pending) testing.add(id); else testing.delete(id)
-  ctx.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload, testing: [...testing], ...(error ? { error } : {}) } } })
+  const testRequests = { ...card.payload.testRequests }
+  if (request) testRequests[id] = request
+  if (!pending && !keepRequest) delete testRequests[id]
+  return ctx.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload, testing: [...testing], testRequests, error } } }).isPersisted.promise
  }
  const testModel = async (id: string) => {
   if (ctx.commandActor !== "user") return "Owner access required"
   if (shared.pending.has(id) && shared.pending.get(id) === ctx.accountEpoch) return
-  const model = ctx.store.collections.models.get(id)
+  const card = ctx.store.collections.cards.get("agents")
+  const recovered = card?.kind === "agents" && "agents" in card.payload ? card.payload.testRequests?.[id] : undefined
+  const model = recovered?.model ?? ctx.store.collections.models.get(id)
   if (!model) { markTest(id, false, "Model unavailable"); return "Model unavailable" }
   const epoch = ctx.accountEpoch
   shared.pending.set(id, epoch)
+  const request = recovered ?? { requestId: crypto.randomUUID(), model: recordOf(model) }
   await deps.listAgents()
-  markTest(id, true)
-  await ctx.store.settled?.()
+  await markTest(id, true, undefined, request)
   void ctx.withToast(`model.test.${id}`, "Testing model", "Model tested", async () => {
    let error: string | undefined
+   let finished = false
    try {
     if (!await authorize() || epoch !== ctx.accountEpoch) throw new Error("Owner access required")
-    const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/test`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: recordOf(model) }) })
+    const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/test`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: request.requestId, model: request.model }) })
     if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "Could not test model"))
-    const parsed = ModelTestResultSchema.safeParse(await response.json())
+    let result: unknown = await response.json()
+    if (response.status === 202) {
+     while (!ctx.disposed && epoch === ctx.accountEpoch) {
+      const receipt = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/test/receipt?requestId=${encodeURIComponent(request.requestId)}`, { credentials: "same-origin" })
+      if (!receipt.ok) throw new Error(await ctx.errorMessageOf(receipt, "Could not read model test"))
+      const status = await receipt.json() as { state?: string; result?: unknown }
+      if (status.state === "completed" || status.state === "failed") { result = status.result; break }
+      if (status.state === "uncertain" || status.state === "cancelled") { finished = true; throw new Error("Model test interrupted") }
+      await new Promise<void>(resolve => setTimeout(resolve, 500))
+     }
+     if (ctx.disposed || epoch !== ctx.accountEpoch) return true
+    }
+    const parsed = ModelTestResultSchema.safeParse(result)
     if (!parsed.success) throw new Error("Invalid model test")
+    finished = true
     if (ctx.disposed || epoch !== ctx.accountEpoch) return true
     const current = ctx.store.collections.models.get(id)
     if (current && JSON.stringify(recordOf(current)) === JSON.stringify(recordOf(model)))
      await ctx.store.dispatch({ type: "model.tested", actor: "system", test: { id, testedAt: Date.now(), result: parsed.data } }).isPersisted.promise
     return parsed.data.ok ? true : "Model test failed"
    } catch (failure) { error = failure instanceof Error ? failure.message : "Could not test model"; return error }
-   finally { if (shared.pending.get(id) === epoch) shared.pending.delete(id); if (!ctx.disposed && epoch === ctx.accountEpoch) markTest(id, false, error) }
+   finally { if (shared.pending.get(id) === epoch) shared.pending.delete(id); if (!ctx.disposed && epoch === ctx.accountEpoch) markTest(id, false, error, undefined, !finished) }
   }, false, () => !ctx.disposed && epoch === ctx.accountEpoch, "agents")
  }
- const recovery = ctx.store.collections.cards.get("agents")
- if (ctx.commandActor === "user" && recovery?.kind === "agents" && "agents" in recovery.payload)
-  for (const id of recovery.payload.testing ?? []) queueMicrotask(() => { if (!ctx.disposed) void testModel(id) })
+ const restoreTests = () => {
+  if (ctx.disposed || ctx.commandActor !== "user") return
+  const recovery = ctx.store.collections.cards.get("agents")
+  if (recovery?.kind !== "agents" || !("agents" in recovery.payload)) return
+  for (const id of recovery.payload.testing ?? []) {
+   if (!recovery.payload.testRequests?.[id]) { void markTest(id, false, "Model test interrupted"); continue }
+   if (!shared.pending.has(id)) void testModel(id)
+  }
+ }
+ // Persisted cards may hydrate after controller construction. Reconnect when
+ // the collection receives them, rather than relying on a one-time read.
+ const stopRecovery = ctx.store.collections.cards.subscribeChanges?.(() => { queueMicrotask(restoreTests) })
+ queueMicrotask(restoreTests)
  const stopAccount = ctx.onAccountChange?.(() => {
   const card = ctx.store.collections.cards.get("agents")
-  if (card?.kind === "agents" && "agents" in card.payload && card.payload.testing?.length)
-   ctx.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload, testing: [] } } })
+  if (card?.kind === "agents" && "agents" in card.payload && (card.payload.testing?.length || Object.keys(card.payload.testRequests ?? {}).length))
+   ctx.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload, testing: [], testRequests: {} } } })
  })
- void ctx.onDispose(() => { stopAccount?.() })
+ void ctx.onDispose(() => { stopAccount?.(); stopRecovery?.unsubscribe() })
  const showModel = async (id: string) => {
   if (!ctx.store.collections.models.has(id)) return "Model unavailable"
   await deps.listAgents(undefined, id)
