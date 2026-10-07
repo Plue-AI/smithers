@@ -203,7 +203,13 @@ describe("published README", () => {
     }
     const shipped = new Set(
       manifest.files.flatMap((pattern) =>
-        Fs.globSync(pattern, { cwd: packageRoot }).map((path) => path.split(NodePath.sep).join("/"))
+        Fs.globSync(pattern, { cwd: packageRoot }).flatMap((path) => {
+          // npm's files allowlist includes directory contents recursively.
+          const included = Fs.statSync(NodePath.join(packageRoot, path)).isDirectory()
+            ? Fs.globSync(`${path}/**/*`, { cwd: packageRoot })
+            : [path]
+          return included.map((file) => file.split(NodePath.sep).join("/"))
+        })
       )
     )
     const readme = Fs.readFileSync(NodePath.join(packageRoot, "README.md"), "utf8")
