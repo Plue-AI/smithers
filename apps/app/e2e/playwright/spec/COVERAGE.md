@@ -94,6 +94,12 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | App copy journey and all 19 View modules / 272 fixtures pass: 2,176 inline/maximized, light/dark, 1440/390px renders; zero copy violations | T-CAT-01 |
 | C-UI-03 | [notifications.spec.ts](../notifications.spec.ts) | passing: Chromium + WebKit, loopback/plain HTTP, live owned TODOs, gesture, hidden/visible, dedupe, click/focus, no console errors; Notification API recorded | T-APP-18 |
+
+T-APP-18 wave 3 (2026-10-06): reference Mac WebKit rerun passed both origins
+(2 passed, 0 failed). Mounted app/dispatcher coverage uses served HTTP/live
+fixtures and records the Notification API; it does not expose an OS permission
+dialog. C-UI-13 at its unit layer (`src/mainview/cards/ViewReachability.test.ts`)
+passed alongside notification/controller/toast tests (68 passed, 0 failed).
 | C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry, Answer with bound TODO and Resolve with bound branch, approval/conflict notices and owner merge notice/Hide covered; shared-history actor lines and keyboard jump covered; saved global preference hiding covered; per-conversation preference writes and summaries remain fixme | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
