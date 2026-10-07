@@ -402,3 +402,43 @@ test("initial member view arrival never remounts an interactive Context disclosu
     expect(toggle.getAttribute("aria-expanded")).toBe("true")
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })
+
+test("Home and conversation preferences serialize through the install controller without losing either write", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let saved: Record<string, unknown> = { home: { filter: "queued" }, last_seen_seq: 12 }
+  const writes: Record<string, unknown>[] = []
+  let release!: () => void
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [] })
+      if (path === "/api/conversations/main/view-state") {
+        if (init?.method === "PUT") {
+          const next = JSON.parse(String(init.body)) as Record<string, unknown>
+          writes.push(next)
+          if (writes.length === 1) await new Promise<void>(resolve => { release = resolve })
+          saved = next
+        }
+        return Response.json(saved)
+      }
+      return new Response("{}", { status: 404 })
+    }
+  })
+  let stop = () => {}
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    stop = controller.homeView!.subscribe(() => {})
+    await waitFor(() => controller.homeView!.get().filter === "queued")
+    const preference = controller.sharedConversation!.saveView({ toasts_hidden: true })
+    await waitFor(() => writes.length === 1)
+    controller.homeView!.onView({ filter: "working", last_seen_seq: 19 })
+    await Bun.sleep(30)
+    expect(writes).toHaveLength(1)
+    release()
+    await preference
+    await waitFor(() => writes.length === 2)
+    expect(saved).toEqual({ home: { filter: "working" }, last_seen_seq: 19, toasts_hidden: true })
+    expect(controller.homeView!.get().last_seen_seq).toBe(19)
+  } finally { release?.(); stop(); await controller.dispose() }
+})
