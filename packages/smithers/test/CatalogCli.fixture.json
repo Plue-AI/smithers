@@ -179,6 +179,10 @@
     {
       "path": "agent",
       "agent": "run"
+    },
+    {
+      "path": "agent edit",
+      "agent": "confirm"
     }
   ],
   "excluded": [
@@ -627,6 +631,38 @@
           "mode": "before",
           "n": 1
         }
+      }
+    },
+    {
+      "argv": [
+        "review",
+        "50",
+        "--repo",
+        "owner/repo"
+      ],
+      "method": "POST",
+      "path": "/api/reviews",
+      "body": {
+        "number": 50,
+        "repo": "owner/repo",
+        "conversation": "main"
+      }
+    },
+    {
+      "argv": [
+        "agent",
+        "edit",
+        "app",
+        "--request",
+        "Explain briefly",
+        "--diff",
+        "+Be brief"
+      ],
+      "method": "POST",
+      "path": "/api/agents/app/edit",
+      "body": {
+        "request": "Explain briefly",
+        "diff": "+Be brief"
       }
     }
   ],

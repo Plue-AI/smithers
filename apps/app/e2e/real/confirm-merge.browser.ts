@@ -155,11 +155,20 @@ try {
   await expect(page.getByTestId("transcript")).toContainText("Proposed diff (untrusted context):")
   await commit.focus(); await page.keyboard.press("Enter")
   await expect.poll(async () => (await api("/api/todos")).value.length).toBe(beforeEdit + 1)
+  const beforeAgentEdit = (await api("/api/todos")).value.length
+  const instruction = await cli(["agent", "edit", "app", "--request", "Keep answers brief", "--diff", "+Be brief", "--json"])
+  expect(instruction.exitCode).toBe(3)
+  expect(instruction.value.state).toBe("pending")
+  expect((await api("/api/todos")).value).toHaveLength(beforeAgentEdit)
+  await expect(commit).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId("transcript")).toContainText("Change instructions for the App agent in .smithers/instructions/app.md")
+  await commit.focus(); await page.keyboard.press("Enter")
+  await expect.poll(async () => (await api("/api/todos")).value.length).toBe(beforeAgentEdit + 1)
   const agentRows = (await api("/api/confirmations", "GET", undefined, true)).value
-  expect(agentRows).toHaveLength(5)
+  expect(agentRows).toHaveLength(6)
   for (const row of agentRows) expect(Object.keys(row).sort()).toEqual(["id", "state"])
   expect(errors).toEqual([])
-  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, Before placement, admission progress, reload, other-member refusal, Drop, Wiki Delete, Flow edit, delegated redaction")
+  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, Before placement, admission progress, reload, other-member refusal, Drop, Wiki Delete, Flow edit, Agent instruction edit, delegated redaction")
 } finally {
   await browser.close()
   await vite.close()
