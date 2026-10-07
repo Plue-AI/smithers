@@ -55,7 +55,8 @@ class LauncherRaces(unittest.TestCase):
         for target in ("manifest.json", "share/trm06/launcher.py", "share/trm06/run.sh", "share/trm06/revoke.sh", "share/trm06/flow.sh", "bin/trm06-gateway"):
             for replacement in ("file", "symlink", "parent", "contents", "mode", "hardlink"):
                 with self.subTest(target=target, replacement=replacement), tempfile.TemporaryDirectory() as temporary:
-                    root = Path(temporary)
+                    root = Path(temporary) / "bundle"
+                    root.mkdir()
                     self.fixture(root)
                     original = launcher.read_held
                     mutated = False
@@ -71,7 +72,7 @@ class LauncherRaces(unittest.TestCase):
                             elif replacement == "hardlink":
                                 os.link(path, root / "outside-hardlink")
                             elif replacement == "parent":
-                                path.parent.rename(root / "held-parent")
+                                path.parent.rename(path.parent.with_name(path.parent.name + "-held"))
                                 path.parent.mkdir()
                                 path.write_bytes(b"branch")
                             else:
@@ -83,10 +84,6 @@ class LauncherRaces(unittest.TestCase):
                         if data.startswith(b"main-fixture:bin/") and not mutated:
                             schedule.replace()
                         return data
-                    # The manifest's parent is the fixture root; avoid renaming
-                    # TemporaryDirectory itself and leaving an external fixture.
-                    if target == "manifest.json" and replacement == "parent":
-                        continue
                     with RaceSchedule(mutate) as schedule, patch.object(launcher, "ROOT", root), patch.object(launcher, "__file__", str(root / "share/trm06/launcher.py")), patch.object(launcher, "protected", side_effect=lambda p, *args: Path(p)), patch.object(launcher, "trusted"), patch.object(launcher, "read_held", side_effect=read), patch.object(launcher.sys, "argv", ["launcher", "run"]), patch.object(launcher, "execute_held") as execute:
                         with self.assertRaises((ValueError, OSError)): launcher.main()
                         execute.assert_not_called()

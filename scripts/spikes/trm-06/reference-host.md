@@ -109,3 +109,24 @@ cgroup metadata controls now install the positive control before mutation and
 require explicit startup refusal; previously the writable-parent selector was
 incorrectly routed to the install-time refusal branch. These fixtures have local
 regression coverage only; reference-host execution is still pending.
+
+Pass-5 supplemental Linux coverage (2026-10-07): a separate synchronized attacker
+thread now exercises all 36 artifact/manifest replacement cases (file, symlink,
+parent inode, in-place contents, mode and hardlink across six inputs), 14 guest
+installer destination cases, four overlay artifact/parent replacements and four
+manifest publication controls. Kernel fd execution independently observes the
+literal PATH-only environment for 12 individual poison variables and their
+combination. Held-child cleanup/enrollment and three control-file symlinks use
+real openat/read/write syscalls with ordinary temporary files. These are local
+regressions, not installed root, real cgroup or Darwin descriptor receipts.
+
+Launcher pre-exec revalidation now checks mode and digest as well as inode,
+including the initially read manifest bytes. Overlay manifest publication uses
+a held directory and atomic replacement, so a substituted manifest symlink does
+not truncate an outside file. Trusted install ownership still matters: these
+checks do not make concurrent privileged in-place writes safe after the last
+check. Reference tests must use the actual installed launcher/init/relay and
+retain the independent samples. The root campaigns still return incomplete;
+none of this local evidence changes their pending_controls or accepts the
+unsupported-Landlock kernel variant. All nine steps, ten VS Code-connected
+revocations and second-Mac recording remain unrun.
