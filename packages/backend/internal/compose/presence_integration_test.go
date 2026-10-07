@@ -461,14 +461,18 @@ func TestPresenceBranchMachineWaitPosition(t *testing.T) {
 		var branch struct {
 			Machine struct {
 				State    string `json:"state"`
-				Position int    `json:"wait_position"`
+				Position int    `json:"position"`
 			} `json:"machine"`
 		}
 		require.NoError(t, json.Unmarshal(frame.Data, &branch))
-		require.Equal(t, "waking", branch.Machine.State)
+		if position > 0 {
+			require.Equal(t, "waiting", branch.Machine.State)
+		} else {
+			require.Equal(t, "waking", branch.Machine.State)
+		}
 		require.Equal(t, position, branch.Machine.Position)
 		if position == 0 {
-			require.NotContains(t, string(frame.Data), `"wait_position"`)
+			require.NotContains(t, string(frame.Data), `"position"`)
 		}
 	}
 	read(2)

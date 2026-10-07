@@ -75,3 +75,39 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   await expect.poll(() => posts).toEqual([{ from: "T2" }])
   await expect(page.getByTestId("composer-input")).toBeEnabled()
 })
+
+test("install Branch follows machine admission queue positions without waking", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  const writes: string[] = []
+  await page.route("**/api/branches/queued", route => {
+    if (route.request().method() !== "GET") writes.push(route.request().method())
+    return route.fulfill({ json: { name: "queued", machine: { id: "b-queued" } } })
+  })
+  let publish: ((machine: unknown) => void) | undefined
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub") return
+    if (frame.topic === "branch:b-queued") {
+      let cursor = 0
+      publish = machine => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: ++cursor, data: {
+        id: "b-queued", name: "queued", machine, scratch: { forked_from: { kind: "main" } },
+        presence: [], terminals: [], ssh_line: "ssh -p 2222 queued@localhost"
+      } }))
+      publish({ state: "waiting", position: 2 })
+    } else socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data: [] }))
+  }))
+  await page.goto("/")
+  await fillComposer(page, "/branch queued")
+  await page.getByTestId("composer-send").click()
+  const card = page.getByTestId("card-branch:b-queued")
+  await expect(card).toContainText("Waiting for a machine · #2")
+  await expect(card.getByRole("button", { name: /^(Sleep|Wake|Retry)$/ })).toHaveCount(0)
+  publish!({ state: "waiting", position: 1 })
+  await expect(card).toContainText("Waiting for a machine · #1")
+  publish!({ state: "waking" })
+  await expect(card).toContainText("Waking")
+  await expect(card).not.toContainText("Waiting for a machine")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  expect(writes).toEqual([])
+})

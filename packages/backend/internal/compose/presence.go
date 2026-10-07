@@ -282,7 +282,7 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		}
 		model := branchPresenceModel(current, presence, origin)
 		if position, waiting := p.branches.MachinePlace(current); waiting {
-			model["machine"].(map[string]any)["wait_position"] = position
+			model["machine"] = map[string]any{"state": "waiting", "position": position}
 		}
 		return json.Marshal(model)
 	}}, ""
