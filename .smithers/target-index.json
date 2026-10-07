@@ -1875,12 +1875,15 @@
         "kind": "glob",
         "pattern": ".specs/product/**/*",
         "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": ".specs/design/mock/src/**/*",
+        "exclude": []
       }
     ],
     "outputs": [],
-    "dependencies": [
-      "//apps/app:proofMockInputs"
-    ],
+    "dependencies": [],
     "source": {
       "file": "apps/app/PACKAGE.ts"
     }
@@ -36491,6 +36494,10 @@
     ],
     "cacheable": false,
     "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/lane-gates.test.mjs"
+      },
       {
         "kind": "file",
         "path": "scripts/homebrew-publish.test.mjs"
