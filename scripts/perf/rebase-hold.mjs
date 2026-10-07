@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 import { runSelected } from './run.mjs'
-import { summarizeRebases } from './lib/stats.mjs'
+import { summarizeRebases, verifyRebase } from './lib/stats.mjs'
 
 export const markers = Array.from({ length: 100 }, (_, i) => `REBASE${String(i).padStart(3, '0')}`)
 
@@ -37,16 +37,15 @@ export async function measure(boundary) {
         attempt.hold = hold
         attempt.clock = hold?.clock
         attempt.holdMs = hold?.end - hold?.start
-        if (!hold || hold.id !== receipt.id || typeof hold.clock !== 'string' || !hold.clock.startsWith('guest monotonic:') ||
-            !Number.isFinite(hold.start) || !Number.isFinite(hold.end) || hold.end < hold.start) throw new Error('guest hold clock receipt missing or mismatched')
-        if (receipt.onto !== main || receipt.activity?.length !== 1 || receipt.activity[0].kind !== 'rebase' || receipt.activity[0].onto !== main) throw new Error('requires one attributed rebase activity')
-        if (typeof receipt.headChanged !== 'boolean' || receipt.headChanged && receipt.approvalsCleared !== true || !receipt.headChanged && receipt.approvalsCleared !== false) throw new Error('rebase approval clearing differs from head change')
-        if (receipt.marker?.text !== typed || receipt.marker.member !== pending.member) throw new Error('held edit missing or attributed to another member')
+        const sample = { i, marker: typed, main, acknowledgementsWithheld, pending, receipt, hold, activity: receipt.activity, holdMs: hold?.end - hold?.start, clock: hold?.clock, failed: false }
+        // Validate before waiting for delayed delivery; completion of that wait
+        // is retained separately so the runner can recheck the full evidence.
+        verifyRebase(sample, { requireDrain: false })
         if (acknowledgementsWithheld) {
-          if (hold.acknowledgedBeforeThaw !== false || hold.localSnapshotQueued !== true || !Number.isFinite(hold.withheldMs) || hold.withheldMs < 10000) throw new Error('rebase waited for acknowledgement or failed to queue capture')
           await boundary.waitOutboxDrained(receipt.id)
+          sample.outboxDrained = true
         }
-        samples.push({ i, marker: typed, main, acknowledgementsWithheld, hold, activity: receipt.activity, holdMs: hold.end - hold.start, clock: hold.clock, failed: false })
+        samples.push(sample)
         attempt = undefined
       }
     }

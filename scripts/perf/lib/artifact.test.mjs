@@ -202,12 +202,18 @@ test('failed first-token workloads retain partial samples and cross-checks in ch
 }))
 
 
-const rebaseSamples = () => Array.from({ length: 200 }, (_, i) => ({ marker: `marker-${i}`, acknowledgementsWithheld: i >= 100, holdMs: 100, clock: 'guest monotonic:fixture', failed: false }))
+const rebaseSamples = () => Array.from({ length: 200 }, (_, i) => {
+  const main = (i + 1).toString(16).padStart(40, '0'), marker = `marker-${i}`
+  return { marker, main, acknowledgementsWithheld: i >= 100, holdMs: 100, clock: 'guest monotonic:fixture', failed: false,
+    pending: { state: 'pending', present: true, onto: main, rebased: false, member: 'Alice' },
+    receipt: { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice' } },
+    hold: { id: main, clock: 'guest monotonic:fixture', start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 }, outboxDrained: i >= 100 }
+})
 const rebaseProvider = value => ({ available() {}, fields: { writeHold: 'holdMs' }, measure: async () => ({ ...passing(), samples: value }) })
 test('unified rebase verdict requires both acknowledgement cohorts independently', async () => {
   const good = rebaseSamples()
   const hiddenTail = rebaseSamples()
-  for (let i = 194; i < 200; i++) hiddenTail[i].holdMs = 2000
+  for (let i = 194; i < 200; i++) { hiddenTail[i].holdMs = 2000; hiddenTail[i].hold.end = 2010 }
   for (const [value, exit] of [[good, 0], [hiddenTail, 1], [good.slice(0, 100), 1], [good.map(s => ({ ...s, acknowledgementsWithheld: undefined })), 1], [good.map(s => ({ ...s, marker: 'duplicate' })), 1]]) {
     await temporary(async root => {
       const result = await run({ ...options, root, check: 'C-PERF-06', providers: { 'C-PERF-06': rebaseProvider(value) } })
@@ -275,3 +281,28 @@ test('unified wake verdict verifies host intervals and unique requests independe
     }
   })
 })
+
+ test('unified rebase verdict refuses fabricated durations and lost or replayed evidence', async () => {
+  for (const corrupt of [
+    s => { s.holdMs = 0 },
+    s => { delete s.hold },
+    s => { s.hold.clock = 'guest monotonic:other' },
+    s => { s.hold.id = 'other' },
+    s => { s.pending.rebased = true },
+    s => { s.receipt.marker.member = 'Mallory' },
+    s => { s.receipt.activity = [] },
+    s => { s.receipt.approvalsCleared = false },
+    s => { s.hold.acknowledgedBeforeThaw = true },
+    s => { s.outboxDrained = false },
+    s => { s.hold.withheldMs = 9999 },
+    (s, values) => { s.receipt.id = values[0].receipt.id; s.hold.id = s.receipt.id }
+  ]) await temporary(async root => {
+    const values = rebaseSamples()
+    corrupt(values[199], values)
+    const result = await run({ ...options, root, check: 'C-PERF-06', providers: { 'C-PERF-06': rebaseProvider(values) } })
+    assert.equal(result.exit, 1)
+    const saved = JSON.parse(await readFile(join(result.directory, 'rebase-hold.json'), 'utf8')).budgets[0]
+    assert.equal(saved.status, 'failed')
+    assert.deepEqual(saved.samples, values)
+  })
+ })

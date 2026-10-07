@@ -225,3 +225,11 @@ All three bindings refuse before measurement until authenticated lifecycle
 qualification is exposed by the install. Environment flags cannot waive that
 precondition. A configured driver is not an activated machine budget.
 Standalone CLI behavior and artifact copies are preserved.
+
+The C-PERF-06 artifact retains pending state, the rebase receipt, held marker
+attribution, guest hold observations and completion of delayed outbox drain.
+The unified verdict recomputes every duration from those observations and
+rejects mismatched clocks, receipt replay, missing edits and missing delayed
+capture/drain evidence independently of the workload verdict. This validation
+is covered with test-only boundaries; it does not activate the production
+adapter or qualify a reference-host check.
