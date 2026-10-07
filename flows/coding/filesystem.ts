@@ -78,9 +78,13 @@ const daemonProvider = (
       if (typeof reply !== "object" || reply === null || Array.isArray(reply)) return yield* unavailable()
       if ("error" in reply) {
         const error = reply.error
-        if (exit === 0 || typeof error !== "object" || error === null || !("code" in error) || error.code !== "stale") {
+        if (exit === 0 || typeof error !== "object" || error === null || !("code" in error)) {
           return yield* unavailable()
         }
+        if (error.code === "moved_off") {
+          return yield* Effect.fail(new StdError({ code: "moved_off", path: change.path, message: "Branch moved off the item" }))
+        }
+        if (error.code !== "stale") return yield* unavailable()
         const current = "current_digest" in error ? error.current_digest : "absent"
         if (
           typeof current !== "string" || (current !== "absent" && !/^[0-9a-f]{64}$/.test(current))

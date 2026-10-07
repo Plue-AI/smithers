@@ -349,6 +349,17 @@ test("installed coding std tools use the daemon client and refuse unsupported se
       assert.equal(yield* fs.readFileString(path), "world")
       yield* call(Read.run({ path }))
       mode = "reply"
+      reply = JSON.stringify({ error: { code: "moved_off" } })
+      status = 1
+      for (const tool of [
+        Write.run({ path, content: "hello" }).pipe(Effect.asVoid),
+        Edit.run({ path, oldString: "world", newString: "hello" }).pipe(Effect.asVoid),
+        ApplyPatch.run({ input: `*** Begin Patch\n*** Update File: ${path}\n@@\n-world\n+hello\n*** End Patch` }).pipe(Effect.asVoid)
+      ]) {
+        assert.equal((yield* Effect.flip(call(tool))).code, "moved_off")
+        assert.equal(calls.at(-1)![4], world, "moved-off refusals never advance the read ledger")
+        assert.equal(yield* fs.readFileString(path), "world")
+      }
       for (
         const [body, code] of [
           ["not json", 0],
@@ -358,6 +369,7 @@ test("installed coding std tools use the daemon client and refuse unsupported se
           [JSON.stringify({ post_digest: hello }), 1],
           [JSON.stringify({ post_digest: world }), 0],
           [JSON.stringify({ error: { code: "unauthorized" } }), 1],
+          [JSON.stringify({ error: { code: "moved_off" } }), 0],
           [JSON.stringify({ error: { code: "stale", current_digest: "invalid" } }), 1],
           [JSON.stringify({ error: { code: "stale", current_digest: world } }), 0]
         ] as const
