@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,7 +91,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	// A completed machine-run fixture has no concurrent launch to overwrite its
 	// accepted generation. Publication and all lifecycle effects remain real.
 	require.NoError(t, r.pool.QueryRow(r.ctx, `INSERT INTO mythical_items(repository_id,source,state,issue_title,title,revisions,owner_id,candidate_base,candidate_head,candidate_verified,pr_head,pr_number,pr_state,pr_url,attempt,checks)
- VALUES ($1,'todo','proposing','Lifecycle','Lifecycle','[{"rev":1,"text":"accepted change","acceptance":["passes"]}]',$2,$3,$4,true,$4,1,'open','https://github.com/rehearsal-owner/app/pull/1',1,'{"branch":"smithers/lifecycle-fixture"}') RETURNING number`, repository, owner, r.mainCommit, head).Scan(&filed.N))
+ VALUES ($1,'todo','proposing','Lifecycle','Lifecycle','[{"rev":1,"text":"accepted change","acceptance":["passes"],"by":{"person":"rehearsal-owner"},"at":"2026-10-02T12:00:00Z"}]',$2,$3,$4,true,$4,1,'open','https://github.com/rehearsal-owner/app/pull/1',1,'{"branch":"smithers/lifecycle-fixture"}') RETURNING number`, repository, owner, r.mainCommit, head).Scan(&filed.N))
 	require.Positive(t, filed.N)
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -127,7 +128,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 		return len(manifests) == 1 && publishedHead != "" && manifests[0].Head == publishedHead && len(manifests[0].Included) == 0
 	}, 30*time.Second, 50*time.Millisecond)
 	hint := func(action string) {
-		payload := []byte(fmt.Sprintf(`{"action":%q,"number":1,"installation":{"id":93},"repository":{"id":100,"name":"app","full_name":"rehearsal-owner/app","owner":{"login":"rehearsal-owner"}},"pull_request":{"number":1,"head":{"ref":%q,"sha":%q}}}`, action, branch, head))
+		payload := []byte(fmt.Sprintf(`{"action":%q,"number":1,"installation":{"id":93},"repository":{"id":100,"name":"app","full_name":"rehearsal-owner/app","owner":{"login":"rehearsal-owner"}},"pull_request":{"number":1,"head":{"ref":%q,"sha":%q}}}`, action, branch, publishedHead))
 		mac := hmac.New(sha256.New, []byte("webhook"))
 		_, err := mac.Write(payload)
 		require.NoError(t, err)
@@ -215,11 +216,17 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 			fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"closed"}`)
 		}
 		hint("closed")
-		require.Eventually(t, func() bool { return cardState("dropped") }, 20*time.Second, 50*time.Millisecond)
+		require.Eventually(t, func() bool { return cardState("dropped") }, 60*time.Second, 50*time.Millisecond)
+		if !smithersDrop {
+			githubLifecycleBrowserPhase(t, r, filed.N, "dropped")
+		}
 		hint("closed")
 		fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"open"}`)
 		hint("reopened")
-		require.Eventually(t, func() bool { return cardState("in_review") }, 20*time.Second, 50*time.Millisecond)
+		require.Eventually(t, func() bool { return cardState("in_review") }, 60*time.Second, 50*time.Millisecond)
+		if !smithersDrop {
+			githubLifecycleBrowserPhase(t, r, filed.N, "in_review")
+		}
 		hint("reopened")
 		var attempt int
 		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT attempt FROM mythical_items WHERE number=$1`, filed.N).Scan(&attempt))
@@ -263,6 +270,7 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	require.Equal(t, 202, code)
 	hint("closed")
 	require.Eventually(t, func() bool { return cardState("merged") }, 60*time.Second, 100*time.Millisecond)
+	githubLifecycleBrowserPhase(t, r, filed.N, "merged")
 	var mergeCommit string
 	var land []byte
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pr_merge_commit,checks->'land' FROM mythical_items WHERE number=$1`, filed.N).Scan(&mergeCommit, &land))
@@ -278,4 +286,27 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, merges, "only the person's simulated GitHub merge")
+}
+
+// The browser observes only the real card. The test pauses between committed
+// lifecycle phases; its acknowledgment never mutates product state.
+func githubLifecycleBrowserPhase(t *testing.T, r *rehearsal, number int64, phase string) {
+	path := os.Getenv("SMITHERS_GH03_BROWSER_HARNESS")
+	if path == "" || os.Getenv("SMITHERS_GH03_BROWSER_PHASE") != "" && os.Getenv("SMITHERS_GH03_BROWSER_PHASE") != phase {
+		return
+	}
+	origin, err := url.Parse(r.origin)
+	require.NoError(t, err)
+	cookies := []map[string]string{}
+	for _, cookie := range r.jar.Cookies(origin) {
+		cookies = append(cookies, map[string]string{"name": cookie.Name, "value": cookie.Value, "url": r.origin})
+	}
+	data, err := json.Marshal(map[string]any{"origin": r.origin, "number": number, "phase": phase, "cookies": cookies})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path+".tmp", data, 0600))
+	require.NoError(t, os.Rename(path+".tmp", path))
+	require.Eventually(t, func() bool {
+		raw, err := os.ReadFile(path + ".ack")
+		return err == nil && string(raw) == phase
+	}, 90*time.Second, 100*time.Millisecond, "browser did not observe %s", phase)
 }

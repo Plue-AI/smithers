@@ -120,6 +120,7 @@ export const TodoCardSchema = z.object({
   }).optional(),
   preapproval: z.object({ by: z.string(), at: z.string() }).optional(),
   merged_via: z.number().int().positive().optional(),
+  note: z.string().optional(),
   merge: MergeSchema,
   lessons: z.number().int().nonnegative().optional(),
   lessons_receipt: LessonsReceiptSchema.optional(),

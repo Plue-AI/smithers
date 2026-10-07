@@ -26,6 +26,12 @@ const mount = (model: TodoCard, role: "owner" | "maintainer" | "member" = "maint
   return { props, dispatches, patches }
 }
 describe("TODO Container", () => {
+  test("a GitHub-closed TODO retains its recorded reason and cannot merge", () => {
+    const h = mount({ ...fixtures.in_review.model, state: "dropped", note: "closed on GitHub by @alice" })
+    expect(h.props.model.note).toBe("closed on GitHub by @alice")
+    expect(renderToStaticMarkup(<TodoView {...h.props} />)).toContain("closed on GitHub by @alice")
+    expect(h.props.actions.some(action => action.tag === "merge")).toBe(false)
+  })
   test("a queued TODO without an admitted branch renders and has no Open branch action", () => {
     const model = TodoCardSchema.parse({ ...fixtures.queued.model, branch: undefined })
     const h = mount(model)
