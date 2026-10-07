@@ -3563,9 +3563,8 @@ func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalIt
 // commit during those reads. Keep the lock until the push has returned, including
 // an uncertain result, so the pending operation remains the recovery authority.
 func (st *mythicalItemStep) pushCurrentProposal(ctx context.Context, item db.MythicalItem, push func() error) error {
-	if st.s.store == nil {
-		// Object-only fixtures have no mutable database state.
-		return push()
+	if st.s == nil || st.s.store == nil {
+		return errors.New("the stack claim store is unavailable")
 	}
 	return pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
 		var live bool

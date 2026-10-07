@@ -51,6 +51,9 @@ func (r *candidateHeadRuntime) ExecuteCommand(ctx context.Context, _ string, com
 	if command.Args[0] != "git" || len(command.Args) != 4 {
 		return workspaceapi.CommandResult{}, fmt.Errorf("unexpected observation command")
 	}
+	if command.Environment["GIT_NO_REPLACE_OBJECTS"] != "1" {
+		return workspaceapi.CommandResult{}, fmt.Errorf("candidate observation allowed replace refs")
+	}
 	switch command.Args[3] {
 	case r.head + "^{tree}":
 		return workspaceapi.CommandResult{Stdout: r.tree}, nil
@@ -84,7 +87,14 @@ func TestCandidateHeadReportComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	runtime := &candidateHeadRuntime{head: strings.Repeat("a", 40), change: strings.Repeat("z", 32), tree: strings.Repeat("b", 40), candidate: strings.Repeat("c", 40), candidateTree: strings.Repeat("b", 40), operations: map[string]bool{}}
 	var itemID string
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,owner_id,workspace_id,candidate_base,candidate_head,candidate_verified,attempt,checks) VALUES($1,'todo','proposed','Candidate',$2,$3,$4,$5,true,1,'{}') RETURNING id::text`, repo.ID, owner.ID, workspaceID, strings.Repeat("d", 40), runtime.candidate).Scan(&itemID))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,owner_id,workspace_id,candidate_base,candidate_head,candidate_verified,attempt,generation,checks) VALUES($1,'todo','proposed','Candidate',$2,$3,$4,$5,true,1,3,'{}') RETURNING id::text`, repo.ID, owner.ID, workspaceID, strings.Repeat("d", 40), runtime.candidate).Scan(&itemID))
+	priorHead := strings.Repeat("e", 40)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_head=$2,
+		pending_op=jsonb_build_object('kind','push','target','smithers/candidate','desired',$2::text,'precondition','','state','unknown'),
+		checks=jsonb_build_object('land',jsonb_build_object('head',$2::text)) WHERE id=$1`, itemID, priorHead)
+	require.NoError(t, err)
+	var originalPending []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT pending_op FROM mythical_items WHERE id=$1`, itemID).Scan(&originalPending))
 	service := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithWorkspaceRuntime(runtime))
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
@@ -135,11 +145,33 @@ func TestCandidateHeadReportComposedInstall(t *testing.T) {
 	require.Equal(t, head, h)
 	runtime.fail = false
 	runtime.tree = strings.Repeat("f", 40)
+	// A failed head write must roll back its candidate invalidation too.
+	_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_candidate_head() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'head persistence fault'; END $$;
+		CREATE TRIGGER refuse_candidate_head BEFORE UPDATE OF head_commit_id ON workspaces FOR EACH ROW EXECUTE FUNCTION refuse_candidate_head()`)
+	require.NoError(t, err)
+	response = report(runtime.head, true)
+	require.Equal(t, 500, response.Code, response.Body.String())
+	v, revision, h = state()
+	require.True(t, v)
+	require.Equal(t, version, revision)
+	require.Equal(t, head, h)
+	_, err = pool.Exec(ctx, `DROP TRIGGER refuse_candidate_head ON workspaces; DROP FUNCTION refuse_candidate_head()`)
+	require.NoError(t, err)
 	response = report(runtime.head, true)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	v, revision, _ = state()
 	require.False(t, v)
 	require.Equal(t, version+1, revision)
+	var retainedHead, retainedCandidate string
+	var pending []byte
+	var generation int32
+	var landCleared bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT pr_head,candidate_head,pending_op,generation,COALESCE(NOT (checks ? 'land'),true) FROM mythical_items WHERE id=$1`, itemID).Scan(&retainedHead, &retainedCandidate, &pending, &generation, &landCleared))
+	require.Equal(t, priorHead, retainedHead)
+	require.Equal(t, runtime.candidate, retainedCandidate)
+	require.JSONEq(t, string(originalPending), string(pending))
+	require.EqualValues(t, 3, generation)
+	require.True(t, landCleared)
 	runtime.tree = runtime.candidateTree
 	response = report(runtime.head, true)
 	require.Equal(t, 200, response.Code, response.Body.String())
