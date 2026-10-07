@@ -2,10 +2,10 @@ import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { chromium } from "@playwright/test"
 import { cardCaptureInventory } from "./card-capture"
-import { registerKeyboardJourney, journeyActivate, journeyEnter } from "./keyboard-journey-input"
+import { registerKeyboardJourney, registerJourneyCapture, journeyActivate, journeyEnter } from "./keyboard-journey-input"
 
 // HTTP-served browser capture proof only; never reference-install qualification.
-for (const theme of ["light", "dark"] as const) test(`${theme} inventory retains transient, edited and replaced cards through keyboard doors`, async () => {
+for (const theme of ["light", "dark"] as const) for (const mode of ["keyboard", "pointer"] as const) test(`${theme} inventory retains transient, edited and replaced cards through ${mode} doors`, async () => {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
     <html data-theme="${theme}"><style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}</style>
     <section class="smithers-card" data-kind="draft"><input aria-label="Prompt" value="private literal">
@@ -19,7 +19,8 @@ for (const theme of ["light", "dark"] as const) test(`${theme} inventory retains
     const attachments = new Map<string, Buffer>()
     const inventory = cardCaptureInventory(async (name, bytes) => { attachments.set(name, bytes) })
     const capture = () => inventory.capture(page, "Ben", theme)
-    const keys = registerKeyboardJourney(page, origin, capture)
+    registerJourneyCapture(page, capture)
+    const keys = mode === "keyboard" ? registerKeyboardJourney(page, origin, capture) : undefined
     await capture()
     await capture()
     expect(inventory.snapshot()).toHaveLength(1)
@@ -28,7 +29,7 @@ for (const theme of ["light", "dark"] as const) test(`${theme} inventory retains
     expect(edited.length).toBeGreaterThan(1)
     expect(edited.every(row => row.card === edited[0]!.card)).toBe(true)
     await journeyActivate(page.getByRole("button", { name: "Commit" }))
-    keys.finish()
+    keys?.finish()
     const rows = inventory.snapshot()
     expect(rows.at(-1)!.kind).toBe("todo")
     expect(rows.at(-1)!.card).not.toBe(rows[0]!.card)

@@ -174,3 +174,10 @@ its step button before assigning the cheaper model. The pass requires that
 rendered agent row; a slash directly to the reviewer no longer substitutes for
 flow-step navigation. Scratch Run and execution of this continuation remain
 pending and this addition does not qualify C-J11-01 or C-UI-01.
+
+Prepared pointer passes use the same capture inventory around shared UI doors:
+activation, text entry, checkbox and select changes, focus, and command submission.
+Each member gets an initial capture after boot and theme selection. A transient
+confirmation or draft is retained before its action dismisses it, in both input
+modes. Direct pointer calls outside these shared doors still need migration;
+checkpoint images do not establish whole-journey completion or safe retention.

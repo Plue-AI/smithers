@@ -63,26 +63,38 @@ export function registerKeyboardJourney(page: Page, origin: string, capture?: ()
 }
 export const keyboardInputFor = (page: Page) => journeys.get(page)
 
+/** The same capture checkpoint surrounds pointer doors on recording passes.
+ * Registration stays independent of keyboard admission and supplies no receipt. */
+const captures = new WeakMap<Page, () => Promise<void>>()
+export const registerJourneyCapture = (page: Page, capture: () => Promise<void>) => { captures.set(page, capture) }
+export const captureJourney = async (page: Page) => { await captures.get(page)?.() }
+const pointerDoor = async (target: Locator, action: () => Promise<void>) => {
+  await target.waitFor({ state: "visible" })
+  await captureJourney(target.page())
+  await action()
+  await captureJourney(target.page())
+}
+
 /** Explicit UI doors shared by pointer and keyboard runs; the guard still rejects
  * direct pointer/fill/focus calls in a keyboard run. */
 export async function journeyActivate(target: Locator): Promise<void> {
   const input = keyboardInputFor(target.page())
   if (input) await input.activate(target)
-  else await target.click()
+  else await pointerDoor(target, () => target.click())
 }
 export async function journeyReach(target: Locator): Promise<void> {
   const input = keyboardInputFor(target.page())
   if (input) await input.reach(target)
-  else await target.focus()
+  else await pointerDoor(target, () => target.focus())
 }
 export async function journeyEnter(target: Locator, text: string): Promise<void> {
   const input = keyboardInputFor(target.page())
   if (input) await input.enter(target, text)
-  else await target.fill(text)
+  else await pointerDoor(target, () => target.fill(text))
 }
 export async function journeyChecked(target: Locator, checked: boolean): Promise<void> {
   const input = keyboardInputFor(target.page())
-  if (!input) { await target.setChecked(checked); return }
+  if (!input) { await pointerDoor(target, () => target.setChecked(checked)); return }
   await input.reach(target)
   if (await target.isChecked() !== checked) await target.page().keyboard.press("Space")
   if (await target.isChecked() !== checked) throw new Error("C-UI-01 checkbox activation failed")
@@ -91,5 +103,5 @@ export async function journeyChecked(target: Locator, checked: boolean): Promise
 export async function journeySelect(target: Locator, label: string): Promise<void> {
   const input = keyboardInputFor(target.page())
   if (input) await input.select(target, label)
-  else await target.selectOption({ label })
+  else await pointerDoor(target, async () => { await target.selectOption({ label }) })
 }

@@ -1,5 +1,5 @@
 import { cardCaptureInventory } from "../support/card-capture"
-import { registerKeyboardJourney, journeyActivate } from "../support/keyboard-journey-input"
+import { registerKeyboardJourney, registerJourneyCapture, journeyActivate } from "../support/keyboard-journey-input"
 import { execFileSync } from "node:child_process"
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test"
 import { awaitBoot, command, expect, realApi } from "../support"
@@ -84,6 +84,8 @@ export const withReference = async (browser: Browser, info: TestInfo, body: (fix
       if (theme && await page.locator("html").getAttribute("data-theme") !== theme) await runSlash(page, "/theme")
       if (theme) await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
       captureReady.add(actor)
+      registerJourneyCapture(page, () => captureCards(actor))
+      await captureCards(actor)
     }
     const github = async (actor: Actor, method: string, path: string, data?: unknown): Promise<any> => {
       const response = await members[actor].context.request.fetch(`https://api.github.com/repos/${repo}${path}`, {
