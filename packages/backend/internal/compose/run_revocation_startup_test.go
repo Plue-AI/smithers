@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -67,7 +68,10 @@ func TestRunWaitsForRevocationCursorBeforeAdmittingConsumers(t *testing.T) {
 			name = "external listener"
 		}
 		t.Run(name, func(t *testing.T) {
-			applyEnv(t, baseRunEnv(t))
+			env := baseRunEnv(t)
+			env["SMITHERS_SSH_ADDR"] = "127.0.0.1:0"
+			env["SMITHERS_SSH_HOST_KEY_DIR"] = t.TempDir()
+			applyEnv(t, env)
 			preserveSlog(t)
 			stubSSEBroker(t)
 
@@ -88,7 +92,11 @@ func TestRunWaitsForRevocationCursorBeforeAdmittingConsumers(t *testing.T) {
 			_, err = writerPool.Exec(context.Background(),
 				`INSERT INTO self_host_owners (singleton, user_id) VALUES (TRUE, $1)`, user.ID)
 			require.NoError(t, err)
+			// A live owner credential needs the verified install binding too.
+			require.NoError(t, writer.UpsertInstallSetting(context.Background(), db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"cursor-owner","repository_name":"app","repository_id":0}`)}))
+			require.NoError(t, writer.UpsertInstallSetting(context.Background(), db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(fmt.Sprintf(`{"owner_login":"cursor-owner","repository_name":"app","repository_id":0,"last_access_check_at":%q}`, time.Now().UTC().Format(time.RFC3339Nano)))}))
 			t.Cleanup(func() {
+				_, _ = writerPool.Exec(context.Background(), `DELETE FROM install_settings WHERE key IN ('github.repository','owner.access')`)
 				_, _ = writerPool.Exec(context.Background(),
 					`DELETE FROM self_host_owners WHERE user_id = $1`, user.ID)
 			})
@@ -225,7 +233,10 @@ func TestRunWaitsForRevocationCursorBeforeAdmittingConsumers(t *testing.T) {
 			}, 10*time.Second, 25*time.Millisecond, "revocation bus did not establish PostgreSQL LISTEN")
 			requestStatus := func(token string) int {
 				t.Helper()
-				request := httptest.NewRequest(http.MethodGet, "/api/user", nil)
+				// Dial the ephemeral listener, but present the configured install
+				// origin so the host guard lets authentication decide admission.
+				request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4000/api/user", nil)
+				request.RemoteAddr = "127.0.0.1:12345"
 				request.Header.Set("Authorization", "Bearer "+token)
 				if external {
 					recorder := httptest.NewRecorder()
