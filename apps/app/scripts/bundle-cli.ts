@@ -17,8 +17,7 @@ try {
       ...(values.bind === undefined ? {} : { bind: values.bind }),
       ...(values.origin === undefined ? {} : { origins: values.origin })
     })
-    console.log(JSON.stringify({ ...(result.setup_urls ? { setup_urls: result.setup_urls } : { message: result.message }),
-      ...("warning" in result ? { warning: result.warning } : {}) }))
+    console.log(values.json ? JSON.stringify(result) : HostService.startText(result))
     process.exitCode = result.exitCode
   } else if (command === "stop" && (args.length === 0 || args.length === 1 && args[0] === "--json")) {
     console.log(JSON.stringify(await HostService.stop(HostService.launchd())))

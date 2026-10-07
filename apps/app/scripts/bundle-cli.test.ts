@@ -33,7 +33,8 @@ requiresMacOS("compiled bundle CLI refuses invalid bundles before service effect
   expect(new TextDecoder().decode(result.stderr)).toContain("Invalid bundle manifest")
     for (const flags of [
       ["--bind", "127.0.0.1", "--origin", "https://smithers.example", "--origin", "https://team.example"],
-      ["--origin=https://smithers.example", "--bind=127.0.0.1"]
+      ["--origin=https://smithers.example", "--bind=127.0.0.1"],
+      ["--json", "--bind", "0.0.0.0", "--origin", "http://10.0.0.59:4000"]
     ]) {
       const accepted = Bun.spawnSync([binary, "host", "start", ...flags, "--bundle", bundle], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
       expect(accepted.exitCode).toBe(1)
@@ -49,6 +50,9 @@ requiresMacOS("compiled bundle CLI refuses invalid bundles before service effect
       expect(new TextDecoder().decode(refused.stderr)).toMatch(/Invalid (bind address|public origin)/)
     }
   expect(existsSync(join(root, "Library/LaunchAgents/sh.smithers.host.plist"))).toBe(false)
+    const status = Bun.spawnSync([binary, "host", "status", "--json"], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
+    expect(status.exitCode).toBe(1)
+    expect(new TextDecoder().decode(status.stderr)).not.toContain("Use smthrs host")
 })
 
 requiresMacOS("compiled bundle CLI forwards serving flags to the existing host boundary", () => {
