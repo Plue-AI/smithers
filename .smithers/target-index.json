@@ -10372,14 +10372,6 @@
       },
       {
         "kind": "file",
-        "path": "flows/test/coding-flow-typecheck-build.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/coding-typecheck-build.test.mjs"
-      },
-      {
-        "kind": "file",
         "path": "flows/test/coding-runtime-bridge.test.ts"
       },
       {
@@ -10790,10 +10782,6 @@
         "kind": "glob",
         "pattern": "flows/checks/**/flow.mdx",
         "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "flows/coding/flow-typecheck-build.mjs"
       },
       {
         "kind": "file",
