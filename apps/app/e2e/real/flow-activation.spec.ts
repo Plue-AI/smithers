@@ -63,15 +63,41 @@ test("C-J5-01 chat teaching activates only for new TODO attempts", scenario("jou
     await expect(card.locator(`[data-version="${old.id}"]`)).toHaveAttribute("data-state", "active")
     await journeyActivate(card.locator(`[data-version="${proposed.id}"]`))
     await expect(card).toContainText("Changelog")
+    const timeline: unknown[] = []
+    const sampleActivation = async () => {
+      const snapshot = await flow()
+      // Observe the real loader after reading the public projection. This is
+      // reference database readback, never injected activation or a SQL write.
+      const loaded = f.sql(`SELECT digest,source_commit,status,is_active FROM workflow_definitions WHERE name='todo' AND digest='${proposed.id}'`)
+      const shown = await card.locator(`[data-version="${proposed.id}"]`).getAttribute("data-state")
+      const activeDigest = active(snapshot)?.id
+      timeline.push({ at: new Date().toISOString(), activeDigest, shown, versions: snapshot.versions, loaded })
+      if (activeDigest === proposed.id || shown === "active") {
+        expect(loaded).toHaveLength(1)
+        expect(loaded[0]).toMatchObject({ digest: proposed.id, status: "loaded", is_active: true })
+        expect(loaded[0].source_commit).toMatch(/^[0-9a-f]{40}$/)
+      }
+      return activeDigest
+    }
+    expect(await sampleActivation()).toBe(old.id)
     await openTodo(page, 1)
     await expect.poll(async () => (await f.read("Will", "/api/todos/1")).merge?.state, { timeout: 120_000 }).toBe("ready")
     const ben = f.members.Ben.page
     await openTodo(ben, 1)
     await journeyActivate(todoCard(ben, 1).getByRole("button", { name: "Merge", exact: true }))
-    await expect.poll(async () => (await f.read("Will", "/api/todos/1")).state, { timeout: 300_000 }).toBe("merged")
+    try {
+      await expect.poll(async () => {
+        await sampleActivation()
+        return (await f.read("Will", "/api/todos/1")).state
+      }, { timeout: 300_000, intervals: [1000, 2000] }).toBe("merged")
+      await expect.poll(sampleActivation, { timeout: 300_000, intervals: [1000, 2000] }).toBe(proposed.id)
+    } finally {
+      // Retain failed and partial loading transitions, too. A final Active
+      // screenshot alone cannot explain an activation ordering failure.
+      await info.attach("flow-states.jsonl", { body: timeline.map(sample => JSON.stringify(sample)).join("\n") + "\n", contentType: "application/x-ndjson" })
+    }
     const pull = await f.github("Will", "GET", `/pulls/${change.pr.number}`) as any
     expect(pull.merged).toBe(true)
-    await expect.poll(async () => active(await flow())?.id, { timeout: 300_000 }).toBe(proposed.id)
     await runSlash(page, "/flow todo")
     await expect(page.locator('.flow-view').last().locator(`[data-version="${proposed.id}"]`)).toHaveAttribute("data-state", "active")
     // Flow-load cannot change an existing attempt's execution identity.

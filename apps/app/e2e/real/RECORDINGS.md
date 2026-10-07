@@ -91,6 +91,14 @@ the shared list. Request headers and keys are not attached as evidence. Like the
 other prepared journeys, collection and supplemental composed HTTP tests do not
 qualify the reference recording, credential review or C-UI-01.
 
+The J5 teaching recording retains `flow-states.jsonl` from before Ben's merge
+until real activation. Each sample records the served versions, the rendered
+candidate state and read-only `workflow_definitions` loader facts. An Active
+candidate requires a loaded, active row with its source commit. Failed loading
+also retains the partial timeline. These one-to-two-second samples do not prove
+the check's one-second projection latency bound or immutable closure/watchdog
+obligations; those still need their independent reference evidence.
+
 The keyboard entry also lists three prepared-install passes: branch/terminal,
 stack/flow/monitor doors; outside saves; and backend restart. They are
 reference-only scaffolding, not passing journey receipts. The branch pass needs
