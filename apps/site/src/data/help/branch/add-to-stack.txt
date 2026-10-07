@@ -5,7 +5,11 @@ Usage: smthrs branch add-to-stack [options]
 Options:
   --branch <value>
   --text <value>
-  --verbose         Show redacted diagnostic details
+  --title <value>
+  --acceptance <value>
+  --after <value>
+  --before <value>
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
