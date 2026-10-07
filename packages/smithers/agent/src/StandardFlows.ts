@@ -1,3 +1,4 @@
+import * as AgentTerminal from "./internal/AgentTerminal.ts"
 /**
  * The built-in host capabilities, expressed as ordinary executable flows.
  *
@@ -259,6 +260,7 @@ export const shell = (
      * @since 1.0.0
      */
     readonly terminal?: "agent" | undefined
+    readonly terminalProviders?: AgentTerminal.Providers | undefined
   }
 ): FlowBinding.Source =>
   FlowBinding.source(shellSource, [
@@ -268,14 +270,7 @@ export const shell = (
         // Never route the coding terminal binding through Exec or Container.
         // No existing transport proves registered-run PTY ownership/framing.
         handler: options?.terminal === "agent"
-          ? () =>
-            Effect.fail(
-              new StdError({
-                code: "provider_unavailable",
-                message:
-                  "Agent terminal unavailable: registered machine dispatch, PTY lifecycle, owner-only input, participant and card providers require C-J3-10 and C-COL-04."
-              })
-            )
+          ? () => Effect.fail(AgentTerminal.unavailable(options.terminalProviders))
           : options?.sealedTo === undefined
           ? Bash.run
           : Bash.sealed(options.sealedTo),
