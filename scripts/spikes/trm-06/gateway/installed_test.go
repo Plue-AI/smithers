@@ -11,7 +11,16 @@ import (
 )
 
 func TestInstalledRevocationBoundaryWaitsForDrainAndRejectsMalformedRequests(t *testing.T) {
-	root := t.TempDir()
+	// Keep the Unix address below Darwin's limit even under the macOS TMPDIR.
+	root, err := os.MkdirTemp("", "rev-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Error(err)
+		}
+	})
 	path := filepath.Join(root, "control.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
@@ -63,9 +72,17 @@ func TestInstalledRevocationBoundaryWaitsForDrainAndRejectsMalformedRequests(t *
 	}
 }
 func TestProtectedStateRefusesSymlinksAndOverbroadModes(t *testing.T) {
-	// /tmp is intentionally untrusted. No fixtures under /tmp can become host
-	// authority even if their leaf mode matches. This tests the real fd walk.
+	// Create the unsafe ancestor explicitly; TMPDIR may be a protected home.
+	// Its leaf mode alone must never confer host authority.
 	root := t.TempDir()
+	if err := os.Chmod(root, 0777); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(root, 0700); err != nil {
+			t.Error(err)
+		}
+	})
 	path := filepath.Join(root, "config.json")
 	if err := os.WriteFile(path, []byte(`{"listen":"127.0.0.1:48000"}`), 0600); err != nil {
 		t.Fatal(err)
