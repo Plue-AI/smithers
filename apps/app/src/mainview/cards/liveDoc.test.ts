@@ -41,6 +41,9 @@ test("the file model selects live data only with authenticated editable text; go
   const provider = new LiveDocProvider("doc:code:T12:retry.ts")
   const model = { path: "retry.ts", branch: "T12", language: "typescript", digest: "literal", content: { kind: "text" as const, text: "seed" }, mode: "live" as const, diagnostics: [], authors: [], editors: [] }
   expect(liveFileModel(model, provider)).toEqual({ ...model, mode: "read_only" })
+  provider.setFile(model)
+  const activated = { ...model, digest: "merged", content: { kind: "text" as const, text: "Always end with DONE." } }
+  expect(liveFileModel(activated, provider)).toEqual({ ...activated, mode: "read_only" })
   provider.dispose()
 })
 

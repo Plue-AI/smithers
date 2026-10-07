@@ -72,7 +72,7 @@ export function documentEditors(states: ReadonlyMap<number, unknown>, local: num
 export function liveFileModel(model: import("@smthrs/rpc/FileCard").FileCard,
   provider: import("../runtime/LiveDocProvider").LiveDocProvider,
   awareness: ReadonlyMap<number, unknown> = new Map(), context: ActorContext = {}) {
-  model = provider.file ?? model
+  model = provider.available ? provider.file ?? model : model
   if (!provider.editable || model.content.kind !== "text" || model.gone) {
     return { ...model, content: (model.gone || (provider.available && provider.unsaved)) && model.content.kind === "text" ? { kind: "text" as const, text: provider.doc.getText("content").toString() } : model.content, mode: "read_only" as const, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
   }

@@ -98,6 +98,40 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
  await expect(page.getByText("model.ask", { exact: true })).toHaveCount(0)
 })
 
-test("C-J11-03: merged instructions and already running TODO calls use the next binding", async () => {
- test.fixme(true, "Requires a merged instruction-edit TODO and trusted per-call factory role binding in the coding host")
+test("C-J11-03: the instruction link reads the activated main revision after reload", async ({ page }) => {
+ await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
+ await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [] } }))
+ await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+ await page.route("**/api/agents", route => route.fulfill({ json: { native: false, canAssign: true, agents: [
+  { id: "app", label: "App agent", purpose: "", model: { id: "model-f", label: "model-f", provider: "openai-chat" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: ".smithers/instructions/app.md", runs: [] }
+ ] } }))
+ let active = "Answer the repository question as Smithers for the prompt author."
+ const draft = "Always end answers with the word DONE."
+ const reads: string[] = []
+ await page.route("**/api/branches/main/files/.smithers/instructions/app.md", route => {
+  reads.push(active)
+  return route.fulfill({ json: {
+   path: ".smithers/instructions/app.md", branch: "main", language: "markdown", digest: active === draft ? "sha256:merged" : "sha256:builtin",
+   content: { kind: "text", text: active }, mode: "read_only", diagnostics: [], authors: [], editors: []
+  } })
+ })
+ const openInstructions = async () => {
+  await say(page, "/agents")
+  await page.locator('[data-agent="app"] [data-flow="files.read"]').press("Enter")
+ }
+ await page.goto("/smithersai/smithers")
+ await openInstructions()
+ await expect(page.getByText(active, { exact: true }).last()).toBeVisible()
+ // A working-copy draft does not change the main-file seam.
+ await page.reload()
+ await openInstructions()
+ await expect(page.getByText(active, { exact: true }).last()).toBeVisible()
+ await expect(page.getByText(draft, { exact: true })).toHaveCount(0)
+ active = draft // The real reference journey observes this transition after owner merge/activation.
+ await page.reload()
+ await openInstructions()
+ await expect.poll(() => reads).toContain(draft)
+ await expect(page.getByRole("textbox", { name: ".smithers/instructions/app.md", exact: true })).toContainText(draft)
+ expect(reads[0]).toBe("Answer the repository question as Smithers for the prompt author.")
+ expect(reads.at(-1)).toBe(draft)
 })
