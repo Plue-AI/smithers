@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
+	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -131,6 +134,89 @@ func TestCSEC02BundledInstallIsolation(t *testing.T) {
 		t.Fatal("prerequisite: environment: PG18: server version 18 required")
 	}
 	t.Fatal("prerequisite: dependency: T-INS-01/T-INS-08: bundled launcher and production install lifecycle harness unavailable; steps 1-5 and 7 unexecuted")
+}
+
+// The production bundled launcher must refuse damaged runtime inputs before
+// it creates state or starts PostgreSQL. This separately qualifies step 6;
+// it does not substitute for the normal TODO and interruption lifecycle above.
+func TestCSEC02BundledLauncherRuntimeRefusals(t *testing.T) {
+	bundle := os.Getenv("SMITHERS_CHECK_BUNDLE")
+	if bundle == "" {
+		if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") == "1" {
+			t.Fatal("SMITHERS_CHECK_BUNDLE required for bundled launcher runtime refusals")
+		}
+		t.Skip("requires real darwin-arm64 install bundle")
+	}
+	require.Equal(t, "darwin", runtime.GOOS)
+	require.Equal(t, "arm64", runtime.GOARCH)
+	bundle, err := filepath.Abs(bundle)
+	require.NoError(t, err)
+	approved, err := installbundle.Open(bundle)
+	require.NoError(t, err)
+	manifest, err := os.ReadFile(filepath.Join(bundle, "manifest.json"))
+	require.NoError(t, err)
+	var declared struct {
+		Files []installbundle.Entry `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(manifest, &declared))
+	require.NotEmpty(t, declared.Files)
+	for _, expected := range declared.Files {
+		path := expected.Path
+		entry, ok := approved.Entry(path)
+		require.True(t, ok)
+		if entry.Symlink != nil {
+			target, err := os.Readlink(approved.Path(path))
+			require.NoError(t, err)
+			require.Equal(t, *entry.Symlink, target)
+			resolved, err := filepath.EvalSymlinks(approved.Path(path))
+			require.NoError(t, err)
+			require.True(t, strings.HasPrefix(resolved, approved.Root()+string(filepath.Separator)))
+			bytes, err := os.ReadFile(resolved)
+			require.NoError(t, err)
+			require.Equal(t, entry.SHA256, fmt.Sprintf("%x", sha256.Sum256(bytes)))
+			continue
+		}
+		_, err := approved.Expect("baseline artifact", approved.Path(path), path, entry.Mode&0111 != 0)
+		require.NoError(t, err, "baseline must be intact before runtime removal")
+	}
+	t.Logf("bundle revision=%s manifestSHA256=%s", approved.Revision(), approved.ManifestSHA256())
+	for _, dependency := range []string{"bin/msb", "lib/libkrunfw.5.dylib"} {
+		t.Run(dependency, func(t *testing.T) {
+			root := bundletest.ProtectedTempDir(t)
+			copy := filepath.Join(root, "bundle")
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+			defer cancel()
+			// APFS clones avoid copying the offline image's bytes. Neither the
+			// source bundle nor any other install is ever mutated.
+			output, err := exec.CommandContext(ctx, "/bin/cp", "-cR", bundle, copy).CombinedOutput()
+			require.NoError(t, err, "%s", output)
+			require.NoError(t, os.Remove(filepath.Join(copy, filepath.FromSlash(dependency))))
+			home := filepath.Join(root, "home")
+			require.NoError(t, os.Mkdir(home, 0700))
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			address := listener.Addr().String()
+			require.NoError(t, listener.Close())
+			started := time.Now()
+			launchCtx, stop := context.WithTimeout(t.Context(), 30*time.Second)
+			defer stop()
+			command := exec.CommandContext(launchCtx, filepath.Join(copy, "bin/smithers-server"), "--bind", address)
+			command.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "SMITHERS_BACKEND_MODE=plue", "SMITHERS_WORKSPACE_ISOLATION=process", "SMITHERS_MICROSANDBOX_BIN=/bin/false"}
+			output, err = command.CombinedOutput()
+			require.Error(t, err, "missing runtime must refuse startup")
+			require.NoError(t, launchCtx.Err(), "refusal must precede the 30-second timeout")
+			require.Contains(t, string(output), filepath.Base(dependency))
+			require.NotContains(t, string(output), `"setup_urls"`)
+			_, stateErr := os.Stat(filepath.Join(home, "Library", "Application Support", "Smithers"))
+			require.ErrorIs(t, stateErr, os.ErrNotExist, "refusal precedes backend state or PostgreSQL startup")
+			if evidence := os.Getenv("SMITHERS_FLOW_ISOLATION_EVIDENCE_DIR"); evidence != "" {
+				require.NoError(t, os.MkdirAll(evidence, 0700))
+				body, marshalErr := json.Marshal(map[string]any{"dependency": dependency, "refused": true, "durationMs": time.Since(started).Milliseconds(), "output": string(output)})
+				require.NoError(t, marshalErr)
+				require.NoError(t, os.WriteFile(filepath.Join(evidence, "missing-"+filepath.Base(dependency)+".json"), append(body, '\n'), 0600))
+			}
+		})
+	}
 }
 
 // The listener records every accepted connection, even a connection carrying

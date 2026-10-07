@@ -22,6 +22,8 @@ const packagedRuntime = (): { backend: string; postgresBin: string; root: string
   writeFileSync(join(packageRoot, "postgres", "bundle.json"), '{"version":1,"bin":"bin"}\n')
   writeFileSync(join(root, "smithers-server"), "x", { mode: 0o755 })
   writeFileSync(join(root, "msb"), "x", { mode: 0o755 })
+  mkdirSync(join(packageRoot, "lib"))
+  writeFileSync(join(packageRoot, "lib/libkrunfw.5.dylib"), "kernel")
   const backend = join(root, "smithers-backend")
   writeFileSync(backend, "x", { mode: 0o755 })
   const coding = join(root, "smithers-coding-host")
@@ -470,13 +472,16 @@ describe("native backend ownership", () => {
   await instance.stop()
  })
 
- test("missing bundled msb refuses before spawning", async () => {
+ test.each([
+  ["msb", "Bundled microVM runtime is unavailable"],
+  ["../lib/libkrunfw.5.dylib", "Bundled microVM guest kernel is unavailable"]
+ ])("missing bundled runtime %s refuses before spawning", async (path, message) => {
   const runtime = packagedRuntime()
-  rmSync(join(runtime.root, "msb"))
+  rmSync(join(runtime.root, path))
   let spawned = false
   await expect(startNativeBackend({ executablePath: join(runtime.root, "smithers-server"),
    stateDir: runtime.state, webRoot, spawn: () => { spawned = true; throw new Error("spawn") }
-  })).rejects.toThrow("Bundled microVM runtime is unavailable")
+  })).rejects.toThrow(message)
   expect(spawned).toBe(false)
  })
 
