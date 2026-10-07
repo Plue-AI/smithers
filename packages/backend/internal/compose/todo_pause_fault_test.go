@@ -137,7 +137,7 @@ func TestTodoStartCrashChild(t *testing.T) {
 	service.Start(t.Context())
 }
 func TestTodoStartCrashThroughRoute(t *testing.T) {
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr4rel04start")
+	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", fmt.Sprintf("relstart%d", os.Getpid()))
 	f := newMergeFaultFixture(t)
 	ctx := t.Context()
 	_, err := f.pool.Exec(ctx, `INSERT INTO workflow_definitions(repository_id,name,path,config,is_active,source_commit,digest,status) VALUES($1,'todo','flows/todo/flow.ts','{}',true,'4f098b2e90ef23159043fd5dfecbc305e0017549',$2,'loaded')`, f.repo, startFaultDigest)
@@ -217,7 +217,7 @@ func TestTodoStartCrashThroughRoute(t *testing.T) {
 
 // A failed Starting fact cannot acknowledge an attempt or leave a launch behind.
 func TestTodoStartFactRollsBackAdmissionComposed(t *testing.T) {
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr4rel04atomic")
+	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", fmt.Sprintf("relatom%d", os.Getpid()))
 	f := newMergeFaultFixture(t)
 	ctx := t.Context()
 	_, err := f.pool.Exec(ctx, `INSERT INTO workflow_definitions(repository_id,name,path,config,is_active,source_commit,digest,status) VALUES($1,'todo','flows/todo/flow.ts','{}',true,'4f098b2e90ef23159043fd5dfecbc305e0017549',$2,'loaded')`, f.repo, startFaultDigest)

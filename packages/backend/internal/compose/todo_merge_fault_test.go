@@ -301,7 +301,7 @@ func TestTodoMergeCrashChild(t *testing.T) {
 func TestTodoMergeCrashThroughRoute(t *testing.T) {
 	for _, point := range []string{"merge-pre-land", "merge-post-land", "merge-post-call"} {
 		t.Run(point, func(t *testing.T) {
-			t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr4rel04")
+			t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", fmt.Sprintf("relmerge%d", os.Getpid()))
 			f := newMergeFaultFixture(t)
 			child := faultprocess.Start(t, "TestTodoMergeCrashChild", "todo-merge", point, f.pool.Config().ConnString(), f.host, strconv.FormatInt(f.number, 10), f.head)
 			child.Await(t, faultprocess.Marker+point)
