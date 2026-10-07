@@ -673,6 +673,20 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				if mode == config.AuthModeMultitenant {
 					want = tc.plue
 				}
+				if mode == config.AuthModeSelfHosted && want == http.StatusNotFound {
+					for _, credential := range []string{"", "Bearer invalid", "session"} {
+						absent := httptest.NewRequest(tc.method, config.PublicOrigin(cfg)+tc.path, strings.NewReader(`{}`))
+						absent.Header.Set("Content-Type", "application/json")
+						if credential == "session" {
+							absent.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: "expired-session"})
+						} else if credential != "" {
+							absent.Header.Set("Authorization", credential)
+						}
+						response := httptest.NewRecorder()
+						router.ServeHTTP(response, absent)
+						require.Equal(t, http.StatusNotFound, response.Code, "%s %s %s", tc.method, tc.path, credential)
+					}
+				}
 				require.Equal(t, want, status, "%s %s: %s", tc.method, tc.path, result)
 				if tc.path == "/api/repos/cutowner/repo/agent-sessions/old/egress" && mode == config.AuthModeMultitenant {
 					require.Contains(t, result, "agent service unavailable", "the retained handler, rather than a middleware panic, must answer")
