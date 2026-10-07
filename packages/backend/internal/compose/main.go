@@ -975,6 +975,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				return errors.New("install admission free-disk reader unavailable")
 			}
 			workspaceService.EnableMachineAdmission(disk.FreeDisk)
+			if err := workspaceService.ReconstructMachineAdmission(ctx); err != nil {
+				return fmt.Errorf("reconstruct machine admission: %w", err)
+			}
 		}
 	}
 	adminUserService := services.NewAdminUserService(queries,

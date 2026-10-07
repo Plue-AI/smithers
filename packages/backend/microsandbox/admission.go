@@ -13,6 +13,10 @@ import (
 // This extends Runtime's existing capacity mutex; providers must be supplied by
 // the install before the dark scheduler can grant repository-backed work.
 type AdmissionRequest struct {
+	// RetainOnly is a reconstruction hint: completed/paused demand may retain
+	// an existing VM but must never queue a new wake. Live queue rows omit it.
+	RetainOnly                          bool
+	RecoveryTodoScope                   string
 	Holder, Actor, Reason, Class, State string
 	Position                            int
 	sequence                            uint64
@@ -25,6 +29,7 @@ type admissionHolder struct {
 	releasing     time.Time
 	idlePreparing bool
 	todoScope     string
+	todoNeedsSync bool
 	todoLimit     int
 	todoEligible  bool
 	todoOrigins   []string
@@ -486,6 +491,7 @@ func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time)
 			for _, ws := range r.workspaces {
 				if ws.Machine == machine {
 					ws.State = "stopped"
+					ws.recovering = false
 					ws.guestOK = false
 					if err := writeMetadata(ws); err != nil {
 						errs = append(errs, err)
@@ -608,6 +614,13 @@ func (r *Runtime) admitMachineLocked(ctx context.Context, maximum int, machine s
 		return errors.New("machine has no active admission grant")
 	}
 	if h.machine != "" {
+		if h.machine == machine {
+			for _, ws := range r.workspaces {
+				if ws.Machine == machine && ws.recovering && !ws.booting {
+					return nil
+				}
+			}
+		}
 		return errors.New("admission slot already has a machine")
 	}
 	h.machine = machine
@@ -638,6 +651,12 @@ func (r *Runtime) detachAdmissionMachineLocked(machine string, release bool) {
 // The grant context carries the same slot through preparation and branch boot.
 // Caller authority is checked by Ready on every grant; a missing adapter fails closed.
 func (r *Runtime) WaitAdmission(ctx context.Context, p AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	r.mu.Lock()
+	recovering := r.admissionRecoveryPending
+	r.mu.Unlock()
+	if recovering {
+		return ctx, ErrAdmissionNotReady
+	}
 	if p.Ready == nil || p.FreeDisk == nil {
 		return ctx, errors.New("admission providers unavailable")
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"net/http"
@@ -152,8 +153,9 @@ func TestFrTMCH06BranchWaitPositionProductionHTTPPostgres(t *testing.T) {
 	require.NoError(t, err)
 	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, Name: "main", Kind: "container", Status: "starting", TargetBookmark: "main", EnvironmentSource: "base"})
 	require.NoError(t, err)
-	// Restart settles a transitional VM through independently confirmed stop
-	// before the authenticated Home projection can report its slot as free.
+	restoredSession, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: row.ID, RepositoryID: repo.ID, UserID: owner.ID, Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	// A recorded boot retains its slot until durable demand is reconstructed.
 	root := t.TempDir()
 	sum := sha256.Sum256([]byte(row.ID))
 	directory := filepath.Join(root, "workspaces", hex.EncodeToString(sum[:]))
@@ -173,14 +175,25 @@ case "$1" in
 esac
 `, marker, machine, machine, marker)
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
-	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, SkipQualification: true})
+	runtime, err := microsandbox.New(ctx, microsandbox.Config{RecoverAdmission: true, Root: root, Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, SkipQualification: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
-	require.FileExists(t, marker)
+	require.NoFileExists(t, marker)
+	require.Equal(t, 1, runtime.InUse())
 	observed, err := runtime.InspectWorkspace(ctx, row.ID)
 	require.NoError(t, err)
-	require.Equal(t, workspace.WorkspaceStopped, observed.State)
+	require.Equal(t, workspace.WorkspaceStarting, observed.State)
 	svc := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())), services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)))
+	svc.EnableMachineAdmission(nil)
+	require.NoError(t, svc.ReconstructMachineAdmission(ctx))
+	require.NoError(t, svc.ReconstructMachineAdmission(ctx))
+	restored := runtime.AdmissionSnapshot()
+	require.Len(t, restored, 1, "repeated startup must not duplicate reconstructed demand")
+	restoredActor := fmt.Sprintf("person:%d:session:%s", owner.ID, restoredSession.ID)
+	require.Equal(t, restoredActor, restored[0].Actor)
+	require.Equal(t, "granted", restored[0].State)
+	require.True(t, runtime.NeedsWorkspaceReattachment(row.ID))
+	require.NoFileExists(t, marker, "a surviving request preserves the booting VM")
 	cfg := testConfigAllFlagsOn()
 	server := httptest.NewUnstartedServer(nil)
 	t.Cleanup(server.Close)
@@ -212,6 +225,47 @@ esac
 	router := fn.CallSlice(args)[0].Interface().(http.Handler)
 	server.Config.Handler = router
 	server.Start()
+	readHome := func(want int) {
+		header := http.Header{"Origin": []string{origin}, "Cookie": []string{"smithers_session=" + token}}
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: header})
+		require.NoError(t, err)
+		defer conn.CloseNow()
+		require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		for {
+			_, raw, err := conn.Read(readCtx)
+			require.NoError(t, err)
+			var frame liveFrame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			if frame.T != "snap" {
+				require.NotEqual(t, "err", frame.T, string(raw))
+				continue
+			}
+			var home struct {
+				Machines services.MachineCapacity `json:"machines"`
+			}
+			require.NoError(t, json.Unmarshal(frame.Data, &home))
+			require.Equal(t, services.MachineCapacity{InUse: want, Capacity: 3}, home.Machines)
+			break
+		}
+	}
+	readHome(1)
+	restoredClose := httptest.NewRequest("POST", origin+"/api/repos/admissionowner/fixture/workspace/sessions/"+restoredSession.ID+"/destroy", nil)
+	restoredClose.RemoteAddr = "127.0.0.1:1234"
+	restoredClose.Header.Set("Origin", origin)
+	restoredClose.Header.Set("X-CSRF-Token", "csrf")
+	restoredClose.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+	restoredClose.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+	restoredResponse := httptest.NewRecorder()
+	router.ServeHTTP(restoredResponse, restoredClose)
+	require.Equal(t, http.StatusNoContent, restoredResponse.Code, restoredResponse.Body.String())
+	require.Equal(t, 1, runtime.InUse())
+	require.NoFileExists(t, marker)
+	require.NoError(t, runtime.ReconcileAdmissionReleases(ctx, time.Now().Add(30*time.Second)))
+	require.FileExists(t, marker)
+	require.Zero(t, runtime.InUse())
+	readHome(0)
 	holder := "workspace:" + row.ID
 	_, err = runtime.Request("todo", holder, holder, "machine")
 	require.NoError(t, err)
@@ -258,6 +312,10 @@ esac
 	router.ServeHTTP(response, request)
 	require.Equal(t, 503, response.Code, response.Body.String())
 	rows := runtime.AdmissionSnapshot()
+	require.Len(t, rows, 4)
+	require.Equal(t, restoredActor, rows[0].Actor)
+	require.Equal(t, "cancelled", rows[0].State)
+	rows = rows[1:]
 	require.Len(t, rows, 3)
 	require.Equal(t, "waiting", rows[0].State)
 	require.Equal(t, 2, rows[0].Position)
@@ -357,29 +415,53 @@ esac
 	}
 	runtime.SetCapacityReader(func(context.Context) (int, error) { return 3, nil })
 
-	// The Home card uses the same owner capacity and runtime accounting as
-	// admission, rather than counting only the machines visible on TODO cards.
-	header := http.Header{"Origin": []string{origin}, "Cookie": []string{"smithers_session=" + token}}
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: header})
+	readHome(0)
+	// Durable source reconstruction is a single database snapshot; settled
+	// sessions/jobs and paused/review TODOs cannot manufacture new wake demand.
+	item, _, err := q.InsertMythicalChatItem(ctx, db.MythicalItem{RepositoryID: repo.ID, WorkspaceID: row.ID, CandidateHead: strings.Repeat("d", 40)})
 	require.NoError(t, err)
-	defer conn.CloseNow()
-	require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
-	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	for {
-		_, raw, err := conn.Read(readCtx)
-		require.NoError(t, err)
-		var frame liveFrame
-		require.NoError(t, json.Unmarshal(raw, &frame))
-		if frame.T != "snap" {
-			require.NotEqual(t, "err", frame.T, string(raw))
-			continue
-		}
-		var home struct {
-			Machines services.MachineCapacity `json:"machines"`
-		}
-		require.NoError(t, json.Unmarshal(frame.Data, &home))
-		require.Equal(t, services.MachineCapacity{InUse: 0, Capacity: 3}, home.Machines)
-		break
-	}
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=1,owner_id=$2,state='running' WHERE id=$1`, item.ID, owner.ID)
+	require.NoError(t, err)
+	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: row.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "recovered"})
+	require.NoError(t, err)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	payload, err := json.Marshal(map[string]any{"admission": map[string]any{"repository_id": repo.ID, "requester_id": owner.ID}})
+	require.NoError(t, err)
+	job, err := store.Admit(ctx, jobs.Admission{Scope: jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}, Operation: "install.review", RequestID: "recover-review", Payload: payload, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent})
+	require.NoError(t, err)
+	background, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, Name: "review-" + job.OperationID, Kind: "container", Status: "starting", TargetBookmark: "review/" + job.OperationID, EnvironmentSource: "base"})
+	require.NoError(t, err)
+	recorder := &admissionDemandRecorder{}
+	recoveryService := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(recorder), services.WithWorkspaceTransactions(pool))
+	require.NoError(t, recoveryService.ReconstructMachineAdmission(ctx))
+	require.Len(t, recorder.rows, 2)
+	require.Equal(t, "todo", recorder.rows[0].Class)
+	require.Equal(t, fmt.Sprintf("repository:%d", repo.ID), recorder.rows[0].RecoveryTodoScope)
+	require.False(t, recorder.rows[0].RetainOnly)
+	require.Equal(t, "workspace:"+background.ID, recorder.rows[1].Holder)
+	require.Equal(t, "background", recorder.rows[1].Class)
+	require.Equal(t, job.OperationID, recorder.rows[1].Actor)
+	require.False(t, recorder.rows[1].RetainOnly)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposed' WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET cancellation_requested=true,cancellation_requested_at=now() WHERE id=$1`, job.OperationID)
+	require.NoError(t, err)
+	require.NoError(t, recoveryService.ReconstructMachineAdmission(ctx))
+	require.Len(t, recorder.rows, 1)
+	require.True(t, recorder.rows[0].RetainOnly)
+	_, err = pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=now() WHERE workspace_id=$1`, row.ID)
+	require.NoError(t, err)
+	require.NoError(t, recoveryService.ReconstructMachineAdmission(ctx))
+	require.Empty(t, recorder.rows)
+}
+
+type admissionDemandRecorder struct {
+	workspace.WorkspaceRuntime
+	rows []microsandbox.AdmissionRequest
+}
+
+func (r *admissionDemandRecorder) ReconstructAdmission(_ context.Context, rows []microsandbox.AdmissionRequest) error {
+	r.rows = append([]microsandbox.AdmissionRequest(nil), rows...)
+	return nil
 }

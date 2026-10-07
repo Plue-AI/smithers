@@ -41,6 +41,7 @@ func (r *Runtime) SyncTodoAdmission(scope string, holders []string, limit int) e
 		}
 		h := r.admission[holder]
 		h.todoScope, h.todoLimit = scope, max(0, limit)
+		h.todoNeedsSync = false
 	}
 	r.reorderTodoAdmissionLocked(holders)
 	r.refreshTodoEligibilityLocked(scope, limit)
@@ -54,6 +55,9 @@ func (r *Runtime) grantableAdmissionLocked() []*AdmissionRequest {
 	return slices.DeleteFunc(heads, func(row *AdmissionRequest) bool {
 		h := r.admission[row.Holder]
 		if strings.HasPrefix(row.Holder, "todo:") {
+			return true
+		}
+		if row.Class == "todo" && h.todoNeedsSync {
 			return true
 		}
 		if row.Class != "todo" || h.todoScope == "" {

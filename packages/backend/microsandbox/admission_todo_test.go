@@ -111,3 +111,30 @@ func TestTodoGrantRechecksParallelWithoutEnginePass(t *testing.T) {
 	require.Empty(t, third.Holder)
 	require.Equal(t, 2, r.InUse())
 }
+
+func TestRecoveredTodoWaitsForStackOrderAndCountsRetainedSlots(t *testing.T) {
+	r, p := admissionFixture()
+	r.config.MaxRunningVMs = 3
+	r.SetCapacityReader(func(context.Context) (int, error) { return 3, nil })
+	r.SetTodoParallelReader(func(context.Context) (int, error) { return 1, nil })
+	r.admissionRecoveryPending = true
+	require.NoError(t, r.ReconstructAdmission(t.Context(), []AdmissionRequest{
+		{Holder: "workspace:older", Actor: "workspace:older", Class: "todo", Reason: "machine", RecoveryTodoScope: "repository:1"},
+		{Holder: "workspace:first", Actor: "workspace:first", Class: "todo", Reason: "machine", RecoveryTodoScope: "repository:1"},
+	}))
+	grant, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Empty(t, grant.Holder, "parallel refresh alone must not bypass durable stack ordering")
+	require.NoError(t, r.SyncTodoAdmission("repository:1", []string{"workspace:first", "workspace:older"}, 1))
+	grant, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:first", grant.Holder)
+	grant, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Empty(t, grant.Holder, "the retained TODO consumes the saved parallel limit")
+	_, err = r.Request("person", "workspace:person", "member", "terminal")
+	require.NoError(t, err)
+	grant, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:person", grant.Holder)
+}

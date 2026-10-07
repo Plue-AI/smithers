@@ -61,6 +61,9 @@ const DefaultImage = "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d
 // Config selects the msb binary, the data root holding adapter metadata, the
 // VM shape, and the backend ports a guest may reach through its bridge.
 type Config struct {
+	// RecoverAdmission preserves retained VMs until the install reconstructs
+	// demand from its existing jobs and sessions. New grants remain disabled.
+	RecoverAdmission bool
 	// HostProfile distinguishes a computed zero capacity from missing sizing.
 	HostProfile *HostProfile
 	// Binary is the absolute path of an msb executable for a runtime
@@ -142,12 +145,13 @@ type metadata struct {
 
 type workspace struct {
 	metadata
-	booting   bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
-	directory string
-	commands  map[string]*guestCommand
-	services  map[string]*managedService
-	previews  map[uint16]*previewListener
-	guestOK   bool
+	recovering bool // retained VM awaits reattachment after durable-demand reconstruction
+	booting    bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
+	directory  string
+	commands   map[string]*guestCommand
+	services   map[string]*managedService
+	previews   map[uint16]*previewListener
+	guestOK    bool
 }
 
 // Runtime owns every microVM it creates and the metadata that names them.
@@ -165,21 +169,23 @@ type Runtime struct {
 	codingHelper codingHelperCache
 	guestJJ      codingHelperCache
 
-	mu                 sync.Mutex
-	closed             bool
-	workspaces         map[string]*workspace
-	auxVMs             map[string]struct{}
-	auxCleanup         map[string]struct{}
-	capacityReader     func(context.Context) (int, error)
-	todoParallelReader func(context.Context) (int, error)
-	admission          map[string]*admissionHolder
-	admissionSequence  uint64
-	admissionChanged   chan struct{}
-	admissionCancel    context.CancelFunc
-	admissionIdleMu    sync.Mutex
-	admissionIdle      *AdmissionIdleProviders
-	admissionStarted   time.Time
-	metrics            *machineMetrics
+	mu                       sync.Mutex
+	closed                   bool
+	workspaces               map[string]*workspace
+	auxVMs                   map[string]struct{}
+	auxCleanup               map[string]struct{}
+	capacityReader           func(context.Context) (int, error)
+	todoParallelReader       func(context.Context) (int, error)
+	admission                map[string]*admissionHolder
+	admissionSequence        uint64
+	admissionChanged         chan struct{}
+	admissionCancel          context.CancelFunc
+	admissionIdleMu          sync.Mutex
+	admissionIdle            *AdmissionIdleProviders
+	admissionStarted         time.Time
+	admissionRecoveryPending bool
+	admissionRecoveryMu      sync.Mutex
+	metrics                  *machineMetrics
 }
 
 // MachinedRegistry is the install's single registry. Composition and runtime
@@ -266,10 +272,11 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	}
 	runtime := &Runtime{
 		cli: client, config: config, root: root, owner: owner,
-		admissionStarted: time.Now(),
-		holder:           fmt.Sprintf("backend-%d-%s", os.Getpid(), hex.EncodeToString(holderToken)),
-		semaphore:        make(chan struct{}, config.MaxConcurrent),
-		workspaces:       make(map[string]*workspace),
+		admissionStarted:         time.Now(),
+		admissionRecoveryPending: config.RecoverAdmission,
+		holder:                   fmt.Sprintf("backend-%d-%s", os.Getpid(), hex.EncodeToString(holderToken)),
+		semaphore:                make(chan struct{}, config.MaxConcurrent),
+		workspaces:               make(map[string]*workspace),
 	}
 	if config.Environments != nil {
 		environmentConfig := *config.Environments
@@ -440,10 +447,10 @@ func writeMetadata(ws *workspace) error {
 	return os.Rename(temporary, filepath.Join(ws.directory, "metadata.json"))
 }
 
-// recover reconciles metadata with Microsandbox after a restart. A previous
-// backend's exec clients and guest command groups are killed: live processes
-// are never inferred across a restart, and common reconciliation restarts the
-// services it needs. Owned machines without metadata are reaped.
+// recover reconciles metadata with Microsandbox after a restart. Installs
+// retain known VMs until durable demand is reconstructed, then reattach through
+// the normal trusted guest recovery path. Standalone adapters settle old VMs
+// immediately. Owned machines without metadata are always reaped.
 func (r *Runtime) recover(ctx context.Context) error {
 	killOrphanClients(r.cli.binary, "smthrs-ws-"+strings.TrimPrefix(r.owner, "smithers-backend-")[:8]+"-")
 	records, err := r.cli.listSandboxes(ctx, map[string]string{providerLabel: providerName, ownerLabel: r.owner})
@@ -479,6 +486,15 @@ func (r *Runtime) recover(ctx context.Context) error {
 			continue
 		case !ok:
 			ws.State = string(workspaceapi.WorkspaceRecoveryRequired)
+		case r.config.RecoverAdmission && status != "stopped":
+			// Keep the physical machine and its slot, including a boot whose
+			// reply was lost. Composition decides demand before any new grant.
+			ws.State = string(workspaceapi.WorkspaceStarting)
+			ws.recovering = true
+			if r.admission == nil {
+				r.admission = map[string]*admissionHolder{}
+			}
+			r.admission["workspace:"+ws.ID] = &admissionHolder{held: true, machine: ws.Machine, rows: map[string]*AdmissionRequest{}}
 		case status == "running":
 			if err := r.cleanupGuest(ctx, ws.Machine); err != nil {
 				errs = append(errs, fmt.Errorf("clean previous command groups in %s: %w", ws.Machine, err))
@@ -849,13 +865,12 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (result workspa
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
-	switch ws.State {
-	case string(workspaceapi.WorkspaceRunning):
+	if ws.State == string(workspaceapi.WorkspaceRunning) {
 		described := describe(ws)
 		r.mu.Unlock()
 		return described, nil
-	case string(workspaceapi.WorkspaceStopped):
-	default:
+	}
+	if ws.State != string(workspaceapi.WorkspaceStopped) && !(ws.State == "starting" && ws.recovering && !ws.booting) {
 		state := ws.State
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, fmt.Errorf("workspace is %s", state)
@@ -878,7 +893,7 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (result workspa
 		r.mu.Unlock()
 		return described, nil
 	}
-	if ws.State != string(workspaceapi.WorkspaceStopped) {
+	if ws.State != string(workspaceapi.WorkspaceStopped) && !(ws.State == "starting" && ws.recovering && !ws.booting) {
 		state := ws.State
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, fmt.Errorf("workspace is %s", state)
@@ -911,6 +926,7 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (result workspa
 	if startErr != nil {
 		ws.State = string(workspaceapi.WorkspaceStopped)
 		if stopErr == nil {
+			ws.recovering = false
 			r.detachAdmissionMachineLocked(ws.Machine, true)
 		}
 		if stopErr != nil {
@@ -920,6 +936,7 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (result workspa
 		return workspaceapi.Workspace{}, errors.Join(startErr, stopErr)
 	}
 	ws.Reclaimed = false
+	ws.recovering = false
 	ws.State = string(workspaceapi.WorkspaceRunning)
 	if err := writeMetadata(ws); err != nil {
 		return workspaceapi.Workspace{}, err
@@ -934,6 +951,33 @@ func (r *Runtime) startMachine(ctx context.Context, ws *workspace) error {
 	}
 	if !found {
 		return fmt.Errorf("workspace microVM %s no longer exists", ws.Machine)
+	}
+	if ws.recovering && status != "running" && status != "stopped" {
+		// The old launcher may still be booting. Observe it; never issue a
+		// second start for the same retained boot.
+		observe, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for status != "running" && status != "stopped" {
+			select {
+			case <-observe.Done():
+				return observe.Err()
+			case <-ticker.C:
+			}
+			status, found, err = r.cli.sandboxStatus(observe, ws.Machine)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return fmt.Errorf("recovered microVM %s disappeared", ws.Machine)
+			}
+		}
+	}
+	if ws.recovering && status == "stopped" {
+		// The original boot ended. Its confirmed stop must release this slot;
+		// a retry needs a fresh grant and the current disk/capacity checks.
+		return fmt.Errorf("%w: recovered microVM %s stopped before reattachment", ErrUnavailable, ws.Machine)
 	}
 	if status != "running" {
 		startCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -1041,6 +1085,7 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 		return stopErr
 	}
 	ws.State = string(workspaceapi.WorkspaceStopped)
+	ws.recovering = false
 	r.detachAdmissionMachineLocked(ws.Machine, true)
 	ws.guestOK = false
 	return writeMetadata(ws)
