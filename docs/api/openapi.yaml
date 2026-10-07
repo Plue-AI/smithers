@@ -20730,7 +20730,47 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           description: Review delivery unavailable
+  /api/runs:
+    get:
+      x-composition: install
+      summary: List admitted runs
+      operationId: get_api_runs
+      tags:
+        - Runs
+      security: [{sessionCookie: []}, {bearerAuth: []}]
+      responses:
+        '200':
+          description: Admitted native run monitor data
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/AnyJSON'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/runs/{id}:
+    get:
+      x-composition: install
+      summary: Read an admitted run
+      operationId: get_api_runs_id
+      tags:
+        - Runs
+      security: [{sessionCookie: []}, {bearerAuth: []}]
+      parameters:
+        - {name: id, in: path, required: true, description: Run ID or workspace-prefixed run ID, schema: {type: string}}
+        - {name: at, in: query, description: Journal replay position, schema: {type: integer, format: int64, minimum: 0}}
+      responses:
+        '200':
+          description: Admitted native run monitor data
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnyJSON'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
     post:
       x-composition: install
       summary: Retry or dismiss a background run
@@ -20768,6 +20808,28 @@ paths:
         '404': {description: Run unavailable}
         '409': {description: Run cannot be changed}
         '503': {description: Background runs unavailable}
+  /api/runs/{id}/trace:
+    get:
+      x-composition: install
+      summary: Read an admitted run trace
+      operationId: get_api_runs_id_trace
+      tags:
+        - Runs
+      security: [{sessionCookie: []}, {bearerAuth: []}]
+      parameters:
+        - {name: id, in: path, required: true, description: Run ID or workspace-prefixed run ID, schema: {type: string}}
+        - {name: at, in: query, description: Journal replay position, schema: {type: integer, format: int64, minimum: 0}}
+      responses:
+        '200':
+          description: Admitted native run monitor data
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnyJSON'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/runs/{id}/background-status:
     get:
       x-composition: install

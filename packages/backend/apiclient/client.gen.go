@@ -2512,9 +2512,19 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 	ExpiresAt      time.Time  `json:"expires_at"`
 }
 
+// GetAPIRunsIDParams is the query of GET /api/runs/{id}.
+type GetAPIRunsIDParams struct {
+	At *int64
+}
+
 // PostAPIRunsIDBody is generated from docs/api/openapi.yaml.
 type PostAPIRunsIDBody struct {
 	Op string `json:"op"`
+}
+
+// GetAPIRunsIDTraceParams is the query of GET /api/runs/{id}/trace.
+type GetAPIRunsIDTraceParams struct {
+	At *int64
 }
 
 // DeleteAPISecretsBody is generated from docs/api/openapi.yaml.
@@ -6089,10 +6099,39 @@ func (c *Client) GetAPIReviewsID(ctx context.Context, id string) (AnyJSON, error
 	return out, err
 }
 
+// GetAPIRuns calls GET /api/runs.
+func (c *Client) GetAPIRuns(ctx context.Context) ([]AnyJSON, error) {
+	var out []AnyJSON
+	err := c.do(ctx, "GET", "/api/runs", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIRunsID calls GET /api/runs/{id}.
+func (c *Client) GetAPIRunsID(ctx context.Context, id string, params GetAPIRunsIDParams) (AnyJSON, error) {
+	query := url.Values{}
+	if params.At != nil {
+		query.Set("at", strconv.FormatInt(*params.At, 10))
+	}
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/runs/"+url.PathEscape(id), query, nil, &out)
+	return out, err
+}
+
 // PostAPIRunsID calls POST /api/runs/{id}.
 func (c *Client) PostAPIRunsID(ctx context.Context, id int64, idempotencyKey string, body PostAPIRunsIDBody) (HomeBackgroundReceipt, error) {
 	var out HomeBackgroundReceipt
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/runs/"+url.PathEscape(strconv.FormatInt(id, 10)), nil, body, &out)
+	return out, err
+}
+
+// GetAPIRunsIDTrace calls GET /api/runs/{id}/trace.
+func (c *Client) GetAPIRunsIDTrace(ctx context.Context, id string, params GetAPIRunsIDTraceParams) (AnyJSON, error) {
+	query := url.Values{}
+	if params.At != nil {
+		query.Set("at", strconv.FormatInt(*params.At, 10))
+	}
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/runs/"+url.PathEscape(id)+"/trace", query, nil, &out)
 	return out, err
 }
 

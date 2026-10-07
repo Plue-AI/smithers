@@ -218,10 +218,10 @@ func markMonitorThrash(value map[string]any, check string) {
 	}
 }
 func mountRunMonitors(router chi.Router, cfg *config.Config, q *db.Queries, m *runMonitors) {
-	access := []func(http.Handler) http.Handler{authLoader(q, cfg.Auth), middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)}
+	access := []func(http.Handler) http.Handler{authLoader(q, cfg.Auth), middleware.RequireAuth}
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if _, err := services.Authorize(r.Context(), q, "monitor"); err != nil {
-			browserFlowTyped(w, 403, "forbidden", "Run unavailable")
+			writeConfirmationDispatchError(w, err)
 			return
 		}
 		repo, _, err := installRepository(r.Context(), q)

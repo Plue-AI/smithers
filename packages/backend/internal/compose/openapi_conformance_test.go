@@ -215,7 +215,13 @@ func servedCompositionRoutes(t *testing.T, modes ...string) map[string]servedRou
 		cfg.Auth.Mode = mode
 		cfg.Auth.EnableKeyAuth = config.IsMultitenant(cfg.Auth)
 		cfg.FeatureFlags.Integrations = true
-		walkServedRoutes(t, openAPIConformanceRouter(cfg), served)
+		router := openAPIConformanceRouter(cfg)
+		if config.IsSingleOwner(cfg.Auth) {
+			// Main adds the native monitor doors after building the common router.
+			// Empty dependencies here enumerate routes only; boundary tests compose stores.
+			mountRunMonitors(router, cfg, nil, &runMonitors{})
+		}
+		walkServedRoutes(t, router, served)
 	}
 	// A pattern mounted for every method (chi also lists CONNECT for it) is
 	// a byte relay such as the desktop viewer, not a described operation.

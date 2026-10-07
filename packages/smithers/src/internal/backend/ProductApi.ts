@@ -6033,6 +6033,23 @@ export interface GetApiReviewsIdInput {
 export const getApiReviewsId = (transport: Transport, input: GetApiReviewsIdInput): Promise<GetApiReviewsIdResponse> =>
   transport.request("GET", `/api/reviews/${segment(input.path.id)}`) as Promise<GetApiReviewsIdResponse>
 
+export type GetApiRunsResponse = Array<AnyJSON>
+
+/** GET /api/runs: List admitted runs */
+export const getApiRuns = (transport: Transport): Promise<GetApiRunsResponse> =>
+  transport.request("GET", `/api/runs`) as Promise<GetApiRunsResponse>
+
+export type GetApiRunsIdResponse = AnyJSON
+
+export interface GetApiRunsIdInput {
+  readonly path: { readonly id: string }
+  readonly query?: { readonly at?: number }
+}
+
+/** GET /api/runs/{id}: Read an admitted run */
+export const getApiRunsId = (transport: Transport, input: GetApiRunsIdInput): Promise<GetApiRunsIdResponse> =>
+  transport.request("GET", `/api/runs/${segment(input.path.id)}${search({ at: input.query?.at })}`) as Promise<GetApiRunsIdResponse>
+
 export type PostApiRunsIdBody = {
   op: "retry" | "dismiss"
 }
@@ -6048,6 +6065,17 @@ export interface PostApiRunsIdInput {
 /** POST /api/runs/{id}: Retry or dismiss a background run */
 export const postApiRunsId = (transport: Transport, input: PostApiRunsIdInput): Promise<PostApiRunsIdResponse> =>
   transport.request("POST", `/api/runs/${segment(input.path.id)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiRunsIdResponse>
+
+export type GetApiRunsIdTraceResponse = AnyJSON
+
+export interface GetApiRunsIdTraceInput {
+  readonly path: { readonly id: string }
+  readonly query?: { readonly at?: number }
+}
+
+/** GET /api/runs/{id}/trace: Read an admitted run trace */
+export const getApiRunsIdTrace = (transport: Transport, input: GetApiRunsIdTraceInput): Promise<GetApiRunsIdTraceResponse> =>
+  transport.request("GET", `/api/runs/${segment(input.path.id)}/trace${search({ at: input.query?.at })}`) as Promise<GetApiRunsIdTraceResponse>
 
 export type GetApiRunsIdBackgroundStatusResponse = HomeBackgroundReceipt
 
