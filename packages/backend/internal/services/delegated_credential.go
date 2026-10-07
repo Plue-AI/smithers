@@ -78,9 +78,15 @@ func (s *AuthService) MintForTerminal(ctx context.Context, userID, repositoryID 
 	if err := s.requireDelegatedMember(ctx, userID); err != nil {
 		return CreateTokenResult{}, err
 	}
-	subject, err := db.New(s.Members.Pool).GetWorkspaceSession(ctx, sessionID)
-	if err != nil || subject.WorkspaceID != branchID || subject.RepositoryID != repositoryID || subject.UserID != userID || subject.Kind != "terminal" || (subject.Status != "pending" && subject.Status != "starting" && subject.Status != "running") {
-		return CreateTokenResult{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Terminal subject is not active"}
+	if s.TerminalSubject != nil {
+		if !s.TerminalSubject(userID, repositoryID, branchID, sessionID) {
+			return CreateTokenResult{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Terminal subject is not active"}
+		}
+	} else {
+		subject, err := db.New(s.Members.Pool).GetWorkspaceSession(ctx, sessionID)
+		if err != nil || subject.WorkspaceID != branchID || subject.RepositoryID != repositoryID || subject.UserID != userID || subject.Kind != "terminal" || (subject.Status != "pending" && subject.Status != "starting" && subject.Status != "running") {
+			return CreateTokenResult{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Terminal subject is not active"}
+		}
 	}
 	return s.mintForSubject(ctx, userID, terminalCredentialName(sessionID), middleware.Delegation{Via: "terminal", Branch: branchID, Session: sessionID, Profile: middleware.TerminalProfileS1}, []string{string(middleware.ScopeReadRepository), string(middleware.ScopeReadUser), middleware.RepositoryRestrictionScope(repositoryID)})
 }
