@@ -195,6 +195,7 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	require.Equal(t, 200, call("src/a.ts", body, "w6-member-cookie"))
 	require.Equal(t, []byte("before\n"), provider.files["src/a.ts"])
 	delete(provider.files, "src/a.ts")
+	seed("deleted", "")
 	require.Equal(t, 200, call("src/a.ts", deleted, "w6-member-cookie"))
 	require.Equal(t, fmt.Sprint(member.ID), provider.actor)
 	require.Equal(t, 4, provider.writes)
