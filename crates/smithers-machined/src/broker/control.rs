@@ -293,8 +293,8 @@ impl crate::hooks::Sessions for SocketpairBroker {
         let id = super::sessions::cgroup_id(id).map_err(map_io)?;
         self.call_body(19, &[id.to_be_bytes().as_slice(), args].concat())
     }
-    fn run_of_cgroup(&self, path: &str) -> Option<String> {
-        String::from_utf8(self.call_body(20, path.as_bytes()).ok()?).ok()
+    fn admission_of_cgroup(&self, path: &str) -> Option<super::sessions::Admission> {
+        serde_json::from_slice(&self.call_body(20, path.as_bytes()).ok()?).ok()
     }
     fn live(&self) -> Vec<u32> {
         self.live_sessions().unwrap_or_default()

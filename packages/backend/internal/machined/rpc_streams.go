@@ -136,6 +136,12 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 	l.sessionCallMu.Lock()
 	defer l.sessionCallMu.Unlock()
 	if call.Method == "open_session" || call.Method == "tcp_connect" {
+		if l.protocol < wire.SessionActorProtocol {
+			return SessionResult{}, refused("unsupported", "durable session attribution requires protocol 3")
+		}
+		if !validSessionActor(call) {
+			return SessionResult{}, ErrUnauthorized
+		}
 		l.mu.Lock()
 		full := len(l.sessions) >= 512
 		l.mu.Unlock()
@@ -183,9 +189,16 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 		if call.Size != nil {
 			fields = append(fields, wire.Field(4, wire.Struct(wire.Field(1, wire.U16(call.Size.Cols)), wire.Field(2, wire.U16(call.Size.Rows)))))
 		}
+		fields = append(fields, wire.Field(5, call.Actor))
+		if call.Run != "" {
+			fields = append(fields, wire.Field(6, wire.String(call.Run)))
+		}
 	case "tcp_connect":
 		method = wire.TCPConnect
-		fields = [][]byte{wire.Field(1, wire.U16(call.Port))}
+		fields = [][]byte{wire.Field(1, wire.U16(call.Port)), wire.Field(2, call.Actor)}
+		if call.Run != "" {
+			fields = append(fields, wire.Field(3, wire.String(call.Run)))
+		}
 	case "close_session":
 		method = wire.CloseSession
 		fields = [][]byte{wire.Field(1, wire.U32(call.Session))}
@@ -200,6 +213,18 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 		}
 		fields = [][]byte{wire.Field(1, target)}
 	case "register_run":
+		l.mu.Lock()
+		peer := l.sessions[call.Session]
+		l.mu.Unlock()
+		if peer == nil {
+			return SessionResult{}, ErrUnauthorized
+		}
+		peer.mu.Lock()
+		same := peer.user != nil && peer.user.UID == 19999 && peer.run == call.Run && call.Run != ""
+		peer.mu.Unlock()
+		if !same {
+			return SessionResult{}, ErrUnauthorized
+		}
 		method = wire.RegisterRun
 		fields = [][]byte{wire.Field(1, wire.String(call.Run)), wire.Field(2, wire.U32(call.Session))}
 	case "attach_session":
@@ -234,6 +259,9 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 			peer.user = &SessionUser{"agent", 19999}
 			peer.mu.Unlock()
 		}
+		peer.mu.Lock()
+		peer.run = call.Run
+		peer.mu.Unlock()
 		if call.User != nil {
 			peer.mu.Lock()
 			copy := *call.User

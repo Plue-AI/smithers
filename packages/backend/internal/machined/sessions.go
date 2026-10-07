@@ -33,6 +33,7 @@ const (
 type SessionCall struct {
 	Method string
 	// Via is host-side display metadata; it is never encoded in the guest RPC.
+	Actor    []byte
 	Via      string
 	User     *SessionUser
 	Kind     SessionKind
@@ -61,6 +62,8 @@ type Sessions struct {
 	connection *Connection
 	branch     string
 	via        string
+	actor      []byte
+	run        string
 }
 
 func NewSessions(connection *Connection, branch string, rpc SessionRPC) *Sessions {
@@ -79,6 +82,40 @@ func (s *Sessions) WithPresenceVia(via string) *Sessions {
 	copy := *s
 	copy.via = via
 	return &copy
+}
+
+// WithActor binds a host-committed immutable reference to future launches.
+// Callers must authorize and commit it before entering any lock held through
+// spawn. The reference is attribution, never a substitute for current access.
+func (s *Sessions) WithActor(reference []byte, run string) *Sessions {
+	if s == nil {
+		return nil
+	}
+	copy := *s
+	copy.actor = append([]byte(nil), reference...)
+	copy.run = run
+	return &copy
+}
+
+func validActorReference(reference []byte) bool {
+	if len(reference) != 16 {
+		return false
+	}
+	for _, b := range reference {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+func validSessionActor(call SessionCall) bool {
+	if !validActorReference(call.Actor) || call.Run != "" && (!validString(call.Run) || strings.TrimSpace(call.Run) != call.Run) {
+		return false
+	}
+	if call.Method == "tcp_connect" {
+		return true
+	}
+	return call.User != nil && ((call.User.UID == 19999) == (call.Run != ""))
 }
 
 func validUser(user SessionUser) bool {
@@ -132,6 +169,13 @@ func (s *Sessions) call(ctx context.Context, call SessionCall) (SessionResult, e
 		return SessionResult{}, refused("unauthorized", "invalid session transport")
 	}
 	call.Via = s.via
+	if call.Method == "open_session" || call.Method == "tcp_connect" {
+		call.Actor = append([]byte(nil), s.actor...)
+		call.Run = s.run
+		if !validSessionActor(call) {
+			return SessionResult{}, refused("unauthorized", "missing or invalid session attribution")
+		}
+	}
 	return s.rpc.CallSession(ctx, call)
 }
 

@@ -1,7 +1,7 @@
 //! Typed session commands at the privileged socketpair boundary. The shared
 //! wire schema checks lengths/fields first; semantic checks precede any provider
 //! call. The provider must additionally authorize against its current roster.
-use super::sessions::{Kind, User};
+use super::sessions::{Admission, Kind, User};
 use crate::conn;
 use std::io;
 
@@ -12,8 +12,9 @@ pub enum Request {
         kind: Kind,
         argv: Vec<String>,
         size: Option<(u16, u16)>,
+        admission: Option<Admission>,
     },
-    Tcp(u16),
+    Tcp(u16, Option<Admission>),
     Close(u32),
     KillUser(User),
     KillRun(String),
@@ -61,6 +62,22 @@ fn run(bytes: &[u8]) -> io::Result<String> {
     }
     Ok(value)
 }
+fn admission(fields: &[(u8, &[u8])], tag: u8) -> io::Result<Option<Admission>> {
+    let principal = fields.iter().find(|f| f.0 == tag).map(|f| f.1);
+    let run = fields
+        .iter()
+        .find(|f| f.0 == tag + 1)
+        .map(|f| run(f.1))
+        .transpose()?;
+    match principal {
+        Some(bytes) => Ok(Some(Admission {
+            principal: bytes.try_into().map_err(|_| invalid())?,
+            run,
+        })),
+        None if run.is_none() => Ok(None), // retained records and local opens
+        None => Err(invalid()),
+    }
+}
 impl Request {
     pub fn decode(method: u8, bytes: &[u8]) -> io::Result<Self> {
         if !matches!(method, 6..=10 | 15 | 16) || bytes.len() > 65527 {
@@ -86,7 +103,7 @@ impl Request {
                             argv.push(string(&rest[..n + 2])?);
                             rest = &rest[n + 2..];
                         }
-                    } else {
+                    } else if *tag == 4 {
                         let size_fields = conn::fields("size", bytes).map_err(|_| invalid())?;
                         let cols = u16::from_be_bytes(size_fields[0].1.try_into().unwrap());
                         let rows = u16::from_be_bytes(size_fields[1].1.try_into().unwrap());
@@ -108,6 +125,7 @@ impl Request {
                     kind,
                     argv,
                     size,
+                    admission: admission(&fields, 5)?,
                 }
             }
             7 => {
@@ -115,7 +133,7 @@ impl Request {
                 if port == 0 {
                     return Err(invalid());
                 }
-                Self::Tcp(port)
+                Self::Tcp(port, admission(&fields, 2)?)
             }
             8 => Self::Close(id(fields[0].1)?),
             9 => {

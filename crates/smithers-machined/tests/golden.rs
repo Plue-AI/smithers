@@ -167,3 +167,32 @@ fn sequenced_document_golden_payloads() {
         .is_err());
     }
 }
+
+#[test]
+fn protocol_three_admission_has_literal_cross_language_fields() {
+    use smithers_machined::broker::{
+        request::Request,
+        sessions::{Admission, Kind, User},
+    };
+    let bytes=hex("00000047010000000001000000420100000009020600000037010000000d0100056167656e740200004e1f02020300010005636f646578050102030405060708090a0b0c0d0e0f1006000572756e2d31");
+    let frame = Frame::decode(&bytes).unwrap();
+    let (id, method, args) = frame.request().unwrap();
+    assert_eq!((id, method), (9, 6));
+    assert_eq!(
+        Request::decode(method, args).unwrap(),
+        Request::Open {
+            user: User {
+                login: "agent".into(),
+                uid: 19999
+            },
+            kind: Kind::Exec,
+            argv: vec!["codex".into()],
+            size: None,
+            admission: Some(Admission {
+                principal: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                run: Some("run-1".into())
+            })
+        }
+    );
+    assert_eq!(frame.encode().unwrap(), bytes);
+}

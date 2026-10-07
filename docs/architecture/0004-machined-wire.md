@@ -154,8 +154,8 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | 3 | `write_file` | `1 path: str`, `2 base: Base`, `3 content: bytes`, `4 actor: Actor` | `1 post_digest: digest`, `2 raced: Raced`? | T-COL-03a |
 | 4 | `capture` | — | `1 head: oid`, `2 tree: oid`, `3 flushed_documents: u16` (the flush phase's count; 0 until S3) | T-COL-03a |
 | 5 | `wake_reconcile` | `1 head: oid` | `1 outcome: union {1 unchanged {}, 2 moved {1 head: oid}, 3 conflict {1 paths: list<str>}}` | T-COL-03a |
-| 6 | `open_session` | `1 user: User`, `2 kind: u8` (1 pty, 2 exec, 3 sftp), `3 argv: list<str>`?, `4 size: Size`? | `1 session: u32` | T-TRM-07; `unsupported` |
-| 7 | `tcp_connect` | `1 port: u16` | `1 session: u32` | T-TRM-07; `unsupported` |
+| 6 | `open_session` | `1 user: User`, `2 kind: u8` (1 pty, 2 exec, 3 sftp), `3 argv: list<str>`?, `4 size: Size`?, `5 principal: id128`?, `6 run: str`? | `1 session: u32` | T-TRM-07; `unsupported` |
+| 7 | `tcp_connect` | `1 port: u16`, `2 principal: id128`?, `3 run: str`? | `1 session: u32` | T-TRM-07; `unsupported` |
 | 8 | `close_session` | `1 session: u32` | — | T-TRM-07; `unsupported` |
 | 9 | `kill_sessions` | `1 target: union {1 user {1 user: User}, 2 run {1 run: str}}` | `1 killed: u16` | T-TRM-07; `unsupported` |
 | 10 | `register_run` | `1 run: str`, `2 session: u32` | — | T-COL-04; `unsupported` |
@@ -288,7 +288,7 @@ Document frames (`0x04`) are reserved: the first payload byte is `msg`; `0x01..=
 
 ### The agent's local socket
 
-`/run/smithers/machined.sock` (`root:agent`, 0660; bound by the broker, served by the daemon) carries the same frames with no handshake: the caller is the peer (`SO_PEERCRED` uid `agent`, cgroup mapped to a registered run). It serves only `read_file`, `write_file` and, from T-TRM-07, `open_session(pty)`. On this socket `write_file`'s schema has no field 4; a request carrying an actor fails with `unknown_field`, and the daemon attributes the write to `run`. The coding agent's TypeScript tools call it through `smithers-machined client read-file|write-file`, which prints one JSON object, so no third codec exists.
+`/run/smithers/machined.sock` (`root:agent`, 0660; bound by the broker, served by the daemon) carries the same frames with no handshake: the caller is the peer (`SO_PEERCRED` uid `agent`, cgroup mapped to a registered run). It serves only `read_file`, `write_file` and, from T-TRM-07, `open_session(pty)`. On this socket `write_file`'s schema has no field 4; a request carrying an actor fails with `unknown_field`, and the daemon attributes the write to the parent session’s committed principal reference. Both the reference and run are inherited from the root broker’s kernel cgroup binding, never from request fields. The coding agent's TypeScript tools call it through `smithers-machined client read-file|write-file`, which prints one JSON object, so no third codec exists.
 
 Rejected: a TypeScript codec of these frames (a third codec to keep byte-equal); a separate JSON-lines protocol for the socket (a second schema for the same two calls).
 
@@ -385,7 +385,7 @@ messages and `open_doc{path, actor}` are unchanged. The optional actor accepted
 by the envelope decoder exists only to retain S2 recordings; a live document
 handler still requires the authenticated actor.
 
-The live connection now advertises protocol 2. The host and daemon require a
+Document protocol 2 was introduced on connection protocol 2; connection protocol 3 retains those document bodies. The host and daemon require a
 matching protocol in the handshake before selecting these entry points and
 fail closed on mismatches; never fall back to a protocol 1 save receipt for
 pending sequenced edits. Protocol 1 remains available for decoding recordings.
@@ -397,3 +397,23 @@ old malformed-frame outcomes, and old document interpretations are unchanged.
 The §10 I1 exact shape takes precedence over §3's shorthand `applied{raced:[path]}`:
 the single-file RPC carries one optional `Raced` record; I3 aggregates those
 records into `raced[]`, and I7 resolves the saved version for the HTTP reply.
+
+### Durable session admission (connection protocol 3, 2026-10-07)
+
+Live session launches require protocol 3 and a nonzero 16-byte principal
+reference committed by the host before sending the request. `open_session`
+carries it in tag 5 and an agent's run in tag 6. An agent session requires its
+run at admission; member sessions cannot claim a run. `tcp_connect` carries its
+reference in tag 2 and optional run in tag 3. TCP remains a fixed unprivileged
+relay, with no caller-selected executable. The fields remain optional in the
+record decoder solely to retain existing frames and local PTY requests; the
+live host and root broker refuse unattributed host launches.
+
+The broker reserves the reference and run before spawn, retains them through
+close and failed cleanup, and uses that reference for observed-write events.
+A local PTY inherits the parent's entire binding. Local requests carrying
+admission fields are refused. `register_run` may confirm an already admitted
+run, but cannot bind or replace one after execution starts. Older actor variants
+remain decodable; they do not authorize reconstructing identity from a reused
+session number. See the [recovery contract](../../.specs/engineering/design/session-attribution-recovery.md)
+for the remaining direct-write/document/rewrite and historical migration work.

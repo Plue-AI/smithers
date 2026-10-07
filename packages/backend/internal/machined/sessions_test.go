@@ -28,7 +28,7 @@ func TestSessionClientUnavailable(t *testing.T) {
 	// This is host-client refusal evidence, not the pending C-COL-04 production
 	// root-dispatch TestSessionAdmissionFailsClosed integration receipt.
 	ctx := context.Background()
-	for _, s := range []*Sessions{nil, NewSessions(nil, "", nil)} {
+	for _, s := range []*Sessions{nil, NewSessions(nil, "", nil).WithActor([]byte("actor-reference1"), "")} {
 		_, err := s.OpenSession(ctx, SessionUser{"alice", 20002}, SessionPTY, nil, nil)
 		errorCode(t, err, "unsupported")
 		_, err = s.TCPConnect(ctx, 3000)
@@ -107,7 +107,7 @@ func TestSessionClientLiteralCallsAndResponses(t *testing.T) {
 	}
 	argv[0] = "changed"
 	size.Cols = 1
-	if _, err = s.OpenSession(ctx, SessionUser{"agent", 19999}, SessionExec, []string{"/bin/true"}, nil); err != nil {
+	if _, err = s.WithActor([]byte("actor-reference1"), "run-1").OpenSession(ctx, SessionUser{"agent", 19999}, SessionExec, []string{"/bin/true"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.OpenSession(ctx, user, SessionSFTP, nil, nil); err != nil {
@@ -133,10 +133,10 @@ func TestSessionClientLiteralCallsAndResponses(t *testing.T) {
 	}
 	agent := SessionUser{"agent", 19999}
 	expected := []SessionCall{
-		{Method: "open_session", User: &user, Kind: 1, Argv: []string{"/bin/bash", "-l"}, Size: &SessionSize{65535, 1}},
-		{Method: "open_session", User: &agent, Kind: 2, Argv: []string{"/bin/true"}},
-		{Method: "open_session", User: &user, Kind: 3},
-		{Method: "tcp_connect", Port: 65535}, {Method: "close_session", Session: 1},
+		{Actor: []byte("actor-reference1"), Method: "open_session", User: &user, Kind: 1, Argv: []string{"/bin/bash", "-l"}, Size: &SessionSize{65535, 1}},
+		{Actor: []byte("actor-reference1"), Method: "open_session", User: &agent, Run: "run-1", Kind: 2, Argv: []string{"/bin/true"}},
+		{Actor: []byte("actor-reference1"), Method: "open_session", User: &user, Kind: 3},
+		{Actor: []byte("actor-reference1"), Method: "tcp_connect", Port: 65535}, {Method: "close_session", Session: 1},
 		{Method: "kill_sessions", User: &user}, {Method: "kill_sessions", Run: "run-1"},
 		{Method: "register_run", Run: "run-1", Session: 1}, {Method: "attach_session", Session: 1, Received: 123},
 	}
@@ -184,7 +184,7 @@ func testSessions(t *testing.T, rpc SessionRPC) *Sessions {
 	if err = connection.Reconciled(); err != nil {
 		t.Fatal(err)
 	}
-	return NewSessions(connection, "branch", rpc)
+	return NewSessions(connection, "branch", rpc).WithActor([]byte("actor-reference1"), "")
 }
 
 func TestSessionClientConnectionFences(t *testing.T) {
@@ -193,7 +193,7 @@ func TestSessionClientConnectionFences(t *testing.T) {
 		return SessionResult{}, nil
 	})
 	for _, connection := range []*Connection{nil, {}} {
-		_, err := NewSessions(connection, "branch", rpc).TCPConnect(context.Background(), 1)
+		_, err := NewSessions(connection, "branch", rpc).WithActor([]byte("actor-reference1"), "").TCPConnect(context.Background(), 1)
 		errorCode(t, err, "unauthorized")
 	}
 	s := testSessions(t, rpc)

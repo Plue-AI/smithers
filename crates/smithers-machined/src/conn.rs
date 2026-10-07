@@ -1,7 +1,7 @@
 //! ADR 0004 framing and canonical tagged payload validation.
 use std::io::{Read, Write};
 include!("schema.rs");
-pub const PROTOCOL: u16 = 2;
+pub const PROTOCOL: u16 = 3;
 pub const MAX_FILE_BYTES: usize = 1_048_576;
 pub const INITIAL_CREDIT: usize = 262_144;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -305,7 +305,12 @@ impl<'a> Cursor<'a> {
                     return Err(BadValue);
                 };
                 let bytes = self.take(n)?;
-                if typ == "record" && (std::str::from_utf8(bytes).is_err() || bytes.is_empty() || bytes.contains(&0) || bytes.contains(&b'\n')) {
+                if typ == "record"
+                    && (std::str::from_utf8(bytes).is_err()
+                        || bytes.is_empty()
+                        || bytes.contains(&0)
+                        || bytes.contains(&b'\n'))
+                {
                     return Err(BadUtf8);
                 }
                 if width == 2 && (std::str::from_utf8(bytes).is_err() || bytes.contains(&0)) {
@@ -321,11 +326,7 @@ impl<'a> Cursor<'a> {
             "u32" => (4, 0, 4294967295),
             "u64" => (8, 0, u64::MAX),
             "magic" => (4, 0x534d4d44, 0x534d4d44),
-            "version" => (
-                2,
-                1,
-                crate::document_payload::SEQUENCED_DOCUMENT_PROTOCOL as u64,
-            ),
+            "version" => (2, 1, PROTOCOL as u64),
             "state" | "session_kind" => (1, 1, 3),
             "change" => (1, 1, 4),
             "reconcile_outcome" => (1, 1, 2),
@@ -566,7 +567,10 @@ pub fn fields<'a>(name: &str, bytes: &'a [u8]) -> Result<Vec<(u8, &'a [u8])>, Pr
 }
 
 /// Local writes use the identical typed values but never accept an actor field.
-pub fn local_write_args(bytes: &[u8], run: String) -> Result<WriteArgs, ProtocolError> {
+pub fn local_write_args(bytes: &[u8], principal: [u8; 16]) -> Result<WriteArgs, ProtocolError> {
+    if principal == [0; 16] {
+        return Err(BadValue);
+    }
     let fields = fields("local_write", bytes)?;
     let mut host_fields: Vec<Vec<u8>> = fields
         .iter()
@@ -577,7 +581,7 @@ pub fn local_write_args(bytes: &[u8], run: String) -> Result<WriteArgs, Protocol
         actor_bytes(&crate::hooks::Actor::Principal(vec![])),
     ));
     let mut args = write_args(&structure_bytes(&host_fields))?;
-    args.actor = crate::hooks::Actor::Run(run);
+    args.actor = crate::hooks::Actor::Principal(principal.to_vec());
     Ok(args)
 }
 

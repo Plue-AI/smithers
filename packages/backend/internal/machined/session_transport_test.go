@@ -22,7 +22,7 @@ func sessionFixture(t *testing.T) (*Registry, *Link, net.Conn, *SessionStream, B
 	require.NoError(t, l.Reconciled())
 	result := make(chan error, 1)
 	go func() {
-		_, err := r.Sessions("a").CallSession(t.Context(), SessionCall{Method: "open_session", User: &SessionUser{"alice", 20001}, Kind: SessionExec, Argv: []string{"wc", "-c"}})
+		_, err := r.Sessions("a").CallSession(t.Context(), SessionCall{Actor: []byte("actor-reference1"), Method: "open_session", User: &SessionUser{"alice", 20001}, Kind: SessionExec, Argv: []string{"wc", "-c"}})
 		result <- err
 	}()
 	answer(t, peer, wire.OpenSession, wire.Field(1, wire.U32(17)))
@@ -244,13 +244,13 @@ func TestSessionTransportOpenQueuesOutputBeforeCallerReceivesResult(t *testing.T
 	r, l, peer := rpcFixture(t)
 	done := make(chan error, 1)
 	go func() {
-		_, err := r.Sessions("a").CallSession(t.Context(), SessionCall{Method: "tcp_connect", Port: 8080})
+		_, err := r.Sessions("a").CallSession(t.Context(), SessionCall{Actor: []byte("actor-reference1"), Method: "tcp_connect", Port: 8080})
 		done <- err
 	}()
 	answer(t, peer, wire.TCPConnect, wire.Field(1, wire.U32(17)))
 	sendSession(t, peer, []byte{1, 1, 'x'})
 	require.NoError(t, <-done)
-	s, err := NewSessions(l.Connection, "a", r.Sessions("a")).Stream(t.Context(), 17)
+	s, err := NewSessions(l.Connection, "a", r.Sessions("a")).WithActor([]byte("actor-reference1"), "").Stream(t.Context(), 17)
 	require.NoError(t, err)
 	p, err := s.Receive(t.Context())
 	require.NoError(t, err)

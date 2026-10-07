@@ -156,12 +156,11 @@ func TestRegistrySessionRPC(t *testing.T) {
 		method wire.Method
 		fields [][]byte
 	}{
-		{SessionCall{Method: "open_session", User: &SessionUser{Login: "alice", UID: 20001}, Kind: SessionPTY, Argv: []string{"sh"}, Size: &SessionSize{80, 24}}, wire.OpenSession, [][]byte{wire.Field(1, wire.U32(1))}},
-		{SessionCall{Method: "tcp_connect", Port: 8080}, wire.TCPConnect, [][]byte{wire.Field(1, wire.U32(2))}},
+		{SessionCall{Actor: []byte("actor-reference1"), Method: "open_session", User: &SessionUser{Login: "alice", UID: 20001}, Kind: SessionPTY, Argv: []string{"sh"}, Size: &SessionSize{80, 24}}, wire.OpenSession, [][]byte{wire.Field(1, wire.U32(1))}},
+		{SessionCall{Actor: []byte("actor-reference1"), Method: "tcp_connect", Port: 8080}, wire.TCPConnect, [][]byte{wire.Field(1, wire.U32(2))}},
 		{SessionCall{Method: "close_session", Session: 1}, wire.CloseSession, nil},
 		{SessionCall{Method: "kill_sessions", User: &SessionUser{Login: "alice", UID: 20001}}, wire.KillSessions, [][]byte{wire.Field(1, wire.U16(1))}},
 		{SessionCall{Method: "kill_sessions", Run: "run"}, wire.KillSessions, [][]byte{wire.Field(1, wire.U16(2))}},
-		{SessionCall{Method: "register_run", Run: "run", Session: 1}, wire.RegisterRun, nil},
 		{SessionCall{Method: "attach_session", Session: 1, Received: 0}, wire.AttachSession, [][]byte{wire.Field(1, wire.U64(0))}},
 	} {
 		go func() { _, err := r.Sessions("a").CallSession(t.Context(), test.call); results <- err }()

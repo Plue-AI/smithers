@@ -11,7 +11,7 @@ fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|s| s.to_string()).collect()
 }
 #[test]
-fn client_write_refusal_over_local_socket_and_actor_from_run() {
+fn client_write_refusal_over_local_socket_and_actor_from_admission() {
     let request = client::request(
         &args(&["write-file", "a", "--base", "absent"]),
         &mut &b"new"[..],
@@ -19,8 +19,8 @@ fn client_write_refusal_over_local_socket_and_actor_from_run() {
     .unwrap();
     let (_, method, body) = request.request().unwrap();
     assert_eq!(method, 3);
-    let write = conn::local_write_args(body, "trusted-run".into()).unwrap();
-    assert_eq!(write.actor, Actor::Run("trusted-run".into()));
+    let write = conn::local_write_args(body, [7; 16]).unwrap();
+    assert_eq!(write.actor, Actor::Principal(vec![7; 16]));
     assert_eq!(write.content, b"new");
     let (mut caller, mut server) = UnixStream::pair().unwrap();
     let expected = request.encode_local().unwrap();
@@ -61,7 +61,7 @@ fn forged_actor_refused_before_write() {
         Err(conn::ProtocolError::UnknownField)
     );
     let frame = Frame::decode(&bytes).unwrap();
-    assert!(conn::local_write_args(frame.request().unwrap().2, "trusted".into()).is_err());
+    assert!(conn::local_write_args(frame.request().unwrap().2, [7; 16]).is_err());
 }
 #[test]
 fn client_read_binary_and_rejects_bad_arguments() {
@@ -102,13 +102,24 @@ fn client_read_binary_and_rejects_bad_arguments() {
 fn kernel_peer_must_be_agent_in_a_registered_cgroup() {
     struct Runs;
     impl smithers_machined::hooks::Sessions for Runs {
-        fn run_of_cgroup(&self, path: &str) -> Option<String> {
-            (path == "/smithers/sessions/7").then(|| "run-7".into())
+        fn admission_of_cgroup(
+            &self,
+            path: &str,
+        ) -> Option<smithers_machined::broker::sessions::Admission> {
+            (path == "/smithers/sessions/7").then(|| {
+                smithers_machined::broker::sessions::Admission {
+                    principal: [7; 16],
+                    run: Some("run-7".into()),
+                }
+            })
         }
     }
-    use smithers_machined::local::run_for_peer;
+    use smithers_machined::local::admission_for_peer;
     assert_eq!(
-        run_for_peer(19999, "0::/smithers/sessions/7\n", &Runs).unwrap(),
+        admission_for_peer(19999, "0::/smithers/sessions/7\n", &Runs)
+            .unwrap()
+            .run
+            .unwrap(),
         "run-7"
     );
     for (uid, groups) in [
@@ -118,7 +129,7 @@ fn kernel_peer_must_be_agent_in_a_registered_cgroup() {
         (19999, "0::/other/7"),
         (19999, "0::/smithers/sessions/7\n0::/smithers/sessions/8"),
     ] {
-        assert_eq!(run_for_peer(uid, groups, &Runs).unwrap_err().code, 11);
+        assert_eq!(admission_for_peer(uid, groups, &Runs).unwrap_err().code, 11);
     }
 }
 

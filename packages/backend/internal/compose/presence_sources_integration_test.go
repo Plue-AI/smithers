@@ -263,7 +263,7 @@ func presenceTestLink(t *testing.T, registry *machined.Registry, branch string) 
 	done := make(chan error, 1)
 	go func() {
 		nonce := make([]byte, 32)
-		err := wire.Write(guest, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(2)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))})
+		err := wire.Write(guest, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(wire.SessionActorProtocol)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))})
 		if err != nil {
 			done <- err
 			return

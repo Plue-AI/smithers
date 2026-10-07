@@ -165,7 +165,7 @@ pub trait Sessions: Send + Sync {
     fn open_local(&self, _caller_cgroup: &str, _arguments: &[u8]) -> Result<Vec<u8>> {
         Err(Error::unsupported())
     }
-    fn run_of_cgroup(&self, _cgroup: &str) -> Option<String> {
+    fn admission_of_cgroup(&self, _cgroup: &str) -> Option<crate::broker::sessions::Admission> {
         None
     }
     fn live(&self) -> Vec<u32> {

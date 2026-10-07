@@ -94,6 +94,10 @@ mod tests {
                         uid,
                     },
                     kind,
+                    crate::broker::sessions::Admission {
+                        principal: [7; 16],
+                        run: (uid == 19999).then(|| "run-1".into()),
+                    },
                 )
                 .unwrap();
         }
@@ -172,6 +176,10 @@ mod tests {
                 uid: 20000,
             },
             Kind::Pty,
+            crate::broker::sessions::Admission {
+                principal: [7; 16],
+                run: None,
+            },
         )
         .unwrap();
         s.insert(
@@ -181,13 +189,17 @@ mod tests {
                 uid: 19999,
             },
             Kind::Pty,
+            crate::broker::sessions::Admission {
+                principal: [7; 16],
+                run: Some("run-1".into()),
+            },
         )
         .unwrap();
         assert!(s.register_run(9, "run").is_err());
         let initial = samples(s.entries(), &[(1, 0, true), (2, 0, true)], actor).unwrap();
         let mut window = Window::new(&initial);
         window.observe(&samples(s.entries(), &[(1, 0, true), (2, 10, true)], actor).unwrap());
-        assert_eq!(window.actor(), None);
+        assert_eq!(window.actor(), Some((2, "run-1".into())));
         s.register_run(2, "run-1").unwrap();
         let initial = samples(s.entries(), &[(1, 0, true), (2, 10, true)], actor).unwrap();
         let mut window = Window::new(&initial);

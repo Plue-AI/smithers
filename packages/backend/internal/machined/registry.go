@@ -232,3 +232,15 @@ func (r *Registry) ConnectedBranches() []string {
 	}
 	return branches
 }
+
+// RequireMachine fences a precommitted attribution reference to the machine
+// lineage that will receive it. Boot identity is immutable after registration.
+func (c *Connection) RequireMachine(branch, machine string) error {
+	if err := c.RequireReady(branch); err != nil {
+		return err
+	}
+	if c.boot.machine != machine {
+		return ErrUnauthorized
+	}
+	return nil
+}

@@ -20,7 +20,7 @@ func TestBurstAttributionUsesAdmittedSession(t *testing.T) {
 	require.NoError(t, err)
 	link, guest := connectTest(t, registry, branch, authority)
 	require.NoError(t, link.Reconciled())
-	sessions := NewSessions(link.Connection, branch, registry.Sessions(branch)).WithPresenceVia("ssh")
+	sessions := NewSessions(link.Connection, branch, registry.Sessions(branch)).WithActor([]byte("actor-reference1"), "").WithPresenceVia("ssh")
 	opened := make(chan error, 1)
 	go func() {
 		_, err := sessions.OpenSession(t.Context(), SessionUser{"alice", 20001}, SessionPTY, nil, nil)

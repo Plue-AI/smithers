@@ -22,7 +22,7 @@ func terminalFixture(t *testing.T) (*Terminal, func([]byte), func() wire.Frame) 
 	t.Cleanup(cancel)
 	done := make(chan *Terminal, 1)
 	go func() {
-		terminal, err := NewSessions(link.Connection, "a", r.Sessions("a")).OpenTerminal(ctx, SessionUser{"alice", 20001}, []string{"/bin/bash", "-l"}, &SessionSize{Cols: 80, Rows: 24})
+		terminal, err := NewSessions(link.Connection, "a", r.Sessions("a")).WithActor([]byte("actor-reference1"), "").OpenTerminal(ctx, SessionUser{"alice", 20001}, []string{"/bin/bash", "-l"}, &SessionSize{Cols: 80, Rows: 24})
 		if err != nil {
 			t.Error(err)
 		}

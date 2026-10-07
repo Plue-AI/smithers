@@ -4,7 +4,7 @@ use smithers_machined::{
     broker::{
         control::{self, Controls},
         request::{self, Request},
-        sessions::{Kind, User},
+        sessions::{Admission, Kind, User},
         supervisor::{Kernel, Supervisor},
     },
     conn::{self, Frame},
@@ -138,8 +138,16 @@ fn roster(s: &mut Supervisor<OS>) {
     s.session(Request::Roster(vec![user()])).unwrap();
 }
 fn open(s: &mut Supervisor<OS>, u: User, k: Kind) -> u32 {
+    let run = (u.uid == 19999).then_some("run");
+    open_bound(s, u, k, run)
+}
+fn open_bound(s: &mut Supervisor<OS>, u: User, k: Kind, run: Option<&str>) -> u32 {
     let bytes = s
         .session(Request::Open {
+            admission: Some(Admission {
+                principal: [7; 16],
+                run: run.map(str::to_owned),
+            }),
             user: u,
             kind: k,
             argv: vec!["/bin/sh".into()],
@@ -173,6 +181,19 @@ fn poll(s: &mut Supervisor<OS>, id: u32) -> Option<Frame> {
         Some(Frame::decode(&bytes[5..]).unwrap())
     }
 }
+fn host_open_bytes(login: &str, uid: u32) -> Vec<u8> {
+    let body = open_bytes(login, uid);
+    let mut fields = conn::fields("args6", &body)
+        .unwrap()
+        .iter()
+        .map(|(tag, value)| conn::field(*tag, value))
+        .collect::<Vec<_>>();
+    fields.push(conn::field(5, [7; 16]));
+    if uid == 19999 {
+        fields.push(conn::field(6, [b"\0\x03".as_slice(), b"run"].concat()));
+    }
+    conn::structure_bytes(&fields)
+}
 fn open_bytes(login: &str, uid: u32) -> Vec<u8> {
     let name = [
         (login.len() as u16).to_be_bytes().as_slice(),
@@ -201,14 +222,14 @@ fn admission_fails_closed_through_root_dispatch_before_effects() {
         let (mut s, state) = setup();
         roster(&mut s);
         state.lock().unwrap().missing = Some(missing);
-        let reply = control::handle(&packet(6, &open_bytes("ben", 20001)), &mut s).unwrap();
+        let reply = control::handle(&packet(6, &host_open_bytes("ben", 20001)), &mut s).unwrap();
         assert_eq!(reply[4], 255, "{missing}");
         assert!(s.entries().next().is_none());
         assert!(state.lock().unwrap().spawns.is_empty());
     }
     let (mut s, state) = setup();
     assert_eq!(
-        control::handle(&packet(6, &open_bytes("ben", 20001)), &mut s).unwrap()[4],
+        control::handle(&packet(6, &host_open_bytes("ben", 20001)), &mut s).unwrap()[4],
         255,
         "roster absent"
     );
@@ -222,7 +243,7 @@ fn admission_fails_closed_through_root_dispatch_before_effects() {
         ("agent", 20001),
     ] {
         assert_eq!(
-            control::handle(&packet(6, &open_bytes(login, uid)), &mut s).unwrap()[4],
+            control::handle(&packet(6, &host_open_bytes(login, uid)), &mut s).unwrap()[4],
             255
         );
     }
@@ -238,7 +259,7 @@ fn admission_fails_closed_through_root_dispatch_before_effects() {
     assert!(state.lock().unwrap().spawns.is_empty());
     // The literal valid control reaches the real supervisor exactly once.
     assert_eq!(
-        control::handle(&packet(6, &open_bytes("ben", 20001)), &mut s).unwrap()[4],
+        control::handle(&packet(6, &host_open_bytes("ben", 20001)), &mut s).unwrap()[4],
         6
     );
     assert_eq!(state.lock().unwrap().spawns.len(), 1);
@@ -327,9 +348,9 @@ fn local_stream_is_scoped_to_kernel_registered_agent_run() {
         login: "agent".into(),
         uid: 19999,
     };
-    let parent = open(&mut s, agent, Kind::Exec);
+    let parent = open_bound(&mut s, agent, Kind::Exec, Some("run-one"));
     let args = open_bytes("agent", 19999);
-    assert!(s.open_local(parent, &args).is_err());
+    assert!(s.open_local(999, &args).is_err());
     s.session(Request::Register {
         session: parent,
         run: "run-one".into(),
@@ -348,10 +369,13 @@ fn local_stream_is_scoped_to_kernel_registered_agent_run() {
         })
         .is_err());
     assert_eq!(
-        s.run_of_cgroup(&format!("/smithers/sessions/s{child}")),
-        Some("run-one".into())
+        s.admission_of_cgroup(&format!("/smithers/sessions/s{child}")),
+        Some(Admission {
+            principal: [7; 16],
+            run: Some("run-one".into())
+        })
     );
-    assert!(s.run_of_cgroup("/smithers/sessions/../s1").is_none());
+    assert!(s.admission_of_cgroup("/smithers/sessions/../s1").is_none());
     assert!(s
         .session(Request::Attach {
             session: child,
@@ -452,7 +476,7 @@ fn actual_socketpair_carries_credit_and_full_sized_frames() {
     let serving = std::thread::spawn(move || control::serve(&server, &mut supervisor));
     let broker = SocketpairBroker::new(client).unwrap();
     Broker::set_roster(&broker, &[user()]).unwrap();
-    let reply = Sessions::call(&broker, 6, &open_bytes("ben", 20001)).unwrap();
+    let reply = Sessions::call(&broker, 6, &host_open_bytes("ben", 20001)).unwrap();
     let id = u32::from_be_bytes(reply[5..9].try_into().unwrap());
     let input = frame(id, [&[1, 0], vec![b'x'; 65_536].as_slice()].concat());
     assert_eq!(Sessions::frame(&broker, &input).unwrap(), None);
@@ -565,7 +589,8 @@ fn literal_open_size_is_columns_then_rows_on_the_wire() {
             user: user(),
             kind: Kind::Pty,
             argv: vec![],
-            size: Some((24, 80))
+            size: Some((24, 80)),
+            admission: None
         }
     );
 }
@@ -605,6 +630,10 @@ fn failed_spawn_is_removed_only_after_confirmed_cleanup_and_never_reuses_id() {
             state.fail_before_fork = before_fork;
         }
         let result = s.session(Request::Open {
+            admission: Some(Admission {
+                principal: [7; 16],
+                run: None,
+            }),
             user: user(),
             kind: Kind::Exec,
             argv: vec!["/bin/sh".into()],
@@ -635,6 +664,10 @@ fn failed_spawn_cleanup_retains_owner_without_breaking_other_streams() {
         state.outputs.insert((healthy, 1), b"still usable".to_vec());
     }
     let result = s.session(Request::Open {
+        admission: Some(Admission {
+            principal: [7; 16],
+            run: None,
+        }),
         user: user(),
         kind: Kind::Exec,
         argv: vec!["/bin/sh".into()],
@@ -671,13 +704,14 @@ fn failed_spawn_cleanup_retains_owner_without_breaking_other_streams() {
 fn failed_local_spawn_retains_run_for_cleanup_without_granting_child_authority() {
     let (mut s, state) = setup();
     roster(&mut s);
-    let parent = open(
+    let parent = open_bound(
         &mut s,
         User {
             login: "agent".into(),
             uid: 19999,
         },
         Kind::Exec,
+        Some("original-run"),
     );
     s.session(Request::Register {
         session: parent,
@@ -698,7 +732,7 @@ fn failed_local_spawn_retains_run_for_cleanup_without_granting_child_authority()
     assert_eq!(entry.run.as_deref(), Some("original-run"));
     assert_eq!(entry.user.uid, 19999);
     assert!(entry.closed);
-    assert!(s.run_of_cgroup("/smithers/sessions/s2").is_none());
+    assert!(s.admission_of_cgroup("/smithers/sessions/s2").is_none());
     assert!(s.open_local(2, &args).is_err());
     assert!(s
         .session(Request::Register {
@@ -731,13 +765,29 @@ fn failed_spawn_reservations_count_toward_limit_before_consuming_admission() {
     }
     for _ in 0..MAX_SESSIONS {
         assert_eq!(
-            s.session(Request::Tcp(8080)).unwrap_err().kind(),
+            s.session(Request::Tcp(
+                8080,
+                Some(Admission {
+                    principal: [7; 16],
+                    run: None
+                })
+            ))
+            .unwrap_err()
+            .kind(),
             io::ErrorKind::TimedOut
         );
     }
     assert_eq!(s.entries().count(), MAX_SESSIONS);
     assert_eq!(
-        s.session(Request::Tcp(8080)).unwrap_err().kind(),
+        s.session(Request::Tcp(
+            8080,
+            Some(Admission {
+                principal: [7; 16],
+                run: None
+            })
+        ))
+        .unwrap_err()
+        .kind(),
         io::ErrorKind::InvalidInput
     );
     {
@@ -752,4 +802,124 @@ fn failed_spawn_reservations_count_toward_limit_before_consuming_admission() {
     assert!(s.entries().next().is_none());
     assert!(state.lock().unwrap().running.is_empty());
     assert_eq!(open(&mut s, user(), Kind::Pty), MAX_SESSIONS as u32 + 1);
+}
+
+#[test]
+fn live_host_attribution_is_required_before_any_kernel_effect() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    assert!(s
+        .session(Request::decode(6, &open_bytes("ben", 20001)).unwrap())
+        .is_err());
+    for (user, admission) in [
+        (
+            user(),
+            Admission {
+                principal: [0; 16],
+                run: None,
+            },
+        ),
+        (
+            user(),
+            Admission {
+                principal: [7; 16],
+                run: Some("forged-run".into()),
+            },
+        ),
+        (
+            User {
+                login: "agent".into(),
+                uid: 19999,
+            },
+            Admission {
+                principal: [7; 16],
+                run: None,
+            },
+        ),
+        (
+            User {
+                login: "agent".into(),
+                uid: 19999,
+            },
+            Admission {
+                principal: [7; 16],
+                run: Some(" run ".into()),
+            },
+        ),
+    ] {
+        assert!(s
+            .session(Request::Open {
+                user,
+                kind: Kind::Pty,
+                argv: vec![],
+                size: None,
+                admission: Some(admission)
+            })
+            .is_err());
+    }
+    assert_eq!(state.lock().unwrap().ready_calls, 0);
+    assert!(state.lock().unwrap().spawns.is_empty());
+    assert!(s.entries().next().is_none());
+}
+
+#[test]
+fn durable_reference_survives_close_and_local_children_cannot_replace_it() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let parent = open_bound(
+        &mut s,
+        User {
+            login: "agent".into(),
+            uid: 19999,
+        },
+        Kind::Exec,
+        Some("first-run"),
+    );
+    assert_eq!(s.entries().next().unwrap().principal, [7; 16]);
+    assert_eq!(
+        s.entries().next().unwrap().run.as_deref(),
+        Some("first-run")
+    );
+    // Closing the leader does not erase a surviving child's cgroup identity.
+    s.session(Request::Close(parent)).unwrap();
+    assert!(s
+        .open_local(parent, &host_open_bytes("agent", 19999))
+        .is_err());
+    assert_eq!(state.lock().unwrap().spawns.len(), 1);
+    let reply = s.open_local(parent, &open_bytes("agent", 19999)).unwrap();
+    let id = u32::from_be_bytes(reply[5..9].try_into().unwrap());
+    let child = s.entries().find(|e| e.id == id).unwrap();
+    assert_eq!(child.principal, [7; 16]);
+    assert_eq!(child.run.as_deref(), Some("first-run"));
+    let snapshot = control::handle(&packet(25, &[]), &mut s).unwrap();
+    let retained: Vec<smithers_machined::broker::sessions::Entry> =
+        serde_json::from_slice(&snapshot[5..]).unwrap();
+    assert!(retained
+        .iter()
+        .all(|e| e.principal == [7; 16] && e.run.as_deref() == Some("first-run")));
+    assert!(s
+        .session(Request::Register {
+            session: id,
+            run: "replacement".into()
+        })
+        .is_err());
+    // A reconstructed broker may reuse transport 1. The durable reference does
+    // not change in the old snapshot and is not derived from that numeric ID.
+    let (mut replacement, _) = setup();
+    roster(&mut replacement);
+    replacement
+        .session(Request::Open {
+            user: user(),
+            kind: Kind::Pty,
+            argv: vec![],
+            size: None,
+            admission: Some(Admission {
+                principal: [8; 16],
+                run: None,
+            }),
+        })
+        .unwrap();
+    assert_eq!(replacement.entries().next().unwrap().id, parent);
+    assert_eq!(replacement.entries().next().unwrap().principal, [8; 16]);
+    assert_eq!(retained[0].principal, [7; 16]);
 }

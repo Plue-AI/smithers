@@ -41,12 +41,36 @@ pub enum Kind {
     Sftp,
     Tcp,
 }
+/// Host-committed attribution. The local socket inherits this entire binding;
+/// it cannot supply a reference or change the run. It grants no roster access.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Admission {
+    pub principal: [u8; 16],
+    pub run: Option<String>,
+}
+impl Admission {
+    pub fn validate(&self, user: &User, kind: Kind) -> io::Result<()> {
+        if self.principal == [0; 16]
+            || self.run.as_ref().is_some_and(|r| {
+                r.is_empty() || r.len() > 4096 || r.contains('\0') || r.trim() != r
+            })
+            || (user.uid != 19999 && self.run.is_some())
+            || (user.uid == 19999 && kind != Kind::Tcp && self.run.is_none())
+        {
+            return Err(refusal("invalid session attribution"));
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Entry {
     pub id: u32,
     pub user: User,
     pub kind: Kind,
     pub run: Option<String>,
+    #[serde(default)]
+    pub principal: [u8; 16],
     pub closed: bool,
     pub exited: bool,
 }
@@ -131,8 +155,15 @@ impl<C: Controls> Sessions<C> {
     }
     /// Reserve ownership after trusted account binding and BEFORE cgroup spawn.
     /// Stream allocation is owned by the shared daemon allocator, not this map.
-    pub fn insert(&mut self, id: u32, user: User, kind: Kind) -> io::Result<()> {
+    pub fn insert(
+        &mut self,
+        id: u32,
+        user: User,
+        kind: Kind,
+        admission: Admission,
+    ) -> io::Result<()> {
         self.authorize(&user)?;
+        admission.validate(&user, kind)?;
         if id == 0
             || id > 0x7fffffff
             || self.entries.contains_key(&id)
@@ -146,7 +177,8 @@ impl<C: Controls> Sessions<C> {
                 id,
                 user,
                 kind,
-                run: None,
+                run: admission.run,
+                principal: admission.principal,
                 closed: false,
                 exited: false,
             },
@@ -157,7 +189,7 @@ impl<C: Controls> Sessions<C> {
     /// registry mutation. No observer can see an admitted but unattributed PTY.
     /// Reserve before spawning, under the broker's serialization boundary.
     pub fn insert_local(&mut self, id: u32, peer_uid: u32, caller: u32) -> io::Result<()> {
-        let run = self.local_run(peer_uid, caller)?.to_owned();
+        let admission = self.local_admission(peer_uid, caller)?;
         self.insert(
             id,
             User {
@@ -165,8 +197,8 @@ impl<C: Controls> Sessions<C> {
                 uid: 19999,
             },
             Kind::Pty,
+            admission,
         )?;
-        self.entries.get_mut(&id).expect("inserted entry").run = Some(run);
         Ok(())
     }
     /// A failed launch may have forked before descriptor setup failed. Fence
@@ -198,12 +230,11 @@ impl<C: Controls> Sessions<C> {
         if entry.user.uid != 19999 || entry.closed || entry.exited {
             return Err(refusal("run requires a live agent session"));
         }
-        if let Some(existing) = &entry.run {
-            if existing != run {
-                return Err(refusal("run binding is immutable"));
-            }
+        // Retained request decoding is allowed; late binding is not. A live
+        // run was admitted before spawn and this can only confirm that binding.
+        if entry.run.as_deref() != Some(run) {
+            return Err(refusal("run binding is immutable"));
         }
-        entry.run = Some(run.to_owned());
         Ok(())
     }
     /// The daemon derives this id from the local peer's kernel cgroup, never
@@ -224,6 +255,19 @@ impl<C: Controls> Sessions<C> {
             .run
             .as_deref()
             .ok_or_else(|| refusal("caller is outside a registered run"))
+    }
+    pub fn local_admission(&self, peer_uid: u32, caller: u32) -> io::Result<Admission> {
+        let run = self.local_run(peer_uid, caller)?.to_owned();
+        let entry = self
+            .entries
+            .get(&caller)
+            .ok_or_else(|| refusal("unknown caller"))?;
+        let admission = Admission {
+            principal: entry.principal,
+            run: Some(run),
+        };
+        admission.validate(&entry.user, entry.kind)?;
+        Ok(admission)
     }
     pub fn exited(&mut self, id: u32) -> io::Result<()> {
         self.entries

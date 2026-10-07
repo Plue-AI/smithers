@@ -93,7 +93,17 @@ fn host_roster_wire_controls_admission_and_reconnect_revocation() {
     );
     {
         let mut sessions = broker.0.lock().unwrap();
-        sessions.insert(1, ben.clone(), Kind::Pty).unwrap();
+        sessions
+            .insert(
+                1,
+                ben.clone(),
+                Kind::Pty,
+                smithers_machined::broker::sessions::Admission {
+                    principal: [7; 16],
+                    run: None,
+                },
+            )
+            .unwrap();
         sessions
             .insert(
                 2,
@@ -102,6 +112,10 @@ fn host_roster_wire_controls_admission_and_reconnect_revocation() {
                     uid: 20002,
                 },
                 Kind::Sftp,
+                smithers_machined::broker::sessions::Admission {
+                    principal: [7; 16],
+                    run: None,
+                },
             )
             .unwrap();
         sessions.disconnected(Instant::now());

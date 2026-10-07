@@ -546,6 +546,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			runtime.BindMemberRoster(roster.withProvisioningRoster)
 			defer runtime.BindMemberRoster(nil)
 		}
+		if runtime, ok := options.Workspace.(interface {
+			BindMemberActor(microsandbox.MemberActor)
+		}); ok {
+			runtime.BindMemberActor(roster.commitMemberActor)
+			defer runtime.BindMemberActor(nil)
+		}
 		options.Machined.BindRosterSync(roster.syncBranch)
 		stopRoster := roster.start(ctx, revocationBus)
 		defer func() {

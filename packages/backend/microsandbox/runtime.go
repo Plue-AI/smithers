@@ -161,6 +161,7 @@ type workspace struct {
 type Runtime struct {
 	machinedHead func(context.Context, string) (string, error)
 	memberRoster MemberRoster
+	memberActor  MemberActor
 	machined     machined.Registry
 	cli          *cli
 	config       Config

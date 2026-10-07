@@ -128,7 +128,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 	require.True(t, registry.EventConsumerReady())
 	link, guest := presenceTestLink(t, registry, f.row.ID)
 	require.NoError(t, link.Reconciled())
-	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithPresenceVia("ssh")
+	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor([]byte("actor-reference1"), "").WithPresenceVia("ssh")
 	opened := make(chan error, 1)
 	go func() {
 		_, err := sessions.OpenSession(ctx, machined.SessionUser{Login: "maya", UID: 20001}, machined.SessionPTY, nil, nil)
@@ -153,7 +153,7 @@ func TestMachineEventsProductionLiveBinding(t *testing.T) {
 		require.NoError(t, <-done)
 	}
 	exchange(wire.OpenSession, [][]byte{wire.Field(1, wire.U32(2))}, func() error {
-		_, err := sessions.OpenSession(ctx, machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionExec, []string{"codex"}, nil)
+		_, err := sessions.WithActor([]byte("actor-reference1"), "event-run").OpenSession(ctx, machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionExec, []string{"codex"}, nil)
 		return err
 	})
 	exchange(wire.RegisterRun, nil, func() error { return sessions.RegisterRun(ctx, "event-run", 2) })

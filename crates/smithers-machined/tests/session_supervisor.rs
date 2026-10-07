@@ -22,6 +22,12 @@ impl Controls for ControlsFixture {
         Ok(())
     }
 }
+fn admission(run: Option<&str>) -> Admission {
+    Admission {
+        principal: [7; 16],
+        run: run.map(str::to_owned),
+    }
+}
 fn user() -> User {
     User {
         login: "ben".into(),
@@ -50,12 +56,13 @@ fn identity_registry_and_run_binding() {
                     login: login.into(),
                     uid
                 },
-                Kind::Exec
+                Kind::Exec,
+                admission(None)
             )
             .is_err());
     }
-    s.insert(1, user(), Kind::Pty).unwrap();
-    assert!(s.insert(1, user(), Kind::Pty).is_err());
+    s.insert(1, user(), Kind::Pty, admission(None)).unwrap();
+    assert!(s.insert(1, user(), Kind::Pty, admission(None)).is_err());
     assert!(s.register_run(1, "r").is_err());
     s.insert(
         2,
@@ -64,9 +71,10 @@ fn identity_registry_and_run_binding() {
             uid: 19999,
         },
         Kind::Exec,
+        admission(Some("r")),
     )
     .unwrap();
-    assert!(s.local_run(19999, 2).is_err());
+    assert_eq!(s.local_run(19999, 2).unwrap(), "r");
     s.register_run(2, "r").unwrap();
     s.register_run(2, "r").unwrap();
     assert!(s.register_run(2, "other").is_err());
@@ -89,7 +97,7 @@ fn close_and_exit_retain_lingering_attribution_until_confirmed_kill() {
         fail: Some(1),
         ..Default::default()
     });
-    s.insert(1, user(), Kind::Pty).unwrap();
+    s.insert(1, user(), Kind::Pty, admission(None)).unwrap();
     s.close(1).unwrap();
     s.close(1).unwrap();
     s.exited(1).unwrap();
@@ -107,7 +115,8 @@ fn reconnect_boundary_does_not_extend_grace_and_restart_clears_all_kinds() {
         .into_iter()
         .enumerate()
     {
-        s.insert(i as u32 + 1, user(), kind).unwrap();
+        s.insert(i as u32 + 1, user(), kind, admission(None))
+            .unwrap();
     }
     s.disconnected(start);
     s.disconnected(start + Duration::from_secs(20));
@@ -126,12 +135,12 @@ fn reconnect_boundary_does_not_extend_grace_and_restart_clears_all_kinds() {
 fn allocator_bounds_capacity_and_stale_ids_are_refused() {
     let mut s = rostered(ControlsFixture::default());
     for id in [0, 0x80000000, u32::MAX] {
-        assert!(s.insert(id, user(), Kind::Exec).is_err());
+        assert!(s.insert(id, user(), Kind::Exec, admission(None)).is_err());
     }
     for id in 1..=512 {
-        s.insert(id, user(), Kind::Exec).unwrap();
+        s.insert(id, user(), Kind::Exec, admission(None)).unwrap();
     }
-    assert!(s.insert(513, user(), Kind::Exec).is_err());
+    assert!(s.insert(513, user(), Kind::Exec, admission(None)).is_err());
     assert!(s.close(513).is_err());
     assert!(s.exited(513).is_err());
     assert!(s.register_run(513, "r").is_err());
@@ -159,7 +168,7 @@ fn partial_cleanup_retains_only_unconfirmed_groups_for_retry() {
         ..Default::default()
     });
     for id in 1..=3 {
-        s.insert(id, user(), Kind::Exec).unwrap();
+        s.insert(id, user(), Kind::Exec, admission(None)).unwrap();
     }
     assert!(s.before_restart(Instant::now()).is_err());
     assert_eq!(s.entries().map(|e| e.id).collect::<Vec<_>>(), [2, 3]);
@@ -175,11 +184,14 @@ fn roster_required_before_any_session_and_empty_roster_allows_only_agent() {
         login: "agent".into(),
         uid: 19999,
     };
-    assert!(s.insert(1, user(), Kind::Exec).is_err());
-    assert!(s.insert(2, agent.clone(), Kind::Exec).is_err());
+    assert!(s.insert(1, user(), Kind::Exec, admission(None)).is_err());
+    assert!(s
+        .insert(2, agent.clone(), Kind::Exec, admission(Some("r")))
+        .is_err());
     s.set_roster(&[], Instant::now()).unwrap();
-    assert!(s.insert(1, user(), Kind::Exec).is_err());
-    s.insert(2, agent, Kind::Exec).unwrap();
+    assert!(s.insert(1, user(), Kind::Exec, admission(None)).is_err());
+    s.insert(2, agent, Kind::Exec, admission(Some("r")))
+        .unwrap();
 }
 
 #[test]
@@ -190,7 +202,8 @@ fn roster_change_kills_all_revoked_kinds_and_retains_agent() {
         .into_iter()
         .enumerate()
     {
-        s.insert(i as u32 + 1, user(), kind).unwrap();
+        s.insert(i as u32 + 1, user(), kind, admission(None))
+            .unwrap();
     }
     s.insert(
         5,
@@ -199,13 +212,14 @@ fn roster_change_kills_all_revoked_kinds_and_retains_agent() {
             uid: 19999,
         },
         Kind::Exec,
+        admission(Some("r")),
     )
     .unwrap();
     s.disconnected(now);
     s.set_roster(&[], now).unwrap();
     assert_eq!(s.entries().map(|e| e.id).collect::<Vec<_>>(), [5]);
     assert!(s.attach(1, now).is_err());
-    assert!(s.insert(6, user(), Kind::Pty).is_err());
+    assert!(s.insert(6, user(), Kind::Pty, admission(None)).is_err());
     s.attach(5, now).unwrap();
 }
 
@@ -217,12 +231,12 @@ fn failed_roster_cleanup_revokes_admission_before_retry() {
         ..Default::default()
     });
     for id in 1..=3 {
-        s.insert(id, user(), Kind::Exec).unwrap();
+        s.insert(id, user(), Kind::Exec, admission(None)).unwrap();
     }
     assert!(s.set_roster(&[], now).is_err());
     assert_eq!(s.entries().map(|e| e.id).collect::<Vec<_>>(), [2, 3]);
     assert!(s.attach(2, now).is_err());
-    assert!(s.insert(4, user(), Kind::Exec).is_err());
+    assert!(s.insert(4, user(), Kind::Exec, admission(None)).is_err());
     assert!(s.set_roster(&[], now).is_err());
     assert_eq!(s.entries().map(|e| e.id).collect::<Vec<_>>(), [2, 3]);
 }
@@ -231,7 +245,7 @@ fn failed_roster_cleanup_revokes_admission_before_retry() {
 fn malformed_roster_is_atomic_and_binding_is_exact() {
     let now = Instant::now();
     let mut s = rostered(ControlsFixture::default());
-    s.insert(1, user(), Kind::Exec).unwrap();
+    s.insert(1, user(), Kind::Exec, admission(None)).unwrap();
     for bad in [
         vec![user(), user()],
         vec![
@@ -293,6 +307,7 @@ fn malformed_roster_is_atomic_and_binding_is_exact() {
             uid: 20002,
         },
         Kind::Exec,
+        admission(None),
     )
     .unwrap();
 }
@@ -327,13 +342,14 @@ fn failed_cleanup_blocks_every_spawn_until_confirmed_retry() {
     });
     let now = Instant::now();
     s.set_roster(&[user()], now).unwrap();
-    s.insert(1, user(), Kind::Pty).unwrap();
-    s.insert(2, user(), Kind::Tcp).unwrap();
+    s.insert(1, user(), Kind::Pty, admission(None)).unwrap();
+    s.insert(2, user(), Kind::Tcp, admission(None)).unwrap();
     let agent = User {
         login: "agent".into(),
         uid: 19999,
     };
-    s.insert(3, agent.clone(), Kind::Exec).unwrap();
+    s.insert(3, agent.clone(), Kind::Exec, admission(Some("trusted-run")))
+        .unwrap();
     s.register_run(3, "trusted-run").unwrap();
     assert_eq!(s.local_run(19999, 3).unwrap(), "trusted-run");
     fail.store(true, Ordering::SeqCst);
@@ -365,12 +381,12 @@ fn local_pty_inherits_only_the_authenticated_callers_run_atomically() {
             uid: 19999,
         },
         Kind::Exec,
+        admission(Some("run-a")),
     )
     .unwrap();
     for uid in [0, 19998, 20001] {
         assert!(s.insert_local(2, uid, 1).is_err());
     }
-    assert!(s.insert_local(2, 19999, 1).is_err()); // unregistered caller
     assert_eq!(s.entries().count(), 1);
     s.register_run(1, "run-a").unwrap();
     assert!(s.insert_local(2, 19999, 99).is_err());

@@ -67,6 +67,16 @@ func (c *MemberCredentials) DeleteSessionToken(ctx context.Context, id, session,
 	return err
 }
 
+// MemberActor commits attribution using the host's current authoritative
+// allocation. It runs before the roster transaction held through process launch.
+type MemberActor func(context.Context, string, string, MemberIdentity) ([]byte, error)
+
+func (r *Runtime) BindMemberActor(commit MemberActor) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.memberActor = commit
+}
+
 // OpenTerminal consumes one sealed admission at the installed SessionRPC door.
 // Account provisioning, current membership, token identity and connection fences
 // all precede spawn. There is no host PTY or msb exec -t fallback here.
@@ -94,10 +104,16 @@ func (c *MemberCredentials) OpenTerminal(ctx context.Context, id, session, diges
 		return nil, ErrUnavailable
 	}
 	r.mu.Lock()
-	roster := r.memberRoster
+	roster, commitActor := r.memberRoster, r.memberActor
 	r.mu.Unlock()
-	if roster == nil {
+	if roster == nil || commitActor == nil {
 		return nil, ErrUnavailable
+	}
+	// Never wait for a second database connection while holding the roster's
+	// transaction. Revocation is rechecked under that lock before launch below.
+	actor, err := commitActor(ctx, id, ws.Machine, c.member)
+	if err != nil {
+		return nil, err
 	}
 	var terminal workspaceapi.Terminal
 	err = roster(ctx, id, func(members []MemberIdentity) error {
@@ -105,7 +121,7 @@ func (c *MemberCredentials) OpenTerminal(ctx context.Context, id, session, diges
 			return err
 		}
 		var err error
-		terminal, err = c.openAdmitted(ctx, ws, session, digest, command)
+		terminal, err = c.openAdmitted(ctx, ws, session, digest, command, actor)
 		return err
 	})
 	return terminal, err
@@ -113,16 +129,16 @@ func (c *MemberCredentials) OpenTerminal(ctx context.Context, id, session, diges
 
 // Keep the authoritative membership read lock through the broker's reply so
 // removal cannot commit between authorization and process creation.
-func (c *MemberCredentials) openAdmitted(ctx context.Context, ws *workspace, session, digest string, command workspaceapi.Command) (workspaceapi.Terminal, error) {
+func (c *MemberCredentials) openAdmitted(ctx context.Context, ws *workspace, session, digest string, command workspaceapi.Command, actor []byte) (workspaceapi.Terminal, error) {
 	r, id := c.runtime, ws.ID
 	link, err := r.machined.Current(id)
 	if err != nil {
 		return nil, err
 	}
-	if err = link.RequireReady(id); err != nil {
+	if err = link.Connection.RequireMachine(id, ws.Machine); err != nil {
 		return nil, err
 	}
-	sessions := machined.NewSessions(link.Connection, id, r.machined.Sessions(id))
+	sessions := machined.NewSessions(link.Connection, id, r.machined.Sessions(id)).WithActor(actor, "").WithPresenceVia("terminal")
 	if command.Directory != "" && command.Directory != guestRoot {
 		return nil, fmt.Errorf("terminal directory must be workspace root")
 	}

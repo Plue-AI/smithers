@@ -210,7 +210,7 @@ func TestRegistryClientConsumers(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer connection.Close()
-	sessionConsumer := machined.NewSessions(connection, "branch", consumer.Sessions("branch"))
+	sessionConsumer := machined.NewSessions(connection, "branch", consumer.Sessions("branch")).WithActor([]byte("actor-reference1"), "")
 	if _, e := sessionConsumer.OpenSession(ctx, roster[0], machined.SessionPTY, nil, nil); e == nil {
 		t.Fatal("unreconciled session admitted")
 	}

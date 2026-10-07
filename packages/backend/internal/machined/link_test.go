@@ -15,7 +15,7 @@ import (
 )
 
 func daemonHandshake(stream net.Conn, a BootAuthority, credential string) error {
-	return daemonHandshakeVersion(stream, a, credential, 2)
+	return daemonHandshakeVersion(stream, a, credential, wire.SessionActorProtocol)
 }
 func daemonHandshakeVersion(stream net.Conn, a BootAuthority, credential string, version uint16) error {
 	nonce := make([]byte, 32)

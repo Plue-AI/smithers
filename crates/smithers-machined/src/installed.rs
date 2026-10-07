@@ -85,7 +85,9 @@ impl Provider<Actor> for Ports {
             .filter(|e| match actor {
                 Actor::Session(id) => e.id == *id,
                 Actor::Run(run) => e.run.as_ref() == Some(run),
-                // Principal identifiers are host-owned; never infer one from login.
+                Actor::Principal(reference) => {
+                    reference.as_slice() == e.principal && e.principal != [0; 16]
+                }
                 _ => false,
             })
             .map(|e| e.id)
@@ -119,7 +121,9 @@ impl Provider<Actor> for Ports {
                 Ok((e.id, usage, populated))
             })
             .collect::<io::Result<Vec<_>>>()?;
-        crate::session::samples(entries.iter(), &counters, |e| Some(Actor::Session(e.id)))
+        crate::session::samples(entries.iter(), &counters, |e| {
+            (e.principal != [0; 16]).then(|| Actor::Principal(e.principal.to_vec()))
+        })
     }
     fn read(&mut self, path: &str) -> io::Result<Option<(Vec<u8>, u32)>> {
         let (parent, name) = crate::confine::parent(&self.workspace, path)?;

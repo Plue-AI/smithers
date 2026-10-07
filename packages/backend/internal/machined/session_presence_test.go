@@ -8,7 +8,7 @@ import (
 
 func TestSessionPresenceAdmittedIdentityAndLifecycle(t *testing.T) {
 	registry, link, guest := rpcFixture(t)
-	s := NewSessions(link.Connection, "a", registry.Sessions("a")).WithPresenceVia("terminal")
+	s := NewSessions(link.Connection, "a", registry.Sessions("a")).WithActor([]byte("actor-reference1"), "").WithPresenceVia("terminal")
 	result := make(chan error, 1)
 	go func() {
 		_, err := s.OpenSession(t.Context(), SessionUser{"alice", 20001}, SessionPTY, nil, nil)
@@ -25,12 +25,10 @@ func TestSessionPresenceAdmittedIdentityAndLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnauthorized)
 	_, _, _, err = link.SessionPresence("a", 2)
 	require.ErrorIs(t, err, ErrUnauthorized)
-	go func() { result <- s.RegisterRun(t.Context(), "run-1", 1) }()
-	answer(t, guest, wire.RegisterRun)
-	require.NoError(t, <-result)
+	require.ErrorIs(t, s.RegisterRun(t.Context(), "run-1", 1), ErrUnauthorized)
 	_, run, _, err = link.SessionPresence("a", 1)
 	require.NoError(t, err)
-	require.Equal(t, "run-1", run)
+	require.Empty(t, run)
 	go func() { result <- s.CloseSession(t.Context(), 1) }()
 	answer(t, guest, wire.CloseSession)
 	require.NoError(t, <-result)
@@ -45,7 +43,7 @@ func TestSessionPresenceTransportRefusesUnavailableOrInvalidAdapters(t *testing.
 	var missing *Sessions
 	require.Nil(t, missing.WithPresenceVia("ssh"))
 	registry, link, _ := rpcFixture(t)
-	s := NewSessions(link.Connection, "a", registry.Sessions("a")).WithPresenceVia("spoof")
+	s := NewSessions(link.Connection, "a", registry.Sessions("a")).WithActor([]byte("actor-reference1"), "").WithPresenceVia("spoof")
 	_, err := s.OpenSession(t.Context(), SessionUser{"alice", 20001}, SessionPTY, nil, nil)
 	var refusal *SessionError
 	require.ErrorAs(t, err, &refusal)
@@ -54,16 +52,22 @@ func TestSessionPresenceTransportRefusesUnavailableOrInvalidAdapters(t *testing.
 
 func TestRunPresenceRequiresRegisteredLiveAgent(t *testing.T) {
 	registry, link, guest := rpcFixture(t)
-	s := NewSessions(link.Connection, "a", registry.Sessions("a")).WithPresenceVia("cli")
+	s := NewSessions(link.Connection, "a", registry.Sessions("a")).WithActor([]byte("actor-reference1"), "").WithPresenceVia("cli")
 	_, err := link.RunPresence("a", "run-1")
 	require.ErrorIs(t, err, ErrUnauthorized)
 	done := make(chan error, 1)
 	go func() {
-		_, err := s.OpenSession(t.Context(), SessionUser{"agent", 19999}, SessionExec, []string{"/bin/true"}, nil)
+		_, err := s.WithActor([]byte("actor-reference1"), "run-1").OpenSession(t.Context(), SessionUser{"agent", 19999}, SessionExec, []string{"/bin/true"}, nil)
 		done <- err
 	}()
 	answer(t, guest, wire.OpenSession, wire.Field(1, wire.U32(7)))
 	require.NoError(t, <-done)
+	{
+		via, err := link.RunPresence("a", "run-1")
+		require.NoError(t, err)
+		require.Equal(t, "cli", via)
+		require.ErrorIs(t, s.RegisterRun(t.Context(), "replacement", 7), ErrUnauthorized)
+	}
 	go func() { done <- s.RegisterRun(t.Context(), "run-1", 7) }()
 	answer(t, guest, wire.RegisterRun)
 	require.NoError(t, <-done)

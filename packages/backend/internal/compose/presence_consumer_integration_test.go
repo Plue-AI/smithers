@@ -26,7 +26,7 @@ func TestPresenceProductionSessionConsumerThroughInstall(t *testing.T) {
 	registry := new(machined.Registry)
 	link, guest := presenceTestLink(t, registry, f.row.ID)
 	require.NoError(t, link.Reconciled())
-	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithPresenceVia("ssh")
+	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor([]byte("actor-reference1"), "").WithPresenceVia("ssh")
 	opened := make(chan error, 1)
 	go func() {
 		id, err := sessions.OpenSession(t.Context(), machined.SessionUser{Login: "maya", UID: 20001}, machined.SessionPTY, nil, nil)
@@ -84,14 +84,15 @@ func TestPresenceProductionSessionConsumerThroughInstall(t *testing.T) {
 		require.NoError(t, <-result)
 	}
 	exchange(wire.OpenSession, [][]byte{wire.Field(1, wire.U32(2))}, func() error {
-		id, err := sessions.OpenSession(t.Context(), machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionExec, []string{"codex"}, nil)
+		id, err := sessions.WithActor([]byte("actor-reference1"), "external-run").OpenSession(t.Context(), machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionExec, []string{"codex"}, nil)
 		if err == nil && id != 2 {
 			return fmt.Errorf("session %d", id)
 		}
 		return err
 	})
-	_, err = resolver(t.Context(), f.row.ID, 2)
-	require.ErrorIs(t, err, machined.ErrUnauthorized, "unregistered agent must refuse")
+	binding, err = resolver(t.Context(), f.row.ID, 2)
+	require.NoError(t, err, "run must already be bound by admission")
+	require.Equal(t, "external-run", binding.Run)
 	exchange(wire.RegisterRun, nil, func() error { return sessions.RegisterRun(t.Context(), "external-run", 2) })
 	binding, err = resolver(t.Context(), f.row.ID, 2)
 	require.NoError(t, err)

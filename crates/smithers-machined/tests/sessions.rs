@@ -37,7 +37,7 @@ impl Controls for Kernel {
             return Err(error.into());
         }
         let fields = match &request {
-            Request::Open { .. } | Request::Tcp(_) => vec![conn::field(1, 7u32.to_be_bytes())],
+            Request::Open { .. } | Request::Tcp(_, _) => vec![conn::field(1, 7u32.to_be_bytes())],
             Request::KillUser(_) | Request::KillRun(_) => vec![conn::field(1, 2u16.to_be_bytes())],
             Request::Attach { .. } => vec![conn::field(1, 123u64.to_be_bytes())],
             _ => vec![],
@@ -199,6 +199,7 @@ fn session_controls_cross_production_rpc_and_root_dispatch() {
     assert_eq!(
         kernel.calls[1],
         Request::Open {
+            admission: None,
             user: User {
                 login: "ben".into(),
                 uid: 20001
@@ -469,14 +470,12 @@ fn failed_roster_rpc_fences_local_run_until_cleanup_receipt() {
         }
     }
     impl hooks::Sessions for Boundary {
-        fn run_of_cgroup(&self, path: &str) -> Option<String> {
+        fn admission_of_cgroup(
+            &self,
+            path: &str,
+        ) -> Option<smithers_machined::broker::sessions::Admission> {
             let id = path.strip_prefix("/smithers/sessions/")?.parse().ok()?;
-            self.0
-                .lock()
-                .unwrap()
-                .local_run(19999, id)
-                .ok()
-                .map(str::to_owned)
+            self.0.lock().unwrap().local_admission(19999, id).ok()
         }
     }
     let stalled = Arc::new(AtomicBool::new(false));
@@ -502,7 +501,17 @@ fn failed_roster_rpc_fences_local_run_until_cleanup_receipt() {
     );
     {
         let mut registry = boundary.0.lock().unwrap();
-        registry.insert(1, ben, Kind::Exec).unwrap();
+        registry
+            .insert(
+                1,
+                ben,
+                Kind::Exec,
+                smithers_machined::broker::sessions::Admission {
+                    principal: [7; 16],
+                    run: None,
+                },
+            )
+            .unwrap();
         registry
             .insert(
                 2,
@@ -511,13 +520,20 @@ fn failed_roster_rpc_fences_local_run_until_cleanup_receipt() {
                     uid: 19999,
                 },
                 Kind::Exec,
+                smithers_machined::broker::sessions::Admission {
+                    principal: [7; 16],
+                    run: Some("trusted-run".into()),
+                },
             )
             .unwrap();
         registry.register_run(2, "trusted-run").unwrap();
     }
     assert_eq!(
-        hooks::Sessions::run_of_cgroup(&*boundary, "/smithers/sessions/2"),
-        Some("trusted-run".into())
+        hooks::Sessions::admission_of_cgroup(&*boundary, "/smithers/sessions/2"),
+        Some(smithers_machined::broker::sessions::Admission {
+            principal: [7; 16],
+            run: Some("trusted-run".into())
+        })
     );
     stalled.store(true, Ordering::SeqCst);
     assert_eq!(
@@ -525,14 +541,18 @@ fn failed_roster_rpc_fences_local_run_until_cleanup_receipt() {
         255
     );
     assert_eq!(
-        hooks::Sessions::run_of_cgroup(&*boundary, "/smithers/sessions/2"),
+        hooks::Sessions::admission_of_cgroup(&*boundary, "/smithers/sessions/2"),
         None
     );
     #[cfg(target_os = "linux")]
     assert_eq!(
-        smithers_machined::local::run_for_peer(19999, "0::/smithers/sessions/2\n", &*boundary)
-            .unwrap_err()
-            .code,
+        smithers_machined::local::admission_for_peer(
+            19999,
+            "0::/smithers/sessions/2\n",
+            &*boundary
+        )
+        .unwrap_err()
+        .code,
         11
     );
     stalled.store(false, Ordering::SeqCst);
@@ -541,8 +561,11 @@ fn failed_roster_rpc_fences_local_run_until_cleanup_receipt() {
         [16, 0, 0, 0, 0]
     );
     assert_eq!(
-        hooks::Sessions::run_of_cgroup(&*boundary, "/smithers/sessions/2"),
-        Some("trusted-run".into())
+        hooks::Sessions::admission_of_cgroup(&*boundary, "/smithers/sessions/2"),
+        Some(smithers_machined::broker::sessions::Admission {
+            principal: [7; 16],
+            run: Some("trusted-run".into())
+        })
     );
     assert_eq!(
         boundary
@@ -963,7 +986,17 @@ mod descriptor_stream {
             uid: 20001,
         };
         registry.set_roster(&[ben.clone()], Instant::now()).unwrap();
-        registry.insert(17, ben, Kind::Exec).unwrap();
+        registry
+            .insert(
+                17,
+                ben,
+                Kind::Exec,
+                smithers_machined::broker::sessions::Admission {
+                    principal: [7; 16],
+                    run: None,
+                },
+            )
+            .unwrap();
         let mut child = Command::new("/bin/sh")
             .args(["-c", "printf abcdef; printf ghijkl >&2"])
             .stdin(Stdio::piped())

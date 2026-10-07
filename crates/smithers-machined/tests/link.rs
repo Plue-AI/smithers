@@ -663,6 +663,7 @@ fn authenticated_daemon_emits_production_broker_presence_after_roster_and_on_rec
                             },
                             kind: smithers_machined::broker::sessions::Kind::Pty,
                             run: None,
+                            principal: [7; 16],
                             closed: false,
                             exited: false,
                         })

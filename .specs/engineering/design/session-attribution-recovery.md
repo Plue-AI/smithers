@@ -5,20 +5,23 @@ Status: implementation plan from the integration audit at `a80b8b447ab4`,
 This records an unfinished dependency of production machine-event activation;
 it is not an acceptance receipt or a change to product scope.
 
-Implemented foundation: immutable actor-reference storage and commit-before-launch
-helper; principal-reference resolution in the burst/hint transaction, scoped to
-the authenticated machine and using the shared branch actor renderer. Replays of
-these references do not require live sessions or current membership. Session/run
-wire variants still use the existing live adapter; their launch/broker migration
-below remains required. These component checks do not prove installed admission
-or recovery of legacy session-number events.
+Implemented: immutable actor-reference storage, commit-before-launch member
+terminal admission, protocol-3 session references and pre-spawn run binding,
+principal-reference resolution in the burst/hint transaction, and broker-owned
+reference inheritance for local PTYs and local writes. The installed sampler
+emits the reference instead of a numeric session actor. Failed launches retain
+ownership until confirmed cleanup, without granting local launch authority.
 
-The broker now reserves session ownership (including an inherited local run)
-before spawn. Failed launches retain that ownership until cgroup cleanup and
-child reaping succeed; they cannot reattach or authorize local child sessions.
-This repairs the failed-launch lifetime gap without changing live wire bytes.
-Host-created durable references and pre-launch host run binding below still
-need their coordinated producer migration.
+The terminal host commits before acquiring the roster transaction held through
+spawn, then rechecks membership and machine lineage. Older live peers refuse
+attributed launches; old request and actor recordings still decode. Late
+`register_run` requests can only confirm the already-admitted run.
+
+Still unfinished: migrate the coding launcher that uses the older execution
+adapter, direct host writes, document edits and rewrites to these same committed
+references; replace legacy session/run replay's live adapter with retained
+historical authority; and prove the installed cgroup/restart path on a real
+machine. These component checks are not installed recovery acceptance.
 
 ## Required behavior
 
@@ -32,12 +35,12 @@ The host must commit the attribution identity before admitting a process that
 can produce an event. An event must remain attributable after both processes
 restart, after a member is removed, and after numeric session IDs are reused.
 
-## Verified gaps
+## Recovery findings and remaining gaps
 
 - [SessionPresence](../../../packages/backend/internal/machined/session_presence.go)
   requires a ready connection and an open in-memory session. That is correct for
   live presence, but cannot resolve queued historical events before wake readiness.
-- [Session RPC](../../../packages/backend/internal/machined/rpc_streams.go) records
+- Legacy [session RPC](../../../packages/backend/internal/machined/rpc_streams.go) records
   user, run and transport after receiving the daemon reply. Close and kill remove
   the transport entry; reconnect constructs a new link. Saving this same mapping
   to SQL after the reply would still lose attribution if the host crashed between
@@ -49,10 +52,9 @@ restart, after a member is removed, and after numeric session IDs are reused.
   durable identity. The daemon instance in the handshake does not accompany each
   retained event and cannot identify an older event after restart.
 - [Installed observed-write attribution](../../../crates/smithers-machined/src/installed.rs)
-  currently produces `Actor::Session(id)` from broker entries. The host's
-  [burst writer](../../../packages/backend/internal/machined/events.go) has an
-  attribution seam, but production historical session resolution is not bound.
-  The existing admission-attribution test covers a currently open fixture session.
+  now emits the committed principal reference from broker entries. Legacy
+  `Actor::Session(id)` recordings still require retained historical authority;
+  their live-presence adapter does not prove replay across a broker restart.
 
 Do not use `SessionPresence` as the durable resolver, infer a former identity
 from today's roster, label an unresolved actor as outside, or treat the next
@@ -112,7 +114,7 @@ Adding the admission field requires a coordinated live protocol version update,
 Go and Rust schemas, independent golden frames, broker request validation and
 installed composition. Keep decoding existing recorded protocols. Require the
 new capability before production session launch; never silently drop attribution
-when talking to an older daemon. This plan does not change wire bytes by itself.
+when talking to an older daemon. The session portion is implemented in connection protocol 3; the remaining producer paths still require migration.
 
 ## Required evidence before activation
 

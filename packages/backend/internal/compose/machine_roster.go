@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -213,4 +214,27 @@ func (r *machineRoster) withProvisioningRoster(ctx context.Context, branch strin
 		identities = append(identities, microsandbox.MemberIdentity{Login: member.Login, UID: int(member.UID), Active: true})
 	}
 	return visit(identities)
+}
+
+// commitMemberActor is a fresh authorization read, not a live-presence lookup.
+// CommitActor returns only after COMMIT; the launch door rechecks membership
+// while holding the owner lock before it sends the attributed session request.
+func (r *machineRoster) commitMemberActor(ctx context.Context, branch, machine string, member microsandbox.MemberIdentity) ([]byte, error) {
+	if _, err := member.SessionIdentity(); err != nil {
+		return nil, err
+	}
+	return machined.CommitActor(ctx, r.pool, branch, machine, func(ctx context.Context, tx pgx.Tx) (machined.ActorIdentity, error) {
+		if _, err := tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
+			return machined.ActorIdentity{}, err
+		}
+		var repository int64
+		if err := tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 AND vm_id=$2 AND deleted_at IS NULL`, branch, machine).Scan(&repository); err != nil {
+			return machined.ActorIdentity{}, err
+		}
+		user, err := db.New(tx).PresenceSessionMember(ctx, repository, member.Login, uint32(member.UID))
+		if err != nil {
+			return machined.ActorIdentity{}, err
+		}
+		return machined.ActorIdentity{Kind: "person", MemberID: user.ID, Via: "terminal"}, nil
+	})
 }

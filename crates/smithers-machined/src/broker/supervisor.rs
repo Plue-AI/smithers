@@ -3,7 +3,7 @@
 use super::{
     control,
     request::Request,
-    sessions::{self, Kind, Sessions, User},
+    sessions::{self, Admission, Kind, Sessions, User},
 };
 use crate::{
     conn::{self, Frame},
@@ -152,8 +152,10 @@ impl<K: Kernel> Supervisor<K> {
         size: Option<(u16, u16)>,
         port: Option<u16>,
         caller: Option<u32>,
+        admission: Admission,
     ) -> io::Result<u32> {
         self.registry.authorize(&user)?;
+        admission.validate(&user, kind)?;
         if self.registry.entries().count() >= sessions::MAX_SESSIONS || self.next > 0x7fff_ffff {
             return Err(invalid());
         }
@@ -172,7 +174,7 @@ impl<K: Kernel> Supervisor<K> {
         if let Some(caller) = caller {
             self.registry.insert_local(id, 19999, caller)?;
         } else {
-            self.registry.insert(id, user.clone(), kind)?;
+            self.registry.insert(id, user.clone(), kind, admission)?;
         }
         if let Err(error) = self
             .kernel
@@ -202,17 +204,19 @@ impl<K: Kernel> Supervisor<K> {
                 kind: Kind::Pty,
                 argv,
                 size,
+                admission: None,
             } if user.uid == 19999 => {
-                let id = self.open(user, Kind::Pty, argv, size, None, Some(caller))?;
+                let admission = self.registry.local_admission(19999, caller)?;
+                let id = self.open(user, Kind::Pty, argv, size, None, Some(caller), admission)?;
                 Ok(conn::structure_bytes(&[conn::field(1, id.to_be_bytes())]))
             }
             _ => Err(invalid()),
         }
     }
-    pub fn run_of_cgroup(&self, path: &str) -> Option<String> {
+    pub fn admission_of_cgroup(&self, path: &str) -> Option<Admission> {
         let name = path.strip_prefix("/smithers/sessions/")?;
         let id = sessions::cgroup_id(name).ok()?;
-        self.registry.local_run(19999, id).ok().map(str::to_owned)
+        self.registry.local_admission(19999, id).ok()
     }
     fn retain(&mut self) {
         let ids: std::collections::BTreeSet<_> = self.registry.entries().map(|e| e.id).collect();
@@ -351,9 +355,8 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 if path.len() > 4096 {
                     return Err(invalid());
                 }
-                self.run_of_cgroup(path)
-                    .map(String::into_bytes)
-                    .ok_or_else(invalid)
+                serde_json::to_vec(&self.admission_of_cgroup(path).ok_or_else(invalid)?)
+                    .map_err(io::Error::other)
             }
             21 if body.is_empty() => Ok(self
                 .entries()
@@ -383,11 +386,21 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 kind,
                 argv,
                 size,
+                admission,
             } => vec![conn::field(
                 1,
-                self.open(user, kind, argv, size, None, None)?.to_be_bytes(),
+                self.open(
+                    user,
+                    kind,
+                    argv,
+                    size,
+                    None,
+                    None,
+                    admission.ok_or_else(invalid)?,
+                )?
+                .to_be_bytes(),
             )],
-            Request::Tcp(port) => vec![conn::field(
+            Request::Tcp(port, admission) => vec![conn::field(
                 1,
                 self.open(
                     User {
@@ -399,6 +412,7 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                     None,
                     Some(port),
                     None,
+                    admission.ok_or_else(invalid)?,
                 )?
                 .to_be_bytes(),
             )],
