@@ -131,6 +131,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | **Fast model (§11.5b)** | | | | |
 | [C-FM-01](C-FM-01.md) | Folded into T-FM-01's tests | integration | S2 | T-FM-01 |
 | [C-FM-02](C-FM-02.md) | Folded into T-FM-02's tests | integration | S2 | T-FM-02 |
+| [C-UI-14](C-UI-14.md) | Remote carets keep keystroke p95 within 1 s (M-43 falsifier) | e2e | S3 | T-UI-19 |
 | **Stack** | | | | |
 | [C-STK-01](C-STK-01.md) | Folded into T-STK-01's tests | unit | S1 | T-STK-01|
 | [C-STK-02](C-STK-02.md) | Folded into T-STK-03's tests | integration | S2 | T-STK-03 |

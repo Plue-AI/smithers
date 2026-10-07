@@ -524,7 +524,7 @@ binary [kind u8][sub id u32][payload]   [S3] kind: 1 yjs-sync, 2 yjs-awareness
 
 7.4.4 Attribution of characters: each subscriber connection gets a Yjs client id that the host records as `client id → actor`. That map is stored in the document's own `Y.Map("authors")` so every host and reader resolves colours identically. Edits applied by `smithers-machined` for an outside writer use a client id allocated to that writer (§9.2.4).
 
-7.4.5 Awareness carries `{actor, colour, line, anchor?, head?}`; the host stamps actor and colour from the authenticated socket. Anchor and head are Yjs relative positions. Remote carets and selections accompany the gutter name flag (Will, 2026-10-06; working-together.md §3, I2, superseding the earlier cut).
+7.4.5 Awareness carries `{actor, colour, line, anchor?, head?}`; the host stamps actor and colour from the authenticated socket. Anchor and head are Yjs relative positions. Remote carets and selections, in each person's colour, accompany the gutter name flag [S3] (M-43, product, 2026-10-06; reverses the earlier cut). If two people on one file push keystroke p95 past C-SPK-07's 1 s, or Will says no, the carets flag goes off (check C-UI-14).
 
 7.4.6 **Saves, reconnects and epochs.** Both document kinds follow one acknowledgment and recovery rule (check C-DUR-04, K7 and K8):
 - The authority sends `saved{sv}` (§7.1) once the state with state vector `sv` is durable: for code, after the daemon's file and state record are on disk (§9.2.2); for the wiki, after the host's PostgreSQL commit (§7.4.2). A client's own update with clock c is saved when `sv` maps the client's id to at least c. That alone drives a card's saved state, such as "Saved to the machine" on a File card.
