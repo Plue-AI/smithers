@@ -22,6 +22,7 @@ type Terminal struct {
 	reattachMu sync.Mutex
 	pending    []byte
 	exit       error
+	exitSeen   bool
 	ended      bool
 	once       sync.Once
 	closeErr   error
@@ -104,6 +105,7 @@ func (t *Terminal) Read(dst []byte) (int, error) {
 		case 1:
 			t.pending = frame[2:]
 		case 5:
+			t.exitSeen = true
 			if frame[1] == 0 {
 				code := int32(binary.BigEndian.Uint32(frame[2:]))
 				if code != 0 {
