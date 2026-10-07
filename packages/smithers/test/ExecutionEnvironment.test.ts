@@ -14,6 +14,21 @@ const fixture = async () => {
   return { root, source: { HOME: root, XDG_CONFIG_HOME: join(root, "config"), PATH: process.env.PATH ?? "" } }
 }
 
+const waitForPid = async (path: string): Promise<number> => {
+  for (let i = 0; i < 200; i++) {
+    try {
+      // Creating the file and writing its contents are separate operations.
+      // An empty file is not a readiness receipt.
+      const pid = Number(await readFile(path, "utf8"))
+      if (Number.isInteger(pid) && pid > 0) return pid
+    } catch {
+      // The child has not created the file yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(`Child did not publish a process ID: ${path}`)
+}
+
 describe("persistent execution environments", () => {
   it("persists and removes profiles across independent reads", async () => {
     const { root, source } = await fixture()
@@ -82,29 +97,25 @@ describe("persistent execution environments", () => {
       source,
       { signal: controller.signal }
     )
-    let pid = 0
-    for (let i = 0; i < 200; i++) {
-      try {
-        pid = Number(await readFile(marker, "utf8"))
-        break
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 10))
+    try {
+      const pid = await waitForPid(marker)
+      controller.abort()
+      expect(await running).toBe(130)
+      // The descendant may briefly remain while its signal is delivered/reaped.
+      let alive = true
+      for (let i = 0; i < 100 && alive; i++) {
+        try {
+          process.kill(pid, 0)
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        } catch {
+          alive = false
+        }
       }
+      expect(alive).toBe(false)
+    } finally {
+      controller.abort()
+      await running.catch(() => {})
     }
-    expect(pid).toBeGreaterThan(0)
-    controller.abort()
-    expect(await running).toBe(130)
-    // The descendant may briefly remain while its signal is delivered/reaped.
-    let alive = true
-    for (let i = 0; i < 100 && alive; i++) {
-      try {
-        process.kill(pid, 0)
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      } catch {
-        alive = false
-      }
-    }
-    expect(alive).toBe(false)
   })
 
   it("runs a real local executable with exact arguments, selected cwd and home, and its exit code", async () => {
@@ -143,26 +154,21 @@ describe("persistent execution environments", () => {
       [
         process.execPath,
         "-e",
-        "require('node:fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)",
+        "const fs=require('node:fs');fs.writeFileSync(process.argv[1],'');setTimeout(()=>fs.writeFileSync(process.argv[1],String(process.pid)),100);setInterval(()=>{},1000)",
         ready
       ],
       source,
       { signal: controller.signal }
     )
-    let pid = 0
-    for (let i = 0; i < 200; i++) {
-      try {
-        pid = Number(await readFile(ready, "utf8"))
-        break
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      }
+    try {
+      const pid = await waitForPid(ready)
+      controller.abort()
+      expect(await running).toBe(130)
+      expect(() => process.kill(pid, 0)).toThrow()
+    } finally {
+      controller.abort()
+      await running.catch(() => {})
     }
-    expect(pid).toBeGreaterThan(0)
-    controller.abort()
-    const outcome = await running.catch(() => -1)
-    expect(outcome).not.toBe(0)
-    expect(() => process.kill(pid, 0)).toThrow()
   })
 })
 
