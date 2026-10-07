@@ -5,7 +5,7 @@ import { DEPLOYMENT_MODES } from "./e2e/real/coverage/types"
 import { MATRIX_SCENARIO_IDS, MODE_DESCRIPTORS } from "./e2e/real/coverage/matrix"
 import { MODEL_CREDENTIAL_ENV_PREFIX } from "@smthrs/rpc/ConfiguredModel"
 import { requireJ1Preconditions } from "./e2e/real/support/j1-preconditions"
-import { ignoredJourneys } from "./e2e/real/journeys"
+import { ignoredJourneys, journeySpecs } from "./e2e/real/journeys"
 
 // The direct Playwright door must enforce the same admission as run-real-e2e.
 // Otherwise selecting activation directly can start a development host before
@@ -14,6 +14,14 @@ const activationSelected = ["j1-activation.spec.ts", "j1.spec.ts", "keyboard-jou
   process.env.SMITHERS_J1_ACTIVATION === "1" ||
   process.argv.some(arg => /(?:^|\/)(?:j1-activation|j1|keyboard-journeys)\.spec\.ts$/.test(arg))
 if (activationSelected) requireJ1Preconditions()
+// All release journeys use the installed reference host. Refuse at the runner
+// door, before an absent origin can select the development webServer fallback.
+const referenceJourneySelected = journeySpecs.some(spec =>
+  process.env.SMITHERS_JOURNEY === spec || process.argv.some(arg => arg.endsWith(`/${spec}`) || arg === spec))
+if (!activationSelected && referenceJourneySelected && (!process.env.SMITHERS_REAL_BASE_URL ||
+  !process.env.SMITHERS_REAL_E2E_BUILD_SHA || process.env.SMITHERS_REAL_HEADED !== "1")) {
+  throw new Error("Release journey qualification requires a reference install origin, pinned build SHA and headed operator; no development host is started")
+}
 const setupSelected = process.env.SMITHERS_JOURNEY === "setup.spec.ts" ||
   process.argv.some(arg => /(?:^|\/)setup\.spec\.ts$/.test(arg))
 if (setupSelected && (!process.env.SMITHERS_REAL_BASE_URL || !process.env.SMITHERS_SETUP_URL ||
