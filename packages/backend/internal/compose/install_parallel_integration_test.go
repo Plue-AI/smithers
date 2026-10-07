@@ -39,7 +39,13 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 	// orphan sweep must never remove a database this test did not create.
 	server := os.Getenv("SMITHERS_STK03_DATABASE_URL")
 	if server == "" {
-		t.Skip("set SMITHERS_STK03_DATABASE_URL")
+		server = os.Getenv("SMITHERS_TEST_DATABASE_URL")
+	}
+	if server == "" {
+		if os.Getenv("SMITHERS_REQUIRE_DATABASE_TESTS") == "1" {
+			t.Fatal("SMITHERS_TEST_DATABASE_URL required")
+		}
+		t.Skip("SMITHERS_TEST_DATABASE_URL required")
 	}
 	admin, err := pgx.Connect(t.Context(), server)
 	require.NoError(t, err)
