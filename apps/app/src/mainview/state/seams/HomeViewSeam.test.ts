@@ -62,6 +62,7 @@ test("a changed account discards a delayed read and admits no old-account filter
     } })
   const stop = seam.subscribe(() => {})
   try {
+    await waitFor(() => typeof resolve === "function")
     seam.onView({ filter: "queued" })
     owner = "Alice"; changed()
     resolve(Response.json({ home: { filter: "working" } }))
@@ -168,5 +169,65 @@ test("last look advances only after two seconds visible, cancels on hide, and pr
     seam.onView({ last_seen_seq: 20 })
     await waitFor(() => writes.length === 2)
     expect(seam.get().last_seen_seq).toBe(25)
+  } finally { stop(); seam.dispose() }
+})
+
+
+test("a Home poll waits for a held menu write and cannot replace its committed state", async () => {
+  let saved: Record<string, unknown> = { home: { filter: "queued", menu: null }, last_seen_seq: 12 }
+  let releaseWrite!: () => void
+  let writing = false, reads = 0
+  const errors: unknown[] = []
+  const seam = createHomeViewSeam({ owner: () => "Ben", subscribeOwner: () => () => {}, report: error => errors.push(error),
+    http: async (_path, init) => {
+      if (init?.method === "PUT") {
+        writing = true
+        await new Promise<void>(resolve => { releaseWrite = resolve })
+        saved = JSON.parse(init.body as string)
+      } else reads++
+      return Response.json(saved)
+    } })
+  try {
+    await seam.read()
+    seam.onView({ menu: 3 })
+    await waitFor(() => writing)
+    const beforePoll = reads
+    const poll = seam.read()
+    await Bun.sleep(20)
+    expect(reads).toBe(beforePoll)
+    expect(seam.get().menu).toBeUndefined()
+    releaseWrite()
+    await poll
+    expect(reads).toBe(beforePoll + 1)
+    expect(seam.get()).toMatchObject({ filter: "queued", menu: 3, last_seen_seq: 12 })
+    expect(saved).toEqual({ home: { filter: "queued", menu: 3 }, last_seen_seq: 12 })
+    expect(errors).toEqual([])
+  } finally { releaseWrite?.(); seam.dispose() }
+})
+
+
+test("a visible Home advances the new member's look after an account change", async () => {
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Home")
+  let owner = "Ben", changed = () => {}
+  const views: Record<string, Record<string, unknown>> = { Ben: { last_seen_seq: 25 }, Alice: { last_seen_seq: 0 } }
+  const writes: unknown[] = []
+  const seam = createHomeViewSeam({ owner: () => owner, subscribeOwner: notify => { changed = notify; return () => {} }, report: error => { throw error },
+    live: { subscribe: () => () => {}, getSnapshot: () => ({ topic: "home", data: { ...fixtures.fresh.model, merge_history: [{ n: 8, seq: 19 }] } }) },
+    http: async (_path, init) => {
+      if (init?.method === "PUT") { views[owner] = JSON.parse(init.body as string); writes.push({ owner, body: views[owner] }) }
+      return Response.json(views[owner])
+    } })
+  const stop = seam.subscribe(() => {})
+  try {
+    await waitFor(() => seam.get().last_seen_seq === 25)
+    seam.onView({ on_screen: true })
+    owner = "Alice"; changed()
+    await waitFor(() => seam.get().last_seen_seq === 0)
+    expect(seam.get().on_screen).toBe(true)
+    await Bun.sleep(1900)
+    expect(writes).toEqual([])
+    await waitFor(() => writes.length === 1, 1000)
+    expect(writes).toEqual([{ owner: "Alice", body: { last_seen_seq: 19, home: {} } }])
+    expect(views.Ben).toEqual({ last_seen_seq: 25 })
   } finally { stop(); seam.dispose() }
 })

@@ -38,7 +38,7 @@ export function createHomeViewSeam(options: {
   let mergeSequence = 0
   const cancelLook = () => { if (lookTimer !== undefined) clearTimeout(lookTimer); lookTimer = undefined }
   const scheduleLook = () => {
-    if (disposed || !get().on_screen || mergeSequence <= (get().last_seen_seq ?? 0) || lookTimer !== undefined) return
+    if (disposed || owner === undefined || !get().on_screen || mergeSequence <= (get().last_seen_seq ?? 0) || lookTimer !== undefined) return
     const seen = mergeSequence
     lookTimer = setTimeout(() => {
       lookTimer = undefined
@@ -77,11 +77,17 @@ export function createHomeViewSeam(options: {
     publish({ ...get(), filter: parsed.success ? parsed.data : undefined, menu, last_seen_seq: lastSeen })
     scheduleLook()
   }
-  const read = async () => {
+  const read = () => {
     const revision = generation, principal = owner, reading = ++readGeneration
-    if (!valid(revision, principal)) return
-    try { const body = await request(); if (valid(revision, principal) && reading === readGeneration) apply(body) }
-    catch (error) { if (valid(revision, principal)) options.report(error) }
+    // A poll during admission must not return pre-write preferences after
+    // the committed write. Reads use the same local and conversation queue.
+    const work = pending.then(() => (options.serializeView ?? (work => work()))(async () => {
+      if (!valid(revision, principal)) return
+      try { const body = await request(); if (valid(revision, principal) && reading === readGeneration) apply(body) }
+      catch (error) { if (valid(revision, principal)) options.report(error) }
+    }))
+    pending = work.catch(() => {})
+    return work
   }
   const poll = () => {
     timer = setTimeout(() => {
@@ -95,7 +101,9 @@ export function createHomeViewSeam(options: {
     cancelLook()
     owner = next; ++generation; ++readGeneration
     pending = Promise.resolve()
-    publish({ maximized: false })
+    // Visibility belongs to this mounted tab, not the previous member.
+    const onScreen = get().on_screen
+    publish({ maximized: false, ...(onScreen === undefined ? {} : { on_screen: onScreen }) })
     void read()
   }
   const subscribe = (notify: () => void) => {
