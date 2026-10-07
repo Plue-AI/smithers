@@ -25,6 +25,8 @@ test('host reader uses the owner metrics boundary and records only its Go host r
     await assert.rejects(readHost('https://factory.example', { cookie: 'session=secret' }, async () => new Response('{}', { status })), new RegExp(`returned ${status}`))
   }
   await assert.rejects(readHost('https://factory.example', { cookie: 'session=secret' }, async () => new Response('{"host":null}')), /host profile missing/)
+  await assert.rejects(readHost('https://factory.example', { cookie: 'session=secret' }, async () =>
+    new Response(JSON.stringify({ host: { ...host, profile: { ...host.profile, perf_cores: 8 } } }))), /reference host requires/)
 })
 async function temporary(body) {
   const root = await mkdtemp(join(tmpdir(), 'smithers-perf-'))
@@ -103,7 +105,7 @@ test('a named budget retains only that incomplete check; unknown names refuse', 
 // Provider substitutes exercise orchestration, never qualify a real budget.
 const samples = Array.from({ length: 100 }, (_, i) => ({ i, homeMs: i + 1, todoMs: i + 2, clock: 'fixture monotonic', failed: false }))
 const provider = (measure) => ({ available() {}, measure, fields: { home: 'homeMs', todo: 'todoMs' } })
-const passing = () => ({ status: 'passed', installVersion: options.installVersion, commit: options.commit, origin: options.origin, browser: 'fixture', backgroundTabs: 3, samples })
+const passing = () => ({ host, status: 'passed', installVersion: options.installVersion, commit: options.commit, origin: options.origin, browser: 'fixture', backgroundTabs: 3, samples })
 test('enabled budget executes, retains raw samples and is independently checked', async () => temporary(async root => {
   let calls = 0
   const result = await run({ ...options, root, check: 'C-PERF-02', providers: { 'C-PERF-02': provider(async () => { calls++; return passing() }) } })
@@ -161,7 +163,7 @@ test('origin or provider refusal prevents mutation; execution errors fail the fu
 
  test('agent provider retains model, preflight and wake cross-checks in the unified evidence', async () => temporary(async root => {
   const samples = Array.from({ length: 100 }, (_, i) => ({ i, firstTokenMs: 10, answerWithCardsMs: 20, clock: 'browser monotonic', failed: false }))
-  const value = { status: 'passed', installVersion: options.installVersion, commit: options.commit, origin: options.origin, samples,
+  const value = { host, status: 'passed', installVersion: options.installVersion, commit: options.commit, origin: options.origin, samples,
     models: [{ role: 'fast', provider: 'configured', model: 'configured-model' }],
     preflightSummary: { durationMs: { p95: 5 } }, wakesBefore: 0, wakesAfter: 0,
     metricsCrossCheck: [], browser: 'Chromium', token: 'must-not-be-recorded' }
@@ -306,3 +308,41 @@ test('unified wake verdict verifies host intervals and unique requests independe
     assert.deepEqual(saved.samples, values)
   })
  })
+
+ test('nonreference host refuses every workload before activation', async () => {
+  for (const profile of [
+    { ...host.profile, memory_bytes: 34359738368 },
+    { ...host.profile, perf_cores: 12 },
+    { ...host.profile, hypervisor: false },
+    { ...host.profile, macos_version: 'linux' }
+  ]) await temporary(async root => {
+    let calls = 0
+    const result = await run({ ...options, root, read: async () => ({ ...host, profile }), providers: {
+      'C-PERF-02': { ...provider(async () => { calls++; return passing() }), available() { calls++ } }
+    } })
+    assert.equal(calls, 0)
+    assert.equal(result.exit, 2)
+    assert.ok(result.summary.budgets.every(b => b.status === 'skipped' && b.reason.includes('reference host requires')))
+  })
+})
+
+test('driver host evidence is retained and a changed platform fails after launch', async () => {
+  for (const measurementHost of [undefined, { ...host, profile: { ...host.profile, physical_cores: 14 } },
+    { ...host, profile: { ...host.profile, macos_version: '16.0' } }]) await temporary(async root => {
+    const result = await run({ ...options, root, check: 'C-PERF-02', providers: {
+      'C-PERF-02': provider(async () => ({ ...passing(), host: measurementHost }))
+    } })
+    assert.equal(result.exit, 1)
+    assert.equal(result.summary.budgets[0].samples.length, 100)
+  })
+  await temporary(async root => {
+    const measuredHost = { ...host, profile: { ...host.profile, disk_free_bytes: 190000000000 }, limits: { capacity: 4 } }
+    const result = await run({ ...options, root, check: 'C-PERF-02', providers: {
+      'C-PERF-02': provider(async () => ({ ...passing(), host: measuredHost }))
+    } })
+    assert.equal(result.exit, 0)
+    const saved = JSON.parse(await readFile(join(root, '.artifacts/checks/C-PERF-02', options.timestamp, 'summary.json'), 'utf8'))
+    assert.deepEqual(saved.host, host)
+    assert.deepEqual(saved.budgets[0].host, measuredHost)
+  })
+})

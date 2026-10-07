@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
+import { isDeepStrictEqual } from 'node:util'
 import { pathToFileURL } from 'node:url'
-import { publicOrigin, readHost, validateHost } from './lib/host.mjs'
+import { publicOrigin, readHost, validateReferenceHost } from './lib/host.mjs'
 import { writeRun } from './lib/artifact.mjs'
 import { summarize, summarizeRebases } from './lib/stats.mjs'
 import { configuration as agentConfiguration, run as agentRun } from './agent-first-token.mjs'
@@ -71,7 +72,7 @@ export async function run({ env = process.env, providers = productionProviders, 
   try {
     usedOrigin = publicOrigin(origin)
     if (!token) throw new Error('authenticated host read requires token')
-    host = validateHost(await read(usedOrigin, token))
+    host = validateReferenceHost(await read(usedOrigin, token))
   } catch (error) { refusal = error.message }
   const measured = []
   for (const budget of selected) {
@@ -103,12 +104,18 @@ export async function run({ env = process.env, providers = productionProviders, 
       entry.samples = result.samples ?? []
       // Retain the driver's cross-checks, including on failure. Only public
       // evidence fields are copied; environment and credentials stay private.
-      for (const field of ['browser', 'clock', 'models', 'member', 'members', 'sshMember', 'sshFingerprint', 'backgroundTabs', 'preflightSummary', 'questionOrder', 'metricsCrossCheck', 'wakesBefore', 'wakesAfter', 'activity', 'sleepSeconds', 'cleanupError', 'pendingTerminal']) {
+      for (const field of ['host', 'browser', 'clock', 'models', 'member', 'members', 'sshMember', 'sshFingerprint', 'backgroundTabs', 'preflightSummary', 'questionOrder', 'metricsCrossCheck', 'wakesBefore', 'wakesAfter', 'activity', 'sleepSeconds', 'cleanupError', 'pendingTerminal']) {
         if (result[field] !== undefined) entry[field] = result[field]
       }
       if (result.status !== 'passed') throw new Error(result.error ?? 'measurement failed')
       if (result.commit !== commit || result.origin !== usedOrigin) throw new Error('measurement commit/origin differs from run')
       if (result.installVersion !== installVersion) throw new Error('measurement install version differs from run')
+      validateReferenceHost(result.host)
+      // Free disk and derived capacity can change during a workload. Keep both
+      // readings, but refuse a different hardware/platform profile.
+      for (const field of ['memory_bytes', 'perf_cores', 'physical_cores', 'macos_version', 'hypervisor']) {
+        if (!isDeepStrictEqual(result.host.profile[field], host.profile[field])) throw new Error('measurement host profile differs from run')
+      }
       entry.browser = result.browser
       entry.stats = summarize(entry.samples, Object.values(provider.fields), budget.minimum)
       for (const [name, limit] of Object.entries(budget.thresholdsMs)) {

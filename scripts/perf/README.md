@@ -272,3 +272,10 @@ frames without timing remain readable. Paired preflight durations may be
 aggregated across producers; raw samples keep each process clock identity.
 Serving these frames through the installed Inspect trace route and real
 reference-Mac browser qualification remain required before C-PERF-01 can pass.
+
+The unified runner refuses nonreference profiles before activating a workload:
+64 GiB memory, 10 performance cores, and macOS with Hypervisor.framework.
+Each driver's authenticated host read is retained in its budget evidence.
+Hardware/platform fields must match the initial read; free disk and derived
+limits may change and both readings remain available. This profile check does
+not authenticate a physical machine or replace lifecycle qualification.

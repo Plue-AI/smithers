@@ -17,6 +17,17 @@ export function validateHost(host) {
   return host
 }
 
+/** The release budgets bind to this profile; sizing remains the Go service's job. */
+export function validateReferenceHost(host) {
+  validateHost(host)
+  const profile = host.profile
+  if (profile.memory_bytes !== 68719476736 || profile.perf_cores !== 10 ||
+      !profile.hypervisor || !/^\d+(?:\.\d+)*$/.test(profile.macos_version)) {
+    throw new Error('reference host requires 64 GiB, 10 performance cores and macOS Hypervisor.framework')
+  }
+  return host
+}
+
 export async function readHost(origin, credential, request = fetch) {
   const headers = typeof credential === 'object' && credential?.cookie
     ? { Cookie: credential.cookie } : { Authorization: `Bearer ${credential}` }
@@ -26,5 +37,5 @@ export async function readHost(origin, credential, request = fetch) {
     headers, redirect: 'error', signal: AbortSignal.timeout(10000)
   })
   if (response.status !== 200) throw new Error(`T-INS-06: GET /api/install/metrics returned ${response.status}`)
-  return validateHost((await response.json()).host)
+  return validateReferenceHost((await response.json()).host)
 }
