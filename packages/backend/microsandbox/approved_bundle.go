@@ -18,6 +18,14 @@ const guestBundleRoot = "/opt/smithers/bundle"
 // same bound to the bytes it receives.
 const managedArtifactLimit = 64 << 20
 
+// Only the complete release CLI closure needs the larger data bound.
+func artifactLimit(relative string) int64 {
+	if relative == "share/cli/linux-arm64.tar.gz" {
+		return 256 << 20
+	}
+	return managedArtifactLimit
+}
+
 // managedArtifactDepth and managedArtifactMode are the guest helper's own
 // bounds: a planted path has at most this many segments, and every planted
 // executable uses this mode; the generated skill and CLI archive are data
@@ -137,7 +145,7 @@ func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, e
 			return nil, "", fmt.Errorf("%w: %s is not a plantable path", ErrUnapprovedArtifact, relative)
 		}
 	}
-	data, entry, err := bundle.Read(relative, managedArtifactLimit)
+	data, entry, err := bundle.Read(relative, artifactLimit(relative))
 	if err != nil {
 		return nil, "", err
 	}
