@@ -163,5 +163,12 @@ server.listen(port, parsed.values.host, () => {
   )
 })
 const stop = () => server.close(() => process.exit(0))
+// The launcher owns this private host. macOS has no Linux parent-death signal.
+const parentPid = process.env.SMITHERS_CHAT_PARENT_PID
+if (parentPid !== undefined) {
+  const expected = Number(parentPid)
+  if (!Number.isSafeInteger(expected) || expected <= 1 || process.ppid !== expected) process.exit(1)
+  setInterval(() => { if (process.ppid !== expected) stop() }, 100).unref()
+}
 process.on("SIGINT", stop)
 process.on("SIGTERM", stop)

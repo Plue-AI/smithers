@@ -221,6 +221,7 @@ func TestGitHubIndividualPullUsesExistingFollowWithoutEffects(t *testing.T) {
 	item.PRNumber = pgtype.Int8{Int64: 7, Valid: true}
 	item.PRHead = "original"
 	item, err = q.SaveMythicalItem(t.Context(), item)
+
 	require.NoError(t, err)
 	for range 2 {
 		next, saved, err := step.advance(t.Context(), item)
