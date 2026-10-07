@@ -125,7 +125,7 @@ export function debugApiScenarios(prefix: string) {
       await test.info().attach("delegated-dispatch-http-sql", { body: result.stdout, contentType: "text/plain" })
     })
     pending("delegated app-agent and CLI scope/role failures retain precedence over debug.api person-only refusal",
-      "T-CAT-01 shared dispatcher must carry credential/role decisions before its local never guard: flows/Commands.ts runForAgent and smithers/src/internal/backend/Catalog.ts. The eligible production MintForTurn receipt now passes separately.")
+      "T-CAT-01 CLI dispatcher still refuses locally before credential/role decisions: packages/smithers/src/internal/backend/Catalog.ts. App dispatcher precedence has a test-only host-authorizer contract receipt; combined real-install scope/role evidence remains pending. The eligible production MintForTurn receipt passes separately.")
     test("repository-flow execution with isolation unavailable refuses before execution with no host process", async () => {
       test.setTimeout(300_000)
       const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIInvokeWithoutIsolationPostgres$", "-count=1", "-v"], {
