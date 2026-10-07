@@ -1938,7 +1938,7 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 		if err != nil {
 			return db.MythicalItem{}, err
 		}
-		if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.started", "starting", data); err != nil {
+		if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.started", "starting", data); err != nil {
 			return db.MythicalItem{}, err
 		}
 	}
