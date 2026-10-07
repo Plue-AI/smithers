@@ -476,16 +476,16 @@ const installQueued: TodoCard = {
   branch: undefined, run: undefined, steps: [], waits: [], present: [], pr: undefined, merge: { state: "waiting", reason: "state", on_github: false }
 }
 
-test("Home from GET /api/todos: one row per unmerged TODO in served order, every state counted, a machine per awake or waking branch", () => {
+test("Home from GET /api/todos: one row per unmerged TODO in served order, only open states counted, a machine per awake or waking branch", () => {
   const working = { ...todoFixtures.in_review.model, n: 2, title: "Working", state: "working" as const, place: 2, pr: undefined,
     branch: { id: "b2", name: "todo-2", machine: { state: "awake" as const } } }
   const review = { ...todoFixtures.in_review.model, n: 3, place: 1, merge: { state: "ready" as const, on_github: false }, pr: { ...todoFixtures.in_review.model.pr!, draft: false } }
   const merged = { ...todoFixtures.merged.model, n: 4 }
-  const home = homeFromTodos("local-owner/demo", [installQueued, working, review, merged])
+  const home = homeFromTodos("local-owner/demo", [installQueued, working, review, merged, { ...merged, n: 5, state: "dropped" }])
   expect(HomeCardSchema.parse(home)).toEqual(home)
   expect(home.repository).toBe("local-owner/demo")
   expect(home.items.map(item => [item.n, item.state])).toEqual([[1, "queued"], [2, "working"], [3, "in_review"]])
-  expect(home.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 1, dropped: 0 })
+  expect(home.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
   expect(home.items[0]).toMatchObject({ queue: { reason: "machine", position: 1 }, branch: { id: "", name: "" }, place: 1 })
   expect(home.items[0]!.actions).toEqual([{ tag: "todo", label: "First local TODO", args: { n: "1", door: "title" } }])
   expect(home.items[2]!.actions.map(action => [action.tag, action.label])).toEqual([["todo", review.title]])
@@ -493,6 +493,9 @@ test("Home from GET /api/todos: one row per unmerged TODO in served order, every
   expect(home.machines.slots.map(slot => [slot.branch, slot.awake, slot.actor.kind === "agent" && slot.actor.todo])).toEqual([["todo-2", true, 2], ["todo/12", true, 3]])
   expect(home.main).toMatchObject({ title: "main", health: "limited" })
   expect(home.main.cause).toBeUndefined()
+  const mounted = mount(home)
+  expect(mounted.props.model.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
+  expect(mounted.props.model.items.map(row => row.n)).toEqual([1, 2, 3])
 })
 
 test("Home from GET /api/todos: a TODO in review whose PR rebuilds keeps its row, says Rebase pending onto T1 or approval cleared, and offers no Merge", () => {

@@ -12,8 +12,8 @@ import type { TodoCard } from "@smthrs/rpc/TodoCard"
  */
 export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>, role: "owner" | "maintainer" | "member" = "member"): HomeModel => {
   const counts: Record<TodoState, number> = { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 }
-  for (const todo of todos) counts[todo.state] += 1
   const open = todos.filter(todo => todo.state !== "merged" && todo.state !== "dropped")
+  for (const todo of open) counts[todo.state] += 1
   const items = open.map((todo): HomeItem => {
     const args = { n: String(todo.n) }
     const actions: Action[] = [{ tag: "todo", label: todo.title, args: { ...args, door: "title" } }]

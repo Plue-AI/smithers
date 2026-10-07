@@ -13,7 +13,7 @@ import { modelInvocable, nameOf } from "../registry"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 
-const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch?: (url: string, init?: RequestInit) => Response | undefined } = {}) => {
+const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch?: (url: string, init?: RequestInit) => Response | Promise<Response> | undefined } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: string[] = []
   const profile = signupProfileFetch(async (input, init) => {
@@ -117,6 +117,60 @@ test("a failed background run's Retry runs it again and Dismiss removes it for e
     expect(await slash(h, "background.retry", "r-release")).toMatchObject({ status: "failed", error: expect.stringContaining("No such run") })
     expect(await slash(h, "background.dismiss", "nope")).toMatchObject({ status: "failed", error: expect.stringContaining("No such run") })
   } finally { h.controller.dispose() }
+})
+
+test("HomeDependencyUnavailable: install background doors refuse without mutating runs or admitting work", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  const h = await boot({ bootstrap })
+  try {
+    expect(h.controller.design.enabled).toBe(false)
+    // A stale local record must never become an install execution provider.
+    const run = { id: "stored-failure", title: "Refresh wiki", state: "failed" as const, detail: "Failed at check" }
+    h.controller.design.put("runs", run)
+    const before = h.controller.design.world().runs
+    for (const name of ["background.retry", "background.dismiss"]) {
+      for (const outcome of [
+        await slash(h, name, run.id),
+        await button(h, name, { id: run.id }),
+        await h.controller.commands.runForAgent(name, run.id)
+      ]) expect(outcome).toMatchObject({ status: "failed", error: expect.stringContaining("Background runs unavailable") })
+      expect(h.controller.design.world().runs).toEqual(before)
+    }
+    expect(h.requests.filter(request => request.startsWith("POST "))).toEqual([])
+    expect(h.store.session().wikiRequests ?? []).toEqual([])
+  } finally { h.controller.dispose() }
+})
+
+test("install Home filter and conversation scroll writes preserve each other while a PUT is unresolved", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  let saved: Record<string, unknown> = { home: { filter: "queued" }, last_seen_seq: 12 }
+  const writes: Record<string, unknown>[] = []
+  let finish!: () => void
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    if (!url.endsWith("/api/conversations/main/view-state")) return undefined
+    if (init?.method !== "PUT") return Response.json(saved)
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    writes.push(body)
+    if (writes.length === 1) return new Promise<Response>(resolve => {
+      finish = () => { saved = body; resolve(Response.json(saved)) }
+    })
+    saved = body
+    return Response.json(saved)
+  } })
+  const stop = h.controller.homeView!.subscribe(() => {})
+  try {
+    await waitFor(() => h.controller.homeView!.get().filter === "queued")
+    const scroll = h.controller.sharedConversation!.saveView({ scroll_anchor: "entry-3" })
+    await waitFor(() => writes.length === 1)
+    h.controller.homeView!.onView({ filter: "working" })
+    // Give the independent Home queue a chance to enter the held transaction.
+    await new Promise<void>(resolve => setTimeout(resolve, 20))
+    expect(writes).toEqual([{ home: { filter: "queued" }, last_seen_seq: 12, scroll_anchor: "entry-3" }])
+    finish(); await scroll
+    await waitFor(() => writes.length === 2)
+    expect(saved).toEqual({ home: { filter: "working" }, last_seen_seq: 12, scroll_anchor: "entry-3" })
+    await waitFor(() => h.controller.homeView!.get().filter === "working")
+  } finally { finish?.(); stop(); h.controller.dispose() }
 })
 
 test("main's sync Retry syncs now and clears a refused or limited health", async () => {

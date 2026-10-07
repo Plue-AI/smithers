@@ -28,6 +28,11 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
   let stopView: (() => void) | undefined
   let reading = false, again = false, viewRevision = 0
   let saving = Promise.resolve()
+  const serializeView = (work: () => Promise<void>) => {
+    const next = saving.then(work)
+    saving = next.catch(() => {})
+    return next
+  }
   let scrollTimer: ReturnType<typeof setTimeout> | undefined
   const listeners = new Set<() => void>()
   const publish = (next: ConversationSnapshot) => { snapshot = next; for (const listener of listeners) listener() }
@@ -74,7 +79,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     const revision = generation, at = branch
     if (!key || !valid(revision)) return Promise.resolve()
     ++viewRevision
-    saving = saving.then(async () => {
+    return serializeView(async () => {
       if (!valid(revision)) return
       const path = `${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}/view-state`
       const response = await ctx.boundedFetch(path, { credentials: "same-origin" })
@@ -86,7 +91,6 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
       const view = ConversationViewSchema.parse(await written.json())
       if (valid(revision)) publish({ ...snapshot, view, queue: snapshot.queue, error: snapshot.error === "View unavailable" ? undefined : snapshot.error })
     }).catch(error => { if (valid(revision)) { publish({ ...snapshot, error: "View unavailable" }); ctx.failures.report("seam.failure", error, "conversation-view") } })
-    return saving
   }
   const rememberScroll = (anchor: string) => {
     if (scrollTimer !== undefined) clearTimeout(scrollTimer)
@@ -120,6 +124,6 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
   const dispose = () => { if (scrollTimer !== undefined) clearTimeout(scrollTimer); disposed = true; ++generation; stopLive?.(); stopView?.(); sessions.unsubscribe(); identities.unsubscribe(); stopAccount(); listeners.clear() }
   ctx.onDispose(dispose)
   change()
-  return { get: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, read, saveView, rememberScroll, dispose }
+  return { get: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, read, saveView, serializeView, rememberScroll, dispose }
 }
 export type SharedConversationSeam = ReturnType<typeof createSharedConversationSeam>
