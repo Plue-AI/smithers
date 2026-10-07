@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"io"
@@ -23,6 +22,10 @@ import (
 // Composed /api/live consumes verified host-store versions while the branch sleeps.
 // This fixture supplies the remote burst; it does not claim a real watcher run.
 func TestBranchChangesProductionLiveBoundary(t *testing.T) {
+	testBranchChangesProductionLiveBoundary(t, nil)
+}
+
+func testBranchChangesProductionLiveBoundary(t *testing.T, bindNotes func(presenceInstallFixture, *machined.BurstIngest)) {
 	f := presenceInstall(t, true)
 	require.Equal(t, int64(2), f.user.ID)
 	registry := &machined.Registry{}
@@ -72,6 +75,9 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.NoError(t, err)
 	actor := wire.Union(1, wire.Field(1, wire.Bytes(ref)))
 
+	if bindNotes != nil {
+		bindNotes(f, ingest)
+	}
 	list := wire.U16(12)
 	for i := 0; i < 12; i++ {
 		list = append(list, wire.Struct(wire.Field(1, wire.String(fmt.Sprintf("src/f%d.ts", i))), wire.Field(2, []byte{2}), wire.Field(4, bytesOf(before)), wire.Field(5, bytesOf(after)), wire.Field(6, post[:]))...)
