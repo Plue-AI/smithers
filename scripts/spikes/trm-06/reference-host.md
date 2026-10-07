@@ -95,3 +95,10 @@ in README.md before collecting passing receipts. The ten-run campaign arms a hel
 validate its raw independent populated-0 samples on the reference host. Missing
 or errored observations remain NO, never inferred emptiness. Terminal fixtures and restart samples do
 not replace the second-Mac video or the VS Code-connected ten-run requirement.
+
+Linux fixture additions (2026-10-07): `check-session` includes an invalid
+uppercase child cgroup and a writable session-parent restart refusal. Successful
+startup controls retain independent `/proc` executable digest, root UID tuple
+and literal PATH-only environment in `<scenario>-startup.json`. The local
+seccomp ENOSYS test is not the real no-Landlock kernel receipt; that installed
+variant, launcher replacement races and cgroup replacement races remain required.

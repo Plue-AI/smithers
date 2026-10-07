@@ -224,6 +224,68 @@ mod tests {
     use std::os::unix::process::CommandExt;
     use std::process::Command;
     #[test]
+    fn unavailable_landlock_refuses_without_member_execution() {
+        const CHILD: &str = "TRM06_NO_LANDLOCK_PROBE";
+        if std::env::var_os(CHILD).is_some() {
+            // Real syscall refusal in an isolated unprivileged child. This is
+            // not an installed-root or unsupported-reference-kernel receipt.
+            let mut filter = [
+                libc::sock_filter {
+                    code: 0x20,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                libc::sock_filter {
+                    code: 0x15,
+                    jt: 0,
+                    jf: 1,
+                    k: libc::SYS_landlock_create_ruleset as u32,
+                },
+                libc::sock_filter {
+                    code: 0x06,
+                    jt: 0,
+                    jf: 0,
+                    k: 0x00050000 | libc::ENOSYS as u32,
+                },
+                libc::sock_filter {
+                    code: 0x06,
+                    jt: 0,
+                    jf: 0,
+                    k: 0x7fff0000,
+                },
+            ];
+            let program = libc::sock_fprog {
+                len: filter.len() as u16,
+                filter: filter.as_mut_ptr(),
+            };
+            assert_eq!(
+                unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) },
+                0
+            );
+            assert_eq!(unsafe { libc::prctl(libc::PR_SET_SECCOMP, 2, &program) }, 0);
+            let error = restrict(c"/home/ben").unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(error.to_string(), "Landlock ABI 3 required");
+            return;
+        }
+        assert_ne!(unsafe { libc::geteuid() }, 0);
+        let result = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "confinement::tests::unavailable_landlock_refuses_without_member_execution",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    #[test]
     fn mount_view_confines_metadata_on_the_real_kernel() {
         // A user namespace maps virtual root to this unprivileged host UID.
         // No prototype root code is installed or run with host root authority.

@@ -27,6 +27,7 @@ def fingerprint():
 def sample():
     processes = []
     supervisors = []
+    supervisor_inputs = []
     for name in os.listdir("/proc"):
         if not name.isdecimal():
             continue
@@ -40,6 +41,13 @@ def sample():
                     argv = source.read(4097).split(b"\0")
                 if argv[:2] == [b"/opt/smithers/prototype/supervisor", b"--serve"]:
                     supervisors.append(int(name))
+                    with open(f"/proc/{name}/environ", "rb") as source:
+                        environment = source.read(4097)
+                    if len(environment) > 4096:
+                        raise ValueError("oversized supervisor environment")
+                    with open(f"/proc/{name}/exe", "rb") as source:
+                        executable_sha256 = hashlib.file_digest(source, "sha256").hexdigest()
+                    supervisor_inputs.append({"pid": int(name), "uid": fields["Uid"], "environment": environment.decode("ascii").split("\0")[:-1], "sha256": executable_sha256})
         except (FileNotFoundError, ProcessLookupError):
             pass
     cgroups = {}
@@ -59,7 +67,7 @@ def sample():
                 os.close(group)
     finally:
         os.close(root)
-    return {"processes": processes, "supervisors": supervisors, "cgroups": cgroups, "outside": fingerprint() if OUTSIDE.exists() else None}
+    return {"processes": processes, "supervisors": supervisors, "supervisor_inputs": supervisor_inputs, "cgroups": cgroups, "outside": fingerprint() if OUTSIDE.exists() else None}
 
 
 OBSERVER = Path("/run/smithers/trm06/observer.json")
@@ -263,10 +271,18 @@ def main():
             os.close(dev)
         print(json.dumps({"device_replaced": True, "outside": fingerprint()}))
         return
+    if operation == "cgroup-writable":
+        parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fchmod(parent, 0o777)
+        finally:
+            os.close(parent)
+        print(json.dumps({"cgroup_parent_writable": True, "outside": fingerprint()}))
+        return
     if operation == "cleanup-poison":
         parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            os.mkdir("trm06-invalid-child", 0o755, dir_fd=parent)
+            os.mkdir("TRM06-invalid-child", 0o755, dir_fd=parent)
         finally:
             os.close(parent)
         print(json.dumps({"cleanup_poisoned": True, "outside": fingerprint()}))

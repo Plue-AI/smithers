@@ -144,3 +144,15 @@ populated-0 sample and observes the guest before VM deletion. The gateway holds
 an authenticated revocation transport before SSH admission; revocation fences
 late opens, and restart randomizes session IDs against stale attachment. Local
 transport tests supply no root, microVM, timing, RSS or VS Code evidence.
+
+2026-10-07 Linux lane follow-up (not a measured protocol result): release overlay
+assembly now stages Cargo output privately even with a shared CARGO_TARGET_DIR,
+holds no-follow source descriptors, and revalidates the copied base bundle.
+The installed root campaign independently samples `/proc` executable SHA-256,
+root UID tuple and exact startup environment. Startup refusal fixtures now use
+an actually invalid child name and include a writable cgroup-parent restart.
+An unprivileged seccomp fixture proves Landlock ENOSYS refuses confinement;
+it does not replace the unsupported-kernel installed-root subcheck. Local
+Python/Go/Rust tests are regression evidence only. No nine-step reference-host,
+ten-revocation, two-second restart, RSS or second-Mac VS Code result is claimed.
+Both root checks still fail closed with their pending controls recorded.

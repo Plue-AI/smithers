@@ -66,7 +66,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	}()
 	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "race-parent", "poison-imports", "branch-supervisor", "bad-sha", "boot-symlink", "boot-writable", "supervisor-replaced", "positive"}
 	if operation == "check-session" {
-		scenarios = []string{"positive", "device-regular", "cleanup-poison"}
+		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable"}
 	}
 	for _, scenario := range scenarios {
 		if err = validationScenario(ctx, a, runtime, cfg.Root, home, string(fixture), scenario, operation, evidence); err != nil {
@@ -114,7 +114,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		return runGuestFixture(ctx, a, home, metadata.Machine, fixture, mode)
 	}
 	prepare := scenario
-	if scenario == "branch-supervisor" || scenario == "bad-sha" || scenario == "device-regular" || scenario == "cleanup-poison" || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
+	if scenario == "branch-supervisor" || scenario == "bad-sha" || scenario == "device-regular" || scenario == "cleanup-poison" || scenario == "cgroup-writable" || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
 		prepare = "positive"
 	}
 	before, err := observe(prepare)
@@ -172,8 +172,18 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	if scenario == "device-regular" || scenario == "cleanup-poison" || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
+	if scenario == "device-regular" || scenario == "cleanup-poison" || scenario == "cgroup-writable" || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
 		return validateRefusalFixture(ctx, control, observe, scenario, before, evidence)
+	}
+	startup, err := observe("sample")
+	if err != nil {
+		return err
+	}
+	if err = validateStartupObservation(startup, a.supervisorSHA); err != nil {
+		return err
+	}
+	if err = os.WriteFile(filepath.Join(evidence, scenario+"-startup.json"), startup, 0600); err != nil {
+		return err
 	}
 	if operation == "check-session" {
 		if err = validateSessionBoundary(ctx, control, observe, evidence); err != nil {
@@ -198,6 +208,27 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 	}
 	return compareOutside(before, after)
 }
+
+// /proc observations are independent of boot declarations and runtime policy.
+func validateStartupObservation(body []byte, expectedSHA string) error {
+	var state struct {
+		Inputs []struct {
+			PID         int      `json:"pid"`
+			UID         string   `json:"uid"`
+			Environment []string `json:"environment"`
+			SHA         string   `json:"sha256"`
+		} `json:"supervisor_inputs"`
+	}
+	if json.Unmarshal(body, &state) != nil || len(state.Inputs) != 1 {
+		return errors.New("independent startup inputs unavailable")
+	}
+	input := state.Inputs[0]
+	if input.PID <= 0 || strings.Join(strings.Fields(input.UID), " ") != "0 0 0 0" || input.SHA != expectedSHA || len(input.Environment) != 1 || input.Environment[0] != "PATH=/usr/bin:/bin:/usr/sbin:/sbin" {
+		return errors.New("independent startup executable/identity/environment mismatch")
+	}
+	return nil
+}
+
 func compareOutside(before, after []byte) error {
 	var a, b struct {
 		Outside json.RawMessage `json:"outside"`
@@ -218,7 +249,7 @@ func compareOutside(before, after []byte) error {
 	return nil
 }
 func runGuestFixture(ctx context.Context, a *installedAuthority, home, machine, source, mode string) ([]byte, error) {
-	if mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
+	if mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
 		return nil, errAuthority
 	}
 	// Set argv in install-controlled source, never concatenate member data or
@@ -515,7 +546,7 @@ func validateRefusalFixture(ctx context.Context, control relayControl, observe f
 			return errors.New("device refusal lacked explicit envelope")
 		}
 	} else {
-		if scenario == "cleanup-poison" {
+		if scenario == "cleanup-poison" || scenario == "cgroup-writable" {
 			if _, err = observe("restart"); err != nil {
 				return err
 			}
@@ -546,7 +577,7 @@ func validateRefusalFixture(ctx context.Context, control relayControl, observe f
 	if json.Unmarshal(after, &state) != nil || state.MemberCanaryExists == nil || *state.MemberCanaryExists {
 		return errors.New("member canary ran before device/startup validation")
 	}
-	if scenario == "cleanup-poison" && !strings.Contains(state.InitLog, "untrusted session cgroup") {
+	if (scenario == "cleanup-poison" || scenario == "cgroup-writable") && !strings.Contains(state.InitLog, "untrusted session cgroup") {
 		return errors.New("cleanup failure lacked an explicit startup refusal")
 	}
 	if (scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced") && !strings.Contains(state.InitLog, "prototype_authority_unavailable") {

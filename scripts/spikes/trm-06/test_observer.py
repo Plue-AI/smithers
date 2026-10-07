@@ -7,6 +7,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+import contextlib
+import io
 
 ROOT = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("trm06_validation", ROOT / "validation.py")
@@ -15,6 +18,27 @@ spec.loader.exec_module(fixture)
 
 
 class ObserverReceipt(unittest.TestCase):
+    def test_startup_refusal_fixtures_change_only_owned_cgroup_parent(self):
+        for mode in ("cleanup-poison", "cgroup-writable"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                parent = Path(temporary) / "sessions"
+                parent.mkdir(mode=0o755)
+                original = os.open
+                def own_open(path, flags, *args, **kwargs):
+                    self.assertEqual(path, "/sys/fs/cgroup/smithers/sessions")
+                    self.assertTrue(flags & os.O_NOFOLLOW)
+                    return original(parent, flags, *args, **kwargs)
+                with patch.object(fixture.sys, "argv", ["installed-fixture", mode]), patch.object(fixture.os, "getuid", return_value=0), patch.object(fixture.os, "geteuid", return_value=0), patch.object(fixture.os, "open", side_effect=own_open), patch.object(fixture, "fingerprint", return_value={"fixture": True}), contextlib.redirect_stdout(io.StringIO()) as output:
+                    fixture.main()
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["outside"], {"fixture": True})
+                if mode == "cleanup-poison":
+                    self.assertEqual([p.name for p in parent.iterdir()], ["TRM06-invalid-child"])
+                    self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
+                else:
+                    self.assertEqual(list(parent.iterdir()), [])
+                    self.assertEqual(parent.stat().st_mode & 0o777, 0o777)
+
     def test_reader_waits_for_complete_locked_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "observer.json"

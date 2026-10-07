@@ -116,3 +116,24 @@ func TestTruncatedControlRequiresPeerClosure(t *testing.T) {
 		})
 	}
 }
+
+func TestStartupObservationRequiresLiteralIdentityEnvironmentAndBytes(t *testing.T) {
+	for _, test := range []struct {
+		name, body string
+		pass       bool
+	}{
+		{"positive", `{"supervisor_inputs":[{"pid":17,"uid":"0\t0\t0\t0","environment":["PATH=/usr/bin:/bin:/usr/sbin:/sbin"],"sha256":"main-digest"}]}`, true},
+		{"missing", `{}`, false},
+		{"multiple", `{"supervisor_inputs":[{},{}]}`, false},
+		{"poison", `{"supervisor_inputs":[{"pid":17,"uid":"0 0 0 0","environment":["PATH=/workspace","PYTHONPATH=/workspace"],"sha256":"main-digest"}]}`, false},
+		{"branch", `{"supervisor_inputs":[{"pid":17,"uid":"0 0 0 0","environment":["PATH=/usr/bin:/bin:/usr/sbin:/sbin"],"sha256":"branch-digest"}]}`, false},
+		{"uid", `{"supervisor_inputs":[{"pid":17,"uid":"0 20001 0 0","environment":["PATH=/usr/bin:/bin:/usr/sbin:/sbin"],"sha256":"main-digest"}]}`, false},
+		{"pid", `{"supervisor_inputs":[{"pid":0,"uid":"0 0 0 0","environment":["PATH=/usr/bin:/bin:/usr/sbin:/sbin"],"sha256":"main-digest"}]}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateStartupObservation([]byte(test.body), "main-digest"); (err == nil) != test.pass {
+				t.Fatalf("got %v, pass=%v", err, test.pass)
+			}
+		})
+	}
+}
