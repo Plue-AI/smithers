@@ -53,21 +53,23 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         if (!result.ok) return result.refusal
         return result.id === undefined ? undefined : openBranch(result.id)
       } }),
-    flow({ name: "branch.add-to-stack",   slash: "/branch.add-to-stack", cli: ["branch","add-to-stack"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}/add-to-stack"}, summary: "Add a scratch branch as a TODO", args: "<branch>", hidden: true, discloseToAgent: true,
+    flow({ name: "branch.add-to-stack",   slash: "/branch.add-to-stack", cli: ["branch","add-to-stack"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}","defaults":{"op":"add-to-stack"}}, summary: "Add a scratch branch as a TODO", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), agent: "confirm", input: Schema.Struct({ branch: Schema.String, text: Schema.optional(Schema.String) }),
       // A✓ (mvp.md Appendix B): the agent asks; only the person's press commits the TODO. The confirmation carries the branch it named.
       confirm: payload => `add ${String(payload.branch)} to the stack`,
       confirmArgs: payload => payload.text === undefined ? String(payload.branch) : JSON.stringify(payload),
-      handler: ({ branch }) => {
+      handler: ({ branch, text }) => {
+        if (actions.branchControls) return actions.branchControls.request("add-to-stack", branch, text === undefined ? {} : { text })
         if (actions.design.enabled === false) return "Branch unavailable"
         const target = branchOf(branch)
         if (target === undefined) return `No branch ${branch}`
         const result = design.addToStack(target.id, design.viewer())
         return result.ok ? undefined : result.refusal
       } }),
-    flow({ name: "branch.rebase",   slash: "/branch.rebase", cli: ["branch","rebase"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}/rebase"}, summary: "Rebase this branch now", args: "<branch>", hidden: true, discloseToAgent: true,
+    flow({ name: "branch.rebase",   slash: "/branch.rebase", cli: ["branch","rebase"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}","defaults":{"op":"rebase"}}, summary: "Rebase this branch now", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), agent: "run", input: BranchInput,
       handler: ({ branch }) => {
+        if (actions.branchControls) return actions.branchControls.request("rebase", branch)
         if (actions.design.enabled === false) return "Branch unavailable"
         const target = branchOf(branch)
         if (target === undefined) return `No branch ${branch}`
