@@ -20,7 +20,7 @@ class InstalledRefusal(unittest.TestCase):
                 file = base / name
                 file.write_text(f"#!/bin/sh\nprintf canary >> '{sentinel}'\n")
                 file.chmod(0o755)
-            for script in ["install.py", "launcher.py"]:
+            for script in ["install.py", "launcher.py", "validation.py"]:
                 result = subprocess.run([sys.executable, "-I", "-S", str(ROOT / script)],
                                         input=b'{"supervisor":"branch","boot":{"uid":0}}',
                                         cwd=base, env={"PATH": str(base), "HOME": str(base)},

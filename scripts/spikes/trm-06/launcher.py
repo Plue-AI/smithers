@@ -64,7 +64,7 @@ def main():
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 64 * 1024 * 1024 or stat.S_IMODE(info.st_mode) != entry["mode"] or hashlib.sha256(file.read_bytes()).hexdigest() != entry["sha256"]:
             raise ValueError("replaced artifact")
     operation = sys.argv[1] if len(sys.argv) == 2 else ""
-    if operation not in ("run", "revoke"):
+    if operation not in ("run", "revoke", "flow", "measure", "check-install", "check-session"):
         raise ValueError("invalid operation")
     os.chdir("/")
     os.execve(str(root / "bin/trm06-gateway"), [str(root / "bin/trm06-gateway"), operation], {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})

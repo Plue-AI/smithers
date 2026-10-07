@@ -2,7 +2,7 @@
 //! must finish mutual authentication before calling serve; main cannot call it.
 use crate::live::Live;
 use crate::protocol::Frame;
-use crate::registry::{Kind, Owner, Registry, Selector};
+use crate::registry::{Kind, Owner, Registry, Resources};
 use crate::runtime::{Kernel, Launch, validate_open};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -59,8 +59,16 @@ enum Response {
     },
 }
 type AttachedSession = (String, Arc<Live>, u64);
-pub struct Supervisor {
-    registry: Registry<Kernel>,
+pub trait SessionResources: Resources {
+    fn spawn(&mut self, id: &str, launch: Launch) -> io::Result<Arc<Live>>;
+}
+impl SessionResources for Kernel {
+    fn spawn(&mut self, id: &str, launch: Launch) -> io::Result<Arc<Live>> {
+        Kernel::spawn(self, id, launch)
+    }
+}
+pub struct Supervisor<R: SessionResources = Kernel> {
+    registry: Registry<R>,
     live: BTreeMap<String, Arc<Live>>,
 }
 fn refused() -> io::Error {
@@ -73,6 +81,8 @@ impl Supervisor {
             live: BTreeMap::new(),
         })
     }
+}
+impl<R: SessionResources> Supervisor<R> {
     /// Called by the installed daemon's timer even when no relay is connected.
     /// Closing keeps lingering processes owned until an explicit cgroup drain.
     pub fn maintain(&mut self, now: Instant) -> io::Result<()> {
@@ -125,8 +135,13 @@ fn response(writer: &mut impl Write, response: Response) -> io::Result<()> {
 }
 /// One installed, mutually authenticated relay connection per control operation
 /// or attached session stream. No direct TCP fallback exists in the gateway.
-pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+pub fn serve<R: SessionResources>(
+    mut stream: TcpStream,
+    supervisor: Arc<Mutex<Supervisor<R>>>,
+) -> io::Result<()> {
+    // The provider authenticates with a 5 s deadline first. Its trusted host
+    // may reserve this idle control connection for revocation before admission.
+    stream.set_read_timeout(None)?;
     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
     let request = read_request(&mut stream)?;
     let result = (|| -> io::Result<(Option<AttachedSession>, Response)> {
@@ -182,7 +197,7 @@ pub fn serve(mut stream: TcpStream, supervisor: Arc<Mutex<Supervisor>>) -> io::R
                 Ok((None, Response::Ok { ok: true }))
             }
             Request::KillSessions {} => {
-                supervisor.registry.kill(Selector::User(Owner::Ben))?;
+                supervisor.registry.revoke_ben()?;
                 supervisor.live.clear();
                 Ok((None, Response::Ok { ok: true }))
             }
@@ -412,5 +427,71 @@ mod tests {
             read_request(&mut &bytes[..]).unwrap();
         }
         assert!(read_request(&mut &[0, 1, 0, 1][..]).is_err());
+    }
+    #[test]
+    fn typed_tcp_revocation_fences_late_opens_even_after_failed_drain() {
+        struct Fake {
+            fail: bool,
+        }
+        impl Resources for Fake {
+            fn startup(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+            fn close(&mut self, _: &str, _: Kind) -> io::Result<()> {
+                Ok(())
+            }
+            fn drain(&mut self, _: &[String]) -> io::Result<()> {
+                if self.fail {
+                    Err(io::Error::other("fixture drain failure"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        impl SessionResources for Fake {
+            fn spawn(&mut self, _: &str, _: Launch) -> io::Result<Arc<Live>> {
+                panic!("late open reached process creation")
+            }
+        }
+        for fail in [false, true] {
+            let state = Arc::new(Mutex::new(Supervisor {
+                registry: Registry::start(Fake { fail }).unwrap(),
+                live: BTreeMap::new(),
+            }));
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let worker = std::thread::spawn(move || {
+                for _ in 0..2 {
+                    let (stream, _) = listener.accept().unwrap();
+                    let _ = serve(stream, state.clone());
+                }
+            });
+            for (index, request) in [
+                r#"{"type":"kill_sessions"}"#,
+                r#"{"type":"open_session","kind":"exec","argv":["/bin/sh","-c","printf canary"]}"#,
+            ]
+            .iter()
+            .enumerate()
+            {
+                let mut peer = TcpStream::connect(address).unwrap();
+                peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                peer.write_all(&(request.len() as u32).to_be_bytes())
+                    .unwrap();
+                peer.write_all(request.as_bytes()).unwrap();
+                let mut length = [0; 4];
+                peer.read_exact(&mut length).unwrap();
+                let mut body = vec![0; u32::from_be_bytes(length) as usize];
+                peer.read_exact(&mut body).unwrap();
+                if index == 0 && !fail {
+                    assert_eq!(body, b"{\"ok\":true}")
+                } else {
+                    assert_eq!(
+                        body,
+                        b"{\"class\":\"invalid\",\"code\":\"session_refused\"}"
+                    )
+                }
+            }
+            worker.join().unwrap();
+        }
     }
 }

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	workspace "github.com/smithersai/smithers/packages/backend/workspace"
@@ -24,7 +26,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, errAuthority)
 		os.Exit(78)
 	}
-	if err := installedMain(context.Background(), operation); err != nil {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	if err := installedMain(ctx, operation); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(78)
 	}

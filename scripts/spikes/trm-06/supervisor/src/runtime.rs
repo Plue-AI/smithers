@@ -131,6 +131,7 @@ impl Kernel {
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
             .env("HOME", home)
+            .env("TMPDIR", home)
             .env("USER", login)
             .env("LOGNAME", login)
             .env("SHELL", "/bin/sh")

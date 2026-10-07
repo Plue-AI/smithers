@@ -97,12 +97,11 @@ root-validation receipt. The launcher test is refusal-only (18 combinations).
 
 ## Pending install/reference-host work
 
-The installed-main artifact and accepted-receipt authority provider is absent.
-It must supply trusted listener/key/boot bindings, pin all prototype and base
-SFTP executable bytes, provision a fresh `DefaultImage` with nil environments,
-and invoke the installed supervisor/init and real relay adapters. No test fake
-may authorize activation. The launcher and executable main wiring remain
-unavailable until that provider exists.
+The installed authority, launcher, fresh runtime and authenticated relay provider
+are implemented. They refuse checkout execution and require all five accepted
+checks before activation. No real reviewer key/approval, installed bundle or
+reference-host activation was available in this lane. The new authority format
+and boot proof remain review proposals, not security acceptance.
 
 Use [reference-host.md](reference-host.md) for the nine steps, both actual root
 validation matrices and independent samples. A Mac mini with a microVM runtime
@@ -112,7 +111,7 @@ is required; VS Code Remote recording requires a person on a second Mac.
 
 The main-built system bundle includes `bin/trm06-gateway` (0755),
 `libexec/trm06-supervisor` (0755, stage `trm06`), `share/trm06/install.py`
-(0644, stage `trm06`), the launcher and shell scripts, a raw 32-byte
+and `share/trm06/validation.py` (0644, stage `trm06`), the launcher and shell scripts, a raw 32-byte
 `share/trm06/smithers-3f.pub`, and `share/trm06/approval.json`. It also contains
 the existing runtime's msb, kernel, helper and jj artifacts. The install owner
 must provision the real reviewer's public key; a lane-generated key is not
@@ -149,3 +148,35 @@ guest HMAC-SHA256 (`smithers-trm06/v1 guest`, boot id, guest nonce, host nonce).
 Secrets never cross the relay; invalid identity/proof, replay and cancellation
 close it before session data. The extra guest-proof domain is a spike-only
 amendment requiring protocol-owner review; no production wire change is made.
+
+## Executable reference campaigns (unrun)
+
+Only the system-installed scripts accept these operations. With the protected
+configuration and an accepted bundle, `run.sh` launches a fresh machine and
+`revoke.sh` drains it. `flow.sh` uses the real SSH listener for binary half-close,
+1 GiB stalled output/RSS, PTY/resize/Ctrl-C, forwarding and a ten-second real
+relay cut with ordered replay. `ben-fixture.key` must be owner-only mode 0600
+and match config's Ben public key; no agent or root SSH key is admitted.
+
+`run.sh measure` starts ten fresh installed runs and preserves terminal-only
+revocation and restart samples. It requires direct populated-0 observations for
+every old cgroup, refuses to infer emptiness from removal, and cannot certify
+VS Code. Current post-drain sampling can miss removed cgroups; add a continuous
+independent held-descriptor observer on the reference host before treating this
+campaign as complete. `last-drain.json` is observed before VM deletion.
+
+`run.sh root-prototype-install-validation` and
+`run.sh root-session-input-validation` run disposable real-VM fixture subsets.
+They deliberately return incomplete (78), preserve partial receipts, and never
+issue PASS: installed artifact replacement/races, unsupported Landlock/device
+replacement, cleanup-failure admission, independent restart ordering, and the
+full malformed-input/cgroup-race matrix still need executable controls and real
+execution. They use the same five-check approval gate, with no validation bypass;
+initial validation authorization needs security-owner resolution.
+
+Revocation reserves an authenticated control stream before SSH admission,
+fences late opens even after failed drain, and preserves failure receipts.
+Fresh supervisor instances randomize session IDs so stale streams cannot attach
+to a newly created session with a reused counter. Authenticated reserved control
+streams have no idle timeout; unauthenticated handshakes retain their five-second
+bound. These lifecycle assertions have unprivileged transport tests only.

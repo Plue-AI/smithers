@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"io"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -150,7 +152,15 @@ func loadInstalledAuthority(executable string) (*installedAuthority, error) {
 	if filepath.Base(resolved) != "trm06-gateway" || filepath.Base(filepath.Dir(resolved)) != "bin" {
 		return nil, errAuthority
 	}
-	bundle, err := installbundle.Open(filepath.Dir(filepath.Dir(resolved)))
+	root := filepath.Dir(filepath.Dir(resolved))
+	installedRoot, err := filepath.EvalSymlinks("/usr/local/lib/smithers/current")
+	if err != nil || root != installedRoot {
+		return nil, errAuthority
+	}
+	if err = systemInstallTree(root); err != nil {
+		return nil, err
+	}
+	bundle, err := installbundle.Open(root)
 	if err != nil {
 		return nil, err
 	}
@@ -214,3 +224,39 @@ func (a *installedAuthority) recheck() error {
 	return nil
 }
 func authorityError(err error) error { return fmt.Errorf("%w: %v", errAuthority, err) }
+
+// The spike's activation tree is root-installed. A protected owner-writable
+// copy of a bundle cannot choose a replacement review key or claim main origin.
+func systemInstallTree(root string) error {
+	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	for _, part := range bytes.Split([]byte(root[1:]), []byte("/")) {
+		next, err := unix.Openat(fd, string(part), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		unix.Close(fd)
+		if err != nil {
+			return err
+		}
+		fd = next
+		var info unix.Stat_t
+		if err = unix.Fstat(fd, &info); err != nil || info.Uid != 0 || info.Mode&022 != 0 {
+			unix.Close(fd)
+			return errAuthority
+		}
+	}
+	unix.Close(fd)
+	// Bundle.Read checks bytes and held parent descriptors. Require the
+	// bootstrap manifest/review key to be root-owned as well.
+	for _, path := range []string{"manifest.json", reviewKeyArtifact, approvalArtifact, gatewayArtifact} {
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			return err
+		}
+		var actual unix.Stat_t
+		if err = unix.Lstat(filepath.Join(root, filepath.FromSlash(path)), &actual); err != nil || actual.Uid != 0 || actual.Mode&022 != 0 || !info.Mode().IsRegular() {
+			return errAuthority
+		}
+	}
+	return nil
+}

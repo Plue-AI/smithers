@@ -97,7 +97,9 @@ impl Boot {
         guest.update(&nonce);
         guest.update(&response[..32]);
         stream.write_all(&guest.finalize().into_bytes())?;
-        stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+        // Authenticated installed host control can be reserved while idle. The
+        // daemon owns/closes it on shutdown; unauthenticated peers retain 5 s.
+        stream.set_read_timeout(None)?;
         Ok(())
     }
 }

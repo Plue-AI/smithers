@@ -22,6 +22,7 @@ type relayControl struct {
 	runtime      *microsandbox.Runtime
 	workspaceID  string
 	authenticate bootAuthenticator
+	faults       *relayFaults
 }
 
 func (r relayControl) connect(ctx context.Context) (net.Conn, error) {
@@ -36,7 +37,7 @@ func (r relayControl) connect(ctx context.Context) (net.Conn, error) {
 		connection.Close()
 		return nil, err
 	}
-	return connection, nil
+	return r.faults.admit(connection)
 }
 func (r relayControl) opener(ctx context.Context) sessionOpener {
 	return func(spec *open) (io.ReadWriteCloser, error) {
@@ -60,7 +61,9 @@ func (r relayControl) opener(ctx context.Context) sessionOpener {
 			Term  string     `json:"term,omitempty"`
 			Modes frameBytes `json:"modes,omitempty"`
 		}{"open_session", spec.Kind, spec.Argv, spec.Cols, spec.Rows, spec.Port, spec.Term, modes}
+		stopOpening := context.AfterFunc(ctx, func() { connection.Close() })
 		reply, err := controlExchange(connection, request)
+		stopOpening()
 		if err != nil || reply.Session == "" {
 			connection.Close()
 			if err == nil {

@@ -40,6 +40,7 @@ pub struct Registry<R> {
     sessions: BTreeMap<String, Entry>,
     next: u64,
     admitting: bool,
+    ben_revoked: bool,
 }
 fn refused() -> io::Error {
     io::Error::other("session ownership or startup barrier refused")
@@ -47,17 +48,23 @@ fn refused() -> io::Error {
 impl<R: Resources> Registry<R> {
     pub fn start(mut resources: R) -> io::Result<Self> {
         resources.startup()?;
+        let mut seed = [0; 8];
+        getrandom::fill(&mut seed)
+            .map_err(|_| io::Error::other("session identity entropy unavailable"))?;
         Ok(Self {
             resources,
             sessions: BTreeMap::new(),
-            next: 0,
+            // A new daemon must not reuse IDs an old stream can reattach to.
+            next: u64::from_ne_bytes(seed) & 0x7fff_ffff_ffff_ffff,
             admitting: true,
+            ben_revoked: false,
         })
     }
     /// Reserve before spawn, so failures can never lose a populated group.
     pub fn reserve(&mut self, owner: Owner, kind: Kind, run: Option<String>) -> io::Result<String> {
         if self.sessions.len() >= 256
             || !self.admitting
+            || (owner == Owner::Ben && self.ben_revoked)
             || (owner == Owner::Ben && run.is_some())
             || run.as_ref().is_some_and(|r| {
                 r.is_empty()
@@ -153,6 +160,12 @@ impl<R: Resources> Registry<R> {
         }
         Ok(())
     }
+    /// Fence before draining. A parsed open waiting on the supervisor mutex
+    /// must not create a new Ben process after a revocation receipt.
+    pub fn revoke_ben(&mut self) -> io::Result<()> {
+        self.ben_revoked = true;
+        self.kill(Selector::User(Owner::Ben))
+    }
     pub fn kill(&mut self, selector: Selector) -> io::Result<()> {
         let ids: Vec<_> = self
             .sessions
@@ -224,7 +237,7 @@ mod tests {
     #[test]
     fn restart_failure_closes_admission_without_forgetting_ownership() {
         let mut r = Registry::start(Kernel::default()).unwrap();
-        r.reserve(Owner::Ben, Kind::Pty, None).unwrap();
+        let old = r.reserve(Owner::Ben, Kind::Pty, None).unwrap();
         r.resources.fail = true;
         assert!(r.restart().is_err());
         assert_eq!(r.sessions.len(), 1);
@@ -232,10 +245,7 @@ mod tests {
         r.resources.fail = false;
         r.restart().unwrap();
         assert!(r.sessions.is_empty());
-        assert_eq!(
-            r.reserve(Owner::Ben, Kind::Exec, None).unwrap(),
-            "s-0000000000000002"
-        );
+        assert_ne!(r.reserve(Owner::Ben, Kind::Exec, None).unwrap(), old);
         assert!(
             Registry::start(Kernel {
                 fail: true,
@@ -280,5 +290,14 @@ mod tests {
                 .is_err()
         );
         assert_eq!(r.sessions.len(), 1);
+    }
+    #[test]
+    fn fresh_daemons_do_not_reuse_prior_session_ids() {
+        let mut first = Registry::start(Kernel::default()).unwrap();
+        let mut second = Registry::start(Kernel::default()).unwrap();
+        let old = first.reserve(Owner::Ben, Kind::Exec, None).unwrap();
+        let new = second.reserve(Owner::Ben, Kind::Exec, None).unwrap();
+        assert_ne!(old, new);
+        assert!(second.attach(Owner::Ben, &old, Instant::now()).is_err());
     }
 }

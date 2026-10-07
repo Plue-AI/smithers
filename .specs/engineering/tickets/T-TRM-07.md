@@ -134,3 +134,13 @@ proof and fresh adapter agent-home reuse are described in the spike README.
 The named real root subchecks, ten revocation runs, restart/RSS/identity samples,
 nine reference-host steps and second-Mac recording remain required. No measured
 numbers or passing C-SPK-08 result are supplied by this lane.
+
+Wave-3 pass-3 additional handoff: installed-only flow and ten-run terminal
+campaigns, actual relay-cut injection, signed root observer fixtures and partial
+root subchecks are implemented but unrun. Root subchecks explicitly return
+incomplete; artifact/device/Landlock/race and restart-order controls remain.
+The measurement driver preserves NO for removed cgroups without an independent
+populated-0 sample and observes the guest before VM deletion. The gateway holds
+an authenticated revocation transport before SSH admission; revocation fences
+late opens, and restart randomizes session IDs against stale attachment. Local
+transport tests supply no root, microVM, timing, RSS or VS Code evidence.

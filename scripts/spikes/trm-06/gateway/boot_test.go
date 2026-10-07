@@ -12,6 +12,7 @@ import (
 
 func TestBootProofAuthenticatesRealTCPBeforeControl(t *testing.T) {
 	b := bootIdentity{Boot: [16]byte{1}, Secret: [32]byte{2}}
+	var previousGuestProof []byte
 	for _, scenario := range []string{"valid", "wrong-boot", "wrong-secret", "replayed-guest"} {
 		t.Run(scenario, func(t *testing.T) {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -56,8 +57,11 @@ func TestBootProofAuthenticatesRealTCPBeforeControl(t *testing.T) {
 				mac.Write(challenge[22:])
 				mac.Write(response[:32])
 				proof := mac.Sum(nil)
+				if scenario == "valid" {
+					previousGuestProof = append([]byte(nil), proof...)
+				}
 				if scenario == "replayed-guest" {
-					proof[0] ^= 1
+					proof = append([]byte(nil), previousGuestProof...)
 				}
 				if err = writeAll(stream, proof); err != nil {
 					done <- err

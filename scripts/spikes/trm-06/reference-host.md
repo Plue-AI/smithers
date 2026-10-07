@@ -76,3 +76,21 @@ Also retain installed gateway/supervisor/init logs, fixed-identity and cgroup
 samples, root-validation receipts, raw transport fault timestamps and all NO
 artifacts. Summarize measured maxima and limitations in T-TRM-07. No local lane
 count, configured deadline or constructor test supplies a measured number.
+
+## Installed commands and current limits
+
+The proposed system bundle must include the main-pinned gateway, supervisor,
+install.py, validation.py, launcher and scripts plus the real reviewer key and
+signed approval described in README.md. This lane neither installs nor signs
+that bundle. From `/usr/local/lib/smithers/current/share/trm06/`, use `run.sh`,
+`flow.sh`, `revoke.sh`, and `run.sh measure`; the latter two campaigns need the
+protected matching `ben-fixture.key`. Evidence is written under the install
+owner's protected `.local/state/smithers/trm06/evidence/`; copy all raw artifacts
+to the check evidence directory without converting partial/NO results to PASS.
+
+The named root-check operations are implemented as partial campaigns and return
+78, even when their current subset passes. Complete the missing controls listed
+in README.md before collecting passing receipts. The ten-run campaign also needs
+continuous independent cgroup observation: a removed group in its post-drain
+snapshot remains NO, never populated 0. Terminal fixtures and restart samples do
+not replace the second-Mac video or the VS Code-connected ten-run requirement.
