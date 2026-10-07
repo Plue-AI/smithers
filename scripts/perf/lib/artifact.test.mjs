@@ -7,7 +7,7 @@ import { run } from '../run.mjs'
 import { publicOrigin, validateHost, readHost } from './host.mjs'
 
 const host = { profile: { memory_bytes: 68719476736, perf_cores: 10, physical_cores: 12, disk_free_bytes: 200000000000, macos_version: '15.7', hypervisor: true }, limits: { capacity: 5 } }
-const options = { origin: 'http://mini.lan:8080', token: 'test-secret', commit: 'a'.repeat(40), installVersion: 'fixture', browser: 'not-run', timestamp: '2026-10-04T00-00-00-000Z', read: async () => host }
+const options = { providers: {}, origin: 'http://mini.lan:8080', token: 'test-secret', commit: 'a'.repeat(40), installVersion: 'fixture', browser: 'not-run', timestamp: '2026-10-04T00-00-00-000Z', read: async () => host }
 test('host reader uses the owner metrics boundary and records only its Go host response', async () => {
   // Unit transport substitute: the real authenticated router is independently
   // exercised with PostgreSQL by TestInstallMetricsOwnerBoundary.
@@ -98,4 +98,60 @@ test('a named budget retains only that incomplete check; unknown names refuse', 
     assert.deepEqual(await readdir(join(directory, '.artifacts/checks')), ['C-PERF-05'])
     await assert.rejects(run({ ...options, root: directory, check: 'C-PERF-99' }), /unknown performance check/)
   } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+// Provider substitutes exercise orchestration, never qualify a real budget.
+const samples = Array.from({ length: 100 }, (_, i) => ({ i, homeMs: i + 1, todoMs: i + 2, clock: 'fixture monotonic', failed: false }))
+const provider = (measure) => ({ available() {}, measure, fields: { home: 'homeMs', todo: 'todoMs' } })
+const passing = () => ({ status: 'passed', commit: options.commit, origin: options.origin, browser: 'fixture', samples })
+test('enabled budget executes, retains raw samples and is independently checked', async () => temporary(async root => {
+  let calls = 0
+  const result = await run({ ...options, root, check: 'C-PERF-02', providers: { 'C-PERF-02': provider(async () => { calls++; return passing() }) } })
+  assert.equal(calls, 1)
+  assert.equal(result.exit, 0)
+  assert.equal(result.summary.status, 'passed')
+  const saved = JSON.parse(await readFile(join(root, '.artifacts/checks/C-PERF-02', options.timestamp, 'summary.json'), 'utf8'))
+  assert.deepEqual(saved.budgets[0].samples, samples)
+  assert.equal(saved.budgets[0].stats.homeMs.p95, 95)
+}))
+test('a partial run executes the enabled budget and names every unavailable budget', async () => temporary(async root => {
+  const result = await run({ ...options, root, providers: { 'C-PERF-02': provider(async () => passing()) } })
+  assert.equal(result.exit, 2)
+  assert.equal(result.summary.budgets.filter(b => b.status === 'passed').length, 1)
+  assert.equal(result.summary.budgets.filter(b => b.status === 'skipped').length, 5)
+}))
+test('failed, short, over-budget and foreign measurements cannot turn into skips or passes', async () => {
+  for (const value of [
+    { ...passing(), status: 'failed', error: 'lost delta' },
+    { ...passing(), samples: samples.slice(1) },
+    { ...passing(), samples: samples.map(s => ({ ...s, homeMs: 1000 })) },
+    { ...passing(), samples: samples.map(s => ({ ...s, failed: true })) },
+    { ...passing(), commit: 'b'.repeat(40) },
+    { ...passing(), origin: 'https://other.example' }
+  ]) await temporary(async root => {
+    const result = await run({ ...options, root, check: 'C-PERF-02', providers: { 'C-PERF-02': provider(async () => value) } })
+    assert.equal(result.exit, 1)
+    assert.equal(result.summary.budgets[0].status, 'failed')
+    assert.ok(result.summary.budgets[0].reason)
+  })
+})
+test('origin or provider refusal prevents mutation; execution errors fail the full run', async () => {
+  await temporary(async root => {
+    let calls = 0
+    const refused = { ...provider(async () => { calls++; return passing() }), available() { throw new Error('missing authenticated member') } }
+    const result = await run({ ...options, root, providers: { 'C-PERF-02': refused } })
+    assert.equal(calls, 0)
+    assert.match(result.summary.budgets[1].reason, /missing authenticated member/)
+  })
+  await temporary(async root => {
+    let calls = 0
+    const result = await run({ ...options, root, origin: 'http://localhost', providers: { 'C-PERF-02': provider(async () => { calls++; return passing() }) } })
+    assert.equal(calls, 0)
+    assert.equal(result.exit, 2)
+  })
+  await temporary(async root => {
+    const result = await run({ ...options, root, providers: { 'C-PERF-02': provider(async () => { throw new Error('socket disconnected') }) } })
+    assert.equal(result.exit, 1)
+    assert.match(result.summary.budgets[1].reason, /socket disconnected/)
+  })
 })
