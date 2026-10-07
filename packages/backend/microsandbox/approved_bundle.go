@@ -120,10 +120,14 @@ func (r *Runtime) bundleArtifact(program string) (relative string, ok bool) {
 func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, error) {
 	entry, ok := bundle.Entry(relative)
 	parts := strings.Split(relative, "/")
+	expectedMode := managedArtifactMode
+	if relative == terminalSkillPath || relative == "share/cli/linux-arm64.tar.gz" {
+		expectedMode = 0o644
+	}
 	switch {
 	case !ok:
 		return nil, "", fmt.Errorf("%w: %s is not declared by the bundle manifest", ErrUnapprovedArtifact, relative)
-	case entry.Mode != managedArtifactMode && !((relative == terminalSkillPath || relative == "share/cli/linux-arm64.tar.gz") && entry.Mode == 0o644):
+	case entry.Mode != expectedMode:
 		return nil, "", fmt.Errorf("%w: %s has no approved guest artifact mode", ErrUnapprovedArtifact, relative)
 	case len(parts) > managedArtifactDepth:
 		return nil, "", fmt.Errorf("%w: %s is deeper than %d segments", ErrUnapprovedArtifact, relative, managedArtifactDepth)
