@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process"
 import { test } from "./support"
+import { scenario } from "./coverage/types"
 import { withReference, openTodo, todoCard, expect, attachJson, required } from "./todo/reference"
 
 // Observer on the reference install. The operator connects the literal Node
 // or Go scratch fixture and files the TODO; this test never writes to GitHub.
-test.use({ realScenario: { id: "journey-fresh-repository", capabilities: [], coverage: ["host:production", "surface:todo", "door:button", "path:evidence"] } })
-test("C-J1-06 undeclared repository reaches Machine ready and checked review @production", async ({ browser }, info) => {
+const journey = scenario("journey-fresh-repository", { capabilities: [], coverage: ["host:local", "host:production", "surface:todo", "door:button", "dimension:evidence"] })
+test("C-J1-06 undeclared repository reaches Machine ready and checked review", journey, async ({ browser }, info) => {
   test.setTimeout(1_800_000)
   const kind = required("SMITHERS_FRESH_REPOSITORY_KIND")
   expect(["node", "go"]).toContain(kind)

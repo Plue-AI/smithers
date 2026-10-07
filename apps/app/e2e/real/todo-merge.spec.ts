@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs"
 import { test } from "./support"
+import { scenario } from "./coverage/types"
 import { withReference, seedIssueSeven, openTodo, todoCard, home, runSlash, realApi, expect, attachJson, required, JourneyUnavailable } from "./todo/reference"
 
 // The reference host's outbound HTTP recorder supplies append-only JSONL
 // {method,path,body,at}; it must observe the App's transport, not browser traffic.
 // No recorder means zero merge calls cannot be proved: refuse rather than skip.
-test.use({ realScenario: { id: "journey-todo-merge", capabilities: [], coverage: ["host:production", "surface:todo", "surface:confirm", "door:button", "door:agent", "path:merge", "path:learning"] } })
-test("C-J2-05 squash merge, fixes-only closure and stage-3 learning @production", async ({ browser }, info) => {
+const journey = scenario("journey-todo-merge", { capabilities: [], coverage: ["host:local", "host:production", "path:success", "surface:todo", "surface:confirm", "door:button", "door:agent", "dimension:merge", "dimension:learning"] })
+test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, async ({ browser }, info) => {
   test.setTimeout(960_000)
   const stage = process.env.SMITHERS_JOURNEY_STAGE ?? "S1"
   if (!["S1", "S2", "S3"].includes(stage)) throw new JourneyUnavailable("SMITHERS_JOURNEY_STAGE must be S1, S2 or S3")

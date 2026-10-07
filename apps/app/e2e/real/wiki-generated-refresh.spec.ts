@@ -1,11 +1,12 @@
 import { test } from "./support"
+import { scenario } from "./coverage/types"
 import { withReference, home, runSlash, expect, attachJson } from "./todo/reference"
 
 // Operator merges T1/T2/T3 and arms the test-build fault hook before T2/T3.
 // All observations and Retry/Dismiss use the real install. No API interception,
 // database mutation, or GitHub write is performed by this observer.
-test.use({ realScenario: { id: "journey-wiki-generated-refresh", capabilities: [], coverage: ["host:production", "surface:wiki", "surface:home", "door:button", "path:success", "path:failure"] } })
-test("C-J8-06 merge refresh, shared retry and durable dismissal @production", async ({ browser }, info) => {
+const journey = scenario("journey-wiki-generated-refresh", { capabilities: [], coverage: ["host:local", "host:production", "surface:wiki", "surface:home", "door:button", "path:success", "path:error"] })
+test("C-J8-06 merge refresh, shared retry and durable dismissal", journey, async ({ browser }, info) => {
   test.setTimeout(1_800_000)
   await withReference(browser, info, async f => {
     const owner = f.members.Will.page

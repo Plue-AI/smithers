@@ -1,8 +1,9 @@
 import { test } from "./support"
+import { scenario } from "./coverage/types"
 import { withReference, seedIssueSeven, createTodo, home, todoCard, openTodo, expect, runSlash, attachJson } from "./todo/reference"
 
-test.use({ realScenario: { id: "journey-todo-from-issue", capabilities: [], coverage: ["host:production", "surface:todo", "door:button", "path:idempotent", "path:private-draft"] } })
-test("C-J2-01 Make TODO freezes the private draft and commits once @production", async ({ browser }, info) => {
+const journey = scenario("journey-todo-from-issue", { capabilities: [], coverage: ["host:local", "host:production", "path:success", "surface:todo", "door:button", "dimension:idempotent", "dimension:private-draft"] })
+test("C-J2-01 Make TODO freezes the private draft and commits once", journey, async ({ browser }, info) => {
   // The oracle requires a complete 120 s issues interval plus 30 s.
   test.setTimeout(360_000)
   await withReference(browser, info, async f => {

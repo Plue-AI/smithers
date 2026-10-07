@@ -5,13 +5,14 @@ import { performance } from "node:perf_hooks"
 import type { Page } from "@playwright/test"
 import * as Y from "yjs"
 import { test } from "./support"
+import { scenario } from "./coverage/types"
 import { withReference, runSlash, realApi, expect, attachJson } from "./todo/reference"
 
 // Run from the second Mac against a prepared scratch install. No route doubles,
 // SQL writes, model fixtures or GitHub mutations. The operator creates revision
 // 1–3 of decisions/retries before running this destructive editing canary.
-test.use({ realScenario: { id: "journey-wiki-coedit", capabilities: [], coverage: ["host:production", "surface:wiki", "door:slash", "door:button", "path:persistence", "path:recovery"] } })
-test("C-J8-02 shared wiki, 400 latency samples and offline reload @production", async ({ browser }, info) => {
+const journey = scenario("journey-wiki-coedit", { capabilities: [], coverage: ["host:local", "host:production", "surface:wiki", "door:slash", "door:button", "path:persistence", "dimension:recovery"] })
+test("C-J8-02 shared wiki, 400 latency samples and offline reload", journey, async ({ browser }, info) => {
   test.setTimeout(240_000)
   await withReference(browser, info, async f => {
     const ben = f.members.Ben.page, alice = f.members.Alice.page

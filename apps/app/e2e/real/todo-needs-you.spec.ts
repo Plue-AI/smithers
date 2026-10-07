@@ -1,8 +1,9 @@
 import { test } from "./support"
+import { scenario } from "./coverage/types"
 import { withReference, createTodo, todoCard, home, openTodo, expect, attachJson, JourneyUnavailable, runSlash } from "./todo/reference"
 
-test.use({ realScenario: { id: "journey-todo-needs-you", capabilities: [], coverage: ["host:production", "surface:todo", "path:first-answer", "door:button"] } })
-test("C-J2-03 implement ask opens Needs you; first answer wins @production", async ({ browser }, info) => {
+const journey = scenario("journey-todo-needs-you", { capabilities: [], coverage: ["host:local", "host:production", "path:success", "surface:todo", "dimension:first-answer", "door:button"] })
+test("C-J2-03 implement ask opens Needs you; first answer wins", journey, async ({ browser }, info) => {
   // 15 minutes is the oracle's inconclusive bound, not a timeout workaround.
   test.setTimeout(960_000)
   await withReference(browser, info, async f => {

@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process"
+import { resolve } from "node:path"
 import { test } from "./support"
+import { scenario } from "./coverage/types"
 import { withReference, createTodo, openTodo, todoCard, expect, attachJson, realApi, required, JourneyUnavailable } from "./todo/reference"
 
-test.use({ realScenario: { id: "journey-todo-evidence", capabilities: [], coverage: ["host:production", "surface:todo", "path:evidence", "path:log-authorization", "door:button"] } })
-test("C-J2-04 accepted-generation PR and TODO evidence agree @production", async ({ browser }, info) => {
+const journey = scenario("journey-todo-evidence", { capabilities: [], coverage: ["host:local", "host:production", "path:success", "surface:todo", "dimension:evidence", "dimension:log-authorization", "door:button"] })
+test("C-J2-04 accepted-generation PR and TODO evidence agree", journey, async ({ browser }, info) => {
   test.setTimeout(900_000)
   await withReference(browser, info, async f => {
     const page = f.members.Will.page
@@ -11,7 +13,7 @@ test("C-J2-04 accepted-generation PR and TODO evidence agree @production", async
     // integration suite named in the check, not a browser's mocked callback.
     let prerequisite: unknown
     try {
-      prerequisite = JSON.parse(execFileSync("node", [new URL("../../scripts/verify-journey-evidence.mjs", import.meta.url).pathname], { encoding: "utf8" }))
+      prerequisite = JSON.parse(execFileSync("node", [resolve(info.config.rootDir, "../../scripts/verify-journey-evidence.mjs")], { encoding: "utf8" }))
     } catch (cause) {
       throw new JourneyUnavailable(`Production evidence prerequisite has no authenticated passing CI result for this commit: ${String(cause)}`)
     }
