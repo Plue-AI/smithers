@@ -80,6 +80,17 @@ J3–J7, J10 and J11 steps still require real-install keyboard coverage and
 reference-host execution. No Mac recording, live credential soak, microVM proof
 or approved check receipt is produced by supplemental browser tests.
 
+`duplicate-launch.spec.ts` is the exclusive §21 duplicate-launch recording.
+Run it on an empty canary with keyboard mode and an explicit light or dark
+theme, separately for each browser/theme. It sends two physical Enter activations
+on the rendered Commit door and replays the app's exact accepted command and
+Idempotency-Key through `/api/todos`, once after admission and once at the real
+model's question wait. It requires one TODO, one creation event and the same run,
+attempt and flow pin after both replays. The second member independently reads
+the shared list. Request headers and keys are not attached as evidence. Like the
+other prepared journeys, collection and supplemental composed HTTP tests do not
+qualify the reference recording, credential review or C-UI-01.
+
 The keyboard entry also lists three prepared-install passes: branch/terminal,
 stack/flow/monitor doors; outside saves; and backend restart. They are
 reference-only scaffolding, not passing journey receipts. The branch pass needs
