@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -232,6 +233,17 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 	require.Contains(t, body, "Bob")
 	require.Len(t, body, 8)
 	require.Equal(t, page.Revision+1, revision)
+	var revisionState []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT crdt_state FROM wiki_page_revisions WHERE page_id=$1 AND revision=$2`, page.ID, revision).Scan(&revisionState))
+	authorsModule, err := filepath.Abs("../../../../apps/app/node_modules/yjs/dist/yjs.mjs")
+	require.NoError(t, err)
+	authorsScript := fmt.Sprintf(`import * as Y from %q;const d=new Y.Doc();Y.applyUpdate(d,Buffer.from(Bun.argv[1],'base64'));console.log(JSON.stringify(d.getMap('authors').toJSON()));d.destroy();`, authorsModule)
+	authorsRaw, err := exec.Command("bun", "-e", authorsScript, base64.StdEncoding.EncodeToString(revisionState)).CombinedOutput()
+	require.NoError(t, err, string(authorsRaw))
+	var authors map[string]string
+	require.NoError(t, json.Unmarshal(authorsRaw, &authors))
+	require.Equal(t, fmt.Sprint(owner.ID), authors[fmt.Sprint(a.client)])
+	require.Equal(t, fmt.Sprint(member.ID), authors[fmt.Sprint(b.client)])
 	competitor := composeWikiHost(ctx, library, q, wiki)
 	defer competitor.Close()
 	source, code := competitor.Resolve(ctx, fmt.Sprintf("doc:wiki:%d", page.ID), repository.ID, owner.ID)
@@ -412,6 +424,28 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 			require.Equal(t, revision, afterRevision)
 		})
 	}
+	// A concurrent ordinary wiki write forces the live adapter's revision CAS
+	// to merge stored CRDT operations before issuing the save receipt.
+	conflicted := connect(0, "wiki-browser")
+	conflicted.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"saved"`) })
+	var conflictBase int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT revision FROM wiki_pages WHERE id=$1`, page.ID).Scan(&conflictBase))
+	_, liveEdit := yjsWiki(t, conflicted.state, conflicted.client, "live decision")
+	send(conflicted, liveEdit)
+	time.Sleep(time.Second)
+	var beforeIdle int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT revision FROM wiki_pages WHERE id=$1`, page.ID).Scan(&beforeIdle))
+	require.Equal(t, conflictBase, beforeIdle, "no revision before the two-second idle period")
+	concurrent := "concurrent decision"
+	_, err = wiki.UpdateWikiPage(ctx, &owner, owner.Username, "app", "home", services.UpdateWikiPageInput{Body: &concurrent, ExpectedRevision: &conflictBase})
+	require.NoError(t, err)
+	conflicted.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"saved"`) })
+	require.NoError(t, pool.QueryRow(ctx, `SELECT body,revision FROM wiki_pages WHERE id=$1`, page.ID).Scan(&body, &revision))
+	require.Contains(t, body, "live decision")
+	require.Contains(t, body, "concurrent decision")
+	require.Equal(t, len("live decisionconcurrent decision"), len(body))
+	require.Equal(t, conflictBase+2, revision)
+	conflicted.conn.CloseNow()
 	// Remove repository membership while a valid subscription is idle. No next
 	// keystroke or other traffic is needed to terminate it within five seconds.
 	revoked := connect(0, "wiki-member")
@@ -423,5 +457,65 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 	require.Contains(t, string(refused), `"code":"forbidden"`)
 	require.Less(t, time.Since(started), 5*time.Second)
 	revoked.conn.CloseNow()
+
+	// A fresh subscription cannot reuse the admitted member's identity after
+	// revocation, even though the public wiki snapshot remains readable.
+	denied, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"session=wiki-member"}}})
+	if denied != nil {
+		denied.CloseNow()
+	}
+	require.Error(t, err)
+	require.NotNil(t, response)
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+	// Revoke after resolution but before the shared transport admits the source.
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,github_id,github_login) VALUES($1,$2,'write',102,'alice')`, repository.ID, member.ID)
+	require.NoError(t, err)
+	startup, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"session=wiki-member"}}})
+	require.NoError(t, err)
+	defer startup.CloseNow()
+	open := host.Open
+	var reads atomic.Int32
+	host.Open = func(ctx context.Context, repository, page, actor int64, write bool) (db.GetWikiDocumentRow, error) {
+		if actor == member.ID && reads.Add(1) == 2 {
+			if _, err := pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repository, actor); err != nil {
+				return db.GetWikiDocumentRow{}, err
+			}
+		}
+		return open(ctx, repository, page, actor, write)
+	}
+	require.NoError(t, startup.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":9,"topic":"doc:wiki:%d"}`, page.ID))))
+	deadline, stop := context.WithTimeout(ctx, 5*time.Second)
+	defer stop()
+	for {
+		_, raw, err := startup.Read(deadline)
+		require.NoError(t, err)
+		var frame struct {
+			T, Code string
+			ID      uint32
+		}
+		require.NoError(t, json.Unmarshal(raw, &frame))
+		if frame.ID != 9 {
+			continue
+		}
+		require.Equal(t, "err", frame.T)
+		require.Equal(t, "forbidden", frame.Code)
+		break
+	}
+	startup.CloseNow()
+
+	// A slug reused after deletion does not inherit the old page's live topic.
+	oldPage := connect(0, "wiki-browser")
+	oldPage.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"saved"`) })
+	require.NoError(t, wiki.DeleteWikiPage(ctx, &owner, owner.Username, "app", "home"))
+	replacement, err := wiki.CreateWikiPage(ctx, &owner, owner.Username, "app", services.CreateWikiPageInput{Title: "Home", Slug: "home", Body: "replacement"})
+	require.NoError(t, err)
+	require.NotEqual(t, page.ID, replacement.ID)
+	oldPage.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"err"`) })
+	_, stale := yjsWiki(t, oldPage.state, oldPage.client, "stale")
+	send(oldPage, stale)
+	var replacementBody string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT body FROM wiki_pages WHERE id=$1`, replacement.ID).Scan(&replacementBody))
+	require.Equal(t, "replacement", replacementBody)
+	oldPage.conn.CloseNow()
 
 }
