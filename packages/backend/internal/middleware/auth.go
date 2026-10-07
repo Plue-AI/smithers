@@ -465,11 +465,15 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "box.resume", regexp.MustCompile(`^/api/workflow/provision$`)},
 	{http.MethodPost, "order.ok", regexp.MustCompile(`^/api/stack/attention/[^/]+$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/notifications/(?:list|events|preferences)$`)},
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/users/[^/]+(?:/(?:activity|repos))?$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/confirmations$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/confirmations(?:/[^/]+/(?:approve|deny))?$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/auth/logout$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/user/tokens$`)},
+	{http.MethodGet, "self", regexp.MustCompile(`^/api/user/(tokens|sessions)$`)},
+	{http.MethodDelete, "self", regexp.MustCompile(`^/api/user/(tokens|sessions)/[^/]+$`)},
 	{http.MethodPost, "self.read", regexp.MustCompile(`^/api/(auth/sse-ticket|v1/sse/ticket)$`)},
 	// The app's reads on an install, as a member's browser makes them on
 	// J1 8, J2 and J4: setup state, the person's own organizations and
@@ -485,7 +489,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "model.test", regexp.MustCompile(`^/api/model/test$`)},
 	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(orgs|workspaces)$`)},
-	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/repos$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/(?:repos|readable-repos)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, "wiki.read", wikiReadPath},
 	{http.MethodPost, "wiki.create", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki$`)},
@@ -499,6 +503,7 @@ var installMemberRoutes = []struct {
 	// Their commit selectors are not a bound execution branch: run and machine
 	// credentials must use the separately scoped branch/file doors.
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:bookmarks|changes(?:/count|/[^/]+(?:/(?:walkthrough|findings|diff|files|conflicts|operations))?)?|operations|status)$`)},
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:user-refs|lfs/objects|commits/[^/]+/statuses)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/file/[^/]+/.+$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:git/refs|contents(?:/.+)?)$`)},
 	// Existing persisted coding-run messages remain readable by repository members.
@@ -521,6 +526,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/view-state$`)},
 	{http.MethodPut, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/view-state$`)},
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/conversations/replay$`)},
+	{http.MethodGet, "search", regexp.MustCompile(`^/api/search/(repositories|issues|users|code)$`)},
 	// The issue list card and the issue card (J2 1 and 2).
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues$`)},
 	{http.MethodPost, "review", regexp.MustCompile(`^/api/reviews$`)},
@@ -542,6 +548,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows(/[^/]+)?$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
 	{http.MethodPost, "file.restore", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
+	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodGet, "ssh", regexp.MustCompile(`^/api/ssh$`)},
 	{http.MethodGet, "ssh", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(workspaces|workspace/sessions)/[^/]+/ssh$`)},

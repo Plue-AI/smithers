@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -58,12 +59,18 @@ func TestInstallRetainedVCSReadsPostgres(t *testing.T) {
 	require.NoError(t, err)
 	_, err = changeService.StoreWalkthrough(f.ctx, f.repoID, change.ChangeID, revision.Seq, services.ChangeWalkthroughResponse{Sections: []services.ChangeWalkthroughSection{{Title: "Recorded revision", Markdown: "Recorded explanation"}}})
 	require.NoError(t, err)
+	statusService := services.NewCommitStatusService(f.q)
+	_, err = statusService.CreateCommitStatus(f.ctx, f.repoID, head, services.CreateCommitStatusInput{Context: "recorded-check", Status: "success", Description: "Recorded check result"})
+	require.NoError(t, err)
+	_, err = f.q.CreateLFSObject(f.ctx, db.CreateLFSObjectParams{RepositoryID: f.repoID, Oid: strings.Repeat("b", 64), Size: 42, GcsPath: "private-storage-object"})
+	require.NoError(t, err)
+	git("--git-dir", filepath.Join(storage, "gate-owner", "app", ".jj/repo/store/git"), "update-ref", fmt.Sprintf("refs/smithers/users/%d/private-owner-ref", f.owner.ID), head)
 	router := buildRouterCompat(cfg, f.q, f.pool,
 		&routes.RepoHandler{Service: services.NewRepoService(f.q, client, "")}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.CommitStatusHandler{Service: statusService}, &routes.LFSHandler{Service: services.NewLFSService(f.q, nil, time.Minute)},
 		&routes.JJVCSHandler{RepoHost: client, RepoResolver: f.q, ChangeService: changeService, FindingsService: changeService, WalkthroughService: changeService, ChangeOperations: services.NewChangeOperationService(f.q, client, nil, f.pool)},
-		nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{UserRefs: &routes.UserRefHandler{Service: services.NewUserRefService(client, f.q)}})
 	type actorCase struct {
 		name, token, cookie string
 		status              int
@@ -94,7 +101,7 @@ func TestInstallRetainedVCSReadsPostgres(t *testing.T) {
 	_, err = f.pool.Exec(f.ctx, `INSERT INTO mythical_items(repository_id,source,state,stack_position,title,workspace_id,request_run_id,owner_id,created_by,attempt) VALUES($1,'todo','running',1,'Bound execution',$2,'history-run',$3,$3,1)`, f.repoID, ws.ID, f.owner.ID)
 	require.NoError(t, err)
 	actors = append(actors, actorCase{name: "run", token: run, status: 403}, actorCase{name: "machine", token: machine, status: 403}, actorCase{name: "insufficient scope", token: f.token(f.owner, "vcs-scope", "read:user,via:codex", true), status: 403})
-	paths := []string{"/git/refs", "/contents", "/contents/history.txt", "/bookmarks", "/changes", "/changes/count?rev=" + head + "&since=2020-01-01T00:00:00Z", "/changes/" + change.ChangeID, "/changes/" + change.ChangeID + "/files", "/changes/" + change.ChangeID + "/conflicts", "/changes/" + change.ChangeID + "/diff", "/changes/" + change.ChangeID + "/findings", "/changes/" + change.ChangeID + "/operations", "/changes/" + change.ChangeID + "/walkthrough", "/operations", "/status", "/file/" + change.ChangeID + "/history.txt"}
+	paths := []string{"/user-refs", "/lfs/objects", "/commits/" + head + "/statuses", "/git/refs", "/contents", "/contents/history.txt", "/bookmarks", "/changes", "/changes/count?rev=" + head + "&since=2020-01-01T00:00:00Z", "/changes/" + change.ChangeID, "/changes/" + change.ChangeID + "/files", "/changes/" + change.ChangeID + "/conflicts", "/changes/" + change.ChangeID + "/diff", "/changes/" + change.ChangeID + "/findings", "/changes/" + change.ChangeID + "/operations", "/changes/" + change.ChangeID + "/walkthrough", "/operations", "/status", "/file/" + change.ChangeID + "/history.txt"}
 	for _, actor := range actors {
 		for _, path := range paths {
 			t.Run(actor.name+path, func(t *testing.T) {
@@ -113,6 +120,18 @@ func TestInstallRetainedVCSReadsPostgres(t *testing.T) {
 				if actor.status == 403 {
 					require.Contains(t, out.Body.String(), `"code":"permission"`)
 					require.NotContains(t, out.Body.String(), "Recorded repository content")
+				}
+				if actor.status == 200 && path == "/commits/"+head+"/statuses" {
+					require.Contains(t, out.Body.String(), "Recorded check result")
+				}
+				if actor.status == 200 && path == "/lfs/objects" {
+					require.Contains(t, out.Body.String(), strings.Repeat("b", 64))
+				}
+				if actor.status == 200 && path == "/user-refs" && strings.HasPrefix(actor.name, "owner") {
+					require.Contains(t, out.Body.String(), "private-owner-ref")
+				}
+				if actor.status == 200 && path == "/user-refs" && !strings.HasPrefix(actor.name, "owner") {
+					require.NotContains(t, out.Body.String(), "private-owner-ref")
 				}
 				if actor.status == 200 && (strings.HasPrefix(path, "/file/") || path == "/contents/history.txt") {
 					require.Contains(t, out.Body.String(), "Recorded repository content")

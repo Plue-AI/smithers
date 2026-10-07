@@ -284,6 +284,13 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 					return
 				}
 			}
+			// Credential inventory and revocation are self-authentication protocols,
+			// not repository commands. Only the signed-in person manages them;
+			// member sessions use the same own-user service filters as the owner.
+			if command == "self" && (r.Method == http.MethodGet || r.Method == http.MethodDelete) && (strings.HasPrefix(r.URL.Path, "/api/user/tokens") || strings.HasPrefix(r.URL.Path, "/api/user/sessions")) && info != nil && info.User != nil && info.CredentialKind() != middleware.CredentialPerson {
+				writeConfirmationDispatchError(w, &services.AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"})
+				return
+			}
 			if info == nil || info.User == nil || command == "" || command == "self" || command == "public" {
 				next.ServeHTTP(w, r)
 				return

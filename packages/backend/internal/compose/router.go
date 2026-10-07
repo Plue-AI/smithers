@@ -1268,9 +1268,14 @@ func buildRouter(
 			r.With(middleware.AuthRateLimit(queries)).Post("/oauth2/authorize", oauth2Handler.PostAuthorizeDecision)
 		}
 
-		r.Get("/users/{username}", userHandler.GetUserByUsername)
-		r.Get("/users/{username}/activity", userHandler.GetUserActivityByUsername)
-		r.Get("/users/{username}/repos", userHandler.GetUserReposByUsername)
+		r.Group(func(r chi.Router) {
+			if config.IsSingleOwner(cfg.Auth) {
+				r.Use(middleware.RequireAuth)
+			}
+			r.Get("/users/{username}", userHandler.GetUserByUsername)
+			r.Get("/users/{username}/activity", userHandler.GetUserActivityByUsername)
+			r.Get("/users/{username}/repos", userHandler.GetUserReposByUsername)
+		})
 
 		if billingHandler != nil {
 			if extras.BillingCapabilities.Overview {
@@ -1408,7 +1413,11 @@ func buildRouter(
 
 				// A user's own pushed refs (smithers repo push).
 				if extras.UserRefs != nil {
-					r.With(writeRepo...).Get("/user-refs", extras.UserRefs.List)
+					userRefRead := writeRepo
+					if config.IsSingleOwner(cfg.Auth) {
+						userRefRead = readRepo
+					}
+					r.With(userRefRead...).Get("/user-refs", extras.UserRefs.List)
 					r.With(writeRepo...).Post("/user-refs/renew", extras.UserRefs.Renew)
 				}
 
@@ -2040,6 +2049,9 @@ func buildRouter(
 
 			// Ticket 12: Search sub-router — gated by feature_flags.search.
 			r.Route("/search", func(r chi.Router) {
+				if config.IsSingleOwner(cfg.Auth) {
+					r.Use(middleware.RequireAuth)
+				}
 				r.Use(gateSearch)
 				r.Use(middleware.SearchRateLimit(queries))
 
