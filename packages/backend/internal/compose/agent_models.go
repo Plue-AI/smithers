@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"io"
+	"io/fs"
 	"net/http"
 	"strings"
 
@@ -34,7 +37,70 @@ func agentBinding(ctx context.Context, q *db.Queries, role string) (json.RawMess
 	return value, "owner", err
 }
 
-func agentProfiles(ctx context.Context, q *db.Queries) (map[string]any, error) {
+// Repository seats are read as data at successfully activated main, never at
+// the current bookmark or a TODO working copy. Missing declarations inherit.
+func activatedAgentSeats(ctx context.Context, q *db.Queries, sources workspaceapi.SourceFiles) (map[string]string, error) {
+	if sources == nil {
+		return nil, nil
+	}
+	repository, err := q.InstallRepositoryID(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	row, err := q.GetInstallSetting(ctx, fmt.Sprintf("agent.instructions.main:%d", repository))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var revision string
+	if err = json.Unmarshal(row.Value, &revision); err != nil {
+		return nil, err
+	}
+	if revision == "" {
+		return nil, nil
+	}
+	repo, err := q.GetRepoOwnerSlugAndNameByID(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := sources.ReadSourceFile(ctx, workspaceapi.WorkspaceSource{Repository: repo.OwnerSlug + "/" + repo.RepoName, Revision: revision}, ".smithers/coding-project.json")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > 256*1024 {
+		return nil, errors.New("coding project exceeds read limit")
+	}
+	var project struct {
+		Seats map[string]string `json:"seats"`
+	}
+	if err = json.Unmarshal(raw, &project); err != nil {
+		return nil, err
+	}
+	for _, seat := range project.Seats {
+		if strings.TrimSpace(seat) == "" {
+			return nil, errors.New("invalid repository seat")
+		}
+	}
+	return project.Seats, nil
+}
+
+func agentProfiles(ctx context.Context, q *db.Queries, sources ...workspaceapi.SourceFiles) (map[string]any, error) {
+	var reader workspaceapi.SourceFiles
+	if len(sources) > 0 {
+		reader = sources[0]
+	}
+	seats, err := activatedAgentSeats(ctx, q, reader)
+	if err != nil {
+		return nil, err
+	}
 	profiles := []map[string]any{}
 	appRuns, err := q.RecentAppAgentRuns(ctx)
 	if err != nil {
@@ -51,6 +117,13 @@ func agentProfiles(ctx context.Context, q *db.Queries) (map[string]any, error) {
 		}
 		if len(binding) > 0 && json.Unmarshal(binding, &model) != nil {
 			return nil, errors.New("invalid agent model")
+		}
+		if seat, declared := seats[map[string]string{"planner": "coding/plan", "implementer": "coding/implement", "reviewer": "coding/review"}[role]]; declared && role != "app" {
+			model.Protocol, model.ModelID, _ = strings.Cut(seat, ":")
+			if model.ModelID == "" {
+				model.ModelID, model.Protocol = seat, ""
+			}
+			source, binding = "repository", nil
 		}
 		modelLabel := model.ModelID
 		if model.ModelID == "" {
@@ -85,9 +158,9 @@ func agentProfiles(ctx context.Context, q *db.Queries) (map[string]any, error) {
 	return map[string]any{"native": false, "install": true, "agents": profiles, "roleBindings": bindings}, nil
 }
 
-func serveAgents(q *db.Queries) http.HandlerFunc {
+func serveAgents(q *db.Queries, sources ...workspaceapi.SourceFiles) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		value, err := agentProfiles(r.Context(), q)
+		value, err := agentProfiles(r.Context(), q, sources...)
 		if err != nil {
 			routes.WriteInstallSetupError(w, r, pkgerrors.Internal("Could not read agents"))
 			return
@@ -101,7 +174,7 @@ func serveAgents(q *db.Queries) http.HandlerFunc {
 	}
 }
 
-func assignAgentModel(q *db.Queries) http.HandlerFunc {
+func assignAgentModel(q *db.Queries, sources ...workspaceapi.SourceFiles) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		role := chi.URLParam(r, "role")
 		if !agentRole(role) {
@@ -135,6 +208,6 @@ func assignAgentModel(q *db.Queries) http.HandlerFunc {
 			routes.WriteInstallSetupError(w, r, pkgerrors.Internal("Could not save model"))
 			return
 		}
-		serveAgents(q)(w, r)
+		serveAgents(q, sources...)(w, r)
 	}
 }
