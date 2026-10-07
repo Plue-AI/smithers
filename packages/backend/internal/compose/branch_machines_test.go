@@ -344,7 +344,11 @@ esac
 	closeResponse := httptest.NewRecorder()
 	router.ServeHTTP(closeResponse, closeRequest)
 	require.Equal(t, http.StatusNoContent, closeResponse.Code, closeResponse.Body.String())
-	require.Eventually(t, func() bool { return runtime.InUse() == 0 }, 2*time.Second, 10*time.Millisecond)
+	require.Equal(t, 1, runtime.InUse(), "startup presence reconstruction retains the slot")
+	require.NoFileExists(t, marker)
+	// Inject the next eligible tick's clock; transport observations remain real.
+	require.NoError(t, runtime.ReconcileAdmissionReleases(ctx, time.Now().Add(30*time.Second)))
+	require.Zero(t, runtime.InUse())
 	require.FileExists(t, marker, "release requires independently observed stop")
 	for _, demand := range runtime.AdmissionSnapshot() {
 		if demand.Actor == actor(pending.ID) {

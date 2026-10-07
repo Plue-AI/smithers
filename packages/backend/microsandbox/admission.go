@@ -378,6 +378,12 @@ func (r *Runtime) AdmissionForceStops(now time.Time) []string {
 func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time) error {
 	var errs []error
 	r.mu.Lock()
+	// Presence and session reconstruction own the first thirty seconds. Even
+	// a cancelled boot cannot make another holder's slot reusable early.
+	if r.admissionStarted.IsZero() || now.Sub(r.admissionStarted) < 30*time.Second {
+		r.mu.Unlock()
+		return nil
+	}
 	holders := []string{}
 	for holder, h := range r.admission {
 		if h.held && !h.releasing.IsZero() {

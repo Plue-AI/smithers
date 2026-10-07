@@ -361,7 +361,7 @@ func TestCachedLayerMarkerFailureClassification(t *testing.T) {
 
 func admissionFixture() (*Runtime, AdmissionProviders) {
 	p := &HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, DiskFreeBytes: 200 << 30}
-	r := &Runtime{config: Config{MaxRunningVMs: 1, HostProfile: p}, workspaces: map[string]*workspace{}}
+	r := &Runtime{config: Config{MaxRunningVMs: 1, HostProfile: p}, workspaces: map[string]*workspace{}, admissionStarted: time.Now().Add(-time.Hour)}
 	r.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
 	providers := AdmissionProviders{Ready: func(context.Context, AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 200 << 30, nil }}
 	return r, providers
@@ -1364,4 +1364,37 @@ func TestAdmissionStackReorderPreservesPersonAndGrants(t *testing.T) {
 	granted, err = r.GrantNext(t.Context(), p)
 	require.NoError(t, err)
 	require.Equal(t, "T3", granted.Holder)
+}
+
+func TestAdmissionCancellationHonorsStartupWindow(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name    string
+		started time.Time
+		observe time.Time
+		attempt bool
+	}{
+		{"unknown", time.Time{}, now, false},
+		{"29900ms", now, now.Add(29900 * time.Millisecond), false},
+		{"30s", now, now.Add(30 * time.Second), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, p := admissionFixture()
+			r.admissionStarted = tc.started
+			_, err := r.WaitAdmission(t.Context(), p, "person", "A", "Alice", "terminal")
+			require.NoError(t, err)
+			require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+			require.True(t, r.CancelAdmission("A", "Alice", now))
+			// No runtime transport is mounted: reaching it proves an attempted
+			// stop. During startup there must be no I/O, nor any released slot.
+			err = r.ReconcileAdmissionReleases(t.Context(), tc.observe)
+			if tc.attempt {
+				require.ErrorIs(t, err, ErrUnavailable)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, 1, r.InUse())
+			require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+		})
+	}
 }
