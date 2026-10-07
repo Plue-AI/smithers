@@ -207,7 +207,7 @@ evidence remain pending. Home production doors currently refuse with
 | C-PERF-05 | [C-PERF-05.spec.ts](C-PERF-05.spec.ts) | fixme-before-implementation | T-MCH-06, T-REL-01 |
 | C-PERF-06 | [C-PERF-06.spec.ts](C-PERF-06.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-01 |
 | C-PRC-01 | [C-PRC-01.spec.ts](C-PRC-01.spec.ts) | fixme-before-implementation | T-PRC-01 |
-| C-PRC-02 | [C-PRC-02.spec.ts](C-PRC-02.spec.ts) | fixme-before-implementation | T-PRC-02 |
+| C-PRC-02 | [C-PRC-02.spec.ts](C-PRC-02.spec.ts) | passing browser projection (real DB-free failure output; mini qualification pending) | T-PRC-02 |
 
 Cycle 21: reference-host co-editing, SSH write, wake and rebase performance
 qualification remains pending. C-PRC-01/02 are engineering-only checks folded
