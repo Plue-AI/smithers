@@ -33,6 +33,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -285,7 +286,22 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
 	issuer := &outboundProxyIssuer{}
-	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: mythical}, &routes.GitHubProxyHandler{Service: services.NewGitHubProxyService(issuer)})
+	var authHandler *routes.AuthHandler
+	var membersHandler *routes.MembersHandler
+	if confirmations {
+		cfg.Auth.SessionSecret = "merge-login-fixture"
+		for _, key := range []string{"github.repository", "owner.access"} {
+			_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{owner_login}','"rehearsal-owner"') WHERE key=$1`, key)
+			require.NoError(t, err)
+		}
+		members := &services.Members{Pool: pool, Credentials: credentials, Minter: connections}
+		authService := services.NewAuthService(q, cfg.Auth, nil, auth.NewGitHubClient(credentials, "", fake.URL, fake.URL))
+		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
+		authService.Members = members
+		authHandler = &routes.AuthHandler{Service: authService, AuthConfig: cfg.Auth, InstallSetup: authService.InstallSetup}
+		membersHandler = &routes.MembersHandler{Service: members}
+	}
+	server.Config.Handler = todoMergeComposeRouterWithAuth(cfg, q, pool, &routes.MythicalHandler{Service: mythical}, authHandler, membersHandler, &routes.GitHubProxyHandler{Service: services.NewGitHubProxyService(issuer)})
 	if installBrowser {
 		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin') ON CONFLICT DO NOTHING`, repo.ID, owner.ID)
 		require.NoError(t, err)
@@ -491,6 +507,20 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		}
 		// C-CAT-02: request through the actual source CLI, with a delegated
 		// credential. Discovery, schema parsing and HTTP dispatch all run.
+		fake.SetCollaborator(17, "merge-owner", "admin")
+		fake.SignInAs("merge-login-code", 17)
+		_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id,profile_data) VALUES(2,$1,'workos','17','{}')`, owner.ID)
+		require.NoError(t, err)
+		via := "claude-code"
+		if len(explicitHead) > 0 && explicitHead[0] {
+			via = "cli"
+		}
+		pat = confirmationCLILogin(t, ctx, origin, "merge-login-code", via)
+		digest := sha256.Sum256([]byte(pat))
+		var scopes string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT scopes FROM access_tokens WHERE token_hash=$1`, hex.EncodeToString(digest[:])).Scan(&scopes))
+		require.Contains(t, scopes, "via:"+via)
+		require.NotContains(t, scopes, "write:approval")
 		invoke := catalogCLIInvoker(t, ctx, origin, pat)
 		argv := []string{"merge", fmt.Sprintf("T%d", filed.Number)}
 		if len(explicitHead) > 0 && explicitHead[0] {
@@ -1757,6 +1787,13 @@ func (i *outboundProxyIssuer) CreateGitHubInstallationTokenForUserRepo(context.C
 // handler mounted, which mounts /api/todos in single-owner mode. The other
 // handlers are unused by these requests.
 func todoMergeComposeRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Pool, mythical *routes.MythicalHandler, proxy ...*routes.GitHubProxyHandler) http.Handler {
+	return todoMergeComposeRouterWithAuth(cfg, q, pool, mythical, nil, nil, proxy...)
+}
+
+func todoMergeComposeRouterWithAuth(cfg *config.Config, q *db.Queries, pool *pgxpool.Pool, mythical *routes.MythicalHandler, authHandler *routes.AuthHandler, members *routes.MembersHandler, proxy ...*routes.GitHubProxyHandler) http.Handler {
+	if authHandler == nil {
+		authHandler = &routes.AuthHandler{}
+	}
 	var proxyHandler *routes.GitHubProxyHandler
 	if len(proxy) > 0 {
 		proxyHandler = proxy[0]
@@ -1769,13 +1806,13 @@ func todoMergeComposeRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Poo
 	}
 	return buildRouterCompat(
 		cfg, q, pool,
-		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
+		&routes.RepoHandler{}, authHandler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil,
 		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
-		routerExtras{Mythical: mythical, GitHubAppSetup: setup}, proxyHandler,
+		routerExtras{Mythical: mythical, GitHubAppSetup: setup, Members: members}, proxyHandler,
 	)
 }
 
