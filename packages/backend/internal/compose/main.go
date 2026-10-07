@@ -1147,6 +1147,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		mythicalService.SetInstallParallel(installCapacity)
 	}
 	composeGitHubTodoPolling(mythicalService, gitHubMainPullService, gitHubSyncedRepoService, options.topology)
+	composeGitHubMainReset(pool, mythicalService, gitHubMainPullService, options.topology)
 	gitHubSyncedRepoService.SetIssueEventsEvery(options.GitHubIssueEventsEvery)
 	if installSync {
 		composeGitHubInstallAuthority(gitHubSyncedRepoService, gitHubAppCredentials, os.Geteuid() != 0)
