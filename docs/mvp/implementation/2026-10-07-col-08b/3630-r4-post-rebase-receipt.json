@@ -1,0 +1,93 @@
+{
+  "ticket": "T-COL-08b",
+  "issue": 3630,
+  "lane": "fr7-t-col-08b-r4",
+  "tested_revision": "60b464bb31983b6f9dbb36f1af3982bfb64284f7",
+  "scope": "Component verification through composed /api/live with PostgreSQL and fake daemon; no real-Mac, microVM, durability or latency acceptance. No product code changed.",
+  "unlanded_recovery_branch": "Absent: git ls-remote origin refs/heads/fr-unlanded/fr7-t-col-08b-r3 returned no refs.",
+  "checks": [
+    {
+      "cwd": "packages/backend",
+      "command": "export LANE=fr7-t-col-08b-r4; source ~/lanes/env.sh; export SMITHERS_TEST_DATABASE_URL='postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable'; export SMITHERS_FFI_LIBRARY_PATH=/home/lane/.cache/cargo-target-gate/debug/libsmithers_ffi.so; go test ./internal/compose -run '^TestDocRelay' -count=1 -v",
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "--- PASS: TestDocRelayWireContract (1.74s)",
+        "--- PASS: TestDocRelayAuthorization (2.20s)",
+        "    --- PASS: TestDocRelayAuthorization/foreign_client (1.10s)",
+        "    --- PASS: TestDocRelayAuthorization/authors_map (1.10s)",
+        "--- PASS: TestDocRelayMirrorRecovery (1.22s)",
+        "--- PASS: TestDocRelayDarkLanding (6.05s)",
+        "    --- PASS: TestDocRelayDarkLanding/host (1.12s)",
+        "    --- PASS: TestDocRelayDarkLanding/authorizer (1.31s)",
+        "    --- PASS: TestDocRelayDarkLanding/connection (1.17s)",
+        "    --- PASS: TestDocRelayDarkLanding/daemon (1.19s)",
+        "    --- PASS: TestDocRelayDarkLanding/wiki (1.26s)",
+        "--- PASS: TestDocRelayDataOnly (1.24s)",
+        "--- PASS: TestDocRelayRevocation (2.32s)",
+        "    --- PASS: TestDocRelayRevocation/startup (1.10s)",
+        "    --- PASS: TestDocRelayRevocation/admitted (1.22s)",
+        "--- PASS: TestDocRelayBackpressure (1.09s)",
+        "--- PASS: TestDocRelaySharedMirror (1.53s)",
+        "--- PASS: TestDocRelayRebuildBarrier (2.39s)",
+        "--- PASS: TestDocRelayReconnectUnreceipted (2.43s)",
+        "--- PASS: TestDocRelayAuthorizationAwareness (1.26s)",
+        "--- PASS: TestDocRelayEpochResync (1.28s)",
+        "--- PASS: TestDocRelayReplacementBootDiscardsOldActorCache (2.17s)",
+        "ok  \tgithub.com/smithersai/smithers/packages/backend/internal/compose\t28.044s"
+      ],
+      "passed_including_subtests": 22,
+      "log": "~/lanes/fr7-t-col-08b-r4.go-final-proof.log"
+    },
+    {
+      "cwd": ".",
+      "command": "export LANE=fr7-t-col-08b-r4; source ~/lanes/env.sh; export CARGO_TARGET_DIR=/home/lane/.cache/cargo-target-gate; cargo test -p smithers-machined --test golden",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s"
+      ],
+      "log": "~/lanes/fr7-t-col-08b-r4.rust-final-proof.log"
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "export LANE=fr7-t-col-08b-r4; source ~/lanes/env.sh; pnpm exec vitest run test/LiveDoc.test.ts",
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "output": [
+        "      Tests  8 passed (8)"
+      ],
+      "log": "~/lanes/fr7-t-col-08b-r4.ts-final-proof.log"
+    }
+  ],
+  "remaining": [
+    {
+      "item": "Conditional relay-only path",
+      "status": "pending decision",
+      "source": "docs/architecture/0003-live-code-co-editing.md:3",
+      "reason": "ADR remains proposed and delegates topology to T-COL-11. Spike recommendation does not constitute acceptance; no topology selected here."
+    },
+    {
+      "item": "C-J3-04, C-DUR-04 K7, C-PERF-03",
+      "status": "pending reference host",
+      "source": ".specs/engineering/tickets/T-COL-08.md:38",
+      "reason": "Real Mac/microVM proofs belong to T-COL-08 and cannot run on this Linux VM; Mac mini is offline. No durability or latency pass is claimed."
+    },
+    {
+      "item": "T-COL-11 topology/security qualification",
+      "status": "pending owner/reference host",
+      "source": ".specs/engineering/tickets/T-COL-11.md:63"
+    },
+    {
+      "item": "C-COL-01 stale restore UI",
+      "status": "pending providers",
+      "source": "apps/app/e2e/playwright/spec/C-COL-01.spec.ts:7",
+      "reason": "Relay component rerun does not supply restore/multiple-file providers; fixme retained."
+    }
+  ],
+  "ticket_complete": false,
+  "decision_audit": "ADR 0003 remains proposed at line 3; its relay recommendation and no-mirror measurement conclusion are not the signed topology decision required by T-COL-11. No product activation changed."
+}
