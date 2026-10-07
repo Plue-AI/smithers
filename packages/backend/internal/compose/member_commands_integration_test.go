@@ -79,7 +79,9 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	router.Use(authLoader(q, cfg.Auth))
 	router.Use(memberCommands(q))
 	downgradeAfterDecision := false
+	servedCount := 0
 	served := func(w http.ResponseWriter, r *http.Request) {
+		servedCount++
 		if downgradeAfterDecision {
 			_, err := pool.Exec(ctx, `UPDATE collaborators SET permission='write' WHERE user_id=$1`, ben.ID)
 			require.NoError(t, err)
@@ -189,21 +191,25 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)
 	}
-	// The real provisioned landing shape retains its scoped stack read, but
-	// never gains chat, merge or any other person command.
+	// Scope text alone cannot bind a delivery credential to a stored lane.
+	// Refuse stack disclosure and submission before reaching a handler.
+	// TestInstallCandidateAuthorizationPostgres covers a real stored candidate.
 	landingScopes := strings.Join(append([]string{"write:repository", middleware.RepositoryRestrictionScope(repo.ID), middleware.LandingWorkspaceScope("11111111-1111-4111-a111-111111111111")}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE user_id=$1`, owner.ID, landingScopes)
 	require.NoError(t, err)
-	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
-	require.Equal(t, http.StatusOK, status)
+	beforeDelivery := servedCount
+	status, envelope = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+	require.Equal(t, http.StatusForbidden, status, envelope)
+	require.Equal(t, beforeDelivery, servedCount)
 	for _, path := range []string{"/api/conversations/1/prompt", "/api/todos/1/merge"} {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)
 	}
-	const submission = `{"workspaceId":"11111111-1111-4111-a111-111111111111"}`
-	status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, submission)
-	require.Equal(t, http.StatusOK, status)
-	for _, body := range []string{`{}`, `{"workspaceId":"22222222-2222-4222-a222-222222222222"}`, submission + `{}`} {
+	submission := fmt.Sprintf(`{"workspaceId":"11111111-1111-4111-a111-111111111111","base":%q,"source":%q,"requestRunId":"request-1","summary":"A result"}`, strings.Repeat("a", 40), strings.Repeat("b", 40))
+	status, envelope = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, submission)
+	require.Equal(t, http.StatusForbidden, status, envelope)
+	require.Equal(t, beforeDelivery, servedCount)
+	for _, body := range []string{strings.Replace(submission, "11111111-1111-4111-a111-111111111111", "22222222-2222-4222-a222-222222222222", 1)} {
 		status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, body)
 		require.Equal(t, http.StatusForbidden, status, body)
 	}

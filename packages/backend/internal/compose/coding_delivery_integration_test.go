@@ -87,6 +87,16 @@ func TestCodingDeliveryComposedCredentialBoundaryPostgres(t *testing.T) {
 			router.ServeHTTP(response, req)
 			require.Equal(t, tc.want, response.Code, response.Body.String())
 			if tc.name == "unstored delivery binding" {
+				for _, invalid := range []string{`{}`, `{"workspaceId":"11111111-1111-4111-8111-111111111111"}`} {
+					bad := httptest.NewRequest(tc.method, cfg.Server.PublicURL+tc.path, strings.NewReader(invalid))
+					bad.RemoteAddr = req.RemoteAddr
+					bad.Header = req.Header.Clone()
+					refused := httptest.NewRecorder()
+					router.ServeHTTP(refused, bad)
+					require.Equal(t, 400, refused.Code, refused.Body.String())
+					require.Contains(t, refused.Body.String(), `"class":"user"`)
+					require.NotContains(t, refused.Body.String(), "Confirmation unavailable")
+				}
 				require.Contains(t, response.Body.String(), `"code":"permission"`)
 				_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE token_hash=$1`, hash)
 				require.NoError(t, err)
