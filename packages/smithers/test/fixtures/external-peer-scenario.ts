@@ -1,8 +1,9 @@
 import { Control } from "@smthrs/control"
+import { PersistenceError } from "@smthrs/control/ControlError"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as RunStore from "@smthrs/run-store/RunStore"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Layer, Schedule, Stream } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync, spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
@@ -342,7 +343,15 @@ if (
         // Real registration and public observations span more than the engine's
         // lease timeout. No durable rows or ownership timestamps are injected.
         for (let tick = 0; tick < 40; tick++) {
-          yield* control.list({ _tag: "runs", filters: { runId } })
+          // SIGSTOP may freeze a writer inside its SQLite transaction. Retry
+          // that typed read refusal until the owned host resumes; never retry
+          // work or conceal other persistence failures.
+          yield* control.list({ _tag: "runs", filters: { runId } }).pipe(Effect.retry({
+            schedule: Schedule.spaced("100 millis").pipe(Schedule.upTo({ times: 300 })),
+            while: error => (mode === "stall" || mode === "detached-stall") &&
+              error instanceof PersistenceError && error.cause instanceof DurableWriter.DatabaseError &&
+              error.cause.code === "busy"
+          }))
           assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
           assert.equal(
             alive(first.pid),
