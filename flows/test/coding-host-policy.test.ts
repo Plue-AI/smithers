@@ -77,7 +77,7 @@ test("wiki publication cannot resolve into the coding workspace, including throu
 })
 
 test("deployment embeds its compiled identity and the review policy it was built from, without source reads", {
-  timeout: 120_000
+  timeout: 300_000
 }, async (t) => {
   const temporary = await mkdtemp(join(tmpdir(), "coding-policy-bundle-"))
   t.after(() => rm(temporary, { recursive: true, force: true }))

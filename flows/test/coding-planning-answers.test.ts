@@ -42,7 +42,7 @@ const context: PlanningContext = {
   memoryRevision: "memory",
   implementation: "coding/implementation",
   implementationDigest: "i".repeat(64),
-  checks: [],
+  checks: [{ id: "build-only", target: ".", flow: "checks/build-only", flowDigest: "b".repeat(64), tier: "fast", required: true }],
   sources: [],
   missing: []
 }
@@ -54,7 +54,7 @@ const draft: Draft = {
     title: "Greet",
     intent: "Add greet.mjs",
     atoms: [{ changeId: null, message: "✨ feat: add greet", intent: "add greet", reads: [], writes: ["greet.mjs"] }],
-    checks: []
+    checks: ["build-only"]
   }]
 }
 const where = "Put greet.mjs in the repository root or in src/?"

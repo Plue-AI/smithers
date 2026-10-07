@@ -90,6 +90,7 @@ else
   changed=$(git ls-files)   # every file: the baseline covers all suites
   allfails=$(mktemp)
 fi
+source "$root/scripts/lane-prerequisites.sh" || { echo "BLOCKED: test prerequisites failed" | tee -a "$log"; exit 1; }
 newreds=()
 
 # PostgreSQL is required: database tests must run, never skip.
@@ -102,7 +103,7 @@ fi
 # 1. The gates scripts/commit.mjs requires before any push to main.
 check migration-gate "go test -run 'TestMigrationGate|TestMigrationRegistry' ./packages/backend/db/product/"
 [ -f scripts/check-sqlc-drift.sh ] && check sqlc-drift "bash scripts/check-sqlc-drift.sh"
-check lane-gates "node --test scripts/lane-gates.test.mjs"
+check lane-gates "node --test scripts/lane-gates.test.mjs scripts/lane-prerequisites.test.mjs"
 check tracked-hygiene "node scripts/check-tracked-hygiene.mjs"
 if command -v smthrs >/dev/null; then check drift "smthrs lint //:driftCi //:targetIndex //:ci //scripts:trackedHygiene //scripts:conflictMarkers"
 else echo "SKIP drift: smthrs unavailable on this host" >> "$log"; fi

@@ -14,7 +14,7 @@ it("CI runs the package pattern that holds the coverage-enabled test target and 
   const ci = readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8")
   // The generator quotes every `run:` scalar, so the gate matches the quoted form.
   for (const verb of ["ci", "test"]) {
-    expect(ci).toContain(`run: "pnpm exec smthrs ${verb} '//packages/...' --jobs 2 --known-red '.github/ci-known-red.json' --verbose"`)
+    expect(ci).toContain(`run: "pnpm exec smthrs ${verb} '//packages/...' --jobs 2 --known-red '.github/ci-known-red.json' --results-file \\\"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\\\" --verbose"`)
   }
 
   const attrs = Target.metadata(Package.test).attrs as Vitest.Attrs

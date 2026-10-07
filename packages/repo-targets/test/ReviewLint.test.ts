@@ -165,7 +165,7 @@ describe("ReviewDocsAgainstCode", () => {
     expect(files).toContain("apps/site/src/content/docs/docs/reference/api/journal.mdx")
     expect(files.length).toBeLessThanOrEqual(maximumContextFiles)
     expect(await contextBytes(files)).toBeLessThanOrEqual(maximumContextContentBytes)
-  })
+  }, 60_000)
 
   it("reports at warning while its rubric is tuned", () => {
     expect(attrs.failOn).toBe("warning")

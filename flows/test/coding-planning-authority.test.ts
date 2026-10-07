@@ -28,6 +28,7 @@ import { CapabilityPattern } from "../../packages/smithers/flows/capability/src/
 import { Rule } from "../../packages/smithers/flows/capability/src/Permission.ts"
 import * as CapabilitySet from "../../packages/smithers/flows/kernel/src/CapabilitySet.ts"
 import * as KernelSpawner from "../../packages/smithers/flows/kernel/src/ChildProcessSpawner.ts"
+import * as ProcessConfinement from "../../packages/smithers/flows/kernel/src/ProcessConfinement.ts"
 import * as KernelFileSystem from "../../packages/smithers/flows/kernel/src/FileSystem.ts"
 import * as GrantStore from "../../packages/smithers/flows/kernel/src/GrantStore.ts"
 import * as Workspace from "../../packages/smithers/flows/kernel/src/Workspace.ts"
@@ -133,6 +134,7 @@ const fixture = async (t: TestContext, contributed = false) => {
     Layer.provide(workspace)
   )
   const platform = Layer.mergeAll(KernelFileSystem.layer, KernelSpawner.layer).pipe(
+    Layer.provide(ProcessConfinement.layerNoop),
     Layer.provideMerge(Layer.mergeAll(grants, workspace)),
     Layer.provideMerge(AtomicFileSystem.layer.pipe(Layer.provide(NodeServices.layer))),
     Layer.provideMerge(NodeServices.layer)

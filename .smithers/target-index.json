@@ -10384,10 +10384,6 @@
       },
       {
         "kind": "file",
-        "path": "flows/test/coding-wiki-relay.test.ts"
-      },
-      {
-        "kind": "file",
         "path": "flows/test/coding-planning-wiki-prior.test.ts"
       },
       {
@@ -10840,10 +10836,6 @@
       },
       {
         "kind": "file",
-        "path": "flows/test/coding-wiki-relay.test.ts"
-      },
-      {
-        "kind": "file",
         "path": "flows/test/coding-project-config.test.ts"
       },
       {
@@ -10852,19 +10844,11 @@
       },
       {
         "kind": "file",
-        "path": "flows/test/coding-build-only.test.ts"
-      },
-      {
-        "kind": "file",
         "path": "flows/test/coding-candidate-equality.test.ts"
       },
       {
         "kind": "file",
         "path": "flows/test/coding-pinned-source.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/coding-install-project.test.ts"
       },
       {
         "kind": "file",
@@ -10901,10 +10885,6 @@
       {
         "kind": "file",
         "path": "flows/test/coding-create-flow-registry.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/coding-pinned-source.test.ts"
       },
       {
         "kind": "file",
@@ -10956,23 +10936,11 @@
       },
       {
         "kind": "file",
-        "path": "flows/test/coding-candidate-equality.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/coding-pinned-source.test.ts"
-      },
-      {
-        "kind": "file",
         "path": "flows/test/coding-vibe-landing.test.ts"
       },
       {
         "kind": "file",
         "path": "flows/test/coding-source-publication.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/coding-stack-reserved.test.ts"
       },
       {
         "kind": "file",
@@ -11473,6 +11441,14 @@
     ],
     "cacheable": false,
     "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/test/coding-typecheck-build.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-flow-typecheck-build.test.mjs"
+      },
       {
         "kind": "file",
         "path": "flows/test/wiki-reuse.test.ts"
@@ -12775,10 +12751,6 @@
       {
         "kind": "file",
         "path": "flows/test/wiki.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/wiki-install-defaults.test.ts"
       },
       {
         "kind": "glob",
@@ -36552,6 +36524,10 @@
       {
         "kind": "file",
         "path": "scripts/lane-gates.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/lane-prerequisites.test.mjs"
       },
       {
         "kind": "file",

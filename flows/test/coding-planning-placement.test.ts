@@ -110,17 +110,18 @@ test("a repository with one detected check, or none, plans (mvp.md J1.4)", async
     const detected = await Effect.runPromise(detectChecks(root).pipe(Effect.provide(NodeServices.layer)))
     const one = detected.checks.map((check) => ({ ...check, flowDigest: "t".repeat(64) }))
     assert.deepEqual(one.map((check) => `${check.id}:${check.tier}`), ["test:slow"])
-    for (const repository of [one, []]) {
+    const buildOnly: Check = { id: "build-only", target: ".", flow: "checks/build-only", flowDigest: "b".repeat(64), tier: "fast", required: true }
+    for (const repository of [one, [buildOnly]]) {
       const gathered = Schema.decodeUnknownSync(PlanningContext)({ ...context, checks: repository })
-      // The model may select nothing: the host attaches every required check.
+      // The model selects the available check; the host retains required checks.
       const appended = draft(c.changeId, [atom(null, "✅ test: cover d")])
       const drafted = Schema.decodeUnknownSync(Draft)({
         ...appended,
-        changes: [{ ...appended.changes[0]!, checks: [] }]
+        changes: [{ ...appended.changes[0]!, checks: repository.map((check) => check.id) }]
       })
       const plan = finalize(input, gathered, drafted)
       assert.deepEqual(plan.changes[0]!.checks, repository)
-      // A plan with one check, or none, is a valid plan everywhere it is read.
+      // No detected checks still plans with the required build-only fallback.
       assert.doesNotThrow(() => validatePlan(plan))
     }
   } finally {
