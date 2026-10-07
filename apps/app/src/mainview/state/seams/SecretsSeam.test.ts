@@ -546,7 +546,15 @@ test("an install without the live provider refuses /secrets and write gestures w
   try {
     await heldReady(store, signupReads)
     expect(await controller.commands.run("secrets")).toMatchObject({ status: "failed", error: "Secrets unavailable" })
-    expect(await controller.commands.submit({ name: "secrets.set", actor: "user", payload: { name: "KEY", repo: "will/flows" }, gesture: writeOnlyGesture("secrets.set", { value: "PRIVATE_MISSING_PROVIDER" }) })).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+    const gesture = writeOnlyGesture("secrets.set", { value: "PRIVATE_MISSING_PROVIDER" })
+    for (const command of [
+      { name: "secrets.set", payload: { name: "KEY", repo: "will/flows" }, gesture },
+      { name: "secrets.delete", payload: { name: "KEY", repo: "will/flows" } },
+      { name: "secrets.scope", payload: { name: "KEY", scope: "main-only", repo: "will/flows" } },
+      { name: "secrets.bind", payload: { name: "KEY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
+    ]) expect(await controller.commands.submit({ ...command, actor: "user" })).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+    expect(gesture.takeWriteOnly?.("value")).toBeUndefined()
+    expect(store.session().secretRequests ?? []).toEqual([])
     expect(hits).toEqual([])
     expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_MISSING_PROVIDER")
   } finally { await controller.dispose() }
@@ -574,5 +582,98 @@ test("outside an install the seed stands in until real metadata serves, then nev
     available = false
     expect(await controller.commands.run("secrets")).toMatchObject({ status: "failed", error: "No provider" })
     expect(hits.every(url => url.endsWith("/secrets"))).toBe(true)
+  } finally { await controller.dispose() }
+})
+
+// Withhold the live-topic and decoder contracts independently, through the
+// production controller, command dispatcher and CardRenderers mount. Begin
+// with a valid snapshot to prove a formerly mounted card loses authority.
+for (const withheld of ["unauthorized topic", "unsupported topic", "live decoder", "scope decoder"] as const) {
+  test(`install Secrets refuses ${withheld} after a valid mount, with no write or polling fallback`, async () => {
+    const { LiveChannel } = await import("../../runtime/LiveChannel")
+    const { writeOnlyGesture } = await import("../../flows/CommandGesture")
+    const { createElement } = await import("react")
+    const { renderToStaticMarkup } = await import("react-dom/server")
+    const { ControllerTestProvider } = await import("../../ControllerContext")
+    const { CARD_RENDERERS } = await import("../../cards/CardRenderers")
+    let socket!: import("../../runtime/LiveChannel").LiveSocket
+    let topicId = 0
+    const live = new LiveChannel({ socket: () => {
+      socket = { readyState: 1, onopen: null, onclose: null, onmessage: null, close() {}, send(raw) {
+        const frame = JSON.parse(String(raw))
+        if (frame.t === "sub" && frame.topic === "secrets") {
+          topicId = frame.id
+          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: topicId, cursor: 1,
+            data: { secrets: [{ name: "DEPLOY", scope: "main_only", actions: [] }] } }) }))
+        }
+      } }
+      queueMicrotask(() => socket.onopen?.())
+      return socket
+    } })
+    const hits: string[] = []
+    const { store, controller, signupReads } = await heldController({ live,
+      bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+      fetchImpl: async input => { if (String(input).includes("/secrets")) hits.push(String(input)); return json(404, {}) }
+    })
+    try {
+      await heldReady(store, signupReads)
+      expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "executed" })
+      const mounted = secretsCard(store)!
+      expect(mounted.payload.secrets[0]?.name).toBe("DEPLOY")
+      const frame = withheld === "unauthorized topic" || withheld === "unsupported topic"
+        ? { t: "err", id: topicId, code: withheld === "unauthorized topic" ? "forbidden" : "unsupported" }
+        : { t: "snap", id: topicId, cursor: 2, data: withheld === "live decoder"
+          ? { secrets: [{ name: "DEPLOY", mainOnly: true }] }
+          : { secrets: [{ name: "DEPLOY", scope: "unrecognized", actions: [] }] } }
+      socket.onmessage?.({ data: JSON.stringify(frame) })
+      await checkpoint()
+      expect(await bounded(controller.commands.run("secrets"))).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+      const gesture = writeOnlyGesture("secrets.set", { value: "PRIVATE_WITHHELD" })
+      for (const command of [
+        { name: "secrets.set", payload: { name: "DEPLOY", repo: "will/flows" }, gesture },
+        { name: "secrets.delete", payload: { name: "DEPLOY", repo: "will/flows" } },
+        { name: "secrets.scope", payload: { name: "DEPLOY", scope: "main-only", repo: "will/flows" } },
+        { name: "secrets.bind", payload: { name: "DEPLOY", hosts: "api.example.test", headers: "authorization", repo: "will/flows" } }
+      ]) {
+        expect(await bounded(controller.commands.submit({ ...command, actor: "user" }))).toMatchObject({ status: "failed", error: "Secrets unavailable" })
+      }
+      expect(gesture.takeWriteOnly?.("value")).toBeUndefined()
+      const html = renderToStaticMarkup(createElement(ControllerTestProvider, { controller, children: CARD_RENDERERS.secrets.render(secretsCard(store)!, {
+        onDecideApproval() {}, onConnectGitHub() {},
+        onRunWorkflow() {}, onStopRun() {}, onRetryRun() {}, onChooseWorkflowRepo() {}, worldDocuments: [],
+        onChangeWorldDocument() {}, onRunCommand() {}
+      }) }))
+      expect(html).toContain('data-kind="secrets"')
+      expect(html).not.toContain("DEPLOY")
+      expect(html).not.toContain('data-flow="secrets.set"')
+      expect(html).not.toContain('type="password"')
+      controller.changeDraft("Chat still works")
+      expect(store.session().draft).toBe("Chat still works")
+      await checkpoint()
+      expect(hits).toEqual([])
+      expect(store.session().secretRequests ?? []).toEqual([])
+      expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_WITHHELD")
+    } finally { await controller.dispose(); live.dispose() }
+  })
+}
+
+for (const action of ["delete", "scope"] as const) test(`reload refuses a persisted ${action} without live authority and records failure`, async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await ready(store)
+  await store.dispatch({ type: "secret.requests.changed", actor: "system", requests: [{
+    id: `withheld-${action}`, owner: "will", repo: "will/flows", name: "DEPLOY", action,
+    ...(action === "scope" ? { mainOnly: true } : {}), state: "requested"
+  }] }).isPersisted.promise
+  const hits: string[] = []
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "install"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async input => { if (String(input).includes("/secrets")) hits.push(String(input)); return json(404, {}) }
+  })
+  try {
+    for (let i = 0; i < 30 && store.session().secretRequests?.[0]?.state !== "failed"; i++) await checkpoint()
+    expect(store.session().secretRequests?.[0]?.state).toBe("failed")
+    expect(hits).toEqual([])
+    expect(JSON.stringify([...store.collections.messages.values()])).not.toContain("DEPLOY deleted")
+    expect(JSON.stringify([...store.collections.messages.values()])).not.toContain("DEPLOY saved")
   } finally { await controller.dispose() }
 })

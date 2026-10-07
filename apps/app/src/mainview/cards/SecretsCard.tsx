@@ -50,13 +50,14 @@ export const SecretsCardBody = ({ card, dispatch, role = "member", View = Secret
 const SecretsBody = ({ card }: { card: StoredSecrets }) => {
   const controller = useController()
   useSyncExternalStore(controller.membersRoster.subscribe, controller.membersRoster.get, controller.membersRoster.get)
-  const topic = useTopic(controller.flowCatalog !== undefined ? "secrets" : undefined, controller.live)
+  const topic = useTopic(controller.flowCatalog !== undefined && controller.live ? "secrets" : undefined, controller.live)
   const parsed = SecretsCardSchema.safeParse(topic?.data)
-  const projected = topic?.error ? { ...card, payload: { ...card.payload, secrets: [] } }
+  const unavailable = controller.flowCatalog !== undefined && (!controller.live || !!topic?.error || !parsed.success)
+  const projected = topic?.error || (topic?.data !== undefined && !parsed.success) ? { ...card, payload: { ...card.payload, secrets: [] } }
     : parsed.success ? { ...card, payload: { ...card.payload, secrets: parsed.data.secrets.map(secret => ({
       name: secret.name, mainOnly: secret.scope === "main_only", hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null
     })) } } : card
-  return <SecretsCardBody card={projected} role={controller.membersRole()} dispatch={(name, input) => {
+  return <SecretsCardBody card={projected} role={unavailable ? "member" : controller.membersRole()} dispatch={(name, input) => {
     const payload: Record<string, unknown> = { ...(input ?? {}), repo: card.payload.repo || undefined }
     if (name === "secrets.scope") payload.scope = payload.scope === "main_only" ? "main-only" : "all"
     const gesture = name === "secrets.set" ? writeOnlyGesture(name, { value: String(payload.value ?? "") }) : undefined
