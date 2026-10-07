@@ -271,6 +271,9 @@ func (s *MythicalService) requestMerge(ctx context.Context, repositoryID, userID
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return MythicalItemView{}, err
 	}
+	if err := requireNoStackAttention(ctx, s.store, item.RepositoryID); err != nil {
+		return MythicalItemView{}, err
+	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
 		return MythicalItemView{}, err
@@ -317,6 +320,9 @@ func (s *MythicalService) requestMerge(ctx context.Context, repositoryID, userID
 		}
 		current, err := q.GetMythicalItem(ctx, item.ID)
 		if err != nil {
+			return err
+		}
+		if err := requireNoStackAttention(ctx, tx, current.RepositoryID); err != nil {
 			return err
 		}
 		before, err := mythicalMergeAfter(ctx, tx, current)
@@ -501,6 +507,14 @@ func (s *MythicalService) todoMerge(ctx context.Context, item db.MythicalItem) (
 		}
 		return block, nil
 	}
+	if err := requireNoStackAttention(ctx, s.store, item.RepositoryID); err != nil {
+		var refusal *TodoControlError
+		if !errors.As(err, &refusal) {
+			return nil, err
+		}
+		block["state"], block["reason"], block["detail"] = "waiting", "attention", refusal.Message
+		return block, nil
+	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
 		return nil, err
@@ -575,6 +589,9 @@ func (s *MythicalService) MergeDecision(ctx context.Context, item db.MythicalIte
 	land := mythicalMergeApproval(item)
 	if op.Kind != "merge" || land == nil || (land.Session == "" && land.StandingUser == 0) || land.Refused != nil || land.Head != op.Desired || land.Generation != item.Generation {
 		return mythicalMergeDecided{}, mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
+	}
+	if err := requireNoStackAttention(ctx, s.store, item.RepositoryID); err != nil {
+		return mythicalMergeDecided{}, err
 	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
@@ -1119,6 +1136,9 @@ func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem
 	var claimed db.MythicalItem
 	err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
 		if err := lockMergeFacts(ctx, tx, item, land.Session, land.StandingUser, binding); err != nil {
+			return err
+		}
+		if err := requireNoStackAttention(ctx, tx, item.RepositoryID); err != nil {
 			return err
 		}
 		q := db.New(tx)

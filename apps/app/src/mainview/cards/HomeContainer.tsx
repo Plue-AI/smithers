@@ -49,7 +49,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
     const start = definitions.length
     for (const action of row.actions) {
       if (row.kind === "force_push" && action.tag === "main.reset-to-github") admitted({ ...action, tag: "main.reset-to-github", command_input: { revision: parsed.main.sha } })
-      if (row.kind === "order" && action.tag === "order.ok" && row.todo) admitted({ ...action, tag: "order.ok", args: { n: String(row.todo) }, command_input: { n: row.todo } })
+      if (row.kind === "order" && action.tag === "order.ok" && row.id && row.revision) admitted({ ...action, tag: "order.ok", args: { id: row.id }, command_input: { id: row.id, revision: row.revision } })
     }
     return { ...row, start, end: definitions.length }
   })

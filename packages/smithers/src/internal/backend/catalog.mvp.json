@@ -7227,19 +7227,30 @@
       "credentialScope": "write:repository",
       "agent": "never",
       "summary": "OK",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/stack/attention/{id}",
+        "body": {
+          "revision": "revision"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
           "properties": {
-            "n": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "revision": {
               "type": "integer",
               "minimum": 1
             }
           },
           "required": [
-            "n"
+            "id",
+            "revision"
           ],
           "additionalProperties": true
         },
