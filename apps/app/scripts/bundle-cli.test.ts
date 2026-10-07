@@ -21,7 +21,9 @@ for (const args of [["unknown"], ["host", "stop", "extra"], ["host", "status", "
   })
 }
 
-test("compiled bundle CLI refuses invalid bundles before service effects", () => {
+// Off macOS, host start refuses at the launchd platform check first
+// (packages/smithers/test/HostService.test.ts covers that refusal).
+test.skipIf(process.platform !== "darwin")("compiled bundle CLI refuses invalid bundles before service effects", () => {
   const bundle = join(root, "bundle")
   mkdirSync(bundle)
   writeFileSync(join(bundle, "manifest.json"), "{}")

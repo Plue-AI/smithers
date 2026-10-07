@@ -28,6 +28,7 @@ import * as DurableWriter from "@smthrs/database/DurableWriter"
 import { ExecutionFacts } from "@smthrs/engine-store"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import type * as ReplayOnly from "@smthrs/engine-store/ReplayOnly"
+import { RunState } from "@smthrs/engine-store/RunState"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
 import { Action, FlowRuntime } from "@smthrs/flow"
@@ -85,6 +86,7 @@ import {
   Layer,
   Option,
   PlatformError,
+  Schema,
   SchemaIssue,
   Scope
 } from "effect"
@@ -1170,7 +1172,28 @@ export const make = (
                   readonly executionDigest?: string
                 }
               ).pipe(Effect.orDie)
-            if (card?.executionDigest !== undefined) adapterDigests.set(summary.flowId, card.executionDigest)
+            if (card?.executionDigest !== undefined) {
+              const children = yield* nativeSql<{ readonly stateJson: string }>`
+                SELECT state_json AS "stateJson" FROM flows_runs
+                WHERE run_id = ${AgentSession.moduleExecutionId(row.runId, card.executionDigest)}
+              `.pipe(Effect.orDie)
+              const child = children[0] === undefined ? undefined : yield* Schema.decodeUnknownEffect(
+                Schema.fromJsonString(RunState)
+              )(children[0].stateJson).pipe(Effect.orDie)
+              const prefix = "registry/entry/"
+              const suffix = `/${summary.flowId}`
+              const retained = child?.flowName.startsWith(prefix) && child.flowName.endsWith(suffix)
+                ? child.flowName.slice(prefix.length, -suffix.length)
+                : undefined
+              // Plans made after a live adoption use the new code digest but
+              // the same registered adapter. Its durable child is authoritative
+              // on restart; deriving the tag from that newer plan loses replay.
+              if (retained !== undefined && /^[a-f0-9]{64}$/.test(retained)) {
+                adapterDigests.set(summary.flowId, retained)
+              } else if (!adapterDigests.has(summary.flowId)) {
+                adapterDigests.set(summary.flowId, card.executionDigest)
+              }
+            }
           }
           if (summary.executionDigest === undefined || snapshots === undefined) continue
           const restored = yield* snapshots.descriptor(summary.executionDigest).pipe(
@@ -1194,7 +1217,15 @@ export const make = (
         return Executable.layer({
           delegates: [],
           snapshots,
-          adapterExecutionDigest: (descriptor) => adapterDigests.get(descriptor.name),
+          adapterExecutionDigest: (descriptor) => {
+            // A fresh host has no persisted plan yet. Keep the first adapter
+            // identity when this same host later adopts edited code, just as
+            // the plan rows above restore it after a restart. Changing it would
+            // rebind the module's durable child to a different flow identity.
+            const original = adapterDigests.get(descriptor.name) ?? Descriptor.executionDigest(descriptor)
+            if (original !== undefined) adapterDigests.set(descriptor.name, original)
+            return original
+          },
           ...(options.executionRoot === undefined || resolve(options.executionRoot) === resolve(root)
             ? {}
             : { sourceRoot: { identity: resolve(root), workspace: resolve(options.executionRoot) } })

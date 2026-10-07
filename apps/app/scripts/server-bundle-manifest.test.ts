@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -51,13 +51,24 @@ test("manifest uses the landed host-start verifier contract", async () => {
 // entitlement that lets it load the bundle's own engine library and not the
 // one that would let DYLD_* variables back in; the manifest records the
 // signature, and a backend re-signed without the runtime no longer matches.
+// The compile is shared and read-only; each run signs its own copy.
+let compiledBackend = ""
+// Mac mini, 2026-10-06: five isolated runs at 5-minute load 12.53–13.66;
+// 41788.86, 161.52, 169.56, 160.34, 136.79 ms. Only the cold first cc run is
+// slow, so the 84 s (~2× p95) deadline covers the compile, not the signing.
+beforeAll(() => {
+  if (process.platform !== "darwin") return
+  const dir = mkdtempSync(join(tmpdir(), "smithers-backend-cc-"))
+  const source = join(dir, "main.c")
+  writeFileSync(source, "int main(void) { return 0; }\n")
+  compiledBackend = join(dir, "smithers-backend")
+  expect(Bun.spawnSync(["/usr/bin/cc", "-o", compiledBackend, source]).exitCode).toBe(0)
+}, 84_000)
+afterAll(() => { if (compiledBackend) rmSync(join(compiledBackend, ".."), { recursive: true, force: true }) })
 test.skipIf(process.platform !== "darwin")("signs the backend with the hardened runtime and records it", () => {
   const root = fixture()
-  const source = join(root, "main.c")
-  writeFileSync(source, "int main(void) { return 0; }\n")
   const backend = join(root, "bin", "smithers-backend")
-  expect(Bun.spawnSync(["/usr/bin/cc", "-o", backend, source]).exitCode).toBe(0)
-  rmSync(source)
+  cpSync(compiledBackend, backend)
   signHardenedBackend(backend)
   expect(codeSignatureFlags(backend)).toBe("adhoc,runtime")
   const entitlements = new TextDecoder().decode(Bun.spawnSync(["/usr/bin/codesign", "-d", "--entitlements", ":-", backend]).stdout)

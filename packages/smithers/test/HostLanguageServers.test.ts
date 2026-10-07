@@ -1,12 +1,14 @@
 import { NodeServices } from "@effect/platform-node"
 import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as ProcessConfinement from "@smthrs/kernel/ProcessConfinement"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import * as Edit from "@smthrs/std/Edit"
 import * as LanguageServer from "@smthrs/std/LanguageServer"
 import { Context, Effect, Layer } from "effect"
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -165,7 +167,8 @@ describe("HostLanguageServers.make", () => {
     const host = install(join(root, "host"))
     writeFileSync(join(workspace, "a.ts"), "ERROR\n")
     const guarded = KernelChildProcessSpawner.layer.pipe(
-      Layer.provide([NodeControl.layerGrantStore(workspace), Workspace.layer(workspace)]),
+      // This test launches only its local stand-in; grant enforcement remains real.
+      Layer.provide([NodeControl.layerGrantStore(workspace), Workspace.layer(workspace), ProcessConfinement.layerNoop]),
       Layer.provideMerge(NodeServices.layer)
     )
     const report = await Effect.runPromise(
@@ -176,10 +179,13 @@ describe("HostLanguageServers.make", () => {
     )
     expect(report).toMatchObject({ kind: "full", items: [{ message: "bad", severity: 1 }] })
     // A store with no rules and nobody to ask refuses the spawn; the request says so.
+    const initialized = join(root, "host", "node_modules", "typescript-language-server", "lib", "initialized.json")
+    rmSync(initialized)
     const ruleless = KernelChildProcessSpawner.layer.pipe(
       Layer.provide([
         Layer.orDie(GrantStore.layer({ attended: false, rules: [] })).pipe(Layer.provide(Workspace.layer(workspace))),
-        Workspace.layer(workspace)
+        Workspace.layer(workspace),
+        ProcessConfinement.layerNoop
       ]),
       Layer.provideMerge(NodeServices.layer)
     )
@@ -190,6 +196,9 @@ describe("HostLanguageServers.make", () => {
       })).pipe(Effect.provide(ruleless))
     )
     expect(refused).toMatchObject({ code: "provider_unavailable" })
+    expect(refused.message).toContain("PermissionDenied")
+    expect(refused.message).toContain("proc:spawn")
+    expect(existsSync(initialized)).toBe(false)
   })
 
   it("starts the server on the first edit and returns the errors that edit leaves", async () => {

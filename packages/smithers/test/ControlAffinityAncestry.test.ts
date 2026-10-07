@@ -406,9 +406,9 @@ it.effect("silently denies absent or malformed parked ownership instead of loggi
   ))
 
 /**
- * A configured host that re-drives an `agent/run` root it claimed re-drives
- * that root's approved module with it (#3144). Everything the module spawned
- * keeps the explicit retry fence, as does any other shape of child.
+ * Owning an `agent/run` root and holding its approved module does not authorize
+ * repeating an interrupted effect. The module and its descendants all consult
+ * the released-action policy: keyed retry or an explicit resume grant.
  */
 const moduleTree = (
   runs: RunStore.Service,
@@ -470,15 +470,18 @@ const moduleTree = (
     }
   })
 
-it.effect("re-drives the released approved module of the agent/run root this process is driving", () =>
-  stores((runs, engineRuns) =>
-    Effect.gen(function*() {
-      yield* moduleTree(runs, engineRuns)
-      const canRetryReleased = vi.fn(() => Effect.succeed(false))
-      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })("module")).toBe(true)
-      expect(canRetryReleased).not.toHaveBeenCalled()
-    })
-  ))
+it.effect.each([false, true])(
+  "uses released-action retry permission %s even for its own approved module",
+  (permitted) =>
+    stores((runs, engineRuns) =>
+      Effect.gen(function*() {
+        yield* moduleTree(runs, engineRuns)
+        const canRetryReleased = vi.fn(() => Effect.succeed(permitted))
+        expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })("module")).toBe(permitted)
+        expect(canRetryReleased).toHaveBeenCalledExactlyOnceWith("module", "root")
+      })
+    )
+)
 
 it.effect.each(
   [

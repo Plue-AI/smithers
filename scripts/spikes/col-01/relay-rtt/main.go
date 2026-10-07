@@ -36,6 +36,22 @@ import (
 
 const deviation = "Same-Mac headless Chromium tabs use the LAN address, not a second Mac; strict C-SPK-07 is partial. Host profile and competing VMs are recorded; no isolated-host acceptance is claimed."
 
+// rttDeviation stamps load-gated RTT rows. The gate is a literal harness
+// fixture: a cell starts only when the host 1-minute load, less the guest's own
+// busy workers, is below loadCeiling; a cell whose closing load reaches the
+// ceiling is retained in samples-rejected.csv and rerun.
+const rttDeviation = "Load-gated: each cell starts below 1-min host load 10 (guest busy workers subtracted) and is rerun if it ends at or above 10; rejected attempts are kept in samples-rejected.csv. Load and running VMs are recorded per cell."
+
+const (
+	loadCeiling     = 10.0
+	loadPoll        = 15 * time.Second
+	loadWaitLimit   = 3 * time.Hour
+	maxCellAttempts = 5
+	// nodelayPort is the guest loopback port of the spike-only TCP_NODELAY
+	// copy of the helper's bridge (echo/bridge_nodelay.py).
+	nodelayPort = 19003
+)
+
 type harness struct {
 	ctx                  context.Context
 	runtime              *microsandbox.Runtime
@@ -43,6 +59,97 @@ type harness struct {
 	build, root          string
 	rttBridge, docBridge net.Listener
 	environment          map[string]any
+}
+
+// hostLoad reads the 1/5/15-minute load averages ("{ 5.82 7.41 6.36 }").
+func hostLoad() ([3]float64, error) { return parseLoadavg(command("sysctl", "-n", "vm.loadavg")) }
+
+func parseLoadavg(text string) ([3]float64, error) {
+	var load [3]float64
+	fields := strings.Fields(strings.Trim(text, "{} \n"))
+	if len(fields) != 3 {
+		return load, fmt.Errorf("unexpected vm.loadavg %q", fields)
+	}
+	for i, field := range fields {
+		value, err := strconv.ParseFloat(field, 64)
+		if err != nil {
+			return load, err
+		}
+		load[i] = value
+	}
+	return load, nil
+}
+
+// runningVMs counts every msb sandbox that is not stopped, including ours.
+func runningVMs(msb string) (int, []string) {
+	var list []map[string]any
+	if err := json.Unmarshal([]byte(command(msb, "list", "--format", "json")), &list); err != nil {
+		return -1, nil
+	}
+	names := []string{}
+	for _, sandbox := range list {
+		if status, _ := sandbox["status"].(string); !strings.EqualFold(status, "stopped") {
+			name, _ := sandbox["name"].(string)
+			names = append(names, name+":"+status)
+		}
+	}
+	return len(names), names
+}
+
+// loadReceipt records host load and running VMs; own is the guest's own busy
+// workers, subtracted before comparing with loadCeiling.
+func (h *harness) loadReceipt(own int) map[string]any {
+	load, err := hostLoad()
+	count, names := runningVMs(filepath.Join(h.build, "msb-real"))
+	receipt := map[string]any{"time": time.Now().UTC().Format(time.RFC3339Nano), "uptime": command("uptime"), "load1": load[0], "load5": load[1], "load15": load[2], "own_guest_workers": own, "gated_load1": load[0] - float64(own), "running_vms": count, "running_vm_names": names}
+	if err != nil {
+		receipt["load_error"] = err.Error()
+		receipt["gated_load1"] = loadCeiling
+	}
+	return receipt
+}
+
+// waitForLoad blocks until the gated 1-minute load is below loadCeiling.
+func (h *harness) waitForLoad(label string, own int) (map[string]any, error) {
+	start := time.Now()
+	for {
+		receipt := h.loadReceipt(own)
+		if receipt["gated_load1"].(float64) < loadCeiling {
+			receipt["waited_s"] = time.Since(start).Seconds()
+			return receipt, nil
+		}
+		if time.Since(start) > loadWaitLimit {
+			return receipt, fmt.Errorf("%s: host load stayed at or above %.0f for %s: %s", label, loadCeiling, loadWaitLimit, receipt["uptime"])
+		}
+		fmt.Printf("LOAD WAIT %s: %s\n", label, receipt["uptime"])
+		select {
+		case <-h.ctx.Done():
+			return receipt, h.ctx.Err()
+		case <-time.After(loadPoll):
+		}
+	}
+}
+
+// sampleLoad appends one host-load row every 10 s until ctx ends.
+func (h *harness) sampleLoad(ctx context.Context, path string) {
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	w.Write([]string{"utc", "load1", "load5", "load15", "running_vms"})
+	for {
+		load, _ := hostLoad()
+		count, _ := runningVMs(filepath.Join(h.build, "msb-real"))
+		w.Write([]string{time.Now().UTC().Format(time.RFC3339), strconv.FormatFloat(load[0], 'f', 2, 64), strconv.FormatFloat(load[1], 'f', 2, 64), strconv.FormatFloat(load[2], 'f', 2, 64), strconv.Itoa(count)})
+		w.Flush()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
 }
 
 func main() {
@@ -116,6 +223,19 @@ func run() (retErr error) {
 		}
 	}
 	fmt.Println("EVIDENCE", dir03, dir07)
+	gate, err := h.waitForLoad("start", 0)
+	if err != nil {
+		return err
+	}
+	h.environment["load_gate_start"] = gate
+	h.environment["load_gate"] = map[string]any{"ceiling_load1": loadCeiling, "poll_s": loadPoll.Seconds(), "wait_limit_s": loadWaitLimit.Seconds(), "max_cell_attempts": maxCellAttempts}
+	loadDir := dir03
+	if *mode == "keystrokes" || *mode == "serve" {
+		loadDir = dir07
+	}
+	sampleCtx, stopSampling := context.WithCancel(ctx)
+	defer stopSampling()
+	go h.sampleLoad(sampleCtx, filepath.Join(loadDir, "host-load.csv"))
 	if _, err = runtime.CreateWorkspace(ctx, workspace.WorkspaceSpec{ID: h.id}); err != nil {
 		return err
 	}
@@ -162,6 +282,18 @@ func run() (retErr error) {
 	}
 	if _, err = runtime.StartService(ctx, h.id, workspace.ServiceSpec{Name: "spike-echo", Command: workspace.Command{Args: []string{"/workspace/col01-echo", "listen", "127.0.0.1:19001"}}, ReadyAddress: "127.0.0.1:19001", ReadyTimeout: 30 * time.Second}); err != nil {
 		return err
+	}
+	if *mode == "all" || *mode == "rtt" {
+		forwarder, err := os.ReadFile("scripts/spikes/col-01/echo/bridge_nodelay.py")
+		if err != nil {
+			return err
+		}
+		if err = runtime.WriteFile(ctx, h.id, "col01-bridge-nodelay.py", forwarder, 0755); err != nil {
+			return err
+		}
+		if _, err = runtime.StartService(ctx, h.id, workspace.ServiceSpec{Name: "spike-bridge-nodelay", Command: workspace.Command{Args: []string{"python3", "/workspace/col01-bridge-nodelay.py", strconv.Itoa(nodelayPort), strconv.Itoa(int(port(rttListener)))}}, ReadyAddress: fmt.Sprintf("127.0.0.1:%d", nodelayPort), ReadyTimeout: 30 * time.Second}); err != nil {
+			return err
+		}
 	}
 	if *mode == "all" || *mode == "rtt" {
 		if err = h.rtt(dir03, cpus); err != nil {
@@ -226,6 +358,10 @@ func (h *harness) dial(transport, kind string) (net.Conn, error) {
 		listener = h.docBridge
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
+	if transport == "bridge-nodelay" {
+		// Same host listener; the guest dials the spike's NODELAY forwarder.
+		port = nodelayPort
+	}
 	ctx, cancel := context.WithCancel(h.ctx)
 	result := make(chan error, 1)
 	go func() {
@@ -311,6 +447,9 @@ func payload(size, seq int) []byte {
 	return b
 }
 
+// rttTransports lists the two production transports and the NODELAY diagnostic.
+var rttTransports = []string{"relay", "bridge", "bridge-nodelay"}
+
 func (h *harness) rtt(dir string, cpus int) error {
 	f, err := os.OpenFile(filepath.Join(dir, "samples.csv"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
@@ -330,7 +469,15 @@ func (h *harness) rtt(dir string, cpus int) error {
 	sw := csv.NewWriter(setupFile)
 	defer sw.Flush()
 	sw.Write([]string{"transport", "seq", "setup_ns", "deviation"})
-	for _, transport := range []string{"relay", "bridge"} {
+	rejected, err := os.Create(filepath.Join(dir, "samples-rejected.csv"))
+	if err != nil {
+		return err
+	}
+	defer rejected.Close()
+	rw := csv.NewWriter(rejected)
+	defer rw.Flush()
+	rw.Write([]string{"transport", "size", "load", "rtt_ns", "seq", "attempt", "load1_after"})
+	for _, transport := range rttTransports {
 		values := []int64{}
 		for i := 0; i < 20; i++ {
 			start := time.Now()
@@ -348,13 +495,13 @@ func (h *harness) rtt(dir string, cpus int) error {
 				return closeErr
 			}
 			values = append(values, elapsed)
-			sw.Write([]string{transport, strconv.Itoa(i), strconv.FormatInt(elapsed, 10), deviation})
+			sw.Write([]string{transport, strconv.Itoa(i), strconv.FormatInt(elapsed, 10), rttDeviation})
 		}
 		stats, err := measure.Summary(values)
 		if err != nil {
 			return err
 		}
-		setups = append(setups, map[string]any{"transport": transport, "stats": stats, "deviation": deviation, "host_load": command("uptime")})
+		setups = append(setups, map[string]any{"transport": transport, "stats": stats, "deviation": rttDeviation, "host_load": h.loadReceipt(0)})
 	}
 	for _, load := range []string{"idle", "busy"} {
 		if load == "busy" {
@@ -377,28 +524,53 @@ func (h *harness) rtt(dir string, cpus int) error {
 			}
 			defer h.runtime.StopService(context.Background(), h.id, "spike-load")
 		}
-		for _, transport := range []string{"relay", "bridge"} {
+		own := 0
+		if load == "busy" {
+			own = cpus
+		}
+		for _, transport := range rttTransports {
 			conn, err := h.dial(transport, "echo")
 			if err != nil {
 				return err
 			}
 			for _, size := range []int{64, 4096} {
-				values := make([]int64, 0, 1000)
-				for seq := 0; seq < 1000; seq++ {
-					ns, err := exchange(conn, payload(size, seq))
-					if err != nil {
+				var values []int64
+				var before, after map[string]any
+				attempt := 1
+				for ; ; attempt++ {
+					label := fmt.Sprintf("%s %s %dB attempt %d", transport, load, size, attempt)
+					if before, err = h.waitForLoad(label, own); err != nil {
 						conn.Close()
 						return err
 					}
-					values = append(values, ns)
-					csvw.Write([]string{transport, strconv.Itoa(size), load, strconv.FormatInt(ns, 10), strconv.Itoa(seq), deviation})
+					values = make([]int64, 0, 1000)
+					for seq := 0; seq < 1000; seq++ {
+						ns, err := exchange(conn, payload(size, seq))
+						if err != nil {
+							conn.Close()
+							return err
+						}
+						values = append(values, ns)
+					}
+					after = h.loadReceipt(own)
+					if after["gated_load1"].(float64) < loadCeiling || attempt == maxCellAttempts {
+						break
+					}
+					fmt.Printf("LOAD REJECT %s: %s\n", label, after["uptime"])
+					for seq, ns := range values {
+						rw.Write([]string{transport, strconv.Itoa(size), load, strconv.FormatInt(ns, 10), strconv.Itoa(seq), strconv.Itoa(attempt), strconv.FormatFloat(after["load1"].(float64), 'f', 2, 64)})
+					}
+				}
+				for seq, ns := range values {
+					csvw.Write([]string{transport, strconv.Itoa(size), load, strconv.FormatInt(ns, 10), strconv.Itoa(seq), rttDeviation})
 				}
 				stats, err := measure.Summary(values)
 				if err != nil {
 					return err
 				}
-				cells = append(cells, map[string]any{"transport": transport, "size": size, "load": load, "stats": stats, "deviation": deviation, "host_load": command("uptime")})
-				fmt.Printf("RTT %s %s %dB n=%d p50=%.3f p95=%.3f p99=%.3f ms | %s\n", transport, load, size, stats.N, float64(stats.P50NS)/1e6, float64(stats.P95NS)/1e6, float64(stats.P99NS)/1e6, deviation)
+				gated := after["gated_load1"].(float64) < loadCeiling
+				cells = append(cells, map[string]any{"transport": transport, "size": size, "load": load, "stats": stats, "deviation": rttDeviation, "attempt": attempt, "load_before": before, "load_after": after, "load_gate_held": gated})
+				fmt.Printf("RTT %s %s %dB n=%d p50=%.3f p95=%.3f p99=%.3f ms attempt=%d load %.2f->%.2f\n", transport, load, size, stats.N, float64(stats.P50NS)/1e6, float64(stats.P95NS)/1e6, float64(stats.P99NS)/1e6, attempt, before["load1"], after["load1"])
 			}
 			if err = conn.Close(); err != nil {
 				return err
@@ -407,12 +579,14 @@ func (h *harness) rtt(dir string, cpus int) error {
 	}
 	csvw.Flush()
 	sw.Flush()
-	if err = errors.Join(csvw.Error(), sw.Error()); err != nil {
+	rw.Flush()
+	if err = errors.Join(csvw.Error(), sw.Error(), rw.Error()); err != nil {
 		return err
 	}
 	chosen := ""
 	best := int64(1 << 62)
-	for _, transport := range []string{"relay", "bridge"} {
+	gates := map[string]bool{}
+	for _, transport := range rttTransports {
 		valid := true
 		maxIdle := int64(0)
 		for _, cell := range cells {
@@ -430,12 +604,15 @@ func (h *harness) rtt(dir string, cpus int) error {
 				valid = false
 			}
 		}
-		if valid && maxIdle < best {
+		gates[transport] = valid
+		// bridge-nodelay is a diagnostic of an unshipped helper change; only the
+		// two production transports can be chosen.
+		if transport != "bridge-nodelay" && valid && maxIdle < best {
 			chosen = transport
 			best = maxIdle
 		}
 	}
-	return writeJSON(filepath.Join(dir, "summary.json"), map[string]any{"cells": cells, "connection_setup": setups, "chosen_transport": chosen, "reason": "Choose the passing transport with the smaller worst idle p95; bridge wins a tie only by its measured number, no unmeasured choice.", "local_gate_passed": chosen != "", "strict_status": "partial: see env for host profile and other VMs", "deviation": deviation})
+	return writeJSON(filepath.Join(dir, "summary.json"), map[string]any{"cells": cells, "connection_setup": setups, "chosen_transport": chosen, "reason": "Choose the passing transport with the smaller worst idle p95; bridge wins a tie only by its measured number, no unmeasured choice.", "local_gate_passed": chosen != "", "gate_passed_by_transport": gates, "diagnostic_transports": map[string]string{"bridge-nodelay": "the guest helper's bridge byte pipe, copied with TCP_NODELAY on both sockets (echo/bridge_nodelay.py); tests the 4 KiB Nagle/delayed-ACK confounder, never chosen"}, "strict_status": "partial: see env for host profile and other VMs", "deviation": deviation})
 }
 
 func (h *harness) keystrokes(dir, transport, lan string, httpPort int, serveOnly bool) error {

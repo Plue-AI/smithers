@@ -1,5 +1,5 @@
 /**
- * `smthrs runs fork` of a module run: the fork is a run of its own, so its
+ * Forking module history creates a run of its own, so its
  * payload names it and its module execution is its own child, which carries
  * the steps the parent's child recorded. An edited step inside that child and
  * an edited root input both land on the fork alone.
@@ -8,14 +8,11 @@ import * as AgentSession from "@smthrs/agent/AgentSession"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { Control, ControlRuntime } from "@smthrs/control"
 import type { RunId } from "@smthrs/control/ControlSchema"
-import { Action, Flow, HumanTask, Interpreter } from "@smthrs/flow"
-import { Node } from "@smthrs/plan"
-import * as Executable from "@smthrs/registry/Executable"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer } from "effect"
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, expect, it } from "vitest"
 
@@ -23,49 +20,34 @@ import * as History from "../src/history/History.ts"
 import * as Workspace from "../src/history/Workspace.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
-const moduleSource = `import * as Flow from "@smthrs/core/Flow"
-import { Schema } from "effect"
-export default ({ effects: undefined, name:"steps",description:"Steps",input:Schema.Unknown,output:Schema.Json,capabilities:[],flows:["test/Steps"] })
+const moduleSource = `import { Action, Flow, HumanTask } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Effect, Layer, Schema } from "effect"
+const step = (name, version) => Action.make(name, {
+  payload: {}, success: Schema.String, tier: "irreversible",
+  implementationVersion: version, idempotencyKey: name
+})
+const First = step("fork-child/first", "first/v1")
+const Second = step("fork-child/second", "second/v1")
+export const layer = Layer.mergeAll(
+  HumanTask.layer,
+  First.toLayer(() => Effect.succeed(First.name), { implementationVersion: "first/v1" }),
+  Second.toLayer(() => Effect.succeed(Second.name), { implementationVersion: "second/v1" })
+)
+export default Flow.make("steps", {
+  description: "Steps", capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+  payload: { topic: Schema.optionalKey(Schema.String) },
+  success: Schema.Json,
+  error: HumanTask.HumanTaskFailed,
+  body: Node.capture({ action: First.name, implementationVersion: "first/v1" }, () => First.call({}).pipe(
+    Node.bindPlanned(Node.capture({ action: Second.name, implementationVersion: "second/v1" }, () => Second.call({}))),
+    Node.bindPlanned(Node.capture({ name: "probe" }, () =>
+      HumanTask.action.call({ name: "probe", kind: "ask", prompt: "Go?", maxAttempts: 3 })
+    ))
+  ))
+})
 `
-const step = (name: string) =>
-  Action.make(name, { payload: {}, success: Schema.String, tier: "irreversible", idempotencyKey: name })
-const First = step("fork-child/first")
-const Second = step("fork-child/second")
-
-/** The `test/Steps` delegate: two steps, then a park on a human task. */
-const modules = () => {
-  const Steps = Flow.make("test/Steps", {
-    payload: Executable.Invocation,
-    success: Schema.Json,
-    error: HumanTask.HumanTaskFailed,
-    body: () =>
-      First.call({}).pipe(
-        Node.bindPlanned(() => Second.call({})),
-        Node.bindPlanned(() => HumanTask.action.call({ name: "probe", kind: "ask", prompt: "Go?", maxAttempts: 3 }))
-      )
-  })
-  const implement = (action: typeof First) => action.toLayer(() => Effect.succeed(action.name))
-  return Executable.layer({
-    delegates: [Steps],
-    load: () =>
-      Effect.succeed({
-        default: ({
-          name: "steps",
-          description: "Steps",
-          input: Schema.Unknown,
-          output: Schema.Json,
-          capabilities: [],
-          flows: ["test/Steps"]
-        })
-      })
-  }).pipe(
-    Layer.provideMerge(
-      Layer.mergeAll(Interpreter.layer(Steps), HumanTask.layer, implement(First), implement(Second))
-        .pipe(Layer.provideMerge(Action.layerImplementations))
-    ),
-    Layer.orDie
-  )
-}
 
 const roots: Array<string> = []
 afterEach(() => {
@@ -77,6 +59,8 @@ const parkedProject = async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "smithers-fork-child-")))
   roots.push(root)
   execFileSync("jj", ["git", "init", root], { stdio: "ignore" })
+  symlinkSync(resolve("node_modules"), join(root, "node_modules"), "dir")
+  writeFileSync(join(root, ".gitignore"), ".flows/\nnode_modules\n")
   mkdirSync(join(root, "flows", "steps"), { recursive: true })
   writeFileSync(join(root, "flows", "steps", "flow.ts"), moduleSource)
   const registry = NodeControl.layerRegistry(root)
@@ -102,7 +86,7 @@ const parkedProject = async () => {
       return yield* Effect.die("the run never parked")
     }).pipe(
       Effect.provide(Layer.merge(
-        NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, engine, modules()),
+        NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, engine),
         Layer.merge(engine.runtime, registry)
       )),
       Effect.scoped,
@@ -193,7 +177,7 @@ it.skipIf(!hasJj)("binds a fork with an edited input to its own approved plan", 
   const { root, runId } = await parkedProject()
   const parentPlan = stateOf(root, runId).payload.planId as string
   const parentChild = moduleChildOf(root, runId)
-  const fork = await History.mutate(root, runId, { input: { topic: "edited" }, modules: modules() }, "fork")
+  const fork = await History.mutate(root, runId, { input: { topic: "edited" } }, "fork")
 
   const payload = stateOf(root, fork.runId).payload as { runId: string; planId: string }
   expect(payload.runId).toBe(fork.runId)

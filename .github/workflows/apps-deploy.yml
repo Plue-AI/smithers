@@ -85,7 +85,10 @@ jobs:
       - name: UI typecheck
         run: pnpm exec smthrs build '//apps/app:check' --verbose
       - name: UI unit tests
-        run: pnpm exec smthrs test '//apps/app:unitTests' --verbose --full-output
+        # Bun writes the JUnit report but does not create its directory.
+        run: |
+          mkdir -p apps/app/test-results
+          pnpm exec smthrs test '//apps/app:unitTests' --verbose --full-output
       - name: Upload UI unit-test report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
