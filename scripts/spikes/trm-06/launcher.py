@@ -101,11 +101,14 @@ def main():
         raise ValueError("branch launcher")
     held = []
     paths = []
+    identities = []
     try:
         manifest_fd = open_protected(root / "manifest.json")
         held.append(manifest_fd)
         paths.append(root / "manifest.json")
-        manifest = json.loads(read_held(manifest_fd, 16 * 1024 * 1024), object_pairs_hook=unique)
+        manifest_bytes = read_held(manifest_fd, 16 * 1024 * 1024)
+        identities.append((stat.S_IMODE(os.fstat(manifest_fd).st_mode), hashlib.sha256(manifest_bytes).hexdigest()))
+        manifest = json.loads(manifest_bytes, object_pairs_hook=unique)
         revision = manifest["revision"]
         if manifest["version"] != 1 or manifest["platform"] != "darwin-arm64" or len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
             raise ValueError("invalid manifest")
@@ -121,6 +124,7 @@ def main():
             fd = open_protected(root / relative)
             held.append(fd)
             paths.append(root / relative)
+            identities.append((entry["mode"], entry["sha256"]))
             info = os.fstat(fd)
             if stat.S_IMODE(info.st_mode) != entry["mode"] or hashlib.sha256(read_held(fd, 64 * 1024 * 1024)).hexdigest() != entry["sha256"]:
                 raise ValueError("replaced artifact")
@@ -131,12 +135,16 @@ def main():
             raise ValueError("invalid operation")
         # Refuse replacements already visible before exec. The held executable
         # also prevents a final post-check replacement selecting other bytes.
-        for path, fd in zip(paths, held):
+        for path, fd, (mode, digest) in zip(paths, held, identities):
             current = open_protected(path)
             try:
                 expected, observed = os.fstat(fd), os.fstat(current)
                 if (expected.st_dev, expected.st_ino) != (observed.st_dev, observed.st_ino):
                     raise ValueError("replaced install object")
+                # Replacements can retain an inode (truncate/write/chmod).
+                # Identity alone must not authorize bytes changed since hashing.
+                if stat.S_IMODE(observed.st_mode) != mode or hashlib.sha256(read_held(current, 64 * 1024 * 1024)).hexdigest() != digest:
+                    raise ValueError("modified install object")
             finally:
                 os.close(current)
         os.chdir("/")

@@ -53,7 +53,7 @@ class LauncherRaces(unittest.TestCase):
 
     def test_replacement_visible_before_exec_refuses_every_artifact(self):
         for target in ("manifest.json", "share/trm06/launcher.py", "share/trm06/run.sh", "share/trm06/revoke.sh", "share/trm06/flow.sh", "bin/trm06-gateway"):
-            for replacement in ("file", "symlink", "parent"):
+            for replacement in ("file", "symlink", "parent", "contents", "mode", "hardlink"):
                 with self.subTest(target=target, replacement=replacement), tempfile.TemporaryDirectory() as temporary:
                     root = Path(temporary)
                     self.fixture(root)
@@ -64,7 +64,13 @@ class LauncherRaces(unittest.TestCase):
                         if not mutated:
                             mutated = True
                             path = root / target
-                            if replacement == "parent":
+                            if replacement == "contents":
+                                path.write_bytes(b"branch")
+                            elif replacement == "mode":
+                                path.chmod(0o777)
+                            elif replacement == "hardlink":
+                                os.link(path, root / "outside-hardlink")
+                            elif replacement == "parent":
                                 path.parent.rename(root / "held-parent")
                                 path.parent.mkdir()
                                 path.write_bytes(b"branch")
