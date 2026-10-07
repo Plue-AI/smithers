@@ -12,7 +12,6 @@ import { createDebugApiSeam } from "../state/seams/DebugApiSeam"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { createAppStore } from "../state/AppStore"
 import { memoryStorage, silentAgent } from "../state/TestFixtures"
-import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import type { AgentPort } from "../runtime/AgentPort"
 import { apiFixture, expectedOperations } from "../state/seams/DebugApiFixtures.test-support"
 
@@ -194,15 +193,25 @@ test("replacing the seam at the same selection and epoch remounts the real form 
   expect(host.innerHTML).not.toContain("seam-a-draft")
 })
 
-test("debug bodies are viewer-only and ephemeral: no storage write, store row or agent request carries them, and the card is not agent context", async () => {
+test("debug bodies are viewer-only and ephemeral: no storage write, store row or conversation admission carries them", async () => {
   const BODY = "BODY-BYTES-7f3a"
   const writes: string[] = [], base = memoryStorage()
   const storage = { ...base, setItem: (key: string, value: string) => { writes.push(`${key}=${value}`); base.setItem(key, value) } }
   const store = await createAppStore({ kind: "localStorage", storage })
-  const requests: StartAgentTurnRequest[] = []
-  const agent: AgentPort = { available: true, startTurn: async request => { requests.push(request); return { status: "started" } }, cancelTurn: async () => {}, subscribe: () => () => {} }
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null }).isPersisted.promise
+  const requests: unknown[] = []
+  let starts = 0
+  const agent: AgentPort = { available: true, startTurn: async () => { starts++; return { status: "started" } }, cancelTurn: async () => {}, subscribe: () => () => {} }
   const controller = createController(store, agent, { openApi: async () => apiFixture, debugApiOrigin: "http://mini.local", debugApiGates: () => ({ view: true, catalog: true, authorizer: true }),
-    toastDebounceMs: 0, toastAutoDismissMs: 60_000, fetchImpl: async () => new Response(JSON.stringify({ secret_note: BODY }), { status: 500, headers: { "Content-Type": "application/json", "X-Request-Id": "req-7f3a", "X-Echo": BODY } }) })
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    toastDebounceMs: 0, toastAutoDismissMs: 60_000, fetchImpl: async (url, init) => {
+      if (String(url).endsWith("/api/conversations/main/prompt")) {
+        requests.push(JSON.parse(String(init?.body)))
+        return Response.json({ turnId: "privacy-turn", terminal: false }, { status: 202 })
+      }
+      if (String(url).endsWith("/api/conversations/main")) return Response.json({ id: "main", entries: [] })
+      return new Response(JSON.stringify({ secret_note: BODY }), { status: 500, headers: { "Content-Type": "application/json", "X-Request-Id": "req-7f3a", "X-Echo": BODY } })
+    } })
   await controller.runCommandForResult("debug-api", "readFile")
   await settle(() => store.collections.cards.has("debug-api"))
   expect((await controller.runCommandForResult("debug.api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": `${BODY}.ts` } }))).status).toBe("executed")
@@ -210,8 +219,9 @@ test("debug bodies are viewer-only and ephemeral: no storage write, store row or
   expect(JSON.stringify(controller.debugApi.get())).toContain(BODY)
   expect(await controller.send("What is on screen?")).toBe(true)
   await settle(() => requests.length === 1)
+  expect(requests).toEqual([{ prompt: "What is on screen?", idempotencyKey: store.session().sharedPrompts![0]!.id }])
   expect(JSON.stringify(requests[0])).not.toContain(BODY)
-  expect(requests[0]!.context?.recentCards?.map(card => card.kind)).not.toContain("debug-api")
+  expect(starts).toBe(0)
   const rows = Object.values(store.collections).flatMap(collection => [...(collection as unknown as { values: () => Iterable<unknown> }).values()])
   expect(rows.length).toBeGreaterThan(0)
   expect(JSON.stringify(rows)).not.toContain(BODY)
