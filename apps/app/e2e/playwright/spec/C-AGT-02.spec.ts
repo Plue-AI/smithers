@@ -13,6 +13,10 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     await installCloudFixture(page, { capabilities: ["install", "identity", "agent"] })
     let entries: unknown[] = imported
     let available = true
+    const reload = async () => {
+      await page.reload()
+      await expect(page.getByRole("log", { name: "Conversation", exact: true })).toBeVisible({ timeout: 30_000 })
+    }
     const admitted = new Map<string, string>()
     await page.route("**/api/conversations/main", route => available ? route.fulfill({ json: { id: "main", entries } }) : route.fulfill({ status: 503, json: { code: "unavailable", class: "infra", message: "Conversation unavailable" } }))
     await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { queue: [] } }))
@@ -37,7 +41,7 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     expect(admitted.size).toBe(0)
     await page.context().setOffline(true)
     await page.context().setOffline(false)
-    await page.reload()
+    await reload()
     await expect(rows).toHaveCount(4)
     await expect(page.getByText("Run the webhook tests", { exact: true })).toHaveCount(1)
     await say(page, "Hello Smithers")
@@ -45,21 +49,21 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     for (const field of ["origin", "agent", "source_format_version", "source_id", "session_id", "participant_id", "owner_id", "author_id", "author", "authorLogin", "read_only"]) {
       const invalid = { ...imported[0] } as Record<string, unknown>; delete invalid[field]
       entries = [invalid]
-      await page.reload()
+      await reload()
       await expect(rows).toHaveCount(0)
       await expect(page.getByText("Conversation unavailable", { exact: true })).toBeVisible()
     }
     entries = imported
-    await page.reload()
+    await reload()
     await expect(rows).toHaveCount(4)
     available = false
-    await page.reload()
+    await reload()
     await expect(rows).toHaveCount(0)
     await expect(page.getByText("Conversation unavailable", { exact: true })).toBeVisible()
     await say(page, "Ordinary prompt while import delivery is unavailable")
     await expect.poll(() => admitted.size).toBe(2)
     available = true
-    await page.reload()
+    await reload()
     await expect(rows).toHaveCount(4)
     expect([...admitted.values()]).toEqual(["Hello Smithers", "Ordinary prompt while import delivery is unavailable"])
   })
