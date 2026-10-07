@@ -1,3 +1,4 @@
+import { escape } from "minimatch"
 import * as Effect from "effect/Effect"
 import { execFile, spawnSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
@@ -11,6 +12,7 @@ import * as Input from "../src/Input.ts"
 import * as LlmLint from "../src/LlmLint.ts"
 import * as SecurityReview from "../src/SecurityReview.ts"
 import * as Target from "../src/Target.ts"
+import { plannedCalls } from "./plan.ts"
 
 let root: string
 
@@ -329,8 +331,8 @@ describe("SecurityReview boundary execution", () => {
     const attrs = Target.metadata(target).attrs as LlmLint.Attrs
     const reviewPayload: LlmLint.Payload = {
       base: attrs.changes.base,
-      include: attrs.include,
-      context: attrs.context,
+      include: attrs.include.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
+      context: attrs.context.map((input) => input._tag === "File" ? Input.glob(escape(input.path, { windowsPathsNoEscape: true })) : input),
       prompt: attrs.prompt,
       rubric: attrs.rubric,
       engine: attrs.engine,
@@ -426,6 +428,18 @@ describe("SecurityReview boundary execution", () => {
 })
 
 describe("LlmLint key material", () => {
+  it("keeps explicit files as inputs and escapes their literal review paths", () => {
+    const target = LlmLint.LlmLint({
+      changes: Input.gitDiff("HEAD"),
+      include: [Input.file("//child/[auth].ts")],
+      context: [Input.file("//child/[auth].ts")],
+      deps: [], prompt: "Review", rubric: "Authorize", model: "claude-opus-5", batchSize: 1
+    })
+    expect(Target.metadata(target).inputs).toContainEqual(Input.file("//child/[auth].ts"))
+    const payload = plannedCalls(target)[0]!.payload as LlmLint.Payload
+    expect(payload.include).toEqual([Input.glob("//child/[[]auth[]].ts")])
+    expect(payload.context).toEqual([Input.glob("//child/[[]auth[]].ts")])
+  })
   it("declares every context pattern as a workspace-rooted glob input", () => {
     const target = LlmLint.LlmLint({
       changes: { _tag: "GitDiff", base: "HEAD" },

@@ -1,6 +1,7 @@
 import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 import { ReviewDocsAgainstCode, ReviewJsdocAgainstCode } from "@smthrs/repo-targets"
 import { Smithers } from "@smthrs/targets"
+import * as Input from "@smthrs/targets/Input"
 import { Package as flowsJjPackage } from "./crates/flows-jj/PACKAGE.ts"
 import { Package as backendPackage } from "./packages/backend/PACKAGE.ts"
 import { Package as modelHostAppPackage } from "./apps/model-host/PACKAGE.ts"
@@ -9,6 +10,23 @@ import { Package as modelHostPackage } from "./packages/smithers/agent/model-hos
 import { Package as integrationsPackage } from "./packages/smithers/agent/integrations/PACKAGE.ts"
 import { Package as flowsPackage } from "./packages/smithers/flows/PACKAGE.ts"
 import { Package as codingFlowsPackage } from "./flows/PACKAGE.ts"
+
+// Workspace selections cross package boundaries as explicit files. Expansion
+// retains the shared ignore, repository, symlink and host-state rules.
+const workspaceFiles = async (patterns: ReadonlyArray<string>) =>
+  (await Promise.all(patterns.map((pattern) => Input.expandGlob(import.meta.dirname, "", `//${pattern}`, {
+    packageScoped: false
+  })))).flat().sort().map((path) => Smithers.file(`//${path}`))
+const workspaceSources = await workspaceFiles([
+  "packages/*/src/**/*.ts", "packages/*/*/src/**/*.ts", "packages/*/*/*/src/**/*.ts"
+])
+const workspaceReviewSources = await workspaceFiles([
+  "packages/*/src/**", "packages/*/*/src/**", "packages/*/*/*/src/**"
+])
+const workspaceReadmes = await workspaceFiles([
+  "packages/*/README.md", "packages/*/*/README.md", "packages/*/*/*/README.md"
+])
+const flowEntries = await workspaceFiles(["flows/**/flow.ts", "flows/**/flow.mdx", "flows/**/SKILL.md"])
 
 export const cacheToken = Smithers.Secret("SMITHERS_CACHE_READ_TOKEN")
 export const cacheWriteToken = Smithers.Secret("SMITHERS_CACHE_WRITE_TOKEN")
@@ -241,6 +259,7 @@ const commit = Smithers.ToolRun({
 // evaluates FACTORY.ts for a card. The planner fills the declaration from the
 // loaded file; nothing here restates it.
 const factoryProjection = Smithers.FactoryProjection({
+  entries: flowEntries,
   summary: "Regenerate and drift-check .smithers/factory.json and .smithers/home.json from .smithers/FACTORY.ts.",
   featured: true
 })
@@ -922,25 +941,21 @@ const reviewDocsAgainstCode = ReviewDocsAgainstCode({
   cwd: ".",
   featured: true,
   include: [
-    Smithers.glob("//packages/*/src/**"),
-    Smithers.glob("//packages/*/*/src/**"),
-    Smithers.glob("//packages/*/*/*/src/**")
+    ...workspaceReviewSources
   ],
   context: [
-    Smithers.glob("//packages/*/README.md"),
-    Smithers.glob("//packages/*/*/README.md"),
-    Smithers.glob("//packages/*/*/*/README.md"),
+    ...workspaceReadmes,
     // Keep the shared context below LlmLint's 2 MiB cap. Package-level
     // reviews can opt into their full local docs; this overview selects
     // installation plus the runtime and build API sections explicitly.
-    Smithers.glob("//apps/site/src/content/docs/docs/installation.mdx"),
-    Smithers.glob("//apps/site/src/content/docs/docs/reference/api/flows.mdx"),
-    Smithers.glob("//apps/site/src/content/docs/docs/reference/api/flow.mdx"),
-    Smithers.glob("//apps/site/src/content/docs/docs/reference/api/plan.mdx"),
-    Smithers.glob("//apps/site/src/content/docs/docs/reference/api/journal.mdx"),
-    Smithers.glob("//apps/site/src/content/docs/docs/reference/api/targets.mdx"),
-    Smithers.glob("//apps/site/src/content/docs/docs/reference/api/build.mdx"),
-    Smithers.glob("//apps/site/src/content/docs/docs/reference/api/build-cli.mdx")
+    Smithers.file("//apps/site/src/content/docs/docs/installation.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/reference/api/flows.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/reference/api/flow.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/reference/api/plan.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/reference/api/journal.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/reference/api/targets.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/reference/api/build.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/reference/api/build-cli.mdx")
   ]
 })
 
@@ -948,9 +963,7 @@ const reviewJsdocAgainstCode = ReviewJsdocAgainstCode({
   cwd: ".",
   featured: true,
   include: [
-    Smithers.glob("//packages/*/src/**/*.ts"),
-    Smithers.glob("//packages/*/*/src/**/*.ts"),
-    Smithers.glob("//packages/*/*/*/src/**/*.ts")
+    ...workspaceSources
   ]
 })
 
@@ -962,9 +975,7 @@ const reviewJsdocAgainstCode = ReviewJsdocAgainstCode({
  */
 const jsdocTree = Smithers.EsLint({
   sources: [
-    Smithers.glob("packages/*/src/**/*.ts"),
-    Smithers.glob("packages/*/*/src/**/*.ts"),
-    Smithers.glob("packages/*/*/*/src/**/*.ts")
+    ...workspaceSources
   ],
   configs: [Smithers.file("eslint.config.js"), rootJSDocConfig],
   deps: [],
@@ -1077,7 +1088,7 @@ const securityReview = Smithers.SecurityReview({
     ".github/scripts/*.sh",
     ".smithers/*.ts",
     ".smithers/*.json",
-    "flows/**/flow.{ts,mdx}",
+    ...flowEntries.filter((input) => /\/flow\.(ts|mdx)$/.test(input.path)).map((input) => input.path),
     "distribution/*",
     "crates/smithers-ffi/Cargo.toml",
     "crates/smithers-ffi/src/*.rs",
