@@ -428,3 +428,34 @@ func TestCallRPCRoutesGatewayProceduresToProjections(t *testing.T) {
 		})
 	}
 }
+
+func TestClientMonitorReadsAuthenticatedHostAndChecksIdentity(t *testing.T) {
+	for _, id := range []string{"run-1", "foreign"} {
+		t.Run(id, func(t *testing.T) {
+			client, _ := runtimeClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/runtime/v1/monitor" || r.Method != "POST" || r.Header.Get("Authorization") != "Bearer secret" {
+					t.Errorf("unexpected monitor request")
+				}
+				var input map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+					t.Fatal(err)
+				}
+				if input["runId"] != "run-1" || input["at"] != float64(4) {
+					t.Errorf("unexpected input %#v", input)
+				}
+				json.NewEncoder(w).Encode(map[string]any{"protocol": flowruntime.Protocol, "ok": true, "value": map[string]any{"id": id}})
+			}))
+			at := int64(4)
+			raw, err := client.Monitor(context.Background(), "run-1", &at)
+			if id == "foreign" {
+				if err == nil {
+					t.Fatal("accepted foreign monitor")
+				}
+				return
+			}
+			if err != nil || string(raw) != `{"id":"run-1"}` {
+				t.Fatalf("%s %v", raw, err)
+			}
+		})
+	}
+}

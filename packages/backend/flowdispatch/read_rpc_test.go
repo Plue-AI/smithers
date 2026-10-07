@@ -203,3 +203,30 @@ func TestPresenceRPCNeverStartsOrRebindsHost(t *testing.T) {
 	require.Equal(t, 3, resolver.reads)
 	require.Zero(t, resolver.starts)
 }
+
+func (r *readRPCRuntime) Monitor(_ context.Context, run string, at *int64) (json.RawMessage, error) {
+	r.calls = append(r.calls, "Monitor:"+run)
+	return json.Marshal(map[string]any{"id": run, "at": at})
+}
+func TestMonitorNeverStartsAHost(t *testing.T) {
+	runtime := &readRPCRuntime{}
+	resolver := &readRPCResolver{runtime: runtime}
+	service := &Service{resolver: resolver}
+	at := int64(3)
+	answer, err := service.Monitor(context.Background(), flowruntime.Target{}, "recorded-run", &at)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"id":"recorded-run","at":3}`, string(answer))
+	require.Equal(t, 1, resolver.reads)
+	require.Zero(t, resolver.starts)
+	resolver.err = errors.New("host unavailable")
+	_, err = service.Monitor(context.Background(), flowruntime.Target{}, "recorded-run", nil)
+	require.EqualError(t, err, "host unavailable")
+	require.Zero(t, resolver.starts)
+	require.Equal(t, []string{"Monitor:recorded-run"}, runtime.calls)
+	service.resolver = flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Fatal("inspection started a host")
+		return nil, nil
+	})
+	_, err = service.Monitor(context.Background(), flowruntime.Target{}, "recorded-run", nil)
+	require.ErrorContains(t, err, "read-only resolver")
+}

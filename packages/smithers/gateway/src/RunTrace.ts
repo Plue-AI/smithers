@@ -22,6 +22,7 @@ import { Schema } from "effect"
 import { inspectLabel } from "./internal/inspectLabels.ts"
 import { callScope, openCallIndex } from "./Diagnosis.ts"
 import { engineTraceFromJournal } from "./EngineTrace.ts"
+import { ACTION_RENDERINGS } from "./internal/actionRenderings.ts"
 import { type CallEventFilter, callEventFilter, uniqueCallEvents } from "./internal/callEvents.ts"
 
 export { inspectLabel } from "./internal/inspectLabels.ts"
@@ -2261,5 +2262,56 @@ export const runMemoryOf = (records: ReadonlyArray<JournalRecord>): RunMemory | 
   return {
     kept: [...kept.values()].sort(byRelevance),
     withheld: [...withheld.values()].filter((item) => !kept.has(item.id)).sort(byRelevance)
+  }
+}
+
+/** Adapt the canonical trace to the install monitor. IDs and timestamps come
+ * from recorded spans; inspection never evaluates flow bodies or presentations.
+ * @since 1.0.0
+ * @category constructors
+ */
+export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<JournalRecord>, at?: number) => {
+  const last = records.reduce((last, row) => Math.max(last, row.sequence ?? 0), 0)
+  const journal = at === undefined ? records : records.filter(row => (row.sequence ?? 0) <= at)
+  // A historical frame must not inherit the current run's terminal status.
+  const terminalRow = [...journal].reverse().find(row => /control\.run\.(completed|failed|cancelled|interrupted)$/.test(row.kind ?? ""))
+  const status = at === undefined ? run.status : terminalRow?.kind?.split(".").at(-1) ?? "running"
+  const state = (value: string): "running" | "waiting" | "held" | "failed" | "done" | "interrupted" =>
+    value === "completed" || value === "done" ? "done" : value === "failed" ? "failed"
+    : value === "cancelled" || value === "interrupted" ? "interrupted" : value === "held" ? "held"
+    : value === "waiting" || value === "waiting-approval" || value === "paused" || value === "suspended" ? "waiting" : "running"
+  const trace = traceFromJournal({ ...run, status }, journal)
+  const bookkeeping = (row: TraceSpan) => ACTION_RENDERINGS[row.label] === null || /^<(?:boundary:|quota-park>|structured-output-count>)/.test(row.label)
+  const calls = trace.rows.filter(row => row.kind === "call" && !bookkeeping(row))
+  const steps = calls.map(row => ({
+    ...(() => { const matched = /^(engine-node:.*)#(\d+)$/.exec(row.id); const id = matched?.[1] ?? row.id; const k = Number(matched?.[2] ?? 1); return { key: `${id}#${k}`, id, k } })(), label: row.label, state: row.status,
+    started_at: new Date(row.startedAt).toISOString(),
+    ...(row.endedAt === undefined ? {} : { ended_at: new Date(row.endedAt).toISOString(), took_s: Math.max(0, row.endedAt - row.startedAt) / 1000 }),
+    ...(row.detail.input === undefined ? {} : { input: row.detail.input }),
+    ...(row.detail.output === undefined ? {} : { output: row.detail.output })
+  }))
+  const tone = (value: string): "live" | "ok" | "fail" | "wait" => value === "failed" ? "fail"
+    : value === "completed" ? "ok" : value === "waiting" ? "wait" : "live"
+  const phases = calls.map((row, index) => ({
+    id: `phase:${row.id}`, step: steps[index]!.key, title: row.label,
+    took_s: Math.max(0, (row.endedAt ?? row.startedAt) - row.startedAt) / 1000, tone: tone(row.status),
+    cells: [{ id: `cell:${row.id}`, kind: /Edited/.test(row.label) ? "edit" as const : /Read/.test(row.label) ? "read" as const : "run" as const,
+      label: row.label, ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
+      tone: tone(row.status) }]
+  }))
+  const waits = trace.rows.filter(row => row.kind === "approval").map(row => ({
+    id: row.id, kind: "approval" as const, label: row.label, since: new Date(row.startedAt).toISOString(),
+    ...(row.endedAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(row.endedAt).toISOString() } })
+  }))
+  return {
+    id: run.runId, flow: run.flowId, version: "", title: run.flowId, state: state(status),
+    attempts: [{ n: 1, run_id: run.runId, state: state(status), steps, phases,
+      graph: calls.map(row => ({ id: row.id, label: row.label, state: row.status === "completed" ? "done" as const
+        : row.status === "failed" ? "failed" as const : row.status === "waiting" ? "waiting" as const : "current" as const, deps: [] as string[] })) }],
+    waits, tokens: trace.rows.reduce((total, row) => total + (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0), 0),
+    time_s: Math.max(0, trace.extent.end - trace.extent.start) / 1000, cost_usd: 0,
+    engine: trace.rows.filter(row => row.kind === "event" || row.kind === "execution" || row.kind === "attempt" || bookkeeping(row)).map(row => ({ label: row.label, detail: row.detail.output ?? row.detail.message ?? "" })),
+    journal: journal.map(row => ({ seq: row.sequence ?? 0, at: new Date(row.occurredAt ?? 0).toISOString(), type: row.kind ?? "event", text: JSON.stringify(row.payload) ?? "null" })),
+    ...(at === undefined ? {} : { replay: { at: Math.min(at, last), last } })
   }
 }

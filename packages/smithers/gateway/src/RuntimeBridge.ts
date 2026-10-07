@@ -24,6 +24,7 @@ import { Effect, Layer, Schema, Stream } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RunSummaryRow } from "./GatewayProjection.ts"
 import * as Projections from "./Projections.ts"
+import { monitorFromJournal } from "./RunTrace.ts"
 
 /**
  * The only protocol version accepted by this host.
@@ -219,6 +220,8 @@ export class BridgeError extends Schema.TaggedError<BridgeError>()("@smthrs/gate
     "source_mismatch",
     "stale_owner",
     "run_not_found",
+    "resource_limit",
+    "unavailable",
     "internal"
   ]),
   message: Schema.String,
@@ -481,6 +484,25 @@ export const observe = (control: Control["Service"], input: ObserveRequest) =>
     }
   })
 
+/** Read an existing run and its committed journal without invoking any execution door.
+ * @since 1.0.0
+ * @category constructors
+ */
+export const monitor = (control: Control["Service"], runId: string, at?: number) =>
+  Effect.gen(function*() {
+    const listed = yield* control.list({ _tag: "runs", filters: { runId }, limit: 1 })
+    const run = listed._tag === "runs" ? listed.items[0] : undefined
+    if (run === undefined || run.runId !== runId) return yield* new BridgeError({ code: "run_not_found", message: "Runtime execution was not found", retryable: false })
+    const records = Array.from(yield* Stream.runCollect(Stream.take(control.watch({ runId, follow: false }), Projections.maxEventsScanned + 1)))
+    if (records.length > Projections.maxEventsScanned) return yield* new BridgeError({ code: "resource_limit", message: "Run journal exceeds the inspection limit", retryable: false })
+    const value = monitorFromJournal({ runId, flowId: run.flowId, status: run.status }, records, at)
+    // Until model rows carry the native step identity, a nonzero usage total
+    // cannot establish a USD total. Never publish unknown spend as zero.
+    if (value.tokens > 0) return yield* new BridgeError({ code: "unavailable", message: "Run metering unavailable", retryable: true })
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > Projections.maxProjectionBytes) return yield* new BridgeError({ code: "resource_limit", message: "Run monitor exceeds the inspection limit", retryable: false })
+    return value
+  })
+
 /**
  * Successful command response on the JSON wire.
  * @since 1.0.0
@@ -639,7 +661,18 @@ export const layer = (config: Config) => {
       Effect.withSpan("runtime-bridge.observe")
     )
 
+  const inspection = authenticated(config, () => Effect.gen(function*() {
+    const body = yield* readJson
+    const input = yield* Schema.decodeUnknownEffect(Schema.Struct({
+      protocol: Schema.Literal(protocol), runId: Schema.NonEmptyString,
+      at: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
+    }))(body).pipe(Effect.mapError(() => new BridgeError({ code: "invalid_request", message: "Invalid monitor request", retryable: false })))
+    const control = yield* Control
+    return HttpServerResponse.jsonUnsafe({ protocol, ok: true, value: yield* monitor(control, input.runId, input.at) })
+  })).pipe(Effect.catch(respondToFailure("runtime-bridge.observe")))
+
   return HttpRouter.add("POST", "/runtime/v1/command", command).pipe(
+    Layer.merge(HttpRouter.add("POST", "/runtime/v1/monitor", inspection)),
     Layer.merge(HttpRouter.add("POST", "/runtime/v1/observe", observation))
   )
 }
