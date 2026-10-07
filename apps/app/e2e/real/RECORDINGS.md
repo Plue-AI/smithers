@@ -216,3 +216,11 @@ the returned scratch branch, waits for the File card's machine-save acknowledgme
 then checks both literal edit markers in the adopted branch before and after
 human-confirmed T2 removal. This is source preparation, not a real-install pass;
 insertion, rebase-conflict and complete shared-branch evidence remain required.
+
+`todo-needs-you.spec.ts` reads the current question from `waits`, sends its `id`
+as `wait`, and binds evidence to `run.id`. It observes canonical `todo.answered`
+events in the repository's shared stream, first-answer attribution, rendered
+branch activity, and ask/answer/late-steer cells from the production run trace.
+Obsolete private run URLs and event/table fields were removed from this path.
+The first-answer race still requires real reference execution; successful
+collection and seeded composed authorization coverage are supplemental only.
