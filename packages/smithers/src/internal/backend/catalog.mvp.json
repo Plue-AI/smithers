@@ -1411,10 +1411,7 @@
       "summary": "Add a scratch branch as a TODO",
       "http": {
         "method": "POST",
-        "path": "/api/branches/{branch}",
-        "defaults": {
-          "op": "add-to-stack"
-        }
+        "path": "/api/branches/{branch}/add-to-stack"
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -1428,6 +1425,52 @@
               "anyOf": [
                 {
                   "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "acceptance": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "after": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
                 },
                 {
                   "type": "null"
@@ -7029,6 +7072,7 @@
               "enum": [
                 "anthropic-messages",
                 "openai-responses",
+                "openai-responses-chatgpt",
                 "openai-chat",
                 "evaluation"
               ]
