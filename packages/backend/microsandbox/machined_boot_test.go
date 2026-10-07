@@ -16,6 +16,8 @@ func TestMachinedInstalledBootSupplemental(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
 	script := `import importlib.util,os,stat,sys,tempfile,types,subprocess,hashlib
+# Model the installed root directories independently of the test runner's umask.
+os.umask(0o022)
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]);g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
 # The fixture models root-protected ancestors independently of the host umask.
 os.umask(0o022)
