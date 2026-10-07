@@ -477,7 +477,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install$`)},
 	{http.MethodPost, "settings.setup", regexp.MustCompile(`^/api/install/setup/(address|app|sign_in|repository|models|source|machine)$`)},
 	{http.MethodGet, "install.scorecard", regexp.MustCompile(`^/api/install/scorecard$`)},
-	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/agents$`)},
+	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/agents(?:/[^/]+)?$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/model/(catalog|default)$`)},
 	{http.MethodPost, "settings.model-key", regexp.MustCompile(`^/api/model/credential$`)},
 	{http.MethodGet, "settings.model-key", regexp.MustCompile(`^/api/model/credential/receipt$`)},

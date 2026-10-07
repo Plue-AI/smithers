@@ -93,6 +93,21 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 		require.Len(t, payload.Agents, 4)
 		require.Equal(t, []string{"planner", "implementer", "reviewer", "app"}, []string{payload.Agents[0].ID, payload.Agents[1].ID, payload.Agents[2].ID, payload.Agents[3].ID})
 		require.Equal(t, "model-a", payload.Agents[2].Model.ID)
+		var all map[string]any
+		require.NoError(t, json.Unmarshal(res.Body.Bytes(), &all))
+		for index, role := range []string{"planner", "implementer", "reviewer", "app"} {
+			selected := call(person, "GET", "/api/agents/"+role, "")
+			require.Equal(t, 200, selected.Code, selected.Body.String())
+			require.Equal(t, "no-store", selected.Header().Get("Cache-Control"))
+			var one map[string]any
+			require.NoError(t, json.Unmarshal(selected.Body.Bytes(), &one))
+			require.Equal(t, []any{all["agents"].([]any)[index]}, one["agents"])
+			require.Equal(t, all["canAssign"], one["canAssign"])
+			require.Equal(t, all["roleBindings"], one["roleBindings"])
+		}
+		unknown := call(person, "GET", "/api/agents/missing", "")
+		require.Equal(t, 404, unknown.Code, unknown.Body.String())
+		require.Contains(t, unknown.Body.String(), `"code":"not_found"`)
 		for _, path := range []string{"/api/model/catalog", "/api/model/default"} {
 			res = call(person, "GET", path, "")
 			require.Equal(t, 200, res.Code, res.Body.String())

@@ -86,6 +86,7 @@ func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *
 		r.Get("/api/model/default", models.Default)
 		if config.IsSingleOwner(cfg.Auth) {
 			r.Get("/api/agents", serveAgents(queries, sources...))
+			r.Get("/api/agents/{name}", serveAgents(queries, sources...))
 		}
 		r.Group(func(writes chi.Router) {
 			writes.Use(middleware.RequireScope(middleware.ScopeWriteUser))

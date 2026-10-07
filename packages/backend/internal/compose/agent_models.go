@@ -166,6 +166,19 @@ func serveAgents(q *db.Queries, sources ...workspaceapi.SourceFiles) http.Handle
 			routes.WriteInstallSetupError(w, r, pkgerrors.Internal("Could not read agents"))
 			return
 		}
+		if name := chi.URLParam(r, "name"); name != "" {
+			selected := []map[string]any{}
+			for _, profile := range value["agents"].([]map[string]any) {
+				if profile["id"] == name {
+					selected = append(selected, profile)
+				}
+			}
+			if len(selected) == 0 {
+				routes.WriteInstallSetupError(w, r, pkgerrors.NotFound("Agent not found"))
+				return
+			}
+			value["agents"] = selected
+		}
 		owner, ownerErr := q.GetSelfHostOwner(r.Context())
 		info := middleware.AuthInfoFromContext(r.Context())
 		value["canAssign"] = ownerErr == nil && middleware.IsOwnerBrowserSession(info, owner.ID)

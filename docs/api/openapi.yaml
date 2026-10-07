@@ -1535,6 +1535,34 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+  /api/agents/{name}:
+    x-composition: install
+    get:
+      x-composition: install
+      summary: Read one factory agent
+      operationId: get_api_agents_name
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent projection with one selected factory role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/agents/{role}/model:
     x-composition: install
     put:
@@ -5119,8 +5147,8 @@ paths:
         - bearerAuth: []
         - sessionCookie: []
       responses:
-        '200':
-          description: Successful response
+        '202':
+          description: Persisted probe request; use the receipt route until terminal
           content:
             application/json:
               schema:
@@ -5139,6 +5167,37 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/model/test/receipt:
+    get:
+      summary: Read a durable owner model probe
+      operationId: get_api_model_test_receipt
+      tags:
+        - Model
+      parameters:
+        - name: requestId
+          in: query
+          required: true
+          schema:
+            type: string
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Current state and terminal model test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Storage unavailable
   /api/model/vercel/{path}:
     post:
       summary: POST /api/model/vercel/{path}

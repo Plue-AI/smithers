@@ -637,6 +637,34 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+  /api/agents/{name}:
+    x-composition: install
+    get:
+      x-composition: install
+      summary: Read one factory agent
+      operationId: get_api_agents_name
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent projection with one selected factory role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/agents/{role}/model:
     x-composition: install
     put:

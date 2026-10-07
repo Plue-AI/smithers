@@ -1624,6 +1624,18 @@ func (v HomeCard) MarshalJSON() ([]byte, error) {
 	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
+// TodoSystemRead — Coding fields for the credential's bound TODO.
+type TodoSystemRead struct {
+	N          int64  `json:"n"`
+	Title      string `json:"title"`
+	State      string `json:"state"`
+	Attempt    int64  `json:"attempt"`
+	Generation int64  `json:"generation"`
+	Workspace  string `json:"workspace"`
+	Run        string `json:"run"`
+	Base       string `json:"base"`
+}
+
 // TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
 type TodoCard struct {
 	N                    int64                         `json:"n"`
@@ -1994,6 +2006,11 @@ type PostAPIMembersBody struct {
 // PatchAPIMembersLoginBody is generated from docs/api/openapi.yaml.
 type PatchAPIMembersLoginBody struct {
 	Role string `json:"role"`
+}
+
+// GetAPIModelTestReceiptParams is the query of GET /api/model/test/receipt.
+type GetAPIModelTestReceiptParams struct {
+	RequestID string
 }
 
 // GetAPINotificationsEventsParams is the query of GET /api/notifications/events.
@@ -2721,6 +2738,13 @@ func (c *Client) GetAPIAgents(ctx context.Context) (AnyJSON, error) {
 	return out, err
 }
 
+// GetAPIAgentsName calls GET /api/agents/{name}.
+func (c *Client) GetAPIAgentsName(ctx context.Context, name string) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/agents/"+url.PathEscape(name), nil, nil, &out)
+	return out, err
+}
+
 // PutAPIAgentsRoleModel calls PUT /api/agents/{role}/model.
 func (c *Client) PutAPIAgentsRoleModel(ctx context.Context, role string, body any) (AnyJSON, error) {
 	var out AnyJSON
@@ -3372,6 +3396,15 @@ func (c *Client) PostAPIModelStream(ctx context.Context, body any) (AnyJSON, err
 func (c *Client) PostAPIModelTest(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/model/test", nil, body, &out)
+	return out, err
+}
+
+// GetAPIModelTestReceipt calls GET /api/model/test/receipt.
+func (c *Client) GetAPIModelTestReceipt(ctx context.Context, params GetAPIModelTestReceiptParams) (AnyJSON, error) {
+	query := url.Values{}
+	query.Set("requestId", params.RequestID)
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/model/test/receipt", query, nil, &out)
 	return out, err
 }
 
@@ -5717,8 +5750,8 @@ func (c *Client) GetAPITodosNEvents(ctx context.Context, n int64, params GetAPIT
 }
 
 // GetAPITodosN calls GET /api/todos/{n}.
-func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
-	var out TodoCard
+func (c *Client) GetAPITodosN(ctx context.Context, n int64) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, &out)
 	return out, err
 }

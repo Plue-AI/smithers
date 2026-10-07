@@ -167,6 +167,7 @@ it(
         const name of [
           "flows",
           "flow_show",
+          "agent",
           "todo_show",
           "todo_stop",
           "todo_new"
@@ -267,7 +268,7 @@ it(
       }
       expect(host.seen).toEqual([])
       for (
-        const [name, args] of [["flows", {}], ["flow_show", { flow: "team/todo" }], ["todo_show", { n: "T2" }]] as const
+        const [name, args] of [["flows", {}], ["flow_show", { flow: "team/todo" }], ["todo_show", { n: "T2" }], ["agent", { name: "reviewer" }]] as const
       ) {
         const result = await server.call("call_read_tool", { name, arguments: args })
         expect(result?.isError, JSON.stringify(result)).not.toBe(true)
@@ -285,12 +286,13 @@ it(
         { method: "GET", path: "/api/flows", body: null },
         { method: "GET", path: "/api/flows/team%2Ftodo", body: null },
         { method: "GET", path: "/api/todos/2", body: null },
+        { method: "GET", path: "/api/agents/reviewer", body: null },
         { method: "POST", path: "/api/todos/2", body: { op: "stop" } },
         { method: "POST", path: "/api/todos", body: { prompt: "Fix it", place: { mode: "append" } } }
       ])
       expect(host.seen.every((request) => request.authorization === "token host-synthetic-credential")).toBe(true)
-      expect(host.seen[3]!.idempotency).toBeTruthy()
-      expect(host.seen[4]!.idempotency).toBe("request-fixture")
+      expect(host.seen[4]!.idempotency).toBeTruthy()
+      expect(host.seen[5]!.idempotency).toBe("request-fixture")
       expect(await readdir(root)).toEqual([])
     } finally {
       await server.stop()

@@ -130,7 +130,22 @@ func TestTodoReadsDecodeTheCard(t *testing.T) {
 	client, _ = server(t, http.StatusOK, "application/json", card)
 	one, err := client.GetAPITodosN(context.Background(), 1)
 	require.NoError(t, err)
-	assert.Equal(t, "One", one.Title)
+	var decoded apiclient.TodoCard
+	require.NoError(t, json.Unmarshal(one, &decoded))
+	assert.Equal(t, "One", decoded.Title)
+}
+
+func TestAgentReadSelectsTheCatalogRole(t *testing.T) {
+	const card = `{"agents":[{"id":"reviewer","model":{"id":"review-model"},"source":"owner","instructions":"flows/todo/flow.ts","runs":[]}],"canAssign":false}`
+	client, requests := server(t, http.StatusOK, "application/json", card)
+	result, err := client.GetAPIAgentsName(context.Background(), "reviewer")
+	require.NoError(t, err)
+	assert.JSONEq(t, card, string(result))
+	require.Len(t, *requests, 1)
+	assert.Equal(t, "GET", (*requests)[0].Method)
+	assert.Equal(t, "/api/agents/reviewer", (*requests)[0].RawPath)
+	assert.Equal(t, "token smithers_test", (*requests)[0].Authorization)
+	assert.Empty(t, (*requests)[0].Body)
 }
 
 func TestUntypedBodyIsOptional(t *testing.T) {

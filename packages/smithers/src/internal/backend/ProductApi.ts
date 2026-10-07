@@ -1000,6 +1000,18 @@ export type HomeCard = {
   [key: string]: unknown
 }
 
+/** Coding fields for the credential's bound TODO. */
+export type TodoSystemRead = {
+  n: number
+  title: string
+  state: string
+  attempt: number
+  generation: number
+  workspace: string
+  run: string
+  base: string
+}
+
 /** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
 export type TodoCard = {
   n: number
@@ -1432,6 +1444,16 @@ export type GetApiAgentsResponse = AnyJSON
 /** GET /api/agents: Read factory agents */
 export const getApiAgents = (transport: Transport): Promise<GetApiAgentsResponse> =>
   transport.request("GET", `/api/agents`) as Promise<GetApiAgentsResponse>
+
+export type GetApiAgentsNameResponse = AnyJSON
+
+export interface GetApiAgentsNameInput {
+  readonly path: { readonly name: string }
+}
+
+/** GET /api/agents/{name}: Read one factory agent */
+export const getApiAgentsName = (transport: Transport, input: GetApiAgentsNameInput): Promise<GetApiAgentsNameResponse> =>
+  transport.request("GET", `/api/agents/${segment(input.path.name)}`) as Promise<GetApiAgentsNameResponse>
 
 export type PutApiAgentsRoleModelBody = AnyJSON
 
@@ -2317,6 +2339,16 @@ export interface PostApiModelTestInput {
 /** POST /api/model/test */
 export const postApiModelTest = (transport: Transport, input?: PostApiModelTestInput): Promise<PostApiModelTestResponse> =>
   transport.request("POST", `/api/model/test`, input?.body) as Promise<PostApiModelTestResponse>
+
+export type GetApiModelTestReceiptResponse = AnyJSON
+
+export interface GetApiModelTestReceiptInput {
+  readonly query: { readonly requestId: string }
+}
+
+/** GET /api/model/test/receipt: Read a durable owner model probe */
+export const getApiModelTestReceipt = (transport: Transport, input: GetApiModelTestReceiptInput): Promise<GetApiModelTestReceiptResponse> =>
+  transport.request("GET", `/api/model/test/receipt${search({ requestId: input.query.requestId })}`) as Promise<GetApiModelTestReceiptResponse>
 
 export type PostApiModelVercelPathBody = AnyJSON
 
@@ -5725,7 +5757,7 @@ export interface GetApiTodosNEventsInput {
 export const getApiTodosNEvents = (transport: Transport, input: GetApiTodosNEventsInput): Promise<GetApiTodosNEventsResponse> =>
   transport.request("GET", `/api/todos/${segment(input.path.n)}/events${search({ cursor: input.query?.cursor })}`) as Promise<GetApiTodosNEventsResponse>
 
-export type GetApiTodosNResponse = TodoCard
+export type GetApiTodosNResponse = TodoCard | TodoSystemRead
 
 export interface GetApiTodosNInput {
   readonly path: { readonly n: number }
