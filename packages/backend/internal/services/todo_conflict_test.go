@@ -111,8 +111,47 @@ func TestConflictWaitRetainsAttemptAndNativePaths(t *testing.T) {
 	require.Len(t, mythicalChecksOf(item).Waits, 1)
 	require.Equal(t, "needs_you", todoState(item))
 	update.Checkpoint.Run.PendingWaits[0].Token = "recovered-park"
+	update.Checkpoint.Run.PendingWaits[0].Name = "recovered-conflict"
 	mythicalProjectWaits(&item, mythicalProjection{Phase: "todo"}, update, "run", now)
 	require.Len(t, mythicalChecksOf(item).Waits, 1, "a new runtime park cannot duplicate the retained branch conflict")
+	recovered := mythicalChecksOf(item).Waits[0]
+	require.Equal(t, "recovered-conflict", recovered.Signal.Name)
+	require.Equal(t, got.ID, recovered.ID)
+	require.Equal(t, got.Since, recovered.Since)
+	require.Equal(t, []string{"a.txt"}, recovered.Paths)
+	t.Run("failed repair keeps recovered Done address", func(t *testing.T) {
+		copy := item
+		copy.State = "failed"
+		u := update
+		u.Checkpoint.Run = &flowruntime.Run{RunID: "run", PendingWaits: []flowruntime.PendingWait{wait}}
+		u.Checkpoint.Run.PendingWaits[0].Name = "failed-recovered"
+		mythicalProjectWaits(&copy, mythicalProjection{Phase: "todo"}, u, "run", now)
+		retained := mythicalChecksOf(copy).Waits[0]
+		require.Equal(t, "failed-recovered", retained.Signal.Name)
+		require.Equal(t, recovered.ID, retained.ID)
+		require.Equal(t, recovered.Paths, retained.Paths)
+		require.Nil(t, retained.SettledAt)
+	})
+	for _, state := range []string{"paused", "settled", "stale target"} {
+		t.Run(state+" cannot retarget recovered wait", func(t *testing.T) {
+			copy := item
+			c := mythicalChecksOf(copy)
+			u := update
+			u.Checkpoint.Run = &flowruntime.Run{RunID: "run", PendingWaits: []flowruntime.PendingWait{wait}}
+			u.Checkpoint.Run.PendingWaits[0].Name = "obsolete"
+			switch state {
+			case "paused":
+				copy.PausedAt = pgtype.Timestamptz{Time: now, Valid: true}
+			case "settled":
+				c.Waits[0].SettledAt = &now
+			case "stale target":
+				c.Rebase.Onto = "moved"
+			}
+			copy.Checks = c.encode()
+			mythicalProjectWaits(&copy, mythicalProjection{Phase: "todo"}, u, "run", now)
+			require.Equal(t, c.Waits, mythicalChecksOf(copy).Waits)
+		})
+	}
 	update.Checkpoint.Run.PendingWaits = nil
 	mythicalProjectWaits(&item, mythicalProjection{Phase: "todo"}, update, "run", now)
 	require.Nil(t, mythicalChecksOf(item).Waits[0].SettledAt, "absence is not native conflict resolution")
