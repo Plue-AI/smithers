@@ -21,6 +21,8 @@ scenario=sys.argv[2]
 os.umask(0o022)
 with tempfile.TemporaryDirectory() as root:
  root=os.path.realpath(root);os.makedirs(root+"/run/smithers/admission")
+ # Explicit trusted modes keep the positive control independent of lane umask.
+ for directory in (root+"/run",root+"/run/smithers",root+"/run/smithers/admission"):os.chmod(directory,0o755)
  outside=root+"/canary";open(outside,"wb").write(b"untouched")
  real_open,real_stat,real_fstat=os.open,os.stat,os.fstat
  def opened(path,*a,**kw):return real_open(root if path=="/" else path,*a,**kw)
@@ -38,6 +40,8 @@ with tempfile.TemporaryDirectory() as root:
  if scenario=="empty":body=b""
  if scenario=="unprivileged":os.geteuid=lambda:20001
  if scenario=="disk":g.require_secret_tmpfs=lambda fd:g.fail(3,"not tmpfs")
+ if scenario=="group-parent":os.chmod(root+"/run/smithers",0o775)
+ if scenario=="world-parent":os.chmod(root+"/run/smithers",0o757)
  if scenario=="leaf-link":os.symlink(outside,target)
  if scenario=="parent-link":os.rename(root+"/run/smithers/admission",root+"/moved");os.symlink(root+"/moved",root+"/run/smithers/admission")
  if scenario=="existing":open(target,"wb").write(b"previous")
@@ -59,7 +63,7 @@ with tempfile.TemporaryDirectory() as root:
   assert refused,scenario
   if scenario=="existing":assert open(target,"rb").read()==b"previous"
 `
-	for _, scenario := range []string{"valid", "root", "mismatch", "traversal", "uid-text", "oversized", "empty", "unprivileged", "disk", "leaf-link", "parent-link", "existing"} {
+	for _, scenario := range []string{"valid", "root", "mismatch", "traversal", "uid-text", "oversized", "empty", "unprivileged", "disk", "group-parent", "world-parent", "leaf-link", "parent-link", "existing"} {
 		t.Run(scenario, func(t *testing.T) {
 			out, err := exec.Command(python, "-B", "-c", script, filepath.Join("guest", "smithers-guest.py"), scenario).CombinedOutput()
 			require.NoError(t, err, string(out))

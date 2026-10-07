@@ -22,6 +22,8 @@ os.umask(0o022)
 with tempfile.TemporaryDirectory() as root:
  root=os.path.realpath(root);g.PROTECTED_BASE=root
  os.makedirs(root+"/var/lib");os.chmod(root,0o700)
+ # Positive controls must retain protected modes under a group-writable umask.
+ for directory in (root+"/var",root+"/var/lib"):os.chmod(directory,0o755)
  real_open,real_stat,real_fstat=os.open,os.stat,os.fstat
  owners={}
  def observed(info):
@@ -45,6 +47,13 @@ with tempfile.TemporaryDirectory() as root:
   else:raise AssertionError('invalid authority accepted')
  assert not calls and not os.path.exists(root+'/run')
  assert not g.machined_program(digest)
+ for mode in (0o775,0o757):
+  os.chmod(root,mode)
+  try:g.machined_program(digest,program)
+  except SystemExit:pass
+  else:raise AssertionError('writable protected ancestor accepted')
+  assert not calls
+ os.chmod(root,0o700)
  g.machined_program(digest,program);assert g.machined_program(digest)
  assert g.start_machined(digest,body)=='started'
  assert len(calls)==1 and calls[0][0]==['/opt/smithers/bin/smithers-machined','broker']
