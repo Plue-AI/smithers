@@ -287,12 +287,12 @@ describe("§3 the keyboard contract", () => {
     const view = await mount()
     await press(view, "k", { meta: true })
     await view.act(() => view.controller.changeDraft("/wiki"))
-    const other = view.host.querySelector<HTMLElement>('[data-flow="wiki.cloud"][role="option"]')
+    const other = view.host.querySelector<HTMLElement>('[data-flow="wiki.page"][role="option"]')
     expect(other).not.toBeNull()
     await view.act(() => other!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })))
     await press(view, "Enter")
     expect(invoked(view.store).map(row => row.name)).toContain("wiki")
-    expect(invoked(view.store).some(row => row.name === "wiki.cloud")).toBe(false)
+    expect(invoked(view.store).some(row => row.name === "wiki.page")).toBe(false)
   })
 
   test("/wiki retains the slash path and exact-name precedence", async () => {
@@ -327,9 +327,9 @@ describe("§3 the keyboard contract", () => {
     await press(view, "k", { meta: true })
     expect(view.store.session().paletteOpen).toBe(true)
     expect(palette(view.host)?.dataset["mode"]).toBe("all")
-    // Files (both prefix matches, in listing order), then the run (its title contains it), then the flow whose summary says it:
+    // Files (both prefix matches, in listing order), then the run (its title contains it), with no command matching the current Ask copy:
     // a group ranks by its best match, and no flow is named compose since the MVP cut retired model.compose (#3385).
-    expect(rows(view.host)).toEqual(["", "/will/smithers/src/Composer.tsx", "/will/smithers/src/Compose.css", runSearchRef("run-compose", "runs-1"), "chat.send"])
+    expect(rows(view.host)).toEqual(["", "/will/smithers/src/Composer.tsx", "/will/smithers/src/Compose.css", runSearchRef("run-compose", "runs-1")])
     await press(view, "Escape")
     expect(view.store.session().paletteOpen).toBe(false)
     expect(palette(view.host)).toBeNull()
@@ -344,10 +344,7 @@ describe("§3 the keyboard contract", () => {
     expect(highlighted(view.host)?.hasAttribute("data-ask")).toBe(true)
     // Up from the first row wraps to the last.
     await press(view, "ArrowUp")
-    expect(highlighted(view.host)?.dataset["ref"]).toBe("chat.send")
-    await press(view, "ArrowUp")
     expect(highlighted(view.host)?.dataset["ref"]).toBe(runSearchRef("run-compose", "runs-1"))
-    await press(view, "ArrowDown")
     await press(view, "ArrowDown")
     expect(highlighted(view.host)?.hasAttribute("data-ask")).toBe(true)
     await press(view, "ArrowDown")
@@ -499,12 +496,12 @@ describe("§3 the keyboard contract", () => {
 
   test("the slash tree stays the / mode of the same overlay", async () => {
     const view = await mount()
-    await view.act(() => view.controller.changeDraft("/age"))
+    await view.act(() => view.controller.changeDraft("/wik"))
     expect(palette(view.host)?.dataset["mode"]).toBe("flows")
     expect(rows(view.host)[0]).toBe("")
-    expect(view.host.querySelector("[data-testid='palette'] [data-namespace='agent']")).not.toBeNull()
+    expect(view.host.querySelector("[data-testid='palette'] [data-namespace='wiki']")).not.toBeNull()
     await press(view, "ArrowRight")
-    expect(view.store.session().draft).toBe("/agent.")
+    expect(view.store.session().draft).toBe("/wiki.")
   })
 })
 

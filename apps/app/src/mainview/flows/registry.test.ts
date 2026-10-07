@@ -624,8 +624,8 @@ describe("command registry bindings", () => {
     expect(misdirected).toEqual([])
   })
 
-  test("the agent tool lists commands and executes them through the same path", async () => {
-    const { controller } = await freshController()
+  test("the browser agent tool lists commands and refuses host execution", async () => {
+    const { store, controller } = await freshController()
     const listed = await executeAgentToolCall(controller.commands, {
       name: "commands",
       arguments: JSON.stringify({ action: "list" })
@@ -642,7 +642,9 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "wiki" })
     })
-    expect(executed).toBe("Opened Webhook retries")
+    expect(executed).toBe("failed: this command runs on the conversation host")
+
+    expect(store.collections.cards.get("design:wiki:webhook-retries")).toBeUndefined()
 
     // The recovery is in the error: the dead-end "unknown-command: nope"
     // left the live model telling the USER to run the command instead of
@@ -651,6 +653,10 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "nope" })
     })
+    const unknownSlash = await executeAgentToolCall(controller.commands, {
+      name: "commands", arguments: JSON.stringify({ action: "execute", name: "/nope" })
+    })
+    expect(unknownSlash).toBe(unknown)
     expect(unknown).toBe(
       "unknown-command: nope — no command has that name; use the list action for every command callable right now"
     )
@@ -671,9 +677,9 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "/wiki" })
     })
-    expect(executed).toBe("Opened Webhook retries")
+    expect(executed).toBe("failed: this command runs on the conversation host")
     expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.get("design:wiki:webhook-retries")?.title).toBe("Webhook retries")
+    expect(store.collections.cards.get("design:wiki:webhook-retries")).toBeUndefined()
 
     // The slash spelling resolves through the alias and executes now that the
     // look-and-feel flows are model-invocable (flows/invocable.test.ts).

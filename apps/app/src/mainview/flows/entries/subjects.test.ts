@@ -40,7 +40,8 @@ test("/issue opens the seeded issue's card; an unknown number refuses", async ()
     expect(await h.run("issue", "999")).toEqual({ status: "failed", error: "No issue #999" })
     expect((await h.run("issues")).status).toBe("executed")
     expect(h.card("design:issues")?.kind).toBe("issue-list")
-    expect(await agent(h.controller, "issue", "212")).toContain("Opened #212")
+    expect(await agent(h.controller, "issue", "212")).toBe("failed: this command runs on the conversation host")
+    expect(h.card("design:issue:212")).toBeUndefined()
   } finally { h.controller.dispose() }
 })
 

@@ -98,10 +98,14 @@ test.each([
     await controller.commands.run("form.submit", `form-${name}`)
   } else if (door === "agent") {
     // box.open carries no confirmation (the desktop doors that minted sessions did; the MVP cut removed them).
-    await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name, args }) })
+    const result = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name, args }) })
+    if (name === "prs.review") {
+      expect(result).toBe("failed: /prs.review is user-only — it is a control the human clicks, already visible on their screen")
+      expect(requests.filter(request => /\/landings(\/|$)/.test(request.path))).toEqual([])
+    }
   } else await controller.commands.run(name, args)
   expect(requests.filter(request => request.path.includes(`/repos/${ambient}/`) && /\/(landings|workspaces)(\/|$)/.test(request.path))).toEqual([])
-  expect(requests.filter(request => request.method === "POST")).toEqual(name === "prs.review"
+  expect(requests.filter(request => request.method === "POST")).toEqual(name === "prs.review" && door === "agent" ? [] : name === "prs.review"
     ? [{ method: "POST", path: `/api/repos/${target}/landings/42/reviews`, body: { type: "approve", body: "", commit_id: "reviewed-tip" } }]
     : [{ method: "POST", path: `/api/repos/${target}/workspaces`, body: { kind: "container" } }])
 })

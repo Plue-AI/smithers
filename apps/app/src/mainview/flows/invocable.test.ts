@@ -4,7 +4,7 @@
  * refused to the model is the dark-mode bug of 2026-08-31 — the agent said
  * "I don't have a command to toggle the theme" while /theme
  * sat in the menu. The ONLY listed flows allowed to stay user-only are the
- * enumerated USER_ONLY_VISIBLE set, each with a structural reason.
+ * literal Appendix A person-only set, each with a structural reason.
  */
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
@@ -14,7 +14,6 @@ import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
-import { USER_ONLY_VISIBLE } from "./Flows"
 import { modelInvocable, visible } from "./registry"
 
 const memoryStorage = (): StorageApi => {
@@ -57,10 +56,11 @@ const EVERYTHING: AppBootstrap = {
   sandbox: { platform: "darwin", mode: "enforced" }
 }
 
-const exceptionNames = USER_ONLY_VISIBLE.map((entry) => entry.name)
+// T-CAT-01: only Appendix A core/advanced commands are menu rows.
+const exceptionNames = ["chat.send", "stop", "debug-api", "settings", "secrets", "members", "ssh", "sign-in", "sign-out"]
 
 describe("every listed flow is a tool call", () => {
-  test("visible ⊆ model-invocable, USER_ONLY_VISIBLE excepted", async () => {
+  test("visible ⊆ model-invocable, Appendix A person-only commands excepted", async () => {
     const { controller } = await freshController(EVERYTHING)
     const entries = controller.commands.entries()
     const offenders = visible(controller.commands.all())
@@ -76,16 +76,14 @@ describe("every listed flow is a tool call", () => {
     const { controller } = await freshController(EVERYTHING)
     const entries = controller.commands.entries()
     const visibleNames = new Set(visible(controller.commands.all()).map((item) => item.name))
-    // These register only in the admin plugin; their reasons stay listed below.
-    const adminRegistered = ["admin.reset", "admin.devtools", "debug.backend", "billing.upgrade", "billing.portal"]
-    for (const { name } of USER_ONLY_VISIBLE.filter((e) => !adminRegistered.includes(e.name))) {
-      const entry = entries.find((candidate) => candidate.binding.descriptor.name === name)
-      expect(`${name} registered`).toBe(`${name} ${entry === undefined ? "missing" : "registered"}`)
-      expect(`${name} user-only: ${entry === undefined ? "?" : !modelInvocable(entry)}`).toBe(`${name} user-only: true`)
-      expect(`${name} visible: ${visibleNames.has(name)}`).toBe(`${name} visible: true`)
+    expect(entries.filter(entry => visibleNames.has(entry.binding.descriptor.name) && !modelInvocable(entry))
+      .map(entry => entry.binding.descriptor.name).sort()).toEqual([...exceptionNames].sort())
+    for (const name of exceptionNames) {
+      const entry = entries.find(candidate => candidate.binding.descriptor.name === name)!
+      expect(entry.metadata.agent).toBe("never")
+      expect(entry.metadata.actors).toEqual(["person"])
+      expect(entry.metadata.agentReason?.length).toBeGreaterThan(0)
     }
-    // Admin-plugin entries register only for admin sessions; their reasons stay listed.
-    expect(exceptionNames.filter((name) => adminRegistered.includes(name)).sort()).toEqual([...adminRegistered].sort())
   })
 
   test("the model toggles dark mode — the reported bug", async () => {
