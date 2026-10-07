@@ -40,10 +40,11 @@ select_go_packages() {
   data=$(cd "$mod" && go list -f '{{.ImportPath}} {{join .Deps " "}}' ./...) || return 1
   local imports
   imports=$(cd "$mod" && go list $touched) || return 1
-  selected=$(printf '%s\n' "$data" | awk -v touched="$imports" '
-    BEGIN { split(touched, paths, "\n"); for (i in paths) changed[paths[i]]=1 }
+  selected=$(set -o pipefail; printf '%s\n' "$data" | SMITHERS_GATE_TOUCHED_IMPORTS="$imports" awk '
+    BEGIN { split(ENVIRON["SMITHERS_GATE_TOUCHED_IMPORTS"], paths, "\n"); for (i in paths) changed[paths[i]]=1 }
     { for (i=1; i<=NF; i++) if ($i in changed) { print $1; break } }
-  ' | sort -u)
+  ' | sort -u) || return 1
+  [ -n "$selected" ] || { echo "No Go packages selected in $mod" >&2; return 1; }
   printf 'Selected Go packages (%s):\n%s\n' "$mod" "$selected" >> "$log"
   printf '%s\n' "$selected"
 }

@@ -81,10 +81,19 @@ test('Go selection includes transitive importers and prints the selected list', 
     mkdirSync(join(dir, pkg));
     writeFileSync(join(dir, pkg, 'code.go'), `package ${pkg}\n${body}\n`);
   }
-  const result = spawnSync('bash', ['-c', 'source "$1"; log="$2/log"; select_go_packages "$2" ./a >/dev/null || exit; cat "$log"', '_', script, dir], {encoding: 'utf8'});
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Selected Go packages/);
-  assert.deepEqual(result.stdout.trim().split('\n').slice(1), ['fixture.local/reverse/a', 'fixture.local/reverse/b', 'fixture.local/reverse/d']);
+  for (const [touched, expected] of [
+    ['./a', ['a', 'b', 'd']],
+    ['./a ./c', ['a', 'b', 'c', 'd']],
+    ['./a ./b ./c', ['a', 'b', 'c', 'd']]
+  ]) {
+    const result = spawnSync('bash', ['-c', 'source "$1"; log="$2/log"; : > "$log"; select_go_packages "$2" "$3" >/dev/null || exit; cat "$log"', '_', script, dir, touched], {encoding: 'utf8'});
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Selected Go packages/);
+    assert.deepEqual(result.stdout.trim().split('\n').slice(1), expected.map(pkg => `fixture.local/reverse/${pkg}`));
+  }
+  const empty = spawnSync('bash', ['-c', 'source "$1"; log="$2/log"; select_go_packages "$2" fmt', '_', script, dir], {encoding: 'utf8'});
+  assert.equal(empty.status, 1, empty.stderr);
+  assert.match(empty.stderr, /No Go packages selected/);
 });
 
 test('unformatted Go in a touched package is refused even with a tool baseline', t => {
