@@ -139,7 +139,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 	owner, err := q.GetBranchMachineOwner(ctx)
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	for _, name := range []string{"merged", "failed capture", "post capture write", "terminal", "ssh", "service stop failure", "dropped before retention", "in review", "archived scratch", "unfinished removal", "reopened", "missing settlement time", "unarchived scratch", "pending reopen", "pending writer", "pending admission", "service final writes", "running service final writes"} {
+	for _, name := range []string{"merged", "failed capture", "post capture write", "terminal", "ssh", "service stop failure", "dropped before retention", "in review", "archived scratch", "unfinished removal", "reopened", "missing settlement time", "unarchived scratch", "pending reopen", "pending writer", "pending admission", "pending capture publication", "pending capture reconciliation", "service final writes", "running service final writes"} {
 		t.Run(name, func(t *testing.T) {
 			branch := "smithers/" + name
 			if name == "archived scratch" || name == "unarchived scratch" {
@@ -151,6 +151,10 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 			require.NoError(t, err)
 			if name == "running service final writes" {
 				_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, row.ID)
+				require.NoError(t, err)
+			}
+			if name == "pending capture reconciliation" {
+				_, err = pool.Exec(ctx, `UPDATE workspaces SET capture_pending=$2 WHERE id=$1`, row.ID, []byte(`{"head":"retained-edit","tree":"retained-tree","base":"head","onto":"head","stale":true}`))
 				require.NoError(t, err)
 			}
 			row, err = q.GetWorkspace(ctx, row.ID)
@@ -203,7 +207,7 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 				}
 			}
 			var transactions RepositoryJobTransactions = pool
-			if name == "pending reopen" || name == "pending writer" || name == "pending admission" {
+			if name == "pending reopen" || name == "pending writer" || name == "pending admission" || name == "pending capture publication" {
 				transactions = &cleanupInterleavingTransactions{RepositoryJobTransactions: pool, beforeRemoval: func() {
 					var err error
 					switch name {
@@ -213,6 +217,8 @@ func TestWorkspaceCleanerTransactionalPolicyAndRecovery(t *testing.T) {
 						_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id='new' WHERE id=$1`, row.ID)
 					case "pending admission":
 						_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, row.ID)
+					case "pending capture publication":
+						_, err = pool.Exec(ctx, `UPDATE workspaces SET capture_pending=$2 WHERE id=$1`, row.ID, []byte(`{"head":"retained-edit","tree":"retained-tree","base":"head","onto":"head","stale":true}`))
 					}
 					require.NoError(t, err)
 				}}
