@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -53,8 +55,13 @@ type Child struct {
 
 func Start(t *testing.T, test, subject, point, databaseURL string, args ...string) *Child {
 	t.Helper()
+	if subject == "todo-merge" || subject == "todo-start" {
+		for _, key := range []string{"SMITHERS_GITHUB_APP_API_BASE_URL", "SMITHERS_GITHUB_GIT_BASE_URL"} {
+			require.NotEmpty(t, os.Getenv(key), "route fault requires a loopback fake: %s", key)
+		}
+	}
 	cmd := exec.Command(os.Args[0], "-test.run=^"+test+"$", "-test.count=1")
-	cmd.Env = append(os.Environ(), ChildEnv+"="+subject, PointEnv+"="+point, DBEnv+"="+databaseURL, ArgsEnv+"="+strings.Join(args, "|"))
+	cmd.Env = append(childEnvironment(t), ChildEnv+"="+subject, PointEnv+"="+point, DBEnv+"="+databaseURL, ArgsEnv+"="+strings.Join(args, "|"))
 	stdout, err := cmd.StdoutPipe()
 	require.NoError(t, err)
 	stdin, err := cmd.StdinPipe()
@@ -75,6 +82,29 @@ func Start(t *testing.T, test, subject, point, databaseURL string, args ...strin
 		_ = cmd.Wait()
 	})
 	return child
+}
+
+// Child processes need local tools and fixture metadata, never the lane's
+// publication tokens, agent credentials, SSH agent or user Git configuration.
+func childEnvironment(t *testing.T) []string {
+	t.Helper()
+	var env []string
+	for _, key := range []string{"PATH", "TMPDIR", "LANG", "LC_ALL", "TZ", "GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE", "SMITHERS_TEST_DATABASE_NAMESPACE", "SMITHERS_REQUIRE_DATABASE_TESTS"} {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	for _, key := range []string{"SMITHERS_GITHUB_APP_API_BASE_URL", "SMITHERS_GITHUB_GIT_BASE_URL"} {
+		if value, ok := os.LookupEnv(key); ok {
+			u, err := url.Parse(value)
+			require.NoError(t, err)
+			require.True(t, (u.Scheme == "http" || u.Scheme == "https") && net.ParseIP(u.Hostname()).IsLoopback() && u.Port() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "", "fault GitHub endpoint must be a loopback fake: %s", key)
+			env = append(env, key+"="+value)
+		}
+	}
+	config := t.TempDir()
+	return append(env, "XDG_CONFIG_HOME="+config, "XDG_DATA_HOME="+config, "XDG_CACHE_HOME="+config,
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
 }
 
 // Await returns the fields after prefix on the first matching line.

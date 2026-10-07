@@ -35,14 +35,13 @@ func TestCrashMarkerTokenBoundary(t *testing.T) {
 }
 
 func TestCrashMarkerChild(t *testing.T) {
-	if os.Getenv("SMITHERS_MARKER_CHILD") != "1" {
+	if os.Getenv(ChildEnv) != "marker" {
 		return
 	}
 	Reached(os.Getenv(PointEnv))
 }
 
 func TestCrashMarkerObservedBeforeSIGKILL(t *testing.T) {
-	t.Setenv("SMITHERS_MARKER_CHILD", "1")
 	// Reuse the durable harness process controller; only its test selector differs.
 	child := Start(t, "TestCrashMarkerChild", "marker", "pre-launch", "")
 	require.False(t, child.reached)
@@ -74,7 +73,7 @@ func TestCrashMarkerRefusalsExitNonzero(t *testing.T) {
 	for _, mode := range []string{"missing-marker", "wrong-marker", "unobserved-kill"} {
 		t.Run(mode, func(t *testing.T) {
 			cmd := exec.Command(os.Args[0], "-test.run=^TestCrashMarkerRefusalChild$", "-test.count=1")
-			cmd.Env = append(os.Environ(), "SMITHERS_MARKER_REFUSAL="+mode)
+			cmd.Env = append(childEnvironment(t), "SMITHERS_MARKER_REFUSAL="+mode)
 			output, err := cmd.CombinedOutput()
 			var exit *exec.ExitError
 			require.ErrorAs(t, err, &exit)
