@@ -956,6 +956,7 @@ func TestAdmissionReleaseObservedWithoutWaitingCaller(t *testing.T) {
 				require.Contains(t, string(calls), "stop -t 0 -q vm-a")
 			} else {
 				require.NotContains(t, string(calls), "stop -t 0")
+				require.Contains(t, string(calls), "stop -t 10 -q vm-a", "cancelled boot requests a normal stop on the first tick")
 			}
 			// Atomic replacement avoids an incomplete observation while the daemon reads.
 			next := filepath.Join(root, "next")
@@ -1388,4 +1389,37 @@ func TestAdmissionStackReorderPreservesPersonAndGrants(t *testing.T) {
 	granted, err = r.GrantNext(t.Context(), p)
 	require.NoError(t, err)
 	require.Equal(t, "T3", granted.Holder)
+}
+
+func TestAdmissionCancellationHonorsStartupWindow(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name    string
+		started time.Time
+		observe time.Time
+		attempt bool
+	}{
+		{"unknown", time.Time{}, now, false},
+		{"29900ms", now, now.Add(29900 * time.Millisecond), false},
+		{"30s", now, now.Add(30 * time.Second), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, p := admissionFixture()
+			r.admissionStarted = tc.started
+			_, err := r.WaitAdmission(t.Context(), p, "person", "A", "Alice", "terminal")
+			require.NoError(t, err)
+			require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+			require.True(t, r.CancelAdmission("A", "Alice", now))
+			// No runtime transport is mounted: reaching it proves an attempted
+			// stop. During startup there must be no I/O, nor any released slot.
+			err = r.ReconcileAdmissionReleases(t.Context(), tc.observe)
+			if tc.attempt {
+				require.ErrorIs(t, err, ErrUnavailable)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, 1, r.InUse())
+			require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+		})
+	}
 }
