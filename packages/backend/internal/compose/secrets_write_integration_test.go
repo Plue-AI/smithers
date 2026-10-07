@@ -87,12 +87,6 @@ func testSecretsComposed(t *testing.T, install bool) {
 	secretService := services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))
 	secrets := &routes.SecretHandler{Service: secretService, AgentEnvironment: services.NewAgentEnvironmentService(q, nil)}
 	topics := &liveTopics{queries: q, secrets: secretService}
-	busCtx, stopBus := context.WithCancel(ctx)
-	defer stopBus()
-	bus := revocation.NewBus(pool, q)
-	require.NoError(t, bus.Start(busCtx))
-	routes.SetRevocationSource(bus)
-	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, secrets, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 
