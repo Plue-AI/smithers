@@ -49,7 +49,10 @@ describe("a zoomed timeline line", () => {
       expect(span).toContain(clock(to!))
       expect(item.querySelector(".tl-zoom")!.textContent).toBe(`${count} entries · ${span}`)
       expect(item.querySelector(".tl-zoom time")!.textContent).toBe(span)
-      expect(button.getAttribute("aria-label")).toBe(`${count} entries, ${clock(from!)} to ${clock(to!)}: ${line.title}`)
+      // Named by what it shows: the title, then "N entries · span" (no aria-label; C-UI-02 caps a name at 12 words).
+      expect(button.getAttribute("aria-label")).toBeNull()
+      expect(button.textContent).toContain(line.title)
+      expect(button.textContent).toContain(`${count} entries · ${span}`)
       // The stacked node: one bar per level above the entry, capped at the coarsest look; no entry glyph beside it.
       expect(item.querySelectorAll(".tl-node .tl-stack rect")).toHaveLength(Math.min(line.zoom.level, 3) + 1)
       expect(item.querySelector(".tl-node .lucide-check, .tl-node .lucide-x, .tl-node .lucide-circle-alert, .tl-node .avatar")).toBeNull()
@@ -71,7 +74,7 @@ describe("a zoomed timeline line", () => {
     const item = body.querySelector("li[data-entry]")!
     expect(item.getAttribute("data-zoom")).toBe("5")
     expect(item.querySelectorAll(".tl-stack rect")).toHaveLength(4)
-    expect(body.querySelector('li[data-entry="entry-1"] button')!.getAttribute("aria-label")).toBe(`237 entries, ${clock(deep.zoom!.from!)} to ${clock(deep.zoom!.to!)}: ${deep.title}`)
+    expect(body.querySelector('li[data-entry="entry-1"] button')!.textContent).toContain(`237 entries · ${CLOCK.formatRange(deep.zoom!.from!, deep.zoom!.to!)}`)
   })
 
   test("a span across days reads as dates, and a line without times has no span", () => {
@@ -89,9 +92,9 @@ describe("a zoomed timeline line", () => {
     const timeless: TimelineLine = { ...byId("entry-404"), zoom: { level: 3, count: 289, last_entry_id: "entry-692" } }
     const body = render([dated, timeless])
     expect(body.querySelector('li[data-entry="entry-1"] .tl-zoom')!.textContent).toBe(`237 entries · ${DAY.formatRange(from, to)}`)
-    expect(body.querySelector('li[data-entry="entry-1"] button')!.getAttribute("aria-label")).toBe(`237 entries, ${day(from)} to ${day(to)}: ${dated.title}`)
+    expect(body.querySelector('li[data-entry="entry-1"] button')!.textContent).toContain(dated.title)
     expect(body.querySelector('li[data-entry="entry-404"] .tl-zoom')!.textContent).toBe("289 entries")
-    expect(body.querySelector('li[data-entry="entry-404"] button')!.getAttribute("aria-label")).toBe(`289 entries: ${timeless.title}`)
+    expect(body.querySelector('li[data-entry="entry-404"] button')!.textContent).toContain(timeless.title)
   })
 
   test("a title the fast model wrote wears the written mark before it; the run's own title wears none (#3732)", () => {
@@ -100,7 +103,7 @@ describe("a zoomed timeline line", () => {
     const title = body.querySelector('li[data-entry="entry-1"] .tl-text b')!
     expect(title.textContent).toBe("Hardened webhook retries")
     expect(title.firstElementChild!.matches("svg.written[aria-hidden=true]")).toBe(true)
-    expect(body.querySelector('li[data-entry="entry-1"] button')!.getAttribute("aria-label")).toBe(`237 entries, ${clock(written.zoom!.from!)} to ${clock(written.zoom!.to!)}: Hardened webhook retries`)
+    expect(body.querySelector('li[data-entry="entry-1"] button')!.textContent).toContain("Hardened webhook retries")
     expect(body.querySelectorAll(".written")).toHaveLength(1)
     expect(body.querySelector('li[data-entry="entry-404"] .tl-text b')!.textContent).toBe(byId("entry-404").title)
   })

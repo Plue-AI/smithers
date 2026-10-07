@@ -10,7 +10,7 @@ export function SetupAction({ action, onAction, inline = false, choiceLabels = {
   const packageReason = (() => {
     if (action.tag !== "image.add" || !values.name) return undefined
     try { addImagePackage(undefined, values.name); return undefined }
-    catch (cause) { return cause instanceof Error ? cause.message : "Invalid Debian package name" }
+    catch { return "Invalid Debian package name" }
   })()
   const submit = () => { if (!action.disabled && !packageReason) onAction(action.tag, { ...action.args, ...values }) }
   const stepper = ["capacity", "parallel", "todo_daily_admissions"].includes(action.args?.field ?? "")

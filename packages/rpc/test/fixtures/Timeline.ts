@@ -64,7 +64,7 @@ const zoomed: TimelineCard["lines"] = [
   {
     entry_id: "entry-1",
     kind: "prompt",
-    title: "“Import the Codex session into the app”",
+    title: "“Codex session import”",
     summary: "6 prompts · 41 answers · 190 steps",
     tone: "done",
     glyph: { event: "ok" },
@@ -73,7 +73,7 @@ const zoomed: TimelineCard["lines"] = [
   {
     entry_id: "entry-238",
     kind: "prompt",
-    title: "“Wire the sign-in button to the GitHub door”",
+    title: "“GitHub sign-in button”",
     summary: "5 prompts · 37 answers · 124 steps · 1 failed",
     tone: "failed",
     glyph: { event: "failed" },
@@ -192,7 +192,7 @@ export const fixtures = {
     on_screen: ["entry-756", "entry-757"]
   }, {
     expect: [
-      "Import the Codex session into the app",
+      "Codex session import",
       "237",
       "Include the S3 fields?",
       "12",

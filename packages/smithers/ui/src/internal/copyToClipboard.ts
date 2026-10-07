@@ -20,8 +20,12 @@ export async function copyToClipboard(
     await navigator.clipboard.writeText(text);
     return { ok: true };
   } catch (cause) {
-    const fallback = legacyCopy(text);
-    return fallback.ok ? fallback : { ok: false, code: "clipboard-unavailable", cause: fallback.cause ?? cause };
+    if (!onCopy) {
+      const fallback = legacyCopy(text);
+      if (fallback.ok) return fallback;
+      if (fallback.cause !== undefined) return fallback;
+    }
+    return { ok: false, code: "clipboard-write-failed", cause };
   }
 }
 
@@ -43,9 +47,9 @@ function legacyCopy(text: string): CopyResult {
     field.select();
     return document.execCommand("copy")
       ? { ok: true }
-      : { ok: false, code: "clipboard-unavailable", cause: undefined };
+      : { ok: false, code: "clipboard-write-failed", cause: undefined };
   } catch (cause) {
-    return { ok: false, code: "clipboard-unavailable", cause };
+    return { ok: false, code: "clipboard-write-failed", cause };
   } finally {
     field.remove();
     if (focused instanceof HTMLElement) focused.focus({ preventScroll: true });

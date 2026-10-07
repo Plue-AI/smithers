@@ -1085,7 +1085,7 @@ test("T-UI-15r phone SSH ellipsis retains full copy and empty presence is unboxe
     await copy.click()
     await expect.poll(() => page.evaluate(() => Reflect.get(window, "copiedSsh"))).toBe("ssh -p 2222 scratch-repro@mac-mini.local")
     await expect(page.locator(".branch-presence")).toHaveCount(0)
-    await expect(page.getByText("Nobody here", { exact: true })).toHaveCount(0)
+    await expect(page.locator("p.branch-muted").filter({ hasText: "Nobody here" })).toHaveCSS("border-width", "0px")
   }
 })
 

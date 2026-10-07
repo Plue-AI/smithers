@@ -43,9 +43,8 @@ function Line({ line, inView, onView, onAction }: { line: TimelineLine; inView: 
   const { glyph, action, zoom } = line
   const jump = () => onView({ jump_to: line.entry_id })
   const span = zoom === undefined ? undefined : spanOf(zoom)
-  const name = zoom === undefined ? undefined : `${zoom.count} entries${span ? `, ${span.from} to ${span.to}` : ""}: ${line.title}`
   return <li data-entry={line.entry_id} data-kind={line.kind} data-tone={line.tone} data-in-view={inView || undefined} data-fresh={line.fresh || undefined} data-zoom={zoom?.level}>
-    <button type="button" onClick={jump} aria-label={name}><span className="tl-node">
+    <button type="button" onClick={jump}><span className="tl-node">
       {zoom ? <StackGlyph level={zoom.level} />
         : "state" in glyph ? <StateGlyph state={glyph.state} /> : "actor" in glyph ? <ActorChip actor={glyph.actor} size="s" />
         : glyph.event === "running" ? <Spinner size="sm" aria-label="Working" />
