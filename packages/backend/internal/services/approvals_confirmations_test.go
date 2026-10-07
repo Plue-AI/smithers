@@ -704,7 +704,7 @@ func TestConfirmationMergeGitHubRefusalPostgres(t *testing.T) {
 }
 
 func TestBoundInstallCredentialReloadPostgres(t *testing.T) {
-	for _, scenario := range []string{"same grant", "replaced credential", "wrong principal", "removed member", "revoked session", "changed scopes"} {
+	for _, scenario := range []string{"same grant", "replaced credential", "wrong principal", "removed member", "revoked session", "changed scopes", "changed role"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newConfirmationFixture(t)
 			ctx := f.person
@@ -729,6 +729,8 @@ func TestBoundInstallCredentialReloadPostgres(t *testing.T) {
 				f.exec(`DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, f.repo, f.member.ID)
 			case "revoked session":
 				f.exec(`DELETE FROM auth_sessions WHERE session_key=$1`, info.SessionHash)
+			case "changed role":
+				f.exec(`UPDATE collaborators SET permission='admin' WHERE repository_id=$1 AND user_id=$2`, f.repo, f.member.ID)
 			case "changed scopes":
 				f.exec(`UPDATE access_tokens SET scopes='read:repository,via:codex' WHERE id=$1`, info.TokenID)
 			}
@@ -738,6 +740,12 @@ func TestBoundInstallCredentialReloadPostgres(t *testing.T) {
 			fresh, repository, err := lockInstallWriteCredential(ctx, tx, info)
 			if scenario != "same grant" {
 				require.Error(t, err)
+				if scenario == "changed role" {
+					var refusal *AccessError
+					require.ErrorAs(t, err, &refusal)
+					require.Equal(t, 403, refusal.Status)
+					require.Equal(t, "permission", refusal.Code)
+				}
 				return
 			}
 			require.NoError(t, err)

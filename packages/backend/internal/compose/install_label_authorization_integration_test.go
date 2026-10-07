@@ -67,7 +67,7 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 	run := f.token(f.owner, "labels-run", "write:repository", true)
 	machine := f.token(f.owner, "labels-machine", "write:repository,"+middleware.WorkspaceRestrictionScope("11111111-1111-4111-8111-111111111111"), true)
 	limited := f.token(f.owner, "labels-limited", "read:repository,via:codex", true)
-	call := func(method, path, cookie, bearer, body, command string, status int) *httptest.ResponseRecorder {
+	call := func(t *testing.T, method, path, cookie, bearer, body, command string, status int) *httptest.ResponseRecorder {
 		t.Helper()
 		request := httptest.NewRequest(method, cfg.Server.PublicURL+"/api/repos/gate-owner/app"+path, strings.NewReader(body))
 		request.Header.Set("Content-Type", "application/json")
@@ -103,7 +103,7 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 			{"DELETE", fmt.Sprintf("/labels/%d", label.ID), "", "labels.delete"},
 		} {
 			t.Run(actor.name+"/"+op.command, func(t *testing.T) {
-				out := call(op.method, op.path, actor.cookie, actor.bearer, op.body, op.command, actor.status)
+				out := call(t, op.method, op.path, actor.cookie, actor.bearer, op.body, op.command, actor.status)
 				require.Contains(t, out.Body.String(), `"code":"`+actor.code+`"`)
 				retained, err := f.q.GetLabelByID(f.ctx, db.GetLabelByIDParams{RepositoryID: f.repoID, ID: label.ID})
 				require.NoError(t, err)
@@ -115,14 +115,14 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 		}
 	}
 	t.Run("owner uses the existing CRUD boundary", func(t *testing.T) {
-		created := call("POST", "/labels", ownerCookie, "", `{"name":"owned","color":"aabbcc"}`, "labels.create", 201)
+		created := call(t, "POST", "/labels", ownerCookie, "", `{"name":"owned","color":"aabbcc"}`, "labels.create", 201)
 		var row db.Label
 		require.NoError(t, json.Unmarshal(created.Body.Bytes(), &row))
 		require.Positive(t, row.ID)
-		updated := call("PATCH", fmt.Sprintf("/labels/%d", row.ID), ownerCookie, "", `{"description":"updated"}`, "labels.update", 200)
+		updated := call(t, "PATCH", fmt.Sprintf("/labels/%d", row.ID), ownerCookie, "", `{"description":"updated"}`, "labels.update", 200)
 		require.Contains(t, updated.Body.String(), `"description":"updated"`)
 		require.Contains(t, updated.Body.String(), `"name":"owned"`)
-		call("DELETE", fmt.Sprintf("/labels/%d", row.ID), ownerCookie, "", "", "labels.delete", 204)
+		call(t, "DELETE", fmt.Sprintf("/labels/%d", row.ID), ownerCookie, "", "", "labels.delete", 204)
 		_, err := f.q.GetLabelByID(f.ctx, db.GetLabelByIDParams{RepositoryID: f.repoID, ID: row.ID})
 		require.ErrorIs(t, err, pgx.ErrNoRows)
 	})
@@ -131,15 +131,15 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 		body, err := json.Marshal(services.CreateLabelInput{Name: "escaped", Color: "112233", Description: description})
 		require.NoError(t, err)
 		require.Greater(t, len(body), 64<<10)
-		created := call("POST", "/labels", ownerCookie, "", string(body), "labels.create", 201)
+		created := call(t, "POST", "/labels", ownerCookie, "", string(body), "labels.create", 201)
 		var row db.Label
 		require.NoError(t, json.Unmarshal(created.Body.Bytes(), &row))
 		stored, err := f.q.GetLabelByID(f.ctx, db.GetLabelByIDParams{RepositoryID: f.repoID, ID: row.ID})
 		require.NoError(t, err)
 		require.Equal(t, description, stored.Description)
-		call("DELETE", fmt.Sprintf("/labels/%d", row.ID), ownerCookie, "", "", "labels.delete", 204)
+		call(t, "DELETE", fmt.Sprintf("/labels/%d", row.ID), ownerCookie, "", "", "labels.delete", 204)
 	})
-	for _, mode := range []string{"payload substitution", "expired after admission"} {
+	for _, mode := range []string{"payload substitution", "expired after admission", "demoted after admission"} {
 		t.Run(mode, func(t *testing.T) {
 			probe := &labelAdmissionProbe{LabelRouteService: service, replace: mode == "payload substitution"}
 			status := 403
@@ -150,13 +150,26 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}
+			if mode == "demoted after admission" {
+				probe.before = func() {
+					_, err := f.pool.Exec(f.ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, f.repoID, f.owner.ID)
+					require.NoError(t, err)
+					_, err = f.pool.Exec(f.ctx, `UPDATE self_host_owners SET user_id=$1 WHERE singleton`, f.other.ID)
+					require.NoError(t, err)
+					role, err := services.InstallRoleOf(f.ctx, f.q, f.owner.ID)
+					require.NoError(t, err)
+					require.Equal(t, services.InstallMember, role)
+				}
+			}
 			handler.Service = probe
 			defer func() {
 				handler.Service = service
-				_, err := f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1`, ownerHash)
+				_, err := f.pool.Exec(f.ctx, `UPDATE self_host_owners SET user_id=$1 WHERE singleton`, f.owner.ID)
+				require.NoError(t, err)
+				_, err = f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1`, ownerHash)
 				require.NoError(t, err)
 			}()
-			call("POST", "/labels", ownerCookie, "", `{"name":"admitted","color":"112233"}`, "labels.create", status)
+			call(t, "POST", "/labels", ownerCookie, "", `{"name":"admitted","color":"112233"}`, "labels.create", status)
 			count, err := f.q.CountLabelsByRepo(f.ctx, f.repoID)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, count)
