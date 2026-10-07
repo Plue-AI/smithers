@@ -820,6 +820,9 @@ func buildRouter(
 			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
+			if config.IsSingleOwner(cfg.Auth) {
+				r.Use(memberCommands(queries))
+			}
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser), gateNotifications).Get("/api/notifications", notificationHandler.NotificationStream)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser), gateNotifications).Get("/api/notifications/events/stream", notificationHandler.NotificationFactsStream)
 		})

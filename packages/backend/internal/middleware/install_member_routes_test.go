@@ -153,6 +153,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/repos/local-owner/demo/lfs/objects", "repo.read"},
 		{http.MethodGet, "/api/repos/local-owner/demo/commits/main/statuses", "repo.read"},
 		{http.MethodGet, "/api/repos/local-owner/demo/workspaces", "branches.read"},
+		{http.MethodGet, "/api/notifications", "self.read"},
+		{http.MethodGet, "/api/notifications/events/stream", "self.read"},
 		{http.MethodGet, "/api/notifications/list", "self.read"},
 		{http.MethodGet, "/api/notifications/events", "self.read"},
 		{http.MethodGet, "/api/notifications/preferences", "self.read"},

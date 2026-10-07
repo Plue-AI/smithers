@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -8,9 +9,12 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/sse"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,13 +27,18 @@ func TestInstallMemberNotificationReadsPostgres(t *testing.T) {
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	service := services.NewNotificationServiceWithPool(f.q, f.pool)
-	router := buildRouterCompat(cfg, f.q, f.pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, &routes.NotificationHandler{Service: service}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
+	broker := sse.NewBroker(f.pool)
+	require.NoError(t, broker.Start(f.ctx))
+	t.Cleanup(broker.Stop)
+	router := buildRouterCompat(cfg, f.q, f.pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, &routes.NotificationHandler{Service: service, Broker: broker}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil)
 	landing, err := f.q.CreateLandingRequest(f.ctx, db.CreateLandingRequestParams{RepositoryID: f.repoID, AuthorID: f.owner.ID, Title: "Notification source", TargetBookmark: "main", StackSize: 1})
+	require.NoError(t, err)
+	baseline, err := f.q.CreateNotification(f.ctx, db.CreateNotificationParams{UserID: f.other.ID, SourceType: "landing", SourceID: pgtype.Int8{Int64: landing.ID, Valid: true}, Subject: "Earlier member notice", Body: "Earlier member notice"})
 	require.NoError(t, err)
 	for _, item := range []struct {
 		user int64
 		body string
-	}{{f.other.ID, "member-private-notification"}, {f.owner.ID, "owner-private-notification"}} {
+	}{{f.owner.ID, "owner-private-notification"}, {f.other.ID, "member-private-notification"}} {
 		_, err = f.q.CreateNotification(f.ctx, db.CreateNotificationParams{UserID: item.user, SourceType: "landing", SourceID: pgtype.Int8{Int64: landing.ID, Valid: true}, Subject: item.body, Body: item.body})
 		require.NoError(t, err)
 	}
@@ -45,7 +54,7 @@ func TestInstallMemberNotificationReadsPostgres(t *testing.T) {
 		name, bearer, cookie string
 		status               int
 	}{{"person", "", cookie, 200}, {"external", external, "", 200}, {"app", app, "", 200}, {"run", run, "", 403}, {"machine", machine, "", 403}, {"scope", f.token(f.other, "list-scope", "read:repository,via:codex", true), "", 403}, {"anonymous", "", "", 401}} {
-		for _, path := range []string{"/api/notifications/list", "/api/notifications/events", "/api/notifications/preferences"} {
+		for _, path := range []string{"/api/notifications/list", "/api/notifications/events", "/api/notifications/preferences", "/api/notifications", "/api/notifications/events/stream"} {
 			t.Run(actor.name+path, func(t *testing.T) {
 				req := httptest.NewRequest("GET", cfg.Server.PublicURL+path, nil)
 				if actor.bearer != "" {
@@ -57,7 +66,21 @@ func TestInstallMemberNotificationReadsPostgres(t *testing.T) {
 				var commands []string
 				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { commands = append(commands, command) }))
 				out := httptest.NewRecorder()
-				router.ServeHTTP(out, req)
+				if path == "/api/notifications" || strings.HasSuffix(path, "/stream") {
+					ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+					defer cancel()
+					req = req.WithContext(ctx)
+					req.Header.Set("Last-Event-ID", "0")
+					if path == "/api/notifications" {
+						req.Header.Set("Last-Event-ID", strconv.FormatInt(baseline.ID, 10))
+					}
+					router.ServeHTTP(&notificationAuthorizationRecorder{ResponseRecorder: out, cancel: cancel}, req)
+					if actor.status == 200 {
+						require.Contains(t, out.Header().Get("Content-Type"), "text/event-stream")
+					}
+				} else {
+					router.ServeHTTP(out, req)
+				}
 				require.Equal(t, actor.status, out.Code, out.Body.String())
 				if actor.status == 401 {
 					require.Empty(t, commands)
@@ -75,4 +98,19 @@ func TestInstallMemberNotificationReadsPostgres(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Stop only after the real durable stream has delivered the member's stored
+// record. Timeout is a test bound, never evidence of successful delivery.
+type notificationAuthorizationRecorder struct {
+	*httptest.ResponseRecorder
+	cancel context.CancelFunc
+}
+
+func (w *notificationAuthorizationRecorder) Write(body []byte) (int, error) {
+	n, err := w.ResponseRecorder.Write(body)
+	if strings.Contains(w.Body.String(), "member-private-notification") {
+		w.cancel()
+	}
+	return n, err
 }
