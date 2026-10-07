@@ -5833,7 +5833,7 @@ export type PostApiRunsIdBody = {
   op: "retry" | "dismiss"
 }
 
-export type PostApiRunsIdResponse = HomeBackgroundReceipt | HomeBackgroundReceipt
+export type PostApiRunsIdResponse = HomeBackgroundReceipt
 
 export interface PostApiRunsIdInput {
   readonly path: { readonly id: number }

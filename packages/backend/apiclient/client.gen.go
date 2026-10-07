@@ -5865,8 +5865,8 @@ func (c *Client) GetAPIReviewsID(ctx context.Context, id string) (AnyJSON, error
 }
 
 // PostAPIRunsID calls POST /api/runs/{id}.
-func (c *Client) PostAPIRunsID(ctx context.Context, id int64, idempotencyKey string, body PostAPIRunsIDBody) (json.RawMessage, error) {
-	var out json.RawMessage
+func (c *Client) PostAPIRunsID(ctx context.Context, id int64, idempotencyKey string, body PostAPIRunsIDBody) (HomeBackgroundReceipt, error) {
+	var out HomeBackgroundReceipt
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/runs/"+url.PathEscape(strconv.FormatInt(id, 10)), nil, body, &out)
 	return out, err
 }
