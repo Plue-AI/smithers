@@ -92,7 +92,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/todos/T12", ""},
 		{http.MethodPost, "/api/todos/12/answer/x", ""},
 		{http.MethodPut, "/api/todos/12", ""},
-		{http.MethodPut, "/api/install", ""},
+		{http.MethodPut, "/api/install", "settings"},
 		{http.MethodPost, "/api/install/setup/models", "settings.setup"},
 		{http.MethodPost, "/api/model/credential", ""},
 		{http.MethodPost, "/api/user/tokens", "self"},

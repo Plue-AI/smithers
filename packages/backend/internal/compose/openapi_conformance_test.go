@@ -131,6 +131,7 @@ type conformanceServices struct {
 	terminal *routes.WorkspaceTerminalHandler
 	live     *routes.LiveHandler
 	wiki     *services.WikiService
+	workspace *routes.WorkspaceHandler
 }
 
 func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService, supplied ...conformanceServices) chi.Router {
@@ -150,6 +151,9 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
+	}
+	if deps.workspace != nil {
+		workspaceHandler = deps.workspace
 	}
 	wiki := deps.wiki
 	if wiki == nil {

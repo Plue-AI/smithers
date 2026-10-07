@@ -34,6 +34,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -159,6 +161,8 @@ type ApprovalPushNotifier interface {
 // ApprovalsService owns the approvals lifecycle. Construct via
 // NewApprovalsService.
 type ApprovalsService struct {
+	installQueries    *db.Queries
+	installStore      MythicalStore
 	confirmationStore MythicalStore
 	confirmationTodos *MythicalService
 	q                 ApprovalsQuerier
@@ -167,6 +171,16 @@ type ApprovalsService struct {
 }
 
 type ApprovalsServiceOption func(*ApprovalsService)
+
+// ConfigureInstallAuthorization binds retained approval decisions to the same
+// command authorizer as the install router, including direct service calls.
+// Composition calls this before serving requests; Plue leaves it unset.
+func (s *ApprovalsService) ConfigureInstallAuthorization(q *db.Queries, stores ...MythicalStore) {
+	s.installQueries = q
+	if len(stores) > 0 {
+		s.installStore = stores[0]
+	}
+}
 
 func WithApprovalPushNotifier(notifier ApprovalPushNotifier) ApprovalsServiceOption {
 	return func(s *ApprovalsService) {
@@ -301,6 +315,20 @@ func (s *ApprovalsService) Decide(ctx context.Context, input DecideApprovalInput
 	}
 	if input.RepositoryID <= 0 {
 		return ApprovalResponse{}, pkgerrors.BadRequest("repository context required")
+	}
+	if s.installQueries != nil {
+		command := "approval.approve"
+		if input.Decision == ApprovalStateRejected {
+			command = "approval.deny"
+		}
+		decision, err := Authorize(ctx, s.installQueries, command)
+		if err != nil {
+			return ApprovalResponse{}, err
+		}
+		if decision.UserID != input.UserID {
+			return ApprovalResponse{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+		}
+		return s.decideInstallApproval(ctx, input, command, decision)
 	}
 	now := input.Now
 	if now.IsZero() {
@@ -568,4 +596,61 @@ func timestampOrNull(t time.Time) pgtype.Timestamptz {
 		return pgtype.Timestamptz{}
 	}
 	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+// Retained human approval writes and replays share the live credential/member
+// fence used by confirmations. Only liveness and stored subjects are refreshed;
+// the ordinary in-flight role decision stays bound to this request.
+func (s *ApprovalsService) decideInstallApproval(ctx context.Context, input DecideApprovalInput, command string, decision InstallAuthorization) (ApprovalResponse, error) {
+	if s.installStore == nil {
+		return ApprovalResponse{}, pkgerrors.Internal("approval transaction store unavailable")
+	}
+	var response ApprovalResponse
+	var decisionErr error
+	audit := &deferredApprovalAudit{}
+	err := pgx.BeginFunc(ctx, s.installStore, func(tx pgx.Tx) error {
+		original := middleware.AuthInfoFromContext(ctx)
+		live, repository, err := lockInstallWriteCredential(ctx, tx, original)
+		if err != nil {
+			return err
+		}
+		fresh := middleware.AuthInfoFromContext(live)
+		if repository != input.RepositoryID || fresh.RawScopes != original.RawScopes {
+			return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+		}
+		if err := identity.NewMemberBoundary(db.New(tx)).AuthorizeMember(identity.WithMemberRoute(live), input.UserID); err != nil {
+			return err
+		}
+		live = WithInstallAuthorization(live, command, decision)
+		worker := *s
+		worker.q = db.New(tx)
+		worker.installQueries = nil
+		worker.installStore = nil
+		worker.audit = audit
+		response, decisionErr = worker.Decide(live, input)
+		if decisionErr != nil {
+			var refusal *pkgerrors.APIError
+			// Expiry persists its terminal state even though deciding it is a
+			// client error. All infrastructure errors roll the write back.
+			if !stdErrors.As(decisionErr, &refusal) || refusal.Status >= 500 {
+				return decisionErr
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return ApprovalResponse{}, err
+	}
+	if s.audit != nil {
+		for _, event := range audit.events {
+			s.audit.Log(ctx, event)
+		}
+	}
+	return response, decisionErr
+}
+
+type deferredApprovalAudit struct{ events []AuditEvent }
+
+func (a *deferredApprovalAudit) Log(_ context.Context, event AuditEvent) {
+	a.events = append(a.events, event)
 }
