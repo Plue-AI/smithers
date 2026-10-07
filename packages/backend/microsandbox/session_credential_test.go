@@ -20,6 +20,7 @@ func TestSessionTokenRootInputsValidatedBeforeUseSupplemental(t *testing.T) {
 	script := `import hashlib,importlib.util,os,stat,sys,tempfile,types
 spec=importlib.util.spec_from_file_location("g",sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 scenario=sys.argv[2]
+os.umask(0o077) # fixture ancestors must be private regardless of the host umask
 with tempfile.TemporaryDirectory() as root:
  root=os.path.realpath(root); os.makedirs(root+"/run/smithers/sessions")
  outside=root+"/outside"; open(outside,"wb").write(b"root canary")
