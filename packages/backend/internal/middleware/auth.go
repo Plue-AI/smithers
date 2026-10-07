@@ -525,6 +525,16 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
 	{http.MethodDelete, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
+	// Provider account management is the owner's person-only Secrets surface.
+	// The pool's machine grant is separate and never admits these routes.
+	{http.MethodGet, "secrets.connections", regexp.MustCompile(`^/api/user/provider-connections(?:/[^/]+)?$`)},
+	{http.MethodPost, "secrets.connect", regexp.MustCompile(`^/api/user/provider-connections$`)},
+	{http.MethodPut, "secrets.move", regexp.MustCompile(`^/api/user/provider-connections/order$`)},
+	{http.MethodPost, "secrets.connect.codex", regexp.MustCompile(`^/api/user/provider-connections/codex/device(?:/[^/]+)?$`)},
+	{http.MethodDelete, "secrets.revoke", regexp.MustCompile(`^/api/user/provider-connections/[^/]+$`)},
+	{http.MethodPost, "secrets.connect", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/refresh$`)},
+	{http.MethodPost, "secrets.scope", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/grants$`)},
+	{http.MethodDelete, "secrets.scope", regexp.MustCompile(`^/api/user/provider-connections/[^/]+/grants/[0-9]+$`)},
 	// Maintainers add, replace and delete the repository's secrets
 	// (mvp.md §6.15, M-05; spec §5.2): a person-only command, so the
 	// owner's delegated credentials are refused here too. Org secrets stay
