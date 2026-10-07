@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -215,5 +219,41 @@ func TestRootScenarioEvidencePreservesEverySample(t *testing.T) {
 	}
 	if _, err := os.Stat(outside); !os.IsNotExist(err) {
 		t.Fatal("outside evidence path changed")
+	}
+}
+
+func TestRootObservationsRetainFailureAndRefuseLostEvidence(t *testing.T) {
+	root := t.TempDir()
+	failure := errors.New("installed fixture failed")
+	for index, observeErr := range []error{nil, failure} {
+		raw := []byte{0, 255, byte(index)}
+		err := retainGuestObservation(root, index, "sample", raw, observeErr)
+		if !errors.Is(err, observeErr) {
+			t.Fatalf("observation error lost: %v", err)
+		}
+		stem := filepath.Join(root, fmt.Sprintf("observation-%03d", index))
+		stored, err := os.ReadFile(stem + ".raw")
+		if err != nil || !bytes.Equal(stored, raw) {
+			t.Fatalf("raw failed output lost: %v", err)
+		}
+		metadata, err := os.ReadFile(stem + ".json")
+		var result struct {
+			Operation string `json:"operation"`
+			Error     string `json:"error"`
+			Bytes     int    `json:"bytes"`
+			UTC       string `json:"observed_utc"`
+		}
+		if err != nil || json.Unmarshal(metadata, &result) != nil || result.Operation != "sample" || result.Bytes != 3 || result.UTC == "" {
+			t.Fatalf("missing observation metadata: %s %v", metadata, err)
+		}
+		if (result.Error == "") != (observeErr == nil) {
+			t.Fatalf("failure metadata lost: %s", metadata)
+		}
+	}
+	for _, observeErr := range []error{nil, failure} {
+		err := retainGuestObservation(filepath.Join(root, "missing"), 1, "sample", []byte("raw"), observeErr)
+		if err == nil || (observeErr != nil && !errors.Is(err, failure)) {
+			t.Fatalf("lost evidence did not refuse: %v", err)
+		}
 	}
 }

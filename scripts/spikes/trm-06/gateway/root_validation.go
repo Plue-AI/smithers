@@ -129,6 +129,25 @@ func rootScenarioEvidence(evidence, scenario string) (string, error) {
 	return path, nil
 }
 
+// Retain raw fixture output before checking success or parsing policy samples.
+// A failed fixture's stderr/partial output is evidence too; failed storage never
+// permits a passing control. Numeric names keep selectors out of file paths.
+func retainGuestObservation(evidence string, index int, mode string, body []byte, observeErr error) error {
+	stem := filepath.Join(evidence, fmt.Sprintf("observation-%03d", index))
+	if err := os.WriteFile(stem+".raw", body, 0600); err != nil {
+		return errors.Join(observeErr, err)
+	}
+	result := map[string]any{"operation": mode, "observed_utc": time.Now().UTC().Format(time.RFC3339Nano), "bytes": len(body), "error": ""}
+	if observeErr != nil {
+		result["error"] = observeErr.Error()
+	}
+	metadata, err := json.Marshal(result)
+	if err == nil {
+		err = os.WriteFile(stem+".json", metadata, 0600)
+	}
+	return errors.Join(observeErr, err)
+}
+
 // Each poison is exercised independently and together in fresh disposable VMs.
 // The independently sampled supervisor must still have the literal PATH-only
 // environment; unchanged sentinel bytes detect workspace import execution.
@@ -193,10 +212,13 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 	if json.Unmarshal(data, &metadata) != nil || metadata.ID != id || metadata.Machine == "" {
 		return errAuthority
 	}
+	observation := 0
 	observe := func(mode string) ([]byte, error) {
 		// Only a literal, installed fixture selector is appended; no member code or
 		// path is evaluated by root. The source and selectors are bundle controlled.
-		return runGuestFixture(ctx, a, home, metadata.Machine, fixture, mode)
+		observation++
+		body, observeErr := runGuestFixture(ctx, a, home, metadata.Machine, fixture, mode)
+		return body, retainGuestObservation(evidence, observation, mode, body, observeErr)
 	}
 	environment, environmentFixture := startupEnvironmentFixture(scenario)
 	prepare := scenario

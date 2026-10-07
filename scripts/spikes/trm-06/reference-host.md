@@ -145,3 +145,8 @@ particular, `positive-after.json` is retained for every startup poison control
 instead of being overwritten by the next VM. The campaign receipt indexes
 completed scenarios and the failing scenario with its evidence path. Per-case
 passes do not change the campaign's incomplete status or reviewer acceptance.
+
+Every guest fixture invocation also retains numbered raw output and operation,
+timestamp, byte-count and error metadata before evaluation. Failed startup or
+fixture parsing therefore keeps its NO artifacts. Missing evidence storage is
+an error, rather than a passing control with discarded observations.
