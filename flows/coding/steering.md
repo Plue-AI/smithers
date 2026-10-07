@@ -89,6 +89,13 @@ correction to settle, and nothing for an unowned or standalone implementation.
 A TODO run never closes its lineage through this recipe; a finished run refuses
 with `notification_closed`.
 
+The root lineage is also where T-COL-12 delivers committed watcher notes: a
+`system-event` whose payload kind is `outside_change`, admitted for the TODO run
+id with coding participant `run:<run id>`. A step boundary that drains one
+renders it as the harness does, quoted data naming the actor and files and
+asking for a fresh read, and `appendFeedback` accepts it beside Messages. A
+person's message that claims the kind is still refused.
+
 After the action result is recorded, `appendFeedback(previous, receipt)` returns
 an Effect containing the combined planning feedback or a `CodingError`. It
 retains each notification's ID, actor and source provenance. The receipt matches
