@@ -28,9 +28,11 @@ import (
 // dispatch the next one. It does not substitute for guest/model-turn proof.
 type orderedFeedbackReceiver struct {
 	*reviewFixtureReceiver
-	entered chan string
-	holds   map[string]chan struct{}
-	order   []string
+	entered    chan string
+	holds      map[string]chan struct{}
+	order      []string
+	lostAck    chan struct{}
+	recoverAck chan struct{}
 }
 
 func (r *orderedFeedbackReceiver) receive(ctx context.Context, text string) error {
@@ -55,7 +57,20 @@ func (r *orderedFeedbackReceiver) Steer(ctx context.Context, input flowruntime.S
 	if err := r.receive(ctx, input.Body); err != nil {
 		return flowruntime.MutationResult{}, err
 	}
-	return r.reviewFixtureReceiver.Steer(ctx, input)
+	receipt, err := r.reviewFixtureReceiver.Steer(ctx, input)
+	if input.Body != "Lost acknowledgment steer" || err != nil {
+		return receipt, err
+	}
+	if receipt.Receipt.Tag == "Accepted" {
+		close(r.lostAck)
+		return flowruntime.MutationResult{}, fmt.Errorf("connection closed after durable admission")
+	}
+	select {
+	case <-r.recoverAck:
+		return receipt, nil
+	case <-ctx.Done():
+		return flowruntime.MutationResult{}, ctx.Err()
+	}
 }
 func (r *orderedFeedbackReceiver) Signal(ctx context.Context, input flowruntime.Signal) (flowruntime.MutationResult, error) {
 	var text string
@@ -104,7 +119,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	})
 	service.EnableTodoSteering()
 	receiver := &orderedFeedbackReceiver{reviewFixtureReceiver: &reviewFixtureReceiver{messages: map[string]flowruntime.Steer{}},
-		entered: make(chan string, 2), holds: map[string]chan struct{}{"Ordered steer": make(chan struct{}), "Ordered answer": make(chan struct{})}}
+		lostAck: make(chan struct{}), recoverAck: make(chan struct{}), entered: make(chan string, 2), holds: map[string]chan struct{}{"Ordered steer": make(chan struct{}), "Ordered answer": make(chan struct{})}}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil }), SteerAuthorizer: service, Projector: service})
@@ -269,6 +284,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	}{
 		{"Ordered steer", "Quick answer", false},
 		{"Ordered answer", "Quick steer", true},
+		{"Lost acknowledgment steer", "Answer after lost acknowledgment", false},
 	} {
 		waitID := fmt.Sprintf("ordered-question-%d", index)
 		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
@@ -294,8 +310,18 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		} else {
 			steer(pair.first)
 		}
+		entered := receiver.entered
+		if index == 2 {
+			select {
+			case <-receiver.lostAck:
+			case <-time.After(5 * time.Second):
+				t.Fatal("runtime never committed the uncertain input")
+			}
+			entered = make(chan string, 1)
+			entered <- pair.first
+		}
 		select {
-		case got := <-receiver.entered:
+		case got := <-entered:
 			require.Equal(t, pair.first, got)
 		case <-time.After(5 * time.Second):
 			t.Fatal("first input never entered the runtime")
@@ -328,7 +354,24 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 			}
 			return false
 		}, 200*time.Millisecond, 10*time.Millisecond, "later input overtook an unresolved predecessor")
-		close(receiver.holds[pair.first])
+		if index == 2 {
+			// Stop only our worker after the guest accepted the input but before
+			// PostgreSQL has its receipt. A new dispatcher has no local state.
+			cancel()
+			require.NoError(t, <-done)
+			dispatcher, err = flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil }), SteerAuthorizer: service, Projector: service})
+			require.NoError(t, err)
+			service.SetLauncher(dispatcher)
+			close(receiver.recoverAck)
+			workerCtx, cancel = context.WithCancel(ctx)
+			defer cancel()
+			done = make(chan error, 1)
+			go func() {
+				done <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "todo-feedback-restarted", Capacity: 2, Lease: time.Second, RetryDelay: 10 * time.Millisecond, MaxRetryDelay: 20 * time.Millisecond, PollInterval: 10 * time.Millisecond})
+			}()
+		} else {
+			close(receiver.holds[pair.first])
+		}
 		require.Eventually(t, func() bool {
 			receiver.mu.Lock()
 			defer receiver.mu.Unlock()
@@ -339,8 +382,28 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 			}
 			return false
 		}, 5*time.Second, 10*time.Millisecond)
+		if index == 2 {
+			require.Eventually(t, func() bool {
+				var recovered int
+				err := pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests
+				 WHERE operation='flow.runtime.steer' AND payload->>'body'=$1 AND state='completed'
+				 AND terminal_receipt->'receipt'->>'_tag'='AlreadyApplied'`, pair.first).Scan(&recovered)
+				return err == nil && recovered == 1
+			}, 5*time.Second, 10*time.Millisecond, "restart must persist the guest's duplicate receipt")
+		}
 		receiver.mu.Lock()
-		require.Equal(t, []string{pair.first, pair.second}, receiver.order[len(receiver.order)-2:])
+		if index == 2 {
+			require.Equal(t, pair.second, receiver.order[len(receiver.order)-1])
+			applied := 0
+			for _, message := range receiver.messages {
+				if message.Body == pair.first {
+					applied++
+				}
+			}
+			require.Equal(t, 1, applied, "receipt recovery must join the existing guest input")
+		} else {
+			require.Equal(t, []string{pair.first, pair.second}, receiver.order[len(receiver.order)-2:])
+		}
 		receiver.mu.Unlock()
 	}
 	// Removing the pinned-flow provider after admission holds the input;
