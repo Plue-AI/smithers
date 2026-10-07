@@ -89,6 +89,9 @@ func (h offlineGatewayHost) RunModelTest(ctx context.Context, owner int64, reque
 var rehearsalInstallations atomic.Int64
 
 type rehearsal struct {
+	// Fault controls retain only this fixture's engine and stop its original worker.
+	repositoryRoot string
+	stopBackend    func()
 	// stepBudget overrides readiness polling for non-latency checks under contention.
 	stepBudget     time.Duration
 	installationID int64
@@ -97,6 +100,7 @@ type rehearsal struct {
 	root           string
 	evidence       string
 	pool           *pgxpool.Pool
+	processRuntime *process.Runtime
 	repoClient     *repository.Client
 	fake           *githubfake.Server
 	compute        *sandboxfake.Provider
@@ -276,7 +280,8 @@ path = "lib.rs"
 	// The install's engine, composed as localbootstrap.Prepare composes it:
 	// it reserves main for the GitHub sync, and every door reads that fact
 	// from its in-process client. Source ready must import main through it.
-	engine, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
+	r.repositoryRoot = t.TempDir()
+	engine, err := repository.OpenLocal(repository.Config{StoragePath: r.repositoryRoot, AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
 	require.NoError(t, err, "build the repository's smithers-ffi library first")
 	// The install wiki composition consumes the same native library as the mirror.
 	// Resolve it once for both; go test runs from internal/compose, not the repo root.
@@ -315,6 +320,7 @@ path = "lib.rs"
 	require.NoError(t, err, string(output))
 	processRuntime, err := process.New(process.Config{Root: processRoot})
 	require.NoError(t, err)
+	r.processRuntime = processRuntime
 	t.Cleanup(func() { require.NoError(t, processRuntime.Close()) })
 	admittedRuntime := &rehearsalAdmissionRuntime{Runtime: processRuntime, aliases: map[string]string{}}
 	var workspace workspaceapi.WorkspaceRuntime = admittedRuntime
@@ -401,14 +407,20 @@ path = "lib.rs"
 	}
 	server.Start()
 	t.Cleanup(server.Close)
+	var stopBackend sync.Once
+	r.stopBackend = func() {
+		stopBackend.Do(func() {
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(15 * time.Second):
+				t.Error("composition shutdown timed out")
+			}
+		})
+	}
 	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			require.NoError(t, err)
-		case <-time.After(15 * time.Second):
-			t.Error("composition shutdown timed out")
-		}
+		r.stopBackend()
 		_ = os.WriteFile(filepath.Join(r.evidence, "backend.log"), []byte(r.logs.String()), 0600)
 		// Each coding host's journal (control.db, engine.db) names why a run
 		// failed; the runtime's directory is gone after the test.

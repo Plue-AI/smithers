@@ -448,24 +448,25 @@ func rootLayerFixtures() map[string]map[string]string {
 // ---- harness ----
 
 type rootLayerHarness struct {
-	stop       func()
-	t          *testing.T
-	pool       *pgxpool.Pool
-	origin     string
-	client     *http.Client
-	jar        *cookiejar.Jar
-	stdout     *lockedBuffer
-	logs       *lockedBuffer
-	seed       string
-	bare       string
-	storage    repohostserver.Config
-	repoClient *repohost.Client
-	sources    repositorySourceFiles
-	reader     *recordingSourceFiles
-	msb        *recordingMSB
-	runtime    *microsandbox.Runtime
-	slug       string
-	provider   *httptest.Server
+	stop         func()
+	t            *testing.T
+	pool         *pgxpool.Pool
+	origin       string
+	client       *http.Client
+	jar          *cookiejar.Jar
+	stdout       *lockedBuffer
+	logs         *lockedBuffer
+	seed         string
+	bare         string
+	storage      repohostserver.Config
+	repoClient   *repohost.Client
+	sources      repositorySourceFiles
+	reader       *recordingSourceFiles
+	msb          *recordingMSB
+	runtime      *microsandbox.Runtime
+	runtimeState string
+	slug         string
+	provider     *httptest.Server
 }
 
 func (h *rootLayerHarness) ctx(t *testing.T) context.Context {
@@ -563,6 +564,7 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayer
 			config.Root = bundletest.ProtectedTempDir(t)
 		}
 		if len(coding) == 0 {
+			h.runtimeState = config.Root
 			return
 		}
 		fixture := coding[0]
@@ -575,6 +577,7 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayer
 		config.BundlePrograms = []string{fixture.registry.Coding.Executable}
 		config.HostProfile = &fixture.profile
 		config.HostPorts = []uint16{uint16(port)}
+		h.runtimeState = config.Root
 	})
 	// Model access (step 5) needs the composed chat host, as in the J1
 	// rehearsal: the trusted model host runs on a process runtime, never in
