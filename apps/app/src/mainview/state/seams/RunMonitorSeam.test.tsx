@@ -149,3 +149,16 @@ test("live refreshes keep the selected historical frame and share its pending re
   expect(seam.snapshots.get("native-run").model?.title).toBe("Latest checks")
   stop(); seam.dispose()
 })
+
+test("native run-topic journal updates read the canonical monitor before mounting", async () => {
+  const h = harness()
+  const stop = h.seam.snapshots.subscribe("native-run", () => {})
+  h.send({ summary: { runId: "native-run", flowId: "todo" }, steps: [], events: [] })
+  await h.seam.trace("native-run")
+  expect(h.requests).toEqual([{ path: "/api/runs/native-run/trace", method: "GET" }])
+  expect(h.seam.snapshots.get("native-run").model?.state).toBe("interrupted")
+  h.send({ summary: { runId: "foreign-run", flowId: "todo" }, steps: [], events: [] })
+  expect(h.seam.snapshots.get("native-run")).toEqual({ error: "Run unavailable" })
+  expect(await h.seam.trace("native-run")).toBe("Run unavailable")
+  stop(); h.seam.dispose()
+})

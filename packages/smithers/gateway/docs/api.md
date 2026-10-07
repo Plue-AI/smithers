@@ -494,8 +494,9 @@ evidence do not acquire invented phases, successful checks, or file changes.
   spans, frame summaries, phase bands, milestone pins, and discipline notes.
 - `monitorFromJournal(run, records, at?)` adapts that same fold to the install
   monitor: recorded step instances, deterministic phases, approval waits,
-  bookkeeping and the raw journal. Rescheduled native nodes retain separate
-  instance keys. A replay folds only records through `at`, derives terminal
+  bookkeeping and the raw journal. Declared native graph pages retain
+  unreached nodes and dependency edges; recorded node instances supply their
+  live states. Rescheduled native nodes retain separate instance keys. A replay folds only records through `at`, derives terminal
   state from that prefix, and returns `replay: { at, last }`. It does not fetch
   a registry or execute presentation code. The current adapter does not yet
   reconstruct declared dependencies, all native wait kinds or priced usage;

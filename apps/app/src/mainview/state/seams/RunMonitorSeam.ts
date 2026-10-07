@@ -9,6 +9,10 @@ export interface RunMonitorSnapshots {
 }
 const unavailable = "Run unavailable"
 const empty: RunMonitorSnapshot = {}
+const RunTopicSchema = z.object({
+  summary: z.object({ runId: z.string().min(1), flowId: z.string().min(1) }),
+  steps: z.array(z.unknown()), events: z.array(z.unknown())
+})
 const RunListSchema = z.array(MonitorCardSchema.pick({ id: true, title: true }))
 
 /** The authenticated run topic is authoritative. HTTP trace reads never launch
@@ -24,6 +28,7 @@ export function createRunMonitorSeam(options: {
   const rows = new Map<string, RunMonitorSnapshot>()
   const listeners = new Map<string, Set<() => void>>()
   const subscriptions = new Map<string, () => void>()
+  const authorized = new Map<string, string | undefined>()
   const revisions = new Map<string, number>()
   const reads = new Map<string, { at?: number; owner?: string; revision: number; promise: Promise<string | void> }>()
   let disposed = false
@@ -42,9 +47,18 @@ export function createRunMonitorSeam(options: {
       if (owner !== options.owner?.()) return
       const value = options.live?.getSnapshot(topic)
       if (!value) return
-      if (value.error) { revisions.set(id, (revisions.get(id) ?? 0) + 1); publish(id, { error: unavailable }); return }
+      if (value.error) { authorized.delete(id); revisions.set(id, (revisions.get(id) ?? 0) + 1); publish(id, { error: unavailable }); return }
+      const source = RunTopicSchema.safeParse(value.data)
+      if (source.success && source.data.summary.runId === id.split(":").at(-1)) {
+        authorized.set(id, owner)
+        void trace(id, options.view?.(id)?.at).then(error => {
+          if (error) publish(id, { error }, owner)
+        })
+        return
+      }
       const parsed = MonitorCardSchema.safeParse(value.data)
-      if (!parsed.success || parsed.data.id !== id) { revisions.set(id, (revisions.get(id) ?? 0) + 1); publish(id, { error: unavailable }); return }
+      if (!parsed.success || parsed.data.id !== id) { authorized.delete(id); revisions.set(id, (revisions.get(id) ?? 0) + 1); publish(id, { error: unavailable }); return }
+      authorized.set(id, owner)
       const view = options.view?.(id)
       // Keep the selected historical frame while its read is pending. Live
       // snapshots still validate authority, but must not replace replay data.
@@ -68,7 +82,7 @@ export function createRunMonitorSeam(options: {
     }
   }
   const trace = async (id: string, at?: number): Promise<string | void> => {
-    if (disposed || !snapshots.get(id).model) return unavailable
+    if (disposed || !authorized.has(id) || authorized.get(id) !== options.owner?.()) return unavailable
     const owner = options.owner?.()
     const pending = reads.get(id)
     if (pending && pending.owner === owner && pending.at === at && pending.revision === revisions.get(id)) return pending.promise
@@ -99,7 +113,7 @@ export function createRunMonitorSeam(options: {
   const dispose = () => {
     disposed = true
     for (const stop of subscriptions.values()) stop()
-    subscriptions.clear(); rows.clear(); owners.clear(); listeners.clear(); revisions.clear(); reads.clear()
+    authorized.clear(); subscriptions.clear(); rows.clear(); owners.clear(); listeners.clear(); revisions.clear(); reads.clear()
   }
   return { snapshots, trace, list, dispose }
 }

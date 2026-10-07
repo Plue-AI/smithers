@@ -29,6 +29,7 @@ const Envelope = Schema.Struct({
 type Envelope = typeof Envelope.Type
 
 const decodeEnvelope = Schema.decodeUnknownOption(Envelope)
+const decodeGraph = Schema.decodeUnknownOption(EngineEvent.NodeGraph)
 const decodeScheduled = Schema.decodeUnknownOption(EngineEvent.NodeScheduledPayload)
 const decodeSettled = Schema.decodeUnknownOption(EngineEvent.NodeSettledPayload)
 const decodeAttempt = Schema.decodeUnknownOption(EngineEvent.AttemptPayload, { onExcessProperty: "error" })
@@ -83,6 +84,7 @@ interface Execution {
   parentKnown?: boolean | undefined
   flowName?: string | undefined
   coherent: boolean
+  graph?: EngineEvent.NodeGraph | undefined
   result?: { readonly value: unknown; readonly sequence: number } | undefined
   failure?: EngineExecutionEvidence["failure"] | undefined
 }
@@ -102,6 +104,8 @@ export interface EngineExecutionEvidence {
   readonly flowName?: string | undefined
   readonly input?: unknown | undefined
   readonly coherent: boolean
+  /** Declared nodes, including work not reached at this journal cursor. */
+  readonly graph?: EngineEvent.NodeGraph | undefined
   readonly status: string
   readonly result?: { readonly value: unknown; readonly sequence: number } | undefined
   /** Original classified failure bytes, never parsed from rendered detail. */
@@ -259,6 +263,17 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
         execution.span.children.push(current)
       }
       return current
+    }
+    if (envelope.eventType === EngineEvent.nodeEventTypes.planRecorded || envelope.eventType === EngineEvent.nodeEventTypes.subgraphAppended) {
+      const payload = envelope.payload as { graph?: unknown }
+      const graph = decodeGraph(payload?.graph)
+      if (Option.isSome(graph)) {
+        const nodes = new Map(execution.graph?.nodes.map(node => [node.id, node]))
+        for (const node of graph.value.nodes) nodes.set(node.id, node)
+        execution.graph = { ...graph.value, nodes: [...nodes.values()] }
+      }
+      generic()
+      continue
     }
     if (envelope.eventType === EngineEvent.nodeEventTypes.nodeScheduled || envelope.eventType === EngineEvent.nodeEventTypes.nodeSettled) {
       const scheduled = envelope.eventType === EngineEvent.nodeEventTypes.nodeScheduled
@@ -496,6 +511,7 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
     flowName: current.flowName,
     input: current.span.detail.input,
     coherent: current.coherent,
+    graph: current.graph,
     status: current.span.status,
     result: current.result,
     failure: current.failure

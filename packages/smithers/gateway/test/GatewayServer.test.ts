@@ -1334,13 +1334,17 @@ describe("the assembled gateway over a real loopback bind", () => {
       if (receipt._tag !== "Accepted" || receipt.runId === undefined) return yield* Effect.die("expected a run")
       const runId = receipt.runId
       const records = [
+        { eventType: "flows.engine.plan-recorded", payload: { flow: "system/test", generation: 0, nodes: 2, graph: { nodes: [
+          { id: "edit", kind: "action", tier: "sealed", dependsOn: [], action: "coding/edit-atom" },
+          { id: "check", kind: "action", tier: "sealed", dependsOn: ["edit"], action: "coding/check-command" }
+        ] } } },
         { eventType: "flows.engine.node-scheduled", payload: { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" } },
         { eventType: "flows.engine.node-settled", payload: { nodeId: "edit", outcome: "built", attempts: 1,
           result: { preview: "globalThis.monitorCanary = true", bytes: 9000, truncated: true } } }
       ]
       for (const [index, record] of records.entries()) yield* emit(runId, "control.engine.event", {
         version: 1, executionId: "native-edit", generation: 0, sequence: index + 1,
-        eventId: `edit-${index}`, sourceId: "engine", sourceSequence: index + 1, emittedAtMs: 100 + index,
+        eventId: `edit-${index}`, sourceId: "engine", sourceSequence: index + 1, emittedAtMs: 99 + index,
         ...record, meta: {}
       })
       const response = yield* Effect.promise(() => fetch(`${url}/projections`, {
@@ -1368,6 +1372,10 @@ describe("the assembled gateway over a real loopback bind", () => {
       })
       const snapshot = yield* monitor()
       expect(snapshot.id).toBe(runId)
+      expect(snapshot.attempts[0].graph).toEqual([
+        { id: "engine-node:native-edit%3A0:edit", label: "Edited the files", state: "done", deps: [] },
+        { id: "engine-node:native-edit%3A0:check", label: "Ran checks", state: "next", deps: ["engine-node:native-edit%3A0:edit"] }
+      ])
       expect(snapshot.attempts[0].steps).toMatchObject([{ label: "Edited the files", state: "completed", started_at: "1970-01-01T00:00:00.100Z", ended_at: "1970-01-01T00:00:00.101Z" }])
       expect(snapshot.attempts[0].steps[0].usage).toBeUndefined()
       expect(snapshot.attempts[0].phases[0].cells[0].output).toBe("globalThis.monitorCanary = true")
