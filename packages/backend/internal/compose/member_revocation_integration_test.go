@@ -44,7 +44,7 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 		require.NoError(t, err)
 	}
 	grant()
-	// W7's unlanded guest process boundary is represented only by this fake.
+	// Guest process termination is represented only by this test fake.
 	// Database, DELETE, durable recovery and roster delivery are production code.
 	var guestMu sync.Mutex
 	var partitioned, guestMember, guestChild bool

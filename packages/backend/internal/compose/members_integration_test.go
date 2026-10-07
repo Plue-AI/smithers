@@ -642,6 +642,9 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	status, _ = request("GET", "/api/members", "", "writer-cookie-2")
 	require.Equal(t, 401, status, "restoring never revives a revoked session")
 	login("writer", 302)
+	t.Run("partitioned_link_reconciles_current_roster_before_ready", func(t *testing.T) {
+		exerciseRevocationReconnect(t, pool, writer, request, func() { login("writer", 302) })
+	})
 	exerciseMemberRevocation(t, pool, origin, writer, bus, request, createSession)
 	t.Run("imported_ssh_keys", func(t *testing.T) {
 		exerciseImportedSSHKeys(t, pool, members, github, writer, bus, request, createSession)
