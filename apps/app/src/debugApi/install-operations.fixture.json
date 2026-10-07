@@ -361,7 +361,6 @@
   {"id":"post_api_repos_owner_repo_workspaces_id_snapshot","method":"POST","path":"/api/repos/{owner}/{repo}/workspaces/{id}/snapshot"},
   {"id":"post_api_repos_owner_repo_workspaces_id_suspend","method":"POST","path":"/api/repos/{owner}/{repo}/workspaces/{id}/suspend"},
   {"id":"post_api_repos_from_template","method":"POST","path":"/api/repos/from-template"},
-  {"id":"put_api_repos_owner_repo_landings_number_land","method":"PUT","path":"/api/repos/{owner}/{repo}/landings/{number}/land"},
   {"id":"put_api_repos_owner_repo_landings_requests_request_uuid","method":"PUT","path":"/api/repos/{owner}/{repo}/landings/requests/{request_uuid}"},
   {"id":"get_api_repos_owner_repo_home","method":"GET","path":"/api/repos/{owner}/{repo}/home"},
   {"id":"get_api_repos_owner_repo_issues_number_comments_comment_reactions","method":"GET","path":"/api/repos/{owner}/{repo}/issues/{number}/comments/{comment}/reactions"},
