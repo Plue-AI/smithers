@@ -100,7 +100,9 @@ func (q FastQuota) Verify(ctx context.Context, install, token string) error {
 	}
 	hash := sha256.Sum256([]byte(token))
 	var valid bool
-	err := q.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM fast_model_installs WHERE install_id=$1 AND credential_hash=$2 AND NOT revoked)`, install, hash[:]).Scan(&valid)
+	err := q.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM fast_model_installs i JOIN users u ON u.id=i.owner_id
+        WHERE i.install_id=$1 AND i.credential_hash=$2 AND NOT i.revoked
+        AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL)`, install, hash[:]).Scan(&valid)
 	if err != nil {
 		return err
 	}
@@ -124,7 +126,9 @@ func (q FastQuota) Execute(ctx context.Context, install, token string, bound int
 	hash := sha256.Sum256([]byte(token))
 	err := pgx.BeginFunc(ctx, q.DB, func(tx pgx.Tx) error {
 		var valid bool
-		err := tx.QueryRow(ctx, `SELECT credential_hash=$2 AND NOT revoked FROM fast_model_installs WHERE install_id=$1 FOR UPDATE`, install, hash[:]).Scan(&valid)
+		err := tx.QueryRow(ctx, `SELECT credential_hash=$2 AND NOT revoked AND EXISTS(SELECT 1 FROM users u
+            WHERE u.id=fast_model_installs.owner_id AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL)
+            FROM fast_model_installs WHERE install_id=$1 FOR UPDATE`, install, hash[:]).Scan(&valid)
 		if err != nil {
 			return err
 		}
@@ -203,7 +207,8 @@ func (q FastQuota) ResolveInstall(ctx context.Context, token string) (string, er
 	}
 	hash := sha256.Sum256([]byte(token))
 	var install string
-	err := q.DB.QueryRow(ctx, `SELECT install_id::text FROM fast_model_installs WHERE credential_hash=$1 AND NOT revoked`, hash[:]).Scan(&install)
+	err := q.DB.QueryRow(ctx, `SELECT i.install_id::text FROM fast_model_installs i JOIN users u ON u.id=i.owner_id
+        WHERE i.credential_hash=$1 AND NOT i.revoked AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL`, hash[:]).Scan(&install)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrInstallCredential
 	}

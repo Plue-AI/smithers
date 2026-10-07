@@ -359,3 +359,75 @@ func TestFastGatewayComposedRedirectMissingUsageAndUnavailableKeyPostgres(t *tes
 	require.NoError(t, err)
 	require.EqualValues(t, 5000, left)
 }
+
+// Reading an authenticated request may race an account's disable/revocation.
+type fastGatewayReadHook struct {
+	reader io.Reader
+	hook   func()
+	called bool
+}
+
+func (r *fastGatewayReadHook) Read(p []byte) (int, error) {
+	if !r.called {
+		r.called = true
+		r.hook()
+	}
+	return r.reader.Read(p)
+}
+
+func TestFastGatewayComposedDisabledOwnerCannotSpendPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	var owner int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('disabled-owner','disabled-owner') RETURNING id`).Scan(&owner))
+	quota := credits.FastQuota{DB: pool, DailyTokens: 5000}
+	install := uuid.NewString()
+	token, err := quota.Issue(ctx, owner, install)
+	require.NoError(t, err)
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":8,"completion_tokens":2}}`))
+	}))
+	defer upstream.Close()
+	gateway := &modelproxy.FastGateway{Quota: quota, Keys: modelproxy.StaticKeys{modelproxy.ProviderCerebras: "disabled-owner-platform-key"}, Upstream: upstream.URL}
+	router := githubAppSetupComposeRouter(testConfigAllFlagsOn(), pool, nil, routerExtras{FastGateway: gateway})
+	body := `{"model":"gpt-oss-120b","max_completion_tokens":10,"messages":[{"role":"user","content":"hello"}]}`
+	call := func(explicitInstall bool, reader io.Reader) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", modelproxy.FastGatewayPath+"/v1/chat/completions", reader)
+		r.Header.Set("Authorization", "Bearer "+token)
+		if explicitInstall {
+			r.Header.Set(modelproxy.InstallHeader, install)
+		}
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, r)
+		return res
+	}
+	for _, disabled := range []string{"is_active=false", "prohibit_login=true", "deleted_at=now()"} {
+		_, err = pool.Exec(ctx, `UPDATE users SET `+disabled+` WHERE id=$1`, owner)
+		require.NoError(t, err)
+		for _, header := range []bool{false, true} {
+			res := call(header, strings.NewReader(body))
+			require.Equal(t, 401, res.Code, res.Body.String())
+		}
+		_, err = pool.Exec(ctx, `UPDATE users SET is_active=true,prohibit_login=false,deleted_at=NULL WHERE id=$1`, owner)
+		require.NoError(t, err)
+	}
+	hook := &fastGatewayReadHook{reader: strings.NewReader(body), hook: func() {
+		_, err = pool.Exec(ctx, `UPDATE users SET is_active=false WHERE id=$1`, owner)
+		require.NoError(t, err)
+	}}
+	res := call(false, hook)
+	require.True(t, hook.called)
+	require.Equal(t, 401, res.Code, res.Body.String())
+	require.Zero(t, calls.Load())
+	var count int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM fast_model_counts`).Scan(&count))
+	require.Zero(t, count, "disabled owners cannot reserve quota")
+	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, owner)
+	require.NoError(t, err)
+	res = call(false, strings.NewReader(body))
+	require.Equal(t, 200, res.Code, res.Body.String())
+	require.EqualValues(t, 1, calls.Load())
+}
