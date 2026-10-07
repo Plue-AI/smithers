@@ -1204,6 +1204,156 @@ mod dispatcher {
         assert_eq!(disk.0.lock().unwrap().files["a.rs"].len(), (1 << 20) + 1);
     }
     #[test]
+    fn dispatcher_rewrites_flush_typing_then_reconcile_disk_before_thaw() {
+        struct Rewrite {
+            disk: Shared,
+            calls: Mutex<Vec<&'static str>>,
+        }
+        impl hooks::Watcher for Rewrite {
+            fn drain(&self, _: &mut LockCx) -> hooks::Result<()> {
+                self.calls.lock().unwrap().push("drain");
+                Ok(())
+            }
+            fn close_bursts(&self, _: &mut LockCx) -> hooks::Result<()> {
+                self.calls.lock().unwrap().push("bursts");
+                Ok(())
+            }
+        }
+        impl hooks::Broker for Rewrite {
+            fn freeze(&self, _: std::time::Duration) -> hooks::Result<Option<u32>> {
+                self.calls.lock().unwrap().push("freeze");
+                Ok(None)
+            }
+            fn thaw(&self) -> hooks::Result<()> {
+                self.calls.lock().unwrap().push("thaw");
+                Ok(())
+            }
+        }
+        impl hooks::Core for Rewrite {
+            fn validate_rebase(&self, onto: [u8; 20]) -> hooks::Result<()> {
+                assert_eq!(onto, [17; 20]);
+                Ok(())
+            }
+            fn validate_return_to_item(&self) -> hooks::Result<()> {
+                Ok(())
+            }
+            fn return_to_item(&self, cx: &mut LockCx) -> hooks::Result<[u8; 20]> {
+                self.rebase(cx, [17; 20])
+            }
+            fn capture_local(&self, _: &mut LockCx) -> hooks::Result<()> {
+                assert_eq!(self.disk.0.lock().unwrap().files["a.rs"], b"abc typing");
+                self.calls.lock().unwrap().push("capture");
+                Ok(())
+            }
+            fn rebase(&self, _: &mut LockCx, _: [u8; 20]) -> hooks::Result<[u8; 20]> {
+                self.calls.lock().unwrap().push("rewrite");
+                self.disk
+                    .0
+                    .lock()
+                    .unwrap()
+                    .files
+                    .insert("a.rs".into(), b"abc typing\nrebased\n".to_vec());
+                Ok([34; 20])
+            }
+        }
+        for method in [11, 12] {
+            let (disk, _, service, mut cx, id, epoch) = setup();
+            let peer = editor(&sync(&mut cx, id), epoch.client_id as u64);
+            let before = peer.transact().state_vector();
+            peer.get_or_insert_text("content")
+                .insert(&mut peer.transact_mut(), 3, " typing");
+            assert_eq!(
+                rpc::dispatch(
+                    &input(
+                        id,
+                        1,
+                        "host",
+                        SyncMessage::Update(peer.transact().encode_state_as_update_v1(&before))
+                    ),
+                    &mut cx
+                )
+                .unwrap()
+                .payload[0],
+                3
+            );
+            let rewrite = Arc::new(Rewrite {
+                disk: disk.clone(),
+                calls: Mutex::new(vec![]),
+            });
+            cx.hooks.watcher = rewrite.clone();
+            cx.hooks.core = rewrite.clone();
+            cx.hooks.broker = rewrite.clone();
+            let mut fields = vec![];
+            if method == 11 {
+                fields.push(conn::field(1, [17; 20]));
+            }
+            fields.push(conn::field(
+                if method == 11 { 2 } else { 1 },
+                conn::actor_bytes(&hooks::Actor::Principal(b"Rebased onto T2".to_vec())),
+            ));
+            let reply = rpc::dispatch(&control(method, &fields), &mut cx).unwrap();
+            let result = conn::fields("response", &reply.payload[1..]).unwrap()[1].1;
+            assert_eq!(result[0], method);
+            assert_eq!(
+                *rewrite.calls.lock().unwrap(),
+                ["freeze", "drain", "bursts", "capture", "rewrite", "thaw"]
+            );
+            assert!(!cx.rewrite_pending);
+            let doc = editor(&sync(&mut cx, id), 999);
+            assert_eq!(
+                doc.get_or_insert_text("content")
+                    .get_string(&doc.transact()),
+                "abc typing\nrebased\n"
+            );
+            assert!(authors::entries(&doc)
+                .unwrap()
+                .values()
+                .any(|actor| actor == "Rebased onto T2"));
+            let frames = service.poll(&mut cx).unwrap();
+            assert!(frames
+                .iter()
+                .any(|frame| Document::decode_v2(&frame.payload).unwrap().msg == 3));
+            service.flush_all(&mut cx).unwrap();
+            assert_eq!(
+                disk.0.lock().unwrap().files["a.rs"],
+                b"abc typing\nrebased\n"
+            );
+        }
+    }
+    #[test]
+    fn stream_receipts_do_not_consume_branch_file_saved_or_gone_notices() {
+        let (disk, clock, service, mut cx, _, _) = setup();
+        clock.0.store(200, Ordering::Relaxed);
+        let frames = service.poll(&mut cx).unwrap();
+        assert!(frames
+            .iter()
+            .any(|f| Document::decode_v2(&f.payload).unwrap().msg == 6));
+        let projection = service.projections(&mut cx).unwrap();
+        assert_eq!(projection.len(), 1);
+        assert_eq!(projection[0].saved_digest, digest(b"abc"));
+        assert_eq!(projection[0].saved_at_ms, Some(200));
+        assert!(service.take_notices(&mut cx).unwrap().iter().any(|n| matches!(n, Notice::Saved { path, digest: value, .. } if path == "a.rs" && *value == digest(b"abc"))));
+        assert!(service.take_notices(&mut cx).unwrap().is_empty());
+        disk.0.lock().unwrap().files.remove("a.rs");
+        service
+            .completed_write(&mut cx, "a.rs", &hooks::Actor::Outside)
+            .unwrap();
+        assert!(service
+            .poll(&mut cx)
+            .unwrap()
+            .iter()
+            .any(|f| Document::decode_v2(&f.payload).unwrap().gone_kind == 1));
+        assert!(matches!(
+            service.projections(&mut cx).unwrap()[0].gone,
+            Some(Gone::Deleted { .. })
+        ));
+        assert!(service
+            .take_notices(&mut cx)
+            .unwrap()
+            .iter()
+            .any(|n| matches!(n, Notice::Gone { .. })));
+    }
+    #[test]
     fn unopened_text_write_compares_creates_and_reports_displaced_bytes() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
         let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
