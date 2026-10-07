@@ -29,17 +29,18 @@ type WikiHost struct {
 	pages   map[int64]*wikiDocument
 }
 type wikiDocument struct {
-	idle    *time.Timer
-	release func()
-	host    *WikiHost
-	mu      sync.Mutex
-	row     db.GetWikiDocumentRow
-	doc     *livedocument.Document
-	peers   map[*wikiStream]bool
-	timer   *time.Timer
-	oldest  time.Time
-	actor   int64
-	closed  bool
+	idle            *time.Timer
+	release         func()
+	host            *WikiHost
+	mu              sync.Mutex
+	row             db.GetWikiDocumentRow
+	doc             *livedocument.Document
+	peers           map[*wikiStream]bool
+	timer           *time.Timer
+	timerGeneration uint64
+	oldest          time.Time
+	actor           int64
+	closed          bool
 }
 type wikiStream struct {
 	page   *wikiDocument
@@ -302,13 +303,20 @@ func (s *wikiStream) Send(ctx context.Context, raw []byte) error {
 	if p.timer != nil {
 		p.timer.Stop()
 	}
-	p.timer = time.AfterFunc(delay, p.flush)
+	p.scheduleFlush(delay)
 	return nil
 }
-func (p *wikiDocument) flush() {
+
+// Caller holds p.mu. Stop cannot retract a callback already waiting on it.
+func (p *wikiDocument) scheduleFlush(delay time.Duration) {
+	p.timerGeneration++
+	generation := p.timerGeneration
+	p.timer = time.AfterFunc(delay, func() { p.flush(generation) })
+}
+func (p *wikiDocument) flush(generation uint64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed || p.oldest.IsZero() {
+	if generation != p.timerGeneration || p.closed || p.oldest.IsZero() {
 		return
 	}
 	state, err := p.doc.State()
@@ -330,7 +338,7 @@ func (p *wikiDocument) flush() {
 	defer cancel()
 	row, err := p.host.Commit(ctx, p.actor, p.row, state, vector, text)
 	if err != nil {
-		p.timer = time.AfterFunc(time.Second, p.flush)
+		p.scheduleFlush(time.Second)
 		return
 	}
 	// A CAS conflict can add persisted concurrent operations. Merge them while

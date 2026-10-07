@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -45,6 +46,10 @@ func TestWikiHostCrashChild(t *testing.T) {
 	require.NoError(t, err)
 	defer pool.Close()
 	q := db.New(pool)
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	path := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	native := repohostffi.New(path)
 	require.NoError(t, native.Load())
