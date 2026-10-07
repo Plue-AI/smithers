@@ -4,7 +4,6 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { text } from "@smthrs/ui/flow-form"
 import { flow, RepoTarget, NoPayload } from "./Declare"
 import type { FlowEntry, FlowRequirement, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -43,24 +42,7 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     args: "<repoKey>",
     input: Schema.Struct({ repo: Schema.String }),
     handler: ({ repo }) => actions.selectRepo(repo)
-  }),
-  /*
-   * The sidebar's file tree: a repo
-   * row's caret expands the copy's root, a directory row its own path — the
-   * row id grammar, `<copyId>#<path>`. Harmless, so every door has it; the
-   * agent reads contents with files.list and files.read, the same route.
-   */
-  flow({
-    name: "repo.tree", visibility: "in-card", hidden: true, discloseToAgent: false,
-    form: { args: (payload) => text(payload, "path") === undefined ? text(payload, "copy") ?? "" : `${text(payload, "copy")}#${text(payload, "path")}` },
-    summary: "Expand or collapse a directory of a working copy (a local checkout or a cloud workspace)",
-    /* A workspace copy lists through Smithers Cloud (RepoTreeSeam). */
-    runtime: ["cloud"],
-    args: "<copyId>[#path]",
-    input: Schema.Struct({ copy: Schema.String, path: Schema.optional(Schema.String) }),
-    handler: ({ copy, path }) => actions.toggleRepoTree(copy, path)
-  })
-]
+  }),]
 
 /** Recorded first-run doors now use the install Setup card. */
 export const tutorialRepositoryFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [

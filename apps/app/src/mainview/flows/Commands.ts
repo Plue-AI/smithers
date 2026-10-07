@@ -735,7 +735,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     }
     // JSON can parse successfully while omitting a required schema field.
     // Let the form collect it before the binding can produce an input error.
-    const fields = formFieldsFor(target.input, target.metadata.form)
+    const fields = formFieldsFor(target.input, target.metadata.form, "payload" in parsed ? parsed.payload : {})
     // A field the named input makes required (FormHints.requires) is asked for like a schema-required one.
     const requires = "error" in parsed ? [] : target.metadata.form?.requires?.(parsed.payload) ?? []
     if ("error" in parsed || fields.some(field => (field.required || requires.includes(field.name)) && (field.kind === "write-only"

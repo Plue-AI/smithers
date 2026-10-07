@@ -75,7 +75,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "prs.view",
   "prs.tab",
   "branches",
-  "files.list",
   "github.mirror-sync",
   "github.mirror.retry-ref",
   "repos.import.retry",
@@ -88,8 +87,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "box.session.destroy",
   "box.delete",
   "box.facet",
-  "box.files",
-  "box.file",
   "box.services",
   "box.egress",
   "box.images",
@@ -113,7 +110,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "form.set",
   "form.submit",
   "repo.select",
-  "repo.tree",
 ]
 
 /** adminFlows at the split, in registration order. */

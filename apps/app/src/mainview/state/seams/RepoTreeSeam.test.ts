@@ -1,3 +1,6 @@
+import { Authorize } from "@smthrs/chain"
+import { Effect } from "effect"
+import { savedFileNavigationArgs } from "../../flows/FileNavigationPayload"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 
@@ -171,21 +174,21 @@ describe("repo tree seam — one directory per request, the route's answer verba
   /* An id no copy holds is a refusal from the controller, before the seam. */
   test("an unknown copy is a refusal, and nothing is asked", async () => {
     const { controller, requests, boxRequests, sharedRequests } = await treeController()
-    const unknown = await controller.commands.run("repo.tree", "workspace:nowhere")
+    const unknown = await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "workspace:nowhere"))
     expect(unknown.status).toBe("failed")
     expect(JSON.stringify(unknown)).toContain("There is no working copy with id workspace:nowhere.")
     expect(requests).toEqual([])
     expect(boxRequests).toEqual([])
     expect(sharedRequests).toEqual([])
     // A blank line lacks the copy id: the form asks for it (THE FORM LAW), nothing is refused.
-    const blank = await controller.commands.run("repo.tree", "")
-    expect(blank).toEqual({ status: "form", flow: "repo.tree", cardId: "form-repo.tree", fields: ["copy"] })
+    const blank = await controller.commands.run("files", savedFileNavigationArgs("repo.tree", ""))
+    expect(blank).toEqual({ status: "form", flow: "files", cardId: "form-files", fields: ["copy"] })
   })
 
   test("the rows are collection state for this launch only: a store reopened over the same storage starts collapsed", async () => {
     const { store, controller, storage, settle } = await treeController()
     await store.dispatch({ type: "workingcopies.workspaces.loaded", actor: "system", copies: [boxCopy("ws-1", "running")] }).isPersisted.promise
-    expect((await controller.commands.run("repo.tree", "ws-1")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1"))).status).toBe("executed")
     expect(store.collections.repoTree.size).toBe(1)
     expect([...store.collections.repoTree.values()][0]?.expanded).toBe(true)
     await controller.dispose()
@@ -196,13 +199,16 @@ describe("repo tree seam — one directory per request, the route's answer verba
     expect(storage.getItem("smithers-mvp.app-repo-tree")).toBeNull()
   })
 
-  test("repo.tree retains its callable flow while the deferred surface stays hidden; the agent reads contents with files.list", async () => {
-    const { controller } = await treeController()
-    const catalog = controller.commands.all().find((command) => command.name === "repo.tree")
-    expect(catalog?.hidden).toBe(true)
-    expect(controller.slashItems("repo.tree").some(row => row.flow.name === "repo.tree")).toBe(false)
-    expect(catalog?.confirm).toBeUndefined()
-    expect(controller.commands.find("repo.tree")?.binding.descriptor.modelInvocable).toBe(true)
+  test("the canonical Files door retains reads while refusing agent tree selection", async () => {
+    const { controller, store, requests } = await treeController()
+    expect(controller.commands.find("repo.tree")).toBeUndefined()
+    expect(controller.commands.find("files")?.binding.descriptor.modelInvocable).toBe(true)
+    const before = requests.length
+    const answer = await controller.commands.runForAgent("files", JSON.stringify({ operation: "tree", copy: "ws-1" }), { lineage: "tree-actor", slot: { chain: "chain", link: 1, ordinal: 1 }, authorize: Authorize.make({ authorize: () => Effect.void }), refused: () => {} })
+    expect(answer.status).toBe("failed")
+    if (answer.status === "failed") expect(answer.error).toContain("Only a person")
+    expect(requests.length).toBe(before)
+    expect(store.collections.repoTree.size).toBe(0)
   })
 })
 
@@ -223,7 +229,7 @@ describe("repo tree seam: a cloud workspace copy reads the box's files route", (
 
   test("/repo.tree <boxCopy> lists the box's root through GET .../workspaces/{id}/files?path= and maps plue's entries to the tree's rows", async () => {
     const { store, controller, requests, boxRequests } = await loadBox([boxCopy("ws-1", "running")])
-    expect((await controller.commands.run("repo.tree", "ws-1")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1"))).status).toBe("executed")
     expect(boxRequests).toEqual(["/repos/will/flows/workspaces/ws-1/files?path="])
     // The local route is never asked for a box.
     expect(requests).toEqual([])
@@ -238,14 +244,14 @@ describe("repo tree seam: a cloud workspace copy reads the box's files route", (
     })
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", ""))?.error).toBeUndefined()
     // A nested directory is one more request with its path; an empty one is a loaded row with no entries.
-    expect((await controller.commands.run("repo.tree", "ws-1#apps")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1#apps"))).status).toBe("executed")
     expect(boxRequests[1]).toBe("/repos/will/flows/workspaces/ws-1/files?path=apps")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", "apps"))?.entries).toEqual([{ name: "ui", kind: "dir" }])
-    expect((await controller.commands.run("repo.tree", "ws-1#apps/ui/")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1#apps/ui/"))).status).toBe("executed")
     expect(boxRequests[2]).toBe("/repos/will/flows/workspaces/ws-1/files?path=apps%2Fui")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", "apps/ui"))).toMatchObject({ state: "loaded", entries: [] })
     // Collapsing is collection state: no request.
-    expect((await controller.commands.run("repo.tree", "ws-1#apps")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1#apps"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", "apps"))?.expanded).toBe(false)
     expect(boxRequests).toHaveLength(3)
   })
@@ -257,19 +263,19 @@ describe("repo tree seam: a cloud workspace copy reads the box's files route", (
       boxCopy("ws-3", "pending"),
       boxCopy("ws-4", "failed")
     ])
-    expect((await controller.commands.run("repo.tree", "ws-1")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", ""))).toMatchObject({
       state: "failed",
       expanded: true,
       entries: [],
       error: "fix-landings (ws-1) is starting, not running; wait for it to settle (the workspace card tracks it)."
     })
-    expect((await controller.commands.run("repo.tree", "ws-2#apps")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-2#apps"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-2", "apps"))?.error).toBe("fix-landings (ws-2) is suspended, not running; /box.resume it first.")
-    expect((await controller.commands.run("repo.tree", "ws-3")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-3"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-3", ""))?.error).toBe("fix-landings (ws-3) is pending, not running; wait for it to settle (the workspace card tracks it).")
     // A failed box never settles and cannot be resumed: no invented remedy, the card carries plue's failure_message.
-    expect((await controller.commands.run("repo.tree", "ws-4")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-4"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-4", ""))).toMatchObject({
       state: "failed",
       expanded: true,
@@ -279,9 +285,9 @@ describe("repo tree seam: a cloud workspace copy reads the box's files route", (
     expect(boxRequests).toEqual([])
     // The box settles: the inventory refresh rewrites the copy, and the next toggle is the retry that lists it.
     await store.dispatch({ type: "workingcopies.workspaces.loaded", actor: "system", copies: [boxCopy("ws-1", "running")] }).isPersisted.promise
-    expect((await controller.commands.run("repo.tree", "ws-1")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", ""))?.expanded).toBe(false)
-    expect((await controller.commands.run("repo.tree", "ws-1")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1"))).status).toBe("executed")
     expect(boxRequests).toEqual(["/repos/will/flows/workspaces/ws-1/files?path="])
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", ""))).toMatchObject({ state: "loaded", entries: [{ name: "apps", kind: "dir" }, { name: "link", kind: "file" }, { name: "README.md", kind: "file" }] })
   })
@@ -289,12 +295,12 @@ describe("repo tree seam: a cloud workspace copy reads the box's files route", (
   test("a refusal from the Worker or plue writes the failed row with the message verbatim", async () => {
     const { store, controller } = await loadBox([boxCopy("ws-1", "running"), boxCopy("ws-9", "running")])
     // plue's 409 for a box that stopped between the inventory read and the click.
-    expect((await controller.commands.run("repo.tree", "ws-1#locked")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1#locked"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", "locked"))).toMatchObject({ state: "failed", error: "workspace ws-1 is not running" })
-    expect((await controller.commands.run("repo.tree", "ws-1#missing")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-1#missing"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-1", "missing"))?.error).toBe("no such path in ws-1: missing")
     // The Worker's own refusal (a signed-out page) reaches the row in the Worker's words.
-    expect((await controller.commands.run("repo.tree", "ws-9")).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", "ws-9"))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-9", ""))).toMatchObject({ state: "failed", error: "Sign in to run a Smithers turn." })
   })
 })
@@ -321,7 +327,7 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
 
   test("loads every directory page before publishing the tree row", async () => {
     const { store, controller, sharedRequests } = await loadShared()
-    expect((await controller.commands.run("repo.tree", `${SHARED}#paged`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#paged`))).status).toBe("executed")
     expect(sharedRequests).toEqual([
       `${SHARED_CONTENTS}/paged`,
       `${SHARED_CONTENTS}/paged?ref=${PAGE_COMMIT}&after=paged%2Ffirst`
@@ -334,7 +340,7 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
 
   test("fails the tree row rather than presenting a capped directory as complete", async () => {
     const { store, controller } = await loadShared()
-    expect((await controller.commands.run("repo.tree", `${SHARED}#oversized`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#oversized`))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "oversized"))).toMatchObject({
       state: "failed", entries: [], error: "Directory listing exceeds 10,000 entries."
     })
@@ -342,7 +348,7 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
 
   test("/repo.tree <sharedCopy> lists the root through GET .../contents and maps the mirror's rows to the tree's rows, nothing filtered", async () => {
     const { store, controller, requests, boxRequests, sharedRequests } = await loadShared()
-    expect((await controller.commands.run("repo.tree", SHARED)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", SHARED))).status).toBe("executed")
     expect(sharedRequests).toEqual([SHARED_CONTENTS])
     expect(requests).toEqual([])
     expect(boxRequests).toEqual([])
@@ -367,14 +373,14 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
     })
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, ""))?.truncated).toBeFalsy()
     // A nested directory is one more read with its path (per-segment encoding); an empty one is a loaded row with no entries.
-    expect((await controller.commands.run("repo.tree", `${SHARED}#apps`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#apps`))).status).toBe("executed")
     expect(sharedRequests[1]).toBe(`${SHARED_CONTENTS}/apps`)
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "apps"))?.entries).toEqual([{ name: "ui", kind: "dir" }])
-    expect((await controller.commands.run("repo.tree", `${SHARED}#apps/ui/`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#apps/ui/`))).status).toBe("executed")
     expect(sharedRequests[2]).toBe(`${SHARED_CONTENTS}/apps/ui`)
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "apps/ui"))).toMatchObject({ state: "loaded", entries: [] })
     // Collapsing is collection state: no read.
-    expect((await controller.commands.run("repo.tree", `${SHARED}#apps`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#apps`))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "apps"))?.expanded).toBe(false)
     expect(sharedRequests).toHaveLength(3)
   })
@@ -383,19 +389,19 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
 
   test("a refusal writes the failed row with what failed and whose fault it was, never the mirror's words; a file path names the read that answers it", async () => {
     const { store, controller, sharedRequests } = await loadShared()
-    expect((await controller.commands.run("repo.tree", `${SHARED}#boom`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#boom`))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))).toMatchObject({ state: "failed", expanded: true, entries: [], error: BOOM_LINE })
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))?.error).not.toContain("the mirror is resyncing")
-    expect((await controller.commands.run("repo.tree", `${SHARED}#missing`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#missing`))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "missing"))?.error).toBe("smithersai/smithers has no missing")
-    expect((await controller.commands.run("repo.tree", `${SHARED}#README.md`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#README.md`))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "README.md"))?.error).toBe("README.md in smithersai/smithers is a file; run /file README.md instead")
     // A failed row collapses like any other; expanding it again is the retry, and it reads once more.
     const before = sharedRequests.length
-    expect((await controller.commands.run("repo.tree", `${SHARED}#boom`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#boom`))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))?.expanded).toBe(false)
     expect(sharedRequests).toHaveLength(before)
-    expect((await controller.commands.run("repo.tree", `${SHARED}#boom`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#boom`))).status).toBe("executed")
     expect(sharedRequests).toHaveLength(before + 1)
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))).toMatchObject({ expanded: true, state: "failed", error: BOOM_LINE })
   })
@@ -411,7 +417,7 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
    */
   test("a path that leaves the repository is refused in place, and the mirror is never asked", async () => {
     const { store, controller, requests, boxRequests, sharedRequests } = await loadShared()
-    expect((await controller.commands.run("repo.tree", `${SHARED}#../../../../user/secrets`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#../../../../user/secrets`))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "../../../../user/secrets"))).toMatchObject({
       copyId: SHARED,
       state: "failed",
@@ -423,11 +429,11 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
     expect(requests).toEqual([])
     expect(boxRequests).toEqual([])
     // A percent-encoded escape is the same path, so it is the same refusal.
-    expect((await controller.commands.run("repo.tree", `${SHARED}#apps/%2e%2e/%2e%2e/user/secrets`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#apps/%2e%2e/%2e%2e/user/secrets`))).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "apps/%2e%2e/%2e%2e/user/secrets"))?.error).toBe("File paths must stay inside the repository.")
     expect(sharedRequests).toEqual([])
     // A path that stays inside still lists, so the guard costs the tree nothing.
-    expect((await controller.commands.run("repo.tree", `${SHARED}#apps`)).status).toBe("executed")
+    expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#apps`))).status).toBe("executed")
     expect(sharedRequests).toEqual([`${SHARED_CONTENTS}/apps`])
   })
 

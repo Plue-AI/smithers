@@ -19,7 +19,7 @@ const INSTALL_MEMBERS = {
 }
 
 /*
- * The repo files seam (FilesSeam.ts) through the real command path: /files.list
+ * The repo files seam (FilesSeam.ts) through the real command path: /files
  * reads GET /api/repos/{owner}/{repo}/contents[/path] and surfaces the
  * "file-list" card (entries sorted dirs-first, then by name); /file reads
  * the same route for a file path and surfaces the "file" card (base64 decoded,
@@ -245,7 +245,7 @@ describe("files seam — files.list", () => {
   test("follows directory cursors before showing a file-list card", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    expect((await controller.commands.run("files.list", "paged")).status).toBe("executed")
+    expect((await controller.commands.run("files", "paged")).status).toBe("executed")
     expect(requests.map((request) => request.url)).toEqual([
       "/api/repos/will/flows/contents/paged",
       `/api/repos/will/flows/contents/paged?ref=${PAGE_COMMIT}&after=paged%2Ffirst`
@@ -259,7 +259,7 @@ describe("files seam — files.list", () => {
   test("does not publish a partial card when the directory exceeds the cap", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.list", "oversized")
+    const outcome = await controller.commands.run("files", "oversized")
     expect(outcome.status).toBe("failed")
     expect(JSON.stringify(outcome)).toContain("Directory listing exceeds 10,000 entries.")
     expect(listCard(store, "files-will/flows-oversized")).toBeUndefined()
@@ -268,7 +268,7 @@ describe("files seam — files.list", () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
     for (const path of ["../../api/admin/health", "src/../secret", String.raw`..\api\admin`, "%2e%2e/admin"]) {
-      const outcome = await controller.commands.run("files.list", path)
+      const outcome = await controller.commands.run("files", path)
       expect(outcome.status).toBe("failed")
     }
     expect(requests).toEqual([])
@@ -276,7 +276,7 @@ describe("files seam — files.list", () => {
   test("the bare command lists the root: entries sorted dirs-first then by name, malformed rows dropped", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.list")
+    const outcome = await controller.commands.run("files")
     expect(outcome.status).toBe("executed")
     await settled()
 
@@ -299,7 +299,7 @@ describe("files seam — files.list", () => {
   test("a \"/\" path is the root too: the same card id, one route", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.list", "/")
+    const outcome = await controller.commands.run("files", "/")
     expect(outcome.status).toBe("executed")
     expect(requests[0]?.url).toBe("/api/repos/will/flows/contents")
     expect(listCard(store, "files-will/flows-/")).toBeDefined()
@@ -308,7 +308,7 @@ describe("files seam — files.list", () => {
   test("a path plus an explicit owner/repo targets that directory; names derive from paths when absent", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.list", "src will/flows")
+    const outcome = await controller.commands.run("files", "src will/flows")
     expect(outcome.status).toBe("executed")
     await settled()
 
@@ -326,7 +326,7 @@ describe("files seam — files.list", () => {
   test("an empty directory surfaces an empty-entries card, not an error", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.list", "src/lib")
+    const outcome = await controller.commands.run("files", "src/lib")
     expect(outcome.status).toBe("executed")
     expect(listCard(store, "files-will/flows-src/lib")?.payload.entries).toEqual([])
   })
@@ -334,7 +334,7 @@ describe("files seam — files.list", () => {
   test("a directory the platform does not have is reported as not found, never as a missing import", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.list", "docs/ghost")
+    const outcome = await controller.commands.run("files", "docs/ghost")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("Path not found: docs/ghost in will/flows")
@@ -346,7 +346,7 @@ describe("files seam — files.list", () => {
   test("an unknown repository's namespace 404 is reported as not found too", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("files.list", "src acme/ghost")
+    const outcome = await controller.commands.run("files", "src acme/ghost")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("Path not found: src in acme/ghost")
@@ -359,7 +359,7 @@ describe("files seam — files.read", () => {
   test("opening from a maximized Files pane reveals the file in place and Restore keeps coherent history", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    expect((await controller.commands.run("files.list", "")).status).toBe("executed")
+    expect((await controller.commands.run("files", "")).status).toBe("executed")
     const files = listCard(store, "files-will/flows-/")!
     controller.maximizeCard(files.id)
     expect(store.session().maximizedCardId).toBe(files.id)
@@ -384,7 +384,7 @@ describe("files seam — files.read", () => {
   test("a file command from Chat returns to the transcript without replacing the maximized Files card", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    await controller.commands.run("files.list", "")
+    await controller.commands.run("files", "")
     const files = listCard(store, "files-will/flows-/")!
     controller.maximizeCard(files.id)
 
@@ -401,7 +401,7 @@ describe("files seam — files.read", () => {
       return base(input, init)
     })
     await ready(store)
-    expect((await controller.commands.run("files.list", "")).status).toBe("executed")
+    expect((await controller.commands.run("files", "")).status).toBe("executed")
     const files = listCard(store, "files-will/flows-/")!
     controller.maximizeCard(files.id)
 
@@ -419,7 +419,7 @@ describe("files seam — files.read", () => {
   test("a failed read replaces the maximized loading destination with a visible retryable error", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    expect((await controller.commands.run("files.list", "")).status).toBe("executed")
+    expect((await controller.commands.run("files", "")).status).toBe("executed")
     const files = listCard(store, "files-will/flows-/")!
     controller.maximizeCard(files.id)
 
@@ -625,7 +625,7 @@ describe("files seam — honest failures", () => {
       scopesPlain: null
     })
     await settled()
-    const outcome = await controller.commands.run("files.list")
+    const outcome = await controller.commands.submit({ name: "files", payload: { operation: "repository", path: "" }, actor: "user" })
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(
@@ -852,7 +852,7 @@ test.each([200, 403, 503])("installed /files uses the branch directory route (%s
       expect(cards).toHaveLength(1)
       expect(cards[0]?.payload).toMatchObject({ repo: "scratch/maya/retry", path: "", entries: [{ name: "src", kind: "dir" }, { name: "README.md", kind: "file" }] })
       expect(cards[0]?.id).toBe("files-branch-scratch/maya/retry-/")
-      expect((await controller.commands.run("files.list", "src scratch/maya/retry")).status).toBe("executed")
+      expect((await controller.commands.run("files", "src scratch/maya/retry")).status).toBe("executed")
       expect(requests).toContain("/api/branches/scratch%2Fmaya%2Fretry/files?path=src")
       expect([...store.collections.cards.values()].find(card => card.kind === "file-list" && card.payload.path === "src")?.payload).toMatchObject({ repo: "scratch/maya/retry", entries: [{ name: "retry.ts", kind: "file" }] })
     } else expect(cards).toHaveLength(0)
@@ -860,7 +860,7 @@ test.each([200, 403, 503])("installed /files uses the branch directory route (%s
   } finally { await controller.dispose() }
 })
 
-test.each([ ["files", "../other"], ["files.list", "../secret b12"] ] as const)("installed %s refuses an escaping directory address", async (name, args) => {
+test.each([ ["files", "../other"], ["files", "../secret b12"] ] as const)("installed %s refuses an escaping directory address", async (name, args) => {
   const requests: string[] = []
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, unavailableAgent, {

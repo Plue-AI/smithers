@@ -966,6 +966,11 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "review.unrequest": (args) => numberedChangeRef("review.unrequest", "requestId", "a review-request id", args),
   "findings.please-fix": (args) => numberedChangeRef("findings.please-fix", "findingId", "a finding id", args),
   "findings.not-useful": (args) => numberedChangeRef("findings.not-useful", "findingId", "a finding id", args),
+  "files": (args) => {
+    if (args?.trim().startsWith("{")) { try { return ok(JSON.parse(args)) } catch { return no("Enter a JSON object") } }
+    const parsed = parseFileListArgs(args)
+    return "error" in parsed ? no(parsed.error) : ok({ ...parsed.payload })
+  },
   "files.list": (args) => {
     const parsed = parseFileListArgs(args)
     return "error" in parsed ? no(parsed.error) : ok({ ...parsed.payload })

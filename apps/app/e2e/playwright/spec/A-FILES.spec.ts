@@ -21,6 +21,6 @@ test("A-FILES: mounted controls", async ({ page }) => {
   await page.goto("/")
   await say(page, "/files T9")
   await page.getByRole("button", { name: "src/webhooks/retry.ts", exact: true }).last().press("Enter")
-  await expect(page.getByRole("region", { name: "File content", exact: true }).last()).toContainText("await sleep(30_000)")
+  await expect(page.getByRole("textbox", { name: "src/webhooks/retry.ts", exact: true }).last()).toContainText("await sleep(30_000)")
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })

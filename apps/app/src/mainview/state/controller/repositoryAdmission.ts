@@ -81,10 +81,10 @@ export const createRepositoryReadiness = (
       await Promise.resolve()
       await persisting.get(JSON.stringify([request.name, request.args]))
       if (!owns()) return TOAST_SUPERSEDED
-      if (!readsRepository(request)) return "The saved repository command is unavailable."
       let payload: Record<string, unknown>
       try { payload = JSON.parse(request.args ?? "") } catch { return "The saved repository request could not be read. Run the command again." }
       if (typeof payload?.repo !== "string") return "The saved repository request has no target. Run the command again."
+      if (!readsRepository(request)) return "The saved repository command is unavailable."
       const repo = payload.repo.toLowerCase()
       const waiting = await new Promise<string | undefined | typeof TOAST_SUPERSEDED>(resolve => {
         const check = () => {

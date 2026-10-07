@@ -180,14 +180,57 @@ type BranchFileReadService interface {
 }
 
 func (h *BranchHandler) ListFiles(w http.ResponseWriter, r *http.Request) {
-	repository, user, err := h.authorize(r, "branch.read", h.Files != nil)
+	branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+	if err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("invalid branch name"))
+		return
+	}
+	mirroredMain := branch == "main" && h.Source != nil
+	repository, user, err := h.authorize(r, "branch.read", mirroredMain || h.Files != nil)
 	if err != nil {
 		writeBranchError(w, r, err)
 		return
 	}
-	branch, err := url.PathUnescape(chi.URLParam(r, "b"))
-	if err != nil {
-		writeBranchError(w, r, pkgerrors.BadRequest("invalid branch name"))
+	if mirroredMain {
+		if r.URL.Query().Has("at") {
+			writeBranchError(w, r, pkgerrors.BadRequest("directory revision selector unavailable"))
+			return
+		}
+		info := middleware.AuthInfoFromContext(r.Context())
+		if info == nil || info.User == nil {
+			writeBranchError(w, r, pkgerrors.Unauthorized("authentication required"))
+			return
+		}
+		path := r.URL.Query().Get("path")
+		directory, readErr := h.Source.ListSource(r.Context(), middleware.CredentialOf(info), user, repository, path)
+		if readErr != nil {
+			switch {
+			case errors.Is(readErr, services.ErrSourceNotReady):
+				readErr = pkgerrors.New(pkgerrors.CodeServiceUnavailable, "source unavailable")
+			case errors.Is(readErr, services.ErrSourceForbidden):
+				readErr = pkgerrors.Forbidden("repository read authority required")
+			case errors.Is(readErr, services.ErrSourcePathRefused):
+				readErr = pkgerrors.BadRequest("invalid directory path")
+			case errors.Is(readErr, services.ErrSourceNotFound):
+				readErr = pkgerrors.NotFound("directory not found")
+			}
+			writeBranchError(w, r, readErr)
+			return
+		}
+		if directory.Truncated {
+			writeBranchError(w, r, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "directory exceeds source read limit"))
+			return
+		}
+		entries := make([]services.WorkspaceFileEntry, 0, len(directory.Entries))
+		for _, entry := range directory.Entries {
+			filePath := entry.Name
+			if path != "" {
+				filePath = strings.TrimSuffix(path, "/") + "/" + entry.Name
+			}
+			entries = append(entries, services.WorkspaceFileEntry{Name: entry.Name, Path: filePath, Type: entry.Kind})
+		}
+		w.Header().Set("X-Contents-Commit", directory.Commit)
+		pkgerrors.WriteJSON(w, http.StatusOK, entries)
 		return
 	}
 	entries, err := h.Files.ListBranchFiles(r.Context(), branch, repository, user, r.URL.Query().Get("path"))

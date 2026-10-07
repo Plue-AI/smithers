@@ -11,11 +11,11 @@ import {
 
 const COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
-describe("the files.list flow every host binds", () => {
+describe("the files flow every host binds", () => {
   test("is named and described once", () => {
     expect(FILES_LIST_COMMAND).toEqual({
-      name: "files.list",
-      summary: "List a repository directory",
+      name: "files",
+      summary: "Browse a branch's files",
       args: "[path] [owner/repo]",
       agent: "run"
     })
@@ -30,7 +30,7 @@ describe("the files.list flow every host binds", () => {
     expect(parseFileListArgs("\"Meeting Notes\" acme/app")).toEqual({
       payload: { path: "Meeting Notes", repo: "acme/app" }
     })
-    expect(parseFileListArgs("a b c")).toEqual({ error: "files.list takes a path and optionally an owner/repo" })
+    expect(parseFileListArgs("a b c")).toEqual({ error: "files takes a path and optionally an owner/repo" })
     expect(parseFileListArgs("\"open")).toEqual({ error: "Close the quoted file argument before the next argument." })
   })
 

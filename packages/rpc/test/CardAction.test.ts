@@ -49,3 +49,12 @@ it("saved repository file actions keep their source and revision without an exec
   const args = { path: "src/answer.ts", repo: "owner/repo", ref: "abc", line: "3" }
   expect(ActionSchema.parse({ tag: "files.read", label: "Open", args })).toEqual({ tag: "file", label: "Open", args: { ...args, operation: "repository" } })
 })
+
+it("saved directory and workspace actions retain scope on canonical file doors", () => {
+ for (const [tag, current, operation, args] of [
+  ["files.list", "files", "repository", { path: "src", repo: "owner/repo" }],
+  ["box.files", "files", "workspace", { path: "src", workspaceId: "ws-1" }],
+  ["box.file", "file", "workspace", { path: "src/answer.ts", workspaceId: "ws-1" }],
+  ["repo.tree", "files", "tree", { copy: "ws-1", path: "src" }]
+ ] as const) expect(ActionSchema.parse({ tag, label: "Open", args })).toEqual({ tag: current, label: "Open", args: { ...args, operation } })
+})

@@ -60,7 +60,7 @@ describe("slash payload argument counts", () => {
 
   test("the files.* boundary the others now match", () => {
     expect(payloadFor("files.list", "src will/flows extra")).toEqual({
-      error: "files.list takes a path and optionally an owner/repo"
+      error: "files takes a path and optionally an owner/repo"
     })
   })
 })

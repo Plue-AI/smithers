@@ -127,7 +127,7 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "runs.trace.live", args: "run-1", confirm: false },
   { name: "runs.coding.select", args: "run-1 storage", confirm: false },
   /* The issue-sweep board's reader state is free; starting the sweep launches agents, so it confirms. */
-  { name: "repo.tree", args: "shared:will/smithers", confirm: false },
+  { name: "files", args: '{"operation":"tree","copy":"shared:will/smithers"}', confirm: false },
   { name: "change.pins", args: "c1 parent current", confirm: false },
   { name: "change.checks", args: "c1 1", confirm: false },
   { name: "box.facet", args: "ws-1 files", confirm: false },

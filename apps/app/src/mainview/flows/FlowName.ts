@@ -20,6 +20,10 @@
  * button still runs; nothing writes these names.
  */
 export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
+  "files.list": "files",
+  "repo.tree": "files",
+  "box.files": "files",
+  "box.file": "file",
   "files.read": "file",
   "proposal": "wiki",
   "terminal.send": "terminal",
@@ -150,8 +154,6 @@ export const FLOW_NAMES = [
   "box.delete",
   "box.egress",
   "box.facet",
-  "box.file",
-  "box.files",
   "box.images",
   "box.list",
   "box.open",
@@ -206,7 +208,6 @@ export const FLOW_NAMES = [
   "docs",
   "egress.allow",
   "egress.session",
-  "files.list",
   "files.open-diff",
   "findings.not-useful",
   "findings.please-fix",
@@ -254,7 +255,6 @@ export const FLOW_NAMES = [
   "repo.create",
   "repo.overview",
   "repo.select",
-  "repo.tree",
   "repo.update",
   "repos.import",
   "repos.import.retry",

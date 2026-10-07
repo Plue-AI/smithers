@@ -331,8 +331,10 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     const input = request.input ?? entry?.input
     const hints = request.hints ?? entry?.metadata.form
     if (input === undefined) return undefined
+    const grammar = (entry ?? ctx.commands.find(request.name))?.metadata.grammar
+    const parsed = request.payload === undefined ? payloadFor(request.name, request.args, grammar, knownRepositories(ctx.store)) : { payload: request.payload }
     /* The trace lesson's missing-run form chooses among the runs actually recorded here. */
-    let fields = formFieldsFor(input, hints).map(field =>
+    let fields = formFieldsFor(input, hints, "payload" in parsed ? parsed.payload : {}).map(field =>
       request.name === "runs.steps" && field.name === "runId"
         ? { ...field, kind: "select" as const, options: [...collections.cards.values()]
             .filter(card => card.kind === "run-trace")
@@ -347,14 +349,12 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     }
     if (fields.length === 0) return undefined
     /* A line the grammar parses whole prefills exactly; a line it refuses prefills what it can. */
-    const grammar = (entry ?? ctx.commands.find(request.name))?.metadata.grammar
-    const parsed = request.payload === undefined ? payloadFor(request.name, request.args, grammar, knownRepositories(ctx.store)) : { payload: request.payload }
     const read = "payload" in parsed
       ? { payload: parsed.payload, skipped: [] as ReadonlyArray<string> }
       : positionalRead(fields, hints, request.args)
     let given = publicFormPayload(fields, read.payload, request.payloadField)
     if (request.via === "agent" && (entry ?? ctx.commands.find(request.name))?.metadata.confirm !== undefined) fields = fields.filter(field => field.kind !== "write-only")
-    if (request.name === "file") {
+    if (request.name === "file" && given.operation !== "workspace" && given.branch === undefined && given.revision === undefined) {
       /* Keep the selected repository and ask only for what is actually missing. */
       const repo = typeof given["repo"] === "string" ? given["repo"] : fileTargetKey(store)
       given = { ...given, ...(repo === undefined ? {} : { repo }) }

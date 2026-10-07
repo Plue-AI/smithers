@@ -4,9 +4,6 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { fileArgs } from "@smthrs/rpc/FileRead"
-import { FILES_LIST_COMMAND } from "@smthrs/rpc/FileList"
-import { text } from "@smthrs/ui/flow-form"
 import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -28,21 +25,4 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   })),
   flow({ name: "files.open-diff", summary: "Read a file at the diff revision in its frame", args: "<cardId> <path>",
     input: Schema.Struct({ cardId: Schema.String, path: Schema.String }), handler: ({ cardId, path }) => actions.openDiffFile(cardId, path) }),
-  flow({
-    /*
-     * Files flows parse the PATH as the first token, always — a lone `src/x`
-     * is a path, never a repo (deterministic beats clever); name the repo as a
-     * second token to cross repositories.
-     */
-    name: "files.list",
-    form: { args: (payload) => fileArgs(text(payload, "path") ?? "/", text(payload, "repo")) },
-    /* The model host binds its listing of the mirrored main to the same catalog entry and grammar (@smthrs/rpc/FileList). */
-    summary: FILES_LIST_COMMAND.summary,
-    runtimeAny: ["install", "cloud"],
-    args: FILES_LIST_COMMAND.args,
-    requires: ["first-run-target", "repo-source"],
-    input: Schema.Struct({ path: Schema.String, repo: Schema.optional(Schema.String) }),
-    prepare: ({ path, repo }) => actions.listFiles.preload?.(path, repo),
-    handler: ({ path, repo }) => actions.listFiles(path, repo)
-  }),
 ]

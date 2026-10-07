@@ -357,14 +357,14 @@ describe("durable command intent at the active shared door", () => {
     const controller = controllerFor(store, { fetchImpl: (url, init) => http(String(url), init) })
     expect((await controller.commands.run("repo.update", "owner/repo", "automatic")).status).toBe("executed")
     expect((await controller.commands.submit({ name: "repo.update", actor: "user", payload: { repo: "owner/repo" } })).status).toBe("executed")
-    controller.renderFlowForm({ name: "repo.tree", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.optional(Schema.String), id: Schema.String }) })
-    await controller.setFormField("form-repo.tree", "purpose", "A durable purpose")
-    await controller.setFormField("form-repo.tree", "id", "my-agent")
-    await controller.setFormField("form-repo.tree", "purpose", "")
+    controller.renderFlowForm({ name: "files", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.optional(Schema.String), id: Schema.String }) })
+    await controller.setFormField("form-files", "purpose", "A durable purpose")
+    await controller.setFormField("form-files", "id", "my-agent")
+    await controller.setFormField("form-files", "purpose", "")
     await store.settled?.()
     await controller.dispose()
     const restored = await open(bytes)
-    const form = restored.collections.cards.get("form-repo.tree")
+    const form = restored.collections.cards.get("form-files")
     expect(form?.kind === "flow-form" && form.payload.draft).toEqual({ id: "my-agent" })
     expect([...restored.collections.commandIntents.values()]).toEqual(expect.arrayContaining([
       expect.objectContaining({ actor: "system", source: "automatic", status: "settled" }),
@@ -409,13 +409,13 @@ describe("durable command intent at the active shared door", () => {
         return { clear: () => { cleared++ } }
       }
     }, { pageLifetime: pageLifetime.signal })
-    controller.renderFlowForm({ name: "repo.tree", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String }) })
+    controller.renderFlowForm({ name: "files", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String }) })
     await store.settled?.()
-    const pending = controller.commands.run("form.set", "form-repo.tree purpose pending words")
+    const pending = controller.commands.run("form.set", "form-files purpose pending words")
     // The actual shared door reaches the private preparation without yielding.
-    expect(staged).toMatchObject([{ cardId: "form-repo.tree", card: { payload: { draft: { purpose: "pending words" } } } }])
+    expect(staged).toMatchObject([{ cardId: "form-files", card: { payload: { draft: { purpose: "pending words" } } } }])
     expect(store.collections.commandIntents.get(staged[0]!.intentId)?.name).toBe("form.set")
-    const before = store.collections.cards.get("form-repo.tree")
+    const before = store.collections.cards.get("form-files")
     expect(before?.kind === "flow-form" && before.payload.draft).toEqual({})
     await entered.promise
     if (boundary === "disposal") await controller.dispose()
@@ -424,7 +424,7 @@ describe("durable command intent at the active shared door", () => {
     expect((await pending).status).toBe(close ? "failed" : "executed")
     expect(cleared).toBe(boundary === "departure" ? 0 : 1)
     const readable = close ? await open(bytes) : store
-    const after = readable.collections.cards.get("form-repo.tree")
+    const after = readable.collections.cards.get("form-files")
     expect(after?.kind === "flow-form" && after.payload.draft).toEqual(close ? {} : { purpose: "pending words" })
   })
 
@@ -444,9 +444,9 @@ describe("durable command intent at the active shared door", () => {
   test("a bug in the staged form preparation is named as a bug, not as a browser that would not save", async () => {
     const store = await open()
     const controller = controllerFor({ ...store, stagePendingCardInput: () => { throw new TypeError("the form card is not ready") } })
-    controller.renderFlowForm({ name: "repo.tree", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String }) })
+    controller.renderFlowForm({ name: "files", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String }) })
     await store.settled?.()
-    const outcome = await controller.commands.run("form.set", "form-repo.tree purpose pending words")
+    const outcome = await controller.commands.run("form.set", "form-files purpose pending words")
     // What the person gets: an act that failed, in words that name a bug and
     // ask for nothing a person could have done differently.
     expect(outcome).toEqual({ status: "failed", writeRefused: true, persistenceFailed: true, error:
@@ -463,13 +463,13 @@ describe("durable command intent at the active shared door", () => {
     const store = await open()
     let stages = 0
     const controller = controllerFor({ ...store, stagePendingCardInput: () => { stages++; return { clear: () => {} } } })
-    controller.renderFlowForm({ name: "repo.tree", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String, count: Schema.Number }) })
+    controller.renderFlowForm({ name: "files", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String, count: Schema.Number }) })
     await store.settled?.()
-    expect((await controller.commands.run("form.set", "form-repo.tree count invalid-number")).status).toBe("failed")
-    expect((await controller.commands.run("form.set", "form-repo.tree missing ignored")).status).toBe("failed")
-    expect((await controller.commands.runForAgent("form.set", "form-repo.tree purpose agent words", invocation("form-edit"))).status).toBe("executed")
+    expect((await controller.commands.run("form.set", "form-files count invalid-number")).status).toBe("failed")
+    expect((await controller.commands.run("form.set", "form-files missing ignored")).status).toBe("failed")
+    expect((await controller.commands.runForAgent("form.set", "form-files purpose agent words", invocation("form-edit"))).status).toBe("executed")
     expect(stages).toBe(0)
-    const card = store.collections.cards.get("form-repo.tree")
+    const card = store.collections.cards.get("form-files")
     expect(card?.kind === "flow-form" && card.payload.draft).toEqual({ purpose: "agent words" })
   })
 
@@ -489,10 +489,10 @@ describe("durable command intent at the active shared door", () => {
     try {
       const store = await open(storage)
       controller = controllerFor(hold(store, "command.intent.accepted", held, entered))
-      controller.renderFlowForm({ name: "repo.tree", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String, description: Schema.String }) })
+      controller.renderFlowForm({ name: "files", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String, description: Schema.String }) })
       await store.settled?.()
-      const first = controller.commands.run("form.set", "form-repo.tree purpose first field")
-      const second = controller.commands.run("form.set", "form-repo.tree description second field")
+      const first = controller.commands.run("form.set", "form-files purpose first field")
+      const second = controller.commands.run("form.set", "form-files description second field")
       if (acceptSaved) await store.settled?.()
       const frozen = new Map(values), frozenRecovery = new Map(recoveryValues)
       const pending = readEntityRecoveries(storageFor(frozenRecovery))
@@ -505,7 +505,7 @@ describe("durable command intent at the active shared door", () => {
       await controller.dispose()
       host.localStorage = storageFor(frozenRecovery)
       const restored = await open(storageFor(frozen))
-      const card = restored.collections.cards.get("form-repo.tree")
+      const card = restored.collections.cards.get("form-files")
       expect(card?.kind === "flow-form" && card.payload.draft).toEqual({ purpose: "first field", description: "second field" })
       expect(readEntityRecoveries(host.localStorage)).toEqual([])
       expect((await restored.verifyState()).valid).toBe(true)

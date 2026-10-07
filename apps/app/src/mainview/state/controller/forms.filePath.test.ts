@@ -57,7 +57,7 @@ const fixture = (read: (path: string) => string | { readonly value: string } = (
         ? { ...candidate, options: paths.map((path) => ({ value: path, label: path })) }
         : candidate) } })
   }
-  const ask = (name: "file" | "files.list") => forms.renderFlowForm({ name, args: undefined, via: "user" })!
+  const ask = (name: "file" | "files") => forms.renderFlowForm({ name, args: undefined, via: "user" })!
   return { forms, reads, card, field, inventoryArrives, ask }
 }
 
@@ -150,9 +150,18 @@ describe("the path a file flow asks for", () => {
     expect(app.card(cardId).payload.errorKind).toBeUndefined()
   })
 
+  test.each([{ operation: "workspace", workspaceId: "ws-1" }, { branch: "T9" }])("a targeted file asks only for its missing path (%j)", target => {
+    const app = fixture()
+    const rendered = app.forms.renderFlowForm({ name: "file", args: JSON.stringify(target), via: "user" })!
+    expect(rendered.missing).toEqual(["path"])
+    expect(app.card(rendered.cardId).payload.fields.map(field => field.name)).not.toContain("repository")
+    expect(app.card(rendered.cardId).payload.given).toMatchObject(target)
+    expect(app.reads).toEqual([])
+  })
+
   test("files.list asks for its path as a text field too", () => {
     const app = fixture()
-    const rendered = app.ask("files.list")
+    const rendered = app.ask("files")
     expect(app.field(rendered.cardId, "path").kind).toBe("text")
   })
 })

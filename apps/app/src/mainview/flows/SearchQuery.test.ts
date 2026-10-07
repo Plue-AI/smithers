@@ -150,7 +150,7 @@ describe("§2 actions: every action is a registered flow whose input the ref fil
       expect(entries.find(entry => nameOf(entry) === name)?.metadata.visibility).toBe("hidden")
     }
     expect(names).not.toContain("code.diagnostics")
-    expect(names).toContain("files.list")
+    expect(names).toEqual(["file"])
     // code.hover needs a line and a column the ref cannot supply.
     expect(names).not.toContain("code.hover")
     // Implement is the file's primary flow by §2, and it is not registered: no primary, never a made-up one.

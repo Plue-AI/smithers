@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { fileURLToPath } from "node:url"
 import { Schema } from "effect"
 import { assembleArgs, assembleLine, displayLine, draftFrom, line, text, fileSubmission, positionalRead, formFieldsFor, missingFields, submissionPayload } from "../src/flow-form"
@@ -192,4 +192,13 @@ test("displayLine names the withheld fields after the line", () => {
   expect(displayLine({ args: "run-1", withheld: [] })).toBe("run-1")
   expect(displayLine({ args: "run-1", withheld: ["note", "tag"] })).toBe("run-1 (+note, tag)")
   expect(displayLine({ args: "", withheld: ["note"] })).toBe("(+note)")
+})
+
+describe("hidden variant routing inputs", () => {
+  test("a variant asks for its missing routing input without exposing it on the default form", () => {
+    const input = Schema.Struct({ path: Schema.optional(Schema.String), copy: Schema.optional(Schema.String) })
+    const hints = { fields: { copy: { hidden: true } }, requires: (payload: Readonly<Record<string, unknown>>) => payload.operation === "tree" ? ["copy"] : undefined }
+    expect(formFieldsFor(input, hints).map(field => field.name)).toEqual(["path"])
+    expect(formFieldsFor(input, hints, { operation: "tree" }).map(field => field.name)).toEqual(["path", "copy"])
+  })
 })

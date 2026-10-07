@@ -1,3 +1,4 @@
+import { savedFileNavigationArgs } from "../flows/FileNavigationPayload"
 import { fileArgs, parseFileArgs } from "@smthrs/rpc/FileRead"
 import { dynamicFlowAction } from "../flows/FlowAction"
 /*
@@ -55,6 +56,22 @@ export const groupByKind = (items: ReadonlyArray<SearchItem>): ReadonlyArray<{ r
 /** Old saved rows may have only a relative path. Never bind those to today's selection. */
 const boundFileActions = (item: SearchItem): Array<SearchAction> => item.actions.flatMap(action => {
   if (action.role !== "open" || (action.flow !== "file" && action.flow !== "box.file")) return []
+  if (action.flow === "box.file") {
+    const args = savedFileNavigationArgs(action.flow, action.args)
+    const payload = JSON.parse(args)
+    return typeof payload.path === "string" && typeof payload.workspaceId === "string" && payload.workspaceId !== ""
+      ? [{ ...action, flow: "file", args }] : []
+  }
+  if (action.args?.trim().startsWith("{")) {
+    try {
+      const payload: unknown = JSON.parse(action.args)
+      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        const input = payload as Record<string, unknown>
+        return typeof input.path === "string" && [input.repo, input.workspaceId, input.branch].some(value => typeof value === "string" && value !== "") ? [action] : []
+      }
+    } catch { /* Refuse malformed saved navigation. */ }
+    return []
+  }
   const parsed = parseFileArgs(action.args)
   if ("error" in parsed) return []
   if (parsed.tokens.length === 2 && parsed.tokens[1] !== "") return [action]

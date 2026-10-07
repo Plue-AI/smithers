@@ -4,7 +4,6 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { fileArgs } from "@smthrs/rpc/FileRead"
 import { flag, line, text } from "@smthrs/ui/flow-form"
 import { flow, RepoTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
@@ -120,33 +119,6 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     }),
     prepare: ({ workspaceId, facet }) => actions.setWorkspaceFacet.preload?.(workspaceId, facet),
     handler: ({ workspaceId, facet }) => actions.setWorkspaceFacet(workspaceId, facet)
-  }),
-  /*
-   * Lane L3: the facets plue#449 and the egress audit answer. Files and the
-   * file read are ordinary reads — the model asks about a computer's working
-   * copy the same way a human clicks the facet. The egress audit is cursor
-   * paginated: a bare call reads the newest page, a cursor reads the page
-   * behind it and the card appends.
-   */
-  flow({
-    name: "box.files",
-    form: { args: (payload) => fileArgs(text(payload, "path") ?? "/", text(payload, "workspaceId")) },
-    summary: "List a box's files under a directory",
-    runtime: ["cloud"],
-    args: "[path] [workspaceId]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ path: Schema.optional(Schema.String), workspaceId: Schema.optional(Schema.String) }),
-    handler: ({ path, workspaceId }) => actions.listWorkspaceFiles(path, workspaceId)
-  }),
-  flow({
-    name: "box.file",
-    form: { fields: { workspaceId: { optionsFrom: "workspaces" } }, args: (payload) => fileArgs(text(payload, "path"), text(payload, "workspaceId")) },
-    summary: "Read one file out of a box",
-    runtime: ["cloud"],
-    args: "<path> [workspaceId]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ path: Schema.String, workspaceId: Schema.optional(Schema.String) }),
-    handler: ({ path, workspaceId }) => actions.readWorkspaceFile(path, workspaceId)
   }),
   flow({
     name: "box.services", hidden: true, discloseToAgent: false,

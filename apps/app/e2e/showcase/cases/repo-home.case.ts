@@ -30,7 +30,7 @@ export default showcase({
   order: 60,
   title: "Repository",
   summary: "Open owner/name: its homepage, files and branches, in chat.",
-  flows: ["files.list", "file", "branches"],
+  flows: ["files", "file", "branches"],
   run: async ({ page, app, backend }) => {
     await backend.cloud()
     await backend.json(`${API}/home`, {

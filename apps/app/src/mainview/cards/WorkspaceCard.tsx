@@ -170,7 +170,7 @@ const WorkspaceFacetBody = ({
     return (
       <FileListCardBody
         card={listingCard(payload)}
-        navigation={{ list: "box.files", read: "box.file", scope: payload.workspaceId }}
+        navigation={{ operation: "workspace", scope: payload.workspaceId }}
         onRunCommand={onRunCommand}
       />
     )

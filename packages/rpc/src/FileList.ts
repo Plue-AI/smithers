@@ -1,5 +1,5 @@
 /**
- * The `files.list` flow shared by every host that runs it: its catalog entry,
+ * The `files` flow shared by every host that runs it: its catalog entry,
  * its argument grammar, and its answer, the Files card and the model's copy of
  * what the card lists. The GUI binds its listing to these; the model host
  * binds its listing of the mirrored main to the same ones.
@@ -17,8 +17,8 @@ import { parseFileArgs } from "./FileRead.ts"
  * @category constants
  */
 export const FILES_LIST_COMMAND = {
-  name: "files.list",
-  summary: "List a repository directory",
+  name: "files",
+  summary: "Browse a branch's files",
   args: "[path] [owner/repo]",
   agent: "run"
 } as const satisfies AgentCommand
@@ -44,7 +44,7 @@ export const parseFileListArgs = (
   const parsed = parseFileArgs(args)
   if ("error" in parsed) return parsed
   const [path = "", repo, ...rest] = parsed.tokens
-  if (rest.length > 0) return { error: "files.list takes a path and optionally an owner/repo" }
+  if (rest.length > 0) return { error: "files takes a path and optionally an owner/repo" }
   return { payload: repo === undefined ? { path } : { path, repo } }
 }
 

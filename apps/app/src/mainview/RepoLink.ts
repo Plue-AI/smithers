@@ -247,7 +247,7 @@ export const openRequestedRepo = async (
     controller.store.collections.workingCopies.get(sharedId) !== undefined &&
     controller.store.collections.repoTree.get(repoTreeRowId(sharedId, "")) === undefined
   ) {
-    controller.runCommand("repo.tree", sharedId)
+    controller.runCommand("files", JSON.stringify({ operation: "tree", copy: sharedId }))
   }
   const bookmark = await defaultBookmarkOf(http, repository.id)
   if (!current()) return

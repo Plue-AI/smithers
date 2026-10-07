@@ -19,7 +19,7 @@ export default showcase({
   order: 118,
   title: "Boxes",
   summary: "A box per branch: its files, services, egress; suspend, resume, delete.",
-  flows: ["box.open", "box.facet", "box.file", "box.suspend", "box.resume", "box.list", "box.images", "egress.session", "box.delete"],
+  flows: ["box.open", "box.facet", "file", "box.suspend", "box.resume", "box.list", "box.images", "egress.session", "box.delete"],
   run: async ({ page, app, backend }) => {
     let status = "running"
     let polls = 0
@@ -79,7 +79,7 @@ export default showcase({
 
     await app.click(card.getByRole("tab", { name: "Files" }))
     await expect(card).toContainText("README.md")
-    const readme = card.locator('[data-flow="box.file"]').filter({ hasText: "README.md" }).first()
+    const readme = card.locator('[data-flow="file"]').filter({ hasText: "README.md" }).first()
     await app.click(readme)
     await expect(page.locator('[data-kind="file"]').last()).toContainText("the split flow is wired in", { timeout: 15_000 })
     await app.show(card)

@@ -164,7 +164,7 @@ describe("file listing bindings", () => {
     const scope = localRepoId === undefined ? "smithersai/smithers" : '"checkout with spaces"'
     const buttons = host.querySelectorAll("button")
     const expected = [
-      { name: "files.list", args: `"my docs/examples" ${scope}` },
+      { name: "files", args: `"my docs/examples" ${scope}` },
       { name: "file", args: `"my docs/read me.md" ${scope}` }
     ]
     for (const [index, button] of Array.from(buttons).entries()) {
@@ -188,15 +188,16 @@ test("a listing refresh uses its host's flow and scope", () => {
     path=""
     readAt={{ changeId: "old", commitId: "aaaa" }}
     head={{ changeId: "new", commitId: "bbbb" }}
-    refreshCommand="box.files"
+    refreshCommand="files"
+    refreshOperation="workspace"
     refreshScope="workspace with spaces"
     onRunCommand={(name, args) => { commands.push({ name, args }) }}
   />))
   const button = host.querySelector("button")!
-  expect(button.dataset.flow).toBe("box.files")
-  expect(button.dataset.flowArgs).toBe('/ "workspace with spaces"')
+  expect(button.dataset.flow).toBe("files")
+  expect(JSON.parse(button.dataset.flowArgs!)).toEqual({ operation: "workspace", path: "", workspaceId: "workspace with spaces" })
   button.click()
-  expect(commands).toEqual([{ name: "box.files", args: '/ "workspace with spaces"' }])
+  expect(commands).toEqual([{ name: "files", args: JSON.stringify({ operation: "workspace", path: "", workspaceId: "workspace with spaces" }) }])
 })
 
 test("oversized UTF-8 files stay read-only at the byte boundary", () => {

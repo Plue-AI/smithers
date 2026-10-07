@@ -14,7 +14,8 @@ export interface FlowInput {
   readonly "todo.drop": { readonly n: number }
   readonly "branch.bring-in": { readonly branch: string; readonly id: string; readonly revision: string }
   readonly "branch.discard-foreign": { readonly branch: string; readonly id: string; readonly revision: string }
-  readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string; readonly column?: number; readonly repo?: string; readonly ref?: string; readonly operation?: "repository" }
+  readonly "files": { readonly path?: string; readonly branch?: string; readonly repo?: string; readonly operation?: "repository" | "workspace" | "tree"; readonly workspaceId?: string; readonly copy?: string }
+  readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string; readonly column?: number; readonly repo?: string; readonly ref?: string; readonly operation?: "repository" | "workspace"; readonly workspaceId?: string }
 
  readonly "model.assign": { readonly role: string; readonly model?: string }
   readonly "run.inspect": { readonly id?: string; readonly branch?: string; readonly answer?: string }
@@ -182,6 +183,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "branch.discard-foreign": payload => JSON.stringify(payload),
   "todo.drop": payload => JSON.stringify(payload),
   "wiki.save": payload => JSON.stringify(payload),
+  "files": payload => payload.operation !== undefined || payload.branch !== undefined ? JSON.stringify(payload) : fileArgs(token(payload, "path") ?? "", token(payload, "repo")),
   "file": (payload) => payload.branch !== undefined || payload.revision !== undefined || payload.operation !== undefined ? JSON.stringify(payload) : fileArgs(
     [payload.path, payload.line, payload.column].filter((value) => value !== undefined).join(":"),
     payload.repo as string | undefined,

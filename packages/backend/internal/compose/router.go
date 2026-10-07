@@ -1178,7 +1178,9 @@ func buildRouter(
 			}
 			if repoHandler != nil {
 				if repos, ok := repoHandler.Service.(*services.RepoService); ok {
-					files.Source = services.InstallSource{Pool: pool, Repos: repos, Members: ownerBoundary}
+					source := services.InstallSource{Pool: pool, Repos: repos, Members: ownerBoundary}
+					files.Source = source
+					branches.Source = &source
 				}
 			}
 			// The install command decision already checks credential scope and the

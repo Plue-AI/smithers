@@ -60,6 +60,7 @@ type BranchHandler struct {
 	Reads     BranchReadService
 	Forks     BranchForkService
 	Files     BranchFileReadService
+	Source    *services.InstallSource
 	Answers   BranchAnswerService
 	Archives  BranchArchiveService
 	Adds      BranchAddService

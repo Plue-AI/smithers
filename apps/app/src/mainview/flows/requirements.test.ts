@@ -155,17 +155,17 @@ describe("requirement axis — the run path", () => {
       store.dispatch({ type: "repository.entry.changed", actor: "system", entry: {
         requestId: "entry", repo: "missing/repo", phase: "failed", error: "missing/repo could not be opened."
       } })
-      expect((await controller.commands.runForAgent("files.list", "/ public/repo")).status).toBe("executed")
+      expect((await controller.commands.runForAgent("files", "/ public/repo")).status).toBe("executed")
       expect(reads).toEqual(["/api/repos/public/repo/contents"])
       expect(store.session().pendingCommand ?? null).toBeNull()
-      expect((await controller.commands.runForAgent("files.list", "/public/repo/docs")).status).toBe("executed")
+      expect((await controller.commands.runForAgent("files", "/public/repo/docs")).status).toBe("executed")
       expect(reads).toEqual(["/api/repos/public/repo/contents", "/api/repos/public/repo/contents/docs"])
 
       reads.length = 0
       store.dispatch({ type: "repository.upserted", actor: "system", repository: {
         id: "private/repo", org: "private", name: "repo", ownerKind: "user", head: null
       } })
-      expect((await controller.commands.runForAgent("files.list", "/ private/repo")).status).toBe("failed")
+      expect((await controller.commands.runForAgent("files", "/ private/repo")).status).toBe("failed")
       expect((await controller.commands.runForAgent("flows", workspaceFlowsArgs("public/repo"))).status).toBe("failed")
       expect(reads).toEqual([])
     } finally {

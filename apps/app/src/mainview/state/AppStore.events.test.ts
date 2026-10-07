@@ -853,7 +853,7 @@ describe("the live store's authoritative event path", () => {
     const storage = memoryStorage()
     const store = await open(storage)
     await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "saved-url", repo: "alpha/one", phase: "pending" } }).isPersisted.promise
-    await store.dispatch({ type: "command.deferred", actor: "user", name: "files.list", args: JSON.stringify({ path: "docs", repo: "alpha/one" }), requirement: "repository-ready" }).isPersisted.promise
+    await store.dispatch({ type: "command.deferred", actor: "user", name: "files", args: JSON.stringify({ path: "docs", repo: "alpha/one" }), requirement: "repository-ready" }).isPersisted.promise
     await store.dispatch({ type: "card.upsert", actor: "user", card: {
       id: "kept", kind: "file", title: "kept.ts", status: "active", createdAt: 1, ordinal: 1,
       payload: { repo: "alpha/one", path: "kept.ts", content: "retained", truncated: false }

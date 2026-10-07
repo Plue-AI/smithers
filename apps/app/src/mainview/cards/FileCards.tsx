@@ -5,7 +5,6 @@ import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import { LiveFileContext, liveFileModel, type FileDocumentBinding } from "./liveDoc"
 import { CodeSurface } from "../ViewModules"
 import { cardActions } from "../flows/cardActions"
-import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
 import { fileArgs } from "@smthrs/rpc/FileRead"
 /*
@@ -46,12 +45,7 @@ export interface FileCardActions {
 }
 
 /** The listing's host determines both preloading and activation. */
-type FileListNavigation = {
-  readonly scope: string
-} & (
-  | { readonly list: "files.list"; readonly read: "file" }
-  | { readonly list: "box.files"; readonly read: "box.file" }
-)
+type FileListNavigation = { readonly scope: string; readonly operation?: "workspace" }
 
 /** The entry's full path under the card's path — the argument the row's command takes. */
 const childPath = (parent: string, name: string): string => parent === "" ? name : `${parent}/${name}`
@@ -71,8 +65,9 @@ const FileCardHeader = (props: {
   readonly path: string
   readonly address?: string | undefined
   readonly readAt?: { readonly changeId: string | null; readonly commitId: string | null; readonly source?: "head" | "working-copy" | undefined } | undefined
-  readonly refreshCommand: "file" | FileListNavigation["list"]
+  readonly refreshCommand: "file" | "files"
   readonly refreshScope?: string | undefined
+  readonly refreshOperation?: "workspace" | "branch" | undefined
   readonly onRunCommand: RunCommand
   readonly trailing?: ReactNode
 }) => {
@@ -90,6 +85,7 @@ export const FileCardAddressLine = ({
   head,
   refreshCommand,
   refreshScope,
+  refreshOperation,
   onRunCommand,
   trailing
 }: {
@@ -99,8 +95,9 @@ export const FileCardAddressLine = ({
   readonly address?: string | undefined
   readonly readAt?: { readonly changeId: string | null; readonly commitId: string | null; readonly source?: "head" | "working-copy" | undefined } | undefined
   readonly head: { readonly changeId: string | null; readonly commitId: string | null } | null
-  readonly refreshCommand: "file" | FileListNavigation["list"]
+  readonly refreshCommand: "file" | "files"
   readonly refreshScope?: string | undefined
+  readonly refreshOperation?: "workspace" | "branch" | undefined
   readonly onRunCommand: RunCommand
   /** Rendered at the end of the address line: the file card's language word. */
   readonly trailing?: ReactNode
@@ -108,7 +105,10 @@ export const FileCardAddressLine = ({
   // A working-copy read is pinned at the checkout's `@`, which is not the head by design: its drift is the origin chip's "N ahead", never "head moved".
   const moved = readAt?.source !== "working-copy" && head !== null && readAt?.commitId != null && head.commitId != null &&
     head.commitId !== readAt.commitId
-  const refreshArgs = fileArgs(path === "" ? "/" : path, refreshScope ?? localRepoId ?? repo)
+  const refreshTarget = refreshScope ?? localRepoId ?? repo
+  const refreshArgs = refreshOperation === "workspace" ? JSON.stringify({ operation: "workspace", path, workspaceId: refreshTarget })
+    : refreshOperation === "branch" ? JSON.stringify({ path, branch: refreshTarget })
+    : fileArgs(path === "" ? "/" : path, refreshTarget)
   return (
     <div>
       <p className="world-card-path">
@@ -145,8 +145,9 @@ const FileCardHeaderLive = ({
   readonly path: string
   readonly address?: string | undefined
   readonly readAt?: { readonly changeId: string | null; readonly commitId: string | null; readonly source?: "head" | "working-copy" | undefined } | undefined
-  readonly refreshCommand: "file" | FileListNavigation["list"]
+  readonly refreshCommand: "file" | "files"
   readonly refreshScope?: string | undefined
+  readonly refreshOperation?: "workspace" | "branch" | undefined
   readonly onRunCommand: RunCommand
   readonly trailing?: ReactNode
 }) => {
@@ -168,7 +169,11 @@ export const FileListCardBody = ({
   readonly navigation?: FileListNavigation
 } & FileCardActions) => {
   const { repo, path, entries } = card.payload
-  const { list, read, scope } = navigation ?? { list: "files.list", read: "file", scope: card.payload.localRepoId ?? repo }
+  const scope = navigation?.scope ?? card.payload.localRepoId ?? repo
+  const branch = navigation === undefined && card.id.startsWith("files-branch-")
+  const args = (path: string): string => navigation?.operation === "workspace"
+    ? JSON.stringify({ operation: "workspace", path, workspaceId: scope })
+    : branch ? JSON.stringify({ path, branch: scope }) : fileArgs(path, scope)
   return (
     <div className="world-card-list world-card-panel">
       <FileCardHeader
@@ -177,8 +182,9 @@ export const FileListCardBody = ({
         path={path}
         address={card.payload.address}
         readAt={card.payload.readAt}
-        refreshCommand={list}
+        refreshCommand="files"
         refreshScope={scope}
+        refreshOperation={navigation?.operation ?? (branch ? "branch" : undefined)}
         onRunCommand={onRunCommand}
       />
       <ul className="world-card-list">
@@ -196,7 +202,7 @@ export const FileListCardBody = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      {...flowAction(onRunCommand, list, fileArgs(childPath(path, entry.name), scope))}
+                      {...flowAction(onRunCommand, "files", args(childPath(path, entry.name)))}
                     >
                       <Folder size={12} aria-hidden="true" />
                       <span className="world-card-title">{entry.name}</span>
@@ -206,7 +212,7 @@ export const FileListCardBody = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      {...(card.id.startsWith("files-branch-") ? flowAction(onRunCommand, "file", flowArgs("file", { path: childPath(path, entry.name), branch: repo })) : flowAction(onRunCommand, read, fileArgs(childPath(path, entry.name), scope)))}
+                      {...flowAction(onRunCommand, "file", args(childPath(path, entry.name)))}
                     >
                       <FileText size={12} aria-hidden="true" />
                       <span className="world-card-title">{entry.name}</span>

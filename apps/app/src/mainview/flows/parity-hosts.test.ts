@@ -235,7 +235,7 @@ describe("host parity — the web and native catalogs against the servers' own c
     expect(misclassified).toEqual([])
     // The either/or reads serve the web through Smithers Cloud, and are present.
     const names = web.commands.all().map((command) => command.name)
-    expect(names).toContain("files.list")
+    expect(names).toContain("files")
     expect(names).toContain("file")
   })
 

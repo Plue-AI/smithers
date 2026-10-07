@@ -9,6 +9,7 @@
 import { Schema } from "effect"
 import { payloadFor } from "../SlashPayload"
 import { flowArgs } from "../FlowArgs"
+import { FILES_LIST_COMMAND } from "@smthrs/rpc/FileList"
 import { FILES_READ_COMMAND } from "@smthrs/rpc/FileRead"
 import { shellViewsOf } from "../../state/seams/DesignWorld/shell"
 import { flow, type CommandActions, type CommandResult } from "./Declare"
@@ -51,7 +52,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   /* An install's issues are its repository's GitHub issues, through IssuesSeam (GET /api/issues). */
   const install = () => actions.bootstrap?.capabilities.includes("install") === true
   const realFiles = () => install() || actions.branchFiles.available()
-  const repositoryFile = (payload: Readonly<Record<string, unknown>>): boolean => payload.branch === undefined && payload.revision === undefined &&
+  const repositoryFile = (payload: Readonly<Record<string, unknown>>): boolean => payload.operation !== "workspace" && payload.operation !== "tree" && payload.branch === undefined && payload.revision === undefined &&
     (payload.operation === "repository" || payload.repo !== undefined || payload.ref !== undefined || /^\/[^/]+\/[^/]+(?:\/|$)/.test(String(payload.path ?? "")) ||
       actions.snapshot().repositorySelected === true || actions.snapshot().firstRunTargetPending === true || actions.snapshot().repositoryReadiness !== undefined || install() || actions.bootstrap?.host === "cloud")
   return [
@@ -74,13 +75,15 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       handler: ({ number, body }) => commentIssue(design, number, body, design.viewer()) ? { value: `Commented on #${number}` } : `No issue #${number}` }),
     flow({ name: "file",   slash: "/file", cli: ["file"], journey: ["J3","J9"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open and co-edit a file", args: FILES_READ_COMMAND.args, discloseToAgent: true,
       grammar: args => payloadFor("file", args), agent: "run",
-      payloadRequires: payload => repositoryFile(payload) ? ["first-run-target", "repo-source"] : [],
-      form: { fields: { branch: { hidden: true }, revision: { hidden: true }, operation: { hidden: true }, path: { kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => flowArgs("file", payload as Parameters<typeof flowArgs<"file">>[1]) },
-      input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number), column: Schema.optional(Schema.Number), revision: Schema.optional(Schema.String), repo: Schema.optional(Schema.String), ref: Schema.optional(Schema.String), operation: Schema.optional(Schema.Literal("repository")) }),
-      prepare: ({ path, repo, line, column, ref, branch, revision }) => branch === undefined && revision === undefined ? actions.readFile.preload?.(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref) : undefined,
-      handler: ({ path, branch, line, column, revision, repo, ref, operation }) => {
+      payloadRequires: payload => payload.operation === "workspace" ? ["signed-in"] : repositoryFile(payload) ? ["first-run-target", "repo-source"] : [],
+      form: { fields: { branch: { hidden: true }, revision: { hidden: true }, workspaceId: { optionsFrom: "workspaces", hidden: true }, operation: { hidden: true }, path: { kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => flowArgs("file", payload as Parameters<typeof flowArgs<"file">>[1]) },
+      input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number), column: Schema.optional(Schema.Number), revision: Schema.optional(Schema.String), repo: Schema.optional(Schema.String), ref: Schema.optional(Schema.String), workspaceId: Schema.optional(Schema.String), operation: Schema.optional(Schema.Literals(["repository", "workspace"])) }),
+      prepare: ({ path, repo, line, column, ref, branch, revision, operation }) => operation !== "workspace" && branch === undefined && revision === undefined ? actions.readFile.preload?.(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref) : undefined,
+      handler: ({ path, branch, line, column, revision, repo, ref, operation, workspaceId }) => {
+        if (operation === "workspace") return install() || actions.live ? "Branch unavailable" : actions.readWorkspaceFile(path, workspaceId)
         if (repositoryFile({ path, branch, revision, operation, repo, ref })) return actions.readFile(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref)
 
+        if (install() && branch === "main") return actions.readFile(path, undefined, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, "main")
         if (revision !== undefined) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, revision)
         if (install() && !actions.branchFiles.available()) return actions.readFile(path, undefined, line === undefined ? undefined : { line }, branch)
         if (realFiles()) return actions.branchFiles.open(path, branch, line)
@@ -89,9 +92,26 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         const file = findFile(world, path, branch, design.viewer())
         return file === undefined ? `No file ${path}` : open(fileCard(designRepo(), file.branch, file.path, line))
       } }),
-    flow({ name: "files",   slash: "/files", cli: ["files"], journey: ["J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Browse a branch's files", args: "[branch]", discloseToAgent: true,
-      grammar: positional("branch"), agent: "run", input: Schema.Struct({ branch: Schema.optional(Schema.String) }),
-      handler: ({ branch }) => install() ? actions.listFiles("", branch) : realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(designRepo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
+    flow({ name: "files", slash: "/files", cli: ["files"], journey: ["J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Browse a branch's files", args: FILES_LIST_COMMAND.args, discloseToAgent: true,
+      grammar: args => {
+        const parsed = payloadFor("files", args)
+        if (!("payload" in parsed) || args?.trim().startsWith("{")) return parsed
+        const branch = (value: unknown): value is string => typeof value === "string" && /^(?:main|T[1-9]\d*|scratch\/[^/]+\/[^/]+)$/.test(value)
+        if (branch(parsed.payload.repo)) return { payload: { path: parsed.payload.path, branch: parsed.payload.repo } }
+        if (branch(parsed.payload.path) && parsed.payload.repo === undefined) return { payload: { branch: parsed.payload.path } }
+        return parsed
+      }, agent: "run",
+      payloadRequires: payload => payload.operation === "workspace" || payload.operation === "tree" ? ["signed-in"] : repositoryFile(payload) ? ["first-run-target", "repo-source"] : [],
+      preflight: (payload, actor) => payload.operation === "tree" && actor !== "user" ? "Only a person can change the file tree" : undefined,
+      input: Schema.Struct({ path: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), repo: Schema.optional(Schema.String), workspaceId: Schema.optional(Schema.String), copy: Schema.optional(Schema.String), operation: Schema.optional(Schema.Literals(["repository", "workspace", "tree"])) }),
+      form: { requires: payload => payload.operation === "tree" ? ["copy"] : undefined, fields: { branch: { hidden: true }, operation: { hidden: true }, copy: { label: "Working copy", kind: "text", hidden: true }, path: { kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, workspaceId: { optionsFrom: "workspaces", hidden: true } }, args: payload => JSON.stringify(payload) },
+      prepare: ({ path, repo, branch, operation }) => operation !== "workspace" && operation !== "tree" && branch === undefined ? actions.listFiles.preload?.(path ?? "", repo) : undefined,
+      handler: ({ path, branch, repo, operation, workspaceId, copy }) => {
+        if (operation === "tree") return copy ? actions.toggleRepoTree(copy, path) : "Choose a working copy"
+        if (operation === "workspace") return install() || actions.live ? "Branch unavailable" : actions.listWorkspaceFiles(path, workspaceId)
+        if (repositoryFile({ path, branch, repo, operation })) return actions.listFiles(path ?? "", repo)
+        return install() ? actions.listFiles(path ?? "", branch) : realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(designRepo(), findBranch(design.world(), branch ?? path ?? "")?.id ?? "main"))
+      } }),
     flow({ name: "diff",   slash: "/diff", cli: ["diff"], journey: ["J2","J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
       grammar: positional("subject"),
       agent: "run", input: Schema.Struct({ subject: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), path: Schema.optional(Schema.String), entry: Schema.optional(Schema.String) }),

@@ -197,7 +197,7 @@ describe("the commands list action", () => {
         expect(scoped.commands.some(command => command.name === "flows")).toBe(false)
       } else expect(scoped.commands).toHaveLength(1)
     } else expect(scoped.commands).toEqual([])
-    for (const name of ["repo.overview", "repo.update", "repo.tree"]) {
+    for (const name of ["repo.overview", "repo.update"]) {
       expect(controller.commands.find(name)).toBeDefined()
       expect(catalog.map(command => command.name)).not.toContain(name)
     }

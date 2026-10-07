@@ -51,13 +51,13 @@ test("a bug in the staged form preparation reaches the person as a bug, not as s
     silentAgent,
     {}
   )
-  controller.renderFlowForm({ name: "repo.tree", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String }) })
+  controller.renderFlowForm({ name: "files", args: undefined, via: "user", input: Schema.Struct({ purpose: Schema.String }) })
   await store.settled?.()
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
   const render = () => {
-    const card = store.collections.cards.get("form-repo.tree")! as Extract<Card, { kind: "flow-form" }>
+    const card = store.collections.cards.get("form-files")! as Extract<Card, { kind: "flow-form" }>
     flushSync(() => root.render(<FlowFormCardBody card={card} onRunCommand={(name, args) => { controller.runCommand(name, args) }} />))
   }
   render()
@@ -78,7 +78,7 @@ test("a bug in the staged form preparation reaches the person as a bug, not as s
     expect(transcript[0]).not.toContain("This browser")
     // Not the thrown message, not an internal id.
     expect(transcript[0]).not.toContain("the form card is not ready")
-    expect(transcript[0]).not.toContain("form-repo.tree")
+    expect(transcript[0]).not.toContain("form-files")
     // The write was never reached, so nothing was accepted.
     expect(store.collections.commandIntents.size).toBe(0)
     // Nothing escaped the app: an unhandled rejection is a line only a maintainer reads.

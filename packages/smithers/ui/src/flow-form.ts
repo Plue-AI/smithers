@@ -101,7 +101,7 @@ export interface FormHints {
    * (a setup step that needs its own inputs). The form then asks for those
    * that are missing, and only those.
    */
-  readonly requires?: (payload: Readonly<Record<string, unknown>>) => ReadonlyArray<string>
+  readonly requires?: (payload: Readonly<Record<string, unknown>>) => ReadonlyArray<string> | undefined
   /** Optional controls to retain when a variant asks only for missing required inputs. */
   readonly optionalFields?: (payload: Readonly<Record<string, unknown>>) => ReadonlyArray<string>
 }
@@ -198,10 +198,11 @@ const controlOf = (ast: SchemaAST.AST): Pick<FormField, "kind" | "options"> => {
  *
  * @category derivation
  */
-export const formFieldsFor = (input: Schema.Top, hints: FormHints | undefined = undefined): ReadonlyArray<FormField> => {
+export const formFieldsFor = (input: Schema.Top, hints: FormHints | undefined = undefined, payload: Readonly<Record<string, unknown>> = {}): ReadonlyArray<FormField> => {
   const ast = input.ast
   if (ast._tag !== "Objects") return []
-  return ast.propertySignatures.filter(signature => hints?.fields?.[String(signature.name)]?.hidden !== true || !unwrapOptional(signature.type).optional).map((signature) => {
+  const required = hints?.requires?.(payload) ?? []
+  return ast.propertySignatures.filter(signature => hints?.fields?.[String(signature.name)]?.hidden !== true || !unwrapOptional(signature.type).optional || required.includes(String(signature.name))).map((signature) => {
     const name = String(signature.name)
     const { ast: inner, optional } = unwrapOptional(signature.type)
     const control = controlOf(inner)

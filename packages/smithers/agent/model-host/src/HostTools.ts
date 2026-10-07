@@ -693,7 +693,7 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
       !row.actors.includes("app_agent") || row.visibility === "hidden" ||
       (row.agent !== "run" && row.agent !== "confirm")
     ) return []
-    const bind = row.name === "files.list" ?
+    const bind = row.name === "files" ?
       filesList
       : row.name === "file" ?
       filesRead
@@ -709,7 +709,7 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
       name: row.name,
       summary: row.summary,
       agent: row.agent,
-      args: row.name === "files.list" ? FILES_LIST_COMMAND.args : row.name === "file"
+      args: row.name === "files" ? FILES_LIST_COMMAND.args : row.name === "file"
         ? FILES_READ_COMMAND.args
         : JSON.stringify({ ...row.payload.schema, $defs: row.payload.definitions, additionalProperties: false })
     }
@@ -724,7 +724,7 @@ const docsReadLine = (docs: ReadonlyArray<DocsPage>): string =>
 
 /** How a turn that can list finds a file it was not named: it lists, never guesses. */
 const LIST_BEFORE_READ_LINE =
-  "Asked about the repository's code without a file named, run files.list with no argument to list the root, then list or read the paths it shows; never guess a path."
+  "Asked about the repository's code without a file named, run files with no argument to list the root, then list or read the paths it shows; never guess a path."
 
 /**
  * The instructions of a turn this host runs commands for. They replace the
@@ -754,7 +754,7 @@ const hostInstructions = (offered: ReadonlyArray<Offered>, docs: ReadonlyArray<D
           { args: "<Tn>" }
           : command.name === "todo.new" ?
           { args: "[text]" }
-          : (command.name === "file" || command.name.startsWith("files.")) && args !== undefined ?
+          : (command.name === "file" || command.name === "files") && args !== undefined ?
           { args }
           : {})
       })

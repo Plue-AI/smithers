@@ -530,6 +530,11 @@ describe("the card every slash line opens, against main@origin", () => {
       Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith(`${flow}::`) && index !== -1).length
     ]))).toEqual({ "env.view": 30, "env.set": 0, "env.remove-token": 0 })
     expect(rows.some(row => row.flow.startsWith("env."))).toBe(false)
+    const retiredFileDoors = ["files.read", "files.list", "box.file", "box.files", "repo.tree"]
+    expect(Object.fromEntries(retiredFileDoors.map(flow => [flow,
+      Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith(`${flow}::`) && index !== -1).length
+    ]))).toEqual({ "files.read": 8, "files.list": 10, "box.file": 10, "box.files": 12, "repo.tree": 0 })
+    expect(rows.some(row => retiredFileDoors.includes(row.flow))).toBe(false)
     const lost = rows.filter((row) => {
       const at = baseline.rows[key(row)]
       return at !== undefined && at[0] !== -1 && row.error === null
@@ -583,7 +588,7 @@ describe("the card every slash line opens, against main@origin", () => {
       // github.app and env.view no longer register duplicate Settings doors or their 60 parser diagnostics.
       // github.app.open and github.reconcile retire 60 additional executable-alias diagnostics; saved inputs decode via GitHubPayload.
       // The three retired Runs aliases remove 63 parser diagnostics; the retired workspace catalog removes 33 more; RunsPayload retains recorded source and operation.
-      here: 675 // Saved issue, GitHub and environment actions decode to their canonical doors.
+      here: 635 // Forty executable file-alias diagnostics retire; saved source and workspace inputs decode to canonical doors.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

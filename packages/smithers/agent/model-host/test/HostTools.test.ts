@@ -220,7 +220,7 @@ const execute = (name: string, args?: string) => ({
   arguments: JSON.stringify({ action: "execute", name, ...(args === undefined ? {} : { args }) })
 })
 const readCall = (args: string) => execute("file", args)
-const listCall = (args?: string) => execute("files.list", args)
+const listCall = (args?: string) => execute("files", args)
 
 const answerText = (frames: ReadonlyArray<AgentTurnFrame>): string =>
   frames.flatMap((frame) => frame.type === "delta" && frame.kind === "text" ? [frame.text] : []).join("")
@@ -253,7 +253,7 @@ const stackRoutes = routes({
 /** The instructions' command lines for each grant, literal. */
 const FILES_LINES = [
   "- /file <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Open and co-edit a file",
-  "- /files.list [path] [owner/repo] — List a repository directory"
+  "- /files [path] [owner/repo] — Browse a branch's files"
 ]
 // Literal Appendix B HTTP, file and UI-only commands.
 const HOST_COMMANDS = [
@@ -278,7 +278,7 @@ const HOST_COMMANDS = [
   "change.facet",
   "chat.reload",
   "file",
-  "files.list",
+  "files",
   "flow",
   "flow.edit",
   "flow.new",
@@ -502,7 +502,7 @@ describe("host-owned turns run their tool calls on the host", () => {
       readAt: { changeId: null, commitId: COMMIT, source: "head" }
     })
     expect(journal.frames.filter((frame) => frame.type === "call.settled")).toEqual(
-      ["files.list", "files.list", "file"].map((name, ordinal) => ({
+      ["files", "files", "file"].map((name, ordinal) => ({
         runId: "run",
         type: "call.settled",
         link: ordinal,
@@ -521,7 +521,7 @@ describe("host-owned turns run their tool calls on the host", () => {
     expect(journal.frames.at(-1)).toMatchObject({ type: "done", reason: "stop" })
     // A turn that can list is told to list, never to guess a path.
     expect(systemText(provider.requests[0])).toContain(
-      "Asked about the repository's code without a file named, run files.list with no argument to list the root, then list or read the paths it shows; never guess a path."
+      "Asked about the repository's code without a file named, run files with no argument to list the root, then list or read the paths it shows; never guess a path."
     )
   })
 
@@ -534,7 +534,7 @@ describe("host-owned turns run their tool calls on the host", () => {
     const provider = model([
       listCall(),
       listCall("/"),
-      execute("/files.list", "/docs/"),
+      execute("/files", "/docs/"),
       listCall("\"Meeting Notes\" acme/app")
     ])
     await run(grant, provider, journal)
@@ -665,7 +665,7 @@ describe("host-owned turns run their tool calls on the host", () => {
     // Arguments the grammar or the turn refuses never reach the producer.
     for (
       const [args, message] of [
-        ["a b c", "files.list takes a path and optionally an owner/repo"],
+        ["a b c", "files takes a path and optionally an owner/repo"],
         ["\"unfinished", "Close the quoted file argument before the next argument."],
         ["src other/repo", "This question reads acme/app only; name a directory in it."]
       ] as const
@@ -684,8 +684,8 @@ describe("host-owned turns run their tool calls on the host", () => {
         summary: "Open and co-edit a file",
         args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]"
       }, {
-        name: "files.list",
-        summary: "List a repository directory",
+        name: "files",
+        summary: "Browse a branch's files",
         args: "[path] [owner/repo]"
       }]
     })
@@ -952,8 +952,8 @@ describe("an install's host runs the catalog commands its grant allows, as the t
   test("the instructions and the list name exactly the commands the grant runs, never the request's own", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, ReadonlyArray<string>]> = [
       [install, HOST_COMMANDS],
-      [grant, ["file", "files.list"]],
-      [{ ...sourceless, api: install.api! }, HOST_COMMANDS.filter((name) => name !== "file" && !name.startsWith("files."))]
+      [grant, ["file", "files"]],
+      [{ ...sourceless, api: install.api! }, HOST_COMMANDS.filter((name) => name !== "file" && name !== "files")]
     ]
     for (const [turn, names] of cases) {
       const journal = producer((path) => file(path, JOURNEY), stackRoutes)
@@ -992,7 +992,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
 
   test("the instructions keep the app agent's standing rules beside the install's commands", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, string]> = [
-      [install, "through file and files.list"],
+      [install, "through file and files"],
       [
         {
           ...sourceless,
@@ -1024,7 +1024,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       provider,
       producer((path) => file(path, JOURNEY), stackRoutes)
     )
-    expect(systemText(provider.requests[0])).not.toContain("files.list")
+    expect(systemText(provider.requests[0])).not.toContain("run files with no argument")
   })
 
   test("an install turn's context states the host's capabilities and names no command the host does not run", async () => {
