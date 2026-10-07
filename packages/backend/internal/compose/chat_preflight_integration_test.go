@@ -28,6 +28,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
@@ -102,6 +103,10 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 	router := chi.NewRouter()
 	router.Use(middleware.AuthLoader(q, config.AuthConfig{SessionCookieName: "context_session"}))
 	local.composition.runtime.MountPublic(router)
+	user := &routes.UserHandler{ProfileService: services.NewUserService(q)}
+	router.Get("/api/user", user.GetAuthenticatedUser)
+	_, err = local.pool.Exec(local.ctx, `UPDATE users SET display_name=$1 WHERE id=$2`, "DEBUG-RESPONSE-PRIVATE-3559", memberID)
+	require.NoError(t, err)
 	public := httptest.NewServer(router)
 	defer public.Close()
 	jar, err := cookiejar.New(nil)
@@ -123,18 +128,19 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 			require.NoError(t, err)
 			require.Contains(t, string(raw), `"ok":true`)
 		}
-		body, _ := json.Marshal(map[string]string{"prompt": "Where do we retry webhooks?", "idempotencyKey": "preflight-" + role})
-		response, err := client.Post(public.URL+"/api/conversations/main/prompt", "application/json", strings.NewReader(string(body)))
-		require.NoError(t, err)
-		raw, err := io.ReadAll(response.Body)
-		response.Body.Close()
-		require.NoError(t, err)
-		require.Equal(t, http.StatusAccepted, response.StatusCode, string(raw))
+		// The production app controller opens/sends the documented API, then
+		// admits ordinary Chat. The provider below sees the actual host context.
+		command := exec.CommandContext(local.ctx, "bun", "e2e/playwright/debug-api/model-context.ts")
+		command.Dir = "../../../../apps/app"
+		command.Env = append(os.Environ(), "SMITHERS_API_ORIGIN="+public.URL)
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
 		var admitted struct {
 			TurnID string `json:"turnId"`
 			RunID  string `json:"runId"`
 		}
-		require.NoError(t, json.Unmarshal(raw, &admitted))
+		require.NoError(t, json.Unmarshal(output, &admitted), string(output))
+		require.NoError(t, local.pool.QueryRow(local.ctx, `SELECT run_id FROM chat_turns WHERE id=$1`, admitted.TurnID).Scan(&admitted.RunID))
 		recorded := []call{}
 		for range 2 {
 			select {
@@ -145,6 +151,11 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 				_ = local.pool.QueryRow(local.ctx, `SELECT state FROM chat_turns WHERE id=$1`, admitted.TurnID).Scan(&state)
 				t.Fatalf("missing model call; durable turn state=%s; logs=%s", state, local.logs.String())
 			}
+		}
+		for _, call := range recorded {
+			require.NotContains(t, call.body, "DEBUG-RESPONSE-PRIVATE-3559", "viewer-only API bytes reached model context")
+			require.NotContains(t, call.body, "debug-api")
+			require.NotContains(t, call.body, "composed-context-session")
 		}
 		require.Equal(t, role, recorded[0].role)
 		require.Equal(t, "Bearer "+role+"-private-key", recorded[0].key)

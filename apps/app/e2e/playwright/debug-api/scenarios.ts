@@ -124,6 +124,15 @@ export function debugApiScenarios(prefix: string) {
       expect(result.stdout).toContain("--- PASS: TestDebugAPIEligibleDelegatedDispatchPostgres")
       await test.info().attach("delegated-dispatch-http-sql", { body: result.stdout, contentType: "text/plain" })
     })
+    test("viewer-only API response stays out of the live host model context", async () => {
+      test.setTimeout(300_000)
+      const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestLocalSharedPreflightUsesFastRoleThenCodingFallback$", "-count=1", "-v"], {
+        cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_REQUIRE_DATABASE_TESTS: "1" },
+        timeout: 270_000, maxBuffer: 8 * 1024 * 1024
+      })
+      expect(result.stdout).toContain("--- PASS: TestLocalSharedPreflightUsesFastRoleThenCodingFallback")
+      await test.info().attach("viewer-only-model-context", { body: result.stdout, contentType: "text/plain" })
+    })
     pending("delegated app-agent and CLI scope/role failures retain precedence over debug.api person-only refusal",
       "T-CAT-01 shared dispatcher must carry credential/role decisions before its local never guard: flows/Commands.ts runForAgent and smithers/src/internal/backend/Catalog.ts. The eligible production MintForTurn receipt now passes separately.")
     test("repository-flow execution with isolation unavailable refuses before execution with no host process", async () => {
