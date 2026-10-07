@@ -13,7 +13,7 @@ beforeAll(() => {
 }, 30_000)
 afterAll(() => { rmSync(root, { recursive: true, force: true }) })
 
-for (const args of [["unknown"], ["host", "stop", "extra"], ["host", "status", "extra"], ["host", "start", "--bundle"]]) {
+for (const args of [["unknown"], ["host", "stop", "extra"], ["host", "status", "extra"], ["host", "start", "--bundle"], ["host", "start", "--bind"], ["host", "start", "--origin"], ["host", "start", "--unknown"]]) {
   test(`compiled bundle CLI refuses ${args.join(" ")} before service effects`, () => {
     const result = Bun.spawnSync([binary, ...args], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
     expect(result.exitCode).toBe(1)
@@ -33,3 +33,22 @@ requiresMacOS("compiled bundle CLI refuses invalid bundles before service effect
   expect(new TextDecoder().decode(result.stderr)).toContain("Invalid bundle manifest")
   expect(existsSync(join(root, "Library/LaunchAgents/sh.smithers.host.plist"))).toBe(false)
 })
+
+requiresMacOS("compiled bundle CLI forwards serving flags to the existing host boundary", () => {
+  const missing = join(root, "missing-serving-bundle")
+  const result = Bun.spawnSync([binary, "host", "start", "--bundle", missing, "--bind", "0.0.0.0", "--origin", "http://mini.lan:4000", "--origin", "https://proxy.example", "--json"], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
+  expect(result.exitCode).toBe(1)
+  const stderr = new TextDecoder().decode(result.stderr)
+  expect(stderr).toContain(missing)
+  expect(stderr).not.toContain("Use smthrs host")
+  expect(existsSync(join(root, "Library/LaunchAgents/sh.smithers.host.plist"))).toBe(false)
+})
+
+for (const [flag, value, message] of [["--bind", "bad", "Invalid bind address"], ["--origin", "ftp://mini.lan", "Invalid public origin"]]) {
+  requiresMacOS(`compiled bundle CLI forwards invalid ${flag} before bundle or service effects`, () => {
+    const result = Bun.spawnSync([binary, "host", "start", "--bundle", join(root, "missing"), flag!, value!], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
+    expect(result.exitCode).toBe(1)
+    expect(new TextDecoder().decode(result.stderr)).toContain(message!)
+    expect(existsSync(join(root, "Library/LaunchAgents/sh.smithers.host.plist"))).toBe(false)
+  })
+}
