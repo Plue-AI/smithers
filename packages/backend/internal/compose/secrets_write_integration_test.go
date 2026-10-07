@@ -401,7 +401,7 @@ func testSecretsComposed(t *testing.T, install bool) {
 		{"a read-only owner delegation", credential{bearer: token(owner, "readonly-cli", "read:repository,via:cli", true)}, 403, map[string]any{"class": "permission", "code": "permission", "message": "Insufficient credential scope"}, ""},
 		{"a member's delegated credential", delegated(writer), 403, permission, ""},
 		{"a maintainer's run credential", run, 403, nil, "permission"},
-		{"an outsider's session", outsiderSession, 403, nil, "forbidden"},
+		{"an outsider's session", outsiderSession, 403, map[string]any{"class": "permission", "code": "permission", "fault": "user", "message": "Not a member of this install"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, call := range []struct{ method, path, body string }{
