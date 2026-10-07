@@ -1,7 +1,7 @@
 import { referenceOrigin, JourneyUnavailable } from "../e2e/real/todo/reference"
 
 const spec = process.argv[2]
-if (!["todo-from-issue", "todo-needs-you", "todo-evidence", "todo-merge"].includes(spec)) throw new Error("Unknown J2 journey")
+if (!["todo-from-issue", "todo-needs-you", "todo-evidence", "todo-merge", "ask-repository"].includes(spec)) throw new Error("Unknown repository journey")
 try { referenceOrigin() } catch (error) {
   if (!(error instanceof JourneyUnavailable)) throw error
   console.error(JSON.stringify({ code: error.code, class: error.class, message: error.message }))
