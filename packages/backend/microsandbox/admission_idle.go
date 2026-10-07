@@ -64,15 +64,21 @@ func (r *Runtime) ReconcileAdmissionIdle(ctx context.Context, now, hostStarted t
 	r.mu.Lock()
 	h.idlePreparing = false
 	if err != nil {
+		changed := false
 		if h.held && h.releasing.IsZero() {
 			for _, row := range h.rows {
 				if row.State == "waiting" {
 					row.State = "granted"
+					changed = true
 				}
 			}
 		}
-		r.rankAdmissionLocked()
-		r.notifyAdmissionLocked()
+		// Wake callers whose demand arrived during capture. An unchanged
+		// failure must retry on the tick rather than spin the waiting queue.
+		if changed {
+			r.rankAdmissionLocked()
+			r.notifyAdmissionLocked()
+		}
 		r.mu.Unlock()
 		return err
 	}

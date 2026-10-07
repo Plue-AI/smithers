@@ -1392,6 +1392,54 @@ func TestAdmissionIdleFailurePreservesWaitingDemand(t *testing.T) {
 	}
 }
 
+func TestAdmissionIdleCaptureFailureNotifiesOnlyChangedDemand(t *testing.T) {
+	for _, arrives := range []bool{false, true} {
+		t.Run(fmt.Sprint(arrives), func(t *testing.T) {
+			r, p := admissionFixture()
+			_, err := r.WaitAdmission(t.Context(), p, "todo", "A", "T1", "run")
+			require.NoError(t, err)
+			require.NoError(t, r.BindAdmissionMachine("A", "vm-A"))
+			_, err = r.Request("person", "B", "Alice", "terminal")
+			require.NoError(t, err)
+			now := time.Now()
+			failed := errors.New("capture unavailable")
+			var changed <-chan struct{}
+			idle := AdmissionIdleProviders{FreeDisk: p.FreeDisk,
+				Safety: func(context.Context) ([]AdmissionSafety, error) {
+					return []AdmissionSafety{{Holder: "A", IdleSince: now.Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+				},
+				Prepare: func(context.Context, string) error {
+					if arrives {
+						row, err := r.Request("person", "A", "Ben", "terminal")
+						require.NoError(t, err)
+						require.Equal(t, "waiting", row.State)
+					}
+					r.mu.Lock()
+					changed = r.admissionChanged
+					r.mu.Unlock()
+					return failed
+				},
+				Stop: func(context.Context, string) error { t.Fatal("failed capture cannot stop"); return nil },
+			}
+			require.ErrorIs(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle), failed)
+			select {
+			case <-changed:
+				require.True(t, arrives, "unchanged capture failure must wait for the tick, not wake a retry loop")
+			default:
+				require.False(t, arrives, "restored demand must wake its caller")
+			}
+			require.Equal(t, 1, r.InUse())
+			for _, row := range r.AdmissionSnapshot() {
+				if row.Holder == "A" {
+					require.Equal(t, "granted", row.State)
+				} else {
+					require.Equal(t, "waiting", row.State)
+				}
+			}
+		})
+	}
+}
+
 func TestAdmissionIdleConfiguredClockPreservesStartupGrace(t *testing.T) {
 	r, p := admissionFixture()
 	start := time.Now()

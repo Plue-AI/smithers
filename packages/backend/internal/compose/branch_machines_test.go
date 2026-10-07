@@ -571,6 +571,49 @@ esac
 	defer stopDrain()
 	require.NoError(t, svc.WaitForProvisioning(drainCtx))
 	require.Zero(t, runtime.InUse())
+
+	// A failed final capture retains the occupied slot and the HTTP demand,
+	// but must not turn that demand into an immediate capture retry loop.
+	ampleDisk := func(context.Context) (int64, error) { return 140 << 30, nil }
+	runtime.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+	svc.EnableMachineAdmission(ampleDisk)
+	_, err = runtime.WaitAdmission(ctx, microsandbox.AdmissionProviders{FreeDisk: ampleDisk, Ready: func(context.Context, microsandbox.AdmissionRequest) error { return nil }}, "background", "capture-held", "learning", "learning")
+	require.NoError(t, err)
+	require.NoError(t, runtime.BindAdmissionMachine("capture-held", "capture-vm"))
+	var captures atomic.Int32
+	require.NoError(t, runtime.SetAdmissionIdleProviders(microsandbox.AdmissionIdleProviders{
+		Now: func() time.Time { return time.Now().Add(time.Minute) }, FreeDisk: ampleDisk,
+		Safety: func(context.Context) ([]microsandbox.AdmissionSafety, error) {
+			return []microsandbox.AdmissionSafety{{Holder: "capture-held", IdleSince: time.Now().Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true}}, nil
+		},
+		Prepare: func(context.Context, string) error { captures.Add(1); return errors.New("final capture unavailable") },
+		Stop:    func(context.Context, string) error { t.Error("failed capture must not stop"); return nil },
+	}))
+	open = httptest.NewRequest("POST", origin+"/api/repos/admissionowner/fixture/workspace/sessions", strings.NewReader(fmt.Sprintf(`{"workspace_id":%q}`, row.ID)))
+	open.RemoteAddr = "127.0.0.1:1234"
+	open.Header.Set("Content-Type", "application/json")
+	open.Header.Set("Origin", origin)
+	open.Header.Set("X-CSRF-Token", "csrf")
+	open.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+	open.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+	opened = httptest.NewRecorder()
+	router.ServeHTTP(opened, open)
+	require.Equal(t, http.StatusCreated, opened.Code, opened.Body.String())
+	require.NoError(t, json.Unmarshal(opened.Body.Bytes(), &waiting))
+	require.Equal(t, "pending", waiting.Status)
+	require.Eventually(t, func() bool { return captures.Load() > 0 }, 2*time.Second, 10*time.Millisecond)
+	before := captures.Load()
+	time.Sleep(100 * time.Millisecond)
+	require.LessOrEqual(t, captures.Load()-before, int32(2), "capture failures retry on the tick")
+	read(1)
+	require.Equal(t, 1, runtime.InUse())
+	closeWaiting.URL.Path = "/api/repos/admissionowner/fixture/workspace/sessions/" + waiting.ID + "/destroy"
+	closed = httptest.NewRecorder()
+	router.ServeHTTP(closed, closeWaiting)
+	require.Equal(t, http.StatusNoContent, closed.Code, closed.Body.String())
+	require.NoError(t, svc.WaitForProvisioning(drainCtx))
+	runtime.ConfirmAdmissionStop("capture-held", false)
+	read(0)
 }
 
 type admissionDemandRecorder struct {
