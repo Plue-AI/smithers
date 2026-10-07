@@ -15,12 +15,13 @@ export type DocumentEvent =
   | { kind: "sync"; payload: Uint8Array }
   | { kind: "awareness"; payload: Uint8Array }
   | { kind: "saved"; vector: Uint8Array; seq: number }
+  | { kind: "offline" }
   | { kind: "restart" }
   | { kind: "refused" }
 
 /** Existing-channel port. T-COL-08b owns the wire decoder; no implementation opens a socket here. */
 export interface DocumentChannel {
-  subscribeDocument(topic: string, receive: (event: DocumentEvent) => void): { send(kind: 1 | 2, payload: Uint8Array): void; release(): void }
+  subscribeDocument(topic: string, receive: (event: DocumentEvent) => void, clientId?: number): { send(kind: 1 | 2, payload: Uint8Array): void; release(): void }
 }
 export interface DocumentPrerequisites {
   contract: boolean; actor: boolean; file: boolean; recovery: boolean; catalog: boolean; machine: boolean
@@ -32,11 +33,13 @@ export interface DocumentRecoveryStore {
 }
 let nextDocument = 0
 interface DocumentStatus { id: string; revision: number; editable: boolean; signature: string; saved: "saving" | "saved"; unsaved?: { count: number; text: string } | undefined }
-interface Pending { bytes: Uint8Array; vector: Map<number, number>; seq: number }
+interface Pending { bytes: Uint8Array; vector: Map<number, number>; seq?: number }
+export interface DurableDocument { state: Uint8Array; clientId: number; epoch?: string; pending: Uint8Array[] }
+export interface DocumentPersistence { initial?: DurableDocument; save(value: DurableDocument): Promise<void> }
 const covered = (required: Map<number, number>, actual: Map<number, number>) =>
   [...required].every(([id, clock]) => (actual.get(id) ?? 0) >= clock)
 
-/** One Yjs protocol adapter for code and wiki over the authenticated shared channel. */
+/** One Yjs protocol adapter for code and wiki over the existing authenticated channel. */
 export class LiveDocProvider {
   readonly collection = createCollection(localOnlyCollectionOptions({ id: `live-document-${++nextDocument}`, getKey: (row: DocumentStatus) => row.id }))
   doc = new Y.Doc()
@@ -78,7 +81,17 @@ export class LiveDocProvider {
     if (transaction.origin !== this.remote && !this.pending.length && !this.recovery) this.recoveryBase = this.doc.getText(this.textName).toString()
   }
   private readonly remote = {}
-  constructor(topic: string, channel?: DocumentChannel, prerequisites?: DocumentPrerequisites, private readonly recoveryStore?: DocumentRecoveryStore) {
+  private writing = false
+  private nextWrite?: { value: DurableDocument; after: (() => void)[] }
+  private readonly textListeners = new Set<() => void>()
+  subscribeText(listener: () => void) { this.textListeners.add(listener); listener(); return () => { this.textListeners.delete(listener) } }
+  private notifyText() { for (const listener of this.textListeners) { try { listener() } catch { /* A view cannot interrupt document processing. */ } } }
+  private readonly persistence?: DocumentPersistence
+  private readonly recoveryStore?: DocumentRecoveryStore
+  constructor(topic: string, channel?: DocumentChannel, prerequisites?: DocumentPrerequisites, storage?: DocumentPersistence | DocumentRecoveryStore) {
+    const persistence = storage && "save" in storage ? storage : undefined
+    const recoveryStore = storage && "read" in storage ? storage : undefined
+    this.persistence = persistence; this.recoveryStore = recoveryStore
     let contract: ReturnType<typeof parseLiveDocTopic> | undefined
     try { contract = parseLiveDocTopic(topic) } catch { /* Invalid topics stay dark. */ }
     this.textName = contract?.kind === "wiki" ? "markdown" : "content"
@@ -87,12 +100,18 @@ export class LiveDocProvider {
       const stored = RecoveryRecord.safeParse(recoveryStore?.read())
       if (stored.success) { this.recovery = { count: stored.data.count, text: stored.data.text }; this.recoveryBase = stored.data.base }
     } catch { /* A failed local read never invents a saved receipt. */ }
+    if (persistence?.initial) {
+      const initial = persistence.initial
+      Y.applyUpdate(this.doc, initial.state, this.remote)
+      this.doc.clientID = initial.clientId; this.epoch = initial.epoch
+      this.pending = initial.pending.map(bytes => ({ bytes, vector: new Map([[initial.clientId, Y.decodeStateVector(Y.encodeStateVector(this.doc)).get(initial.clientId) ?? 0]]) }))
+    }
     this.publish()
     this.doc.on("beforeTransaction", this.beforeTransaction); this.doc.on("update", this.updated)
     this.watchAwareness()
     if (!channel || !prerequisites || ![prerequisites.contract, prerequisites.actor, prerequisites.file, prerequisites.recovery, prerequisites.catalog, prerequisites.machine].every(value => value === true)) return
     if (!contract) return
-    this.subscription = channel.subscribeDocument(topic, event => this.receive(event))
+    this.subscription = channel.subscribeDocument(topic, event => this.receive(event), persistence?.initial?.clientId)
     if (this.assigned) this.restart()
   }
   comparison?: { version: string; text: string }
@@ -123,33 +142,57 @@ export class LiveDocProvider {
   }
   private updated = (bytes: Uint8Array, origin: unknown) => {
     if (this.disposed) return
-    if (origin === this.remote) { this.publish(); return }
+    this.notifyText()
+    if (origin === this.remote) { this.durable(); this.publish(); return }
     if (!this.assigned) {
       this.recovery = { count: (this.recovery?.count ?? 0) + 1, text: this.doc.getText(this.textName).toString() }
       this.publish(); return
     }
     this.localClocks.set(this.doc.clientID, Y.decodeStateVector(Y.encodeStateVector(this.doc)).get(this.doc.clientID) ?? 0)
-    this.pending.push({ bytes: bytes.slice(), seq: 0, vector: new Map([[this.doc.clientID, Y.decodeStateVector(Y.encodeStateVector(this.doc)).get(this.doc.clientID) ?? 0]]) })
-    if (this.assigned) this.sendUpdate(this.pending[this.pending.length - 1]!)
+    this.pending.push({ bytes: bytes.slice(), vector: new Map([[this.doc.clientID, Y.decodeStateVector(Y.encodeStateVector(this.doc)).get(this.doc.clientID) ?? 0]]) })
+    const pending = this.pending.at(-1)!
+    this.durable(() => { if (this.assigned) pending.seq = this.sendUpdate(bytes) })
     this.publish()
   }
-  private sendUpdate(update: Pending) {
-    update.seq = ++this.sentSeq
-    const encoder = encoding.createEncoder(); sync.writeUpdate(encoder, update.bytes)
+  private durable(after?: () => void) {
+    if (!this.persistence) { after?.(); return }
+    const value: DurableDocument = { state: Y.encodeStateAsUpdate(this.doc), clientId: this.doc.clientID,
+      ...(this.epoch === undefined ? {} : { epoch: this.epoch }), pending: this.pending.map(p => p.bytes.slice()) }
+    // Remote snapshots can outrun storage. Persist the newest causal state
+    // together, retaining every local send until a write containing it finishes.
+    this.nextWrite = { value, after: [...(this.nextWrite?.after ?? []), ...(after ? [after] : [])] }
+    if (this.writing) return
+    this.writing = true
+    void (async () => {
+      try {
+        while (this.nextWrite) {
+          const write = this.nextWrite; this.nextWrite = undefined
+          await this.persistence!.save(write.value)
+          if (!this.disposed) for (const send of write.after) send()
+        }
+      } catch {
+        this.nextWrite = undefined; this.assigned = false; this.retain(); this.publish()
+      } finally { this.writing = false }
+    })()
+  }
+  private sendUpdate(bytes: Uint8Array) {
+    const encoder = encoding.createEncoder(); sync.writeUpdate(encoder, bytes)
     this.subscription?.send(1, encoding.toUint8Array(encoder))
+    return ++this.sentSeq
   }
   private restart() {
     if (!this.assigned) return
     const encoder = encoding.createEncoder(); sync.writeSyncStep1(encoder, this.doc)
     this.subscription?.send(1, encoding.toUint8Array(encoder))
-    for (const update of this.pending) this.sendUpdate(update)
+    for (const update of this.pending) this.durable(() => { if (this.assigned) update.seq = this.sendUpdate(update.bytes) })
   }
   private receive(event: DocumentEvent) {
     try { this.handle(event) } finally { if (!this.disposed) this.publish() }
   }
   private handle(event: DocumentEvent) {
     if (this.disposed) return
-    if (event.kind === "refused") { this.assigned = false; this.retain(); return }
+    if (event.kind === "offline") { this.durable(); return }
+    if (event.kind === "refused") { this.assigned = false; this.retain(); this.durable(); return }
     if (event.kind === "assigned") {
       if (!/^[a-f0-9]{32}$/i.test(event.epoch) || !LiveDocId.safeParse(event.clientId).success) return
       if ((this.epoch !== undefined && this.epoch !== event.epoch) || (this.epoch === undefined && this.recovery) || (this.pending.length > 0 && this.doc.clientID !== event.clientId)) {
@@ -164,7 +207,7 @@ export class LiveDocProvider {
       if (this.awareness.clientID !== event.clientId) { this.awareness.destroy(); this.awareness = new Awareness(this.doc) }
       this.awareness.off("update", this.awarenessUpdated)
       this.watchAwareness()
-      this.assigned = true; this.synced = false; this.restart(); return
+      this.assigned = true; this.synced = false; this.durable(); this.restart(); return
     }
     if (!this.assigned) return
     if (event.kind === "restart") { this.restart(); return }
@@ -182,8 +225,9 @@ export class LiveDocProvider {
         if (decoding.hasContent(decoder)) return
         for (const [id, clock] of vector) this.savedClocks.set(id, Math.max(this.savedClocks.get(id) ?? 0, clock))
         this.acknowledged = true
-        this.pending = this.pending.filter(update => !(update.seq <= event.seq && covered(update.vector, vector)))
+        this.pending = this.pending.filter(update => update.seq === undefined || update.seq > event.seq || !covered(update.vector, vector))
         if (!this.pending.length && (this.reapplying || this.recoveryEpoch === this.epoch)) { this.recovery = undefined; if (this.comparison?.version === "unsaved") this.comparison = undefined; this.recoveryEpoch = undefined; this.reapplying = false }
+      this.durable()
       } catch { /* Malformed acknowledgment never saves edits. */ }
       return
     }
@@ -211,8 +255,9 @@ export class LiveDocProvider {
       try {
         const encoder = encoding.createEncoder()
         const kind = sync.readSyncMessage(decoding.createDecoder(event.payload), encoder, this.doc, this.remote)
-        if (kind === sync.messageYjsSyncStep2) this.synced = true
-        if (encoding.length(encoder) > 0) this.subscription?.send(1, encoding.toUint8Array(encoder))
+        if (kind === sync.messageYjsSyncStep2) { this.synced = true; this.notifyText() }
+        if (encoding.length(encoder) > 0) { this.subscription?.send(1, encoding.toUint8Array(encoder)) }
+        this.durable()
       } catch { /* Untrusted frames cannot acknowledge or authorize edits. */ }
     }
   }
@@ -269,7 +314,7 @@ export class LiveDocProvider {
   dispose() {
     if (this.disposed) return
     if (this.awarenessTimer) clearTimeout(this.awarenessTimer)
-    this.retain(); this.assigned = false; this.disposed = true; this.subscription?.release()
+    this.retain(); this.assigned = false; this.disposed = true; this.subscription?.release(); this.textListeners.clear()
     this.doc.off("beforeTransaction", this.beforeTransaction); this.doc.off("update", this.updated); this.awareness.destroy(); this.publish()
     // Keep the document/recovery text for its owner; disposal never discards unacknowledged edits.
   }
