@@ -2071,8 +2071,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		launchWorker(func() { flow.maintainRetired(workerCtx) })
 	}
 	if conversationSummaries != nil {
+		summaryOperations := []string{services.ConversationSummaryOperation}
+		if conversationSummaries.RunSource != nil {
+			summaryOperations = append(summaryOperations, services.RunSummaryOperation)
+		}
 		launchWorker(func() {
-			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "conversation-summary-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, PollInterval: 250 * time.Millisecond, Operations: []string{services.ConversationSummaryOperation}}, conversationSummaries.Handle); err != nil && workerCtx.Err() == nil {
+			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "conversation-summary-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, PollInterval: 250 * time.Millisecond, Operations: summaryOperations}, conversationSummaries.Handle); err != nil && workerCtx.Err() == nil {
 				slog.Error("conversation summary worker stopped", "error", err)
 			}
 		})

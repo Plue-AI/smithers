@@ -27,9 +27,10 @@ type summarySource struct {
 }
 
 type ConversationSummaries struct {
-	Pool  *pgxpool.Pool
-	Jobs  *jobs.Store
-	Model func(context.Context, int64, int64, json.RawMessage) (io.ReadCloser, error)
+	RunSource RunSummarySource
+	Pool      *pgxpool.Pool
+	Jobs      *jobs.Store
+	Model     func(context.Context, int64, int64, json.RawMessage) (io.ReadCloser, error)
 }
 
 func (s *ConversationSummaries) Admit(ctx context.Context, tx pgx.Tx, turnID, previous string) error {
@@ -78,6 +79,9 @@ func (s *ConversationSummaries) Admit(ctx context.Context, tx pgx.Tx, turnID, pr
 }
 
 func (s *ConversationSummaries) Handle(ctx context.Context, lease *jobs.Lease) error {
+	if lease.Claim().Operation == RunSummaryOperation {
+		return s.handleRun(ctx, lease)
+	}
 	var input summarySource
 	if err := json.Unmarshal(lease.Claim().Payload, &input); err != nil {
 		return lease.Fail(ctx, json.RawMessage(`{"status":"invalid"}`))
@@ -174,7 +178,8 @@ func (s *ConversationSummaries) Handle(ctx context.Context, lease *jobs.Lease) e
 		return settle()
 	}
 	_, err = s.Pool.Exec(ctx, `UPDATE chat_turns SET summary=$5,summary_rev=$4,summary_pending_since=NULL
- WHERE id=$1 AND run_id=$2 AND producer_generation=$3 AND head_position+1=$4 AND summary_rev<$4 AND state=$6`, input.TurnID, input.RunID, input.Attempt, input.Revision, summary, input.State)
+ WHERE id=$1 AND run_id=$2 AND producer_generation=$3 AND head_position+1=$4 AND summary_rev<$4 AND state=$6
+ AND EXISTS(SELECT 1 FROM self_host_owners o JOIN collaborators c ON c.user_id=o.user_id JOIN users u ON u.id=o.user_id WHERE o.singleton AND o.user_id=$7 AND c.repository_id=chat_turns.repository_id AND c.suspended_at IS NULL AND NOT u.prohibit_login)`, input.TurnID, input.RunID, input.Attempt, input.Revision, summary, input.State, owner)
 	if err != nil {
 		return err
 	}
@@ -182,6 +187,11 @@ func (s *ConversationSummaries) Handle(ctx context.Context, lease *jobs.Lease) e
 }
 
 func summaryText(stream io.Reader) (string, error) {
+	text, err := summaryOutput(stream)
+	return summaryLine(text), err
+}
+
+func summaryOutput(stream io.Reader) (string, error) {
 	scanner := bufio.NewScanner(io.LimitReader(stream, 1<<20))
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	var text strings.Builder
@@ -212,10 +222,13 @@ func summaryText(stream io.Reader) (string, error) {
 	if !complete {
 		return "", errors.New("incomplete summary")
 	}
-	line := strings.TrimSpace(strings.Split(text.String(), "\n")[0])
+	return text.String(), nil
+}
+func summaryLine(text string) string {
+	line := strings.TrimSpace(strings.Split(text, "\n")[0])
 	runes := []rune(line)
 	if len(runes) > 240 {
 		line = string(runes[:240])
 	}
-	return line, nil
+	return line
 }
