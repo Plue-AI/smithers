@@ -71,11 +71,6 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	}
 	todos := services.NewMythicalService(pool, nil)
 	confirmations := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
-	cfg := testConfigAllFlagsOn()
-	cfg.Auth.Mode = "selfhost"
-	cfg.Auth.SessionCookieName = "session"
-	cfg.Server.PublicURL = "http://example.com"
-	cfg.Server.AllowedOrigins = []string{"http://example.com"}
 	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: confirmations})
 	call := func(i int, person bool, path, key, body string) (int, map[string]any) {
 		t.Helper()

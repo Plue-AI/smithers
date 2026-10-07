@@ -38,10 +38,11 @@ import (
 func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+	ctx := t.Context()
+	busCtx, cancelBus := context.WithCancel(ctx)
+	defer cancelBus()
 	bus := revocation.NewBus(pool, q)
-	require.NoError(t, bus.Start(ctx))
+	require.NoError(t, bus.Start(busCtx))
 	routes.SetRevocationSource(bus)
 	defer routes.SetRevocationSource(nil)
 	user := func(name string) db.User {
@@ -110,6 +111,14 @@ func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 		require.NoError(t, err)
 		return raw
 	}
+	issuer := services.NewAuthService(q, cfg.Auth, nil, nil)
+	issuer.Members = &services.Members{Pool: pool}
+	workspace, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, Name: "terminal", Kind: "agent", Status: "running", TargetBookmark: "mythical", EnvironmentSource: "repository"})
+	require.NoError(t, err)
+	terminalSession, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: workspace.ID, RepositoryID: repo.ID, UserID: owner.ID, Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	terminal, err := issuer.MintForTerminal(ctx, owner.ID, repo.ID, workspace.ID, terminalSession.ID)
+	require.NoError(t, err)
 	type credential struct{ cookie, bearer string }
 	ownerSession, maintainerSession, writerSession := credential{cookie: session(owner)}, credential{cookie: session(maintainer)}, credential{cookie: session(writer)}
 	get := func(c credential) (int, map[string]any) {
@@ -144,8 +153,9 @@ func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 		code string // never, or the permission refusal's code
 	}{
 		{"the owner's personal access token", credential{bearer: token(owner, "pat", "all", false)}, "never"},
-		{"the owner's CLI credential", credential{bearer: token(owner, "cli", "write:repository,via:cli", true)}, "never"},
-		{"an unbound terminal credential", credential{bearer: token(owner, "terminal", "write:repository,via:terminal,branch:main,profile:terminal_s1,terminal-session:s1", true)}, "unauthenticated"},
+		{"the owner's CLI credential", credential{bearer: token(owner, "cli", "read:repository,write:repository,via:cli", true)}, "never"},
+		{"the owner's CLI credential without read scope", credential{bearer: token(owner, "cli-user-only", "read:user,via:cli", true)}, "permission"},
+		{"the owner's terminal credential", credential{bearer: terminal.Token}, "permission"},
 		{"the owner's run credential", credential{bearer: token(owner, "run", "write:repository", true)}, "permission"},
 		{"a maintainer's session", maintainerSession, "permission"},
 		{"a maintainer's CLI credential", credential{bearer: token(maintainer, "cli", "write:repository,via:cli", true)}, "permission"},
@@ -166,8 +176,7 @@ func TestExternalReadIsPersonOnlyComposedInstallPostgres(t *testing.T) {
 	}
 
 	// The live topic takes the same decision: the owner's session follows
-	// the file, every other member's socket is refused it, and no token
-	// reads an external transcript.
+	// the file, every other member's socket is refused it, and delegated sockets cannot subscribe to its private transcript.
 	dial := func(c credential) (*websocket.Conn, int) {
 		t.Helper()
 		dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
