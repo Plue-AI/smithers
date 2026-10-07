@@ -116,7 +116,7 @@ func TestTerminalCredentialLifecycle(t *testing.T) {
 	written, ok := files.token(c.sessionID)
 	require.True(t, ok)
 	assert.True(t, strings.HasPrefix(written, "smithers_"))
-	assert.Equal(t, map[string]string{"SMITHERS_TOKEN_FILE": "/run/smithers/sessions/5e55-session/token", "SMITHERS_URL": "http://127.0.0.1:4000"}, c.environment())
+	assert.Equal(t, map[string]string{"SMITHERS_TOKEN_FILE": "/run/smithers/sessions/5e55-session/token", "SMITHERS_URL": "http://127.0.0.1:4000", "SMITHERS_TERMINAL_SESSION": "5e55-session"}, c.environment())
 
 	require.NoError(t, c.AcquireCredential(ctx), "the first attach uses the credential the open minted")
 	require.NoError(t, c.AcquireCredential(ctx), "a second viewer shares it")

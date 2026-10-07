@@ -99,7 +99,10 @@ rereads it without replaying the failed request. A branch terminal opened from
 the app is signed in: it sets `SMITHERS_URL` (the API origin when
 `SMITHERS_API_ORIGIN` is unset) and `SMITHERS_TOKEN_FILE`, the terminal's own
 delegated credential at `/run/smithers/sessions/<session id>/token`, mode 0600.
-`SMITHERS_TOKEN` cannot override a `/run/smithers/` file. That credential reads
+The host also binds `SMITHERS_TERMINAL_SESSION` and the bridge origin. A managed
+CLI validates the root-owned `issuer.json` beside its token: session, issuer and
+credential digest must match. Environment, keyring and saved logins cannot
+override that session or send its credential to another backend. That credential reads
 the repository, its TODOs and its wiki as the terminal's person, answers and
 steers only the TODO on the terminal's branch, and stops working within seconds
 of the terminal's close. Its answers show as the terminal's, or as Claude Code's

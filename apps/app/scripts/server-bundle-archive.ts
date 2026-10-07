@@ -28,7 +28,7 @@ export const archiveBundle = (bundle: string, output: string): string => {
   return archive
 }
 
-const deterministicTar = (source: string, destination: string, kind: "tar" | "directory") => {
+export const deterministicTar = (source: string, destination: string, kind: "tar" | "directory") => {
   const result = spawnSync("python3", [join(import.meta.dir, "deterministic-tar.py"), source, destination, kind], { encoding: "utf8" })
   if (result.status !== 0) throw new Error(`Bundle archive failed: ${result.stderr || result.error?.message}`)
 }

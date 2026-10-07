@@ -105,7 +105,7 @@ type Config struct {
 	// declares; so is the coding binding's Linux arm64 helper. No other host
 	// file ever reaches a guest. Nil plants nothing.
 	Bundle *installbundle.Bundle
-	// BundlePrograms are the host programs managed hosts will run from
+	// BundlePrograms are approved programs and session data planted from
 	// Bundle. New refuses to start unless the pinned manifest declares each,
 	// and the coding helper, with exactly its bytes and mode.
 	BundlePrograms []string

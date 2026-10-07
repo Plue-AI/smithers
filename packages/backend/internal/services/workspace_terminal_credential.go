@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -60,8 +61,8 @@ type terminalCredential struct {
 // backend has no URL its sessions reach.
 func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.Workspace, sessionID string, userID int64) (*terminalCredential, error) {
 	writer, ok := s.runtime.(workspaceapi.SessionCredentialWriter)
-	url := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
-	if !ok || s.q == nil || url == "" {
+	origin := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
+	if !ok || s.q == nil || origin == "" {
 		if _, installed := s.runtime.(interface {
 			SessionCredentialsForMember(context.Context, string, microsandbox.MemberIdentity) (*microsandbox.MemberCredentials, error)
 		}); installed {
@@ -100,8 +101,20 @@ func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.W
 		}
 		writer = bound
 	}
+	backend, err := url.Parse(origin)
+	if err != nil || backend.Hostname() == "" || (backend.Scheme != "http" && backend.Scheme != "https") {
+		return nil, errors.New("terminal credential: invalid backend origin")
+	}
+	port := backend.Port()
+	if port == "" {
+		port = "80"
+		if backend.Scheme == "https" {
+			port = "443"
+		}
+	}
+	guestOrigin := "http://127.0.0.1:" + port
 	credential := &terminalCredential{registry: s.terminalCredentials, issuer: s.credentialIssuer, tokens: s.q, writer: writer, workspaceID: row.ID,
-		sessionID: sessionID, userID: userID, repositoryID: row.RepositoryID, url: url}
+		sessionID: sessionID, userID: userID, repositoryID: row.RepositoryID, url: guestOrigin}
 	if err := s.installTerminalCredential(ctx, credential); err != nil {
 		return nil, err
 	}
@@ -135,7 +148,7 @@ func (s *WorkspaceService) installTerminalCredential(ctx context.Context, creden
 func (c *terminalCredential) environment() map[string]string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return map[string]string{"SMITHERS_TOKEN_FILE": c.path, "SMITHERS_URL": c.url}
+	return map[string]string{"SMITHERS_TOKEN_FILE": c.path, "SMITHERS_URL": c.url, "SMITHERS_TERMINAL_SESSION": c.sessionID}
 }
 
 func (c *terminalCredential) scopes() string {

@@ -16,7 +16,7 @@ import { bundlePostgres } from "./bundle-postgres"
 import { foreignLibraries } from "./system-linkage"
 import { signHardenedBackend, writeBundleManifest, verifyBundleManifest } from "./server-bundle-manifest"
 import { bundleMicrosandbox } from "./bundle-microsandbox"
-import { archiveBundle, normalizeImageArchive } from "./server-bundle-archive"
+import { archiveBundle, normalizeImageArchive, deterministicTar } from "./server-bundle-archive"
 import { validateGitBundle } from "./validate-git-bundle"
 
 const appDir = resolve(import.meta.dir, "..")
@@ -365,6 +365,20 @@ if (!instructions) throw new Error("Missing bundle instructions")
 writeFileSync(join(nativeDir, "README.md"), "# Smithers server bundle\n" + instructions)
 await bundleMicrosandbox(root, nativeDir)
 normalizeImageArchive(join(nativeDir, "share/microsandbox/base-image.oci.tar"))
+// Reuse the release CLI closure; Bun is not the supported CLI runtime.
+// The pinned Linux arm64 base image supplies Node. Root plants only the
+// archive and launcher; session-user home setup unpacks the closure.
+const guestCLIStage = join(nativeDir, ".guest-cli")
+await run("guest CLI release closure", [nodeBinary, "distribution/build-cli.mjs", guestCLIStage, "--linux-arm64"], root, nodeEnvironment)
+const guestCLIArchive = join(nativeDir, "share", "cli", "linux-arm64.tar.gz")
+mkdirSync(dirname(guestCLIArchive), { recursive: true })
+deterministicTar(guestCLIStage, guestCLIArchive, "directory")
+rmSync(guestCLIStage, { recursive: true, force: true })
+chmodSync(guestCLIArchive, 0o644)
+if (statSync(guestCLIArchive).size > 64 * 1024 * 1024) throw new Error("Guest CLI archive exceeds the approved planting limit")
+const guestCLILauncher = join(nativeDir, "bin", "linux-arm64", "smthrs")
+writeFileSync(guestCLILauncher, `#!/bin/sh\n/usr/local/bin/node -e 'if(process.platform !== "linux" || process.arch !== "arm64" || Number(process.versions.node.split(".")[0]) < 26) process.exit(1)' || exit 125\nexec /usr/local/bin/node "$HOME/.local/share/smithers/cli/current/node_modules/@smthrs/cli/bin/smithers.mjs" "$@"\n`, { mode: 0o755 })
+chmodSync(guestCLILauncher, 0o755)
 // Ship the catalog-generated skill as data, never as a root executable.
 const guestSkill = join(nativeDir, "share", "skills", "smithers", "SKILL.md")
 mkdirSync(dirname(guestSkill), { recursive: true })
