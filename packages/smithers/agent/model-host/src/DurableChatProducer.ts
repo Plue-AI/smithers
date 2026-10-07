@@ -14,6 +14,7 @@ import {
 import type { AgentTurnCursor, AgentTurnJournalReply } from "@smthrs/rpc/AgentTurnJournal"
 import { ContextPreflightInputSchema } from "@smthrs/rpc/ContextPreflight"
 import type { ContextPreflightFrame, ContextPreflightInput, ContextPreflightResult } from "@smthrs/rpc/ContextPreflight"
+import type { DocsPage } from "@smthrs/rpc/DocsPages"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect } from "effect"
 import { runContextPreflight } from "./ContextPreflight.ts"
@@ -255,7 +256,8 @@ export class DurableChatProducer {
 /**
  * Streams a turn and durably commits each projected frame. A renderer that
  * offers tools gets one model leg and runs its tool calls itself; a host-owned
- * turn runs its tool calls on the host until the model answers.
+ * turn runs its tool calls on the host until the model answers, `docs` over
+ * the pages the host bundles.
  *
  * @category runners
  * @since 1.0.0-rc.0
@@ -266,7 +268,12 @@ export const runDurableChatTurn = (
   options: ModelTurnOptions,
   callbackBaseUrl: string = grant.producerBaseUrl,
   fetchImpl: FetchLike = fetch.bind(globalThis),
-  preflight?: { readonly input: ContextPreflightInput; readonly model: Model.Model; readonly options: ModelTurnOptions }
+  preflight?: {
+    readonly input: ContextPreflightInput
+    readonly model: Model.Model
+    readonly options: ModelTurnOptions
+  },
+  docs?: ReadonlyArray<DocsPage>
 ): Effect.Effect<void, Model.ModelFailure | ProducerError> => {
   const producer = new DurableChatProducer(callbackBaseUrl, grant, fetchImpl)
   const write = (frame: AgentTurnFrame) => producer.write(frame)
@@ -309,11 +316,13 @@ export const runDurableChatTurn = (
     }
     if (preflight === undefined) yield* producer.providerStarted()
     if (hostOwned(prepared.request)) {
-      yield* runHostTurn(model, prepared, options, write, {
+      const transport = {
         read: sourceReader(callbackBaseUrl, grant, fetchImpl),
         list: sourceLister(callbackBaseUrl, grant, fetchImpl),
-        api: apiCaller(callbackBaseUrl, grant, fetchImpl)
-      })
+        api: apiCaller(callbackBaseUrl, grant, fetchImpl),
+        docs
+      }
+      yield* runHostTurn(model, prepared, options, write, transport)
       return
     }
     yield* runModelTurn(model, prepared.request, options, write)
