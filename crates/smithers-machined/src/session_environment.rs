@@ -94,7 +94,14 @@ impl Binding {
                 .iter()
                 .any(|(k, v)| !key(k) || v.contains('\0'))
             || b.environment.get("SMITHERS_TOKEN_FILE")
-                != Some(&format!("/run/smithers/sessions/{}/token", b.session))
+                != Some(&if user.uid >= 20000 {
+                    format!(
+                        "/run/smithers/{}/token/sessions/{}/token",
+                        user.uid, b.session
+                    )
+                } else {
+                    format!("/run/smithers/sessions/{}/token", b.session)
+                })
             || b.environment
                 .get("SMITHERS_URL")
                 .is_none_or(|v| v.is_empty() || v.len() > 4096)
@@ -211,7 +218,7 @@ pub fn run(args: &[String]) -> io::Result<()> {
 mod tests {
     use super::*;
     fn source() -> Vec<u8> {
-        br#"{"login":"ben","uid":20001,"session":"terminal-a","token_sha256":"696e66e7bfa9c8319a19a7dfb18f2db9a151a680ba3c2c87e0dd204ea8ff11dd","environment":{"SMITHERS_TOKEN_FILE":"/run/smithers/sessions/terminal-a/token","SMITHERS_URL":"http://127.0.0.1:4000"}}"#.to_vec()
+        br#"{"login":"ben","uid":20001,"session":"terminal-a","token_sha256":"696e66e7bfa9c8319a19a7dfb18f2db9a151a680ba3c2c87e0dd204ea8ff11dd","environment":{"SMITHERS_TOKEN_FILE":"/run/smithers/20001/token/sessions/terminal-a/token","SMITHERS_URL":"http://127.0.0.1:4000"}}"#.to_vec()
     }
     #[test]
     fn exact_identity_and_session_binding_refuse_forged_or_unbounded_input() {
@@ -231,14 +238,16 @@ mod tests {
             ("SMITHERS_URL", "OTHER_URL"),
             ("696e66", "FFFF66"),
         ] {
-            assert!(Binding::parse(
-                String::from_utf8(source())
-                    .unwrap()
-                    .replace(from, to)
-                    .as_bytes(),
-                &user
-            )
-            .is_err());
+            assert!(
+                Binding::parse(
+                    String::from_utf8(source())
+                        .unwrap()
+                        .replace(from, to)
+                        .as_bytes(),
+                    &user
+                )
+                .is_err()
+            );
         }
         assert!(Binding::parse(&vec![b' '; LIMIT + 1], &user).is_err());
         assert!(environment(br#"{"1INVALID":"x"}"#).is_err());
@@ -248,6 +257,52 @@ mod tests {
         assert_eq!(
             environment(br#"{"VALID":"literal $() bytes"}"#).unwrap()["VALID"],
             "literal $() bytes"
+        );
+    }
+    #[test]
+    fn private_member_paths_and_legacy_agent_paths_are_distinct() {
+        let text = String::from_utf8(source()).unwrap();
+        let member = User {
+            login: "ben".into(),
+            uid: 20001,
+        };
+        for path in [
+            "/run/smithers/sessions/terminal-a/token",
+            "/run/smithers/20002/token/sessions/terminal-a/token",
+            "/run/smithers/20001/token/sessions/terminal-b/token",
+        ] {
+            assert!(
+                Binding::parse(
+                    text.replace("/run/smithers/20001/token/sessions/terminal-a/token", path)
+                        .as_bytes(),
+                    &member
+                )
+                .is_err()
+            );
+        }
+        let agent = text
+            .replace("\"ben\"", "\"agent\"")
+            .replace("20001", "19999")
+            .replace(
+                "/run/smithers/19999/token/sessions",
+                "/run/smithers/sessions",
+            );
+        let user = User {
+            login: "agent".into(),
+            uid: 19999,
+        };
+        assert!(Binding::parse(agent.as_bytes(), &user).is_ok());
+        assert!(
+            Binding::parse(
+                agent
+                    .replace(
+                        "/run/smithers/sessions",
+                        "/run/smithers/20001/token/sessions"
+                    )
+                    .as_bytes(),
+                &user
+            )
+            .is_err()
         );
     }
     #[test]

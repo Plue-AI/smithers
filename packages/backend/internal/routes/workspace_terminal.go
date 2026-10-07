@@ -70,9 +70,10 @@ type workspaceRuntimeTerminalService interface {
 
 // WorkspaceTerminalHandler handles the WebSocket terminal endpoint for workspace sessions.
 type WorkspaceTerminalHandler struct {
-	Service        WorkspaceTerminalService
-	Metrics        *SmithersMetrics
-	AllowedOrigins []string
+	Service           WorkspaceTerminalService
+	AuthorizeTerminal func(*http.Request, string) (int64, int64, error)
+	Metrics           *SmithersMetrics
+	AllowedOrigins    []string
 	// SessionCookieName identifies the browser session cookie. An empty value
 	// uses the default cookie name used by the auth middleware.
 	SessionCookieName string
@@ -245,7 +246,14 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		return
 	}
 	manager := h.terminalSessionManager()
-	termSession, created, err := manager.getOrCreate(r.Context(), sessionID, sshInfo, session.Cols, session.Rows, principal)
+	var termSession *terminalSession
+	var created bool
+	var err error
+	if h.AuthorizeTerminal != nil && session.UserID != user.ID {
+		termSession, err = manager.getExisting(sessionID)
+	} else {
+		termSession, created, err = manager.getOrCreate(r.Context(), sessionID, sshInfo, session.Cols, session.Rows, principal)
+	}
 	if guard.rejectStartup(w, err) {
 		if created {
 			termSession.destroyWithCode(websocket.StatusPolicyViolation, "access revoked")
@@ -757,3 +765,8 @@ func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx, authorization co
 
 // Ensure WorkspaceService satisfies WorkspaceTerminalService at compile time.
 var _ WorkspaceTerminalService = (*services.WorkspaceService)(nil)
+
+// TerminalPresence exposes attachment identities, never bytes or credentials.
+func (h *WorkspaceTerminalHandler) TerminalPresence(id string) TerminalPresence {
+	return h.terminalSessionManager().Presence(id)
+}

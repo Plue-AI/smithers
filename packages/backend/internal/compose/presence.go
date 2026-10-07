@@ -32,6 +32,7 @@ type branchPresence struct {
 	sourcesReady func(context.Context, db.Workspace) bool
 	startedAt    time.Time
 	now          func() time.Time
+	terminals    func(context.Context, db.Workspace, map[string]int) ([]any, error)
 }
 
 type leaseParticipant struct {
@@ -269,6 +270,13 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			origin = p.publicOrigin()
 		}
 		model := branchPresenceModel(current, presence, origin)
+		if p.terminals != nil {
+			terminals, err := p.terminals(ctx, current, colors)
+			if err != nil {
+				return nil, err
+			}
+			model["terminals"] = terminals
+		}
 		if position, waiting := p.branches.MachinePlace(current); waiting {
 			model["machine"] = map[string]any{"state": "waiting", "position": position}
 		}

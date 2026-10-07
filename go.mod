@@ -31,6 +31,11 @@ require (
 )
 
 require (
+	github.com/kr/fs v0.1.0 // indirect
+	github.com/pkg/sftp v1.13.10 // indirect
+)
+
+require (
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

@@ -170,11 +170,12 @@ func (r *machineRoster) start(ctx context.Context, bus *revocation.Bus) func() {
 func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machined.SessionUser, error) {
 	rows, err := tx.Query(ctx, `SELECT c.unix_login,c.unix_uid FROM collaborators c
  JOIN workspaces w ON w.repository_id=c.repository_id
- LEFT JOIN users u ON u.id=c.user_id
+ JOIN users u ON u.id=c.user_id
  WHERE w.id=$1::uuid AND c.suspended_at IS NULL
  AND (c.github_id IS NOT NULL OR c.user_id IS NOT NULL)
  AND c.permission IN ('admin','write') AND coalesce(u.prohibit_login,false)=false
- ORDER BY c.unix_uid`, branch)
+ AND u.is_active AND u.deleted_at IS NULL
+ ORDER BY c.unix_uid FOR SHARE OF c,u,w`, branch)
 	if err != nil {
 		return nil, err
 	}
@@ -196,12 +197,17 @@ func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machin
 
 // withProvisioningRoster holds the same owner lock as broker reconciliation,
 // so removal cannot commit between reading allocations and guest setup.
-func (r *machineRoster) withProvisioningRoster(ctx context.Context, branch string, visit func([]microsandbox.MemberIdentity) error) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
+func (r *machineRoster) withProvisioningRoster(ctx context.Context, branch string, visit func(context.Context, []microsandbox.MemberIdentity) error) error {
+	tx := machined.SessionAdmissionTransaction(ctx, branch)
+	own := tx == nil
+	var err error
+	if own {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(context.WithoutCancel(ctx))
 	}
-	defer tx.Rollback(ctx)
 	if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
 		return err
 	}
@@ -213,7 +219,13 @@ func (r *machineRoster) withProvisioningRoster(ctx context.Context, branch strin
 	for _, member := range members {
 		identities = append(identities, microsandbox.MemberIdentity{Login: member.Login, UID: int(member.UID), Active: true})
 	}
-	return visit(identities)
+	if err = visit(machined.WithSessionAdmissionTransaction(ctx, branch, tx), identities); err != nil {
+		return err
+	}
+	if own {
+		return tx.Commit(ctx)
+	}
+	return nil
 }
 
 // commitMemberActor is a fresh authorization read, not a live-presence lookup.

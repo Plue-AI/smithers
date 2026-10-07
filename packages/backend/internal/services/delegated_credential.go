@@ -72,6 +72,14 @@ func (s *AuthService) MintForTurn(ctx context.Context, userID int64, turnID stri
 // MintForTerminal binds a host-issued terminal token to its immutable session
 // and branch. No public scope or agent label can select this profile.
 func (s *AuthService) MintForTerminal(ctx context.Context, userID, repositoryID int64, branchID, sessionID string) (CreateTokenResult, error) {
+	return s.mintForMemberSession(ctx, userID, repositoryID, branchID, sessionID, "terminal")
+}
+
+func (s *AuthService) MintForSSH(ctx context.Context, userID, repositoryID int64, branchID, sessionID string) (CreateTokenResult, error) {
+	return s.mintForMemberSession(ctx, userID, repositoryID, branchID, sessionID, "ssh")
+}
+
+func (s *AuthService) mintForMemberSession(ctx context.Context, userID, repositoryID int64, branchID, sessionID, via string) (CreateTokenResult, error) {
 	if repositoryID <= 0 || strings.TrimSpace(branchID) == "" || strings.TrimSpace(sessionID) == "" {
 		return CreateTokenResult{}, pkgerrors.BadRequest("terminal subject is required")
 	}
@@ -82,7 +90,7 @@ func (s *AuthService) MintForTerminal(ctx context.Context, userID, repositoryID 
 	if err != nil || subject.WorkspaceID != branchID || subject.RepositoryID != repositoryID || subject.UserID != userID || subject.Kind != "terminal" || (subject.Status != "pending" && subject.Status != "starting" && subject.Status != "running") {
 		return CreateTokenResult{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Terminal subject is not active"}
 	}
-	return s.mintForSubject(ctx, userID, terminalCredentialName(sessionID), middleware.Delegation{Via: "terminal", Branch: branchID, Session: sessionID, Profile: middleware.TerminalProfileS1}, []string{string(middleware.ScopeReadRepository), string(middleware.ScopeReadUser), middleware.RepositoryRestrictionScope(repositoryID)})
+	return s.mintForSubject(ctx, userID, terminalCredentialName(sessionID), middleware.Delegation{Via: via, Branch: branchID, Session: sessionID, Profile: middleware.TerminalProfileS1}, []string{string(middleware.ScopeReadRepository), string(middleware.ScopeReadUser), middleware.RepositoryRestrictionScope(repositoryID)})
 }
 
 func (s *AuthService) mintForSubject(ctx context.Context, userID int64, name string, binding middleware.Delegation, scopes []string) (CreateTokenResult, error) {

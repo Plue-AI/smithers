@@ -181,6 +181,30 @@ func (s *WorkspaceService) completeRecoveredSessions(ctx context.Context, id str
 	if !ok {
 		return
 	}
+	// Recovered terminal requests need the same host preparation as fresh ones.
+	// Keep their durable pending rows until the real presence provider is ready.
+	if s.transactions != nil {
+		tx, err := s.transactions.Begin(ctx)
+		if err != nil {
+			return
+		}
+		var member int64
+		err = tx.QueryRow(ctx, `SELECT user_id FROM workspace_sessions WHERE workspace_id=$1 AND status IN ('pending','starting') AND ssh_connection_info->>'via'='terminal' ORDER BY created_at,id LIMIT 1`, id).Scan(&member)
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return
+		}
+		if err == nil {
+			workspace, err := s.q.GetWorkspace(ctx, id)
+			if err != nil || s.branchTerminalHost == nil {
+				return
+			}
+			if err = s.branchTerminalHost(ctx, workspace, member); err != nil {
+				slog.Error("prepare recovered terminal host", "workspace_id", id, "error", err)
+				return
+			}
+		}
+	}
 	ids, err := q.CompletePendingWorkspaceSessions(ctx, id)
 	if err != nil {
 		slog.Error("complete recovered workspace sessions", "workspace_id", id, "error", err)

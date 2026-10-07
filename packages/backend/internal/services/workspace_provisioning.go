@@ -478,11 +478,13 @@ func (s *WorkspaceService) workspaceEgressProxy(ctx context.Context, repositoryI
 		if err != nil {
 			return nil, pkgerrors.Internal("load branch machine secrets").WithCause(err)
 		}
-		// Never place values in CreateRequest.Env, files, or retained metadata.
-		// The legacy provider has no authenticated per-boot atomic env channel,
-		// assigned team identity, or unprivileged daemon-session contract.
+		// The installed runtime loads this same splitter through its authenticated
+		// boot's private env channel. Values never enter CreateRequest or metadata.
 		if len(snapshot.Secrets) != 0 {
-			return nil, pkgerrors.Conflict("machine secret environment is unavailable")
+			channel, ok := s.runtime.(interface{ SecretEnvironmentAvailable() bool })
+			if !ok || !channel.SecretEnvironmentAvailable() {
+				return nil, pkgerrors.Conflict("machine secret environment is unavailable")
+			}
 		}
 		policy.Secrets = snapshot.Bound
 	}

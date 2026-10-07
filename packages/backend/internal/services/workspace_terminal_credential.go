@@ -45,6 +45,7 @@ type terminalCredential struct {
 	userID       int64
 	repositoryID int64
 	url          string
+	via          string
 
 	mu       sync.Mutex
 	path     string
@@ -59,6 +60,13 @@ type terminalCredential struct {
 // it, or nil when the runtime cannot place a session credential or the
 // backend has no URL its sessions reach.
 func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.Workspace, sessionID string, userID int64) (*terminalCredential, error) {
+	return s.signInMemberSession(ctx, row, sessionID, userID, "terminal")
+}
+func (s *WorkspaceService) signInMemberSession(ctx context.Context, row db.Workspace, sessionID string, userID int64, via string) (*terminalCredential, error) {
+	if via != "terminal" && via != "ssh" {
+		return nil, errors.New("invalid member session transport")
+	}
+
 	writer, ok := s.runtime.(workspaceapi.SessionCredentialWriter)
 	url := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
 	if !ok || s.q == nil || url == "" {
@@ -101,7 +109,7 @@ func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.W
 		writer = bound
 	}
 	credential := &terminalCredential{registry: s.terminalCredentials, issuer: s.credentialIssuer, tokens: s.q, writer: writer, workspaceID: row.ID,
-		sessionID: sessionID, userID: userID, repositoryID: row.RepositoryID, url: url}
+		sessionID: sessionID, userID: userID, repositoryID: row.RepositoryID, url: url, via: via}
 	if err := s.installTerminalCredential(ctx, credential); err != nil {
 		return nil, err
 	}
@@ -141,7 +149,7 @@ func (c *terminalCredential) environment() map[string]string {
 func (c *terminalCredential) scopes() string {
 	entries := []string{string(middleware.ScopeReadRepository), string(middleware.ScopeReadUser),
 		middleware.RepositoryRestrictionScope(c.repositoryID)}
-	entries = append(entries, middleware.DelegationScopes(middleware.Delegation{Via: terminalCredentialVia,
+	entries = append(entries, middleware.DelegationScopes(middleware.Delegation{Via: c.presenceVia(),
 		Branch: c.workspaceID, Profile: middleware.TerminalProfileS1, Session: c.sessionID})...)
 	return strings.Join(entries, ",")
 }
@@ -154,7 +162,7 @@ func (c *terminalCredential) issueLocked(ctx context.Context) error {
 	var err error
 	if c.issuer != nil {
 		var minted CreateTokenResult
-		minted, err = c.issuer.MintForTerminal(ctx, c.userID, c.repositoryID, c.workspaceID, c.sessionID)
+		minted, err = c.issuer.mintForMemberSession(ctx, c.userID, c.repositoryID, c.workspaceID, c.sessionID, c.presenceVia())
 		if err == nil {
 			token = temporaryRepoCloneToken{ID: minted.ID, Plaintext: minted.Token, ExpiresAt: *minted.ExpiresAt}
 		}
@@ -286,4 +294,11 @@ func (s *WorkspaceService) revokeWorkspaceTerminalCredential(ctx context.Context
 	if err := store.DeleteSystemAccessTokensByName(context.WithoutCancel(ctx), db.DeleteSystemAccessTokensByNameParams{UserID: userID, Name: terminalCredentialName(session.ID)}); err != nil {
 		slog.Warn("terminal credential revocation failed", "session_id", session.ID, "error", err)
 	}
+}
+
+func (c *terminalCredential) presenceVia() string {
+	if c.via == "" {
+		return terminalCredentialVia
+	}
+	return c.via
 }

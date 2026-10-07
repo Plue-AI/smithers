@@ -252,8 +252,17 @@ func (r *Runtime) InspectManagedHost(ctx context.Context, workspaceID string, sp
 // starts it as an ordinary service. The returned client reaches it only by
 // relay.
 func (r *Runtime) StartManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
+
 	if err := validateManagedHostSpec(spec); err != nil {
 		return workspaceapi.ManagedHostConnection{}, err
+	}
+	r.mu.Lock()
+	secretsBound := r.secretEnvironment != nil
+	r.mu.Unlock()
+	if secretsBound {
+		if err := r.EnsureMachined(ctx, workspaceID); err != nil {
+			return workspaceapi.ManagedHostConnection{}, err
+		}
 	}
 	if connection, err := r.InspectManagedHost(ctx, workspaceID, spec); err == nil {
 		return connection, nil
@@ -288,10 +297,16 @@ func (r *Runtime) StartManagedHost(ctx context.Context, workspaceID string, spec
 	}
 	readyCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if _, err := r.startService(readyCtx, ws, workspaceapi.ServiceSpec{Name: spec.Name, Identity: spec.Identity, Command: command,
-		ReadyAddress: address, ReadyTimeout: timeout}, false); err != nil {
+	serviceSpec := workspaceapi.ServiceSpec{Name: spec.Name, Identity: spec.Identity, Command: command, ReadyAddress: address, ReadyTimeout: timeout}
+	if r.config.Bundle != nil {
+		_, err = r.startNativeHost(readyCtx, ws, spec.ID, serviceSpec)
+	} else {
+		_, err = r.startService(readyCtx, ws, serviceSpec, false)
+	}
+	if err != nil {
 		return workspaceapi.ManagedHostConnection{}, err
 	}
+
 	connection, err := r.probeManagedHost(readyCtx, workspaceID, spec, port)
 	if err != nil {
 		_ = r.StopService(context.Background(), workspaceID, spec.Name)

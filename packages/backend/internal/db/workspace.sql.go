@@ -386,7 +386,7 @@ WITH live_workspace AS MATERIALIZED (
     WHERE workspace.id = $5
       AND workspace.repository_id = $1
       AND workspace.deleted_at IS NULL
-    FOR UPDATE
+    FOR SHARE
 )
 INSERT INTO workspace_sessions (workspace_id, repository_id, user_id, cols, rows)
 SELECT live_workspace.id,
@@ -1157,9 +1157,15 @@ WHERE w.id = $1
         AND EXISTS (
           SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
             AND s.grantee_user_id = $3)
-        AND NOT EXISTS (
+        AND (NOT EXISTS (
           SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
-            AND s.grantee_user_id <> $3)))
+            AND s.grantee_user_id <> $3)
+        OR (w.kind='vm' AND EXISTS (
+          SELECT 1 FROM collaborators c JOIN users u ON u.id=c.user_id
+          WHERE c.repository_id=w.repository_id AND c.user_id=$3
+            AND c.suspended_at IS NULL AND c.permission IN ('write','admin')
+            AND c.unix_uid>=20000 AND c.unix_login<>'' AND u.is_active
+            AND u.deleted_at IS NULL AND NOT u.prohibit_login)))))
 `
 
 type GetFlowWorkspaceForUserRepoParams struct {

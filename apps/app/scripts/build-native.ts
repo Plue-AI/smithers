@@ -268,6 +268,10 @@ const packagedLinuxHelper = join(nativeDir, "bin", "linux-arm64", "smithers-jj-e
 mkdirSync(dirname(packagedLinuxHelper), { recursive: true })
 cpSync(linuxHelper, packagedLinuxHelper)
 cpSync(guestMachined, join(nativeDir, "bin", "linux-arm64", "smithers-machined"))
+const guestSftp = join(nativeDir, "bin", "linux-arm64", "smithers-sftp")
+await run("Linux arm64 SFTP subsystem", ["go", "build", "-trimpath", "-ldflags=-s -w", "-o", guestSftp, "./packages/backend/cmd/smithers-sftp"], root, { GOOS: "linux", GOARCH: "arm64", CGO_ENABLED: "0" })
+requireLinuxArm64(guestSftp, "SFTP subsystem")
+
 cpSync(guestJj, join(nativeDir, "bin", "linux-arm64", "jj"))
 rmSync(guestJjInstallRoot, { recursive: true, force: true })
 await run(

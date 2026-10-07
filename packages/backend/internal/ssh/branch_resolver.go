@@ -44,8 +44,8 @@ func (r *InstallBranchResolver) ResolveBranch(ctx context.Context, member int64,
 		return WorkspaceAccess{}, ErrWorkspaceAccessDenied
 	}
 	rows, err := r.Database.Query(ctx, `SELECT w.id,w.target_bookmark FROM workspaces w
- JOIN workspace_shares s ON s.workspace_id=w.id AND s.grantee_user_id=$2 AND s.level='write'
- WHERE w.repository_id=$1 AND w.user_id=$3 AND w.deleted_at IS NULL AND w.target_bookmark<>'main'
+ LEFT JOIN workspace_shares s ON s.workspace_id=w.id AND s.grantee_user_id=$2
+ WHERE (s.workspace_id IS NULL OR s.level='write') AND w.repository_id=$1 AND w.user_id=$3 AND w.deleted_at IS NULL AND w.target_bookmark<>'main'
  AND (w.target_bookmark LIKE 'scratch/%' OR EXISTS
  (SELECT 1 FROM mythical_lanes l WHERE l.workspace_id=w.id::text AND l.repository_id=$1 AND l.retired_at IS NULL))`, repo, member, owner)
 	if err != nil {

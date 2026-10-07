@@ -197,6 +197,10 @@ func (s *WorkspaceService) finishWorkspaceSessionProvisioning(ctx context.Contex
 		session = replacement
 	}
 
+	if err := s.prepareBranchTerminalSession(ctx, workspace, session); err != nil {
+		return WorkspaceSessionResponse{}, err
+	}
+
 	// CAS pending/starting -> running. This goroutine is detached from the HTTP
 	// request, so the user may have destroyed the session while the VM was still
 	// provisioning; an unconditional update here resurrected that stopped

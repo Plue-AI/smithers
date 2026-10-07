@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -139,13 +137,8 @@ func TestRootBoundaryApprovedBundleDispatch(t *testing.T) {
 	require.Equal(t, 0, result.ExitCode, result.Stderr)
 	require.Equal(t, "19999 19999 [20000]\n", result.Stdout)
 	terminal, err := r.OpenWorkspaceTerminal(ctx, "sec01-envelope", workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-c", `import os; print(os.getuid(),os.getgid(),os.getgroups())`}})
-	require.NoError(t, err)
-	defer terminal.Close()
-	output, err := io.ReadAll(terminal)
-	if err != nil {
-		require.ErrorIs(t, err, syscall.EIO)
-	}
-	require.Contains(t, string(output), "19999 19999 [20000]")
+	require.ErrorIs(t, err, ErrUnavailable, "unbound terminals cannot bypass member admission")
+	require.Nil(t, terminal)
 	// Production relay dispatch and file entry receive real guest processes.
 	_, err = r.StartService(ctx, "sec01-envelope", workspaceapi.ServiceSpec{Name: "sec01-http", Command: workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-m", "http.server", "18080", "--bind", "127.0.0.1"}}, ReadyAddress: "127.0.0.1:18080", ReadyTimeout: 30 * time.Second})
 	require.NoError(t, err)

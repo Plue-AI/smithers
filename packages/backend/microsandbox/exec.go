@@ -104,16 +104,17 @@ type execRequest struct {
 
 // guestCommand is one `msb exec` client running the helper's exec in a VM.
 type guestCommand struct {
-	runtime    *Runtime
-	machine    string
-	id         string
-	cmd        *exec.Cmd
-	done       chan struct{}
-	waitErr    error
-	stdout     *limitedBuffer
-	stderr     *limitedBuffer
-	cancelOnce sync.Once
-	cancelErr  error
+	runtime      *Runtime
+	machine      string
+	id           string
+	cmd          *exec.Cmd
+	done         chan struct{}
+	waitErr      error
+	stdout       *limitedBuffer
+	stderr       *limitedBuffer
+	cancelOnce   sync.Once
+	cancelErr    error
+	cancelNative func() error
 }
 
 func (c *guestCommand) finished() bool {
@@ -129,6 +130,10 @@ func (c *guestCommand) finished() bool {
 // command's cgroup so descendants that left the session die too.
 func (c *guestCommand) cancel() error {
 	c.cancelOnce.Do(func() {
+		if c.cancelNative != nil {
+			c.cancelErr = c.cancelNative()
+			return
+		}
 		killGroup(c.cmd)
 		select {
 		case <-c.done:
@@ -524,9 +529,15 @@ func (r *Runtime) StopService(ctx context.Context, workspaceID, name string) err
 		r.mu.Unlock()
 		return nil
 	}
-	service.stopped = true
 	r.mu.Unlock()
-	service.command.cancel()
+	if err := service.command.cancel(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if ws.services[strings.TrimSpace(name)] == service {
+		service.stopped = true
+	}
+	r.mu.Unlock()
 	return nil
 }
 

@@ -102,7 +102,7 @@ func (r *Runtime) EnsureMember(ctx context.Context, workspaceID string, member M
 // MemberRoster holds the authoritative roster lock while visiting current
 // allocations. Implementations must scope the roster to the workspace repository.
 // Nothing is persisted in runtime metadata or copied from a previous boot.
-type MemberRoster func(context.Context, string, func([]MemberIdentity) error) error
+type MemberRoster func(context.Context, string, func(context.Context, []MemberIdentity) error) error
 
 // BindMemberRoster is called by single-owner composition before serving work.
 func (r *Runtime) BindMemberRoster(roster MemberRoster) {
@@ -125,8 +125,8 @@ func (r *Runtime) prepareMembers(ctx context.Context, ws *workspace, requested *
 	if r.config.Bundle == nil {
 		return fmt.Errorf("%w: member provisioning requires an approved installed bundle", ErrUnavailable)
 	}
-	return roster(ctx, ws.ID, func(members []MemberIdentity) error {
-		return r.provisionMembers(ctx, ws.Machine, members, requested)
+	return roster(ctx, ws.ID, func(admissionCtx context.Context, members []MemberIdentity) error {
+		return r.provisionMembers(admissionCtx, ws.Machine, members, requested)
 	})
 }
 

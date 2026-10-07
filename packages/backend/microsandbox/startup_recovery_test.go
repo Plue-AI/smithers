@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/installbundle"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
@@ -105,4 +106,22 @@ func TestRecoveredBootReattachmentUsesTrustedRecoveryWithoutSecondStart(t *testi
 	require.False(t, r.NeedsWorkspaceReattachment(ws.ID))
 	require.Equal(t, "released", r.AdmissionSnapshot()[0].State)
 	require.False(t, ws.guestOK)
+}
+
+// The VM CLI is a recording transport. This proves admission/start ordering,
+// not installed artifact qualification or a real root execution receipt.
+func TestInstalledRecoveryEndsOldBootBeforeNewAuthority(t *testing.T) {
+	r, ws, log := startupRecoveryTransport(t, "recover-files")
+	r.config.Bundle = &installbundle.Bundle{}
+	ws.State = "starting"
+	r.config.RecoverAdmission = true
+	r.admissionRecoveryPending = true
+	require.NoError(t, r.recover(t.Context()))
+	holder := "workspace:" + ws.ID
+	require.NoError(t, r.ReconstructAdmission(t.Context(), []AdmissionRequest{{Holder: holder, Actor: "run", Class: "todo", Reason: "machine"}}))
+	_, err := r.StartWorkspace(WithAdmissionHolder(t.Context(), holder), ws.ID)
+	require.ErrorContains(t, err, "injected recover-files failure")
+	require.Equal(t, []string{"list", "list", "stop", "list", "start", "install", "kill-all", "recover-files", "stop", "list"}, invocations(t, log))
+	require.Zero(t, r.InUse())
+	require.False(t, r.NeedsWorkspaceReattachment(ws.ID))
 }

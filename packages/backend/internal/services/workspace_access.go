@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -109,6 +110,7 @@ func heldWorkspaceMutationTransaction(ctx context.Context, workspaceID string, u
 func commitWorkspaceMutation(ctx context.Context, tx pgx.Tx, authority workspaceMutationAuthority, fn func(context.Context) error) error {
 	held := context.WithValue(ctx, workspaceMutationAuthorityKey{}, authority)
 	held = context.WithValue(held, workspaceMutationTransactionKey{}, workspaceMutationTransaction{authority: authority, tx: tx})
+	held = machined.WithSessionAdmissionTransaction(held, authority.workspaceID, tx)
 	if err := fn(held); err != nil {
 		return err
 	}

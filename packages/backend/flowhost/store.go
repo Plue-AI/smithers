@@ -20,9 +20,10 @@ import (
 )
 
 type Store struct {
-	pool          *pgxpool.Pool
-	codec         SecretCodec
-	newCredential func() (string, error)
+	pool                *pgxpool.Pool
+	codec               SecretCodec
+	newCredential       func() (string, error)
+	protectedBranchHost func(context.Context, string) error
 }
 
 func NewStore(pool *pgxpool.Pool, codec SecretCodec) (*Store, error) {
@@ -115,6 +116,22 @@ func (store *Store) acquire(ctx context.Context, authority Authority, catalog Ca
 	if validated.Key != authority.CatalogKey {
 		return nil, errors.New("flow host catalog does not match authority")
 	}
+	if store.protectedBranchHost != nil {
+		var native, authorized bool
+		err := store.pool.QueryRow(ctx, `SELECT w.kind='vm',w.user_id=$3 OR EXISTS(SELECT 1 FROM workspace_shares s JOIN collaborators c ON c.repository_id=w.repository_id AND c.user_id=s.grantee_user_id JOIN users u ON u.id=c.user_id WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id=$3 AND c.suspended_at IS NULL AND c.permission IN ('write','admin') AND c.unix_uid>=20000 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login) FROM workspaces w WHERE w.id=$1 AND w.repository_id=$2 AND w.deleted_at IS NULL`, authority.WorkspaceID, authority.RepositoryID, authority.UserID).Scan(&native, &authorized)
+		if err != nil {
+			return nil, err
+		}
+		if !authorized {
+			return nil, failure{code: "runtime_target_forbidden"}
+		}
+		if native {
+			if err := store.protectedBranchHost(ctx, authority.WorkspaceID); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	connection, err := store.pool.Acquire(ctx)
 	if err != nil {
 		return nil, err
@@ -149,24 +166,25 @@ func (value *lease) loadOrCreate(ctx context.Context, authority Authority, catal
 		defer cancel()
 		_ = tx.Rollback(cleanupCtx)
 	}()
-	// A target resolver authorizes the product request; this lock independently
-	// verifies that its workspace still belongs to that repository/user: the
-	// user's own, or a branch machine the install's machine service owns whose
-	// only write share is the user's. The browser relay finds its box with the
-	// same predicate (GetFlowWorkspaceForUserRepo); change both together. Keep
-	// deletion and insertion ordered, including repository/user cascades.
+	// Retain private-box exclusion. Shared service-owned VMs require both
+	// current allocated membership and the install's protected native launcher.
 	var workspaceID string
-	if err := tx.QueryRow(ctx, `SELECT w.id::text FROM workspaces w
-		WHERE w.id=$1 AND w.repository_id=$2 AND w.deleted_at IS NULL
-		  AND (w.user_id=$3 OR (w.user_id IN (SELECT u.id FROM users u WHERE u.lower_username='smithers-machines'
-		        AND u.user_type='service' AND u.prohibit_login AND u.deleted_at IS NULL)
-		    AND EXISTS (SELECT 1 FROM workspace_shares s WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id=$3)
-		    AND NOT EXISTS (SELECT 1 FROM workspace_shares s WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id<>$3)))
-		FOR SHARE OF w`, authority.WorkspaceID, authority.RepositoryID, authority.UserID).Scan(&workspaceID); err != nil {
+	var shared bool
+	if err := tx.QueryRow(ctx, `SELECT w.id::text,
+    w.user_id<>$3 AND EXISTS(SELECT 1 FROM workspace_shares s WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id<>$3)
+  FROM workspaces w WHERE w.id=$1 AND w.repository_id=$2 AND w.deleted_at IS NULL
+   AND (w.user_id=$3 OR (w.user_id IN (SELECT u.id FROM users u WHERE u.lower_username='smithers-machines' AND u.user_type='service' AND u.prohibit_login AND u.deleted_at IS NULL)
+    AND EXISTS(SELECT 1 FROM workspace_shares s WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id=$3)
+    AND (NOT EXISTS(SELECT 1 FROM workspace_shares s WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id<>$3)
+      OR (w.kind='vm' AND EXISTS(SELECT 1 FROM collaborators c JOIN users u ON u.id=c.user_id WHERE c.repository_id=w.repository_id AND c.user_id=$3 AND c.permission IN ('write','admin') AND c.suspended_at IS NULL AND c.unix_uid>=20000 AND c.unix_login<>'' AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login)))))
+   FOR SHARE OF w`, authority.WorkspaceID, authority.RepositoryID, authority.UserID).Scan(&workspaceID, &shared); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return failure{code: "runtime_target_forbidden"}
 		}
 		return err
+	}
+	if shared && value.store.protectedBranchHost == nil {
+		return failure{code: "runtime_target_forbidden"}
 	}
 	binding, encrypted, credentialHash, err := scanBinding(tx.QueryRow(ctx, bindingSelect+`
 		WHERE workspace_id=$1 AND catalog_key=$2
@@ -479,4 +497,9 @@ func tryAdvisoryLock(ctx context.Context, connection *pgxpool.Conn, lockKey stri
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+// BindProtectedBranchHost composes the installed native admission provider.
+func (s *Store) BindProtectedBranchHost(admit func(context.Context, string) error) {
+	s.protectedBranchHost = admit
 }

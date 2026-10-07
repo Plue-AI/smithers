@@ -1019,6 +1019,7 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/stack", extras.Live.Stack)
 		}
 		if config.IsSingleOwner(cfg.Auth) && workspaceTerminalHandler != nil {
+			workspaceTerminalHandler.AuthorizeTerminal = routes.InstallBranchAuthorizer(queries)
 			r.With(middleware.RequireAuth).Post("/terminals", workspaceTerminalHandler.OpenTerminal)
 		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {

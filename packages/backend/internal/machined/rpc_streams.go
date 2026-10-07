@@ -3,6 +3,7 @@ package machined
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"time"
 
@@ -293,12 +294,13 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 			peer.mu.Unlock()
 		}
 		if call.User != nil && l.identities != nil {
-			if err := l.identities.Record(ctx, s.branch, l.boot.id, id, *call.User); err != nil {
-				cleanup, stop := context.WithTimeout(context.Background(), time.Second)
+			if err := l.identities.Record(ctx, s.branch, l.boot.id, id, *call.User, call.Via); err != nil {
+				cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+				_, killErr := l.call(cleanup, s.branch, wire.KillSessions, wire.Field(1, wire.Union(1, wire.Field(1, user()))))
 				_, _ = l.call(cleanup, s.branch, wire.CloseSession, wire.Field(1, wire.U32(id)))
 				stop()
 				_ = l.Close()
-				return SessionResult{}, err
+				return SessionResult{}, errors.Join(err, killErr)
 			}
 		}
 		return SessionResult{Session: id}, nil

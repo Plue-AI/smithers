@@ -272,7 +272,7 @@ impl<A: Admission> Kernel for Processes<A> {
         // TCP is an unprivileged image relay child, so it shares cgroup cleanup
         // and identity rules with every other session.
         let args = match kind {
-            Kind::Sftp => vec!["/usr/lib/openssh/sftp-server".to_owned()],
+            Kind::Sftp => vec!["/opt/smithers/bundle/bin/linux-arm64/smithers-sftp".to_owned()],
             Kind::Tcp => vec![
                 "/opt/smithers/bin/smithers-machined".to_owned(),
                 "session-tcp".to_owned(),

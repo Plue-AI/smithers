@@ -85,6 +85,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// database/compiler load. Match the real fresh-box fixture's bound.
 		readyTimeout = 2 * time.Minute
 	}
+	environment["SMITHERS_URL"] = productAPIURL
 	catalogs := []flowhost.Catalog{
 		{
 			Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding,
@@ -100,6 +101,11 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	bindings, err := flowhost.NewStore(pool, codec)
 	if err != nil {
 		return nil, fmt.Errorf("Flow host bindings: %w", err)
+	}
+	if native, ok := options.Workspace.(interface {
+		ProtectedManagedHostReady(context.Context, string) error
+	}); ok {
+		bindings.BindProtectedBranchHost(native.ProtectedManagedHostReady)
 	}
 	agentTargets, err := services.NewAgentFlowHostTargetResolver(agents)
 	if err != nil {

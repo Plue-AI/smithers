@@ -1,0 +1,106 @@
+package compose
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
+	"github.com/stretchr/testify/require"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// The actual composed router and database persist the request. An unresolved
+// guest inspection tests instant admission independently of root approval.
+type requestHTTPRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	entered, release chan struct{}
+	once             sync.Once
+	registry         machined.Registry
+}
+
+func (r *requestHTTPRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
+	return workspaceapi.WorkspaceCapabilities{Terminal: true}
+}
+func (r *requestHTTPRuntime) MachinedRegistry() *machined.Registry { return &r.registry }
+func (r *requestHTTPRuntime) InspectWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+	r.once.Do(func() { close(r.entered) })
+	select {
+	case <-r.release:
+		return workspaceapi.Workspace{}, errors.New("supplemental guest refusal")
+	case <-ctx.Done():
+		return workspaceapi.Workspace{}, ctx.Err()
+	}
+}
+func TestTerminalRequestThroughComposedInstallHTTP(t *testing.T) {
+	f := presenceInstall(t)
+	q := db.New(f.pool)
+	owner, err := q.GetBranchMachineOwner(t.Context())
+	require.NoError(t, err)
+	branch, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.row.RepositoryID, UserID: owner, Name: "terminal", TargetBookmark: "scratch/presence-owner/terminal", Status: "running", Kind: "vm"})
+	require.NoError(t, err)
+	runtime := &requestHTTPRuntime{entered: make(chan struct{}), release: make(chan struct{})}
+	service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)))
+	service.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
+	defer func() {
+		close(runtime.release)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, service.WaitForProvisioning(ctx))
+	}()
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Server.PublicURL = "http://localhost:4000"
+	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+	handler := &routes.WorkspaceTerminalHandler{Service: service, AllowedOrigins: cfg.Server.AllowedOrigins}
+	router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: f.pool, terminal: handler})
+	request := uuid.NewString()
+	call := func(body string, authenticated bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/terminals", strings.NewReader(body))
+		req.RemoteAddr = "127.0.0.1:1234"
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", cfg.Server.PublicURL)
+		req.Header.Set("X-CSRF-Token", "csrf")
+		req.Header.Set("Idempotency-Key", request)
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		if authenticated {
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: f.cookie})
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		return response
+	}
+	body := `{"branch":"` + branch.ID + `"}`
+	require.Equal(t, 401, call(body, false).Code)
+	require.Equal(t, 400, call(`{"branch":"`+branch.ID+`","owner":0}`, true).Code)
+	first := call(body, true)
+	require.Equal(t, 202, first.Code, first.Body.String())
+	var receipt services.WorkspaceSessionResponse
+	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &receipt))
+	require.Equal(t, branch.ID, receipt.WorkspaceID)
+	select {
+	case <-runtime.entered:
+	case <-time.After(time.Second):
+		t.Fatal("guest effect did not start")
+	}
+	second := call(body, true)
+	require.Equal(t, 202, second.Code, second.Body.String())
+	var duplicate services.WorkspaceSessionResponse
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &duplicate))
+	require.Equal(t, receipt.ID, duplicate.ID)
+	stored, err := q.GetWorkspaceSession(t.Context(), receipt.ID)
+	require.NoError(t, err)
+	require.Equal(t, f.user.ID, stored.UserID)
+	var count int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions WHERE workspace_id=$1`, branch.ID).Scan(&count))
+	require.Equal(t, 1, count)
+}

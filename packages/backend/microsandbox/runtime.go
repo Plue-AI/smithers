@@ -2,8 +2,9 @@
 //
 // It implements the common workspace contract (packages/backend/workspace)
 // over the pinned `msb` CLI. Nothing a workspace runs executes on the host:
-// commands, services, managed Flow hosts, terminals, previews and file
-// operations all go through `msb exec` into the workspace's own VM. When
+// terminals and installed coding hosts use admitted native broker sessions;
+// one-shot commands, bridges, previews and file operations use the protected
+// helper inside the workspace VM. When
 // Microsandbox is missing or unqualified the runtime refuses to start, and a
 // VM that cannot be reached fails the operation; there is no process fallback.
 //
@@ -144,9 +145,11 @@ type metadata struct {
 }
 
 type workspace struct {
-	daemonMu   sync.Mutex
-	daemonBoot *machined.BootAuthority
-	sessionMu  sync.Mutex // serializes sealed admission with its broker spawn
+	daemonMu                sync.Mutex
+	daemonBoot              *machined.BootAuthority
+	secretEnvironmentDigest *[32]byte
+	secretEnvironmentLink   *machined.Link
+	sessionMu               sync.Mutex // serializes sealed admission with its broker spawn
 	metadata
 	recovering bool // retained VM awaits reattachment after durable-demand reconstruction
 	booting    bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
@@ -159,16 +162,19 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
-	machinedHead func(context.Context, string) (string, error)
-	memberRoster MemberRoster
-	memberActor  MemberActor
-	machined     machined.Registry
-	cli          *cli
-	config       Config
-	root         string
-	owner        string
-	holder       string
-	semaphore    chan struct{}
+	machinedAgentAdmission func(context.Context, string, string, func(context.Context) error) error
+	machinedHead           func(context.Context, string) (string, error)
+	secretEnvironment      func(context.Context, string) (map[string]string, error)
+	memberRoster           MemberRoster
+	memberActor            MemberActor
+	machinedAgentActor     func(context.Context, string, string, string) ([]byte, error)
+	machined               machined.Registry
+	cli                    *cli
+	config                 Config
+	root                   string
+	owner                  string
+	holder                 string
+	semaphore              chan struct{}
 
 	environments *environments
 	codingHelper codingHelperCache
@@ -758,6 +764,7 @@ func (r *Runtime) createMachine(ctx context.Context, ws *workspace) error {
 func (r *Runtime) prepareGuest(ctx context.Context, ws *workspace) error {
 	ws.daemonMu.Lock()
 	ws.daemonBoot = nil
+	ws.secretEnvironmentDigest = nil
 	if link, err := r.machined.Current(ws.ID); err == nil {
 		_ = link.Close()
 	}
@@ -983,6 +990,15 @@ func (r *Runtime) startMachine(ctx context.Context, ws *workspace) error {
 		// a retry needs a fresh grant and the current disk/capacity checks.
 		return fmt.Errorf("%w: recovered microVM %s stopped before reattachment", ErrUnavailable, ws.Machine)
 	}
+	if ws.recovering && status == "running" && r.config.Bundle != nil {
+		// A new host registry requires a fresh guest boot. Retain this machine's
+		// disk and admission slot, but end the old broker before minting a new
+		// boot authority; replacing a serving broker's secret is forbidden.
+		if err := r.stopMachine(ctx, ws.Machine); err != nil {
+			return err
+		}
+		status = "stopped"
+	}
 	if status != "running" {
 		startCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		_, err := r.cli.run(startCtx, nil, "start", "-q", ws.Machine)
@@ -1078,8 +1094,13 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 	commands := r.detachProcessesLocked(ws)
 	r.mu.Unlock()
 
+	ws.daemonMu.Lock()
+	defer ws.daemonMu.Unlock()
 	for _, command := range commands {
 		command.cancel()
+	}
+	if link, err := r.machined.Current(id); err == nil {
+		_ = link.Close()
 	}
 	stopErr := r.stopMachine(ctx, ws.Machine)
 	r.mu.Lock()
@@ -1133,8 +1154,13 @@ func (r *Runtime) DeleteWorkspace(ctx context.Context, id string) error {
 	commands := r.detachProcessesLocked(ws)
 	ws.State = string(workspaceapi.WorkspaceStopping)
 	r.mu.Unlock()
+	ws.daemonMu.Lock()
+	defer ws.daemonMu.Unlock()
 	for _, command := range commands {
 		command.cancel()
+	}
+	if link, err := r.machined.Current(id); err == nil {
+		_ = link.Close()
 	}
 	if err := r.removeMachine(ctx, ws.Machine); err != nil {
 		return fmt.Errorf("delete workspace microVM: %w", err)

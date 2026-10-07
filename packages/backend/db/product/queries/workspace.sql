@@ -124,9 +124,15 @@ WHERE w.id = sqlc.arg(id)
         AND EXISTS (
           SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
             AND s.grantee_user_id = sqlc.arg(user_id))
-        AND NOT EXISTS (
+        AND (NOT EXISTS (
           SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
-            AND s.grantee_user_id <> sqlc.arg(user_id))));
+            AND s.grantee_user_id <> sqlc.arg(user_id))
+        OR (w.kind='vm' AND EXISTS (
+          SELECT 1 FROM collaborators c JOIN users u ON u.id=c.user_id
+          WHERE c.repository_id=w.repository_id AND c.user_id=sqlc.arg(user_id)
+            AND c.suspended_at IS NULL AND c.permission IN ('write','admin')
+            AND c.unix_uid>=20000 AND c.unix_login<>'' AND u.is_active
+            AND u.deleted_at IS NULL AND NOT u.prohibit_login)))));
 
 
 -- name: ListWorkspacesByRepo :many
@@ -528,7 +534,7 @@ WITH live_workspace AS MATERIALIZED (
     WHERE workspace.id = sqlc.arg(workspace_id)
       AND workspace.repository_id = sqlc.arg(repository_id)
       AND workspace.deleted_at IS NULL
-    FOR UPDATE
+    FOR SHARE
 )
 INSERT INTO workspace_sessions (workspace_id, repository_id, user_id, cols, rows)
 SELECT live_workspace.id,

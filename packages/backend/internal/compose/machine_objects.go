@@ -100,6 +100,9 @@ func machineObjects(pool *pgxpool.Pool, host *repohost.Client) machined.HostObje
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
+		if tx := machined.SessionAdmissionTransaction(ctx, branch); tx != nil {
+			return withMachineRepositoryReadTx(ctx, tx, branch, host, visit)
+		}
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return err

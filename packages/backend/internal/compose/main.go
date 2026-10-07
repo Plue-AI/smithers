@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"io"
 	"log/slog"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -584,6 +586,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		host := newMachineHost(pool, repoHostClient)
 		stopObjects := bindMachineObjects(ctx, options.Machined, pool, repoHostClient)
 		defer stopObjects()
+		if runtime, ok := options.Workspace.(interface {
+			BindMachineAgentAdmission(func(context.Context, string, string, func(context.Context) error) error)
+		}); ok {
+			runtime.BindMachineAgentAdmission(host.admitAgent)
+			defer runtime.BindMachineAgentAdmission(nil)
+		}
+
 		options.Machined.BindSessionIdentities(host)
 		defer options.Machined.BindSessionIdentities(nil)
 
@@ -732,6 +741,26 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithAgentEnvironmentSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections),
 	)
 	secretInjector := services.NewSecretInjector(queries, webhookSecretCodec, services.WithSecretInjectorSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
+	if runtime, ok := options.Workspace.(interface {
+		BindSecretEnvironment(func(context.Context, string) (map[string]string, error))
+	}); ok && config.IsSingleOwner(cfg.Auth) {
+		runtime.BindSecretEnvironment(func(ctx context.Context, branch string) (map[string]string, error) {
+			reader := queries
+			injector := secretInjector
+			if tx := machined.SessionAdmissionTransaction(ctx, branch); tx != nil {
+				reader = db.New(tx)
+				injector = services.NewSecretInjector(reader, webhookSecretCodec, services.WithSecretInjectorSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
+			}
+			row, err := reader.GetWorkspace(ctx, branch)
+			if err != nil {
+				return nil, err
+			}
+			snapshot, err := injector.RepositorySecrets(ctx, row.RepositoryID, false)
+			return snapshot.Env, err
+		})
+		defer runtime.BindSecretEnvironment(nil)
+	}
+
 	workflowParser := services.NewWorkflowParser()
 	workflowSyncService := services.NewWorkflowSyncService(queries, repoHostClient, workflowParser)
 	workflowRunService := services.NewWorkflowRunService(
@@ -1387,8 +1416,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Broker:  sseBroker,
 		Metrics: smithersMetrics,
 	}
+	codingHostCallbacks := services.NewFlowHostCallbacks(pool, queries)
+	if native, ok := options.Workspace.(interface {
+		ProtectedManagedHostReady(context.Context, string) error
+	}); ok {
+		codingHostCallbacks.BindProtectedBranchHost(native.ProtectedManagedHostReady)
+	}
 	workspaceHandler := &routes.WorkspaceHandler{
-		CodingFiles: services.NewCodingFileCredentials(authService, services.NewFlowHostCallbacks(pool, queries), workspaceService),
+		CodingFiles: services.NewCodingFileCredentials(authService, codingHostCallbacks, workspaceService),
 		Service:     workspaceService,
 		EgressAudit: egressAuditService,
 		Broker:      sseBroker,
@@ -1409,7 +1444,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	// The box's coding host calls repository jobs back with its flowhost
 	// binding ID and control credential (#2198).
-	repositoryJobService := services.NewRepositoryJobService(queries, services.NewFlowHostCallbacks(pool, queries), pool)
+	repositoryJobService := services.NewRepositoryJobService(queries, codingHostCallbacks, pool)
 	gitHubMainPullService.SetFactoryReconciler(repositoryJobService.ReconcileFactoryRules)
 	mythicalService.SetFactoryReconciler(repositoryJobService.ReconcileFactoryRules)
 	repositoryJobService.SetGitHubReadAccess(gitHubUserReposService)
@@ -1554,6 +1589,43 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		SessionCookieName: cfg.Auth.SessionCookieName,
 		ActiveConnections: terminalActiveCounter,
 	}
+	if presence != nil {
+		presence.terminals = terminalProjection(pool, workspaceTerminalHandler.TerminalPresence, options.Machined)
+	}
+	if config.IsSingleOwner(cfg.Auth) && flow != nil && flow.dispatcher != nil {
+		workspaceService.BindBranchTerminalHost(func(ctx context.Context, row db.Workspace, member int64) error {
+			_, slug, err := installRepository(ctx, queries)
+			if err != nil {
+				return err
+			}
+			target := flowruntime.Target{TenantID: "repository:" + strconv.FormatInt(row.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(member, 10), WorkspaceID: row.ID, BindingKind: "browser-flow", BindingID: slug}
+			if presence != nil && presence.hosts != nil {
+				prior, e := presence.hosts.ExistingCodingTarget(ctx, row.RepositoryID, row.ID, slug)
+				if e == nil {
+					target = prior
+				} else if !errors.Is(e, flowhost.ErrHostNotRunning) {
+					return e
+				}
+			}
+			for {
+				ready, err := flow.dispatcher.StartHost(ctx, target)
+				if err != nil {
+					return err
+				}
+				if ready {
+					return nil
+				}
+				timer := time.NewTimer(100 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
+			}
+		})
+	}
+
 	telemetryHandler := &routes.TelemetryHandler{
 		Metrics: smithersMetrics,
 	}
@@ -1993,7 +2065,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if installAddress != nil && !options.externalHTTP && options.topology.servesHTTP() {
 		// This process owns its listener, so the Address step serves its bind
 		// here beside loopback; a host that owns the listener keeps it.
-		sshGateway, sshPort, stopSSH, sshErr := startInstallSSH(ctx, cfg, pool, repoHostClient, options.Admission, nil, config.PublicOrigin(cfg))
+		sshGateway, sshPort, stopSSH, sshErr := startInstallSSH(ctx, cfg, pool, repoHostClient, options.Admission, installDaemonBridge(pool, workspaceService, options.Machined), config.PublicOrigin(cfg))
 		if sshErr != nil {
 			return fmt.Errorf("start SSH gateway: %w", sshErr)
 		}

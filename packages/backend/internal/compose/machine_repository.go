@@ -19,6 +19,15 @@ import (
 // deletion/reassignment, repository ownership and engine maintenance remain
 // fenced for the visit. No guest path names a host directory.
 func withMachineRepositoryTx(ctx context.Context, tx pgx.Tx, branch string, host *repohost.Client, visit func(string) error) error {
+	return withMachineRepositoryAuthorityTx(ctx, tx, branch, host, visit, "FOR UPDATE")
+}
+
+// Read-only admission holds SHARE authority already; upgrading it while another
+// admitted opener waits on the daemon mutex would deadlock both opens.
+func withMachineRepositoryReadTx(ctx context.Context, tx pgx.Tx, branch string, host *repohost.Client, visit func(string) error) error {
+	return withMachineRepositoryAuthorityTx(ctx, tx, branch, host, visit, "FOR SHARE")
+}
+func withMachineRepositoryAuthorityTx(ctx context.Context, tx pgx.Tx, branch string, host *repohost.Client, visit func(string) error, lock string) error {
 	if tx == nil || host == nil || visit == nil {
 		return machined.ErrNotReady
 	}
@@ -29,7 +38,7 @@ func withMachineRepositoryTx(ctx context.Context, tx pgx.Tx, branch string, host
 	var repository int64
 	err = tx.QueryRow(ctx, `SELECT repository_id FROM workspaces
  WHERE id=$1 AND deleted_at IS NULL AND vm_id<>''
- AND status IN ('starting','running','suspended','stopped') FOR UPDATE`, branch).Scan(&repository)
+ AND status IN ('starting','running','suspended','stopped') `+lock, branch).Scan(&repository)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return machined.ErrUnauthorized
 	}

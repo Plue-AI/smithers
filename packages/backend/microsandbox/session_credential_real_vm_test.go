@@ -1,26 +1,19 @@
 package microsandbox
 
 import (
-	"bytes"
 	"context"
-	"io"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
-// A signed-in terminal in a real guest (T-TRM-02, C-J6-01 S1): the helper
-// writes the session's credential to /run/smithers/sessions/<id>/token, owned
-// by the guest's single user with mode 0600 in a root-owned directory; a
-// rotation replaces it; the user can read it but neither move nor remove it;
-// a terminal started with SMITHERS_TOKEN_FILE reads it as that user; and the
-// session's close removes it.
-func TestRealMicroVMTerminalSessionToken(t *testing.T) {
+// Real guest CAS for host-owned S1 credentials. A host credential cannot open
+// a member terminal. The composed member terminal proof lives in compose's
+// TestInstalledMemberTerminalAndSSHChain and requires its approved bundle.
+func TestRealMicroVMHostSessionTokenCAS(t *testing.T) {
 	runtime := realRuntime(t, t.TempDir())
 	ctx := operation("session-token")
 	id := "microvm-session-token"
@@ -55,37 +48,9 @@ func TestRealMicroVMTerminalSessionToken(t *testing.T) {
 
 	require.Equal(t, "pinned\nkept\n", run(`mv "$1" "$1.moved" 2>/dev/null && echo moved || echo pinned; rm -f "$1" 2>/dev/null; test -e "$1" && echo kept || echo removed`))
 
-	terminal, err := runtime.OpenWorkspaceTerminal(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh"},
-		Environment: map[string]string{"SMITHERS_TOKEN_FILE": path, "SMITHERS_URL": "http://127.0.0.1:4000"}})
-	require.NoError(t, err)
-	var printed bytes.Buffer
-	var mu sync.Mutex
-	go func() {
-		buffer := make([]byte, 4096)
-		for {
-			n, err := terminal.Read(buffer)
-			mu.Lock()
-			printed.Write(buffer[:n])
-			mu.Unlock()
-			if err != nil {
-				return
-			}
-		}
-	}()
-	_, err = io.WriteString(terminal, `printf '%s %s %s %s\n' J6""TOKEN "$(cat "$SMITHERS_TOKEN_FILE")" "${SMITHERS_TOKEN:-unset}" "$(id -un)"`+"\n")
-	require.NoError(t, err)
-	deadline := time.Now().Add(time.Minute)
-	for {
-		mu.Lock()
-		out := printed.String()
-		mu.Unlock()
-		if strings.Contains(out, "J6TOKEN smithers_second unset agent") {
-			break
-		}
-		require.True(t, time.Now().Before(deadline), "terminal printed %q", out)
-		time.Sleep(100 * time.Millisecond)
-	}
-	require.NoError(t, terminal.Close())
+	terminal, err := runtime.OpenWorkspaceTerminal(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh"}, Environment: map[string]string{"SMITHERS_TOKEN_FILE": path, "SMITHERS_URL": "http://127.0.0.1:4000"}})
+	require.ErrorIs(t, err, ErrUnavailable, "host credentials cannot bypass current member admission")
+	require.Nil(t, terminal)
 
 	// Separate host calls enter separate privileged helper processes. Only one
 	// concurrent compare-and-swap may consume the same retained credential.

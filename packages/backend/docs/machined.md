@@ -1,9 +1,9 @@
 # Machine host admission
 
-The single-owner install composes the host registry, authenticated RPC link,
-object receiver and event consumer. The runtime plants the pinned daemon and
-reconciles it before session admission. The former head reporter is removed.
-The registry owns boot authentication and connection leases.
+The composed install binds the authenticated daemon registry to the repository
+engine, durable capture receiver and current member roster. The installed native
+broker supplies member terminal, SSH, SFTP and loopback forwarding sessions.
+The former head reporter and unbound PTY path are retired on this install.
 
 The runtime registers a host-authoritative branch, machine, boot id and newly
 minted machine credential before planting. A new boot atomically revokes the
@@ -24,40 +24,14 @@ Every admitted connection starts unready. The production adapter may call
 object-stream close, completing `wake_reconcile`, and observing `status.ready`.
 Stale replies and reader cleanup cannot affect a replacement lease.
 `RequireReady` checks the lease and branch; it does not replace request
-authorization or serialize an RPC with boot rotation. The dispatcher uses this
-connection's stream, never a replacement looked up after admission.
+authorization or serialize an RPC with boot rotation. The dispatcher
+must use this connection's stream, never look up a replacement after admission.
 
-Activation still requires T-MCH-04's branch binding, T-INS-02's real microVM,
-T-ACC-03's authenticated branch authority, T-COL-03r's codec, T-COL-03a's daemon,
-T-COL-02's live publication, T-STK-12's durable pending-work delivery,
-T-COL-10's digest-aware routes, T-SEC-01's hardened installer, T-INS-01's
-main-pinned packaged binary and T-MCH-11's trusted guest identities/no-sudo
-image. The launcher refuses unavailable providers. Before wake, the host exports
-its authoritative head through the authenticated object stream and waits for
-verified guest import. Missing objects refuse reconciliation rather than admit
-stale state.
-
-The installed launcher mints boot credentials from host state and plants only
-the main-pinned artifact through the existing trusted guest broker. Reference-host
-root-input and real-VM checks remain required for qualification.
-Working-together I6 installs `machine_event_receipts(workspace_id, event_id,
-outcome, at)` with a primary key on `(workspace_id, event_id)`, and
-`burst_files(event_id, path, change, before_blob, after_blob, post_digest,
-renamed_to)` keyed by `(event_id, path)`. File rows reference the canonical
-`product_job_events.event_id`; receipts survive activity retention and are
-removed only with their workspace. Ingest must claim the receipt and insert
-activity plus file rows in one transaction before acknowledgment. The tables
-alone do not prove producer coverage. The install migration command and replay constraints
-are tested against PostgreSQL.
-
-Unit tests cover registry
-leases, revocation, reconnect admission and concurrent replacement; they are
-not C-COL-01, C-COL-04 or C-DUR-04 acceptance receipts.
-
-The shared reporter, public head route and helper file commands must be removed
-in the same change that migrates every supported provisioning caller to real
-capture ingest. That cutover also moves pending-work detection into the
-transactional captured-event path. It cannot use this registry alone.
+Admission requires the main-pinned bundle, the approved guest helper, current
+branch and member authority, and a reconciled link. Missing providers or a stale
+lease refuse before guest execution. The reference-host terminal chain check
+compares source, bundle and approved helper before booting a VM; component and
+HTTP fixtures do not substitute for that installed acceptance receipt.
 
 ## Session seam (T-TRM-07)
 
@@ -77,11 +51,12 @@ received offset; it refuses replacement boots. Close and confirmed user/run
 kills wake readers. Window frames remain visible for gateway mapping.
 
 The installed root launcher composes `broker/supervisor.rs` with the Linux
-process owner and `InstalledAdmission` in `broker/spawn.rs`. Member terminals
-use the runtime's sealed credential and provisioned roster through SessionRPC;
-the old per-terminal runtime process owner is removed. Reference-host root,
-credential and real-session qualification remains separate from the Linux
-component fixtures.
+process owner in `broker/spawn.rs` and one-use installed admission. The child
+permanently drops identity before reading the opaque binding, team environment
+or exact delegated token. Members use private uid directories under
+`/run/smithers`; the agent keeps the existing S1 credential location.
+The generic unbound `msb exec -t` terminal path is removed. Missing installed
+artifacts, authenticated links, current membership or credentials fail closed.
 
 The Go `Terminal` consumer returns output credit when `Read` delivers bytes,
 preserves exit status and signals, and sends stdin EOF separately from close.
@@ -91,8 +66,9 @@ consumed offset. A replacement boot or revoked session cannot reattach.
 
 The native repository adapter reuses `flows-jj` snapshot and operation restore,
 and jj's native tree merge for local deltas. Rewrite checkpoints are private,
-durable, and refuse symlinks, replacement and malformed operation IDs. These
-adapters still require installed provider composition before serving terminals.
+durable, and refuse symlinks, replacement and malformed operation IDs. The
+composed host supplies authoritative heads, imports and transactional capture
+and burst projection through its existing repository engine capability.
 
 ### Process ownership and stream replay
 
@@ -153,8 +129,8 @@ and `bridge` are transports, not authenticated session dispatchers. Reshaping
 that helper would duplicate the specified daemon supervisor and shared credit
 pipe. Use the Rust broker's lifetime module and shared credit pipe, retaining
 validated descriptor cleanup and privilege-drop ordering from the helper.
-Owner acceptance and root validation receipts remain pending. No helper or
-terminal ownership code is replaced until the actual cutover.
+Root qualification remains pending until the helper built from landed main
+is approved. Source packaging and supplemental tests are not root receipts.
 
 
 ## Watcher changes and recovery
@@ -225,4 +201,31 @@ exercise these bindings, but do not qualify the real watcher, VM faults, root
 broker, formatter or reference-host timing checks. Restore still requires the
 runtime's qualified WorkspaceCompareWriter; it has no blind-write fallback.
 
-The existing Git backing-store provider writes literal per-file blobs and parentless version commits without filters or hooks. The private watcher checkpoint pins its current and previous version sets before atomic replacement, and recovery validates burst identities, paths, modes and rename relationships. Corrupt or unsafe recovery files refuse startup instead of resetting history. Installed watcher/VM qualification remains required.
+The existing Git backing-store provider writes literal per-file blobs and parentless version commits without filters or hooks. The private watcher checkpoint pins its current and previous version sets before atomic replacement, and recovery validates burst identities, paths, modes and rename relationships. Corrupt or unsafe recovery files refuse startup instead of resetting history. Installed watcher composition remains required.
+
+## Composed install consumers
+
+`POST /api/terminals` persists a current member's branch request and terminal
+reservation before launching machine or coding-host work. The idempotency key
+recovers the same request after reload. The existing authenticated workspace
+terminal WebSocket attaches owner input or watcher output; a watcher never
+starts a terminal. Native-link and reservation state determine frozen cards.
+
+The SSH gateway reserves each member channel before waking the machine,
+consumes the same delegated credential and admitted session client, and closes
+its persisted reservation on disconnect. SFTP runs the bundled unprivileged
+server; forwarding runs the installed member loopback relay. The agent-only
+TCP primitive cannot select a member identity.
+
+Installed coding hosts run as registered agent sessions under the same broker.
+Authorization locks cover spawn and run registration. An ambiguous registration
+is repaired or fenced with confirmed revocation; process close alone is never
+accepted as proof that an unregistered agent process was terminated. Shared
+native branch access requires current membership and admitted host receipts;
+legacy private boxes keep their single-writer restriction.
+
+The current repository secret projection updates the protected tmpfs team
+environment on authenticated ready links. New processes consume the latest
+literal projection after dropping identity. Existing process environments are
+unchanged. Link replacement, source refusal or membership revocation prevents
+new admission; credential cleanup remains bound to its exact bearer digest.

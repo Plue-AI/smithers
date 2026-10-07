@@ -1003,6 +1003,9 @@ func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID 
 	if err != nil {
 		return nil, err
 	}
+	if session.UserID != userID {
+		return nil, pkgerrors.Forbidden("Terminal belongs to another member")
+	}
 	if session.Status != "running" {
 		return nil, pkgerrors.Conflict("workspace session is not running")
 	}

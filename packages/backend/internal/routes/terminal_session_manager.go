@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,7 @@ type terminalDialer func(ctx context.Context, info services.WorkspaceSSHConnecti
 type TerminalSessionManager struct {
 	mu                sync.Mutex
 	sessions          map[string]*terminalSession
+	flights           map[string]*terminalCreation
 	starting          map[*terminalStartup]struct{}
 	dial              terminalDialer
 	ringBufferBytes   int
@@ -66,6 +68,59 @@ type TerminalSessionManager struct {
 	keepaliveInterval time.Duration
 	startupWatch      time.Duration
 	startupRetryDelay time.Duration
+}
+
+type terminalCreation struct {
+	done    chan struct{}
+	session *terminalSession
+	err     error
+}
+
+// getExisting never creates a process on behalf of a watcher.
+func (m *TerminalSessionManager) getExisting(id string) (*terminalSession, error) {
+	m.mu.Lock()
+	session := m.sessions[id]
+	m.mu.Unlock()
+	if session == nil {
+		return nil, pkgerrors.Conflict("Terminal is starting")
+	}
+	if session.isDead() {
+		return nil, session.deadErr()
+	}
+	return session, nil
+}
+
+type TerminalPresence struct {
+	Owner    int64
+	Watchers []int64
+}
+
+func (m *TerminalSessionManager) Presence(id string) TerminalPresence {
+	if m == nil {
+		return TerminalPresence{}
+	}
+	m.mu.Lock()
+	session := m.sessions[id]
+	m.mu.Unlock()
+	if session == nil {
+		return TerminalPresence{}
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.dead {
+		return TerminalPresence{}
+	}
+	result := TerminalPresence{Owner: session.principal.UserID}
+	seen := map[int64]bool{}
+	for sink := range session.sinks {
+		user := sink.principal.UserID
+		if user > 0 && user != result.Owner && !seen[user] {
+			result.Watchers = append(result.Watchers, user)
+			seen[user] = true
+		}
+	}
+	sort.Slice(result.Watchers, func(i, j int) bool { return result.Watchers[i] < result.Watchers[j] })
+	return result
 }
 
 type terminalStartup struct {
@@ -105,6 +160,27 @@ func (m *TerminalSessionManager) getOrCreate(ctx context.Context, sessionID stri
 		}
 		return sess, false, nil
 	}
+	if flight := m.flights[sessionID]; flight != nil {
+		m.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		case <-flight.done:
+			return flight.session, false, flight.err
+		}
+	}
+	if m.flights == nil {
+		m.flights = make(map[string]*terminalCreation)
+	}
+	flight := &terminalCreation{done: make(chan struct{})}
+	m.flights[sessionID] = flight
+	defer func() {
+		m.mu.Lock()
+		flight.session, flight.err = session, err
+		delete(m.flights, sessionID)
+		close(flight.done)
+		m.mu.Unlock()
+	}()
 	ctx, cancel := context.WithCancelCause(ctx)
 	pending := &terminalStartup{cancel: cancel, principal: principal, sessionID: sessionID}
 	if m.starting == nil {

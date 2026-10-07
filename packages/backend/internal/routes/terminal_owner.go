@@ -1,21 +1,45 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// OpenTerminal is the S2 POST /api/terminals door. Refuse startup until
-// isolation (T-INS-02), person admission (T-MCH-06), member identities
-// (T-MCH-11), authenticated machined transport (T-COL-03), owner sessions
-// (T-TRM-07), branch.join (T-ACC-03), revocation (T-ACC-02), and session-bound
-// sign-in (T-TRM-02 S1) are wired and proven together. The S1 runtime/SSH
-// service cannot satisfy these contracts and must never be used as fallback.
-// No projection is published before T-COL-02 supplies the Branch topic.
-func (h *WorkspaceTerminalHandler) OpenTerminal(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"code": "terminal_unavailable", "class": "infra", "message": "Terminal is unavailable",
-	})
+type BranchTerminalService interface {
+	BranchTerminalAvailable() bool
+	OpenBranchTerminal(context.Context, string, int64, int64, string) (services.WorkspaceSessionResponse, error)
+}
+
+func (h *WorkspaceTerminalHandler) OpenTerminal(w http.ResponseWriter, r *http.Request) {
+	svc, ok := h.Service.(BranchTerminalService)
+	if !ok || h.AuthorizeTerminal == nil || !svc.BranchTerminalAvailable() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"code": "terminal_unavailable", "class": "infra", "message": "Terminal is unavailable"})
+		return
+	}
+	repository, member, err := h.AuthorizeTerminal(r, "branch.join")
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	if err = decodeSingleJSONDocument(decoder, &body); err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("Invalid terminal"))
+		return
+	}
+	session, err := svc.OpenBranchTerminal(r.Context(), body.Branch, repository, member, r.Header.Get("Idempotency-Key"))
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	pkgerrors.WriteJSON(w, http.StatusAccepted, session)
 }

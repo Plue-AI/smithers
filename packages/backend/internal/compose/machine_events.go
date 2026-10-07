@@ -59,13 +59,22 @@ func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *p
 
 func machineBranchHead(pool *pgxpool.Pool, host *repohost.Client) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, branch string) (string, error) {
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			return "", err
+		tx := machined.SessionAdmissionTransaction(ctx, branch)
+		admitted := tx != nil
+		if !admitted {
+			var err error
+			tx, err = pool.Begin(ctx)
+			if err != nil {
+				return "", err
+			}
+			defer tx.Rollback(ctx)
 		}
-		defer tx.Rollback(ctx)
 		var head string
-		err = withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
+		visit := withMachineRepositoryTx
+		if admitted {
+			visit = withMachineRepositoryReadTx
+		}
+		err := visit(ctx, tx, branch, host, func(path string) error {
 			row, err := db.New(tx).GetWorkspace(ctx, branch)
 			if err != nil {
 				return err

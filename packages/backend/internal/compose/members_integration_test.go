@@ -362,7 +362,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	provisioning := &machineRoster{pool: pool}
 	assertProvisioningWriter := func(present bool) {
 		t.Helper()
-		require.NoError(t, provisioning.withProvisioningRoster(ctx, machine.ID, func(roster []microsandbox.MemberIdentity) error {
+		require.NoError(t, provisioning.withProvisioningRoster(ctx, machine.ID, func(_ context.Context, roster []microsandbox.MemberIdentity) error {
 			found := false
 			for _, member := range roster {
 				if member.Login == "writer" {

@@ -187,6 +187,9 @@ type Link struct {
 	objectSeen       map[uint32]bool
 }
 
+// Done closes when this exact authenticated connection ends.
+func (l *Link) Done() <-chan struct{} { return l.done }
+
 func (l *Link) Close() error {
 	l.once.Do(func() { close(l.done); _ = l.Connection.Close() })
 	return nil

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"strings"
 	"unicode/utf8"
 
@@ -168,7 +169,10 @@ func (s *Sessions) call(ctx context.Context, call SessionCall) (SessionResult, e
 	switch s.via {
 	case "", "cli", "ssh", "terminal":
 	default:
-		return SessionResult{}, refused("unauthorized", "invalid session transport")
+		run, err := uuid.Parse(strings.TrimPrefix(s.via, "agent:"))
+		if !strings.HasPrefix(s.via, "agent:") || err != nil || run.String() != strings.TrimPrefix(s.via, "agent:") {
+			return SessionResult{}, refused("unauthorized", "invalid session transport")
+		}
 	}
 	call.Via = s.via
 	if call.Method == "open_session" || call.Method == "tcp_connect" {
@@ -282,4 +286,13 @@ func (s *Sessions) AttachSession(ctx context.Context, id uint32, received uint64
 		return 0, fmt.Errorf("attach session: %w", err)
 	}
 	return result.Received, nil
+}
+
+// CloseConnection fences only the boot this consumer owns after unconfirmed
+// cleanup. A stale consumer cannot close a replacement's admission lease.
+func (s *Sessions) CloseConnection() error {
+	if s == nil || s.connection == nil {
+		return ErrNotReady
+	}
+	return s.connection.Close()
 }

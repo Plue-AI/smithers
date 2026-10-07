@@ -223,8 +223,50 @@ def session_token_identity(directory, expected, entry):
             fail(3, "session credential identity differs")
 
 
+def member_token_parent(entry, create):
+    """One private member slot on the root-controlled secret tmpfs."""
+    root = safe_directory(SECRET_ENV_DIR, trusted=True, create=create)
+    try:
+        require_secret_tmpfs(root)
+        name = str(entry.pw_uid)
+        created = False
+        if create:
+            try:
+                os.mkdir(name, 0o700, dir_fd=root)
+                created = True
+            except FileExistsError:
+                pass
+        slot = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
+        try:
+            if created:
+                os.fchown(slot, entry.pw_uid, entry.pw_gid)
+                os.fchmod(slot, 0o700)
+            info = os.fstat(slot)
+            if info.st_uid != entry.pw_uid or info.st_gid != entry.pw_gid or stat.S_IMODE(info.st_mode) != 0o700:
+                fail(3, "untrusted member credential directory")
+            for component in ("token", "sessions"):
+                if create:
+                    try:
+                        os.mkdir(component, 0o755, dir_fd=slot)
+                    except FileExistsError:
+                        pass
+                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=slot)
+                info = os.fstat(child)
+                if info.st_uid != 0 or info.st_mode & 0o022:
+                    os.close(child)
+                    fail(3, "untrusted session token directory")
+                os.close(slot)
+                slot = child
+            return slot
+        except BaseException:
+            os.close(slot)
+            raise
+    finally:
+        os.close(root)
+
+
 @contextmanager
-def session_token_parent(session, expected, create):
+def session_token_parent(session, expected, create, entry=None):
     if os.geteuid() != 0:
         fail(3, "session token writer requires root")
     if not valid_id(session):
@@ -232,7 +274,7 @@ def session_token_parent(session, expected, create):
     if not valid_digest(expected) and not (create and expected == "absent"):
         fail(3, "invalid session credential identity")
     try:
-        parent = safe_directory(SESSION_TOKEN_DIR, trusted=True, create=create)
+        parent = member_token_parent(entry, create) if entry is not None and entry.pw_uid >= 20000 else safe_directory(SESSION_TOKEN_DIR, trusted=True, create=create)
     except FileNotFoundError:
         yield None
         return
@@ -260,7 +302,7 @@ def put_session_token(session, body, expected, user="agent", uid=None):
     entry = assigned_identity(user)
     if uid is not None and entry.pw_uid != uid:
         fail(3, "session identity differs")
-    with session_token_parent(session, expected, True) as parent:
+    with session_token_parent(session, expected, True, entry if uid is not None else None) as parent:
         if expected == "absent":
             try:
                 os.mkdir(session, 0o755, dir_fd=parent)
@@ -298,7 +340,7 @@ def delete_session_token(session, expected, user="agent", uid=None):
     entry = assigned_identity(user)
     if uid is not None and entry.pw_uid != uid:
         fail(3, "session identity differs")
-    with session_token_parent(session, expected, False) as parent:
+    with session_token_parent(session, expected, False, entry if uid is not None else None) as parent:
         if parent is None:
             return
         try:

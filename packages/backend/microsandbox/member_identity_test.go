@@ -79,7 +79,7 @@ with open(%q,'a') as f:f.write(' '.join(operands)+'\n')
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.Error(t, r.provisionMembers(ctx, "machine-a", []MemberIdentity{ben}, nil))
-	r.BindMemberRoster(func(context.Context, string, func([]MemberIdentity) error) error {
+	r.BindMemberRoster(func(context.Context, string, func(context.Context, []MemberIdentity) error) error {
 		t.Fatal("unapproved helper reached roster")
 		return nil
 	})
@@ -105,10 +105,10 @@ with open(%q,'a') as f:f.write(' '.join(args[args.index('run')+1:])+'\n')
 	defer r.BindMemberRoster(nil)
 	rosterCalls := 0
 	current := []MemberIdentity{member}
-	r.BindMemberRoster(func(ctx context.Context, id string, visit func([]MemberIdentity) error) error {
+	r.BindMemberRoster(func(ctx context.Context, id string, visit func(context.Context, []MemberIdentity) error) error {
 		rosterCalls++
 		require.Equal(t, "branch-a", id)
-		return visit(current)
+		return visit(ctx, current)
 	})
 	identity, err := r.EnsureMember(t.Context(), "branch-a", member)
 	require.NoError(t, err)
