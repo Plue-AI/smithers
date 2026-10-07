@@ -173,7 +173,14 @@ func TestParallelSchedulerPositionsInstallBoundary(t *testing.T) {
 					} `json:"queue"`
 				} `json:"items"`
 			}
-			require.NoError(t, json.Unmarshal(frame.Data, &home), string(raw))
+			data := frame.Data
+			if kind == "delta" {
+				var fact struct{ Data map[string]json.RawMessage }
+				require.NoError(t, json.Unmarshal(data, &fact), string(raw))
+				data = fact.Data["home"]
+				require.NotEmpty(t, data, string(raw))
+			}
+			require.NoError(t, json.Unmarshal(data, &home), string(raw))
 			got := map[int]int{}
 			for _, item := range home.Items {
 				if item.Queue != nil {
