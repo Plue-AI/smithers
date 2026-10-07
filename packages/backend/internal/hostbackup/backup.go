@@ -35,6 +35,10 @@ type BackupConfig struct {
 // independently until its recovery marker is durable.
 // No incomplete directory is ever treated as a restorable backup.
 func Backup(ctx context.Context, cfg BackupConfig) (directory string, err error) {
+	return backup(ctx, cfg, false)
+}
+
+func backup(ctx context.Context, cfg BackupConfig, retainFreeze bool) (directory string, err error) {
 	if cfg.Authority == nil || cfg.Cloner == nil {
 		return "", errors.New("host_maintenance_unavailable: backup providers required")
 	}
@@ -215,30 +219,26 @@ func Backup(ctx context.Context, cfg BackupConfig) (directory string, err error)
 	}
 	// Verify all authority bytes before publishing; sync files in addition to
 	// the manifest and directory so power loss cannot publish unsynced payloads.
-	files, err := inventoryRoot(stage)
-	if err != nil {
+	if err := syncTree(stage); err != nil {
 		return "", err
 	}
-	for _, file := range files {
-		f, e := openRegular(stage, file.Path)
-		if e == nil {
-			e = errors.Join(f.Sync(), f.Close())
-		}
-		if e != nil {
-			return "", e
-		}
+	if err := context.Cause(work); err != nil {
+		return "", err
 	}
 	if err := writeManifestRoot(backups, filepath.Base(partial), manifest); err != nil {
 		return "", err
 	}
 	directory = filepath.Join(cfg.State, "backups", backupName(manifest))
-	if err := cfg.Authority.Reopen(work, op); err != nil {
-		return directory, err
+	if !retainFreeze {
+		if err := cfg.Authority.Reopen(work, op); err != nil {
+			return directory, err
+		}
 	}
-	reopened = true
+	reopened = !retainFreeze
 	if err := Prune(filepath.Join(cfg.State, "backups"), 3); err != nil {
 		return directory, err
 	}
+	reopened = true
 	return directory, nil
 }
 
