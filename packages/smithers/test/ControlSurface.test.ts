@@ -623,12 +623,16 @@ describe("Control surface", () => {
   })
 
   it("runs plan, approval, launch, and finite logs through an authenticated remote server", async () => {
+    const principal = { id: "alpha", kind: "bearer" } as const
     const approvalAuthority = await Effect.runPromise(ApprovalAuthority.make([
-      { principal: { id: "alpha", kind: "bearer" }, scopes: ["run"], targets: ["Plan"] }
+      { principal, scopes: ["run"], targets: ["Plan"] }
     ]))
     const local = await Effect.runPromise(
       scenario().pipe(
-        Effect.provide(testControl),
+        // Compare the same caller through both transports. The remote runtime
+        // retains its default test principal, so only authentication can give
+        // the remote run this caller's identity.
+        Effect.provide(TestControl.layer({ now: () => 0, flows: [demoFlow], principal, approvalAuthority })),
         Effect.provide(scenarioServices),
         Effect.provide(NodeServices.layer)
       )
@@ -649,7 +653,7 @@ describe("Control surface", () => {
         Effect.provide(
           NodeControl.layerServerBearerAuth({
             token: "alpha-secret",
-            principal: { id: "alpha", kind: "bearer" },
+            principal,
             now: () => 0
           }, { port: 0 }).pipe(
             Layer.provide(TestControl.layer({ now: () => 0, flows: [demoFlow], approvalAuthority }))
@@ -667,6 +671,8 @@ describe("Control surface", () => {
     expect(local.missingStatus).toEqual({ message: `Run not found: "missing-${local.runId}"`, exitCode: 2 })
     expect(Array.isArray(local.logs.value)).toBe(true)
     expect((local.logs.value as ReadonlyArray<unknown>).length).toBeGreaterThan(0)
+    expect(local.status.value).toMatchObject({ items: [{ launchedBy: principal }] })
+    expect(remote.result.status.value).toMatchObject({ items: [{ launchedBy: principal }] })
     expect(remote.hostname).toBe("127.0.0.1")
     expect(normalize(remote.result)).toEqual(normalize(local))
   })

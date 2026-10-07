@@ -111,10 +111,11 @@ describe("NodeControl.layerExecutor over a fork's checkout", () => {
       observed.runners.length = 0
       await within(root, workspace, Effect.void)
 
-      // `TestRun` executes at `cwd` and checks the pristine baseline out of
-      // `root`, so a fork's runner has to name the fork under both.
+      // The runner stays in the fork under both directory names. This host
+      // disables pristine-base execution rather than staging another checkout.
       expect(observed.runners.at(-1)).toEqual({
         command: "project-test-command",
+        baseline: false,
         cwd: workspace,
         root: workspace
       })
