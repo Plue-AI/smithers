@@ -486,6 +486,9 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, "wiki.read", wikiReadPath},
+	// Retained PR history uses the catalog view commands.
+	{http.MethodGet, "prs.list", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings$`)},
+	{http.MethodGet, "prs.view", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/landings/[0-9]+(?:/(?:changes|comments|conflicts|reviews))?$`)},
 	// Existing persisted coding-run messages remain readable by repository members.
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions/[^/]+/stream$`)},
 	{http.MethodGet, "sync.read", regexp.MustCompile(`^/api/github/sync$`)},
