@@ -1079,7 +1079,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "run",
-      "summary": "Resume a box",
+      "summary": "Wake this branch",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -1087,6 +1087,16 @@
           "type": "object",
           "properties": {
             "workspaceId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "branch": {
               "anyOf": [
                 {
                   "type": "string"
@@ -1233,7 +1243,7 @@
       "minimumRole": "member",
       "credentialScope": "write:repository",
       "agent": "run",
-      "summary": "Suspend a box",
+      "summary": "Sleep this branch",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -1241,6 +1251,16 @@
           "type": "object",
           "properties": {
             "workspaceId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "branch": {
               "anyOf": [
                 {
                   "type": "string"
@@ -1391,7 +1411,10 @@
       "summary": "Add a scratch branch as a TODO",
       "http": {
         "method": "POST",
-        "path": "/api/branches/{branch}/add-to-stack"
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "op": "add-to-stack"
+        }
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -1666,7 +1689,10 @@
       "summary": "Rebase this branch now",
       "http": {
         "method": "POST",
-        "path": "/api/branches/{branch}/rebase"
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "op": "rebase"
+        }
       },
       "payload": {
         "dialect": "draft-2020-12",
@@ -1675,6 +1701,28 @@
           "properties": {
             "branch": {
               "type": "string"
+            },
+            "conflict_change": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "onto_revision": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -2658,7 +2706,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
         "app_agent"
@@ -2733,7 +2781,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
         "app_agent"
@@ -2776,7 +2824,7 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
         "app_agent"
