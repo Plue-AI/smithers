@@ -137,7 +137,8 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 
 	}
 	// The body-bound Make TODO command has its own catalog id. Its missing
-	// snapshot consumer must not silently file an ordinary TODO instead.
+	// snapshot must not silently file an ordinary TODO or request approval.
+	// This fixture deliberately has no GitHub reader, so admission fails closed.
 	statusIssue, issueRefusal := call(2, false, "/api/todos", "from-issue", `{"title":"From issue","prompt":"Resolve issue","issue":23,"issue_digest":"`+strings.Repeat("a", 64)+`"}`)
 	require.Equal(t, 503, statusIssue, issueRefusal)
 	require.Equal(t, "confirmation_unavailable", issueRefusal["code"])

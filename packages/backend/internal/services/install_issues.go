@@ -19,12 +19,10 @@ import (
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
-// The install's GitHub issues (J2 steps 1 and 2, mvp.md §6.3): the issue
-// list card and the issue card read the repository's issues, and one issue
-// with its comments, as GitHub holds them now. Every read goes through the
-// install's GitHub App as the stack's actor (stackGitHub), so a member reads
-// issues by their role (issue.read) and never needs a GitHub credential of
-// their own that can read them.
+// The install's issue list and discussion read the shared synchronized GitHub
+// projections through the guarded fetch boundary. Readers are authorized by
+// install membership and use the GitHub App, without a personal GitHub token.
+// Hosted compositions retain their existing reader adapter.
 
 const (
 	// installIssuesPerPage keeps one page of issue bodies (at most 64 KiB
@@ -195,7 +193,12 @@ func (s *MythicalService) InstallIssues(ctx context.Context, repositoryID int64,
 	if err != nil {
 		return nil, err
 	}
-	issues, err := reader.IssuePage(ctx, gh, state, page)
+	var issues []InstallIssue
+	if s.installGitHubPolling {
+		issues, err = s.projectedInstallIssues(ctx, gh, state, page)
+	} else {
+		issues, err = reader.IssuePage(ctx, gh, state, page)
+	}
 	if err != nil {
 		s.logger.Warn("install.issues_unavailable", "repository_id", repositoryID, "error", err)
 		return nil, issuesUnavailable()
@@ -212,7 +215,13 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 	if err != nil {
 		return InstallIssueThread{}, err
 	}
-	thread, found, err := reader.IssueThread(ctx, gh, number)
+	var thread InstallIssueThread
+	var found bool
+	if s.installGitHubPolling {
+		thread, found, err = s.projectedInstallIssue(ctx, gh, number)
+	} else {
+		thread, found, err = reader.IssueThread(ctx, gh, number)
+	}
 	if err != nil {
 		s.logger.Warn("install.issues_unavailable", "repository_id", repositoryID, "issue", number, "error", err)
 		return InstallIssueThread{}, issuesUnavailable()
@@ -220,7 +229,7 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 	if !found {
 		return InstallIssueThread{}, &TodoControlError{http.StatusNotFound, "not_found", "user", fmt.Sprintf("Issue #%d was not found", number)}
 	}
-	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil && !info.IsTokenAuth {
+	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.User != nil {
 		decision, err := Authorize(ctx, s.queries(), "issue.read")
 		if err != nil {
 			return InstallIssueThread{}, err

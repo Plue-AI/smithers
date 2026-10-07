@@ -24,7 +24,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | browser-pass 2026-10-06: private Draft admission/completion, served TODO reviewed-head Merge and reload; fresh macOS install/real execution/GitHub/timing pending | T-APP-02 |
 | C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | browser-pass 2026-10-07: install seam, keyboard, invalid login sends nothing, typed unknown-user refusal, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
 | C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; reference-host qualification separate | T-MCH-10 |
-| C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
+| C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-07 (no-tools model draft, unopened issue, edit/place/commit; composed router proof separate) | T-STK-09 |
 | C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
@@ -208,7 +208,7 @@ are engineering-only terminal projections, not passing qualification evidence.
 | C-REL-06 | [C-REL-06.spec.ts](C-REL-06.spec.ts) | fixme-before-implementation | T-INS-07 |
 | C-SEC-01 | [C-SEC-01.spec.ts](C-SEC-01.spec.ts) | fixme-before-implementation | T-MCH-12, T-FLW-01 |
 | C-SEC-02 | [C-SEC-02.spec.ts](C-SEC-02.spec.ts) | fixme-before-implementation | T-FLW-01, T-INS-02, T-INS-08, T-FLW-11, T-STK-12, T-MCH-14 |
-| C-SEC-03 | [C-SEC-03.spec.ts](C-SEC-03.spec.ts) | fixme-before-implementation | T-STK-09, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05 |
+| C-SEC-03 | [C-SEC-03.spec.ts](C-SEC-03.spec.ts) | implemented — Chromium passed 2026-10-07 (outsider refusal before Draft/model; composed role matrix separate) | T-STK-09, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05 |
 | C-SEC-04 | [C-SEC-04.spec.ts](C-SEC-04.spec.ts) | setup HTTP projection passes; backend and reference-host qualification separate | T-ACC-01, T-INS-06, T-INS-08 |
 | C-SEC-05 | [C-SEC-05.spec.ts](C-SEC-05.spec.ts) | fixme-before-implementation | T-TRM-02 |
 
@@ -246,7 +246,7 @@ they do not qualify live answer cancellation or repository-grounded answers.
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
 | A-TODO-NEW | [A-TODO-NEW.spec.ts](A-TODO-NEW.spec.ts) | fixme-before-implementation | T-STK-01 |
-| A-TODO-FROM-ISSUE | [A-TODO-FROM-ISSUE.spec.ts](A-TODO-FROM-ISSUE.spec.ts) | fixme-before-implementation | T-STK-09 |
+| A-TODO-FROM-ISSUE | [A-TODO-FROM-ISSUE.spec.ts](A-TODO-FROM-ISSUE.spec.ts) | implemented — mounted install draft/edit/commit | T-STK-09 |
 | A-TODO | [A-TODO.spec.ts](A-TODO.spec.ts) | fixme-before-implementation | T-APP-02 |
 | A-TODO-ANSWER | [A-TODO-ANSWER.spec.ts](A-TODO-ANSWER.spec.ts) | fixme-before-implementation | T-STK-01 |
 | A-TODO-STEER | [A-TODO-STEER.spec.ts](A-TODO-STEER.spec.ts) | fixme-before-implementation | T-STK-06 |

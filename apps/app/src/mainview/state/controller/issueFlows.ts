@@ -21,7 +21,8 @@ export interface IssueFlowsController {
 export const createIssueFlowsController = (
   ctx: SeamContext,
   flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow" | "requireBox">,
-  todos: Pick<TodoSeam, "draftFromIssue">
+  todos: Pick<TodoSeam, "draftFromIssue"> & Partial<Pick<TodoSeam, "draftIssueNumber">>,
+  backgroundDraft = false
 ): IssueFlowsController => {
   const authorized = (issue: IssuePayload): boolean => issue.makeTodoAllowed === true
     && /^[0-9a-f]{64}$/.test(issue.issueDigest ?? "")
@@ -64,6 +65,7 @@ export const createIssueFlowsController = (
     const resolved = resolveTargetRepo(ctx.store, explicit)
     if ("error" in resolved) return resolved.error
     const issue = cards().find(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
+    if (backgroundDraft && issue?.kind !== "issue") return undefined // The background read authorizes before writing a private Draft.
     if (issue?.kind !== "issue") return "Open the issue again to check permission to make a TODO."
     const scope = issueAuthorizationScope(ctx)
     const selection = ctx.store.session().activeRepoKey
@@ -99,6 +101,7 @@ export const createIssueFlowsController = (
     runIssueImplementation: async (number, explicit) => {
       const resolved = resolveTargetRepo(ctx.store, explicit)
       if ("error" in resolved) return resolved.error
+      if (backgroundDraft && todos.draftIssueNumber) return todos.draftIssueNumber(number, resolved.repo)
       const refusal = await issueTodoRefusal(number, explicit)
       if (refusal !== undefined) return refusal
       const issue = cards().find((card): card is Extract<Card, { kind: "issue" }> => card.kind === "issue" && card.payload.source === "github"
@@ -107,7 +110,7 @@ export const createIssueFlowsController = (
       if (issue.state === "closed") return `Issue #${number} is closed.`
       if (issue.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
       if (!authorized(issue)) return "Open the issue again to check permission to make a TODO."
-      return todos.draftFromIssue({ number, ...(issue.issueDigest ? { digest: issue.issueDigest } : {}), title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
+      return todos.draftFromIssue({ author: issue.author, number, ...(issue.issueDigest ? { digest: issue.issueDigest } : {}), title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
         comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) })
     },
     // No browser launch can establish host-bound authorization, membership,

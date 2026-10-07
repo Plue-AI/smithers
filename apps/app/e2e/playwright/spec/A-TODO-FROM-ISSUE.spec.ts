@@ -1,17 +1,18 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { issueTodoInstall, openIssueTodoInstall } from "./issue-todo-fixture"
 
-// Requires production TODO projections and a seeded T9 question; issue #7 includes retry discussion.
-// Written before implementation: mvp.md Appendix A, J2.2; lands with T-STK-09
+// The mounted install seam drafts privately, edits and commits the original issue snapshot.
 test("A-TODO-FROM-ISSUE: drafts from issue discussion", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md Appendix A, J2.2; lands with T-STK-09")
-  await owner(page)
-  await page.goto("/")
+  test.setTimeout(120_000)
+  const commits = await issueTodoInstall(page)
+  await openIssueTodoInstall(page)
   await say(page, "/todo.from-issue 7")
-  await expect(page.getByLabel("Prompt", { exact: true }).last()).toHaveValue(/retry/i)
-  await expect(page.getByLabel("Closes #7 when merged")).toBeChecked()
-  await page.getByLabel("Prompt", { exact: true }).last().fill("Retry at most five times with jitter. Log each retry.")
+  await expect(page.getByRole("textbox", { name: "Prompt", exact: true }).last()).toHaveValue(/retry/i, { timeout: 30_000 })
+  await expect(page.getByRole("checkbox", { name: "Closes #7 when merged", exact: true })).toBeChecked()
+  await page.getByRole("textbox", { name: "Prompt", exact: true }).last().fill("Retry at most five times with jitter. Log each retry.")
   await page.getByRole("button", { name: "Commit", exact: true }).last().press("Enter")
-  await expect(page.locator(".smithers-card").last()).toContainText("Committed as")
+  await expect.poll(() => commits.length).toBe(1)
+  expect(commits[0]).toMatchObject({ issue: 7, fixes: true, prompt: "Retry at most five times with jitter. Log each retry." })
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })

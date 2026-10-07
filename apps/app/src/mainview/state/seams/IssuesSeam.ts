@@ -31,6 +31,8 @@ export interface IssuesSeam {
   readonly subscribe: (onDispose: (release: () => void) => void) => void
   /** Renders the list card and answers the rows as text (the model reads the value, never the card). */
   readonly listIssues: ViewAction<[filter: "open" | "closed" | "all", repo?: string, kind?: IssueKindFilter, view?: string]>
+  /** Reads an authorized snapshot for Make TODO without mounting an issue card. */
+  readonly readTodoIssue: (number: number, repo: string) => Promise<IssuePayload | string>
   readonly viewIssue: ViewAction<[number: number, repo?: string, source?: "smithers-cloud" | "github"]>
   readonly createIssue: (title: string, repo?: string, kind?: "issue" | "chat") => Promise<string | void>
   readonly setIssueState: (
@@ -999,6 +1001,11 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter, view?: string) => repositoryListRead(ctx, "issues", repoOf(explicitRepo), filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all", view),
       [filter, kind === undefined || kind === "all" ? undefined : `--kind ${kind}`, view === undefined || view === "" ? undefined : `--view ${view}`].filter((part) => part !== undefined).join(" ")), { preload: listView.preload }),
 
+    readTodoIssue: async (number, repo) => {
+      const result = await (install ? readInstallIssue(repo, number) : readGithubIssue(repo, number))
+      if (typeof result === "string") return result
+      return result.card?.kind === "issue" ? result.card.payload : "Could not read this issue."
+    },
     viewIssue: Object.assign(async (number: number, explicitRepo?: string, source?: "smithers-cloud" | "github") => {
       const target = resolveTargetRepo(ctx.store, repoOf(explicitRepo))
       if ("error" in target) return target.error

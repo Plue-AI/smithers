@@ -860,6 +860,7 @@ export const SessionSchema = z.object({
   })).optional(),
   queuedPrompts: z.array(QueuedPromptSchema).optional(),
   promptQueuePaused: z.boolean().optional(),
+  issueTodoRequests: z.array(z.object({ id: z.string(), owner: z.string(), repo: z.string(), number: z.number().int().positive(), state: z.enum(["requested", "completed", "failed"]), error: z.string().optional() })).optional(),
   codingProviderRequests: z.array(z.object({
     id: z.string(), owner: z.string(), action: z.enum(["connect", "revoke", "codex", "order"]).optional(), connectionId: z.string().optional(),
     /* An order request: the provider's whole live order, replayed as is (PUT is idempotent). */
@@ -1346,6 +1347,7 @@ export type AppTransition =
   | { type: "signup.changed"; actor: Actor; patch: Partial<Signup> }
   /* Retired with the Librarian history flow (#2165): replayed journals still decode it; it changes nothing. */
   | { type: "librarian.launches.changed"; actor: Actor; launches: ReadonlyArray<unknown> }
+  | { type: "issue.todo.requests.changed"; actor: Actor; requests: NonNullable<Session["issueTodoRequests"]> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "github.sync.request.changed"; actor: Actor; request?: Session["githubSyncRequest"] }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }

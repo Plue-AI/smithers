@@ -18,7 +18,7 @@ func TestTodoLabelInstallRosterBoundary(t *testing.T) {
 	}
 	r.fake.SetCollaborator(208, "ben", "write")
 	r.fake.SetCollaborator(209, "carol", "write")
-	if _, err := r.expect("POST", "/api/members", `{"login":"ben"}`, 204); err != nil {
+	if _, err := r.member("ben", 208, "write"); err != nil {
 		t.Fatal(err)
 	}
 	team := r.fake.OpenIssue(repo, "ben", "Member label", "Freeze this body.")
@@ -87,6 +87,20 @@ func TestTodoLabelInstallRosterBoundary(t *testing.T) {
 		}
 		if len(read.Digest) != 64 {
 			return fmt.Errorf("no snapshot digest: %s", raw)
+		}
+		var projected string
+		if err := r.pool.QueryRow(r.ctx, `SELECT payload->>'body' FROM github_synced_issues WHERE resource='issues' AND number=$1`, number).Scan(&projected); err != nil {
+			return err
+		}
+		if projected != "Original snapshot body" {
+			return fmt.Errorf("draft did not use the synced issue projection: %q", projected)
+		}
+		var comments int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM github_synced_issue_comments WHERE issue_number=$1 AND source='conversation' AND payload->>'body'='Original discussion'`, number).Scan(&comments); err != nil {
+			return err
+		}
+		if comments != 1 {
+			return fmt.Errorf("synced snapshot discussion count=%d", comments)
 		}
 		r.fake.EditIssue(repo, number, "carol", "Changed title", "Changed body")
 		body := func(digest string) string {
