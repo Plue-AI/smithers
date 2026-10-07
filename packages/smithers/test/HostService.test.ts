@@ -52,6 +52,44 @@ const fixture = () => {
 }
 
 describe("restored launchd service", () => {
+  it("persists only the launcher's network policy and reloads when it changes", async () => {
+    const f = fixture()
+    vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:45678")
+    vi.stubEnv("NO_PROXY", "localhost,127.0.0.1")
+    vi.stubEnv("SSL_CERT_FILE", "/owner/fixture & ca.pem")
+    vi.stubEnv("SMITHERS_MICROSANDBOX_BIN", "/hostile/msb")
+    vi.stubEnv("SMITHERS_WORKSPACE_ISOLATION", "process")
+    vi.stubEnv("CEREBRAS_API_KEY", "provider-secret")
+    vi.stubEnv("NODE_OPTIONS", "--import=/hostile/code.mjs")
+    try {
+      expect(await Host.install(f.options, f.system)).toBe("installed")
+      const text = readFileSync(Host.plistFile(f.system), "utf8")
+      expect(text).toContain("<string>http://127.0.0.1:45678</string>")
+      expect(text).toContain("<string>localhost,127.0.0.1</string>")
+      expect(text).toContain("<string>/owner/fixture &amp; ca.pem</string>")
+      for (const denied of ["SMITHERS_MICROSANDBOX_BIN", "SMITHERS_WORKSPACE_ISOLATION", "CEREBRAS_API_KEY", "provider-secret", "NODE_OPTIONS", "/hostile/"]) {
+        expect(text).not.toContain(denied)
+      }
+      expect(await Host.install(f.options, f.system)).toBe("unchanged")
+      vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:45679")
+      expect(await Host.install(f.options, f.system)).toBe("reloaded")
+      expect(readFileSync(Host.plistFile(f.system), "utf8")).toContain("<string>http://127.0.0.1:45679</string>")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+  it("keeps upper/lowercase proxy and CA policy while refusing unrelated environment", () => {
+    const allowed = ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]
+    const environment = Object.fromEntries(allowed.map((name) => [name, "value-" + name]))
+    const text = Host.hostPlist(fixture().options, { ...environment, HTTPS_PROXY: "", HOME: "/hostile", PATH: "/hostile", SMITHERS_BACKEND_MODE: "plue" })
+    for (const name of allowed.filter((name) => name !== "HTTPS_PROXY")) {
+      expect(text).toContain(`<key>${name}</key>`)
+      expect(text).toContain(`<string>value-${name}</string>`)
+    }
+    expect(text).not.toContain("<key>HTTPS_PROXY</key>")
+    expect(text).not.toContain("/hostile")
+    expect(text).not.toContain("SMITHERS_BACKEND_MODE")
+  })
   it.each(["still loaded", "cannot observe launcher"])(
     "refuses replacement when %s without rewriting the plist",
     async (failure) => {
@@ -117,8 +155,8 @@ describe("restored launchd service", () => {
       expect(spawnSync("/usr/bin/plutil", ["-lint", file]).status).toBe(0)
     }
   })
-  it("runs the absolute bundled launcher at login without shell tools or privileged fields", () => {
-    const f = fixture(), text = Host.hostPlist(f.options), file = join(f.root, "parse.plist")
+  it.skipIf(process.platform !== "darwin")("runs the absolute bundled launcher at login without shell tools or privileged fields", () => {
+    const f = fixture(), text = Host.hostPlist(f.options, {}), file = join(f.root, "parse.plist")
     writeFileSync(file, text)
     const parsed = JSON.parse(
       spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" }).stdout

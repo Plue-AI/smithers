@@ -56,11 +56,18 @@ export const plist = (value: { readonly [key: string]: PlistValue }): string =>
 
 
 export interface ServiceOptions { readonly bundle: string; readonly stateDir: string; readonly home: string; readonly bind?: string; readonly origins?: ReadonlyArray<string> }
-export const hostPlist = (options: ServiceOptions): string => plist({
+export const hostPlist = (options: ServiceOptions, environment: NodeJS.ProcessEnv = process.env): string => plist({
   Label: label,
   ProgramArguments: [join(options.bundle, "bin/smithers-server"), "--setup-handoff=socket", ...(options.bind === undefined ? [] : ["--bind", options.bind]), ...(options.origins ?? []).flatMap((origin) => ["--origin", origin])],
   WorkingDirectory: options.stateDir,
   EnvironmentVariables: {
+    // Keep the bundled launcher's owner-configured network policy across
+    // login/restart. Never forward provider keys or SMITHERS runtime overrides.
+    ...Object.fromEntries([
+      "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+      "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+      "SSL_CERT_FILE", "SSL_CERT_DIR"
+    ].flatMap((name) => environment[name] ? [[name, environment[name]!]] : [])),
     HOME: options.home,
     PATH: `${options.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin`
   },
