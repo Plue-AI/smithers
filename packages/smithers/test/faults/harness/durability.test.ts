@@ -87,3 +87,9 @@ test("a composed host fault qualifies its kill child separately from setup", () 
     { Action: "pass", Test: parent }
   ), fault, ["host-keyless-crossing"])).toThrow("did not pass")
 })
+
+
+test("five candidate-fixture kills cannot qualify the production propose boundary", () => {
+  expect(() => requireReachedGoFaultMatrix(githubLog(), githubNames, [...githubPoints, "github-production-propose"]))
+    .toThrow("github-production-propose")
+})

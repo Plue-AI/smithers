@@ -11,7 +11,7 @@ const cases = [
   ["C-DUR-01", "internal/services/todo_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes", ["start", "stop", "resume"]],
   ["C-DUR-01", "internal/compose/postgres_kill_fault_test.go", "TestTodoPostgresCrashThroughRoute", ["postgres-transition"]],
   ["C-DUR-03", "internal/services/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute", ["merge-pre-land", "merge-post-land", "merge-post-call"]],
-  ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, ["github-push", "github-open", "github-body", "github-merge", "github-close"]],
+  ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, ["github-push", "github-open", "github-body", "github-merge", "github-close", "github-production-propose"]],
   ["C-DUR-04", "internal/machined/fault_test.go", null, []],
   ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]]
 ] as const
@@ -40,8 +40,17 @@ for (const [check, file, name, points] of selected) {
       .matchAll(/^func (Test\w+)\(t \*testing\.T\)/gm)]
       .map((match) => match[1]!).filter((entry) => !entry.includes("Child"))
     expect(names.length, `No acceptance tests in ${file}`).toBeGreaterThan(0)
+    // Candidate controls exercise outbound recovery while T-GH-09's native
+    // proposal binding is unavailable. They cannot satisfy the production
+    // propose marker, even when every outbound crossing passes.
+    const githubControl = file === "internal/compose/github_outbound_kill_test.go"
+    const evidenceNames = githubControl
+      ? ["push", "open", "body", "merge", "close"].map(kind => `TestGitHubOutboundKillComposedCandidateControl/${kind}/crossing`)
+      : names
     const result = spawnSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`], {
-      cwd: backend, env: process.env, encoding: "utf8", timeout: 150_000, maxBuffer: 32 << 20
+      cwd: backend,
+      env: githubControl ? { ...process.env, SMITHERS_GITHUB_OUTBOUND_KILL: "1" } : process.env,
+      encoding: "utf8", timeout: githubControl ? 750_000 : 150_000, maxBuffer: 32 << 20
     })
     // Preserve partial JSON and stderr before checking exit status: crashes,
     // compile errors and timeouts are precisely the failures this tier needs.
@@ -50,6 +59,6 @@ for (const [check, file, name, points] of selected) {
     expect(result.error, "Go fault process failed to execute").toBeUndefined()
     expect(result.signal, "Go fault process terminated by a signal").toBeNull()
     expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
-    requireReachedGoFaultMatrix(result.stdout, names, points)
-  }, 180_000)
+    requireReachedGoFaultMatrix(result.stdout, evidenceNames, points)
+  }, file === "internal/compose/github_outbound_kill_test.go" ? 780_000 : 180_000)
 }
