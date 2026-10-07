@@ -486,12 +486,14 @@ esac
 		{"paused", "running", `{}`, "", true, 0},
 		{"review", "proposed", `{}`, "open", false, 0},
 		{"open-pr", "queued", `{}`, "open", false, 0},
+		{"review-rebuilding", "integrating", `{"rebase":{}}`, "open", false, 1},
 		{"retry", "queued", `{"retries":[{"attempt":2}]}`, "open", false, 1},
 		{"failed", "blocked", `{}`, "", false, 0},
 	} {
 		t.Run("restart-"+tc.name, func(t *testing.T) {
 			_, err := pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3::jsonb,pr_state=$4,
- paused_at=CASE WHEN $5 THEN now() ELSE NULL END,attempt=1 WHERE id=$1`, item.ID, tc.state, tc.checks, tc.pr, tc.paused)
+ paused_at=CASE WHEN $5 THEN now() ELSE NULL END,attempt=1,
+ pr_number=CASE WHEN $4='open' THEN 50 ELSE NULL END WHERE id=$1`, item.ID, tc.state, tc.checks, tc.pr, tc.paused)
 			require.NoError(t, err)
 			absentBinary := filepath.Join(t.TempDir(), "msb")
 			require.NoError(t, os.WriteFile(absentBinary, []byte("#!/bin/sh\n[ \"$1\" = list ] || exit 99\necho '[]'\n"), 0700))

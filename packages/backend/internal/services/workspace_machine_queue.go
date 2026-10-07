@@ -324,10 +324,10 @@ func (s *WorkspaceService) ReconstructMachineAdmission(ctx context.Context) erro
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	rows, err := tx.Query(ctx, `
-SELECT holder, class, actor, retain_only, todo_state, todo_checks, todo_paused_at, todo_pr_state, todo_attempt FROM (
+SELECT holder, class, actor, retain_only, todo_state, todo_checks, todo_paused_at, todo_pr_state, todo_attempt, todo_pr_number FROM (
   SELECT 'workspace:' || w.id::text AS holder, 'person'::text AS class,
          'person:' || s.user_id::text || ':session:' || s.id::text AS actor, s.created_at AS age, s.status='running' AS retain_only,
-         ''::text AS todo_state, '{}'::jsonb AS todo_checks, NULL::timestamptz AS todo_paused_at, ''::text AS todo_pr_state, 0::integer AS todo_attempt
+         ''::text AS todo_state, '{}'::jsonb AS todo_checks, NULL::timestamptz AS todo_paused_at, ''::text AS todo_pr_state, 0::integer AS todo_attempt, NULL::bigint AS todo_pr_number
     FROM workspace_sessions s JOIN workspaces w ON w.id=s.workspace_id AND w.repository_id=s.repository_id
     JOIN users u ON u.id=s.user_id
    WHERE s.status IN ('pending','starting','running') AND w.deleted_at IS NULL
@@ -336,13 +336,13 @@ SELECT holder, class, actor, retain_only, todo_state, todo_checks, todo_paused_a
        OR EXISTS(SELECT 1 FROM collaborators c WHERE c.repository_id=w.repository_id AND c.user_id=u.id
           AND c.permission IN ('admin','write') AND c.suspended_at IS NULL))
   UNION ALL
-  SELECT 'workspace:' || w.id::text, 'todo', 'workspace:' || w.id::text, i.created_at, false, i.state, i.checks, i.paused_at, i.pr_state, i.attempt
+  SELECT 'workspace:' || w.id::text, 'todo', 'workspace:' || w.id::text, i.created_at, false, i.state, i.checks, i.paused_at, i.pr_state, i.attempt, i.pr_number
     FROM mythical_items i JOIN mythical_lanes l ON l.item_id=i.id AND l.workspace_id=i.workspace_id AND l.repository_id=i.repository_id
     JOIN workspaces w ON w.id::text=i.workspace_id AND w.repository_id=i.repository_id
    WHERE i.source='todo' AND i.state IN ('queued','running','delivering','integrating','verifying','proposing','waiting','proposed','retrying','blocked')
      AND w.deleted_at IS NULL AND l.retired_at IS NULL
   UNION ALL
-  SELECT 'workspace:' || w.id::text, 'background', j.id::text, j.created_at, false, '', '{}'::jsonb, NULL::timestamptz, '', 0
+  SELECT 'workspace:' || w.id::text, 'background', j.id::text, j.created_at, false, '', '{}'::jsonb, NULL::timestamptz, '', 0, NULL::bigint
     FROM product_job_requests j JOIN workspaces w ON w.name='review-' || j.id::text
    WHERE j.operation='install.review' AND j.state IN ('accepted','dispatching','running','waiting')
      AND NOT j.cancellation_requested AND w.deleted_at IS NULL
@@ -356,7 +356,7 @@ SELECT holder, class, actor, retain_only, todo_state, todo_checks, todo_paused_a
 	for rows.Next() {
 		row := microsandbox.AdmissionRequest{Reason: workspaceMachineReason}
 		var item db.MythicalItem
-		if err := rows.Scan(&row.Holder, &row.Class, &row.Actor, &row.RetainOnly, &item.State, &item.Checks, &item.PausedAt, &item.PRState, &item.Attempt); err != nil {
+		if err := rows.Scan(&row.Holder, &row.Class, &row.Actor, &row.RetainOnly, &item.State, &item.Checks, &item.PausedAt, &item.PRState, &item.Attempt, &item.PRNumber); err != nil {
 			rows.Close()
 			return err
 		}
@@ -375,8 +375,12 @@ SELECT holder, class, actor, retain_only, todo_state, todo_checks, todo_paused_a
 			// settled wait may wake again; historical wait evidence must not
 			// suppress a queued Retry.
 			switch todoState(item) {
-			case "paused", "in_review", "needs_you", "failed":
+			case "paused", "needs_you", "failed":
 				row.RetainOnly = true
+			case "in_review":
+				// Rebuilding an open PR still displays in_review, but its
+				// active attempt needs a machine. Settled review does not.
+				row.RetainOnly = !mythicalRebuilding(item)
 			}
 		}
 		if row.Class == "background" {
