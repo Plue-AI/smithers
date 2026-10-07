@@ -68,7 +68,8 @@ type routerExtras struct {
 	DeploymentAdmin []ports.AdminRoute
 	// ModelProxy is the metered platform-model proxy; nil when the deployment
 	// offers no platform models.
-	ModelProxy http.Handler
+	ModelProxy  http.Handler
+	FastGateway *modelproxy.FastGateway
 	// EgressPolicy serves a repository's owner-only egress allowlist.
 	EgressPolicy *routes.RepositoryEgressPolicyHandler
 	// GitHubSync is the install's GitHub sync (GET/POST /api/github/sync);
@@ -806,6 +807,9 @@ func buildRouter(
 	// model credential or their run's agent token, and the app's signed-in
 	// calls at /api/model/{provider} with the user's token. Outside /api:
 	// calls stream for minutes, and the handler bounds its own bodies.
+	if extras.FastGateway != nil {
+		mountFastGateway(r, queries, cfg, extras.FastGateway, apiCSRFMiddleware)
+	}
 	if extras.ModelProxy != nil {
 		mountModelProxy(r, queries, cfg, extras.ModelProxy)
 	}

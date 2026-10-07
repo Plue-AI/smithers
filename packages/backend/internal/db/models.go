@@ -651,6 +651,21 @@ type FactoryIssueClaim struct {
 	ReleaseReason  string             `json:"release_reason"`
 }
 
+type FastModelCount struct {
+	ID        string    `json:"id"`
+	InstallID string    `json:"install_id"`
+	Tokens    int64     `json:"tokens"`
+	CreatedAt time.Time `json:"created_at"`
+	Settled   bool      `json:"settled"`
+}
+
+type FastModelInstall struct {
+	InstallID      string `json:"install_id"`
+	OwnerID        int64  `json:"owner_id"`
+	CredentialHash []byte `json:"credential_hash"`
+	Revoked        bool   `json:"revoked"`
+}
+
 type FileDraft struct {
 	ID           string             `json:"id"`
 	RepositoryID int64              `json:"repository_id"`

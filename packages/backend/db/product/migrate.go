@@ -183,6 +183,7 @@ var migrationRegistry = []migrationSpec{
 	{145, "migrations/0145_github_main_reset_intent.sql"},
 	{146, "migrations/0146_branch_releasing.sql"},
 	{147, "migrations/0147_secret_file_paths.sql"},
+	{148, "migrations/0148_fast_model_gateway.sql"},
 }
 
 type migration struct {

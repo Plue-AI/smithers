@@ -20,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/compose"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/operations"
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/repository"
@@ -30,6 +31,9 @@ import (
 // routes, services, jobs, and database are assembled by the common
 // implementation. A deployment can pass its configuration file using Args.
 type Config struct {
+	// FastGateway hosts the per-install fast-model service with deployment keys
+	// and a daily quota; the shared composition supplies its database.
+	FastGateway                *modelproxy.FastGateway
 	InstallMaintenanceDatabase ports.InstallMaintenanceDatabase
 	InstallCaptureSummary      ports.InstallCaptureSummary
 	InstallRunSummary          ports.InstallRunSummary
@@ -222,6 +226,7 @@ func Run(ctx context.Context, cfg Config) error {
 // a new field cannot reach one entry point and miss the other.
 func (cfg Config) options() compose.Options {
 	return compose.Options{
+		FastGateway:                cfg.FastGateway,
 		InstallMaintenanceDatabase: cfg.InstallMaintenanceDatabase,
 		InstallCaptureSummary:      cfg.InstallCaptureSummary,
 		InstallRunSummary:          cfg.InstallRunSummary,

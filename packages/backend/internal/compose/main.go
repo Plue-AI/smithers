@@ -178,6 +178,9 @@ func composeBranchMachines(options Options, hosted bool, members identity.Member
 
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
+	// FastGateway enables the hosted card-free fast-model service. Its quota DB
+	// is supplied by this composition; private hosting supplies keys and policy.
+	FastGateway                *modelproxy.FastGateway
 	InstallMaintenanceDatabase ports.InstallMaintenanceDatabase
 	InstallCaptureSummary      ports.InstallCaptureSummary
 	InstallRunSummary          ports.InstallRunSummary
@@ -1778,6 +1781,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	adminGrantHandler := &routes.AdminGrantHandler{Service: services.NewAdminGrantService(pool, modelLedger)}
 	modelMeter := &modelproxy.Meter{Ledger: modelLedger, DailyCapNanos: modelDailyCap}
 	var modelProxyHandler http.Handler
+	var fastGateway *modelproxy.FastGateway
+	if options.FastGateway != nil {
+		copy := *options.FastGateway
+		copy.Quota.DB = pool
+		fastGateway = &copy
+	}
 	if proxyKeys, ownerPaid := options.proxyKeys(); len(modelproxy.OfferedSeats(proxyKeys)) > 0 {
 		callers := services.NewModelProxyCallers(queries, pool, webhookSecretCodec)
 		if options.Commerce != nil {
@@ -2082,7 +2091,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		gitHubWebhookHandler,
 		smithersMetrics,
 		routerExtras{Background: homeBackground, FlowRuns: installFlowRuns(queries, flow), InstallQuiesce: installQuiesce, InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler, WikiSelection: wikiSelectionHandler,
-			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
+			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, FastGateway: fastGateway, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},
 			AdminWorkspaces:    &routes.AdminWorkspaceHandler{Service: adminManageService},
