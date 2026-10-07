@@ -145,10 +145,13 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 		// The next authenticated connection replays outbox and stream receipts.
 		delay := time.Second
 		for {
-			if _, err := r.runningWorkspace(id); err != nil {
+			if current, err := r.runningWorkspace(id); err != nil || current != ws {
 				return
 			}
 			time.Sleep(delay)
+			if current, err := r.runningWorkspace(id); err != nil || current != ws {
+				return
+			}
 			retry, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			err := r.EnsureMachined(retry, id)
 			cancel()
