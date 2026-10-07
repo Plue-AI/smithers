@@ -51,3 +51,21 @@ It keeps only unrelated shell providers as test fixtures, waits for the actual
 local commit before offline reload, reads the original revision and probes the
 retired routes with valid session/CSRF credentials. Reference-host
 latency and real-model decision-following receipts remain separate checks.
+
+`e2e/real/wiki-coedit.spec.ts` is the C-J8-02 reference-host driver. Run it
+from the second Mac with a prepared scratch install and three existing revisions
+of `decisions/retries`; revision 3 contains `Ben paragraph.`, a blank line,
+and `Alice paragraph.`. It uses real Ben/Alice sessions, records 400 peer-arrival
+samples on the runner's monotonic clock, and checks offline reload, persisted
+text, attribution, retired routes and unchanged historical content. DOM observer
+IPC is included in the latency, making it an upper bound.
+
+Set `SMITHERS_JOURNEY=wiki-coedit.spec.ts`, `SMITHERS_REAL_BASE_URL`,
+`SMITHERS_REAL_E2E_BUILD_SHA`, `SMITHERS_REAL_HEADED=1`, and the existing
+`SMITHERS_JOURNEY_REPOSITORY`, `SMITHERS_JOURNEY_SMTHRS`,
+`SMITHERS_JOURNEY_DATABASE_URL` and `SMITHERS_JOURNEY_{WILL,BEN,ALICE}_SESSION`
+reference-install settings. From `apps/app`, run
+`pnpm exec playwright test --config playwright.real.config.ts e2e/real/wiki-coedit.spec.ts --workers 1`.
+The driver refuses missing reference prerequisites; ordinary real-E2E runs
+exclude it. Its attachments and member videos are qualification evidence only
+after the reference run passes.

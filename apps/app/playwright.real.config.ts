@@ -21,7 +21,7 @@ if (setupSelected && (!process.env.SMITHERS_REAL_BASE_URL || !process.env.SMITHE
   throw new Error("Setup qualification requires a built reference install, its printed setup URL, pinned build SHA and headed operator; no development host is started")
 }
 
-const installConfigSelected = ["fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts"].some(spec =>
+const installConfigSelected = ["fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts", "wiki-coedit.spec.ts"].some(spec =>
   process.env.SMITHERS_JOURNEY === spec || process.argv.some(arg => arg.endsWith(`/${spec}`) || arg === spec))
 if (installConfigSelected && (process.platform !== "darwin" || !process.env.SMITHERS_REAL_BASE_URL ||
   !process.env.SMITHERS_REAL_E2E_BUILD_SHA || process.env.SMITHERS_REAL_HEADED !== "1")) {
