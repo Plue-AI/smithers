@@ -29,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/sse"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/runtimebridge"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -106,7 +107,7 @@ type presenceInstallFixture struct {
 	pool        *pgxpool.Pool
 }
 
-func presenceInstall(t *testing.T) presenceInstallFixture {
+func presenceInstall(t *testing.T, withBroker ...bool) presenceInstallFixture {
 	t.Helper()
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
@@ -154,7 +155,14 @@ func presenceInstall(t *testing.T) presenceInstallFixture {
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
 	topics := &liveTopics{changePool: pool, queries: q, presence: p, todos: presenceTodoFixture{branch: row.ID}}
-	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver, Presence: p.session}
+	var hints live.Hints
+	if len(withBroker) > 0 && withBroker[0] {
+		broker := sse.NewBroker(pool)
+		require.NoError(t, broker.Start(ctx))
+		t.Cleanup(broker.Stop)
+		hints = live.BrokerHints{Broker: broker}
+	}
+	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, hints), Origins: func() []string { return []string{origin} }, Topics: topics.resolver, Presence: p.session}
 	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Live: handler})
 	server.Start()
 	t.Cleanup(server.Close)
