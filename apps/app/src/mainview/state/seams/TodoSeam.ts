@@ -794,7 +794,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       return
     }
     const observedId = confirmation.command === "merge" ? `${confirmation.id}:${confirmation.payload.merge_attempt ?? 0}` : confirmation.id
-    if (ctx.actor() !== "user" || signedIn() || (confirmation.state !== "approved" && !(confirmation.command === "merge" && confirmation.state === "pending")) || !effect ||
+    if (ctx.actor() !== "user" || signedIn() || (confirmation.state !== "approved" && !(confirmation.command === "merge" && confirmation.state === "pending")) || !effect || effect.todo === undefined ||
       !["todo.new", "todo.from-issue", "flow.edit", "todo.drop", "todo.amend", "branch.bring-in", "branch.discard-foreign", "merge"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
     const row = entry(effect.todo) ?? blank(effect.todo)
     if (row.payload.observedConfirmations?.includes(observedId)) return

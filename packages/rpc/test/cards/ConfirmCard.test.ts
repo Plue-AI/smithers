@@ -148,3 +148,12 @@ test("Wiki deletion uses its initiating catalog tag in the private Confirm proje
     expires_at: "2099-01-01T00:00:00Z", payload: { input: { owner: "ben", repo: "app" }, card: model } }
   expect(MemberConfirmationSchema.parse(row)).toEqual(row)
 })
+
+test("Review effects decode without a TODO and refuse ambiguous or empty effect identities", () => {
+  const row = { id: "10000000-0000-4000-8000-000000000001", command: "review", state: "approved", revision: "pinned-review",
+    expires_at: "2099-01-01T00:00:00Z", payload: { input: {}, card: { ...fixtures.one_click.model, action: { tag: "review", verb: "Review" } }, effect: { review: "review-op", request: "confirmation:1" } } }
+  expect(MemberConfirmationSchema.parse(row)).toEqual(row)
+  for (const effect of [{ request: "confirmation:1" }, { todo: 1, review: "review-op", request: "confirmation:1" }]) {
+    expect(MemberConfirmationSchema.safeParse({ ...row, payload: { ...row.payload, effect } }).success).toBe(false)
+  }
+})

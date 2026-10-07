@@ -1251,9 +1251,7 @@ export const createAppController = (
     })
   } } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
   if (installHost) ctx.onDispose(todoSeam.list.subscribe(() => {}))
-  const confirmations = createConfirmationSeam(seamCtx, { ready: installHost && services.applicationTarget?.auth.kind !== "bearer",
-    live: services.live, observe: todoSeam.observeConfirmation, debounceMs: ctx.toastDebounceMs })
-  ctx.onDispose(confirmations.dispose)
+
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
@@ -1536,6 +1534,9 @@ export const createAppController = (
   }
   const issueFlows = actors.pair(seamCtx, (context, select) =>
     createIssueFlowsController(context, select(workflowController), select(todoSeam)))
+  const confirmations = createConfirmationSeam(seamCtx, { ready: installHost && services.applicationTarget?.auth.kind !== "bearer",
+    live: services.live, observe: async row => { await todoSeam.observeConfirmation(row); await issueFlows.observeReviewConfirmation(row) }, debounceMs: ctx.toastDebounceMs })
+  ctx.onDispose(confirmations.dispose)
   const {
     createWorkflow,
     listWorkspaceWorkflows,

@@ -10,6 +10,7 @@ import { createReviewSeam } from "../seams/ReviewSeam"
 import { flowArgs } from "../../flows/FlowArgs"
 
 export interface IssueFlowsController {
+  readonly observeReviewConfirmation: ReturnType<typeof createReviewSeam>["observeConfirmation"]
   readonly issueTodoRefusal: (number: number, repo?: string) => string | undefined
   readonly inspectIssueFlows: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | { readonly value: string }>
   readonly runIssueFlow: (name: "repro" | "poc", number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
@@ -81,6 +82,7 @@ export const createIssueFlowsController = (
         comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) })
     },
     triagePullRequest: reviews.request,
+    observeReviewConfirmation: reviews.observeConfirmation,
     runIssueFlow: async (name, number, explicit, humanDoor = false) => {
       const selected = target(number, explicit)
       if ("error" in selected) return selected.error
