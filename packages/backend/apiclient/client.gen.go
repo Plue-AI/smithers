@@ -1646,6 +1646,18 @@ func (v HomeCard) MarshalJSON() ([]byte, error) {
 	return joinAdditional(plain(v), v.AdditionalProperties)
 }
 
+// TodoSystemRead — Coding fields for the credential's bound TODO.
+type TodoSystemRead struct {
+	N          int64  `json:"n"`
+	Title      string `json:"title"`
+	State      string `json:"state"`
+	Attempt    int64  `json:"attempt"`
+	Generation int64  `json:"generation"`
+	Workspace  string `json:"workspace"`
+	Run        string `json:"run"`
+	Base       string `json:"base"`
+}
+
 // TodoCard — One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept.
 type TodoCard struct {
 	N                    int64                         `json:"n"`
@@ -1917,6 +1929,19 @@ type GetAPIBranchesBFilesResponseItem struct {
 	Path string `json:"path"`
 	Type string `json:"type"`
 	Size *int64 `json:"size,omitempty"`
+}
+
+// GetAPISSHParams is the query of GET /api/ssh.
+type GetAPISSHParams struct {
+	Branch string
+}
+
+// GetAPISSHResponse is generated from docs/api/openapi.yaml.
+type GetAPISSHResponse struct {
+	Branch string `json:"branch"`
+	Host   string `json:"host"`
+	Port   int64  `json:"port"`
+	Value  string `json:"value"`
 }
 
 // PostAPIConfirmationsIDApproveResponse is generated from docs/api/openapi.yaml.
@@ -2980,6 +3005,15 @@ func (c *Client) GetAPIBranchesBFiles(ctx context.Context, b string, params GetA
 	}
 	var out []GetAPIBranchesBFilesResponseItem
 	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b)+"/files", query, nil, &out)
+	return out, err
+}
+
+// GetAPISSH calls GET /api/ssh.
+func (c *Client) GetAPISSH(ctx context.Context, params GetAPISSHParams) (GetAPISSHResponse, error) {
+	query := url.Values{}
+	query.Set("branch", params.Branch)
+	var out GetAPISSHResponse
+	err := c.do(ctx, "GET", "/api/ssh", query, nil, &out)
 	return out, err
 }
 
@@ -5782,8 +5816,8 @@ func (c *Client) GetAPITodosNEvents(ctx context.Context, n int64, params GetAPIT
 }
 
 // GetAPITodosN calls GET /api/todos/{n}.
-func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
-	var out TodoCard
+func (c *Client) GetAPITodosN(ctx context.Context, n int64) (json.RawMessage, error) {
+	var out json.RawMessage
 	err := c.do(ctx, "GET", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, nil, &out)
 	return out, err
 }

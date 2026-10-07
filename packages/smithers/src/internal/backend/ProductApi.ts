@@ -1019,6 +1019,18 @@ export type HomeCard = {
   [key: string]: unknown
 }
 
+/** Coding fields for the credential's bound TODO. */
+export type TodoSystemRead = {
+  n: number
+  title: string
+  state: string
+  attempt: number
+  generation: number
+  workspace: string
+  run: string
+  base: string
+}
+
 /** One TODO as the TODO card shows it. TodoCardSchema in packages/rpc/src/TodoCard.ts is the full contract; members not listed here are kept. */
 export type TodoCard = {
   n: number
@@ -1703,6 +1715,21 @@ export interface GetApiBranchesBFilesInput {
 /** GET /api/branches/{b}/files: List branch files */
 export const getApiBranchesBFiles = (transport: Transport, input: GetApiBranchesBFilesInput): Promise<GetApiBranchesBFilesResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/files${search({ path: input.query?.path })}`) as Promise<GetApiBranchesBFilesResponse>
+
+export type GetApiSshResponse = {
+  branch: string
+  host: string
+  port: number
+  value: string
+}
+
+export interface GetApiSshInput {
+  readonly query: { readonly branch: string }
+}
+
+/** GET /api/ssh: Copy a branch SSH connection line */
+export const getApiSsh = (transport: Transport, input: GetApiSshInput): Promise<GetApiSshResponse> =>
+  transport.request("GET", `/api/ssh${search({ branch: input.query.branch })}`) as Promise<GetApiSshResponse>
 
 export type GetApiBuildCacheHealthzResponse = AnyJSON
 
@@ -5802,7 +5829,7 @@ export interface GetApiTodosNEventsInput {
 export const getApiTodosNEvents = (transport: Transport, input: GetApiTodosNEventsInput): Promise<GetApiTodosNEventsResponse> =>
   transport.request("GET", `/api/todos/${segment(input.path.n)}/events${search({ cursor: input.query?.cursor })}`) as Promise<GetApiTodosNEventsResponse>
 
-export type GetApiTodosNResponse = TodoCard
+export type GetApiTodosNResponse = TodoCard | TodoSystemRead
 
 export interface GetApiTodosNInput {
   readonly path: { readonly n: number }
