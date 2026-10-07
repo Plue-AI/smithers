@@ -96,6 +96,22 @@ func TestMainResetJournalPersistsAcrossRestartAndSettlesAtomically(t *testing.T)
 	require.Empty(t, pending)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT reason FROM mythical_stacks WHERE repository_id=$1`, repo).Scan(&reason))
 	require.Equal(t, "|settled", reason)
+	receipt, err := db.New(pool).GetGithubMainPull(ctx, repo)
+	require.NoError(t, err)
+	require.Equal(t, "synced", receipt.State)
+	require.Equal(t, pullNew, receipt.SmithersHead)
+	require.Equal(t, pullNew, receipt.GithubHead)
+	require.True(t, receipt.LastSyncedAt.Valid)
+	require.Empty(t, receipt.HealthCause)
+	require.False(t, receipt.RetryAt.Valid)
+	require.Greater(t, receipt.RequestedGeneration, receipt.SyncedGeneration, "reset preserves concurrent Retry admission for a new upstream observation")
+	require.NoError(t, restarted.WithRepository(ctx, repo, func(fence GitHubMainFence) error {
+		replay, err := fence.Prepare(ctx, "force-attention", pullOld, pullNew)
+		require.NoError(t, err)
+		require.True(t, replay.Settled)
+		require.NoError(t, fence.VerifyPull(ctx, pullNew, pullNew), "completed receipt does not fence normal following")
+		return nil
+	}))
 }
 
 func TestMainResetJournalRetainsRepositoryLockAfterPrepareCommit(t *testing.T) {

@@ -621,6 +621,7 @@ export interface AppController extends IssueFlowsController {
   readonly githubReconcile: GitHubSeam["reconcile"]
   /** `github.retry` on the install (POST /api/github/sync); undefined where this host serves no sync. */
   readonly retryGitHubSync: GitHubSyncSeam["retry"]
+  readonly resetMainToGitHub: GitHubSyncSeam["reset"]
   readonly retryMirrorRef: GitHubSeam["retryMirrorRef"]
   readonly githubMirrorSync: GitHubSeam["mirrorSync"]
   /*
@@ -2361,6 +2362,7 @@ export const createAppController = (
     githubOpenInstall: gitHubSeam.openInstall,
     githubReconcile: gitHubSeam.reconcile,
     retryGitHubSync: gitHubSyncRetry.retry,
+    resetMainToGitHub: gitHubSyncRetry.reset,
     retryMirrorRef: gitHubSeam.retryMirrorRef,
     githubMirrorSync: gitHubSeam.mirrorSync,
     loadCloudSession,
