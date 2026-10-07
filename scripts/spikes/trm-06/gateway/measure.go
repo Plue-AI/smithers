@@ -157,23 +157,12 @@ func measurementRun(ctx context.Context, a *installedAuthority, root string, con
 		if err != nil {
 			return result, err
 		}
-		var snapshot guestSnapshot
-		for {
-			raw, err := ownerObservation(execution, root, "sample")
-			if err != nil {
-				return result, err
-			}
-			if json.Unmarshal(raw, &snapshot) != nil {
-				return result, errors.New("invalid independent restart sample")
-			}
-			result["restart_after"] = json.RawMessage(raw)
-			if len(snapshot.Processes) == 0 && len(snapshot.Supervisors) == 1 {
-				break
-			}
-			if time.Since(invoked) > 2*time.Second {
-				return result, errors.New("restart exceeded two seconds")
-			}
-			time.Sleep(20 * time.Millisecond)
+		attempts, firstSubmission, admissionErr := restartAdmissionRace(execution, config.Listen, &ssh.ClientConfig{User: "ben", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, HostKeyCallback: ssh.FixedHostKey(hostKey)}, invoked)
+		result["restart_admission_attempts"] = attempts
+		result["restart_first_submission_utc"] = firstSubmission
+		result["restart_admissions_finished_ms"] = time.Since(invoked).Milliseconds()
+		if admissionErr != nil {
+			return result, admissionErr
 		}
 		rawDrain, err := ownerObservation(execution, root, "drain")
 		if err != nil {
@@ -184,20 +173,10 @@ func measurementRun(ctx context.Context, a *installedAuthority, root string, con
 		if json.Unmarshal(before, &old) != nil {
 			return result, errors.New("invalid pre-restart sample")
 		}
-		if err = validateRestartDrain(rawDrain, old.Cgroups, invoked, time.Now()); err != nil {
+		if err = validateRestartDrain(rawDrain, old.Cgroups, invoked, firstSubmission); err != nil {
 			return result, err
 		}
 		result["restart_zero_observed"] = true
-		probe, err := client.NewSession()
-		if err != nil {
-			return result, err
-		}
-		err = probe.Run("exit 0")
-		probe.Close()
-		result["restart_first_open_ms"] = time.Since(invoked).Milliseconds()
-		if err != nil || time.Since(invoked) > 2*time.Second {
-			return result, errors.New("restart did not admit a new session within two seconds")
-		}
 		session, err = startSession()
 		if err != nil {
 			return result, err

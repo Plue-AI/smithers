@@ -295,6 +295,8 @@ def main():
             if os.readlink(f"/proc/{pid}/exe") != "/opt/smithers/prototype/supervisor":
                 raise ValueError("supervisor executable mismatch")
             signal.pidfd_send_signal(process, signal.SIGKILL)
+            if not select.select([process], [], [], 1)[0]:
+                raise ValueError("owned supervisor did not exit")
         finally:
             os.close(process)
         print(json.dumps({"killed": pid, "before": observed}))
