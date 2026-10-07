@@ -6,7 +6,7 @@ import { join } from "node:path"
 
 import * as NodeControl from "../../src/NodeControl.ts"
 
-export const source = (root: string) => `
+export const source = (root: string, keyed = true) => `
 import { Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Schema } from "effect"
@@ -15,7 +15,7 @@ import { join } from "node:path"
 const root = ${JSON.stringify(root)}
 const Probe = Action.make("peer/Probe", {
   payload: {}, success: Schema.String, error: Schema.Unknown,
-  tier: "irreversible", implementationVersion: "peer/v1", idempotencyKey: "peer-probe"
+  tier: "irreversible", implementationVersion: "peer/v1", ${keyed ? "idempotencyKey: \"peer-probe\"" : ""}
 })
 const wait = Effect.suspend(() =>
   Effect.promise(() => access(join(root, "release")).then(() => true, () => false)).pipe(
