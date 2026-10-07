@@ -1441,10 +1441,11 @@ type LinearSyncRun struct {
 }
 
 type MachineEventReceipt struct {
-	WorkspaceID string    `json:"workspace_id"`
-	EventID     string    `json:"event_id"`
-	Outcome     string    `json:"outcome"`
-	At          time.Time `json:"at"`
+	WorkspaceID          string    `json:"workspace_id"`
+	EventID              string    `json:"event_id"`
+	Outcome              string    `json:"outcome"`
+	At                   time.Time `json:"at"`
+	TranscriptCheckpoint []byte    `json:"transcript_checkpoint"`
 }
 
 type MemoryNote struct {
