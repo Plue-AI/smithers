@@ -1,14 +1,13 @@
+import { nextTurnResponse, sharedReplyFrames } from "./chat-tools/ui"
 import type { Page } from "@playwright/test"
 import { test } from "./support"
 import { withReference, home, expect, runSlash, attachJson } from "./todo/reference"
 
-// Read the actual streamed Markdown bytes, before the renderer formats them.
+// Read literal reply Markdown from the durable shared conversation.
 const ask = async (page: Page, question: string): Promise<string> => {
-  const received = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/agent/turn")
+  const received = nextTurnResponse(page)
   await runSlash(page, question)
-  const response = await received
-  expect(response.status()).toBe(200)
-  const frames = (await response.text()).split("\n").filter(line => line.trim()).flatMap(line => JSON.parse(line).batch?.frames ?? [])
+  const frames = await sharedReplyFrames(page, await received)
   const markdown = frames.filter(frame => frame.type === "delta" && frame.kind === "text").map(frame => frame.text).join("")
   expect(markdown.trim()).not.toBe("")
   return markdown

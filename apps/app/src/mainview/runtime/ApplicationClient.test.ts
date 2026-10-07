@@ -786,6 +786,6 @@ test("install browser starts agent turns with cookies and never resolves a turn 
       return Response.json({ id: "turn-1", state: "requested" })
     }
   })
-  await client.request("/api/agent/turn", { method: "POST", body: JSON.stringify({ prompt: "Read the retry code" }) })
+  await client.request("/api/conversations/main/prompt", { method: "POST", body: JSON.stringify({ prompt: "Read the retry code", idempotencyKey: "read-retry" }) })
   expect(tokenReads).toBe(0)
 })

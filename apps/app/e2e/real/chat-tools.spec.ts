@@ -8,6 +8,7 @@ import {
   captureTurnTraffic,
   completedAssistantContaining,
   nextTurnResponse,
+  isStopResponse,
   parseTurnFrames,
   toolExecution,
   transcript
@@ -37,10 +38,10 @@ const attachJson = async (testInfo: TestInfo, name: string, value: unknown): Pro
   })
 }
 
-chatTest("a grounded answer arrives as multiple real stream frames and completes in the transcript", scenario("chat.stream-grounded", {
+chatTest("a grounded answer persists multiple real reply frames and completes in the transcript", scenario("chat.stream-grounded", {
   capabilities: ["agent"],
   coverage: ["action:chat.send", "host:local", "host:production", "path:success", "door:user-only", "dimension:streaming", "evidence:agent-turn-ndjson"],
-  description: "Send a unique grounded prompt through the composer and correlate the rendered answer with multiple backend NDJSON deltas."
+  description: "Send a unique grounded prompt through the composer and correlate the rendered answer with multiple durable backend deltas."
 }), async ({ page }, testInfo) => {
   await bootWorkspace(page)
   const marker = `STREAM_GROUNDED_${Date.now()}`
@@ -49,7 +50,7 @@ chatTest("a grounded answer arrives as multiple real stream frames and completes
   const turnResponse = nextTurnResponse(page)
 
   await command(page, `Reply with exactly the following line and no other text:\n${expected}`)
-  expect((await turnResponse).status()).toBe(200)
+  expect((await turnResponse).status()).toBe(202)
   const answer = await completedAssistantContaining(page, marker)
   await expect(answer.locator(".message-markdown")).toContainText(expected)
 
@@ -75,7 +76,7 @@ chatTest("the model invokes browser.open and cites content returned by the real 
   const turnResponse = nextTurnResponse(page)
 
   await command(page, `Use the commands tool to execute browser.open with args https://example.com/. Read the returned page before answering. Then answer with ${marker} and the page heading.`)
-  expect((await turnResponse).status()).toBe(200)
+  expect((await turnResponse).status()).toBe(202)
   const answer = await completedAssistantContaining(page, marker)
   await expect(answer).toContainText("Example Domain")
   const fetched = await fetchResponse
@@ -109,8 +110,7 @@ chatTest("Stop generating cancels the live backend turn and leaves an honest sta
   const stop = page.locator('[data-flow="stop"]:visible')
   await expect(stop).toBeVisible({ timeout: 30_000 })
   const cancelTraffic = await captureCancelReply(page)
-  const cancelling = page.waitForResponse((response) =>
-    response.request().method() === "POST" && new URL(response.url()).pathname === "/api/agent/turn/cancel")
+  const cancelling = page.waitForResponse(isStopResponse)
   await stop.click()
 
   const cancelResponse = await cancelling
@@ -118,7 +118,7 @@ chatTest("Stop generating cancels the live backend turn and leaves an honest sta
   const cancelBodies = await cancelTraffic.read()
   expect(cancelBodies).toHaveLength(1)
   const cancelBody = JSON.parse(cancelBodies[0]!) as { readonly ok?: unknown; readonly status?: unknown }
-  expect(cancelBody.status, JSON.stringify(cancelBody)).toBe("cancelled")
+  expect(cancelBody.status, JSON.stringify(cancelBody)).toBe("ok")
   const interrupted = assistantMessages(page).last()
   await expect(interrupted.locator(".bubble-system-note")).toContainText("Turn interrupted")
   await expect(transcript(page)).toHaveAttribute("aria-busy", "false")
