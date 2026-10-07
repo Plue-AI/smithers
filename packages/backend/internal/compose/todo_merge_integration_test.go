@@ -166,6 +166,8 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", fake.URL)
+	t.Setenv("SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL", fake.URL)
+	t.Setenv("SMITHERS_AUTH_GITHUB_API_BASE_URL", fake.URL)
 	t.Setenv("SMITHERS_GITHUB_GIT_BASE_URL", fake.URL)
 	for _, call := range []struct{ path, form string }{
 		{"/app-manifests/manifest-code/conversions", ""},
@@ -313,11 +315,12 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
 		t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "merge-route-sealing-key")
 		browserOptions := Options{ChatHost: unusedChatHost{}}
-		if browserJourney || len(delegatedBrowser) > 0 && delegatedBrowser[0] {
+		if installBrowser {
 			// This journey observes admission before execution. Run the real
 			// HTTP half; the worker is exercised by the recovery journey.
 			browserOptions.Duties = DutiesHTTP
 		}
+		configureNativeInstallFixture(t)
 		native := repohostffi.New(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
 		require.NoError(t, native.Load())
 		storagePath := t.TempDir()
