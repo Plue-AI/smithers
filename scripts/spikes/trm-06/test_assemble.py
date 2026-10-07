@@ -40,6 +40,30 @@ class BundleAssembly(unittest.TestCase):
             self.assertEqual(environment["CARGO_TARGET_DIR"], str(target))
             self.assertEqual(environment["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER"], str(linker))
 
+    def test_gateway_requires_arm64_macho_executable(self):
+        for mode in ("valid", "x86", "library", "script", "truncated", "table", "command", "trailing", "count", "unaligned"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "gateway"
+                header = bytearray(struct.pack("<8I", 0xFEEDFACF, 0x0100000C, 0, 2, 1, 8, 0, 0))
+                table = bytearray(struct.pack("<II", 1, 8))
+                if mode == "x86": struct.pack_into("<I", header, 4, 0x01000007)
+                if mode == "library": struct.pack_into("<I", header, 12, 6)
+                if mode == "script": header[:4] = b"#!/b"
+                if mode == "table": struct.pack_into("<I", header, 20, 4096)
+                if mode == "command": struct.pack_into("<I", table, 4, 0)
+                if mode == "trailing":
+                    table.extend(bytes(8))
+                    struct.pack_into("<I", header, 20, 16)
+                if mode == "count": struct.pack_into("<I", header, 16, 0)
+                if mode == "unaligned":
+                    struct.pack_into("<I", table, 4, 9)
+                    table.extend(b"x")
+                    struct.pack_into("<I", header, 20, 9)
+                path.write_bytes(header + table if mode != "truncated" else header[:16])
+                if mode == "valid": assemble.validate_gateway(path)
+                else:
+                    with self.assertRaises(ValueError): assemble.validate_gateway(path)
+
     def test_supervisor_requires_static_arm64_elf(self):
         for mode in ("valid", "x86", "interpreter", "truncated", "table", "endian", "no-headers"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:

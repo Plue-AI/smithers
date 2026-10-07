@@ -152,6 +152,30 @@ def validate_supervisor(path):
                 raise ValueError("supervisor must not use a guest dynamic interpreter")
 
 
+def validate_gateway(path):
+    """Require actual Darwin ARM64 executable bytes, not a build target label."""
+    regular(path)
+    with path.open("rb") as source:
+        header = source.read(32)
+        if len(header) != 32:
+            raise ValueError("truncated gateway Mach-O")
+        magic, cpu, subtype, kind, count, commands, flags, reserved = struct.unpack("<8I", header)
+        size = os.fstat(source.fileno()).st_size
+        if magic != 0xFEEDFACF or cpu != 0x0100000C or kind != 2 or not 0 < count <= 4096 or not 8 * count <= commands <= 1024 * 1024 or 32 + commands > size:
+            raise ValueError("gateway must be Darwin ARM64 Mach-O executable")
+        table = source.read(commands)
+        offset = 0
+        for _ in range(count):
+            if offset + 8 > len(table):
+                raise ValueError("truncated Mach-O load command")
+            command, length = struct.unpack_from("<II", table, offset)
+            if length < 8 or length % 8 or offset + length > len(table):
+                raise ValueError("invalid Mach-O load command")
+            offset += length
+        if offset != commands:
+            raise ValueError("unclaimed Mach-O command bytes")
+
+
 def supervisor_build_environment(target):
     sysroot = Path(subprocess.check_output(["rustc", "--print", "sysroot"], text=True).strip())
     metadata = subprocess.check_output(["rustc", "-vV"], text=True)
@@ -186,6 +210,7 @@ def assemble(repo, base, output, review_key):
         environment = dict(os.environ, GOOS="darwin", GOARCH="arm64", CGO_ENABLED="0")
         gateway = build / "trm06-gateway"
         subprocess.run(["go", "build", "-trimpath", "-o", str(gateway), "./scripts/spikes/trm-06/gateway"], cwd=source, env=environment, check=True)
+        validate_gateway(gateway)
         subprocess.run(["cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-musl", "--manifest-path", str(source / SPIKE / "supervisor/Cargo.toml")], cwd=source, env=supervisor_build_environment(build / "cargo-target"), check=True)
         # Cargo hardlinks its top-level executable to deps. Stage a private
         # single-link copy before applying the release artifact invariant.
@@ -196,6 +221,7 @@ def assemble(repo, base, output, review_key):
         try:
             manifest = validate_base(output, revision)
             add_artifact(output, manifest, "bin/trm06-gateway", gateway, 0o755)
+            validate_gateway(output / "bin/trm06-gateway")
             add_artifact(output, manifest, "libexec/trm06-supervisor", supervisor, 0o755)
             validate_supervisor(output / "libexec/trm06-supervisor")
             for name, mode in FILES.items():
