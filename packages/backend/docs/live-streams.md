@@ -72,6 +72,18 @@ a 250 ms repair poll recovers missed notifications. No transport event or
 retention table is created. Home and flows still serve snapshots; they do not
 have the TODO source's replay contract.
 
+`run:<id>` resolves a durable Flow dispatch checkpoint in the install's
+repository and rechecks branch read access before every poll. It reads the
+existing host's `run-summary`, `run-tree` and `run-events` projections without
+starting a host. Snapshots and deltas carry `{summary, steps, events}`: summary
+and steps share a committed journal cursor; a delta includes every later event
+through that cursor in source order. Gateway pages that split one journal entry
+are drained before advancing the numeric Live cursor. A missing retained entry
+returns `gap`, followed by a fresh snapshot on cursor-free resubscription.
+Unknown dispatch runs are refused; missing or stopped hosts remain unavailable.
+The monitor's cost, waits and journal presentation remain its owning projection's
+contract; this base topic does not invent those fields.
+
 Cookie-bearing upgrades require the effective Origin; cookie-free bearer upgrades
 use the same credential loader, scoped authorizer and durable revocation watcher,
 and require no Origin. Machine/run credentials cannot open member Live sockets.
