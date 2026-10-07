@@ -137,8 +137,21 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		const helloDigest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 		const otherDigest = "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"
 		calls := 0
-		provider.writer = machined.WorkspaceWriter{Client: &machinedfake.Client{OnWriteFiles: func(_ context.Context, branch string, actor []byte, changes []machined.FileChange) (machined.WriteResult, error) {
+		readyCalls := 0
+		unavailable := false
+		provider.writer = machined.WorkspaceWriter{EnsureReady: func(ctx context.Context, branch string) error {
+			readyCalls++
+			require.Equal(t, id, branch)
+			op, ok := workspaceapi.OperationFromContext(ctx)
+			require.True(t, ok)
+			require.Equal(t, fmt.Sprint(owner.ID), op.PrincipalID)
+			if unavailable {
+				return machined.ErrNotReady
+			}
+			return nil
+		}, Client: &machinedfake.Client{OnWriteFiles: func(_ context.Context, branch string, actor []byte, changes []machined.FileChange) (machined.WriteResult, error) {
 			calls++
+			require.Equal(t, calls, readyCalls, "readiness must precede each write")
 			require.Equal(t, id, branch)
 			require.Equal(t, fmt.Sprint(owner.ID), string(actor))
 			require.Len(t, changes, 1)
@@ -177,9 +190,11 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			{"?path=daemon.txt", `{"content":"offline","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
 			{"?path=daemon.txt", `{"content":"wrong-receipt","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
 			{"?path=daemon.txt", `{"content":"partial-stale","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
+			{"?path=daemon.txt", `{"content":"not-ready","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
 			{"", `{"changes":[{"path":"daemon.txt","content":"hello","base_digest":"absent"},{"path":"second.txt","content":"hello","base_digest":"absent"}]}`, 503, `"code":"service_unavailable"`},
 			{"", `{"changes":[{"path":"daemon.txt","content":null,"base_digest":"` + helloDigest + `"}]}`, 503, `"code":"service_unavailable"`},
 		} {
+			unavailable = strings.Contains(item.request, `"not-ready"`)
 			req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content"+item.query, strings.NewReader(item.request))
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", "application/json")
@@ -198,5 +213,6 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		// Unsupported transactions and deletions must refuse before the first
 		// remote write. Sequential WriteFiles receipts cannot qualify a patch.
 		require.Equal(t, 5, calls)
+		require.Equal(t, 6, readyCalls)
 	})
 }

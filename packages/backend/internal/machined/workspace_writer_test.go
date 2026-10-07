@@ -25,8 +25,16 @@ func TestWorkspaceWriterAuthenticatedRPC(t *testing.T) {
 				err     error
 			}
 			done := make(chan outcome, 1)
+			readyCalls := 0
 			go func() {
-				receipt, err := (WorkspaceWriter{Client: r}).CompareWriteFiles(ctx, "a", []workspaceapi.FileMutation{{Path: "hello", BaseDigest: base, Content: []byte("hello")}})
+				receipt, err := (WorkspaceWriter{Client: r, EnsureReady: func(ctx context.Context, id string) error {
+					readyCalls++
+					require.Equal(t, "a", id)
+					op, ok := workspaceapi.OperationFromContext(ctx)
+					require.True(t, ok)
+					require.Equal(t, "9", op.PrincipalID)
+					return nil
+				}}).CompareWriteFiles(ctx, "a", []workspaceapi.FileMutation{{Path: "hello", BaseDigest: base, Content: []byte("hello")}})
 				done <- outcome{receipt, err}
 			}()
 			frame, err := wire.Read(peer)
@@ -56,6 +64,7 @@ func TestWorkspaceWriterAuthenticatedRPC(t *testing.T) {
 			}
 			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, response))}))
 			got := <-done
+			require.Equal(t, 1, readyCalls)
 			if scenario == "stale" || scenario == "absent-stale" {
 				var stale *workspaceapi.StaleFileError
 				require.ErrorAs(t, got.err, &stale)
@@ -112,8 +121,37 @@ func TestWorkspaceWriterRefusesBeforeDispatch(t *testing.T) {
 			if scenario == "cancel" {
 				cancel()
 			}
-			_, err := (WorkspaceWriter{Client: forbiddenWriter{t}}).CompareWriteFiles(ctx, "a", changes)
+			_, err := (WorkspaceWriter{Client: forbiddenWriter{t}, EnsureReady: func(context.Context, string) error {
+				t.Fatal("refused request started a daemon")
+				return nil
+			}}).CompareWriteFiles(ctx, "a", changes)
 			if scenario == "cancel" {
+				require.ErrorIs(t, err, context.Canceled)
+			} else {
+				require.ErrorIs(t, err, workspaceapi.ErrCompareWriteUnavailable)
+			}
+		})
+	}
+}
+
+func TestWorkspaceWriterReadinessFailureNeverDispatches(t *testing.T) {
+	for _, canceled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unavailable", true: "canceled"}[canceled], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(workspaceapi.WithOperation(t.Context(), workspaceapi.Operation{TenantID: "1", PrincipalID: "9", OperationID: "write"}))
+			defer cancel()
+			calls := 0
+			writer := WorkspaceWriter{Client: forbiddenWriter{t}, EnsureReady: func(context.Context, string) error {
+				calls++
+				if canceled {
+					cancel()
+					return ctx.Err()
+				}
+				return ErrNotReady
+			}}
+			receipt, err := writer.CompareWriteFiles(ctx, "a", []workspaceapi.FileMutation{{Path: "a", BaseDigest: "absent", Content: []byte("new")}})
+			require.Nil(t, receipt)
+			require.Equal(t, 1, calls)
+			if canceled {
 				require.ErrorIs(t, err, context.Canceled)
 			} else {
 				require.ErrorIs(t, err, workspaceapi.ErrCompareWriteUnavailable)

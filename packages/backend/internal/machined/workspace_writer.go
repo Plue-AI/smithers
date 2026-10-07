@@ -16,7 +16,10 @@ import (
 // deletion request. Refuse those before sending anything, rather than expose
 // WriteFiles' ordered, partially applied semantics as a transaction.
 type WorkspaceWriter struct {
-	Client interface {
+	// EnsureReady starts/adopts the installed daemon only after admission and
+	// complete request validation. Runtime composition supplies its lifecycle.
+	EnsureReady func(context.Context, string) error
+	Client      interface {
 		WriteFiles(context.Context, string, []byte, []FileChange) (WriteResult, error)
 	}
 }
@@ -41,6 +44,14 @@ func (w WorkspaceWriter) CompareWriteFiles(ctx context.Context, workspaceID stri
 			return nil, workspaceapi.ErrCompareWriteUnavailable
 		}
 		base = &c.BaseDigest
+	}
+	if w.EnsureReady != nil {
+		if err := w.EnsureReady(ctx, workspaceID); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, workspaceapi.ErrCompareWriteUnavailable
+		}
 	}
 	result, err := w.Client.WriteFiles(ctx, workspaceID, []byte(op.PrincipalID), []FileChange{{Path: c.Path, BaseDigest: base, Content: append([]byte{}, c.Content...)}})
 	if err != nil {
