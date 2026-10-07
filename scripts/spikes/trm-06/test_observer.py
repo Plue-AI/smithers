@@ -39,6 +39,40 @@ class ObserverReceipt(unittest.TestCase):
                     self.assertEqual(list(parent.iterdir()), [])
                     self.assertEqual(parent.stat().st_mode & 0o777, 0o777)
 
+    def test_replacement_controls_preserve_original_inode_and_outside(self):
+        for mode in ("cgroup-parent-replaced", "cgroup-child-writable"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                sessions = base / "sessions"
+                sessions.mkdir(mode=0o755)
+                inode = sessions.stat().st_ino
+                outside = base / "outside"
+                outside.write_bytes(b"outside-fixture\0")
+                before = outside.stat()
+                original = os.open
+                def own_open(path, flags, *args, **kwargs):
+                    self.assertTrue(flags & os.O_NOFOLLOW)
+                    if path == "/sys/fs/cgroup/smithers":
+                        path = base
+                    elif path == "/sys/fs/cgroup/smithers/sessions":
+                        path = sessions
+                    else:
+                        self.assertIn(path, ("sessions", "s-0000000000000001"))
+                        self.assertIn("dir_fd", kwargs)
+                    return original(path, flags, *args, **kwargs)
+                with patch.object(fixture.sys, "argv", ["installed-fixture", mode]), patch.object(fixture.os, "getuid", return_value=0), patch.object(fixture.os, "geteuid", return_value=0), patch.object(fixture.os, "open", side_effect=own_open), patch.object(fixture, "fingerprint", return_value={"fixture": True}), contextlib.redirect_stdout(io.StringIO()) as output:
+                    fixture.main()
+                self.assertEqual(json.loads(output.getvalue())["cgroup_replaced"], mode)
+                if mode == "cgroup-parent-replaced":
+                    self.assertEqual((base / "trm06-sessions-original").stat().st_ino, inode)
+                    self.assertNotEqual(sessions.stat().st_ino, inode)
+                    self.assertEqual(sessions.stat().st_mode & 0o777, 0o777)
+                else:
+                    self.assertEqual(sessions.stat().st_ino, inode)
+                    self.assertEqual((sessions / "s-0000000000000001").stat().st_mode & 0o777, 0o777)
+                self.assertEqual(outside.read_bytes(), b"outside-fixture\0")
+                self.assertEqual((outside.stat().st_ino, outside.stat().st_uid, outside.stat().st_mode), (before.st_ino, before.st_uid, before.st_mode))
+
     def test_reader_waits_for_complete_locked_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "observer.json"

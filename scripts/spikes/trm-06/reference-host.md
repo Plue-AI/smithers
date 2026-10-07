@@ -102,3 +102,10 @@ startup controls retain independent `/proc` executable digest, root UID tuple
 and literal PATH-only environment in `<scenario>-startup.json`. The local
 seccomp ENOSYS test is not the real no-Landlock kernel receipt; that installed
 variant, launcher replacement races and cgroup replacement races remain required.
+
+The installed cgroup restart campaign also replaces the sessions parent inode
+(with the original preserved) and makes a valid-named child writable. All three
+cgroup metadata controls now install the positive control before mutation and
+require explicit startup refusal; previously the writable-parent selector was
+incorrectly routed to the install-time refusal branch. These fixtures have local
+regression coverage only; reference-host execution is still pending.

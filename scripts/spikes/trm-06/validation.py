@@ -279,6 +279,35 @@ def main():
             os.close(parent)
         print(json.dumps({"cgroup_parent_writable": True, "outside": fingerprint()}))
         return
+    if operation in ("cgroup-parent-replaced", "cgroup-child-writable"):
+        # Only the installed fixture may replace this fixed disposable subtree.
+        # Keep the original inode for independent evidence; never redirect a kill
+        # to a member-selected path.
+        if operation == "cgroup-parent-replaced":
+            parent = os.open("/sys/fs/cgroup/smithers", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.rename("sessions", "trm06-sessions-original", src_dir_fd=parent, dst_dir_fd=parent)
+                os.mkdir("sessions", 0o755, dir_fd=parent)
+                replacement = os.open("sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                try:
+                    os.fchmod(replacement, 0o777)
+                finally:
+                    os.close(replacement)
+            finally:
+                os.close(parent)
+        else:
+            parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.mkdir("s-0000000000000001", 0o755, dir_fd=parent)
+                child = os.open("s-0000000000000001", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                try:
+                    os.fchmod(child, 0o777)
+                finally:
+                    os.close(child)
+            finally:
+                os.close(parent)
+        print(json.dumps({"cgroup_replaced": operation, "outside": fingerprint()}))
+        return
     if operation == "cleanup-poison":
         parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:

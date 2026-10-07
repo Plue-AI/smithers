@@ -137,3 +137,16 @@ func TestStartupObservationRequiresLiteralIdentityEnvironmentAndBytes(t *testing
 		})
 	}
 }
+
+func TestCgroupRestartControlsInstallBeforeMutation(t *testing.T) {
+	for _, name := range []string{"cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable"} {
+		if !cgroupRestartFixture(name) {
+			t.Fatalf("%s must reach installed restart boundary", name)
+		}
+	}
+	for _, name := range []string{"positive", "race-parent", "branch-supervisor", "", "../cgroup-writable"} {
+		if cgroupRestartFixture(name) {
+			t.Fatalf("%s is not an installed cgroup restart control", name)
+		}
+	}
+}
