@@ -11,16 +11,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	processruntime "github.com/smithersai/smithers/packages/backend/process"
 	repositoryapi "github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/stretchr/testify/require"
@@ -33,6 +38,12 @@ func TestBranchAddComposedInstall(t *testing.T) {
 		t.Run("provider-"+remove, func(t *testing.T) { runBranchAddComposed(t, remove) })
 	}
 }
+func TestBranchAddCardComposedInstall(t *testing.T) {
+	for _, origin := range []string{"main", "item", "branch"} {
+		t.Run(origin, func(t *testing.T) { runBranchAddComposed(t, "app-card-"+origin) })
+	}
+}
+
 func TestBranchCaptureComposedInstall(t *testing.T) {
 	for _, mode := range []string{"s2-add", "s2-confirm", "s2-fork", "s2-item-fork", "s2-unverified-item-fork", "s2-retained-item-fork", "s2-fail", "s2-stale", "s2-missing-membership", "s2-missing-authorize", "s2-missing-lane", "s2-missing-microvm", "s2-missing-identity"} {
 		t.Run(mode, func(t *testing.T) { runBranchAddComposed(t, mode) })
@@ -135,7 +146,67 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, workspace.ID)
 		require.NoError(t, err)
 	}
-	handler := startSplitProcess(t, Options{Repository: local.Client(), ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: providers, Machined: registry, FlowHostProductAPIURL: "http://127.0.0.1:4000"})
+
+	addedNumber := int64(1)
+	forkOrigin := map[string]any{"kind": "main"}
+	if remove == "app-card-item" {
+		_, err = q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 1, false)
+		require.NoError(t, err)
+		service := services.NewMythicalService(pool, nil)
+		session := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: hex.EncodeToString(hash[:])})
+		_, err = service.FileTodo(session, repo.ID, owner.ID, services.MythicalTodoInput{Title: "Source", Prompt: "Source work", Request: "fork-source"})
+		require.NoError(t, err)
+		sourceItem, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET forked_from_item=$2 WHERE id=$1`, workspace.ID, sourceItem.ID)
+		require.NoError(t, err)
+		addedNumber = 2
+		forkOrigin = map[string]any{"kind": "item", "n": 1, "title": "Source"}
+	} else if remove == "app-card-branch" {
+		fact, err := json.Marshal(map[string]any{"forked_from": map[string]any{"ref": "scratch/ben/source", "commit": base, "base": base}})
+		require.NoError(t, err)
+		require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+			_, err := jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: strconv.FormatInt(repo.ID, 10), PrincipalID: "branch:" + workspace.ID}, workspace.ID, "branch.forked", "scratch", fact)
+			return err
+		}))
+		forkOrigin = map[string]any{"kind": "branch", "name": "scratch/ben/source"}
+	}
+	forkJSON, err := json.Marshal(forkOrigin)
+	require.NoError(t, err)
+	origin := "http://127.0.0.1:4000"
+	var server *httptest.Server
+	if strings.HasPrefix(remove, "app-card-") {
+		server = httptest.NewUnstartedServer(nil)
+		origin = "http://" + server.Listener.Addr().String()
+		t.Setenv("SMITHERS_PUBLIC_URL", origin)
+	}
+	handler := startSplitProcess(t, Options{Repository: local.Client(), ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: providers, Machined: registry, FlowHostProductAPIURL: origin})
+	if server != nil {
+		server.Config.Handler = handler
+		server.Start()
+		defer server.Close()
+		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
+		require.NoError(t, err)
+		command := exec.CommandContext(ctx, "bun", "run", script)
+		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+origin, "SMITHERS_BRANCH_CARD_ID="+workspace.ID, "SMITHERS_BRANCH_CARD_COOKIE=smithers_session="+cookie, "SMITHERS_BRANCH_CARD_LOGIN="+owner.Username, "SMITHERS_BRANCH_CARD_SUBJECT="+workspace.TargetBookmark, "SMITHERS_BRANCH_CARD_ADD=1", "SMITHERS_BRANCH_CARD_ADD_N="+strconv.FormatInt(addedNumber, 10), "SMITHERS_BRANCH_CARD_FORK_ORIGIN="+string(forkJSON))
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		t.Log(string(output))
+		item, err := q.GetMythicalItemByNumber(ctx, repo.ID, addedNumber)
+		require.NoError(t, err)
+		require.Equal(t, workspace.ID, item.WorkspaceID)
+		require.Empty(t, item.CandidateHead)
+		require.False(t, item.CandidateVerified)
+		var captured string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'seed'->>'captured' FROM mythical_items WHERE id=$1`, item.ID).Scan(&captured))
+		require.Equal(t, head, captured)
+		current, err := q.GetWorkspace(ctx, workspace.ID)
+		require.NoError(t, err)
+		require.Equal(t, "stopped", current.Status)
+		require.Equal(t, "asleep-fixture", current.VmID)
+		require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
+		return
+	}
 	call := func(body, key, session string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches/scratch%2Fben%2Ftry/add-to-stack", strings.NewReader(body))
 		request.RemoteAddr = "127.0.0.1:12345"

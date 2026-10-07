@@ -270,6 +270,27 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			origin = p.publicOrigin()
 		}
 		model := branchPresenceModel(current, presence, origin)
+		if current.IsFork {
+			projected, err := p.branches.GetBranch(ctx, current.ID, repository, member)
+			if err != nil {
+				return nil, err
+			}
+			if projected.Kind == "scratch" && projected.ForkedFrom != nil {
+				from := projected.ForkedFrom
+				origin := map[string]any{"kind": from.Kind}
+				switch from.Kind {
+				case "item":
+					item, err := p.queries.GetMythicalItemByNumber(ctx, repository, from.Item)
+					if err != nil {
+						return nil, err
+					}
+					origin["n"], origin["title"] = from.Item, item.Title
+				case "branch":
+					origin["name"] = from.Ref
+				}
+				model["scratch"] = map[string]any{"forked_from": origin}
+			}
+		}
 		if p.terminals != nil {
 			terminals, err := p.terminals(ctx, current, colors)
 			if err != nil {

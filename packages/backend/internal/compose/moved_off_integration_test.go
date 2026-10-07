@@ -7,10 +7,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -31,7 +36,9 @@ func TestMovedOffAuthenticatedIngestProjectsIndependentWaitThroughInstallHTTP(t 
 			server := httptest.NewUnstartedServer(nil)
 			cfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
 			cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
-			server.Config.Handler = githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: service}})
+			topics := &liveTopics{changePool: f.pool, queries: db.New(f.pool), presence: f.p, todos: service}
+			channel := &routes.LiveHandler{Queries: db.New(f.pool), Hub: live.NewHub(t.Context(), nil), Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver, Presence: f.p.session}
+			server.Config.Handler = githubAppSetupComposeRouter(cfg, f.pool, nil, &routes.WorkspaceHandler{Service: f.p.branches}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, Live: channel})
 			server.Start()
 			defer server.Close()
 			_, err := f.pool.Exec(t.Context(), `UPDATE mythical_items SET state='running',checks='{"waits":[{"id":"other-question","kind":"question","prompt":"Which?","since":"2026-10-07T00:00:00Z"}]}' WHERE repository_id=$1 AND number=1`, f.row.RepositoryID)
@@ -130,9 +137,21 @@ func TestMovedOffAuthenticatedIngestProjectsIndependentWaitThroughInstallHTTP(t 
 				}
 				require.Equal(t, map[int]int{http.StatusAccepted: 1, http.StatusConflict: 1}, counts)
 			} else {
-				status, result = postControl(choice, "choice-once")
-				require.Equal(t, http.StatusAccepted, status, "%v", result)
-				status, result = postControl(choice, "choice-once")
+				script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
+				require.NoError(t, err)
+				command := exec.CommandContext(t.Context(), "bun", "run", script)
+				command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+server.URL, "SMITHERS_BRANCH_CARD_ID="+f.row.ID, "SMITHERS_BRANCH_CARD_COOKIE=session="+f.cookie, "SMITHERS_BRANCH_CARD_LOGIN="+f.user.Username, "SMITHERS_BRANCH_MOVED_CHOICE="+choice, "SMITHERS_BRANCH_MOVED_WAIT="+waits[0].(map[string]any)["id"].(string))
+				output, err := command.CombinedOutput()
+				require.NoError(t, err, string(output))
+				t.Log(string(output))
+				var requestKey string
+				for _, line := range strings.Split(string(output), "\n") {
+					if strings.HasPrefix(line, "MOVED_CARD_KEY=") {
+						requestKey = strings.TrimPrefix(line, "MOVED_CARD_KEY=")
+					}
+				}
+				require.NotEmpty(t, requestKey)
+				status, result = postControl(choice, requestKey)
 				require.Equal(t, http.StatusAccepted, status, "%v", result)
 				status, result = postControl(choice, "choice-again")
 				require.Equal(t, http.StatusConflict, status, "%v", result)
@@ -170,8 +189,8 @@ func TestMovedOffAuthenticatedIngestProjectsIndependentWaitThroughInstallHTTP(t 
 			branch = nil
 			require.NoError(t, json.Unmarshal(branchRaw, &branch))
 			require.NotContains(t, branch, "moved_off")
-			topics := &liveTopics{changePool: f.pool, presence: f.p}
-			activity, reason := topics.branchChanges(t.Context(), "branch:"+f.row.ID+":activity", f.row.RepositoryID, f.user.ID)
+			activityTopics := &liveTopics{changePool: f.pool, presence: f.p}
+			activity, reason := activityTopics.branchChanges(t.Context(), "branch:"+f.row.ID+":activity", f.row.RepositoryID, f.user.ID)
 			require.Empty(t, reason)
 			page, err := activity.Log.Page(t.Context(), nil)
 			require.NoError(t, err)

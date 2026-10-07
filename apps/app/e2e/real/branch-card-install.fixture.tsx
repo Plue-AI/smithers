@@ -4,6 +4,8 @@ import type { LiveSocket } from "../../src/mainview/runtime/LiveChannel"
 
 const origin = process.env.SMITHERS_BRANCH_CARD_ORIGIN!
 const branch = process.env.SMITHERS_BRANCH_CARD_ID!
+const movedChoice = process.env.SMITHERS_BRANCH_MOVED_CHOICE
+const addToStack = process.env.SMITHERS_BRANCH_CARD_ADD === "1"
 assert.ok(origin && branch)
 const NativeSocket = WebSocket, nativeFetch = fetch
 const nativeHttp = { Request, Response, Headers, AbortController, AbortSignal }
@@ -20,8 +22,8 @@ const { createRoot } = await import("react-dom/client")
 const { ControllerTestProvider } = await import("../../src/mainview/ControllerContext")
 const { CARD_RENDERERS } = await import("../../src/mainview/cards/CardRenderers")
 const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-const requests: Array<{ path: string; method: string; body?: unknown; status: number; refusal?: unknown }> = []
-const headers = { Cookie: "smithers_session=sleep-cookie; __csrf=branch-card-fixture", Origin: origin }
+const requests: Array<{ path: string; method: string; body?: unknown; status: number; key?: string; refusal?: unknown }> = []
+const headers = { Cookie: `${process.env.SMITHERS_BRANCH_CARD_COOKIE ?? "smithers_session=sleep-cookie"}; __csrf=branch-card-fixture`, Origin: origin }
 let wireState = "not-created"
 const live = new LiveChannel({ socket: () => {
   let socket: WebSocket
@@ -40,7 +42,7 @@ const fetchImpl: Parameters<typeof applicationIdentityFromFetch>[0] = async (inp
     requestHeaders.set("Origin", origin)
     const url = new URL(input instanceof Request ? input.url : String(input), origin)
     const response = await nativeFetch(url, { ...init, headers: requestHeaders })
-    requests.push({ path: url.pathname, method: init?.method ?? "GET", status: response.status, refusal: response.status >= 400 ? await response.clone().json().catch(() => undefined) : undefined,
+    requests.push({ path: url.pathname, method: init?.method ?? "GET", status: response.status, key: requestHeaders.get("Idempotency-Key") ?? undefined, refusal: response.status >= 400 ? await response.clone().json().catch(() => undefined) : undefined,
       ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
     return response
   }
@@ -56,13 +58,43 @@ const waitFor = async (predicate: () => boolean) => {
 }
 const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
 try {
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "sleepowner", admin: false, scopesPlain: null }).isPersisted.promise
-  const opened = await controller.runCommandForResult("branch", "T1")
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: process.env.SMITHERS_BRANCH_CARD_LOGIN ?? "sleepowner", admin: false, scopesPlain: null }).isPersisted.promise
+  const opened = await controller.runCommandForResult("branch", process.env.SMITHERS_BRANCH_CARD_SUBJECT ?? "T1")
   assert.equal(opened.status, "executed", JSON.stringify({ opened, requests }))
   const card = store.collections.cards.get(`branch:${branch}`)!
   assert.equal(card.kind, "branch")
   if (card.kind !== "branch") throw new Error("Expected Branch")
   await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
+  if (addToStack) {
+    await waitFor(() => host.querySelector('[data-flow="branch.add-to-stack"]') !== null)
+    const snapshot = live.getSnapshot(`branch:${branch}`)?.data as { scratch: { forked_from: unknown } }
+    assert.deepEqual(snapshot.scratch.forked_from, JSON.parse(process.env.SMITHERS_BRANCH_CARD_FORK_ORIGIN!))
+    await act(async () => (host.querySelector('[data-flow="branch.add-to-stack"]') as HTMLButtonElement).click())
+    const path = `/api/branches/${encodeURIComponent(process.env.SMITHERS_BRANCH_CARD_SUBJECT!)}/add-to-stack`
+    await waitFor(() => requests.some(request => request.method === "POST" && request.path === path))
+    const added = requests.find(request => request.method === "POST" && request.path === path)!
+    assert.deepEqual(added.body, { text: process.env.SMITHERS_BRANCH_CARD_SUBJECT })
+    assert.equal(added.status, 202, JSON.stringify(added))
+    assert.match(added.key!, /^[0-9a-f-]{36}$/)
+    await waitFor(() => store.session().branchRequests?.some(request => request.operation === "add" && request.state === "completed" && request.n === Number(process.env.SMITHERS_BRANCH_CARD_ADD_N)) === true)
+    assert.equal(requests.filter(request => request.method === "POST").length, 1)
+    console.log("PASS mounted Branch Add to stack through production dispatcher and PostgreSQL")
+  } else if (movedChoice) {
+    const flow = `todo.${movedChoice}`
+    await waitFor(() => host.querySelector(`[data-flow="${flow}"]`) !== null)
+    await act(async () => (host.querySelector(`[data-flow="${flow}"]`) as HTMLButtonElement).click())
+    await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/todos/1"))
+    const choice = requests.find(request => request.method === "POST" && request.path === "/api/todos/1")!
+    assert.deepEqual(choice.body, { op: movedChoice, id: process.env.SMITHERS_BRANCH_MOVED_WAIT })
+    assert.equal(choice.status, 202, JSON.stringify(choice))
+    assert.match(choice.key!, /^[0-9a-f-]{36}$/)
+    assert.equal(requests.filter(request => request.method === "POST").length, 1)
+    const todo = await (await fetchImpl(`${origin}/api/todos/1`)).json() as { waits: Array<{ id: string; answered_by?: string }> }
+    assert.equal(todo.waits.length, 2)
+    assert.equal(todo.waits.find(wait => wait.id === "other-question")?.answered_by, undefined)
+    console.log(`MOVED_CARD_KEY=${choice.key}`)
+    console.log(`PASS mounted Branch ${movedChoice} through production dispatcher and PostgreSQL; unrelated question retained`)
+  } else {
   await waitFor(() => host.textContent?.includes("Asleep") === true)
   assert.ok(host.textContent?.includes("smithers/sleep-item"))
   const beforeBurstDiff = requests.length
@@ -131,4 +163,5 @@ try {
   assert.ok(requests.some(request => request.path.endsWith("/files/src/retry.ts") && request.status === 200))
   assert.ok(requests.filter(request => request.method === "POST").every(request => request.path === "/api/branches" || request.path === "/api/todos/1/answer" || request.path === "/api/todos/1"), "reads never wake the sleeping branch")
   console.log("PASS composed Branch slash, mount, bound Answer/Steer, SSH TODO/bookmark, item, file and Fork refusal; no wake")
+  }
 } finally { await act(async () => root.unmount()); await controller.dispose(); live.dispose() }
