@@ -1981,6 +1981,8 @@ def setup(user, uid, directories, *, create_home=True):
                         "--shell", "/bin/bash", "--", user], check=True, env=environment)
         entry = pwd.getpwnam(user)
     entry = assigned_identity(user, uid)
+    if not create_home:
+        return
     if uid >= 20000:
         # Fixed runtime namespace, provisioned from the authenticated roster.
         # Root creates only this member directory; the owner-uid session writes
