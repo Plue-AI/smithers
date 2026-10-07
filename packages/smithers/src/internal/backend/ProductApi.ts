@@ -5875,6 +5875,13 @@ export const getApiStack = (transport: Transport): Promise<GetApiStackResponse> 
 
 export type PostApiStackAttentionIdBody = {
   revision: number
+} | {
+  old: string
+  new: string
+}
+
+export type PostApiStackAttentionIdResponse = {
+  state: "settled"
 }
 
 export interface PostApiStackAttentionIdInput {
@@ -5883,8 +5890,8 @@ export interface PostApiStackAttentionIdInput {
 }
 
 /** POST /api/stack/attention/{id}: Answer the displayed stack attention */
-export const postApiStackAttentionId = (transport: Transport, input: PostApiStackAttentionIdInput): Promise<void> =>
-  transport.request("POST", `/api/stack/attention/${segment(input.path.id)}`, input.body).then(() => undefined)
+export const postApiStackAttentionId = (transport: Transport, input: PostApiStackAttentionIdInput): Promise<PostApiStackAttentionIdResponse | null> =>
+  transport.request("POST", `/api/stack/attention/${segment(input.path.id)}`, input.body) as Promise<PostApiStackAttentionIdResponse | null>
 
 export type GetApiTodosResponse = Array<TodoCard>
 

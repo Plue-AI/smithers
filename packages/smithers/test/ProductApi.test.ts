@@ -80,6 +80,25 @@ const generated = ProductApi as unknown as Record<
 >
 
 describe("the generated product API client", () => {
+  it("preserves owner reset completion and empty order acknowledgment", async () => {
+    const owner = recorder()
+    const reset = { old: "a".repeat(40), new: "b".repeat(40) }
+    const receipt = { state: "settled" as const }
+    owner.transport.request = (...args) => {
+      owner.calls.push({ via: "request", args })
+      return Promise.resolve(receipt)
+    }
+    expect(await ProductApi.postApiStackAttentionId(owner.transport, { path: { id: "force/7" }, body: reset })).toBe(receipt)
+    expect(owner.calls).toEqual([{ via: "request", args: ["POST", "/api/stack/attention/force%2F7", reset] }])
+    const maintainer = recorder()
+    maintainer.transport.request = (...args) => {
+      maintainer.calls.push({ via: "request", args })
+      return Promise.resolve(null)
+    }
+    expect(await ProductApi.postApiStackAttentionId(maintainer.transport, { path: { id: "order-7" }, body: { revision: 7 } })).toBeNull()
+    expect(maintainer.calls).toEqual([{ via: "request", args: ["POST", "/api/stack/attention/order-7", { revision: 7 }] }])
+  })
+
   it("exports one function per operation with a JSON or empty request body, and nothing else", () => {
     const expected = operations
       .filter(({ operation }) => operation.requestBody === undefined || jsonBody(operation))
@@ -96,15 +115,23 @@ describe("the generated product API client", () => {
     // Includes branch operations, live updates, TODO edits and named flow reads,
     // including the mounted Add-to-stack operation (#3525).
     // Exact parity above and the literal resource inventory below remain independent.
-    // Includes the revision-bound order acknowledgment and run-bound Learning evidence.
-    expect(expected).toHaveLength(539)
+    // Includes order acknowledgment, owner main reset, run-bound Learning evidence,
+    // the mounted native stack candidate/proposal transport (#3533),
+    // and durable install flow admission, launch and receipt reads (#3438).
+    expect(expected).toHaveLength(543)
     expect(spec.paths["/api/agents/{name}"]).toHaveProperty("get.operationId", "get_api_agents_name")
     expect(spec.paths["/api/model/test/receipt"]).toHaveProperty("get.operationId", "get_api_model_test_receipt")
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.operationId", "post_api_stack_attention_id")
-    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.requestBody.content.application/json.schema.required", ["revision"])
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.requestBody.content.application/json.schema.oneOf.0.required", ["revision"])
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.responses.204")
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.requestBody.content.application/json.schema.oneOf.1.required", ["old", "new"])
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.responses.200.content.application/json.schema.properties.state.enum", ["settled"])
+    expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty("post.operationId", "post_api_repos_owner_repo_workspaces_id_stack_operation")
     expect(spec.paths["/api/branches/{b}/add-to-stack"]).toHaveProperty("post.operationId", "post_api_branches_b_add_to_stack")
     expect(spec.paths["/api/flows/{name}"]).toHaveProperty("get.operationId", "get_api_flows_name")
+    expect(spec.paths["/api/flows"]).toHaveProperty("post.operationId", "post_api_flows")
+    expect(spec.paths["/api/flows/{name}/run"]).toHaveProperty("post.operationId", "post_api_flows_name_run")
+    expect(spec.paths["/api/flows/runs/{id}"]).toHaveProperty("get.operationId", "get_api_flows_runs_id")
     for (const path of ["/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
       expect(spec.paths).not.toHaveProperty(path)
     }

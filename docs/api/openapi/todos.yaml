@@ -42,17 +42,34 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [revision]
-              properties:
-                revision: {type: integer, minimum: 1}
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [revision]
+                  properties:
+                    revision: {type: integer, minimum: 1}
+                - type: object
+                  additionalProperties: false
+                  required: [old, new]
+                  properties:
+                    old: {type: string, pattern: '^[0-9a-f]{40}$'}
+                    new: {type: string, pattern: '^[0-9a-f]{40}$'}
       responses:
+        '200':
+          description: Owner reset settled against the displayed main tips
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [state]
+                properties:
+                  state: {type: string, enum: [settled]}
         '204': {description: Order attention settled by the current maintainer; same-person same-revision replay is idempotent}
-        '400': {description: Invalid revision}
+        '400': {description: Invalid attention answer}
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '409': {description: conflict/stale_attention; a newer entry remains open}
-        '503': {description: Install repository unavailable}
+        '503': {description: Install repository or reset serialization unavailable}
   /api/todos:
     get:
       x-composition: install
