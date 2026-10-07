@@ -158,6 +158,7 @@ export class FileDeltaRejected extends Error {
  */
 export const projectBranchFiles = (previous: unknown, delta: unknown): unknown => {
   if (Array.isArray(delta)) return { rows: delta }
+  if (delta !== null && typeof delta === "object" && "changed" in delta && Array.isArray(delta.changed)) return delta
   if (delta !== null && typeof delta === "object" && "kind" in delta) {
     return { rows: branchFileRows(previous), written: FileWrittenSchema.parse(delta) }
   }

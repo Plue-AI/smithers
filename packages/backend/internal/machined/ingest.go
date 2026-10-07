@@ -187,5 +187,10 @@ func (i *Ingestor) Dispatch(ctx context.Context, link *Link, branch string) erro
 	}
 	return dispatchEvents(ctx, link, branch, func(ctx context.Context, link *Link, branch string, event Event) (Acknowledgement, error) {
 		return i.Commit(ctx, link.Connection, branch, event)
+	}, func(ctx context.Context, link *Link, branch string, event Event) error {
+		if i.Bursts == nil || i.Bursts.Pool != i.Pool {
+			return ErrNotReady
+		}
+		return i.Bursts.Hint(ctx, link.Connection, branch, event)
 	})
 }

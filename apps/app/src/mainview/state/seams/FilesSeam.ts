@@ -11,7 +11,7 @@ import { preparedView,type ViewAction,type ViewResult } from "../PreparedView"
  * decodeContent :117). Parsing is defensive: unknown JSON in, typed card
  * payload out, malformed rows drop; failures are honest strings, never throws.
  */
-import { FileCardSchema, FileWrittenSchema, projectBranchFiles, type FileCard } from "@smthrs/rpc/FileCard"
+import { FileCardSchema, FileWrittenSchema, branchFileRows, projectBranchFiles, type FileCard } from "@smthrs/rpc/FileCard"
 import { fileListCard, type FileListEntry } from "@smthrs/rpc/FileList"
 import { fileReadCard } from "@smthrs/rpc/FileRead"
 import { refusalOf } from "@smthrs/rpc/Refusal"
@@ -529,12 +529,16 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       if (!snapshot || snapshot.error || snapshot.cursor === cursor) return
       cursor = snapshot.cursor
       const data = snapshot.data
-      const events = isRecord(data) && data.written ? [data.written]
-        : isRecord(data) && Array.isArray(data.changed) ? data.changed.map(row => isRecord(row)
-          ? { kind: "file_written", path: row.path, post_digest: row.post_digest, actor: row.last_writer } : row)
+      const rows = branchFileRows(data)
+      // Durable burst projections repair missed transient hints, including a
+      // reconnect. Only indexed post-digests trigger a guarded fresh read.
+      const events = isRecord(data) && data.written ? (Array.isArray(data.written) ? data.written : [data.written])
+        : isRecord(rows) && Array.isArray(rows.changed) ? rows.changed.filter(isRecord).map(row =>
+          ({ kind: "file_written", path: row.path, post_digest: row.post_digest, actor: row.last_writer }))
         : Array.isArray(data) ? data : [data]
       for (const event of events) {
-        const parsed = FileWrittenSchema.safeParse(event)
+        const actor = FileWrittenSchema.shape.actor.safeParse(isRecord(event) ? event.actor : undefined)
+        const parsed = FileWrittenSchema.partial({ actor: true }).safeParse(isRecord(event) ? { ...event, actor: actor.success ? actor.data : undefined } : event)
         if (!parsed.success) continue
         const written = parsed.data
         for (const card of ctx.store.collections.cards.values()) {

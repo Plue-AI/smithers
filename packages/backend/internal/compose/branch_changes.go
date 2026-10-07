@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/sse"
 )
 
 // Change projections read host-held versions while the branch sleeps. The
@@ -34,7 +35,7 @@ func (t *liveTopics) branchChanges(ctx context.Context, topic string, repository
 			return t.branchActivityPage(ctx, repository, row.ID, after)
 		}}}, ""
 	}
-	return live.Source{Key: "branch:" + row.ID + ":" + kind, Hints: []string{channel}, Every: time.Second, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
+	return live.Source{Key: "branch:" + row.ID + ":" + kind, Hints: []string{channel}, Every: time.Second, FailClosed: true, WithHints: t.branchFileHints, Build: func(ctx context.Context) (json.RawMessage, error) {
 		if _, err := t.presence.branches.PresenceBranch(ctx, row.ID, repository, member); err != nil {
 			return nil, err
 		}
@@ -198,4 +199,50 @@ func (t *liveTopics) changeActorResolver(ctx context.Context) func(json.RawMessa
 		}
 		return rendered, err
 	}
+}
+
+// Called only after rebuilding and authorizing the branch snapshot. Neither a
+// hint nor its actor can create a durable activity entry or file version.
+func (t *liveTopics) branchFileHints(ctx context.Context, snapshot json.RawMessage, hints []sse.Event) (json.RawMessage, error) {
+	var rows map[string]json.RawMessage
+	if err := json.Unmarshal(snapshot, &rows); err != nil {
+		return nil, err
+	}
+	written := []json.RawMessage{}
+	resolve := t.changeActorResolver(ctx)
+	for _, hint := range hints {
+		if hint.Data == "" {
+			continue
+		}
+		var data map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(hint.Data), &data); err != nil {
+			return nil, err
+		}
+		var kind string
+		if err := json.Unmarshal(data["kind"], &kind); err != nil {
+			return nil, err
+		}
+		if kind != "file_written" {
+			continue
+		}
+		actor, err := resolve(data["actor"])
+		if err != nil {
+			return nil, err
+		}
+		data["actor"] = actor
+		raw, err := json.Marshal(data)
+		if err != nil {
+			return nil, err
+		}
+		written = append(written, raw)
+	}
+	if len(written) == 0 {
+		return snapshot, nil
+	}
+	raw, err := json.Marshal(written)
+	if err != nil {
+		return nil, err
+	}
+	rows["written"] = raw
+	return json.Marshal(rows)
 }

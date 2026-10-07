@@ -11,11 +11,15 @@ import (
 // The authenticated Link, not the payload, determines branch and boot authority.
 type EventHandler func(context.Context, *Link, string, Event) (Acknowledgement, error)
 
+// HintHandler publishes transient events without a durable receipt or ACK.
+type HintHandler func(context.Context, *Link, string, Event) error
+
 type eventConsumer struct {
 	registry *Registry
 	ctx      context.Context
 	cancel   context.CancelFunc
 	apply    EventHandler
+	hint     HintHandler
 	mu       sync.Mutex
 	stopped  bool
 	links    map[*Link]struct{}
@@ -28,8 +32,9 @@ type eventConsumer struct {
 // reconciliation RPCs can wait for their outbox to drain before becoming ready.
 // Only one consumer may own a registry. Stop cancels, closes and joins exactly
 // its connections; an event whose writer failed is left for guest outbox replay.
-func (r *Registry) ConsumeEvents(ctx context.Context, apply EventHandler) (func(), error) {
-	if r == nil || apply == nil {
+// An optional hint handler uses the same pump; absent it, transient hints drop.
+func (r *Registry) ConsumeEvents(ctx context.Context, apply EventHandler, hints ...HintHandler) (func(), error) {
+	if r == nil || apply == nil || len(hints) > 1 {
 		return nil, ErrNotReady
 	}
 	if err := ctx.Err(); err != nil {
@@ -37,6 +42,9 @@ func (r *Registry) ConsumeEvents(ctx context.Context, apply EventHandler) (func(
 	}
 	child, cancel := context.WithCancel(ctx)
 	consumer := &eventConsumer{registry: r, ctx: child, cancel: cancel, apply: apply, links: make(map[*Link]struct{})}
+	if len(hints) == 1 {
+		consumer.hint = hints[0]
+	}
 	r.mu.Lock()
 	r.eventsMu.Lock()
 	if r.closed || r.eventsClosing || r.events != nil {
@@ -89,7 +97,7 @@ func (c *eventConsumer) start(link *Link) bool {
 			case <-ctx.Done():
 			}
 		}()
-		_ = dispatchEvents(ctx, link, link.boot.branch, c.apply)
+		_ = dispatchEvents(ctx, link, link.boot.branch, c.apply, c.hint)
 	}()
 	return true
 }
@@ -116,13 +124,18 @@ func (c *eventConsumer) stop() {
 	})
 }
 
-func dispatchEvents(ctx context.Context, link *Link, branch string, apply EventHandler) error {
+func dispatchEvents(ctx context.Context, link *Link, branch string, apply EventHandler, hint HintHandler) error {
 	for {
 		event, err := link.Receive(ctx)
 		if err != nil {
 			return err
 		}
 		if event.Seq == 0 {
+			if hint != nil {
+				if err := hint(ctx, link, branch, event); err != nil {
+					return err
+				}
+			}
 			continue
 		} // transient hints never acquire durable receipts
 		ack, err := apply(ctx, link, branch, event)

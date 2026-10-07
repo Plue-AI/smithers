@@ -179,7 +179,18 @@ commits. Reconnect recovers staging from PostgreSQL.
 Activity uses persisted stream cursors on `/api/live`: a fresh subscription gets
 the last 200 entries, reconnect gets subsequent deltas, and a missing cursor or
 more than 200 replay entries yields `gap`. File projections remain readable
-while the machine sleeps and do not wake it.
+while the machine sleeps and do not wake it. File snapshots include each path's
+last committed post-digest; open File cards re-read changed paths after a missed
+hint or reconnect, without replacing unrelated cards.
+
+Authenticated `file_written` hints go through the same event pump and shared
+PostgreSQL LISTEN broker. They never create activity, file-version rows, receipts
+or acknowledgements. The live adapter rebuilds and reauthorizes the branch before
+attaching a bounded batch of transient invalidations. Missing attribution or an
+unreconciled/replaced boot refuses publication. Hint loss is repaired by the
+next committed burst snapshot. Session-where consumption and real boot activation
+still require the T-TRM-07 host session binding and T-COL-03 installed event pump.
+The T-COL-05 moved-off event remains unavailable without its transactional writer.
 
 `POST /api/branches/{b}/files/{path}` accepts the File seam's
 `{action: "restore" | "restore-deleted", version, base_digest}`. The catalog
