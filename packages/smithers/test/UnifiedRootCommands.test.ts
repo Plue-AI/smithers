@@ -234,7 +234,7 @@ describe("unified root command dispatch", () => {
     const result = await invoke(["doctor", "--root", "/fixture", "--quiet", "--json"])
     expect(ports.project).toHaveBeenCalledExactlyOnceWith(
       expect.anything(),
-      { root: "/fixture", quiet: true },
+      { root: "/fixture", quiet: true, verbose: false },
       result.config
     )
     expect(ports.query).not.toHaveBeenCalled()
@@ -251,7 +251,7 @@ describe("unified root command dispatch", () => {
     const result = await invoke(["doctor", "--remote", "https://fixture.invalid", "--json"])
     expect(ports.query).toHaveBeenCalledExactlyOnceWith(
       expect.anything(),
-      { remote: "https://fixture.invalid", quiet: false },
+      { remote: "https://fixture.invalid", quiet: false, verbose: false },
       result.config
     )
     expect(ports.project).not.toHaveBeenCalled()
@@ -277,7 +277,7 @@ describe("unified root command dispatch", () => {
     const result = await invoke(["update", "--root", "/fixture", "--quiet", "--json"])
     expect(ports.local).toHaveBeenCalledExactlyOnceWith(
       expect.anything(),
-      { root: "/fixture", quiet: true },
+      { root: "/fixture", quiet: true, verbose: false },
       result.config
     )
     expect(ports.update).toHaveBeenCalledExactlyOnceWith({ environment: {} })
