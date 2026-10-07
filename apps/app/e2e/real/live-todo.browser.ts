@@ -22,7 +22,7 @@ try {
   const errors: string[] = []
   page.on("pageerror", error => errors.push(error.message))
   page.on("console", message => { if (message.type() === "error" && /TypeError|ReferenceError/.test(message.text())) errors.push(message.text()) })
-  const subscriptions: Array<{ topic: string; cursor?: number }> = []
+  const subscriptions: Array<{ id: number; topic: string; cursor?: number }> = []
   const frames: Array<{ t: string; id: number; cursor?: number; data?: unknown }> = []
   let unblock: Promise<void> | undefined
   let cut: (() => void) | undefined
@@ -36,7 +36,7 @@ try {
     const forward = (raw: string | Buffer) => {
       if (typeof raw === "string") {
         const frame = JSON.parse(raw)
-        if (frame.t === "sub") subscriptions.push({ topic: frame.topic, ...(frame.cursor === undefined ? {} : { cursor: frame.cursor }) })
+        if (frame.t === "sub") subscriptions.push({ id: frame.id, topic: frame.topic, ...(frame.cursor === undefined ? {} : { cursor: frame.cursor }) })
       }
       server.send(raw)
     }
@@ -63,6 +63,7 @@ try {
   await expect(second).toBeVisible({ timeout: 30000 })
   await expect.poll(() => subscriptions.some(s => s.topic === "todo:1") && subscriptions.some(s => s.topic === "todo:2")).toBe(true)
   const before = subscriptions.length
+  const beforeFrames = frames.length
   const at = Date.now()
   unblock = new Promise(resolve => setTimeout(resolve, 10000))
   cut!()
@@ -82,6 +83,15 @@ try {
   const resumed = subscriptions.slice(before).filter(s => s.topic === "todo:1" || s.topic === "todo:2")
   expect(resumed).toHaveLength(2)
   expect(resumed.every(s => s.cursor !== undefined)).toBe(true)
+  for (const subscription of resumed) {
+    const replayed = frames.slice(beforeFrames).filter(frame => frame.id === subscription.id && frame.t === "delta")
+    expect(replayed, subscription.topic).toHaveLength(1)
+    expect(replayed[0]!.cursor).toBeGreaterThan(subscription.cursor!)
+    expect(replayed[0]!.data).toMatchObject({
+      State: "dropped", Type: "todo.dropped", Sequence: replayed[0]!.cursor,
+      Data: { from: "queued", to: "dropped", n: Number(subscription.topic.split(":")[1]), card: { state: "dropped" } }
+    })
+  }
   expect(frames.filter(frame => frame.t === "gap")).toHaveLength(0)
   console.log("PASS live install: production commands, committed TODO cards, ten-second outage and cursor replay")
   unblock = undefined
