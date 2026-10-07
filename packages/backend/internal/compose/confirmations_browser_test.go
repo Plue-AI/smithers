@@ -119,5 +119,5 @@ func TestConfirmationsBrowserPostgres(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_build_object('approved',count(*) FILTER (WHERE state='approved'),'pending',count(*) FILTER (WHERE state='pending')) FROM approvals`).Scan(&result))
 	var counts map[string]int
 	require.NoError(t, json.Unmarshal(result, &counts))
-	require.Equal(t, map[string]int{"approved": 4, "pending": 0}, counts)
+	require.Equal(t, map[string]int{"approved": 5, "pending": 0}, counts)
 }
