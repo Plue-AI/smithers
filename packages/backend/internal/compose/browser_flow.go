@@ -39,7 +39,10 @@ var browserFlowProcedures = map[string]bool{
 }
 
 type browserFlowAPI struct {
-	repos interface {
+	// Set by the install composition; Plue retains its repository ACL gates.
+	installQueries *db.Queries
+	install        bool
+	repos          interface {
 		GetRepoView(context.Context, *db.User, string, string) (services.RepoView, error)
 	}
 	// queries finds the named box: the caller's own, or a TODO's lane shared
@@ -138,7 +141,23 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		browserFlowRefusal(w, http.StatusBadRequest, "The workflow seam does not relay this procedure.")
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
-	if !provision {
+	if api.install {
+		command := "box.resume"
+		if !provision {
+			var err error
+			command, err = browserFlowCommand(request)
+			if err != nil {
+				writeConfirmationDispatchError(w, err)
+				return request, flowruntime.Target{}, db.Workspace{}, false
+			}
+		}
+		decision, err := services.Authorize(r.Context(), api.installQueries, command)
+		if err != nil {
+			writeConfirmationDispatchError(w, err)
+			return request, flowruntime.Target{}, db.Workspace{}, false
+		}
+		*r = *r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision))
+	} else if !provision {
 		var action string
 		switch request.Procedure {
 		case "Approval.Submit":
@@ -365,6 +384,8 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 // mountBrowserFlow serves the browser Flow seam. The OpenAPI conformance test
 // walks the same mounts.
 func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries, browser *browserFlowAPI) {
+	browser.install = config.IsSingleOwner(cfg.Auth)
+	browser.installQueries = queries
 	access := func(limited bool) []func(http.Handler) http.Handler {
 		chain := []func(http.Handler) http.Handler{
 			cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),
@@ -405,4 +426,41 @@ func retiredRegistrationDecision(payload json.RawMessage, procedure string) bool
 	}
 	wait, _, _ = strings.Cut(wait, "#")
 	return wait == "register-repository/review" || wait == "register-repository/decline-note"
+}
+
+// browserFlowCommand resolves the concrete action before the relay can wake a
+// workspace or reach its host. In particular, approval is never generic run
+// authority and cannot acquire permission from caller-supplied attribution.
+func browserFlowCommand(request browserFlowRequest) (string, error) {
+	switch request.Procedure {
+	case "Plan":
+		return "flow.plan", nil
+	case "Run", "Run.Verify":
+		return "flow.run", nil
+	case "Run.Fork":
+		return "branch.fork", nil
+	case "Cancel":
+		return "flow.run.stop", nil
+	case "Resume":
+		return "runs.resume", nil
+	case "Signal", "Steer":
+		return "runs.signal", nil
+	case "List":
+		return "runs.list", nil
+	case "Projection.Snapshot":
+		return "runs.steps", nil
+	case "Approval.Submit":
+		var input struct {
+			Decision string `json:"decision"`
+		}
+		if json.Unmarshal(request.Payload, &input) == nil {
+			switch input.Decision {
+			case "approve":
+				return "approval.approve", nil
+			case "deny":
+				return "approval.deny", nil
+			}
+		}
+	}
+	return "", &services.AccessError{Status: 400, Class: "user", Code: "invalid_workflow", Message: "Invalid workflow request"}
 }
