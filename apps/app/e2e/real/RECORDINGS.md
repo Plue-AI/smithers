@@ -201,3 +201,11 @@ Samples, home-delta times and operator events attach on failure too. This log
 is an observation, not a signed manual receipt. Rate-limit/budget timer recovery
 and authentication proofs remain the production integration checks; source
 collection and supplemental mounted Home tests cannot qualify C-J10-06.
+
+The owning `members.spec.ts` now shares physical-input doors for Add, roles,
+removal and confirmation. In keyboard mode it installs the native guard before
+navigation for the owner and admitted teammate; keyboard and capture inventories
+survive failed passes. Theme selection precedes per-card capture. Public origins
+accept both HTTP and HTTPS, as M-28 requires. GitHub sign-in stays the explicit
+external-origin exclusion. This source does not prove second-laptop access,
+actual reference recordings, or complete J1/C-UI-01.
