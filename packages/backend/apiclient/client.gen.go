@@ -2024,6 +2024,11 @@ type PatchAPIMembersLoginBody struct {
 	Role string `json:"role"`
 }
 
+// GetAPIModelTestReceiptParams is the query of GET /api/model/test/receipt.
+type GetAPIModelTestReceiptParams struct {
+	RequestID string
+}
+
 // GetAPINotificationsEventsParams is the query of GET /api/notifications/events.
 type GetAPINotificationsEventsParams struct {
 	After *int64
@@ -3421,6 +3426,15 @@ func (c *Client) PostAPIModelStream(ctx context.Context, body any) (AnyJSON, err
 func (c *Client) PostAPIModelTest(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/model/test", nil, body, &out)
+	return out, err
+}
+
+// GetAPIModelTestReceipt calls GET /api/model/test/receipt.
+func (c *Client) GetAPIModelTestReceipt(ctx context.Context, params GetAPIModelTestReceiptParams) (AnyJSON, error) {
+	query := url.Values{}
+	query.Set("requestId", params.RequestID)
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/model/test/receipt", query, nil, &out)
 	return out, err
 }
 
@@ -5646,8 +5660,10 @@ func (c *Client) DeleteAPIRepoConnection(ctx context.Context) error {
 }
 
 // PostAPIReviews calls POST /api/reviews.
-func (c *Client) PostAPIReviews(ctx context.Context, idempotencyKey string) error {
-	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/reviews", nil, nil, nil)
+func (c *Client) PostAPIReviews(ctx context.Context, idempotencyKey string) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/reviews", nil, nil, &out)
+	return out, err
 }
 
 // GetAPIReviewsID calls GET /api/reviews/{id}.
