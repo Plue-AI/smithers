@@ -2,9 +2,14 @@ package compose
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,13 +20,16 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -30,7 +38,7 @@ import (
 )
 
 // This child is the compiled Go host with the production setup router, job
-// worker and machine readiness persistence. The external image service is an
+// worker and readiness persistence. The external mirror/image service is an
 // independent idempotent fixture; this does not certify microVM isolation.
 func TestInstallRestartHostProcess(t *testing.T) {
 	raw := os.Getenv("SMITHERS_RESTART_CHILD_DATABASE")
@@ -45,7 +53,16 @@ func TestInstallRestartHostProcess(t *testing.T) {
 	require.NoError(t, err)
 	setup := &services.InstallSetupService{Pool: pool, Jobs: store}
 	require.NoError(t, setup.Initialize(ctx))
-	setup.BindMachineProvider(fencedSetupSource{}, restartImage{endpoint: os.Getenv("SMITHERS_RESTART_EFFECT")})
+	step := os.Getenv("SMITHERS_RESTART_STEP")
+	if step == "source" {
+		codec, err := webhook.NewSecretCodec("restart-sealing-key")
+		require.NoError(t, err)
+		app := services.NewGitHubAppCredentialStore(pool, codec)
+		connections := services.NewRepoConnectionService(pool, app)
+		setup.BindRepositoryProviders(nil, app, connections, restartImports{endpoint: os.Getenv("SMITHERS_RESTART_EFFECT"), setup: setup}, &services.Members{Pool: pool, Credentials: app, Minter: connections}, services.NewMythicalService(pool, nil))
+	} else {
+		setup.BindMachineProvider(fencedSetupSource{}, restartImage{endpoint: os.Getenv("SMITHERS_RESTART_EFFECT")})
+	}
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	origin := "http://localhost:4000"
@@ -62,7 +79,7 @@ func TestInstallRestartHostProcess(t *testing.T) {
 		<-ctx.Done()
 		return
 	}
-	require.NoError(t, store.RunWorker(ctx, jobs.WorkerConfig{WorkerID: fmt.Sprintf("restart-%d", os.Getpid()), Capacity: 1, Lease: time.Minute, PollInterval: 10 * time.Millisecond, Operations: []string{"install.setup.machine"}}, setup.Handle))
+	require.NoError(t, store.RunWorker(ctx, jobs.WorkerConfig{WorkerID: fmt.Sprintf("restart-%d", os.Getpid()), Capacity: 1, Lease: time.Minute, PollInterval: 10 * time.Millisecond, Operations: []string{"install.setup." + step}}, setup.Handle))
 }
 
 type restartImage struct {
@@ -87,152 +104,288 @@ func (image restartImage) ResolveWorkspaceLayer(ctx context.Context, spec worksp
 	return microsandbox.Layer{Key: "published-main-image"}, nil
 }
 
-func TestInstallCompiledHostMachineKillRecoveryHTTPPostgres(t *testing.T) {
-	for _, boundary := range []string{"running admission", "image published before completion"} {
-		t.Run(boundary, func(t *testing.T) {
-			pool, databaseURL := postgresfixture.NewProductDatabase(t)
-			ctx := t.Context()
-			q := db.New(pool)
-			owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "restartowner", LowerUsername: "restartowner"})
-			require.NoError(t, err)
-			_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
-			require.NoError(t, err)
-			hash := sha256.Sum256([]byte("restart-owner-session"))
-			_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(hash[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
-			require.NoError(t, err)
-			setup := &services.InstallSetupService{Pool: pool}
-			require.NoError(t, setup.Initialize(ctx))
-			for _, id := range []string{"address", "app_manifest", "sign_in", "repository", "models", "source"} {
-				_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{status}','"done"') WHERE key=$1`, "setup.step."+id)
+func TestInstallCompiledHostKillRecoveryHTTPPostgres(t *testing.T) {
+	for _, step := range []string{"machine", "source"} {
+		for _, boundary := range []string{"running admission", "external effect published before completion"} {
+			t.Run(step+"/"+boundary, func(t *testing.T) {
+				pool, databaseURL := postgresfixture.NewProductDatabase(t)
+				ctx := t.Context()
+				q := db.New(pool)
+				owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "restartowner", LowerUsername: "restartowner"})
 				require.NoError(t, err)
-			}
-			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.source.repository", Value: []byte(`"restartowner/app"`)}))
-			var mu sync.Mutex
-			artifacts := map[string]bool{}
-			calls := 0
-			published := make(chan struct{}, 1)
-			release := make(chan struct{})
-			defer close(release)
-			effect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mu.Lock()
-				calls++
-				artifacts[r.URL.Path] = true
-				first := calls == 1
-				mu.Unlock()
-				if first && boundary == "image published before completion" {
-					published <- struct{}{}
+				_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+				require.NoError(t, err)
+				hash := sha256.Sum256([]byte("restart-owner-session"))
+				_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(hash[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
+				require.NoError(t, err)
+				setup := &services.InstallSetupService{Pool: pool}
+				require.NoError(t, setup.Initialize(ctx))
+				ids := []string{"address", "app_manifest", "sign_in", "repository", "models"}
+				if step == "machine" {
+					ids = append(ids, "source")
+				}
+				for _, id := range ids {
+					_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{status}','"done"') WHERE key=$1`, "setup.step."+id)
+					require.NoError(t, err)
+				}
+				require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.source.repository", Value: []byte(`"restartowner/app"`)}))
+				mirrorRoot := t.TempDir()
+				upstream := filepath.Join(mirrorRoot, "upstream.git")
+				mirror := filepath.Join(mirrorRoot, "mirror.git")
+				if step == "source" {
+					restartGit(t, "init", "--bare", upstream)
+					tree := restartGit(t, "--git-dir="+upstream, "mktree")
+					commit := restartGit(t, "--git-dir="+upstream, "commit-tree", tree, "-m", "Main")
+					restartGit(t, "--git-dir="+upstream, "update-ref", "refs/heads/main", commit)
+					var repoID int64
+					require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name,default_bookmark) VALUES($1,'app','app','main') RETURNING id`, owner.ID).Scan(&repoID))
+					require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "repository", Value: []byte(`"restartowner/app"`)}))
+					restartGitHub(t, setup)
+				}
+				var hostLogs []string
+				var mu sync.Mutex
+				artifacts := map[string]bool{}
+				calls := 0
+				published := make(chan struct{}, 1)
+				release := make(chan struct{})
+				defer close(release)
+				effect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					calls++
+					if !artifacts[r.URL.Path] && step == "source" {
+						command := exec.CommandContext(r.Context(), "git", "clone", "--mirror", upstream, mirror)
+						output, err := command.CombinedOutput()
+						if err != nil {
+							mu.Unlock()
+							http.Error(w, string(output), 500)
+							return
+						}
+					}
+					artifacts[r.URL.Path] = true
+					first := calls == 1
+					mu.Unlock()
+					if first && boundary == "external effect published before completion" {
+						published <- struct{}{}
+						select {
+						case <-release:
+						case <-r.Context().Done():
+							return
+						}
+					}
+					w.WriteHeader(200)
+					if step == "source" {
+						_, _ = w.Write([]byte(`{"importJobId":"published-mirror","repoOwner":"restartowner","repoName":"app","status":"ready"}`))
+					}
+				}))
+				defer effect.Close()
+				executable, err := os.Executable()
+				require.NoError(t, err)
+				start := func(admissionOnly bool) (string, func()) {
+					ready := filepath.Join(t.TempDir(), "ready")
+					logPath := filepath.Join(t.TempDir(), "host.log")
+					hostLogs = append(hostLogs, logPath)
+					log, err := os.Create(logPath)
+					require.NoError(t, err)
+					command := exec.Command(executable, "-test.run=^TestInstallRestartHostProcess$", "-test.timeout=90s")
+					command.Env = append(os.Environ(), "SMITHERS_RESTART_CHILD_DATABASE="+databaseURL, "SMITHERS_RESTART_READY="+ready, "SMITHERS_RESTART_EFFECT="+effect.URL, "SMITHERS_RESTART_STEP="+step, fmt.Sprintf("SMITHERS_RESTART_ADMISSION_ONLY=%d", map[bool]int{true: 1, false: 0}[admissionOnly]))
+					command.Stdout, command.Stderr = log, log
+					require.NoError(t, command.Start())
+					var once sync.Once
+					stop := func() {
+						once.Do(func() {
+							require.NoError(t, command.Process.Kill())
+							err := command.Wait()
+							var killed *exec.ExitError
+							require.True(t, errors.As(err, &killed), "host must exit from SIGKILL")
+							status, ok := killed.Sys().(syscall.WaitStatus)
+							require.True(t, ok)
+							require.True(t, status.Signaled())
+							require.Equal(t, syscall.SIGKILL, status.Signal())
+							require.NoError(t, log.Close())
+						})
+					}
+					t.Cleanup(stop)
+					var origin string
+					require.Eventually(t, func() bool { value, err := os.ReadFile(ready); origin = string(value); return err == nil }, 15*time.Second, 20*time.Millisecond, "compiled host did not start; log: %s", logPath)
+					return origin, stop
+				}
+				request := func(origin, method, key string) []byte {
+					req, err := http.NewRequestWithContext(ctx, method, origin+"/api/install"+map[string]string{"POST": "/setup/" + step}[method], strings.NewReader(`{}`))
+					require.NoError(t, err)
+					req.Host = "localhost:4000"
+					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "restart-owner-session"})
+					req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+					req.Header.Set("Origin", "http://localhost:4000")
+					req.Header.Set("Content-Type", "application/json")
+					req.Header.Set("X-CSRF-Token", "csrf")
+					req.Header.Set("Idempotency-Key", key)
+					response, err := http.DefaultClient.Do(req)
+					require.NoError(t, err)
+					defer response.Body.Close()
+					body, err := io.ReadAll(response.Body)
+					require.NoError(t, err)
+					expected := 200
+					if method == "POST" {
+						expected = 202
+					}
+					require.Equal(t, expected, response.StatusCode, string(body))
+					return body
+				}
+				origin, stop := start(boundary == "running admission")
+				var admitted jobs.RequestReceipt
+				require.NoError(t, json.Unmarshal(request(origin, "POST", "first-image"), &admitted))
+				require.NotEmpty(t, admitted.OperationID)
+				var old jobs.Claim
+				store, err := jobs.NewStore(pool)
+				require.NoError(t, err)
+				if boundary == "running admission" {
+					old, err = store.ClaimForOperations(ctx, "dead-admission-worker", time.Minute, []string{"install.setup." + step})
+					require.NoError(t, err)
+				} else {
 					select {
-					case <-release:
-					case <-r.Context().Done():
-						return
+					case <-published:
+						old.OperationID = admitted.OperationID
+						require.NoError(t, pool.QueryRow(ctx, `SELECT generation,claim_token,worker_id,attempt FROM product_job_dispatches WHERE operation_id=$1`, admitted.OperationID).Scan(&old.Generation, &old.Token, &old.WorkerID, &old.Attempt))
+					case <-time.After(15 * time.Second):
+						t.Fatal("external effect did not publish")
 					}
 				}
-				w.WriteHeader(200)
-			}))
-			defer effect.Close()
-			executable, err := os.Executable()
-			require.NoError(t, err)
-			start := func(admissionOnly bool) (string, func()) {
-				ready := filepath.Join(t.TempDir(), "ready")
-				logPath := filepath.Join(t.TempDir(), "host.log")
-				log, err := os.Create(logPath)
+				// No graceful cancellation or synthetic restoration of a completed row.
+				stop()
+				var status, operation string
+				require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'status',value->>'operation_id' FROM install_settings WHERE key=$1`, "setup.step."+step).Scan(&status, &operation))
+				require.Equal(t, "running", status)
+				require.Equal(t, admitted.OperationID, operation)
+				_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE operation_id=$1`, operation)
 				require.NoError(t, err)
-				command := exec.Command(executable, "-test.run=^TestInstallRestartHostProcess$", "-test.timeout=90s")
-				command.Env = append(os.Environ(), "SMITHERS_RESTART_CHILD_DATABASE="+databaseURL, "SMITHERS_RESTART_READY="+ready, "SMITHERS_RESTART_EFFECT="+effect.URL, fmt.Sprintf("SMITHERS_RESTART_ADMISSION_ONLY=%d", map[bool]int{true: 1, false: 0}[admissionOnly]))
-				command.Stdout, command.Stderr = log, log
-				require.NoError(t, command.Start())
-				var once sync.Once
-				stop := func() {
-					once.Do(func() {
-						require.NoError(t, command.Process.Kill())
-						require.Error(t, command.Wait())
-						require.NoError(t, log.Close())
-					})
+				_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb(clock_timestamp()-interval '1 second')) WHERE key=$1`, "setup.step."+step)
+				require.NoError(t, err)
+				// Restart without a worker so the owner's Retry demonstrably readmits
+				// the same operation before redelivery begins.
+				origin, stopRetry := start(true)
+				var retry jobs.RequestReceipt
+				require.NoError(t, json.Unmarshal(request(origin, "POST", "retry-image"), &retry))
+				require.Equal(t, admitted.OperationID, retry.OperationID)
+				stopRetry()
+				origin, stopRecovered := start(false)
+				require.Eventually(t, func() bool {
+					var view struct{ Steps []struct{ ID, State string } }
+					if json.Unmarshal(request(origin, "GET", ""), &view) != nil || len(view.Steps) != 7 {
+						return false
+					}
+					if step == "source" {
+						return view.Steps[5].ID == "source" && view.Steps[5].State == "done" && view.Steps[6].State == "pending"
+					}
+					return view.Steps[5].ID == "source" && view.Steps[5].State == "done" && view.Steps[6].ID == "machine" && view.Steps[6].State == "done"
+				}, 15*time.Second, 30*time.Millisecond)
+				var completions, attempt int
+				var layer string
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, operation).Scan(&completions))
+				require.Equal(t, 1, completions)
+				require.NoError(t, pool.QueryRow(ctx, `SELECT (value->>'attempt')::int,coalesce(value->>'layer_key','') FROM install_settings WHERE key=$1`, "setup.step."+step).Scan(&attempt, &layer))
+				require.GreaterOrEqual(t, attempt, 2)
+				if step == "machine" {
+					require.Equal(t, "published-main-image", layer)
+				} else {
+					require.Equal(t, restartGit(t, "--git-dir="+upstream, "rev-parse", "refs/heads/main"), restartGit(t, "--git-dir="+mirror, "rev-parse", "refs/heads/main"))
+					var receipt string
+					require.NoError(t, pool.QueryRow(ctx, `SELECT external_receipt->>'import_id' FROM product_job_dispatches WHERE operation_id=$1`, operation).Scan(&receipt))
+					require.Equal(t, "published-mirror", receipt)
 				}
-				t.Cleanup(stop)
-				var origin string
-				require.Eventually(t, func() bool { value, err := os.ReadFile(ready); origin = string(value); return err == nil }, 15*time.Second, 20*time.Millisecond, "compiled host did not start; log: %s", logPath)
-				return origin, stop
-			}
-			request := func(origin, method, key string) []byte {
-				req, err := http.NewRequestWithContext(ctx, method, origin+"/api/install"+map[string]string{"POST": "/setup/machine"}[method], strings.NewReader(`{}`))
+				mu.Lock()
+				require.Equal(t, 1, len(artifacts), "one effective publication, even when redelivery requests it again")
+				require.Equal(t, map[bool]int{true: 1, false: 2}[boundary == "running admission"], calls)
+				mu.Unlock()
+				before, err := q.GetInstallSetting(ctx, "setup.step."+step)
 				require.NoError(t, err)
-				req.Host = "localhost:4000"
-				req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "restart-owner-session"})
-				req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
-				req.Header.Set("Origin", "http://localhost:4000")
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("X-CSRF-Token", "csrf")
-				req.Header.Set("Idempotency-Key", key)
-				response, err := http.DefaultClient.Do(req)
-				require.NoError(t, err)
-				defer response.Body.Close()
-				body, err := io.ReadAll(response.Body)
-				require.NoError(t, err)
-				expected := 200
-				if method == "POST" {
-					expected = 202
-				}
-				require.Equal(t, expected, response.StatusCode, string(body))
-				return body
-			}
-			origin, stop := start(boundary == "running admission")
-			var admitted jobs.RequestReceipt
-			require.NoError(t, json.Unmarshal(request(origin, "POST", "first-image"), &admitted))
-			require.NotEmpty(t, admitted.OperationID)
-			var old jobs.Claim
-			store, err := jobs.NewStore(pool)
-			require.NoError(t, err)
-			if boundary == "running admission" {
-				old, err = store.ClaimForOperations(ctx, "dead-admission-worker", time.Minute, []string{"install.setup.machine"})
-				require.NoError(t, err)
-			} else {
-				select {
-				case <-published:
-				case <-time.After(15 * time.Second):
-					t.Fatal("image did not publish")
-				}
-			}
-			// No graceful cancellation or synthetic restoration of a completed row.
-			stop()
-			var status, operation string
-			require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'status',value->>'operation_id' FROM install_settings WHERE key='setup.step.machine'`).Scan(&status, &operation))
-			require.Equal(t, "running", status)
-			require.Equal(t, admitted.OperationID, operation)
-			_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE operation_id=$1`, operation)
-			require.NoError(t, err)
-			_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb(clock_timestamp()-interval '1 second')) WHERE key='setup.step.machine'`)
-			require.NoError(t, err)
-			// Restart without a worker so the owner's Retry demonstrably readmits
-			// the same operation before redelivery begins.
-			origin, stopRetry := start(true)
-			var retry jobs.RequestReceipt
-			require.NoError(t, json.Unmarshal(request(origin, "POST", "retry-image"), &retry))
-			require.Equal(t, admitted.OperationID, retry.OperationID)
-			stopRetry()
-			origin, _ = start(false)
-			require.Eventually(t, func() bool {
-				var view struct{ Steps []struct{ ID, State string } }
-				if json.Unmarshal(request(origin, "GET", ""), &view) != nil || len(view.Steps) != 7 {
-					return false
-				}
-				return view.Steps[5].ID == "source" && view.Steps[5].State == "done" && view.Steps[6].ID == "machine" && view.Steps[6].State == "done"
-			}, 15*time.Second, 30*time.Millisecond)
-			var completions, attempt int
-			var layer string
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, operation).Scan(&completions))
-			require.Equal(t, 1, completions)
-			require.NoError(t, pool.QueryRow(ctx, `SELECT (value->>'attempt')::int,value->>'layer_key' FROM install_settings WHERE key='setup.step.machine'`).Scan(&attempt, &layer))
-			require.GreaterOrEqual(t, attempt, 2)
-			require.Equal(t, "published-main-image", layer)
-			mu.Lock()
-			require.Equal(t, 1, len(artifacts), "one effective image, even when the published image is requested again")
-			require.Equal(t, map[bool]int{true: 1, false: 2}[boundary == "running admission"], calls)
-			mu.Unlock()
-			if boundary == "running admission" {
 				_, err = store.Checkpoint(ctx, old, json.RawMessage(`{"stale":true}`))
 				require.ErrorIs(t, err, jobs.ErrClaimLost)
-			}
-		})
+				tx, err := pool.Begin(ctx)
+				require.NoError(t, err)
+				require.ErrorIs(t, store.SettleInTx(ctx, tx, old, json.RawMessage(`{"stale":true}`), false), jobs.ErrClaimLost)
+				require.NoError(t, tx.Rollback(ctx))
+				after, err := q.GetInstallSetting(ctx, "setup.step."+step)
+				require.NoError(t, err)
+				require.JSONEq(t, string(before.Value), string(after.Value))
+				stopRecovered()
+				// Host API, durable job projections and captured process output must never
+				// reveal the sealed App credential used by the real owner verifier.
+				if step == "source" {
+					codec, err := webhook.NewSecretCodec("restart-sealing-key")
+					require.NoError(t, err)
+					credential, err := services.NewGitHubAppCredentialStore(pool, codec).Load(ctx)
+					require.NoError(t, err)
+					var projection string
+					require.NoError(t, pool.QueryRow(ctx, `SELECT coalesce(string_agg(data::text,E'\n'),'') FROM product_job_events WHERE operation_id=$1`, operation).Scan(&projection))
+					surfaces := []string{string(before.Value), projection}
+					for _, path := range hostLogs {
+						bytes, err := os.ReadFile(path)
+						require.NoError(t, err)
+						surfaces = append(surfaces, string(bytes))
+					}
+					for _, surface := range surfaces {
+						for _, secret := range []string{credential.ClientSecret, credential.WebhookSecret, credential.PEM} {
+							require.NotEmpty(t, secret)
+							require.NotContains(t, surface, secret)
+						}
+					}
+				}
+			})
+		}
 	}
+}
+
+// The external importer publishes a real Git mirror independently of the host.
+// Its stable operation key models the durable importer contract; production
+// importer reconciliation is additionally exercised by install_source_recovery.
+type restartImports struct {
+	endpoint string
+	setup    *services.InstallSetupService
+}
+
+func (imports restartImports) StartImport(ctx context.Context, input services.ImportGitHubRepoInput) (services.ImportJob, error) {
+	var operation string
+	if err := imports.setup.Pool.QueryRow(ctx, `SELECT value->>'operation_id' FROM install_settings WHERE key='setup.step.source'`).Scan(&operation); err != nil {
+		return services.ImportJob{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", imports.endpoint+"/"+operation, nil)
+	if err != nil {
+		return services.ImportJob{}, err
+	}
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return services.ImportJob{}, err
+	}
+	defer response.Body.Close()
+	var job services.ImportJob
+	err = json.NewDecoder(response.Body).Decode(&job)
+	return job, err
+}
+func (imports restartImports) GetImportJob(context.Context, int64, string) (services.ImportJob, error) {
+	return services.ImportJob{ImportJobID: "published-mirror", RepoOwner: "restartowner", RepoName: "app", Status: "ready"}, nil
+}
+func restartGit(t *testing.T, args ...string) string {
+	t.Helper()
+	command := exec.CommandContext(t.Context(), "git", args...)
+	command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Restart", "GIT_AUTHOR_EMAIL=restart@example.test", "GIT_COMMITTER_NAME=Restart", "GIT_COMMITTER_EMAIL=restart@example.test")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	return strings.TrimSpace(string(output))
+}
+func restartGitHub(t *testing.T, setup *services.InstallSetupService) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	credentials := services.GitHubAppCredentials{ID: 42, Slug: "restart-app", OwnerLogin: "restartowner", OwnerKind: "user", ClientID: "client", ClientSecret: "restart-app-client-secret-never-emit", WebhookSecret: "restart-app-webhook-secret-never-emit", PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
+	fake, err := githubfake.New(githubfake.Config{AppID: credentials.ID, Slug: credentials.Slug, OwnerLogin: credentials.OwnerLogin, OwnerKind: credentials.OwnerKind, ClientID: credentials.ClientID, ClientSecret: credentials.ClientSecret, PrivateKeyPEM: credentials.PEM, ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: 98306, Repositories: []githubfake.Repository{{ID: 100, FullName: "restartowner/app"}}}}})
+	require.NoError(t, err)
+	t.Cleanup(fake.Close)
+	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", fake.URL)
+	response, err := http.Post(fake.URL+"/app-manifests/manifest-code/conversions", "application/x-www-form-urlencoded", nil)
+	require.NoError(t, err)
+	require.Equal(t, 201, response.StatusCode)
+	require.NoError(t, response.Body.Close())
+	codec, err := webhook.NewSecretCodec("restart-sealing-key")
+	require.NoError(t, err)
+	require.NoError(t, services.NewGitHubAppCredentialStore(setup.Pool, codec).Save(t.Context(), credentials))
 }
