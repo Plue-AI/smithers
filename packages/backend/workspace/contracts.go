@@ -521,6 +521,9 @@ type WorkspaceCompareWriter interface {
 	CompareWriteFiles(ctx context.Context, workspaceID string, changes []FileMutation) (*FileWriteResult, error)
 }
 
+// ErrCompareWriteUnavailable refuses unsupported mutations before dispatch.
+var ErrCompareWriteUnavailable = errors.New("workspace compare-and-write unavailable")
+
 // StaleFileError reports the version that refused a compare-and-write.
 type StaleFileError struct {
 	Path          string
