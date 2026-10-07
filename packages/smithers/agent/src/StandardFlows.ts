@@ -1,4 +1,3 @@
-import * as AgentTerminal from "./internal/AgentTerminal.ts"
 /**
  * The built-in host capabilities, expressed as ordinary executable flows.
  *
@@ -67,7 +66,7 @@ import * as PortableSearch from "@smthrs/std/PortableSearch"
 import * as Read from "@smthrs/std/Read"
 import * as Search from "@smthrs/std/Search"
 import * as SearchContract from "@smthrs/std/SearchContract"
-import { StdError } from "@smthrs/std/StdError"
+import type { StdError } from "@smthrs/std/StdError"
 import * as TestRun from "@smthrs/std/TestRun"
 import type * as TestRunner from "@smthrs/std/TestRunner"
 import * as Write from "@smthrs/std/Write"
@@ -80,6 +79,7 @@ import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as ChildFlows from "./ChildFlows.ts"
 import * as FlowEngineLike from "./FlowEngineLike.ts"
+import * as AgentTerminal from "./internal/AgentTerminal.ts"
 
 /** These refusal classes carry host-authored text separately from diagnostic causes. */
 const publicRefusal = (error: { readonly message: string }): string => error.message
@@ -184,7 +184,8 @@ export const filesystem = (
     FlowBinding.provide(
       FlowBinding.make({
         flow: ApplyPatch.flow,
-        handler: (input, call) => ApplyPatch.run(input).pipe(Effect.provideService(Read.ReadSession, call.identity.session)),
+        handler: (input, call) =>
+          ApplyPatch.run(input).pipe(Effect.provideService(Read.ReadSession, call.identity.session)),
         publicError: publicRefusal,
         activity: ApplyPatch.activity,
         presentation: ApplyPatch.presentation
