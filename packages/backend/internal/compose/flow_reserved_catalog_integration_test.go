@@ -61,7 +61,9 @@ func TestInstallFlowCatalogShowsReservedDeclarationRefusal(t *testing.T) {
 	revocationEntered, revocationRelease := make(chan struct{}, 1), make(chan struct{})
 	const revokedMachine = "22222222-2222-4222-8222-222222222222"
 	targetResolver := browserFlowTarget{queries: q, install: q}
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+	// Keep the real worker's idle backoff within the fixture's completion window.
+	// Production polling may back off to 30 seconds; this test waits five.
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, ObservationDelay: 10 * time.Millisecond, MaxObservationDelay: 20 * time.Millisecond, Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
 		resolutions.Add(1)
 		select {
 		case entered <- struct{}{}:
